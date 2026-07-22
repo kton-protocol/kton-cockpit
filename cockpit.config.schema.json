@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/deathbychoco/claude-science-cockpit/cockpit.config.schema.json",
+  "title": "cockpit.config.json",
+  "description": "Static, per-repo configuration for the Claude-Science-Cockpit. Never written by the cockpit itself; Claude never sees or edits it through any MCP tool. See projectdocs/claude-science-cockpit/phases/design/cockpit-config-schema.md for the full design rationale.",
+  "type": "object",
+  "required": ["repo", "paths", "identity", "verbs", "claims", "trust", "reproduction"],
+  "additionalProperties": false,
+  "properties": {
+    "repo": {
+      "type": "object",
+      "description": "The exact GitHub owner/repo this config is bound to. Every cockpit call verifies this against the repo's actual `git remote get-url origin` and refuses on any mismatch (the anti-wrong-folder guard).",
+      "required": ["owner", "name"],
+      "additionalProperties": false,
+      "properties": {
+        "owner": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1 }
+      }
+    },
+    "paths": {
+      "type": "object",
+      "description": "Repo-relative paths. Resolved to absolute paths from the verified repo root at load time — never inherited from PLANKTON_DIR/NEKTON_DIR/etc. environment variables.",
+      "required": ["plankton_dir", "nekton_dir", "templates_dir", "keys_dir", "bin_dir"],
+      "additionalProperties": false,
+      "properties": {
+        "plankton_dir": { "type": "string", "minLength": 1 },
+        "nekton_dir": { "type": "string", "minLength": 1 },
+        "templates_dir": { "type": "string", "minLength": 1 },
+        "keys_dir": { "type": "string", "minLength": 1 },
+        "bin_dir": { "type": "string", "minLength": 1 }
+      }
+    },
+    "identity": {
+      "type": "object",
+      "description": "This cockpit instance's own signing identity. Reused across sessions — never regenerated automatically (regenerating orphans any claims already signed under the old key).",
+      "required": ["session_id", "plankton_key", "nekton_key"],
+      "additionalProperties": false,
+      "properties": {
+        "session_id": { "type": "string", "minLength": 1 },
+        "plankton_key": { "type": "string", "minLength": 1 },
+        "nekton_key": { "type": "string", "minLength": 1 }
+      }
+    },
+    "verbs": {
+      "type": "object",
+      "description": "Which of the three verbs are active. Claude has no way to enable a disabled verb.",
+      "required": ["publish", "say", "ask"],
+      "additionalProperties": false,
+      "properties": {
+        "publish": { "type": "boolean" },
+        "say": { "type": "boolean" },
+        "ask": { "type": "boolean" }
+      }
+    },
+    "claims": {
+      "type": "object",
+      "description": "The claim-template ceiling for cockpit_say. Claude can request one of these; it can never invent a new claim shape.",
+      "required": ["allowedTemplates"],
+      "additionalProperties": false,
+      "properties": {
+        "allowedTemplates": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 0
+        }
+      }
+    },
+    "trust": {
+      "type": "object",
+      "description": "Named trust tiers, each a list of pubkey paths (repo-relative or absolute). The ceiling for cockpit_ask's filter — a query can narrow within these tiers, never surface a tier/signer outside them.",
+      "required": ["tiers"],
+      "additionalProperties": false,
+      "properties": {
+        "tiers": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      }
+    },
+    "reproduction": {
+      "type": "object",
+      "description": "The reproduction precondition policy cockpit_say runs itself before writing a reproduces claim's level field — never self-declared by Claude.",
+      "required": ["requiredLevel"],
+      "additionalProperties": false,
+      "properties": {
+        "requiredLevel": { "type": "string", "enum": ["L0", "L1"] },
+        "normalizer": { "type": ["string", "null"] }
+      }
+    }
+  }
+}
