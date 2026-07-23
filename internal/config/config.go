@@ -81,11 +81,23 @@ type Config struct {
 }
 
 // Load resolves the git repository root containing startDir, loads cockpit.config.json from that
-// root only (never an ancestor, never an env var override), validates it, and hard-fails if the
-// repo's own git remote does not match the configured owner/name. This is the anti-wrong-folder
-// guard: every MCP tool call goes through Load again, so the cockpit cannot silently keep acting
-// against a stale or mistaken working directory.
+// root only (never an ancestor), validates it, and hard-fails if the repo's own git remote does
+// not match the configured owner/name. This is the anti-wrong-folder guard: every MCP tool call
+// goes through Load again, so the cockpit cannot silently keep acting against a stale or mistaken
+// working directory.
+//
+// If the COCKPIT_REPO_DIR environment variable is set, it replaces startDir. This exists for MCP
+// client runtimes that give no way to pin a spawned local command's working directory (e.g. a
+// managed sandbox with no shell available to `cd` first) — the human operator sets it once, in
+// the same place they'd configure the command itself, so it is not something Claude can reach or
+// change at runtime. This is not the kind of ambient env var this guard exists to distrust
+// (PLANKTON_DIR/NEKTON_DIR/etc. are still always derived from the resolved repo root, never from
+// the environment) — it only answers "which repo," never "which registry paths within it."
 func Load(ctx context.Context, startDir string) (*Config, error) {
+	if envDir := os.Getenv("COCKPIT_REPO_DIR"); envDir != "" {
+		startDir = envDir
+	}
+
 	repoRoot, err := repoRootOf(ctx, startDir)
 	if err != nil {
 		return nil, fmt.Errorf("cockpit: not inside a git repository (cwd=%s): %w", startDir, err)

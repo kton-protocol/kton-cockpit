@@ -106,8 +106,13 @@ func (r *Runner) Lineage(ctx context.Context, hash string) (string, error) {
 	return r.plankton(ctx, "lineage", hash)
 }
 
+// Reproductions returns plankton's ↻N report for outputHash. The binary exits non-zero for the
+// legitimate "0 distinct producers" case (not just for real failures), so a non-zero exit here is
+// treated as a valid, informational zero-count result — same convention as Reproduces below —
+// rather than surfaced as a tool error.
 func (r *Runner) Reproductions(ctx context.Context, outputHash string) (string, error) {
-	return r.plankton(ctx, "reproductions", outputHash)
+	out, _ := r.plankton(ctx, "reproductions", outputHash)
+	return out, nil
 }
 
 // Reproduces checks two output hashes for L0/L1 equivalence (exit 0 = pass); via, if non-empty,

@@ -51,17 +51,94 @@ bin/cockpit doctor                     # should show [ok] on every line
 ```
 
 ### 3. Register the cockpit as an MCP server (one-time)
+
+**If using `claude-science`** (the sandboxed, browser-UI app — the actual "Claude Science" this
+project is named for): open its UI → **Connectors** → **Add connector** → **Local command**. That
+dialog only has Name / Command / env vars / Description — **no separate working-directory
+field** — and its managed runtime has **no `bash`** either (only node/npx/python3, or an absolute
+path to an installed binary), so a shell `cd` wrapper doesn't work here. Instead, tell the cockpit
+which repo to bind to via an environment variable it reads for exactly this case
+(`COCKPIT_REPO_DIR` — set once by you, at config time, never reachable by Claude at runtime):
+
+| Field | Value |
+|---|---|
+| Name | `cockpit` |
+| Command | `/ABSOLUTE/PATH/TO/participant-x/bin/cockpit mcp` |
+| Environment variables | `COCKPIT_REPO_DIR=/ABSOLUTE/PATH/TO/participant-x` |
+| Description | optional, e.g. "publish/say/ask for this kton participant repo" |
+
+Both the absolute binary path *and* the env var matter, and they answer different questions: the
+path is only "which program to run" (required since the runtime does no shell/PATH resolution);
+it does **not** make the process's working directory match where the binary lives. The
+anti-wrong-folder guard checks the actual working directory (`git remote get-url origin` from its
+own process cwd) — which is what `COCKPIT_REPO_DIR` pins, independent of whatever cwd the runtime
+actually launches it from.
+
+**If instead using the Claude Code CLI** (`claude` in a terminal — not claude-science):
 ```jsonc
 // .mcp.json (repo root)
 { "mcpServers": { "cockpit": { "command": "bin/cockpit", "args": ["mcp"] } } }
 ```
-Optional but recommended (defense-in-depth): in `.claude/settings.json`, deny `Bash(git push:*)`,
-`Bash(bin/plankton *)`, `Bash(bin/nekton *)` so those are only reachable through the cockpit tools.
+
+> ✅ Confirmed working (2026-07-22, `participant-christian`): adding the connector with the values
+> above made claude-science's Connectors page list all three tools —
+> `cockpit_ask`/`cockpit_publish`/`cockpit_say` — with exactly the descriptions from the code.
+> "Skip approvals" was left off, so each tool call shows an approval card the first time; that's
+> expected, not a problem.
+
+#### Optional: how this is actually wired together, and why
+
+Skip this if step 3 already worked for you. It's here for whoever wants the mechanics, not just
+the recipe.
+
+- **`cockpit` is one binary, not a CLI plus a separate server.** It has three subcommands:
+  `init`/`doctor` (plain CLI, for a human, print text and exit) and `mcp` (doesn't print text and
+  exit — it sits there reading/writing JSON-RPC on stdin/stdout forever). Running `cockpit mcp`
+  *is* starting the MCP server; there's no second program in between.
+- **The three verbs live one level inside `mcp` mode, not next to it.** There is no `cockpit
+  publish` you can type in a terminal — `cockpit_publish`/`cockpit_say`/`cockpit_ask` are MCP
+  "tools" that only exist once `cockpit mcp` is running, and only an MCP client (claude-science or
+  Claude Code) can call them, by sending a `tools/call` JSON-RPC message. MCP itself is just
+  JSON-RPC 2.0, one message per line, over stdin/stdout — no HTTP, no socket.
+- **claude-science's Local command connector *is* the MCP client.** When you chat with Claude in
+  claude-science, it — not you — launches `bin/cockpit mcp` as a child process and does all the
+  JSON-RPC talking to it. You never see or type any JSON; you just say "publish this."
+- **Why both the absolute path *and* `COCKPIT_REPO_DIR` are needed, and why they're not
+  redundant:** the Command field only answers "which program to run" — claude-science's managed
+  runtime has no shell and no PATH lookup, so it needs the exact binary location. That is a
+  completely different question from "what directory does the running process consider its
+  home" (its working directory). Launching a binary by absolute path does **not** change a
+  process's working directory to match — the child inherits whatever cwd its parent happens to be
+  in. And the cockpit's anti-wrong-folder guard cares specifically about the working directory: on
+  every single tool call it re-runs `git rev-parse --show-toplevel` and `git remote get-url
+  origin` from wherever the process actually is, and hard-refuses if that repo's remote doesn't
+  match `cockpit.config.json`. `COCKPIT_REPO_DIR` is what pins that, since there's no dialog field
+  for it and no shell available to `cd` first.
+- **Why this matters at all:** this whole project exists because a Claude session with an
+  ambiguous working directory once kept "cooperating" against the wrong local demo folder. The
+  guard — and, by extension, getting the connector's directory binding right — is the entire fix
+  for that failure mode, not an incidental detail.
+
+Either way, optional but recommended (defense-in-depth): restrict this repo's permissions so
+`git push`/`bin/plankton`/`bin/nekton` aren't reachable directly, only through the cockpit tools
+— in Claude Code CLI that's `.claude/settings.json`; in claude-science it's the **Permissions**
+page under Workspace.
 
 ### 4. Start Claude Science
 ```bash
-claude
+claude-science serve --data-dir ~/.claude-science-x     # replace x with this participant's name
 ```
+Give each participant identity (christian, wolfi, ...) its own `--data-dir`, both so their
+connector lists (and cockpit bindings) don't get shared/confused across identities, and to avoid
+a real OS limit: `--here` derives its socket path from the current directory, and Unix domain
+sockets have a hard 108-byte path cap (`AF_UNIX sun_path`) — under a long path like
+`/mnt/c/dev/planktonReproduce/participant-x/...` this reliably overflows it
+(`data_dir path too long for AF_UNIX`). A short path under your home directory avoids this
+entirely, and (since `COCKPIT_REPO_DIR` from step 3 already makes the connector's repo binding
+independent of claude-science's own cwd) costs nothing.
+
+(Or, on the Claude Code CLI path: just `claude`, run from inside `participant-x`.)
+
 Claude now sees exactly three tools: `cockpit_publish`, `cockpit_say`, `cockpit_ask` — nothing
 else touches git/plankton/nekton directly.
 
