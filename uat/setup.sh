@@ -4,14 +4,24 @@
 # Automates everything that is genuinely scriptable: creating a federation repo and two
 # participant repos from the official templates, cloning them, building the cockpit binary into
 # each participant, generating signing identities, configuring cockpit.config.json, registering
-# both participants with the federation, triggering a mirror, and printing the resulting graph.
+# each participant with the federation as it publishes, triggering mirrors, and printing the
+# resulting graph. See uat/README.md for prerequisites before running this.
 #
-# Two things are NOT automated, by design (see projectdocs/claude-science-cockpit/progress.md,
-# 2026-07-23): starting claude-science / creating a project / adding the MCP connector, and
-# actually performing the tutorial's step 5 pipeline. Both are driven through claude-science's own
-# UI and a live Claude conversation — there is no documented CLI/API for either, and a script
-# cannot stand in for Claude's own reasoning. The script pauses at both points with exact,
-# copy-pasteable instructions and waits for you to confirm before continuing.
+# Three things are NOT automated, by design (see projectdocs/claude-science-cockpit/progress.md):
+# starting claude-science / creating a project / adding the MCP connector; actually performing the
+# publish/correct/say steps in a live Claude conversation; and the local-mirror + trust-tier setup
+# that happens inside that same conversation. All three are driven through claude-science's own UI
+# and Claude's own reasoning — there is no documented CLI/API for connector registration, and a
+# script cannot stand in for Claude deciding what to do. The script pauses at each such point with
+# exact, copy-pasteable instructions and waits for you to confirm before continuing.
+#
+# This follows the tutorial's federation-first sequence (see
+# projectdocs/claude-science-cockpit/phases/end-to-end-tutorial/tutorial.md): participant 1
+# publishes and federates BEFORE participant 2 does anything, so participant 2 can actually mirror
+# participant 1's real, aggregated foton back down and attempt a genuine reproduction — including
+# the realistic correction step (participant 2 first tries independently, discovers a byte
+# mismatch, then reuses participant 1's exact script) rather than assuming reproduction "just
+# works" on the first try.
 #
 # Usage:
 #   uat/setup.sh                       # uses a fresh, timestamped prefix
@@ -61,7 +71,7 @@ clone_if_missing() {
   fi
 }
 
-banner "1/7 Creating repos: $GH_OWNER/$FED_REPO, $GH_OWNER/$P1_REPO, $GH_OWNER/$P2_REPO"
+banner "1/10 Creating repos: $GH_OWNER/$FED_REPO, $GH_OWNER/$P1_REPO, $GH_OWNER/$P2_REPO"
 create_repo_if_missing "$FED_REPO" "$TEMPLATE_FED"
 create_repo_if_missing "$P1_REPO" "$TEMPLATE_PARTICIPANT"
 create_repo_if_missing "$P2_REPO" "$TEMPLATE_PARTICIPANT"
@@ -72,9 +82,9 @@ gh api --method PUT "repos/$GH_OWNER/$FED_REPO/actions/permissions/workflow" \
   >/dev/null 2>&1 || echo "  warning: could not set workflow permissions via API — enable 'Read and write permissions' under Settings > Actions > General manually."
 gh api --method POST "repos/$GH_OWNER/$FED_REPO/pages" \
   -f "build_type=legacy" -f "source[branch]=main" -f "source[path]=/" \
-  >/dev/null 2>&1 || echo "  note: Pages API returned non-zero — this is also what happens if Pages is already enabled from a previous run of this script; verify under Settings > Pages (source: main branch, /) if the viewer doesn't load in step 7."
+  >/dev/null 2>&1 || echo "  note: Pages API returned non-zero — this is also what happens if Pages is already enabled from a previous run of this script; verify under Settings > Pages (source: main branch, /) if the viewer doesn't load at the end."
 
-banner "2/7 Cloning repos into $WORKDIR"
+banner "2/10 Cloning repos into $WORKDIR"
 clone_if_missing "$FED_REPO"
 clone_if_missing "$P1_REPO"
 clone_if_missing "$P2_REPO"
@@ -92,7 +102,7 @@ echo "state written to $WORKDIR/.uat-state.json"
 
 configure_participant() {
   local repo="$1" session="$2"
-  banner "3/7 Configuring cockpit in $repo (identity: $session)"
+  banner "3/10 Configuring cockpit in $repo (identity: $session)"
   local dir="$WORKDIR/$repo"
   cd "$dir"
 
@@ -134,51 +144,39 @@ PY
 configure_participant "$P1_REPO" "session-1"
 configure_participant "$P2_REPO" "session-1"
 
-banner "4/7 Manual step: start claude-science and register the MCP connector for BOTH participants"
+banner "4/10 Manual step: start claude-science and register the MCP connector for BOTH participants"
+GH_TOKEN_FOR_CONNECTOR="$(gh auth token 2>/dev/null || true)"
 cat <<EOF
 For EACH participant repo below, open claude-science's UI (default instance — no --data-dir/--here;
 see the tutorial's step 4) → Connectors → Add connector → Local command, and use:
 
+Environment variables field: enter each line separately (it is one KEY=value PER LINE — pasting
+both onto a single line concatenates them into one broken value, a real failure mode hit before).
+
   --- $P1_REPO ---
   Name:      cockpit-${P1_REPO}
   Command:   $WORKDIR/$P1_REPO/bin/cockpit mcp
-  Env var:   COCKPIT_REPO_DIR=$WORKDIR/$P1_REPO
+  Env vars:  COCKPIT_REPO_DIR=$WORKDIR/$P1_REPO
+             GITHUB_TOKEN=${GH_TOKEN_FOR_CONNECTOR:-<run: gh auth token>}
 
   --- $P2_REPO ---
   Name:      cockpit-${P2_REPO}
   Command:   $WORKDIR/$P2_REPO/bin/cockpit mcp
-  Env var:   COCKPIT_REPO_DIR=$WORKDIR/$P2_REPO
+  Env vars:  COCKPIT_REPO_DIR=$WORKDIR/$P2_REPO
+             GITHUB_TOKEN=${GH_TOKEN_FOR_CONNECTOR:-<run: gh auth token>}
+
+GITHUB_TOKEN is required for cockpit_publish's git push to authenticate — claude-science's sandbox
+does not inherit the ambient gh/git credential setup a normal terminal has. Same token for both.
 
 Create a claude-science project/session for each participant (or reuse one), and confirm each
 connector's Tools list shows cockpit_ask/cockpit_publish/cockpit_say before continuing.
 EOF
 pause "Both connectors registered and showing their tools"
 
-banner "5/7 Manual step: perform the minimal example in BOTH participants"
-cat <<EOF
-In the $P1_REPO session, tell Claude exactly:
+# --- register_participant / trigger_mirror_and_wait are used twice each below: once for
+# participant 1 alone (so its foton is aggregated before participant 2 needs to see it), and once
+# more for participant 2 (plus a final call after the reproduces claim is recorded). ---
 
-  "Work only in $WORKDIR/$P1_REPO — do not use any other directory. Write session-1/clean.py
-  that drops rows with any missing value from data/penguins.csv and writes session-1/clean.csv
-  (LF line endings, fixed float format). Run it, then call cockpit_publish."
-
-Note the fotonId and output hash it returns.
-
-In the $P2_REPO session — NOTE THE DIRECTORY IS DIFFERENT, this is not copy-paste of the above —
-tell Claude exactly:
-
-  "Work only in $WORKDIR/$P2_REPO — do not use any other directory. Write session-1/clean.py
-  that drops rows with any missing value from data/penguins.csv and writes session-1/clean.csv
-  (LF line endings, fixed float format). Run it, then call cockpit_publish."
-
-Then, still in the $P2_REPO session, ask Claude to call cockpit_ask (query=reproductions) against
-$P1_REPO's output hash (from above), and — if the bytes match — call cockpit_say with
-template=reproduces to register a real cross-participant reproduction (↻2).
-This step performs the actual git pushes to both repos; nothing further to push manually.
-EOF
-pause "Both participants have published, and p2 has reproduced p1 (or you're OK proceeding with ↻1 only)"
-
-banner "6/7 Registering both participants with the federation"
 register_participant() {
   local repo="$1"
   local body
@@ -196,35 +194,108 @@ $GH_OWNER/$repo
 Every 15 minutes
 EOF
 )
+  # gh issue create --label requires the label to already exist (unlike GitHub's own issue-form
+  # UI, which auto-creates a template's declared labels) — create both labels first if missing.
+  gh label create registration --repo "$GH_OWNER/$FED_REPO" --color fbca04 \
+    --description "a participant registration request" >/dev/null 2>&1 || true
+  gh label create approved --repo "$GH_OWNER/$FED_REPO" --color 0e8a16 \
+    --description "admits a registered participant" >/dev/null 2>&1 || true
+
   local issue_url
   issue_url=$(gh issue create --repo "$GH_OWNER/$FED_REPO" \
     --title "register: $repo" --label registration --body "$body")
   echo "opened: $issue_url"
   local issue_num="${issue_url##*/}"
-  gh label create approved --repo "$GH_OWNER/$FED_REPO" --color 0e8a16 \
-    --description "admits a registered participant" >/dev/null 2>&1 || true
   gh issue edit "$issue_num" --repo "$GH_OWNER/$FED_REPO" --add-label approved
 }
+
+trigger_mirror_and_wait() {
+  echo "triggering an immediate mirror (forced, ignoring per-participant intervals)..."
+  gh workflow run mirror.yml --repo "$GH_OWNER/$FED_REPO" -f force=true
+
+  echo "waiting for the mirror run to register..."
+  local run_id=""
+  for _ in $(seq 1 12); do
+    run_id=$(gh run list --repo "$GH_OWNER/$FED_REPO" --workflow mirror.yml --limit 1 --json databaseId --jq '.[0].databaseId // empty')
+    [ -n "$run_id" ] && break
+    sleep 5
+  done
+  if [ -z "$run_id" ]; then
+    echo "  warning: no mirror run appeared after 60s — check manually: gh run list --repo $GH_OWNER/$FED_REPO --workflow mirror.yml"
+  else
+    gh run watch "$run_id" --repo "$GH_OWNER/$FED_REPO" --exit-status || echo "  warning: mirror run did not report success — check 'gh run view $run_id --repo $GH_OWNER/$FED_REPO --log'"
+  fi
+}
+
+banner "5/10 Manual step: participant 1 publishes"
+cat <<EOF
+In the $P1_REPO session, tell Claude exactly:
+
+  "Work only in $WORKDIR/$P1_REPO — do not use any other directory. Write session-1/clean.py
+  that drops rows with any missing value from data/penguins.csv and writes session-1/clean.csv
+  (LF line endings, fixed float format). Run it, then call cockpit_publish."
+
+Note the fotonId and output hash it returns — both are needed several steps from now.
+EOF
+pause "Participant 1 has published"
+
+banner "6/10 Registering participant 1 with the federation"
 register_participant "$P1_REPO"
+trigger_mirror_and_wait
+
+banner "7/10 Manual step: participant 2 publishes independently"
+cat <<EOF
+In the $P2_REPO session — a DIFFERENT directory from participant 1's, this is not copy-paste —
+tell Claude exactly:
+
+  "Work only in $WORKDIR/$P2_REPO — do not use any other directory. Write session-1/clean.py
+  that drops rows with any missing value from data/penguins.csv and writes session-1/clean.csv
+  (LF line endings, fixed float format). Run it, then call cockpit_publish."
+
+Deliberately do NOT give Claude participant 1's script here — writing it independently, from the
+same prose instructions, is what surfaces the byte-mismatch correction in the next manual step.
+Note this identity's own fotonId and output hash too.
+EOF
+pause "Participant 2 has published (independently)"
+
+banner "8/10 Registering participant 2 with the federation"
 register_participant "$P2_REPO"
+trigger_mirror_and_wait
 
-echo "triggering an immediate mirror (forced, ignoring per-participant intervals)..."
-gh workflow run mirror.yml --repo "$GH_OWNER/$FED_REPO" -f force=true
+banner "9/10 Manual step: mirror the federation locally, check reproduction, correct, and claim"
+cat <<EOF
+Still in the $P2_REPO session, tell Claude to run (it already has git/plankton/nekton available
+via Bash for this — cockpit's own tools only cover the publish/say/ask verbs, not local mirroring):
 
-echo "waiting for the mirror run to register..."
-run_id=""
-for _ in $(seq 1 12); do
-  run_id=$(gh run list --repo "$GH_OWNER/$FED_REPO" --workflow mirror.yml --limit 1 --json databaseId --jq '.[0].databaseId // empty')
-  [ -n "$run_id" ] && break
-  sleep 5
-done
-if [ -z "$run_id" ]; then
-  echo "  warning: no mirror run appeared after 60s — check manually: gh run list --repo $GH_OWNER/$FED_REPO --workflow mirror.yml"
-else
-  gh run watch "$run_id" --repo "$GH_OWNER/$FED_REPO" --exit-status || echo "  warning: mirror run did not report success — check 'gh run view $run_id --repo $GH_OWNER/$FED_REPO --log'"
-fi
+  git clone https://github.com/$GH_OWNER/$FED_REPO /tmp/federation-clone
+  bin/plankton mirror /tmp/federation-clone/mirror
+  bin/nekton   mirror /tmp/federation-clone/mirror
 
-banner "7/7 The kton graph"
+Then have it edit $WORKDIR/$P2_REPO/cockpit.config.json, adding participant 1's pubkey to a
+"federation" trust tier (mirroring the data alone is not enough — cockpit_ask's verification step
+separately needs the signer's pubkey configured, or it correctly excludes the record):
+
+  "trust": { "tiers": { "self": [...], "federation": ["<path to participant 1's registry/keys/session-1.pub, from the clone above>"] } }
+
+Then ask it to call cockpit_ask (query=reproductions) against participant 1's output hash. This
+will most likely show ↻1, not ↻2 — participant 2's independently-written script probably produced
+different bytes even from the same instructions. That is expected, not a failure.
+
+To correct it: have Claude fetch participant 1's EXACT clean.py from the commit-pinned permalink
+in its foton's descriptor (already returned by participant 1's cockpit_publish; also visible via
+cockpit_ask's producer/about output), reuse it verbatim, and call cockpit_publish again with it —
+producing a new, now byte-identical foton. Re-run cockpit_ask (reproductions) to confirm ↻2.
+
+Finally, have it call cockpit_say (template=reproduces, subject=participant 1's foton id,
+subjectOutputHash=participant 1's output hash, reproducedOutput=session-1/clean.csv,
+reproducedFotonId=participant 2's NEW foton id from the correction). This performs the actual git
+push; nothing further to push manually.
+EOF
+pause "Participant 2 has mirrored, corrected, confirmed ↻2, and recorded the reproduces claim"
+
+banner "10/10 Final mirror and the kton graph"
+trigger_mirror_and_wait
+
 VIEWER_URL="https://$GH_OWNER.github.io/$FED_REPO/viewer/viewer.html?union=../mirror/union.json"
 echo "Viewer (may take a minute or two to become reachable after Pages was just enabled):"
 echo "  $VIEWER_URL"

@@ -289,3 +289,33 @@ updated: 2026-07-22
   makes `cockpit_publish`/`cockpit_say` fully self-contained rather than depending on the ambient
   environment having git pre-configured. All tests still pass; rebuilt `bin/cockpit` in
   `participant-christian`.
+- **2026-07-24** — `uat/setup.sh`'s step 4 instructions predated the `GITHUB_TOKEN` push-auth fix
+  and never mentioned it. Added it to both participants' printed env-var instructions (fetched
+  live via `gh auth token` so the script prints the actual value, not just a placeholder), plus an
+  explicit warning to put each env var on its own line — the exact concatenation bug hit live
+  earlier today (`COCKPIT_REPO_DIR`'s value swallowing `GITHUB_TOKEN=...` when both landed on one
+  line).
+- **2026-07-24** — `uat/setup.sh` step 6 failed: `gh issue create --label registration` requires
+  the label to already exist in the repo — `gh`'s API path doesn't auto-create a template's
+  declared labels the way GitHub's own issue-form UI does. Already handled this correctly for
+  `approved` but missed `registration`. Fixed by creating both labels (idempotently, `|| true`)
+  before creating the issue.
+- **2026-07-24** — Restructured the tutorial and `uat/setup.sh` around a federation-first
+  sequence, worked out collaboratively: participant 1 publishes and is registered/mirrored into
+  the federation *before* participant 2 does anything (not both publishing first, then
+  registering together, as originally written). This makes a real cross-participant reproduction
+  actually mechanically possible: participant 2 clones the federation repo and runs
+  `plankton mirror`/`nekton mirror` against its `mirror/` directory — confirmed against the real
+  reference implementation that this works even though `mirror/` mixes fotons and claims in one
+  directory (`registry.Add()` rejects non-matching payloads without erroring the whole mirror,
+  checked directly in `reference/registry/registry.go`) — plus adds the peer's pubkey to a
+  `federation` trust tier (mirroring data and configuring trust are two separate, both-required
+  steps). The sequence also now honestly includes the realistic failure: participant 2 writes its
+  own `clean.py` independently first, checks reproduction (likely ↻1, bytes differing), and only
+  then corrects by fetching participant 1's exact script via its foton's permalink and
+  republishing — rather than assuming byte-identical reproduction on the first try, which is what
+  actually happened in the live UAT run that prompted this whole redesign. `uat/setup.sh` now
+  pauses 4 times (was 2) and registers/mirrors each participant separately as it publishes, not
+  both together at the end. Added `uat/README.md` with full prerequisites (gh scopes, Go,
+  python3, claude-science account, what gets created, override env vars, resuming after failure,
+  cleanup) for anyone else who wants to run it, not just the original session.

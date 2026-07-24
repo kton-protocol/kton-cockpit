@@ -62,11 +62,16 @@ cd /mnt/c/dev/planktonReproduce/participant-christian   # or whichever currently
 
 ### Automated end-to-end UAT
 
+See [`uat/README.md`](uat/README.md) for prerequisites (gh CLI scopes, Go, python3, claude-science
+account). Follows the tutorial's federation-first sequence: participant 1 publishes and federates
+before participant 2 does anything, so participant 2 can mirror participant 1's real aggregated
+foton, hit the realistic byte-mismatch, correct it, and record a genuine ↻2 reproduction.
+
 ```bash
 uat/setup.sh      # creates a federation + 2 participant repos, configures the cockpit in both,
-                   # pauses for the claude-science connector setup and the live publish/reproduce
-                   # steps (not scriptable — see the script's header comment for why), then
-                   # registers both participants and shows the resulting graph
+                   # pauses 4 times for claude-science steps (connector setup; p1 publish; p2
+                   # publish independently; p2 mirror+correct+claim) — not scriptable, see the
+                   # script's header comment for why — then shows the resulting graph
 uat/cleanup.sh <workdir printed by setup.sh>   # deletes everything setup.sh created, with confirmation
 ```
 

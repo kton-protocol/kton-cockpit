@@ -10,8 +10,10 @@ tags: [tutorial]
 
 ## Summary
 
-Zero to a verified federation, in eight steps: create the repos, configure the cockpit, start
-Claude Science, produce a foton, make a claim, register with a federation, verify.
+Zero to a verified federation with a real cross-participant reproduction: create the repos,
+configure the cockpit for two participants, have the first publish and federate, have the second
+publish independently, mirror the federation's aggregate back down locally, discover and correct
+a byte mismatch, record the reproduction claim, and verify.
 
 ## Details
 
@@ -187,7 +189,10 @@ syntax. Using the default instance avoids this class of error entirely.
 Claude then has access to exactly three tools: `cockpit_publish`, `cockpit_say`, `cockpit_ask` —
 nothing else touches git/plankton/nekton directly.
 
-### 5. Pick a trivial workflow and produce a foton
+Repeat steps 1–4 for a second participant repo before continuing — the rest of this tutorial
+produces a real cross-participant reproduction, which needs both.
+
+### 5. First participant: produce and publish a foton
 
 `data/penguins.csv` already exists at this point — it ships with the participant template from
 step 1, along with `data/DATA.md` describing it. Nothing further needs to be fetched or created.
@@ -203,10 +208,10 @@ step 1, along with `data/DATA.md` describing it. Nothing further needs to be fet
 > repository path explicitly in the first message of every session regardless — an explicit
 > instruction takes precedence over memory-filled context, but should not be the only safeguard.
 
-Instruct Claude: *"Work only in `/ABSOLUTE/PATH/TO/participant-x` — do not use any other
-directory. Write `session-1/clean.py` that drops rows with any missing value from
-`data/penguins.csv` and writes `session-1/clean.csv` (LF line endings, fixed float format). Run
-it, then call `cockpit_publish`."*
+In participant 1's session, instruct Claude: *"Work only in `/ABSOLUTE/PATH/TO/participant-1` —
+do not use any other directory. Write `session-1/clean.py` that drops rows with any missing value
+from `data/penguins.csv` and writes `session-1/clean.csv` (LF line endings, fixed float format).
+Run it, then call `cockpit_publish`."*
 ```jsonc
 cockpit_publish({
   inputs:  ["data/penguins.csv", "session-1/clean.py"],
@@ -216,68 +221,119 @@ cockpit_publish({
 // → { fotonId, outputHashes, commitSha, permalinks }
 ```
 That single call commits the files, builds the permalinks, and signs the foton — the
-"veröffentlichen" step, complete.
+"veröffentlichen" step, complete. Note the `fotonId` and output hash; both are needed below.
 
-### 6. Check reproduction / make a claim
-```jsonc
-cockpit_ask({ query: "reproductions", ref: "<output hash from step 5>" })
-// → verified records, ↻N so far (1 = this identity only)
+### 6. Register participant 1 with the federation
 
-cockpit_say({
-  subject: "<producer foton id being reproduced, if any>",
-  template: "reproduces",
-  subjectOutputHash: "<its output hash>",
-  reproducedOutput: "session-1/clean.csv",
-  reproducedFotonId: "<this identity's fotonId from step 5>"
-})
-// The cockpit itself runs the L0 check and fills in level — it is never self-declared by Claude.
-```
-(The first participant in a federation has nothing to reproduce yet — publish only; later
-participants reproduce this step.)
-
-### 7. Federate
-On `my-federation`: open a **"Register a participant"** issue naming `<you>/participant-x`, add
+On `my-federation`: open a **"Register a participant"** issue naming `<you>/participant-1`, add
 the `approved` label. The repo's scheduled `mirror` Action then pulls and independently
-re-verifies every signature into `mirror/union.json`.
+re-verifies every signature into `mirror/`. Wait for that run to complete (or trigger it directly:
+`gh workflow run mirror.yml --repo <you>/my-federation -f force=true`) before continuing — the
+next steps depend on participant 1's foton actually being aggregated.
 
-Repeat steps 1–6 for 2–3 participants to obtain a real ↻N > 1.
+### 7. Second participant: produce and publish independently
 
-**For `cockpit_ask` to recognize peers' records as verified (not only in the aggregator's
-viewer), each participant's `cockpit.config.json` requires a second trust tier listing the other
-participants' public keys** — this does not happen automatically. Once every participant's
-`registry/keys/*.pub` are pushed and public, add them:
+In participant 2's session, instruct Claude the same way as step 5, but with participant 2's own
+directory: *"Work only in `/ABSOLUTE/PATH/TO/participant-2` — do not use any other directory. Write
+`session-1/clean.py` that drops rows with any missing value from `data/penguins.csv` and writes
+`session-1/clean.csv` (LF line endings, fixed float format). Run it, then call `cockpit_publish`."*
+
+Deliberately do **not** hand it participant 1's script yet — writing it independently, from the
+same prose instructions, is what surfaces the byte-mismatch correction in step 9. Note this
+identity's own `fotonId` and output hash too.
+
+### 8. Register participant 2 with the federation
+
+Same as step 6, naming `<you>/participant-2`. After this mirror run, both participants' fotons are
+aggregated in `my-federation`'s `mirror/`.
+
+### 9. Mirror the federation locally, then check reproduction
+
+Back in participant 2's repo, pull the federation's aggregate down and overlay it into this
+identity's own local registry — `plankton mirror`/`nekton mirror` read any peer registry
+directory on the filesystem, no server or network call involved, so a local clone of the
+federation repo is enough:
+```bash
+git clone https://github.com/<you>/my-federation /tmp/federation-clone
+bin/plankton mirror /tmp/federation-clone/mirror
+bin/nekton   mirror /tmp/federation-clone/mirror
+```
+`mirror/` mixes both fotons and claims in one directory, but each command only ingests the record
+kind it understands and silently skips the other — confirmed against the reference
+implementation's `Add()`, which rejects non-matching payloads without erroring the whole mirror.
+
+**This alone is not enough for `cockpit_ask` to show participant 1's record as verified** —
+mirroring only makes the *data* locally visible; `cockpit_ask`'s verification step separately
+needs participant 1's *pubkey* in this repo's own trust config. Add it:
 ```jsonc
 "trust": {
   "tiers": {
     "self": ["registry/keys/session-1.pub", "registry/keys/session-1-claims.pub"],
-    "federation": [
-      "<path to participant-bob's registry/keys/session-1.pub>",
-      "<... session-1-claims.pub, and the same pair for every other participant>"
-    ]
+    "federation": ["<path to participant-1's registry/keys/session-1.pub, e.g. from the clone above>"]
   }
 }
 ```
-Without this, `cockpit_ask` correctly shows this identity's own records as verified but excludes
-every peer's — the guard functioning as intended (an unconfigured signer is never trusted), not a
-defect — but this step is not optional for cross-participant verification performed locally
-rather than only through the aggregator's viewer.
+Now check:
+```jsonc
+cockpit_ask({ query: "reproductions", ref: "<participant 1's output hash from step 5>" })
+```
+This will most likely show ↻1, not ↻2 — participant 2's independently-written script produced
+different bytes even though it followed the same instructions (different row order, float
+formatting, or index handling are common causes). This is the expected, honest outcome of writing
+the script independently, not a tool failure.
 
-### 8. Verify everything
+### 10. Correct: reuse participant 1's exact script, republish
+
+Fetch participant 1's *exact* `clean.py` — not a re-written copy — from the commit-pinned
+permalink recorded in its foton's descriptor (`cockpit_publish`'s step 5 result already has this;
+`cockpit_ask`'s `about`/`producer` output on the foton also carries it), and reuse it verbatim:
+```jsonc
+cockpit_publish({
+  inputs:  ["data/penguins.csv", "session-1/clean.py"],   // now byte-identical to participant 1's
+  outputs: ["session-1/clean.csv"],
+  cmd:     "python session-1/clean.py"
+})
+```
+This produces a new foton whose output should now be byte-identical to participant 1's. Re-run
+the same `cockpit_ask` query from step 9 — it should now show ↻2.
+
+### 11. Record the reproduction claim
+```jsonc
+cockpit_say({
+  subject: "<participant 1's foton id, from step 5>",
+  template: "reproduces",
+  subjectOutputHash: "<participant 1's output hash, from step 5>",
+  reproducedOutput: "session-1/clean.csv",
+  reproducedFotonId: "<participant 2's NEW fotonId, from step 10>"
+})
+// The cockpit itself runs the L0 check and fills in level — it is never self-declared by Claude.
+```
+
+### 12. Final mirror and verify everything
+Trigger the federation's mirror once more so it picks up the new claim (claims aggregate the same
+way fotons do — confirmed against `mirror_once.py`, which scans `registry/nekton/objects/`
+alongside `registry/plankton/objects/`):
+```bash
+gh workflow run mirror.yml --repo <you>/my-federation -f force=true
+```
+Then verify:
 - Viewer: `https://<you>.github.io/my-federation/viewer/viewer.html?union=../mirror/union.json`
-  — shows each output's ↻N.
-- Directly: `cockpit_ask({ query: "producer"|"about", ref: ... })` from any participant repo —
-  every record from a signer configured in that repo's own `trust.tiers` (step 7) has already
+  — shows the reproduces edge and ↻2.
+- Directly: `cockpit_ask({ query: "producer"|"about", ref: ... })` from either participant repo —
+  every record from a signer configured in that repo's own `trust.tiers` (step 9) has already
   been re-verified, not merely trusted on the aggregator's word; signers outside the configured
   tiers are correctly excluded, not silently trusted.
 
 ## Notes
 
-Steps 1–3 are one-time human setup per participant repo; steps 4–6 are the actual Claude Science
-loop, repeated per pipeline step; steps 7–8 involve the federation aggregator and are largely
-automatic once the participant is `approved`.
+Steps 1–4 are one-time human setup per participant repo, repeated for both participants before
+continuing; steps 5–11 are the actual sequential Claude Science + federation loop; step 12 is
+final verification. Steps 6, 8, and 12 involve the federation aggregator and are largely automatic
+once a participant is `approved` — the only manual part is triggering (or waiting for) the mirror
+run and giving it time to complete before the next step depends on its result.
 
 `uat/setup.sh` and `uat/cleanup.sh` (repo root) automate everything above that is genuinely
-scriptable — steps 1, 2, and 7–8, for two participants at once — pausing at exactly the two points
-that require claude-science's own UI and a live Claude conversation (steps 3–4's connector
-registration, and step 5's actual publish/reproduce). See the scripts' header comments for what
-they do and do not cover, and why.
+scriptable — steps 1–2, and the register/mirror parts of 6, 8, and 12 — pausing at exactly the
+points that require claude-science's own UI and a live Claude conversation (steps 3–4's connector
+registration, and the actual publish/correct/say steps). See `uat/README.md` and the scripts'
+header comments for prerequisites and what they do and do not cover, and why.
