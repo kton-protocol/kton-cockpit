@@ -49,7 +49,7 @@ into a concrete, buildable design, and to record the design decisions made along
 | MCP (Model Context Protocol), Go SDK (`modelcontextprotocol/go-sdk`, official) | Exposes exactly 3 tools (`cockpit_publish`/`cockpit_say`/`cockpit_ask`) over stdio — a hard capability boundary, not a policy one |
 | `plankton`, `nekton` binaries (vendored per participant repo) | All actual canonicalization, hashing, signing, registry, and verification — the cockpit only shells out to these |
 | git / `gh` | Commit-pinned permalinks, publish = commit+push |
-| JSON Schema | Validates `cockpit.config.json` at cockpit startup |
+| JSON Schema (`cockpit.config.schema.json`) | Documents the `cockpit.config.json` shape for tooling/editors; the cockpit's own startup check is a hand-written required-field validator (`internal/config`), not schema-driven |
 
 ## In Scope
 

@@ -124,3 +124,168 @@ updated: 2026-07-22
   instead of `--here` — costs nothing since `COCKPIT_REPO_DIR` already made the connector's repo
   binding independent of claude-science's own cwd, and additionally keeps each identity's
   connector list from bleeding into the others.
+- **2026-07-23** — Chased what looked like a filesystem/sandbox problem through several dead
+  ends: first suspected the 9p-mounted `/mnt/c/...` path couldn't be exec'd from claude-science's
+  sandbox (moved the binary to `~/.local/bin` — same error); then got an explicit error naming the
+  real mechanism ("command not found inside the MCP sandbox: most of the home directory is not
+  visible there — install on a system path (/usr/local, /opt)") and was about to relocate the
+  binary to `/usr/local/bin` (needs `sudo`, couldn't do it without the user's password). Turned
+  out to be neither: the actual variable was which **browser context** was connected to the
+  daemon. Opening the login link in a genuine external browser tab instead of an embedded view
+  inside VS Code made the exact original command (plain absolute path into the participant repo,
+  no relocation) work immediately. Added this as the first thing to check for any
+  sandbox/visibility-sounding MCP error in the tutorial, since it's non-obvious and easy to chase
+  the wrong lead (as this session did, twice).
+- **2026-07-23** — Simplified step 4 back down after confirming the plain default instance
+  (`claude-science serve`, no `--data-dir`/`--here`) already has its own project/session concept —
+  previous participant sessions (e.g. `participant-christian`) show up in its own sidebar — so the
+  whole `--data-dir ~/.claude-science-<name>` recommendation from earlier today was solving a
+  non-problem, introduced only to avoid a connector-list collision that claude-science already
+  handles itself via sessions. What actually needs to be per-participant is the *connector name*
+  (step 3: `cockpit-christian`, `cockpit-wolfi`, ...), since connectors are global to the account,
+  not scoped per session. Net effect: step 4 is now just `claude-science serve`.
+- **2026-07-23** — Step 5 reproduced the exact original incident that motivated this whole
+  project: before ever calling `cockpit_publish`, Claude confidently stated "the repo root is at
+  /mnt/c/dev/claudeScience/warfarinTest/" and started creating directories and fetching data
+  there — the wrong repo entirely. Traced to the actual root cause via claude-science's own
+  sqlite db (`~/.claude-science/orgs/<org>/operon-cli.db`): its cross-project **memories** feature
+  stored detailed workspace/path context from an earlier, unrelated `warfarinTest` project
+  (`subject_project_id = proj_ff0bdeede90f`) and surfaced it into the `participant-christian`
+  conversation (`proj_eadcc516045d`) despite the two being distinct projects in claude-science's
+  own data model — a cross-project memory leak, not a cockpit bug. Confirmed the cockpit's own
+  guard was never actually at risk: this happened entirely through plain file/Bash operations
+  before `cockpit_publish` was ever called, and the guard would have hard-refused there regardless
+  (no `cockpit.config.json` in `warfarinTest` binds it to `participant-christian`'s remote) — so
+  no registry data was ever at risk, only wasted setup work in the wrong folder. Mitigation added
+  to the tutorial: disable claude-science's Memory capability per participant project (or at least
+  check it first), and state the absolute repo path explicitly in the first message of every new
+  session as a cheap defensive habit on top of that.
+- **2026-07-23** — Before the first push, ran an independent cold review (fresh agent, no prior
+  context on this project) reading the tutorial top-to-bottom as a brand-new user, then checking
+  every technical claim against the actual Go source and rerunning `go build`/`vet`/`test`. Found
+  and fixed: (1) a real functional bug — the tutorial's `trust.tiers.self` example only listed the
+  plankton pubkey, omitting the nekton one, which would leave every claim the user's own
+  `cockpit_say` produces resolving as unverified/excluded; (2) step 7 never had the reader add
+  peer participants' pubkeys to any trust tier, so step 8's promise of cross-participant
+  verification wouldn't actually hold as written — added that as an explicit sub-step; (3)
+  `anti-wrong-folder-guard.md` flatly said "never an environment-variable override," directly
+  contradicted by `COCKPIT_REPO_DIR` added earlier the same day — reconciled; (4) `_project.md`
+  and `cockpit-config-schema.md` both claimed startup validation is JSON-Schema-driven, when
+  `internal/config.validate` is actually a hand-written required-field check — corrected to match
+  `CLAUDE.md`'s already-accurate wording. Also fixed several minor/cosmetic items: an
+  over-scoped `AskFilter` design description (only `trustTier` shipped, not the other four
+  originally-designed fields), a stale `participant-alice-1` reference in the tutorial index, an
+  unexplained `data/penguins.csv` in step 5 (it ships with the template — confirmed against both
+  the local repo and the real `gitmick/plankton-participant-template` on GitHub), a wording
+  tension between "no cockpit-owned mutable state" and the `corpus` manifest file `cockpit_publish`
+  can write, and `CLAUDE.md`'s opening line assuming "Claude Code" without acknowledging
+  claude-science as an equally valid, architecturally distinct client. `go build`/`vet`/`test` all
+  still pass after these doc-only fixes.
+- **2026-07-23** — Rewrote the tutorial in a formal, third-person register: removed first-person
+  narrative framing ("we hit", "we had Claude", "we initially thought") throughout, replacing each
+  with a direct statement of the underlying fact or instruction. Content unchanged — this was a
+  register/tone pass only, not a technical revision.
+- **2026-07-23** — **Correction to the 2026-07-23 entry above about "browser context":** that
+  conclusion was wrong, reached from a single coincidental data point rather than verified
+  evidence. Re-checked by reading both claude-science instances' own log files
+  (`<data-dir>/logs/server-*.log`) directly and correlating every attempt: **every** "not
+  found"/sandbox-visibility failure occurred in the `--data-dir ~/.claude-science-christian`
+  instance, across four separate daemon restarts of that instance, regardless of the binary's
+  location; **every** success occurred in the plain default instance, on its first attempt. The
+  actual variable was which claude-science *instance* was used, not which browser tab viewed it —
+  those happened to correlate with which instance was being tested at the time, which is what
+  produced the wrong conclusion. Most likely explanation: a sandbox's file-access grants
+  accumulate over time via approval cards, and a freshly created `--data-dir` instance starts with
+  none of that history. The tutorial's step 4 already recommended the default instance (for the
+  separate, correct reason of avoiding connector-list collisions) — its reasoning has been
+  corrected to include this stronger, log-verified justification, and the incorrect
+  browser-tab-specific warning has been removed rather than left alongside a now-superseded claim.
+- **2026-07-23** — While investigating the above, found a second, independent, real bug in the
+  same log: three actual `cockpit_publish` calls had failed with `MCP error 0: validating tool
+  output: validating root: validating /properties/permalinks: type: <invalid reflect.Value> has
+  type "null", want "object"` (and the same for `/properties/outputHashes`). Root cause: `errResult`
+  returns each tool's Out struct zero value on any error path; for `PublishOutput`'s
+  `OutputHashes`/`Permalinks` map fields, that zero value is `nil`, which `encoding/json` marshals
+  as `null`. The MCP Go SDK infers each tool's output JSON schema from the struct via reflection
+  and marks every field without `omitempty`/`omitzero` as required, and validates the marshaled
+  output against it regardless of `IsError` — so a `null` map fails validation, and the resulting
+  confusing schema error replaces whatever the tool's actual, useful error message was. Confirmed
+  the exact mechanism by probing `jsonschema-go` directly: validating `{"hashes":null}` against a
+  schema for a required, non-omitempty map field reproduces the production error text
+  byte-for-byte. Fixed by adding `omitempty` to `PublishOutput.OutputHashes`/`.Permalinks` and
+  (defensively, same class of bug) `AskOutput.Records`/`.Included`/`.Excluded`. Added
+  `internal/tools/mcp_wire_test.go`: schema-level tests (`TestOutputSchema_*`) that marshal each
+  Out struct's zero value and validate it against its own inferred schema — confirmed these fail
+  without the fix (reproducing the exact error for `PublishOutput`; `AskOutput`'s zero value
+  passed even unfixed, an unexplained map-vs-slice asymmetry in the validator not worth chasing
+  further, since `omitempty` is correct either way) — plus wire-level tests via an in-memory MCP
+  client/server, which did not reproduce the failure themselves (a gap in the wire tests, not
+  evidence the bug was less real; the schema tests are what actually guard against a regression
+  here). All 10 tests pass with the fix applied. Rebuilt `bin/cockpit` in `participant-christian`.
+- **2026-07-23** — Added a quick manual test to step 3: the official MCP Inspector's `--cli` mode
+  calls a tool directly (no browser, no claude-science) — demonstrated live with `cockpit_ask`
+  against `participant-christian`, returning a correct structured result. Documented as the way to
+  isolate whether a failure is in the cockpit itself versus claude-science's environment.
+- **2026-07-23** — Wrote `uat/setup.sh` and `uat/cleanup.sh`: an end-to-end UAT harness that
+  creates a federation + 2 participant repos from the official templates, clones them, builds the
+  cockpit into each, generates signing identities, configures `cockpit.config.json` (including
+  the trust-tier fix from the cold review), registers both participants with the federation
+  (issue-form body format and `mirror.yml`'s `workflow_dispatch` support confirmed against the
+  actual template source rather than guessed), triggers an immediate mirror, and prints the
+  resulting graph (viewer URL + a raw foton/claim count from `mirror/union.json`). Deliberately
+  does not automate claude-science's connector registration or the actual publish/reproduce step
+  — both are UI-driven or require live Claude reasoning, confirmed to have no documented CLI/API
+  (a `custom_mcp_servers` table exists in claude-science's own sqlite db, but writing to it
+  directly was rejected as an undocumented, fragile approach) — the script pauses at exactly those
+  two points with copy-pasteable instructions. `cleanup.sh` reads a state file the setup script
+  writes (rather than accepting typed repo names) and requires explicit confirmation before
+  deleting anything. Verified: bash syntax (`bash -n`), and that the generated GitHub issue body
+  has no stray whitespace that would break `register.py`'s parsing regex. Not yet verified: a live
+  end-to-end run (would require actually creating real GitHub repos, which only the user should
+  choose to do by running the script themselves).
+- **2026-07-23** — First live run of `uat/setup.sh` hit a real bug in step 3: the build command
+  used `-C "$COCKPIT_SRC"` positioned after `-o`, which Go rejects ("-C flag must be first flag on
+  command line") — the exact ordering mistake the tutorial had already worked around with a
+  `cd`-based approach; the UAT script had reintroduced it independently. Fixed with the same
+  `(cd "$COCKPIT_SRC" && go build ...)` subshell pattern, verified from a real unrelated cwd.
+  While fixing this mid-run, made repo creation, cloning, keygen, and `cockpit init` all
+  idempotent (skip-if-already-done) so a script that dies partway through — as this run just did —
+  can be resumed by re-running with the same `UAT_PREFIX` instead of requiring a full restart or
+  manual cleanup. Also hardened the mirror-run-id lookup (was a single fixed 10s sleep, a plausible
+  race on a brand-new repo) into a 60s poll loop.
+- **2026-07-23** — Investigated a report that the cockpit connector "seems to be per session, not
+  per project" — the user's suspicion, correctly, since this contradicted the tutorial's own
+  unverified claim that connectors are account-global. Searched exhaustively for where Local
+  command connector config is actually persisted (every table in claude-science's sqlite db,
+  every file under its data directory) and found nothing — no config file for these connectors
+  exists anywhere on disk. Asked the user to test directly: the connector had vanished from every
+  project/session, not just a new one, and `claude-science status` showed the daemon's pid/uptime
+  had genuinely changed (a restart, ~11 minutes prior) since it last worked. Conclusion: Local
+  command connectors are apparently kept only in the running daemon's memory, not persisted at
+  all — the "per session" appearance was actually "per daemon-process-lifetime," and a foreground
+  `claude-science serve` stopping when its terminal closes/gets reused is a plausible way this
+  session hit it repeatedly without a deliberate restart. Documented in the tutorial: use
+  `--detached`, and expect to re-add connectors after any restart (rebuilding the cockpit binary
+  itself does not require one). Corrected the earlier "connectors are account-global, not scoped
+  per project/session" claim, which was never actually verified, to reflect only what's confirmed
+  (shared across a given daemon's projects/sessions while it's running).
+- **2026-07-24** — Fixed a real ambiguity in `uat/setup.sh`'s step 5 instructions: it told the
+  user to give the p2 session "the same thing" as p1's instruction, which literally read as
+  "Work only in .../p1" — exactly the kind of wrong-directory instruction this whole project
+  exists to prevent, and the user correctly caught it before acting on it. The script now spells
+  out p2's instruction in full, with its own directory, plus an explicit note that it is not a
+  copy-paste of p1's.
+- **2026-07-24** — A live `cockpit_publish` run failed at `git commit`: no git identity
+  (`user.name`/`user.email`) was configured in claude-science's sandbox, and `gitops.CommitAndPush`
+  had never set one — it silently relied on the ambient environment already having git configured,
+  which is a real gap the user correctly flagged ("shouldn't the git identity be set already in
+  cockpit configs?"). Claude's own recovery attempt (writing identity into the repo's
+  `.git/config` directly) hit a further real, environment-specific failure — "could not write
+  config file .git/config: Device or resource busy" — something in that sandbox appears to hold
+  the file open. Fixed properly rather than documenting the workaround: `git commit` now always
+  passes `-c user.name=... -c user.email=...` directly on the command line, derived from
+  `identity.session_id` already in config (no new config field needed) — this never writes to any
+  config file at all, so it can't hit that busy-file failure regardless of its actual cause, and
+  makes `cockpit_publish`/`cockpit_say` fully self-contained rather than depending on the ambient
+  environment having git pre-configured. All tests still pass; rebuilt `bin/cockpit` in
+  `participant-christian`.

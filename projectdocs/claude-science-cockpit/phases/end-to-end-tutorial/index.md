@@ -14,7 +14,10 @@ tags: [tutorial, onboarding]
 A brief, copy-pasteable walkthrough from zero to a verified federation: create the template
 repos, configure the cockpit in a participant repo, start Claude Science, produce and publish a
 foton, make a claim, register with a federation, and verify the result. Written after the v1
-cockpit build passed its smoke tests against the real `participant-alice-1` registry.
+cockpit build passed its smoke tests against a real, already-populated participant registry from
+the live demo run (`participant-alice-1` at the time; the local demo repos were later reorganized
+into `participant-christian`/`participant-wolfi` — see `internal/tools/smoke_test.go`'s fixture
+comment for whichever currently exists).
 
 ## Goals
 

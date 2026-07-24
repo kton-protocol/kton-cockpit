@@ -26,124 +26,185 @@ git clone https://github.com/<you>/participant-x && cd participant-x
 
 ### 2. Configure the cockpit in the participant repo (one-time, human)
 ```bash
-# build the cockpit binary FROM its own source dir (go build resolves the module from cwd, not
-# from the package argument — so this must run from the cockpit repo, not from participant-x/).
-# Capture this participant repo's path FIRST, then cd into the cockpit source to build:
+# The cockpit binary must be built from its own source directory: `go build` resolves the module
+# from the current working directory, not from the package argument, so this cannot run from
+# participant-x/. Capture the participant repo's path first, then switch to the cockpit source:
 PARTICIPANT_DIR="$(pwd)"
 cd /mnt/c/dev/planktonClaudeScienceCockpit
 GOOS=linux GOARCH=amd64 go build -o "$PARTICIPANT_DIR/bin/cockpit" ./cmd/cockpit
 cd "$PARTICIPANT_DIR"
 
-# make a signing identity (only if this repo doesn't have one yet — never re-run if it does)
-# NOTE: keys/ is in .gitignore (private keys must never be committed) and starts EMPTY in a
-# fresh clone, so git never materializes the directory — create it first or keygen fails with
-# "no such file or directory":
+# Create a signing identity (only if this repo does not already have one — do not re-run if it
+# does; regenerating orphans any claims already signed under the old key).
+# Note: keys/ is listed in .gitignore (private keys must never be committed) and starts empty in
+# a fresh clone, so git never materializes the directory on checkout. Create it first, or keygen
+# fails with "no such file or directory":
 mkdir -p keys
 bin/plankton keygen keys/session-1
 bin/nekton   keygen keys/session-1-claims
 cp keys/session-1.pub keys/session-1-claims.pub registry/keys/
 git add registry/keys && git commit -m "signing identity" && git push
 
-# scaffold + finish the config
-bin/cockpit init                       # fills repo.owner/name from your real git remote
-# edit cockpit.config.json: trust.tiers.self -> ["registry/keys/session-1.pub"]
-bin/cockpit doctor                     # should show [ok] on every line
+# Scaffold and finish the config
+bin/cockpit init                       # fills repo.owner/name from the repo's actual git remote
+# Edit cockpit.config.json: trust.tiers.self must list both pubkeys, not only the plankton one —
+# fotons verify against the plankton key, claims (what cockpit_say produces) verify against the
+# nekton key; omitting either leaves that half of this identity's own records unverified/excluded:
+# ["registry/keys/session-1.pub", "registry/keys/session-1-claims.pub"]
+bin/cockpit doctor                     # every line should read [ok]
 ```
 
 ### 3. Register the cockpit as an MCP server (one-time)
 
-**If using `claude-science`** (the sandboxed, browser-UI app — the actual "Claude Science" this
-project is named for): open its UI → **Connectors** → **Add connector** → **Local command**. That
-dialog only has Name / Command / env vars / Description — **no separate working-directory
-field** — and its managed runtime has **no `bash`** either (only node/npx/python3, or an absolute
-path to an installed binary), so a shell `cd` wrapper doesn't work here. Instead, tell the cockpit
-which repo to bind to via an environment variable it reads for exactly this case
-(`COCKPIT_REPO_DIR` — set once by you, at config time, never reachable by Claude at runtime):
+**When using `claude-science`** (the sandboxed, browser-UI application — the "Claude Science"
+this project is named for): open its UI → **Connectors** → **Add connector** → **Local command**.
+That dialog has only Name / Command / environment variables / Description — no separate
+working-directory field — and its managed runtime provides no `bash` (only node/npx/python3, or
+an absolute path to an installed binary), so a shell `cd` wrapper is not usable here. Instead, the
+repository to bind to is passed via an environment variable read for exactly this case
+(`COCKPIT_REPO_DIR` — set once, at configuration time, by the operator; not reachable by Claude at
+runtime):
 
 | Field | Value |
 |---|---|
-| Name | `cockpit` |
+| Name | `cockpit-x` — name per participant identity (`cockpit-christian`, `cockpit-wolfi`, ...), not simply `cockpit`. A running daemon's connectors appear to be shared across its projects/sessions, so distinct names are required to avoid collisions across identities. |
 | Command | `/ABSOLUTE/PATH/TO/participant-x/bin/cockpit mcp` |
 | Environment variables | `COCKPIT_REPO_DIR=/ABSOLUTE/PATH/TO/participant-x` |
 | Description | optional, e.g. "publish/say/ask for this kton participant repo" |
 
-Both the absolute binary path *and* the env var matter, and they answer different questions: the
-path is only "which program to run" (required since the runtime does no shell/PATH resolution);
-it does **not** make the process's working directory match where the binary lives. The
-anti-wrong-folder guard checks the actual working directory (`git remote get-url origin` from its
-own process cwd) — which is what `COCKPIT_REPO_DIR` pins, independent of whatever cwd the runtime
-actually launches it from.
+Both the absolute binary path and the environment variable are required, and they answer
+different questions. The path answers only "which program to run" (required since the runtime
+performs no shell or `PATH` resolution); it does not make the process's working directory match
+the binary's location. The anti-wrong-folder guard checks the actual working directory
+(`git remote get-url origin` from its own process cwd) — `COCKPIT_REPO_DIR` is what pins that,
+independent of whatever cwd the runtime actually launches the process from.
 
-**If instead using the Claude Code CLI** (`claude` in a terminal — not claude-science):
+**When instead using the Claude Code CLI** (`claude` in a terminal — not claude-science):
 ```jsonc
 // .mcp.json (repo root)
 { "mcpServers": { "cockpit": { "command": "bin/cockpit", "args": ["mcp"] } } }
 ```
 
-> ✅ Confirmed working (2026-07-22, `participant-christian`): adding the connector with the values
-> above made claude-science's Connectors page list all three tools —
-> `cockpit_ask`/`cockpit_publish`/`cockpit_say` — with exactly the descriptions from the code.
-> "Skip approvals" was left off, so each tool call shows an approval card the first time; that's
-> expected, not a problem.
+> Validated (2026-07-22, `participant-christian`): registering the connector with the values above
+> made claude-science's Connectors page list all three tools —
+> `cockpit_ask`/`cockpit_publish`/`cockpit_say` — with the descriptions defined in the code.
+> "Skip approvals" left off is expected: each tool call then shows an approval card the first time.
 
-#### Optional: how this is actually wired together, and why
+> ⚠️ **Local command connectors do not appear to survive a claude-science daemon restart.**
+> Confirmed (2026-07-23): after registering successfully, the connector was later found gone from
+> every project — traced to the daemon having actually restarted (a new pid, ~11 minutes of
+> uptime) in the meantime, not to any per-project/per-session scoping. No config file for these
+> connectors could be found anywhere under claude-science's data directory (database included) —
+> they appear to exist only in the running daemon's memory. Practical consequences: run
+> `claude-science serve --detached` rather than foreground `serve`, since a foreground daemon
+> stops the moment its terminal closes or gets reused, which is an easy way to trigger this
+> accidentally; and expect to re-add every Local command connector after any restart, deliberate
+> or not. Rebuilding the cockpit *binary* itself does not require restarting the daemon — just
+> click **Reconnect** on the existing connector.
 
-Skip this if step 3 already worked for you. It's here for whoever wants the mechanics, not just
-the recipe.
+#### Quick manual test, independent of claude-science
 
-- **`cockpit` is one binary, not a CLI plus a separate server.** It has three subcommands:
-  `init`/`doctor` (plain CLI, for a human, print text and exit) and `mcp` (doesn't print text and
-  exit — it sits there reading/writing JSON-RPC on stdin/stdout forever). Running `cockpit mcp`
-  *is* starting the MCP server; there's no second program in between.
-- **The three verbs live one level inside `mcp` mode, not next to it.** There is no `cockpit
-  publish` you can type in a terminal — `cockpit_publish`/`cockpit_say`/`cockpit_ask` are MCP
-  "tools" that only exist once `cockpit mcp` is running, and only an MCP client (claude-science or
-  Claude Code) can call them, by sending a `tools/call` JSON-RPC message. MCP itself is just
-  JSON-RPC 2.0, one message per line, over stdin/stdout — no HTTP, no socket.
-- **claude-science's Local command connector *is* the MCP client.** When you chat with Claude in
-  claude-science, it — not you — launches `bin/cockpit mcp` as a child process and does all the
-  JSON-RPC talking to it. You never see or type any JSON; you just say "publish this."
-- **Why both the absolute path *and* `COCKPIT_REPO_DIR` are needed, and why they're not
-  redundant:** the Command field only answers "which program to run" — claude-science's managed
-  runtime has no shell and no PATH lookup, so it needs the exact binary location. That is a
-  completely different question from "what directory does the running process consider its
-  home" (its working directory). Launching a binary by absolute path does **not** change a
-  process's working directory to match — the child inherits whatever cwd its parent happens to be
-  in. And the cockpit's anti-wrong-folder guard cares specifically about the working directory: on
-  every single tool call it re-runs `git rev-parse --show-toplevel` and `git remote get-url
-  origin` from wherever the process actually is, and hard-refuses if that repo's remote doesn't
-  match `cockpit.config.json`. `COCKPIT_REPO_DIR` is what pins that, since there's no dialog field
-  for it and no shell available to `cd` first.
-- **Why this matters at all:** this whole project exists because a Claude session with an
-  ambiguous working directory once kept "cooperating" against the wrong local demo folder. The
-  guard — and, by extension, getting the connector's directory binding right — is the entire fix
-  for that failure mode, not an incidental detail.
+To confirm the cockpit itself works — isolated from any claude-science instance, sandbox, or
+connector configuration — call a tool directly via the official MCP Inspector's CLI mode (no
+browser required):
+```bash
+COCKPIT_REPO_DIR=/ABSOLUTE/PATH/TO/participant-x \
+  npx --yes @modelcontextprotocol/inspector --cli /ABSOLUTE/PATH/TO/participant-x/bin/cockpit mcp \
+  --method tools/call \
+  --tool-name cockpit_ask \
+  --tool-arg query=producer \
+  --tool-arg ref=sha256:0000000000000000000000000000000000000000000000000000000000000000
+```
+`cockpit_ask` is read-only, so this is safe to run at any time. A working cockpit returns a JSON
+result (an empty/not-found record for this placeholder hash is expected — the point is that a
+result comes back at all, not that this specific hash resolves to anything). If this fails but
+the claude-science connector also fails, the problem is in the cockpit itself; if this succeeds
+but the claude-science connector still fails, the problem is specific to claude-science's
+environment (its sandbox, its instance/data-dir, or the connector configuration) — see step 4.
 
-Either way, optional but recommended (defense-in-depth): restrict this repo's permissions so
-`git push`/`bin/plankton`/`bin/nekton` aren't reachable directly, only through the cockpit tools
-— in Claude Code CLI that's `.claude/settings.json`; in claude-science it's the **Permissions**
-page under Workspace.
+#### Optional: how this is wired together, and why
+
+This section may be skipped if step 3 has already succeeded. It documents the underlying
+mechanics for reference, not additional required steps.
+
+- **`cockpit` is a single binary, not a CLI plus a separate server.** It has three subcommands:
+  `init`/`doctor` (plain CLI, print text and exit) and `mcp` (does not print text and exit — it
+  reads/writes JSON-RPC on stdin/stdout indefinitely). Running `cockpit mcp` is starting the MCP
+  server; there is no second program involved.
+- **The three verbs exist only inside `mcp` mode, not alongside it.** There is no `cockpit
+  publish` command in a terminal — `cockpit_publish`/`cockpit_say`/`cockpit_ask` are MCP "tools"
+  that exist only while `cockpit mcp` is running, callable only by an MCP client (claude-science
+  or Claude Code) via a `tools/call` JSON-RPC message. MCP itself is JSON-RPC 2.0, one message per
+  line, over stdin/stdout — no HTTP, no socket.
+- **claude-science's Local command connector is the MCP client.** During a claude-science
+  conversation, claude-science — not the user — launches `bin/cockpit mcp` as a child process and
+  performs the JSON-RPC exchange with it. No JSON is seen or typed directly by the user.
+- **The absolute path and `COCKPIT_REPO_DIR` are not redundant.** The Command field answers only
+  "which program to run" — the managed runtime has no shell and no `PATH` lookup, so it requires
+  the exact binary location. That is a different question from "what directory does the running
+  process consider its working directory." Launching a binary by absolute path does not change
+  the process's working directory to match; the child inherits whatever cwd its parent happens to
+  use. The anti-wrong-folder guard specifically checks the working directory: on every tool call
+  it re-runs `git rev-parse --show-toplevel` and `git remote get-url origin` from wherever the
+  process actually is, and refuses if that repo's remote does not match `cockpit.config.json`.
+  `COCKPIT_REPO_DIR` pins that, since no dialog field and no shell are available to set it
+  otherwise.
+- **Why this matters:** this project exists specifically because an earlier Claude session,
+  operating with an ambiguous working directory, continued operating against an incorrect local
+  demo folder. The guard — and, by extension, correctly configuring the connector's directory
+  binding — is the fix for that failure mode, not an incidental detail.
+
+Recommended in addition (defense-in-depth, optional): restrict this repo's permissions so that
+`git push`/`bin/plankton`/`bin/nekton` are not reachable directly, only through the cockpit tools
+— in the Claude Code CLI this is `.claude/settings.json`; in claude-science it is the
+**Permissions** page under Workspace.
 
 ### 4. Start Claude Science
 ```bash
-claude-science serve --data-dir ~/.claude-science-x     # replace x with this participant's name
+claude-science serve
 ```
-Give each participant identity (christian, wolfi, ...) its own `--data-dir`, both so their
-connector lists (and cockpit bindings) don't get shared/confused across identities, and to avoid
-a real OS limit: `--here` derives its socket path from the current directory, and Unix domain
-sockets have a hard 108-byte path cap (`AF_UNIX sun_path`) — under a long path like
-`/mnt/c/dev/planktonReproduce/participant-x/...` this reliably overflows it
-(`data_dir path too long for AF_UNIX`). A short path under your home directory avoids this
-entirely, and (since `COCKPIT_REPO_DIR` from step 3 already makes the connector's repo binding
-independent of claude-science's own cwd) costs nothing.
+**Use the default instance — do not use `--data-dir` or `--here`.** claude-science already
+provides its own project/session concept within the default instance — previously created
+participant sessions appear in its sidebar — so switching identity is a matter of switching
+sessions there; per-participant connector *names* (step 3) are what keep cockpit bindings distinct
+across identities, not separate instances. `--here` additionally derives its socket path from the
+current directory, which under a long repository path can exceed the 108-byte `AF_UNIX`
+socket-path limit.
 
-(Or, on the Claude Code CLI path: just `claude`, run from inside `participant-x`.)
+There is a second, more important reason to avoid a separate `--data-dir`/`--here` instance:
+logs from a `--data-dir`-created instance (`<data-dir>/logs/server-*.log`) showed every attempt to
+load the cockpit connector failing with a sandbox/visibility error ("command not found inside the
+MCP sandbox: most of the home directory is not visible there"), regardless of the binary's
+location (tried under the participant repo, under `~/.local/bin`, and under `/usr/local/bin`) and
+across four separate restarts of that instance. The default instance loaded the identical
+connector configuration successfully on its first attempt. The most likely explanation is that a
+sandbox's file-access grants accumulate over time through approval cards, and a freshly created
+`--data-dir` instance starts with none of that history — not the binary's location or command
+syntax. Using the default instance avoids this class of error entirely.
 
-Claude now sees exactly three tools: `cockpit_publish`, `cockpit_say`, `cockpit_ask` — nothing
-else touches git/plankton/nekton directly.
+(On the Claude Code CLI path: `claude`, run from inside `participant-x`.)
+
+Claude then has access to exactly three tools: `cockpit_publish`, `cockpit_say`, `cockpit_ask` —
+nothing else touches git/plankton/nekton directly.
 
 ### 5. Pick a trivial workflow and produce a foton
-Tell Claude: *"Write `session-1/clean.py` that drops rows with any missing value from
+
+`data/penguins.csv` already exists at this point — it ships with the participant template from
+step 1, along with `data/DATA.md` describing it. Nothing further needs to be fetched or created.
+
+> Before the first message in a new session, check claude-science's Memory capability for this
+> project. Its cross-project Memory feature can surface stored workspace context from an
+> unrelated, pre-existing project into a new session, causing Claude to operate against an
+> incorrect directory before any cockpit tool is called. This is not a cockpit defect: the
+> anti-wrong-folder guard is unaffected, since this occurs via plain file/Bash operations prior to
+> any `cockpit_publish` call, which would refuse regardless (no `cockpit.config.json` in the
+> unrelated project binds it to the current participant's remote) — but it wastes real setup work.
+> Mitigation: disable Memory for this project if it is not needed, and state the absolute
+> repository path explicitly in the first message of every session regardless — an explicit
+> instruction takes precedence over memory-filled context, but should not be the only safeguard.
+
+Instruct Claude: *"Work only in `/ABSOLUTE/PATH/TO/participant-x` — do not use any other
+directory. Write `session-1/clean.py` that drops rows with any missing value from
 `data/penguins.csv` and writes `session-1/clean.csv` (LF line endings, fixed float format). Run
 it, then call `cockpit_publish`."*
 ```jsonc
@@ -155,41 +216,68 @@ cockpit_publish({
 // → { fotonId, outputHashes, commitSha, permalinks }
 ```
 That single call commits the files, builds the permalinks, and signs the foton — the
-"veröffentlichen" step, done.
+"veröffentlichen" step, complete.
 
 ### 6. Check reproduction / make a claim
 ```jsonc
 cockpit_ask({ query: "reproductions", ref: "<output hash from step 5>" })
-// → verified records, ↻N so far (1 = just you)
+// → verified records, ↻N so far (1 = this identity only)
 
 cockpit_say({
-  subject: "<some other producer foton id you're reproducing, if any>",
+  subject: "<producer foton id being reproduced, if any>",
   template: "reproduces",
-  subjectOutputHash: "<their output hash>",
+  subjectOutputHash: "<its output hash>",
   reproducedOutput: "session-1/clean.csv",
-  reproducedFotonId: "<your fotonId from step 5>"
+  reproducedFotonId: "<this identity's fotonId from step 5>"
 })
-// cockpit itself runs the L0 check and fills in level — Claude never self-declares it
+// The cockpit itself runs the L0 check and fills in level — it is never self-declared by Claude.
 ```
-(The first participant in a federation has nothing to reproduce yet — just publish; later
-participants will reproduce your step.)
+(The first participant in a federation has nothing to reproduce yet — publish only; later
+participants reproduce this step.)
 
 ### 7. Federate
 On `my-federation`: open a **"Register a participant"** issue naming `<you>/participant-x`, add
-the `approved` label. The repo's scheduled `mirror` Action then pulls and **independently
-re-verifies** every signature into `mirror/union.json`.
+the `approved` label. The repo's scheduled `mirror` Action then pulls and independently
+re-verifies every signature into `mirror/union.json`.
 
-Repeat steps 1–6 for 2–3 participants for a real ↻N > 1.
+Repeat steps 1–6 for 2–3 participants to obtain a real ↻N > 1.
+
+**For `cockpit_ask` to recognize peers' records as verified (not only in the aggregator's
+viewer), each participant's `cockpit.config.json` requires a second trust tier listing the other
+participants' public keys** — this does not happen automatically. Once every participant's
+`registry/keys/*.pub` are pushed and public, add them:
+```jsonc
+"trust": {
+  "tiers": {
+    "self": ["registry/keys/session-1.pub", "registry/keys/session-1-claims.pub"],
+    "federation": [
+      "<path to participant-bob's registry/keys/session-1.pub>",
+      "<... session-1-claims.pub, and the same pair for every other participant>"
+    ]
+  }
+}
+```
+Without this, `cockpit_ask` correctly shows this identity's own records as verified but excludes
+every peer's — the guard functioning as intended (an unconfigured signer is never trusted), not a
+defect — but this step is not optional for cross-participant verification performed locally
+rather than only through the aggregator's viewer.
 
 ### 8. Verify everything
 - Viewer: `https://<you>.github.io/my-federation/viewer/viewer.html?union=../mirror/union.json`
   — shows each output's ↻N.
 - Directly: `cockpit_ask({ query: "producer"|"about", ref: ... })` from any participant repo —
-  every returned record has already been re-verified against that repo's own
-  `cockpit.config.json` trust tiers, not just trusted on the aggregator's word.
+  every record from a signer configured in that repo's own `trust.tiers` (step 7) has already
+  been re-verified, not merely trusted on the aggregator's word; signers outside the configured
+  tiers are correctly excluded, not silently trusted.
 
 ## Notes
 
 Steps 1–3 are one-time human setup per participant repo; steps 4–6 are the actual Claude Science
-loop, repeated per pipeline step; steps 7–8 involve the federation aggregator and are mostly
+loop, repeated per pipeline step; steps 7–8 involve the federation aggregator and are largely
 automatic once the participant is `approved`.
+
+`uat/setup.sh` and `uat/cleanup.sh` (repo root) automate everything above that is genuinely
+scriptable — steps 1, 2, and 7–8, for two participants at once — pausing at exactly the two points
+that require claude-science's own UI and a live Claude conversation (steps 3–4's connector
+registration, and step 5's actual publish/reproduce). See the scripts' header comments for what
+they do and do not cover, and why.

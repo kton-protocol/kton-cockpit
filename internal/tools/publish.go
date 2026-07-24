@@ -29,10 +29,14 @@ type PublishInput struct {
 }
 
 type PublishOutput struct {
-	FotonID      string            `json:"fotonId"`
-	OutputHashes map[string]string `json:"outputHashes"`
+	FotonID string `json:"fotonId"`
+	// omitempty matters here, not just for tidiness: without it, jsonschema-go marks this field
+	// required, and a nil map (the zero value returned on any error path) marshals to JSON null —
+	// which then fails the SDK's own output-schema validation with a confusing "type: null, want
+	// object" error that masks whatever the real error was.
+	OutputHashes map[string]string `json:"outputHashes,omitempty"`
 	CommitSHA    string            `json:"commitSha"`
-	Permalinks   map[string]string `json:"permalinks"`
+	Permalinks   map[string]string `json:"permalinks,omitempty"`
 }
 
 func Publish(ctx context.Context, _ *mcp.CallToolRequest, in PublishInput) (*mcp.CallToolResult, PublishOutput, error) {

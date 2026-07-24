@@ -56,7 +56,11 @@ Input: `{ subject: fotonIdOrHash, template: string, fields: object }`
 ### `cockpit_ask` (fragen)
 
 Input: `{ query: "producer"|"uses"|"lineage"|"reproductions"|"about"|"by", ref: string, filter?: {
-trustTier?, minRepro?, level?, signer?, scope? } }`
+trustTier? } }`
+
+(Originally designed with a richer filter — `minRepro`/`level`/`signer`/`scope` in addition to
+`trustTier` — but only `trustTier` shipped in v1; the rest remain a possible future extension, not
+yet implemented in `internal/tools/ask.go`.)
 
 1. Run the matching read-only command against the local registry (`plankton
    producer/uses/lineage/reproductions`, `nekton about/by`), and/or the aggregator's mirrored

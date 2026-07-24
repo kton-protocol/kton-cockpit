@@ -6,7 +6,9 @@ package gitops
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -24,6 +26,33 @@ func run(ctx context.Context, dir, name string, args ...string) (string, error) 
 	return string(out), nil
 }
 
+// runRedacted behaves like run, but scrubs secret from both the command line and the command's
+// output before it can appear in a returned error — used for git push, whose auth header must
+// never leak into an error message that becomes visible to Claude or a log file.
+func runRedacted(ctx context.Context, dir, name string, args []string, secret string) (string, error) {
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		safeArgs := args
+		outStr := string(out)
+		if secret != "" {
+			safeArgs = redactSlice(args, secret)
+			outStr = strings.ReplaceAll(outStr, secret, "[REDACTED]")
+		}
+		return outStr, fmt.Errorf("%s %s: %w\n%s", name, strings.Join(safeArgs, " "), err, outStr)
+	}
+	return string(out), nil
+}
+
+func redactSlice(args []string, secret string) []string {
+	out := make([]string, len(args))
+	for i, a := range args {
+		out[i] = strings.ReplaceAll(a, secret, "[REDACTED]")
+	}
+	return out
+}
+
 // CommitAndPush stages exactly the given repo-relative paths, commits with message, and pushes.
 // It is a no-op (not an error) if there is nothing staged to commit — repeated publishes of
 // already-committed bytes should not fail.
@@ -38,13 +67,54 @@ func CommitAndPush(ctx context.Context, cfg *config.Config, paths []string, mess
 		return CurrentSHA(ctx, cfg)
 	}
 
-	if _, err := run(ctx, cfg.RepoRoot, "git", "commit", "-m", message); err != nil {
+	// The commit identity is passed via -c, not written to any git config file: it must not
+	// depend on the ambient environment already having user.name/user.email set (it often
+	// doesn't, e.g. a fresh claude-science sandbox), and -c sidesteps a real failure mode seen in
+	// practice where writing to .git/config directly hit "Device or resource busy" inside that
+	// sandbox. Derived from the session identity already in config — not a new config field.
+	commitArgs := append(commitIdentityArgs(cfg), "commit", "-m", message)
+	if _, err := run(ctx, cfg.RepoRoot, "git", commitArgs...); err != nil {
 		return "", err
 	}
-	if _, err := run(ctx, cfg.RepoRoot, "git", "push"); err != nil {
+	if err := push(ctx, cfg); err != nil {
 		return "", err
 	}
 	return CurrentSHA(ctx, cfg)
+}
+
+// commitIdentityArgs returns the `-c user.name=... -c user.email=...` flags for this cockpit's
+// own commits, derived from the configured session identity so every participant's commits are
+// attributable without requiring git to be pre-configured in the environment.
+func commitIdentityArgs(cfg *config.Config) []string {
+	session := cfg.Raw.Identity.SessionID
+	return []string{
+		"-c", fmt.Sprintf("user.name=cockpit (%s)", session),
+		"-c", fmt.Sprintf("user.email=%s@cockpit.local", session),
+	}
+}
+
+// push runs git push. If GITHUB_TOKEN or GH_TOKEN is set in the cockpit's own process
+// environment, it authenticates with that token via an HTTP auth header passed through -c —
+// never by rewriting the remote URL (which would persist the token into .git/config) and never
+// logged unredacted on failure. This is opt-in and additive: with neither variable set, push
+// behaves exactly as before, relying on whatever git credential setup already exists in the
+// environment (a normal terminal with `gh auth login` already configured, for instance). It
+// exists because a sandboxed MCP client runtime (claude-science's Local command connector) does
+// not necessarily inherit that ambient credential setup, so git push there fails with no way to
+// authenticate unless told to explicitly.
+func push(ctx context.Context, cfg *config.Config) error {
+	token := os.Getenv("GITHUB_TOKEN")
+	if token == "" {
+		token = os.Getenv("GH_TOKEN")
+	}
+	if token == "" {
+		_, err := run(ctx, cfg.RepoRoot, "git", "push")
+		return err
+	}
+	header := "AUTHORIZATION: basic " + base64.StdEncoding.EncodeToString([]byte("x-access-token:"+token))
+	args := []string{"-c", "http.extraheader=" + header, "push"}
+	_, err := runRedacted(ctx, cfg.RepoRoot, "git", args, token)
+	return err
 }
 
 // CurrentSHA returns the repo's current HEAD commit sha.

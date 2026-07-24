@@ -21,9 +21,13 @@ against it instead of the intended participant repo.
 On **every** MCP tool call, before doing anything else, the cockpit:
 
 1. Resolves its own repo root via `git rev-parse --show-toplevel` from its actual current working
-   directory (the cwd it was launched in by the MCP client).
-2. Loads `cockpit.config.json` from *that* root only — never an ancestor directory, never an
-   environment-variable override. Refuses the call outright if the file is missing.
+   directory (the cwd it was launched in by the MCP client) — or, if the `COCKPIT_REPO_DIR`
+   environment variable is set, from that directory instead (see Notes: this exists for MCP client
+   runtimes that give no way to pin a spawned local command's cwd, e.g. claude-science's managed
+   connector sandbox; it's set once by the human operator at connector-configuration time, not
+   something Claude can reach or change at runtime).
+2. Loads `cockpit.config.json` from *that* root only — never an ancestor directory. Refuses the
+   call outright if the file is missing.
 3. Compares `git remote get-url origin` against the config's `repo.owner`/`repo.name` — **hard
    refuses**, with a clear error surfaced back to Claude, on any mismatch.
 4. Derives `PLANKTON_DIR` / `NEKTON_DIR` / `NEKTON_TEMPLATES` / key paths as **absolute paths**
@@ -39,3 +43,13 @@ ambient, easy-to-leave-stale state that let a confused session keep operating in
 Binding by verified git remote instead means the cockpit simply cannot act against a folder other
 than the one it's actually configured for, regardless of what Claude's own context believes about
 where it is.
+
+`COCKPIT_REPO_DIR` (point 1) is not an exception to this — it only ever answers "which directory
+do I resolve the repo from," and the remote-match check in point 3 still runs unconditionally
+against whatever that resolves to. It is not the kind of ambient, Claude-reachable env var this
+guard exists to distrust: `PLANKTON_DIR`/`NEKTON_DIR`/etc. (point 4) are still always derived from
+the verified repo root, never from the environment, and Claude has no tool call that can set or
+change `COCKPIT_REPO_DIR` — only the human operator configuring the MCP connector can. See
+[three-verbs-publish-say-ask.md](three-verbs-publish-say-ask.md) and `internal/config/config.go`
+for where it was added and why (claude-science's managed connector runtime has no shell to `cd`
+first and no dialog field for a working directory).

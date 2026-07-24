@@ -46,10 +46,13 @@ requirement from the governing spec made concrete.
 }
 ```
 
-Validated against a JSON Schema (`cockpit.config.schema.json`) at process startup; the cockpit
-exits with a clear, specific error — never a silent default — if the config is missing,
-malformed, or if the repo/remote mismatch check (see the
-[anti-wrong-folder guard](anti-wrong-folder-guard.md)) fires.
+`cockpit.config.schema.json` documents this shape for editor/tooling support, but the cockpit's
+own startup check (`internal/config.validate`) is a hand-written required-field validator, not
+schema-driven — it exits with a clear, specific error, never a silent default, if the config is
+missing, malformed, or if the repo/remote mismatch check (see the
+[anti-wrong-folder guard](anti-wrong-folder-guard.md)) fires. Wiring `validate()` to actually
+enforce `cockpit.config.schema.json` at runtime, rather than duplicating a subset of it by hand,
+is open follow-up work, not yet done.
 
 ## Notes
 

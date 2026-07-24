@@ -1,9 +1,11 @@
 # CLAUDE.md
 
-This is the source repository for **claude-science-cockpit**: a Go binary that gives a Claude Code
-session exactly three verbs — `cockpit_publish` (veröffentlichen), `cockpit_say` (sagen),
-`cockpit_ask` (fragen) — over MCP, for cooperating in a [kton](https://kton.dev) federation. It
-reimplements no plankton/nekton kernel logic; every mutation and query shells out to the vendored
+This is the source repository for **claude-science-cockpit**: a Go binary that gives a Claude
+session — whether that's the Claude Code CLI or claude-science (a separate, sandboxed,
+browser-UI product; see the tutorial's step 3-4 for the distinction and why it matters) — exactly
+three verbs: `cockpit_publish` (veröffentlichen), `cockpit_say` (sagen), `cockpit_ask` (fragen) —
+over MCP, for cooperating in a [kton](https://kton.dev) federation. It reimplements no
+plankton/nekton kernel logic; every mutation and query shells out to the vendored
 `bin/plankton`/`bin/nekton` binaries in whichever participant repo it's configured for.
 
 The full design — why this exists, the anti-wrong-folder guard, the config schema, and what this
@@ -45,16 +47,27 @@ go test ./...
 ### Manual smoke test against a real, already-populated registry
 
 Before wiring the cockpit into any live GitHub-connected repo, point `cockpit doctor` at one of the
-existing local clones from the original federation demo run — real signed data, no fixtures to
-fabricate:
+existing local participant clones from the live demo run — real signed data, no fixtures to
+fabricate (the exact repo name has changed as local demo repos were reorganized; check
+`/mnt/c/dev/planktonReproduce/` for whichever `participant-*` currently exists):
 
 ```bash
-cd /mnt/c/dev/planktonReproduce/alice/participant-alice-1
-# (a cockpit.config.json doesn't exist there yet — `cockpit init` will scaffold one, using
+cd /mnt/c/dev/planktonReproduce/participant-christian   # or whichever currently exists
+# (if cockpit.config.json doesn't exist yet — `cockpit init` scaffolds one, using
 #  that repo's own git remote to fill in repo.owner/repo.name; fill in trust.tiers by hand
 #  before running `doctor` — the schema comment on that field explains the shape)
 /mnt/c/dev/planktonClaudeScienceCockpit/bin/cockpit init
 /mnt/c/dev/planktonClaudeScienceCockpit/bin/cockpit doctor
+```
+
+### Automated end-to-end UAT
+
+```bash
+uat/setup.sh      # creates a federation + 2 participant repos, configures the cockpit in both,
+                   # pauses for the claude-science connector setup and the live publish/reproduce
+                   # steps (not scriptable — see the script's header comment for why), then
+                   # registers both participants and shows the resulting graph
+uat/cleanup.sh <workdir printed by setup.sh>   # deletes everything setup.sh created, with confirmation
 ```
 
 ## Repo layout

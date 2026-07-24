@@ -20,7 +20,11 @@ not just a note in the spec, so it stays visible during implementation.
 - No trust logic beyond mechanically applying `cockpit.config.json` — the cockpit resolves and
   applies the config; it never decides trust policy itself.
 - No fourth verb, no silently grown surface, no cockpit-owned mutable state beyond the static
-  config file it loads at startup.
+  config file it loads at startup. (`cockpit_publish`'s optional `corpus` manifest — see
+  [three-verbs-publish-say-ask.md](three-verbs-publish-say-ask.md) — writes a new file, but it's
+  an ordinary tracked foton input committed to the repo, not runtime state the cockpit itself
+  owns or reads back; the constraint here is about the cockpit *process* carrying no state of its
+  own between calls, not about publish ever writing new tracked files.)
 - Deletable: if `bin/cockpit` were removed entirely, every operation it performs must remain
   runnable by hand exactly as the participant template's `CLAUDE.md` already documents today — the
   same acceptance test the protocol itself applies to `kton` ("delete kton and every operation

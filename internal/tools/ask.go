@@ -37,11 +37,15 @@ type AskOutput struct {
 	Ref   string `json:"ref"`
 	// Raw is the underlying plankton/nekton CLI output, kept for human/debugging context. It is
 	// NOT pre-filtered — callers must use Included, not Raw, to decide what to treat as trusted.
-	Raw           string                `json:"raw"`
-	Records       []RecordVerification  `json:"records"`
-	Included      []string              `json:"included"`
-	Excluded      []string              `json:"excluded"`
-	FilterApplied string                `json:"filterApplied"`
+	Raw string `json:"raw"`
+	// omitempty matters here, not just for tidiness: without it, jsonschema-go marks these fields
+	// required, and a nil slice (the zero value returned on any error path) marshals to JSON null —
+	// which then fails the SDK's own output-schema validation with a confusing "type: null, want
+	// array" error that masks whatever the real error was.
+	Records       []RecordVerification `json:"records,omitempty"`
+	Included      []string             `json:"included,omitempty"`
+	Excluded      []string             `json:"excluded,omitempty"`
+	FilterApplied string               `json:"filterApplied"`
 }
 
 var recordIDRe = regexp.MustCompile(`sha256:[0-9a-f]{64}`)
