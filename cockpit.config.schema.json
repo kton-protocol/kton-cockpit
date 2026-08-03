@@ -23,8 +23,8 @@
       "required": ["plankton_dir", "nekton_dir", "templates_dir", "keys_dir", "bin_dir"],
       "additionalProperties": false,
       "properties": {
-        "plankton_dir": { "type": "string", "minLength": 1 },
-        "nekton_dir": { "type": "string", "minLength": 1 },
+        "plankton_dir": { "type": "string", "minLength": 1, "description": "Not a free choice: the federation template's mirror_once.py hardcodes the prefix `registry/plankton/objects/` when scanning a participant's committed tree, so this must stay `registry/plankton` for federation aggregation to see this participant at all. Deliberately NOT the plankton binary's own bare fallback (`plankton-data`, used when PLANKTON_DIR is unset) — that bare default belongs to a different tool with a different, incompatible expectation." },
+        "nekton_dir": { "type": "string", "minLength": 1, "description": "Same constraint as plankton_dir: must stay `registry/nekton` to match mirror_once.py's hardcoded `registry/nekton/objects/` scan." },
         "templates_dir": { "type": "string", "minLength": 1 },
         "keys_dir": { "type": "string", "minLength": 1 },
         "bin_dir": { "type": "string", "minLength": 1 }

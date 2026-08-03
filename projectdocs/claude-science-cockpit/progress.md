@@ -319,3 +319,80 @@ updated: 2026-07-22
   both together at the end. Added `uat/README.md` with full prerequisites (gh scopes, Go,
   python3, claude-science account, what gets created, override env vars, resuming after failure,
   cleanup) for anyone else who wants to run it, not just the original session.
+- **2026-07-24** — Reduced manual interaction and turned `uat/setup.sh` into guided training
+  material at the same time. Moved the mirror-federation-locally + trust-tier-configuration part
+  out of the manual Claude-conversation instructions and into the script itself, since both are
+  pure git/config operations that never actually needed Claude's reasoning — cutting one whole
+  manual pause. Added a `step()` helper (paired with the existing manual-step helper, renamed
+  `manual()`) that prints what a phase is about to do and *why*, then requires Enter before
+  running it — applied to every automated phase, not just the manual ones, so the script reads as
+  an explained walkthrough rather than a silent black box. Net: 4 manual steps (was 4, but one of
+  those four used to include the now-automated mirror/trust-tier work bundled in), and every other
+  phase — including plain repo creation and cloning — now explains itself before running.
+- **2026-08-03** — A live run's step 8 (register participant 2) hit a genuine race condition:
+  labeling the issue `approved` triggers the federation's own separate `register.yml` workflow
+  (commits `participants.json`), and the script immediately dispatched `mirror.yml` right after
+  without waiting for that commit to land — `mirror.yml`'s own commit got rejected as
+  non-fast-forward (`! [rejected] main -> main (fetch first)`, confirmed from the actual run log)
+  since its `concurrency: group: mirror` only guards against overlapping *mirror* runs, not this
+  separate workflow. Fixed by having `register_participant` wait for `register.yml` to fully
+  complete before returning (so `trigger_mirror_and_wait` never starts concurrently with it), plus
+  a retry in `trigger_mirror_and_wait` itself for defense-in-depth. While implementing this, caught
+  a second, subtler bug before it shipped: naively polling for "the most recent run" doesn't work
+  when a workflow has run before (register.yml runs once per participant, mirror.yml can retry) —
+  it can match an old, already-completed run instead of the newly-triggered one. Fixed by
+  capturing the latest run id *before* triggering and polling for one different from it
+  (`wait_for_new_workflow_run`). Manually recovered the live run's federation repo (re-triggered
+  the mirror, confirmed both participants now correctly present in `participants.json`) so it
+  could continue from where it was without restarting.
+- **2026-08-03 (later)** — Step 9 recovery after a network outage exposed a second bug: running
+  `./bin/plankton mirror`/`./bin/nekton mirror` directly (as `uat/setup.sh` does — these are pure
+  git/config operations, never routed through the cockpit's MCP tools) without setting
+  `PLANKTON_DIR`/`NEKTON_DIR` silently made both binaries fall back to their own bare defaults
+  (`./plankton-data`, `./nekton-data`), which don't exist in a participant repo — producing a
+  believable-looking but wrong "0 new; registry holds 0 fotons" instead of an error. This surfaced
+  a real design question: should `cockpit.config.json`'s `plankton_dir`/`nekton_dir` just *be*
+  `plankton-data`/`nekton-data` so raw invocations degrade gracefully instead of silently pointing
+  nowhere? Investigated by reading the federation template's actual `scripts/mirror_once.py`
+  (`gitmick/plankton-federation-template`, vendored — not ours to change): it hardcodes the literal
+  prefixes `registry/plankton/objects/`, `registry/nekton/objects/`, and `registry/keys/*.pub` when
+  scanning a participant's committed tree. So `registry/plankton`/`registry/nekton` is not a
+  cosmetic choice we get to align with the binaries' bare fallback — it's a hard requirement of the
+  external aggregation protocol; renaming would make federation mirroring find nothing for that
+  participant. (Initially reasoned the other way — that the non-default name was itself a
+  deliberate defense against colliding with legacy `plankton-data`/`nekton-data` folders elsewhere
+  under `/mnt/c/dev` — but that doesn't hold up: the guard's actual protection is the git-remote
+  check plus deriving `PLANKTON_DIR`/`NEKTON_DIR` as absolute paths from a verified repo root
+  (`internal/config/config.go`), which works identically regardless of what the relative subpath
+  is named. Retracted that reasoning once challenged.) Fixed the real bug instead, at its actual
+  root: `uat/setup.sh`'s step 9 now reads `plankton_dir`/`nekton_dir` out of the repo's own
+  `cockpit.config.json` via `python3` and exports `PLANKTON_DIR`/`NEKTON_DIR` explicitly before
+  calling the binaries directly — mirroring what `internal/binaries/binaries.go` already does for
+  every cockpit-mediated call, so no code path ever relies on the binaries' bare defaults. Also
+  annotated `cockpit.config.schema.json`'s `plankton_dir`/`nekton_dir` fields with this constraint
+  directly, so the "why can't this just be the bare default" question doesn't need re-deriving from
+  `mirror_once.py` again next time.
+- **2026-08-03 (later still)** — The PLANKTON_DIR/NEKTON_DIR fix above was necessary but NOT
+  sufficient: step 9 still reported "0 new" against a live run even with the env vars correctly
+  set. Root cause, found by testing directly against the binaries: `plankton mirror`/`nekton
+  mirror` expect a PEER's flat registry layout (`objects/sha256/<hash>.json`, no subdirectory —
+  confirmed from the binary's own usage string, `plankton mirror ../session-1/plankton-data`, i.e.
+  another participant's own registry dir). The federation's `mirror/` directory instead SHARDS
+  objects by a 2-hex-char prefix subdirectory (`objects/sha256/<xx>/<hash>.json`) —
+  `build_mirror.py`'s own convention, built for the GitHub Pages viewer, structurally incompatible
+  with what either binary's mirror command scans for. Passing the federation's `mirror/` straight
+  to `plankton mirror`/`nekton mirror` is silently a no-op regardless of PLANKTON_DIR/NEKTON_DIR —
+  confirmed by copying one sharded object into a flat scratch dir and re-mirroring from that:
+  "1 new" vs "0 new" from the sharded source, isolating the layout mismatch as the actual cause.
+  Fixed `uat/setup.sh`'s step 9 to flatten the federation's sharded objects into a scratch temp dir
+  before calling either binary. Separately investigated nekton's "2 unresolved (missing dependency
+  - an incomplete chain)" message from the same debugging session and confirmed it's benign: it
+  only appears when nekton's mirror scan walks real plankton foton files sitting in the same
+  `objects/sha256/` tree (it can't parse a foton as a claim, so it reports "unresolved" rather than
+  cleanly skipping it) — proved by mirroring from a genuinely empty source, which produces no such
+  warning at all. It doesn't miscount or corrupt anything (`registry holds 0 claim(s)` stayed
+  correct throughout) — cosmetically alarming, functionally harmless. Verified the fully corrected
+  step 9 end-to-end against the live run: p2's local registry now genuinely holds both
+  participants' fotons, and `plankton reproductions` run directly against p2's own registry
+  returns the real ↻1 result matching what a `cockpit_ask` call from p2's session should now
+  correctly report.

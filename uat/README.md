@@ -43,18 +43,21 @@ see below.
 uat/setup.sh
 ```
 
-It runs unattended through repo creation, cloning, and cockpit configuration for both
-participants, then **pauses four times** with exact copy-pasteable instructions, waiting for you
-to press Enter after completing each manual part in claude-science (or Claude Code):
+This doubles as guided training material: **every phase, including the automated ones, prints
+what it's about to do and *why* before doing it**, and waits for you to press Enter — not just
+the genuinely manual steps. There are only **4 steps you actually do yourself** in claude-science
+(or Claude Code), because they need live Claude reasoning or a UI with no scriptable API:
 
 1. Register the MCP connector for both participants.
 2. Have participant 1 publish a foton.
 3. Have participant 2 publish independently (deliberately not reusing participant 1's script).
-4. Have participant 2 mirror the federation locally, discover the byte mismatch, correct it by
-   reusing participant 1's exact script, confirm ↻2, and record the reproduction claim.
+4. Have participant 2 check reproduction, correct it by fetching participant 1's exact script,
+   confirm ↻2, and record the reproduction claim.
 
-Between and after these, it registers each participant with the federation, triggers and waits on
-the `mirror` GitHub Action, and finally prints the viewer URL plus a raw record count.
+Everything else — repo creation, cloning, cockpit configuration, federation registration,
+triggering mirrors, and (since it's pure git/config, not Claude-specific) mirroring the
+federation's data locally and configuring the trust tier — runs automatically once you confirm
+each explained step. The last step prints the viewer URL plus a raw record count.
 
 **Overrides:**
 ```bash
