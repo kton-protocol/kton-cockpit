@@ -4,6 +4,7 @@
 package binaries
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os/exec"
@@ -31,25 +32,60 @@ func (r *Runner) env() []string {
 	}
 }
 
-func (r *Runner) exec(ctx context.Context, bin string, args ...string) (string, error) {
+// exec runs bin with args, capturing stdout and stderr into separate buffers — never combined:
+// plankton/nekton's own contract (see e.g. `author --print-id`) is bare, machine-readable output
+// on stdout and human/warning/error lines on stderr. Both are returned so each caller can decide
+// what it needs: a machine value parsed from stdout alone, or stdout plus any success-path
+// warning on stderr (e.g. plankton's "this read is INCOMPLETE" degraded-registry notice, which
+// prints even on a clean exit — see planktonQuery below). On a non-zero exit, stderr is also
+// folded into the returned error for debugging context.
+func (r *Runner) exec(ctx context.Context, bin string, args ...string) (stdout string, stderr string, err error) {
 	binPath := filepath.Join(r.cfg.BinDir, bin)
 	cmd := exec.CommandContext(ctx, binPath, args...)
 	cmd.Dir = r.cfg.RepoRoot
 	cmd.Env = append(cmd.Env, r.env()...)
-	out, err := cmd.CombinedOutput()
-	text := strings.TrimSpace(string(out))
-	if err != nil {
-		return text, fmt.Errorf("%s %s: %w\n%s", bin, strings.Join(args, " "), err, text)
+
+	var outBuf, errBuf bytes.Buffer
+	cmd.Stdout = &outBuf
+	cmd.Stderr = &errBuf
+
+	runErr := cmd.Run()
+	stdout = strings.TrimSpace(outBuf.String())
+	stderr = strings.TrimSpace(errBuf.String())
+	if runErr != nil {
+		return stdout, stderr, fmt.Errorf("%s %s: %w\n%s", bin, strings.Join(args, " "), runErr, stderr)
 	}
-	return text, nil
+	return stdout, stderr, nil
 }
 
+// plankton returns plankton's bare stdout only, discarding stderr on success. Use this for
+// commands whose result is (or is parsed as) an exact machine-readable value — Author's fotonID,
+// Hash's hash, Reproduces'/VerifyFoton's pass/fail — where any success-path stderr text is status
+// noise that must not contaminate the parsed value (Author's --print-id relies on this: with it
+// set, plankton deliberately routes every human status line to stderr, leaving only the bare id
+// on stdout).
 func (r *Runner) plankton(ctx context.Context, args ...string) (string, error) {
-	return r.exec(ctx, "plankton", args...)
+	out, _, err := r.exec(ctx, "plankton", args...)
+	return out, err
+}
+
+// planktonQuery is like plankton, but for human-facing reads whose stdout is a report rather than
+// a single parsed value (producer/uses/lineage): plankton can legitimately warn on stderr even on
+// a clean exit — e.g. "warning: N record(s) skipped on load - this read is INCOMPLETE" when the
+// registry read is degraded but not `--strict`. That warning must still reach the caller (and, via
+// AskOutput.Raw, the model) rather than silently vanish just because it wasn't a parse error, so
+// it's appended to the returned text as a clearly delimited block instead of being discarded.
+func (r *Runner) planktonQuery(ctx context.Context, args ...string) (string, error) {
+	out, errText, err := r.exec(ctx, "plankton", args...)
+	if errText != "" {
+		out += "\n\n[stderr]\n" + errText
+	}
+	return out, err
 }
 
 func (r *Runner) nekton(ctx context.Context, args ...string) (string, error) {
-	return r.exec(ctx, "nekton", args...)
+	out, _, err := r.exec(ctx, "nekton", args...)
+	return out, err
 }
 
 // --- plankton ---
@@ -93,17 +129,19 @@ func (r *Runner) Show(ctx context.Context, idOrFile string) (string, error) {
 	return r.plankton(ctx, "show", idOrFile)
 }
 
-// Producer, Uses, Lineage, Reproductions are read-only graph queries by hash.
+// Producer, Uses, Lineage, Reproductions are read-only graph queries by hash. Producer/Uses/
+// Lineage share plankton's degraded-registry-read code path, which can print an "INCOMPLETE"
+// warning to stderr even on a clean exit — planktonQuery (not plankton) preserves that warning.
 func (r *Runner) Producer(ctx context.Context, hash string) (string, error) {
-	return r.plankton(ctx, "producer", hash)
+	return r.planktonQuery(ctx, "producer", hash)
 }
 
 func (r *Runner) Uses(ctx context.Context, hash string) (string, error) {
-	return r.plankton(ctx, "uses", hash)
+	return r.planktonQuery(ctx, "uses", hash)
 }
 
 func (r *Runner) Lineage(ctx context.Context, hash string) (string, error) {
-	return r.plankton(ctx, "lineage", hash)
+	return r.planktonQuery(ctx, "lineage", hash)
 }
 
 // Reproductions returns plankton's ↻N report for outputHash. The binary exits non-zero for the
