@@ -65,13 +65,18 @@ func TestAsk_ReproductionsOnUnknownHashAgainstRealRegistry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Ask returned Go error: %v", err)
 	}
-	if result.IsError {
-		t.Fatalf("Ask reported a tool error for a plain not-found query: %+v", result.Content)
+
+	// Reproductions() now always requires --trust-keys (Michael's review, blocking item 2): a
+	// self-declared, forgeable signer count is worse than no count at all. The vendored plankton
+	// binary in this real participant repo predates --trust-keys support on `reproductions`
+	// (review item 9: no version/capability pinning on the vendored binaries), so against it the
+	// query must fail loudly rather than silently hand back an unverified answer. Once the
+	// vendored binary is upgraded to one that supports the flag, replace this with a success-path
+	// assertion again (see git history for the pre-fix version of this test).
+	if !result.IsError {
+		t.Fatalf("expected a tool error: this repo's vendored plankton binary does not support --trust-keys on reproductions, so the query must fail rather than return a forgeable answer; got out=%+v", out)
 	}
-	if out.Raw == "" {
-		t.Fatal("expected plankton to still print a (zero-count) reproductions line, got nothing")
-	}
-	t.Logf("reproductions raw: %s", out.Raw)
+	t.Logf("reproductions on a --trust-keys-incapable binary correctly surfaced as an error: %+v", result.Content)
 }
 
 func TestAsk_UnknownQueryIsRejected(t *testing.T) {

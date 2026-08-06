@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -144,13 +145,64 @@ func (r *Runner) Lineage(ctx context.Context, hash string) (string, error) {
 	return r.planktonQuery(ctx, "lineage", hash)
 }
 
-// Reproductions returns plankton's ↻N report for outputHash. The binary exits non-zero for the
-// legitimate "0 distinct producers" case (not just for real failures), so a non-zero exit here is
-// treated as a valid, informational zero-count result — same convention as Reproduces below —
-// rather than surfaced as a tool error.
+// Reproductions returns plankton's ↻N report for outputHash, verified against this repo's
+// configured trust tiers via --trust-keys — never plankton's bare, self-declared signer count.
+// Without --trust-keys the count is forgeable (a relabeled keyid inflates ↻N and mis-attributes a
+// reproduction to a party who never signed); the cockpit already holds exactly the keys that
+// should count; it must pass them.
+//
+// The binary exits non-zero for the legitimate "0 distinct producers" case (not just for real
+// failures), and plankton always prints that answer to stdout before exiting — so a non-zero exit
+// with non-empty stdout is treated as a valid, informational zero-count result, same convention
+// as Reproduces below. A non-zero exit with EMPTY stdout means the command itself rejected the
+// call outright (most plausibly: this vendored plankton binary predates --trust-keys support on
+// `reproductions` — as of this writing that flag exists nowhere upstream on this subcommand
+// either, only on `export --rdf`; see the cockpit's project docs for the tracked upstream gap)
+// rather than answering "zero producers", and is surfaced as a real, actionable error instead of
+// being handed to Claude as if it were a valid count.
 func (r *Runner) Reproductions(ctx context.Context, outputHash string) (string, error) {
-	out, _ := r.plankton(ctx, "reproductions", outputHash)
+	dir, cleanup, err := trustKeysDir(r.cfg)
+	if err != nil {
+		return "", fmt.Errorf("materializing trust keys for reproductions: %w", err)
+	}
+	defer cleanup()
+
+	out, err := r.plankton(ctx, "reproductions", "--trust-keys", dir, outputHash)
+	if err != nil && out == "" {
+		return "", fmt.Errorf(
+			"plankton rejected `reproductions --trust-keys` outright (no answer on stdout) — most "+
+				"likely this vendored plankton binary predates --trust-keys support on `reproductions` "+
+				"and needs upgrading; the cockpit refuses to fall back to an unverified, forgeable count. "+
+				"underlying error: %w", err)
+	}
 	return out, nil
+}
+
+// trustKeysDir materializes every pubkey configured across this repo's trust tiers into a fresh
+// flat directory of *.pub files — the shape `--trust-keys <dir>` expects (raw hex Ed25519, one key
+// per *.pub file, loaded non-recursively). Callers must invoke the returned cleanup once done.
+func trustKeysDir(cfg *config.Config) (dir string, cleanup func(), err error) {
+	dir, err = os.MkdirTemp("", "cockpit-trust-keys-")
+	if err != nil {
+		return "", func() {}, err
+	}
+	cleanup = func() { os.RemoveAll(dir) }
+
+	i := 0
+	for pubkeyPath := range cfg.TierPubkeys() {
+		b, rerr := os.ReadFile(pubkeyPath)
+		if rerr != nil {
+			cleanup()
+			return "", func() {}, fmt.Errorf("reading trusted pubkey %s: %w", pubkeyPath, rerr)
+		}
+		dest := filepath.Join(dir, fmt.Sprintf("%d.pub", i))
+		if werr := os.WriteFile(dest, b, 0o644); werr != nil {
+			cleanup()
+			return "", func() {}, fmt.Errorf("writing trusted pubkey to %s: %w", dest, werr)
+		}
+		i++
+	}
+	return dir, cleanup, nil
 }
 
 // Reproduces checks two output hashes for L0/L1 equivalence (exit 0 = pass); via, if non-empty,
