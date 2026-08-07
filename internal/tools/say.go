@@ -2,6 +2,8 @@ package tools
 
 import (
 	"context"
+	"fmt"
+	"regexp"
 
 	"github.com/deathbychoco/claude-science-cockpit/internal/binaries"
 	"github.com/deathbychoco/claude-science-cockpit/internal/config"
@@ -78,9 +80,18 @@ func Say(ctx context.Context, _ *mcp.CallToolRequest, in SayInput) (*mcp.CallToo
 	return &mcp.CallToolResult{}, SayOutput{ClaimID: claimID, Level: level, Confirmation: confirmation}, nil
 }
 
+// reproductionLevelRe matches plankton's own `reproduction: <level>` line — printed at the start
+// of a line whether the match was identical bytes (L0) or a --via normalizer match (L1); see
+// reproductionLevelRe's use in determineReproductionLevel for why this is parsed rather than
+// inferred from whether --via was passed. `plankton reproduces` only ever emits L0 or L1 on this
+// line (L2 is a comparator's signed verdict, not a kernel check, and is never printed here) — the
+// character class is deliberately just L[01], not L[012], so an L2 (or anything else) this command
+// was never supposed to print fails closed as unparseable rather than being silently accepted.
+var reproductionLevelRe = regexp.MustCompile(`(?m)^reproduction: (L[01])\b`)
+
 // determineReproductionLevel runs the reproduction precondition itself (never trusting a
-// self-declared level from Claude) and returns either the achieved level ("L0"/"L1") or, as its
-// second return value, a non-empty error message.
+// self-declared level from Claude) and returns either the achieved level ("L0"/"L1") or, as
+// its second return value, a non-empty error message.
 func determineReproductionLevel(ctx context.Context, cfg *config.Config, r *binaries.Runner, in SayInput) (level string, errMsg string) {
 	if in.SubjectOutputHash == "" || in.ReproducedOutput == "" || in.ReproducedFotonID == "" {
 		return "", "reproduces requires subjectOutputHash, reproducedOutput, and reproducedFotonId"
@@ -104,12 +115,20 @@ func determineReproductionLevel(ctx context.Context, cfg *config.Config, r *bina
 		return "", "reproduction precondition failed — outputs do not match:\n" + out
 	}
 
-	achieved := "L0"
-	if via != "" {
-		achieved = "L1"
+	// The achieved level comes from plankton's own printed answer, never from whether --via was
+	// passed: byte-identical outputs are L0 even when a normalizer was requested (plankton checks
+	// ref == cand BEFORE ever consulting --via — see the reference source's `reproduces` case), so
+	// inferring "L1 whenever via != \"\"" mislabels a genuine L0 as L1 for any repo that configures
+	// a default normalizer, and a mislabelled L1 then fails an L0 policy outright even though the
+	// underlying reproduction was correct.
+	m := reproductionLevelRe.FindStringSubmatch(out)
+	if m == nil {
+		return "", "plankton reported success but its reproduction level could not be parsed from its output:\n" + out
 	}
+	achieved := m[1]
+
 	if cfg.Raw.Reproduction.RequiredLevel == "L0" && achieved != "L0" {
-		return "", "this repo's policy requires L0; this reproduction only reached L1 via a normalizer"
+		return "", fmt.Sprintf("this repo's policy requires L0; this reproduction only reached %s", achieved)
 	}
 	return achieved, ""
 }

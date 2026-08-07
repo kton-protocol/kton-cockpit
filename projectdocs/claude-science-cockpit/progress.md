@@ -403,3 +403,12 @@ updated: 2026-07-22
   for `export --rdf`/`nekton export --nanopub`, just never extended to `reproductions`. Filing an
   upstream issue for that is now an open TODO. See
   [`reviews/michael-review-2026-08.md`](reviews/michael-review-2026-08.md) for full tracking.
+- **2026-08-07** — Fixes #3 and #4 done (staged). Fix #3's first pass had a real bug — caught by
+  cold-session review — where redaction over-matched on any embedded hash in a line rather than
+  the line's own record id; fixed by anchoring to the line's first match, with a regression test.
+  Fix #4 replaced `say.go`'s inferred reproduction level with real parsing of plankton's own
+  `reproduction: <level>` line — verified live against the real vendored binary reproducing
+  Michael's exact reported scenario (identical bytes + `--via` still correctly reports L0).
+  Adopted a new standard procedure for all future fixes: cold-session review fans out to 3
+  focused agents (duplication / soundness-not-workaround / security) instead of one generalist
+  pass — see [ADR-002](decisions/adr-002-fix-review-procedure.md).
