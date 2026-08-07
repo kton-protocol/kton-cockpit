@@ -396,3 +396,10 @@ updated: 2026-07-22
   participants' fotons, and `plankton reproductions` run directly against p2's own registry
   returns the real ↻1 result matching what a `cockpit_ask` call from p2's session should now
   correctly report.
+- **2026-08-06** — Started working through Michael's 5-item blocking review, one fix per commit,
+  each checked by an independent cold-session review before commit. Fix #1 committed; fix #2
+  staged. While verifying fix #2, found `plankton reproductions` has never had `--trust-keys`
+  support anywhere upstream — and that this is the exact bug class commit `e92beca` already fixed
+  for `export --rdf`/`nekton export --nanopub`, just never extended to `reproductions`. Filing an
+  upstream issue for that is now an open TODO. See
+  [`reviews/michael-review-2026-08.md`](reviews/michael-review-2026-08.md) for full tracking.
