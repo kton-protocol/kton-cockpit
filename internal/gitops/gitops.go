@@ -57,7 +57,13 @@ func redactSlice(args []string, secret string) []string {
 // It is a no-op (not an error) if there is nothing staged to commit — repeated publishes of
 // already-committed bytes should not fail.
 func CommitAndPush(ctx context.Context, cfg *config.Config, paths []string, message string) (sha string, err error) {
-	args := append([]string{"add"}, paths...)
+	// The "--" separator is load-bearing, not cosmetic: without it, a path that happens to start
+	// with "-" (e.g. "-f") is parsed by git as a FLAG, not a literal path — "git add -f ." force-
+	// adds every gitignored file in the repo, keys included, without the string "keys/..." ever
+	// appearing in the request. internal/tools/publish.go's validatePublishPath also rejects
+	// leading-dash paths as defense in depth, but this is the actual, root-cause fix: with "--",
+	// everything after it is unconditionally a pathspec, regardless of what it starts with.
+	args := append([]string{"add", "--"}, paths...)
 	if _, err := run(ctx, cfg.RepoRoot, "git", args...); err != nil {
 		return "", err
 	}

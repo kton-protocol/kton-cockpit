@@ -3,6 +3,8 @@ package tools
 import (
 	"context"
 	"os"
+	"os/exec"
+	"strings"
 	"testing"
 )
 
@@ -101,6 +103,93 @@ func TestConfigGuard_RefusesOutsideAnyGitRepo(t *testing.T) {
 	if !result.IsError {
 		t.Fatal("expected the anti-wrong-folder guard to refuse outside any git repository")
 	}
+}
+
+// TestPublish_RefusesToCommitSigningKey is the integration-level companion to
+// publish_denylist_test.go's unit tests: it drives the real Publish() handler (not just
+// validatePublishPath in isolation) against a real repo that has a real signing key on disk
+// (keys/session-1.key, referenced by this repo's own cockpit.config.json identity.plankton_key),
+// and confirms two things a unit test on the pure function can't: (1) the denial actually happens
+// inside Publish() before anything else runs, and (2) — most importantly — no git state changes
+// at all: HEAD stays exactly where it was, proving the key was never staged, committed, or
+// pushed, not just that an error was returned alongside a mutation that happened anyway.
+func TestPublish_RefusesToCommitSigningKey(t *testing.T) {
+	chdir(t, realParticipantRepo)
+
+	beforeSHA := headSHA(t, realParticipantRepo)
+
+	result, out, err := Publish(context.Background(), nil, PublishInput{
+		Outputs: []string{"keys/session-1.key"},
+		Cmd:     "cat keys/session-1.key",
+	})
+	if err != nil {
+		t.Fatalf("expected a tool-level error, not a Go error: %v", err)
+	}
+	if !result.IsError {
+		t.Fatalf("expected publish to refuse committing a signing key, got a successful result: %+v", out)
+	}
+
+	afterSHA := headSHA(t, realParticipantRepo)
+	if afterSHA != beforeSHA {
+		t.Fatalf("HEAD changed (%s -> %s) even though publish should have refused before touching git at all",
+			beforeSHA, afterSHA)
+	}
+}
+
+// TestPublish_RefusesLeadingDashOutput is the integration-level regression test for the critical
+// bypass an independent cold-session review found: gitops.CommitAndPush built `git add` with no
+// "--" separator, so outputs: ["-f", "."] was parsed by git as `git add -f .` — a FLAG, not a
+// literal path — force-adding every gitignored file in the repo (keys included) without the
+// string "keys/..." ever appearing in the request. This is strictly worse than the hole Michael
+// originally described (it doesn't even require naming a key) and would have sailed past every
+// check in the original fix. Confirms both that the call is refused AND — the assertion that
+// actually matters here — that nothing was force-staged into the index at all, not just that HEAD
+// didn't move (a partial "staged but not committed" failure would pass a HEAD-only check).
+func TestPublish_RefusesLeadingDashOutput(t *testing.T) {
+	chdir(t, realParticipantRepo)
+
+	beforeSHA := headSHA(t, realParticipantRepo)
+
+	result, out, err := Publish(context.Background(), nil, PublishInput{
+		Outputs: []string{"-f", "."},
+		Cmd:     "echo pwned",
+	})
+	if err != nil {
+		t.Fatalf("expected a tool-level error, not a Go error: %v", err)
+	}
+	if !result.IsError {
+		t.Fatalf("expected publish to refuse a leading-dash output path, got a successful result: %+v", out)
+	}
+
+	if afterSHA := headSHA(t, realParticipantRepo); afterSHA != beforeSHA {
+		t.Fatalf("HEAD changed (%s -> %s) even though publish should have refused before touching git at all",
+			beforeSHA, afterSHA)
+	}
+	if staged := stagedFiles(t, realParticipantRepo); staged != "" {
+		t.Fatalf("expected nothing staged in the index, but found:\n%s", staged)
+	}
+}
+
+func stagedFiles(t *testing.T, repoDir string) string {
+	t.Helper()
+	cmd := exec.Command("git", "diff", "--cached", "--name-only")
+	cmd.Dir = repoDir
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("git diff --cached --name-only in %s: %v", repoDir, err)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+func headSHA(t *testing.T, repoDir string) string {
+	t.Helper()
+	cmd := exec.Command("git", "rev-parse", "HEAD")
+	cmd.Dir = repoDir
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("git rev-parse HEAD in %s: %v", repoDir, err)
+	}
+	return strings.TrimSpace(string(out))
 }
 
 func TestConfigGuard_CockpitRepoDirEnvOverridesCwd(t *testing.T) {
