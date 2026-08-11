@@ -6,6 +6,7 @@ package binaries
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -207,26 +208,63 @@ func trustKeysDir(cfg *config.Config) (dir string, cleanup func(), err error) {
 
 // Reproduces checks two output hashes for L0/L1 equivalence (exit 0 = pass); via, if non-empty,
 // names the shared normalizer.
+//
+// Distinguishes an exec-level failure (the vendored binary itself couldn't run at all — missing,
+// not executable, permission denied) from the binary actually running and reporting non-zero: an
+// independent cold-session review found the previous "any non-zero exit -> false, no error"
+// collapse meant a missing/broken plankton binary was silently reported to the caller as "outputs
+// do not match" (say.go's determineReproductionLevel has a real `if err != nil` branch after this
+// call that could never fire before this fix — dead code, confirmed live). Unlike VerifyFoton/
+// VerifyClaim, `reproduces` has no documented exit code distinguishing "no match" from a usage
+// error (both were confirmed to return exit 1 with the vendored binary) — so a real usage error
+// still can't be told apart from a genuine non-match here; that gap is a known, upstream-shaped
+// limitation (the same class of thing as the --trust-keys-on-reproductions gap already tracked
+// elsewhere), not something a cockpit-side workaround should paper over. This fix closes the
+// narrower, unambiguous case: the exec layer itself failing before the binary ever got to render
+// any verdict at all.
 func (r *Runner) Reproduces(ctx context.Context, refHash, candHash, via string) (ok bool, output string, err error) {
 	args := []string{"reproduces", refHash, candHash}
 	if via != "" {
 		args = append(args, "--via", via)
 	}
 	out, err := r.plankton(ctx, args...)
-	if err != nil {
-		return false, out, nil // non-zero exit = not reproduced, not a tool failure
+	if err == nil {
+		return true, out, nil
 	}
-	return true, out, nil
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return false, out, nil // the binary ran and reported non-zero — a legitimate non-match, not a tool failure
+	}
+	return false, out, err // exec-level failure (missing binary, permission denied, ...) — a real error
 }
 
 // VerifyFoton verifies a plankton envelope/id against an explicit pubkey — never against the
 // envelope's own declared keyid.
+//
+// Confirmed live against the reference binary: exit 0 = "VALID", exit 2 = "UNVERIFIED - WRONG
+// KEY" (this key genuinely did not sign the record — the expected, non-error outcome while trying
+// each configured trust-tier pubkey in turn), and any OTHER non-zero exit (e.g. exit 1, prefixed
+// "error: ...") is a real failure: pubkey file not found, record not found, malformed input.
+// Collapsing all three into "ok=false, err=nil" — the previous behavior — silently turns a broken
+// trust-tier config (e.g. a typo'd .pub path) into what looks like a legitimate "untrusted signer"
+// verdict, with no error ever surfaced to tell the operator their config itself is broken.
 func (r *Runner) VerifyFoton(ctx context.Context, idOrFile, pubkeyPath string) (ok bool, output string, err error) {
 	out, err := r.plankton(ctx, "verify", idOrFile, pubkeyPath)
-	if err != nil {
+	if err == nil {
+		return true, out, nil
+	}
+	if isVerifyMismatch(err) {
 		return false, out, nil
 	}
-	return true, out, nil
+	return false, out, err
+}
+
+// isVerifyMismatch reports whether err represents plankton/nekton verify's own exit code 2 — a
+// genuine, expected "this key did not sign the record" outcome — as opposed to any other failure
+// (missing file, bad input, binary crash), which callers must treat as a real error.
+func isVerifyMismatch(err error) bool {
+	var exitErr *exec.ExitError
+	return errors.As(err, &exitErr) && exitErr.ExitCode() == 2
 }
 
 // --- nekton ---
@@ -262,11 +300,16 @@ func (r *Runner) Templates(ctx context.Context, show string) (string, error) {
 	return r.nekton(ctx, "templates", "--show", show)
 }
 
-// VerifyClaim verifies a nekton claim envelope/id against an explicit pubkey.
+// VerifyClaim verifies a nekton claim envelope/id against an explicit pubkey. Same exit-code
+// convention as VerifyFoton (confirmed live: 0 = valid, 2 = wrong-key mismatch, anything else is
+// a real error) — see that function's comment for why the distinction matters.
 func (r *Runner) VerifyClaim(ctx context.Context, idOrFile, pubkeyPath string) (ok bool, output string, err error) {
 	out, err := r.nekton(ctx, "verify", idOrFile, pubkeyPath)
-	if err != nil {
+	if err == nil {
+		return true, out, nil
+	}
+	if isVerifyMismatch(err) {
 		return false, out, nil
 	}
-	return true, out, nil
+	return false, out, err
 }
