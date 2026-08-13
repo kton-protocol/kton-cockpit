@@ -118,12 +118,24 @@ func Publish(ctx context.Context, _ *mcp.CallToolRequest, in PublishInput) (*mcp
 		outputHashes[o] = h
 	}
 
-	if _, err := gitops.CommitAndPush(ctx, cfg, []string{cfg.Raw.Paths.PlanktonDir}, "foton: "+in.Cmd); err != nil {
+	// Publish does two SEPARATE commits — inputs+outputs first, then the signed registry entry,
+	// since the foton can't be authored until its --located permalinks (anchored to the FIRST
+	// commit) already exist. This second commit's sha was previously discarded (`if _, err :=
+	// ...`), so the CommitSHA returned to Claude was always one commit stale — genuinely NOT the
+	// repo's actual HEAD by the time Publish returns, confirmed live: `git ls-remote origin HEAD`
+	// disagreed with the reported CommitSHA. Captured here and returned instead, since it's the
+	// real final state of the repo after this call. The foton's OWN embedded --located permalinks
+	// (baked into the signed descriptor, via `located` below) correctly stay anchored to the first
+	// commit — unavoidable, since authoring happens between the two commits — but that's fine: the
+	// input/output files' bytes are identical in both, so those permalinks resolve correctly
+	// either way, just not to the newest commit.
+	finalSHA, err := gitops.CommitAndPush(ctx, cfg, []string{cfg.Raw.Paths.PlanktonDir}, "foton: "+in.Cmd)
+	if err != nil {
 		return errResult[PublishOutput]("git commit/push of the registry failed: %v", err)
 	}
 
 	permalinks := map[string]string{}
-	base := gitops.PermalinkBase(cfg, sha)
+	base := gitops.PermalinkBase(cfg, finalSHA)
 	for _, p := range allPaths {
 		permalinks[p] = base + "/" + p
 	}
@@ -131,7 +143,7 @@ func Publish(ctx context.Context, _ *mcp.CallToolRequest, in PublishInput) (*mcp
 	return &mcp.CallToolResult{}, PublishOutput{
 		FotonID:      fotonID,
 		OutputHashes: outputHashes,
-		CommitSHA:    sha,
+		CommitSHA:    finalSHA,
 		Permalinks:   permalinks,
 	}, nil
 }
