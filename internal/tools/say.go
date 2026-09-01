@@ -71,13 +71,33 @@ func Say(ctx context.Context, _ *mcp.CallToolRequest, in SayInput) (*mcp.CallToo
 		return errResult[SayOutput]("git commit/push of the claim registry failed: %v", err)
 	}
 
-	confirmation, err := r.About(ctx, in.Subject)
+	claims, err := r.About(ctx, in.Subject)
 	if err != nil {
 		return errResult[SayOutput]("claim was recorded but confirmation query (nekton about) failed: %v", err)
 	}
+	// The manual workflow confirms a claim by querying it back rather than trusting the write; the
+	// cockpit does the same. Until about returned structured claims this could only hand back a
+	// block of prose for someone else to read, which meant a claim that signed but never registered
+	// still reported success. Now it is an actual check.
+	registered := false
+	for _, c := range claims {
+		if c.ID == claimID {
+			registered = true
+			break
+		}
+	}
+	if !registered {
+		return errResult[SayOutput](
+			"claim %s was signed but is not among the %d claim(s) nekton reports about %s — it did not register",
+			claimID, len(claims), in.Subject)
+	}
 
 	level := sets["level"]
-	return &mcp.CallToolResult{}, SayOutput{ClaimID: claimID, Level: level, Confirmation: confirmation}, nil
+	return &mcp.CallToolResult{}, SayOutput{
+		ClaimID:      claimID,
+		Level:        level,
+		Confirmation: fmt.Sprintf("registered: nekton reports %s among the %d claim(s) about %s", claimID, len(claims), in.Subject),
+	}, nil
 }
 
 // reproductionLevelRe matches plankton's own `reproduction: <level>` line — printed at the start

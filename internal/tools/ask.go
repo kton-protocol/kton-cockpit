@@ -16,8 +16,11 @@ import (
 // narrow within the trust tiers configured for this repo; it can never surface a tier or signer
 // absent from cockpit.config.json.
 type AskInput struct {
-	Query  string     `json:"query" jsonschema:"one of: producer, uses, lineage, reproductions, about, by"`
-	Ref    string     `json:"ref" jsonschema:"the hash, subject, or value to query"`
+	Query string `json:"query" jsonschema:"one of: producer, uses, lineage, reproductions, about, by"`
+	Ref   string `json:"ref" jsonschema:"the hash, subject, or value to query"`
+	// Axis is required for query "by" and ignored otherwise: nekton indexes claims under three
+	// separate axes and has no combined search, so there is no defensible default to pick here.
+	Axis   string     `json:"axis,omitempty" jsonschema:"for query \"by\" only: which index to search — signer, predicate, or object"`
 	Filter *AskFilter `json:"filter,omitempty"`
 }
 
@@ -48,9 +51,14 @@ type AskOutput struct {
 	// required, and a nil slice (the zero value returned on any error path) marshals to JSON null —
 	// which then fails the SDK's own output-schema validation with a confusing "type: null, want
 	// array" error that masks whatever the real error was.
-	Records       []RecordVerification `json:"records,omitempty"`
-	Included      []string             `json:"included,omitempty"`
-	Excluded      []string             `json:"excluded,omitempty"`
+	Records  []RecordVerification `json:"records,omitempty"`
+	Included []string             `json:"included,omitempty"`
+	Excluded []string             `json:"excluded,omitempty"`
+	// Claims carries the decoded claim axis for the "about" and "by" queries — what each claim
+	// actually says, not merely that it exists. It holds ONLY included claims: unlike Raw, which is
+	// scraped text that has to be redacted line by line, this is built from parsed records, so an
+	// unverified or filtered-out claim is never assembled into it in the first place.
+	Claims        []binaries.ClaimAxis `json:"claims,omitempty"`
 	FilterApplied string               `json:"filterApplied"`
 }
 
@@ -69,30 +77,97 @@ func Ask(ctx context.Context, _ *mcp.CallToolRequest, in AskInput) (*mcp.CallToo
 	}
 
 	r := binaries.New(cfg)
+	wantTier := ""
+	if in.Filter != nil {
+		wantTier = in.Filter.TrustTier
+	}
 
+	// The two families answer in different shapes and are handled separately rather than being
+	// forced through one path. nekton's about/by have a --json mode, so their claims are parsed and
+	// filtered structurally. plankton's lineage queries have no --json mode at all, so those stay
+	// on scraped text with the line-anchored redaction below.
+	switch in.Query {
+	case "about", "by":
+		return askClaims(ctx, cfg, r, in, wantTier)
+	case "producer", "uses", "lineage", "reproductions":
+		return askLineage(ctx, cfg, r, in, wantTier)
+	default:
+		return errResult[AskOutput]("unknown query %q (must be one of: producer, uses, lineage, reproductions, about, by)", in.Query)
+	}
+}
+
+// askClaims serves the nekton queries. Every claim is verified by id, and only claims that verify
+// into a configured trust tier (and, if a filter was given, into that tier) are assembled into the
+// answer at all — the excluded ones are accounted for in Records/Excluded but their content is
+// never rendered anywhere.
+func askClaims(ctx context.Context, cfg *config.Config, r *binaries.Runner, in AskInput, wantTier string) (*mcp.CallToolResult, AskOutput, error) {
+	var claims []binaries.ClaimAxis
+	var err error
+
+	switch in.Query {
+	case "about":
+		claims, err = r.About(ctx, in.Ref)
+	case "by":
+		if in.Axis == "" {
+			return errResult[AskOutput]("query \"by\" requires axis (signer, predicate, or object) — nekton indexes claims under three separate axes and has no combined search")
+		}
+		if !binaries.ValidByAxis(in.Axis) {
+			return errResult[AskOutput]("unknown axis %q for query \"by\" (must be one of: signer, predicate, object)", in.Axis)
+		}
+		claims, err = r.By(ctx, binaries.ByAxis(in.Axis), in.Ref)
+	}
+	if err != nil {
+		return errResult[AskOutput]("query failed: %v", err)
+	}
+
+	records := make([]RecordVerification, 0, len(claims))
+	included := []string{}
+	excluded := []string{}
+	includedClaims := []binaries.ClaimAxis{}
+	var lines []string
+
+	for _, c := range claims {
+		tier, _, verr := verify.ResolveTier(ctx, r, cfg, c.ID, verify.Claim)
+		if verr != nil {
+			return errResult[AskOutput]("verifying %s failed: %v", c.ID, verr)
+		}
+		verified := tier != verify.Untrusted
+		records = append(records, RecordVerification{ID: c.ID, Tier: tier, Verified: verified})
+
+		if !verified || (wantTier != "" && tier != wantTier) {
+			excluded = append(excluded, c.ID)
+			continue
+		}
+		included = append(included, c.ID)
+		includedClaims = append(includedClaims, c)
+		lines = append(lines, c.Line())
+	}
+
+	return &mcp.CallToolResult{}, AskOutput{
+		Query:         in.Query,
+		Ref:           in.Ref,
+		Raw:           strings.Join(lines, "\n"),
+		Records:       records,
+		Included:      included,
+		Excluded:      excluded,
+		Claims:        includedClaims,
+		FilterApplied: filterDescription(wantTier),
+	}, nil
+}
+
+// askLineage serves the plankton queries, whose output is text with one record per line.
+func askLineage(ctx context.Context, cfg *config.Config, r *binaries.Runner, in AskInput, wantTier string) (*mcp.CallToolResult, AskOutput, error) {
 	var raw string
-	var kind verify.Kind
+	var err error
 	switch in.Query {
 	case "producer":
 		raw, err = r.Producer(ctx, in.Ref)
-		kind = verify.Foton
 	case "uses":
 		raw, err = r.Uses(ctx, in.Ref)
-		kind = verify.Foton
 	case "lineage":
 		raw, err = r.Lineage(ctx, in.Ref)
-		kind = verify.Foton
 	case "reproductions":
 		raw, err = r.Reproductions(ctx, in.Ref)
-		kind = verify.Foton
-	case "about":
-		raw, err = r.About(ctx, in.Ref)
-		kind = verify.Claim
-	case "by":
-		raw, err = r.By(ctx, in.Ref)
-		kind = verify.Claim
-	default:
-		return errResult[AskOutput]("unknown query %q (must be one of: producer, uses, lineage, reproductions, about, by)", in.Query)
 	}
 	if err != nil {
 		return errResult[AskOutput]("query failed: %v", err)
@@ -103,8 +178,8 @@ func Ask(ctx context.Context, _ *mcp.CallToolRequest, in AskInput) (*mcp.CallToo
 	// reproductions' own summary line, or producer/uses/lineage's "(none) - <ref> is a lineage
 	// root..." message). Left in, it would get run through verification like any other record —
 	// and since a query subject essentially never itself verifies as a record (an output hash
-	// looked up as a foton/claim id normally won't resolve), it would always land in Excluded and
-	// get its own line redacted below, which for reproductions means redacting the line with the
+	// looked up as a foton id normally won't resolve), it would always land in Excluded and get
+	// its own line redacted below, which for reproductions means redacting the line with the
 	// actual answer.
 	ids := excludeRef(uniqueMatches(recordIDRe, raw), in.Ref)
 	records := make([]RecordVerification, 0, len(ids))
@@ -112,38 +187,25 @@ func Ask(ctx context.Context, _ *mcp.CallToolRequest, in AskInput) (*mcp.CallToo
 	excluded := []string{}
 	excludedReasons := map[string]string{}
 
-	wantTier := ""
-	if in.Filter != nil {
-		wantTier = in.Filter.TrustTier
-	}
-
 	for _, id := range ids {
-		tier, _, verr := verify.ResolveTier(ctx, r, cfg, id, kind)
+		tier, _, verr := verify.ResolveTier(ctx, r, cfg, id, verify.Foton)
 		if verr != nil {
 			return errResult[AskOutput]("verifying %s failed: %v", id, verr)
 		}
 		verified := tier != verify.Untrusted
 		records = append(records, RecordVerification{ID: id, Tier: tier, Verified: verified})
 
-		include := verified
-		if include && wantTier != "" {
-			include = tier == wantTier
-		}
-		if include {
-			included = append(included, id)
-		} else {
+		if !verified {
 			excluded = append(excluded, id)
-			if !verified {
-				excludedReasons[id] = "not verified against any configured trust tier"
-			} else {
-				excludedReasons[id] = fmt.Sprintf("verified as trust tier %q, but this query requested trustTier=%q", tier, wantTier)
-			}
+			excludedReasons[id] = "not verified against any configured trust tier"
+			continue
 		}
-	}
-
-	filterApplied := "none — every record verified against a configured trust tier is included; unverified records are always excluded"
-	if wantTier != "" {
-		filterApplied = fmt.Sprintf("trustTier=%s", wantTier)
+		if wantTier != "" && tier != wantTier {
+			excluded = append(excluded, id)
+			excludedReasons[id] = fmt.Sprintf("verified as trust tier %q, but this query requested trustTier=%q", tier, wantTier)
+			continue
+		}
+		included = append(included, id)
 	}
 
 	return &mcp.CallToolResult{}, AskOutput{
@@ -153,8 +215,15 @@ func Ask(ctx context.Context, _ *mcp.CallToolRequest, in AskInput) (*mcp.CallToo
 		Records:       records,
 		Included:      included,
 		Excluded:      excluded,
-		FilterApplied: filterApplied,
+		FilterApplied: filterDescription(wantTier),
 	}, nil
+}
+
+func filterDescription(wantTier string) string {
+	if wantTier != "" {
+		return fmt.Sprintf("trustTier=%s", wantTier)
+	}
+	return "none — every record verified against a configured trust tier is included; unverified records are always excluded"
 }
 
 func uniqueMatches(re *regexp.Regexp, s string) []string {

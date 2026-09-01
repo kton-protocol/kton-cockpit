@@ -266,14 +266,46 @@ func (r *Runner) Annotate(ctx context.Context, subject, template string, sets ma
 var indexedClaimRe = regexp.MustCompile(`(?m)^indexed claim (sha256:[0-9a-f]{64})\b`)
 
 // About lists claims about a subject (hash or URI) — used both to serve `ask` and to confirm a
-// `say` registered.
-func (r *Runner) About(ctx context.Context, subject string) (string, error) {
-	return r.nekton(ctx, "about", subject)
+// `say` registered. It reads nekton's --json mode rather than its prose (upstream #39): the prose
+// carries only the id, predicate and declared signer, so the claim's actual content — the object,
+// i.e. what was said — was unreachable through it.
+func (r *Runner) About(ctx context.Context, subject string) ([]ClaimAxis, error) {
+	out, err := r.nekton(ctx, "about", subject, "--json")
+	if err != nil {
+		return nil, err
+	}
+	return parseClaimsJSON(out)
 }
 
-// By lists claims by signer keyid, predicate, or object.
-func (r *Runner) By(ctx context.Context, value string) (string, error) {
-	return r.nekton(ctx, "by", value)
+// ByAxis is which index `nekton by` searches. It is a required argument of that command, not an
+// optional refinement: there is no "search everything" form.
+type ByAxis string
+
+const (
+	BySigner    ByAxis = "signer"
+	ByPredicate ByAxis = "predicate"
+	ByObject    ByAxis = "object"
+)
+
+// ValidByAxis reports whether s names one of nekton's three `by` indexes.
+func ValidByAxis(s string) bool {
+	switch ByAxis(s) {
+	case BySigner, ByPredicate, ByObject:
+		return true
+	}
+	return false
+}
+
+// By lists claims indexed under one of the three axes. The axis argument is not optional: prior
+// to this the cockpit called `nekton by <value>` with the axis omitted, which every version of
+// nekton back to 0.1 rejects outright with its usage line — so `ask` with query "by" could never
+// have returned an answer, despite being advertised in the tool's own schema.
+func (r *Runner) By(ctx context.Context, axis ByAxis, value string) ([]ClaimAxis, error) {
+	out, err := r.nekton(ctx, "by", string(axis), value, "--json")
+	if err != nil {
+		return nil, err
+	}
+	return parseClaimsJSON(out)
 }
 
 // Templates lists available claim templates, or shows one template's fields with show != "".

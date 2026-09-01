@@ -340,3 +340,174 @@ func TestConfigGuard_CockpitRepoDirEnvOverridesCwd(t *testing.T) {
 		t.Fatalf("expected COCKPIT_REPO_DIR to resolve against the fixture repo, got: %+v", result.Content)
 	}
 }
+
+// sayWorkingOn records a working-on claim on the given subject and returns its id.
+func sayWorkingOn(t *testing.T, subject string) string {
+	t.Helper()
+	result, out, err := Say(context.Background(), nil, SayInput{
+		Subject:  subject,
+		Template: "working-on",
+		Fields:   map[string]string{"step": "analysis", "by-session": testrepo.SessionID},
+	})
+	if err != nil {
+		t.Fatalf("Say returned a Go error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("say failed: %+v", result.Content)
+	}
+	return out.ClaimID
+}
+
+// The point of reading nekton's --json mode rather than its prose: the prose carries the claim's
+// id, predicate and declared signer, and nothing else. What the claim SAYS — the object, i.e. the
+// values the template's fields were filled with — has no place in it at all.
+func TestAsk_AboutReturnsWhatTheClaimSaysNotJustThatItExists(t *testing.T) {
+	r := testrepo.New(t)
+	r.Use(t)
+	pub := publishOne(t, r)
+	claimID := sayWorkingOn(t, pub.FotonID)
+
+	result, out, err := Ask(context.Background(), nil, AskInput{Query: "about", Ref: pub.FotonID})
+	if err != nil {
+		t.Fatalf("Ask returned a Go error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("about query failed: %+v", result.Content)
+	}
+	if len(out.Claims) != 1 {
+		t.Fatalf("expected exactly the one claim just recorded, got %d: %+v", len(out.Claims), out.Claims)
+	}
+	c := out.Claims[0]
+	if c.ID != claimID {
+		t.Fatalf("claim id mismatch: got %s, recorded %s", c.ID, claimID)
+	}
+	if c.Predicate != "https://kton.dev/v/working-on" {
+		t.Fatalf("predicate not decoded: %q", c.Predicate)
+	}
+	if c.Subject != pub.FotonID {
+		t.Fatalf("subject not decoded: got %q, want %q", c.Subject, pub.FotonID)
+	}
+	if c.When == "" || c.DeclaredBy == "" || len(c.SignatureKeyIDs) == 0 {
+		t.Fatalf("envelope fields not decoded: %+v", c)
+	}
+	obj, ok := c.Object.(map[string]any)
+	if !ok {
+		t.Fatalf("object not decoded as a map: %#v", c.Object)
+	}
+	if obj["step"] != "analysis" || obj["by-session"] != testrepo.SessionID {
+		t.Fatalf("the claim's own field values did not survive decoding: %+v", obj)
+	}
+}
+
+// `ask` has advertised a "by" query in its schema since the beginning, but the cockpit called
+// `nekton by <value>` with the axis omitted — a form every nekton back to 0.1 rejects with its
+// usage line. The query could never return an answer. This is the first test that runs it.
+func TestAsk_ByPredicateFindsTheClaim(t *testing.T) {
+	r := testrepo.New(t)
+	r.Use(t)
+	pub := publishOne(t, r)
+	claimID := sayWorkingOn(t, pub.FotonID)
+
+	result, out, err := Ask(context.Background(), nil, AskInput{
+		Query: "by",
+		Axis:  "predicate",
+		Ref:   "https://kton.dev/v/working-on",
+	})
+	if err != nil {
+		t.Fatalf("Ask returned a Go error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("by/predicate query failed: %+v", result.Content)
+	}
+	if len(out.Included) != 1 || out.Included[0] != claimID {
+		t.Fatalf("by/predicate did not find the claim; included=%+v claims=%+v", out.Included, out.Claims)
+	}
+}
+
+func TestAsk_BySignerFindsTheClaim(t *testing.T) {
+	r := testrepo.New(t)
+	r.Use(t)
+	pub := publishOne(t, r)
+	claimID := sayWorkingOn(t, pub.FotonID)
+
+	// The signing keyid, taken from the claim's own envelope rather than recomputed.
+	_, about, err := Ask(context.Background(), nil, AskInput{Query: "about", Ref: pub.FotonID})
+	if err != nil || len(about.Claims) == 0 {
+		t.Fatalf("could not read back the claim to learn its keyid: err=%v claims=%+v", err, about.Claims)
+	}
+	keyid := about.Claims[0].SignatureKeyIDs[0]
+
+	result, out, err := Ask(context.Background(), nil, AskInput{Query: "by", Axis: "signer", Ref: keyid})
+	if err != nil {
+		t.Fatalf("Ask returned a Go error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("by/signer query failed: %+v", result.Content)
+	}
+	if len(out.Included) != 1 || out.Included[0] != claimID {
+		t.Fatalf("by/signer did not find the claim; included=%+v", out.Included)
+	}
+}
+
+func TestAsk_ByWithoutAnAxisIsRejected(t *testing.T) {
+	r := testrepo.New(t)
+	r.Use(t)
+
+	result, _, err := Ask(context.Background(), nil, AskInput{Query: "by", Ref: "https://kton.dev/v/working-on"})
+	if err != nil {
+		t.Fatalf("expected a tool-level error, not a Go error: %v", err)
+	}
+	if !result.IsError {
+		t.Fatal("expected `by` without an axis to be rejected, since nekton has no combined search")
+	}
+}
+
+func TestAsk_ByWithAnUnknownAxisIsRejected(t *testing.T) {
+	r := testrepo.New(t)
+	r.Use(t)
+
+	result, _, err := Ask(context.Background(), nil, AskInput{Query: "by", Axis: "everything", Ref: "x"})
+	if err != nil {
+		t.Fatalf("expected a tool-level error, not a Go error: %v", err)
+	}
+	if !result.IsError {
+		t.Fatal("expected an unknown `by` axis to be rejected before it reaches nekton")
+	}
+}
+
+// A claim outside every configured trust tier must not have its content assembled into the
+// answer at all — not merely be flagged. The claims path never renders an excluded claim, so
+// this checks the stronger property that Raw and Claims stay empty while Records still accounts
+// for what was found.
+func TestAsk_AboutExcludesAClaimThatVerifiesAgainstNoConfiguredTier(t *testing.T) {
+	r := testrepo.New(t)
+	r.Use(t)
+	pub := publishOne(t, r)
+	claimID := sayWorkingOn(t, pub.FotonID)
+
+	// Empty the trust tiers: the claim is unchanged and still signed, but nothing in this repo's
+	// config can verify it any more.
+	raw := testrepo.DefaultConfig()
+	raw.Trust.Tiers = map[string][]string{"self": {}}
+	b, err := json.MarshalIndent(raw, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(r.Root, "cockpit.config.json"), b, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, out, err := Ask(context.Background(), nil, AskInput{Query: "about", Ref: pub.FotonID})
+	if err != nil {
+		t.Fatalf("Ask returned a Go error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("about query failed: %+v", result.Content)
+	}
+	if len(out.Claims) != 0 || out.Raw != "" {
+		t.Fatalf("an unverifiable claim's content reached the answer: claims=%+v raw=%q", out.Claims, out.Raw)
+	}
+	if len(out.Excluded) != 1 || out.Excluded[0] != claimID {
+		t.Fatalf("the claim was not accounted for as excluded: %+v", out.Excluded)
+	}
+}
