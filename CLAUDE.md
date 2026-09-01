@@ -25,6 +25,27 @@ go build -o bin/cockpit ./cmd/cockpit
 Requires Go ≥ 1.25 (the module's `go.mod` pins this via the `github.com/modelcontextprotocol/go-sdk`
 dependency; `go build`/`go run` auto-fetch the matching toolchain if the ambient `go` is older).
 
+### The kernel binaries
+
+`bin/plankton` and `bin/nekton` are not in this repo (`bin/` is gitignored) and no longer come from
+`gitmick/plankton`, which is archived and private. Build them from
+[`kton-protocol/kton`](https://github.com/kton-protocol/kton):
+
+```bash
+cd /path/to/kton                                    # branch: dev
+go build -o /path/to/cockpit/bin/plankton ./reference/cmd/plankton
+go build -o /path/to/cockpit/bin/nekton   ./nekton/reference/cmd/nekton
+```
+
+**Which kernel a store was written with decides whether it reads as populated or as empty with exit
+0.** An older binary against the current single-file subnekton layout finds nothing and still exits
+successfully; kton 0.2 added `objects/.format` so a store can say what wrote it, but an old binary
+does not know to look. So: never use a `plankton`/`nekton` from `$PATH`, a package manager, or
+another checkout — only one built from the kton tree you mean.
+
+**Verified against:** kton `dev` at `fe56789` (0.2). `dev` moves; when this drifts, rebuild and
+re-run `go test ./...` before trusting anything, and update this line.
+
 ## Subcommands
 
 ```
@@ -44,21 +65,21 @@ go vet ./...
 go test ./...
 ```
 
-### Manual smoke test against a real, already-populated registry
+`go test ./...` needs no fixtures and no pre-existing repo. `internal/testrepo` builds a complete
+participant repo from nothing for each test — git init, a real github.com `origin` (so the
+anti-wrong-folder guard runs unmodified; only the remote's *push* url points at a local bare repo,
+so commits and pushes complete offline), the registry/keys/templates/bin layout, signing identities
+from the real `keygen`, the claim templates, and a `cockpit.config.json`. Records are genuinely
+signed; assertions are about what actually happened.
 
-Before wiring the cockpit into any live GitHub-connected repo, point `cockpit doctor` at one of the
-existing local participant clones from the live demo run — real signed data, no fixtures to
-fabricate (the exact repo name has changed as local demo repos were reorganized; check
-`/mnt/c/dev/planktonReproduce/` for whichever `participant-*` currently exists):
+If `bin/` is empty, the tests build the kernel themselves from `$KTON_SRC`, else a sibling `../kton`
+checkout. `COCKPIT_TEST_PLANKTON`/`COCKPIT_TEST_NEKTON` override both. They never fall back to
+`$PATH` — see the warning under "The kernel binaries" for why.
 
-```bash
-cd /mnt/c/dev/planktonReproduce/participant-christian   # or whichever currently exists
-# (if cockpit.config.json doesn't exist yet — `cockpit init` scaffolds one, using
-#  that repo's own git remote to fill in repo.owner/repo.name; fill in trust.tiers by hand
-#  before running `doctor` — the schema comment on that field explains the shape)
-/mnt/c/dev/planktonClaudeScienceCockpit/bin/cockpit init
-/mnt/c/dev/planktonClaudeScienceCockpit/bin/cockpit doctor
-```
+Nothing in the suite skips. If a test cannot run it fails, because a suite that quietly degrades to
+skips is how this one previously spent months reporting success while exercising none of the
+handlers: it pointed at a hand-made local clone by absolute path (`/mnt/c/dev/planktonReproduce/…`)
+that had been reorganized away.
 
 ### Automated end-to-end UAT
 

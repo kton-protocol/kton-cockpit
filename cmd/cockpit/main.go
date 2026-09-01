@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/deathbychoco/claude-science-cockpit/internal/binaries"
 	"github.com/deathbychoco/claude-science-cockpit/internal/config"
 	"github.com/deathbychoco/claude-science-cockpit/internal/tools"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -157,6 +158,22 @@ func runDoctor(ctx context.Context) error {
 	fmt.Printf("nekton key:     %s\n", checkPath(cfg.NektonKey))
 	fmt.Printf("allowed templates: %v\n", cfg.Raw.Claims.AllowedTemplates)
 	fmt.Printf("trust tiers:    %v\n", cfg.Raw.Trust.Tiers)
+
+	// Last, and reported by the binaries themselves rather than from anything recorded: which
+	// kernel build will actually run decides whether a store reads as populated or as empty with
+	// exit 0, and whether the flags the cockpit depends on exist at all.
+	r := binaries.New(cfg)
+	plankton, nekton, verr := r.KernelVersions(ctx)
+	if verr != nil {
+		return fmt.Errorf("kernel: %w", verr)
+	}
+	fmt.Printf("plankton ver:   %s\n", plankton)
+	fmt.Printf("nekton ver:     %s\n", nekton)
+	if err := r.CheckKernel(ctx); err != nil {
+		return fmt.Errorf("kernel too old: %w", err)
+	}
+	fmt.Printf("kernel:         meets the required %d.%d minimum  [ok]\n",
+		binaries.RequiredKernelMajor, binaries.RequiredKernelMinor)
 	return nil
 }
 
