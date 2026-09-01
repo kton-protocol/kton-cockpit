@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/deathbychoco/claude-science-cockpit/internal/config"
@@ -155,11 +156,10 @@ func (r *Runner) Lineage(ctx context.Context, hash string) (string, error) {
 // failures), and plankton always prints that answer to stdout before exiting — so a non-zero exit
 // with non-empty stdout is treated as a valid, informational zero-count result, same convention
 // as Reproduces below. A non-zero exit with EMPTY stdout means the command itself rejected the
-// call outright (most plausibly: this vendored plankton binary predates --trust-keys support on
-// `reproductions` — as of this writing that flag exists nowhere upstream on this subcommand
-// either, only on `export --rdf`; see the cockpit's project docs for the tracked upstream gap)
-// rather than answering "zero producers", and is surfaced as a real, actionable error instead of
-// being handed to Claude as if it were a valid count.
+// call outright (most plausibly: the vendored plankton binary predates --trust-keys support on
+// `reproductions`, which kton 0.2 does provide but 0.1 did not) rather than answering "zero
+// producers", and is surfaced as a real, actionable error instead of being handed to Claude as if
+// it were a valid count.
 func (r *Runner) Reproductions(ctx context.Context, outputHash string) (string, error) {
 	dir, cleanup, err := trustKeysDir(r.cfg)
 	if err != nil {
@@ -234,14 +234,36 @@ func (r *Runner) VerifyFoton(ctx context.Context, idOrFile, pubkeyPath string) (
 // Annotate runs `nekton annotate` from a template and returns the printed claim id (nekton
 // prints the claim's registry id on `--add`; callers should follow up with About to confirm
 // registration, mirroring the manual workflow's explicit confirm step).
+//
+// Unlike `plankton author --print-id`, `nekton annotate` has no machine-readable mode: it prints
+// four lines of human prose to STDOUT (not stderr), the id embedded among them. So the id is
+// parsed out here rather than returned raw — returning the whole block would hand the caller a
+// paragraph where it expects an id. Filed upstream against kton-protocol/kton alongside #39,
+// which is the same problem on the read side (about/by print prose too).
 func (r *Runner) Annotate(ctx context.Context, subject, template string, sets map[string]string, signKey string) (string, error) {
 	args := []string{"annotate", subject, "--template", template}
 	for k, v := range sets {
 		args = append(args, "--set", fmt.Sprintf("%s=%s", k, v))
 	}
 	args = append(args, "--sign", signKey, "--add")
-	return r.nekton(ctx, args...)
+	out, err := r.nekton(ctx, args...)
+	if err != nil {
+		return "", err
+	}
+	// Anchored on the "indexed claim" line specifically, not on the earlier "claim <id>" line
+	// that merely reports what was authored: only the indexed line means --add actually ingested
+	// it into the registry. If ingestion did not happen, there is no id to report and this fails
+	// closed rather than handing back an id for a claim no query will find.
+	m := indexedClaimRe.FindStringSubmatch(out)
+	if m == nil {
+		return "", fmt.Errorf("nekton annotate did not report an indexed claim id; output was:\n%s", out)
+	}
+	return m[1], nil
 }
+
+// indexedClaimRe matches nekton's own registration line, e.g.
+// `indexed claim sha256:98a1…  (registry now holds 1 claims)`.
+var indexedClaimRe = regexp.MustCompile(`(?m)^indexed claim (sha256:[0-9a-f]{64})\b`)
 
 // About lists claims about a subject (hash or URI) — used both to serve `ask` and to confirm a
 // `say` registered.

@@ -2,22 +2,27 @@ package tools
 
 import (
 	"context"
+	"encoding/json"
 	"os"
+	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/deathbychoco/claude-science-cockpit/internal/testrepo"
 )
 
-// These tests drive the real tool handlers against a real, fully-configured participant repo
-// (not a fabricated fixture) — the anti-wrong-folder guard genuinely checks its actual git
-// remote. It has no published fotons yet (that happens interactively, later in the tutorial), so
-// these exercise the "no data yet" and guard paths honestly rather than assuming specific hashes
-// exist. If this path goes stale again (local demo repos get reorganized often), point it at
-// whichever participant repo currently has a valid cockpit.config.json + keys.
-const realParticipantRepo = "/mnt/c/dev/planktonReproduce/participant-christian"
+// These drive the real tool handlers against a real participant repo with a real registry — one
+// built from nothing by internal/testrepo on every run, so there is no hand-made clone to go
+// stale. Records are genuinely signed by keys the real binaries generated, and commits genuinely
+// push (to a local bare remote), so the assertions below are about what actually happened rather
+// than about a fixture's shape.
+//
+// The previous version of this file pointed at a local clone by absolute path. When that path
+// disappeared, every test here degraded to a skip and the suite went on reporting success while
+// exercising none of this code.
 
-// chdir changes to dir for the duration of the test. On this WSL/NTFS setup, os.Chdir into a
-// since-deleted directory can return no error while leaving the process's cwd broken (os.Getwd
-// then returns ""), instead of cleanly failing — so this checks Getwd too, not just Chdir's own
-// error, before deciding the target is actually usable.
+// chdir changes to dir for the duration of the test. Only the guard tests need it; everything
+// else points the cockpit at its repo with COCKPIT_REPO_DIR and leaves the process cwd alone.
 func chdir(t *testing.T, dir string) {
 	t.Helper()
 	orig, err := os.Getwd()
@@ -25,64 +30,158 @@ func chdir(t *testing.T, dir string) {
 		t.Fatal(err)
 	}
 	if err := os.Chdir(dir); err != nil {
-		t.Skipf("repo not available in this environment: %v", err)
-	}
-	if wd, err := os.Getwd(); err != nil || wd == "" {
-		t.Skipf("chdir to %q left the process cwd broken (wd=%q err=%v) — the directory likely no longer exists", dir, wd, err)
+		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Chdir(orig) })
 }
 
-func TestAsk_ProducerOnUnknownHashAgainstRealRegistry(t *testing.T) {
-	chdir(t, realParticipantRepo)
+const unknownHash = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
 
-	// No foton has ever produced this hash — a made-up value, not a real digest.
-	const unknownHash = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+// publishOne runs a real publish of one input and one output through the real handler, and
+// returns its result. It fails the test if the publish itself failed.
+func publishOne(t *testing.T, r *testrepo.Repo) PublishOutput {
+	t.Helper()
+	r.Write(t, "data/in.csv", "id,value\n1,42\n")
+	r.Write(t, "data/analyse.py", "print('deterministic')\n")
+	r.Write(t, "data/out.csv", "id,result\n1,84\n")
+
+	result, out, err := Publish(context.Background(), nil, PublishInput{
+		Inputs:  []string{"data/in.csv", "data/analyse.py"},
+		Outputs: []string{"data/out.csv"},
+		Cmd:     "python data/analyse.py data/in.csv > data/out.csv",
+	})
+	if err != nil {
+		t.Fatalf("Publish returned a Go error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("publish failed: %+v", result.Content)
+	}
+	return out
+}
+
+func TestFixture_BuildsARepoThePassesTheRealGuard(t *testing.T) {
+	r := testrepo.New(t)
+	cfg := r.Config(t)
+
+	if cfg.Raw.Repo.Owner != testrepo.Owner || cfg.Raw.Repo.Name != testrepo.Name {
+		t.Fatalf("config did not round-trip: %+v", cfg.Raw.Repo)
+	}
+	for _, p := range []string{cfg.PlanktonDir, cfg.NektonDir, cfg.TemplatesDir, cfg.PlanktonKey, cfg.NektonKey} {
+		if _, err := os.Stat(p); err != nil {
+			t.Fatalf("fixture is missing %s: %v", p, err)
+		}
+	}
+}
+
+func TestPublish_RecordsASignedFotonAndPushesIt(t *testing.T) {
+	r := testrepo.New(t)
+	r.Use(t)
+
+	before := r.HeadSHA(t)
+	out := publishOne(t, r)
+
+	if !strings.HasPrefix(out.FotonID, "sha256:") {
+		t.Fatalf("expected a sha256 foton id, got %q", out.FotonID)
+	}
+	if h := out.OutputHashes["data/out.csv"]; !strings.HasPrefix(h, "sha256:") {
+		t.Fatalf("expected an output hash for data/out.csv, got %q", h)
+	}
+	if out.CommitSHA == before {
+		t.Fatal("publish did not create a commit")
+	}
+	// The push is not incidental: without it the permalinks publish hands back point at bytes no
+	// peer can fetch. Asserting against the bare remote is the only way to know it really ran.
+	// Publish commits twice (data files, then the registry) and pins permalinks to the first, so
+	// the reported sha must be CONTAINED in the remote rather than equal to its tip — and the tip
+	// itself must match local HEAD, i.e. the registry commit was pushed too.
+	if !r.OriginContains(t, out.CommitSHA) {
+		t.Fatalf("publish did not push: remote main does not contain %s", out.CommitSHA)
+	}
+	if got, want := r.OriginSHA(t), r.HeadSHA(t); got != want {
+		t.Fatalf("the registry commit was not pushed: remote is at %s, local HEAD is %s", got, want)
+	}
+	want := "https://raw.githubusercontent.com/" + testrepo.Owner + "/" + testrepo.Name + "/" + out.CommitSHA + "/data/out.csv"
+	if got := out.Permalinks["data/out.csv"]; got != want {
+		t.Fatalf("permalink not pinned to the publish commit:\n got %s\nwant %s", got, want)
+	}
+}
+
+// The test the old suite could not have: that a query actually FINDS the thing that was just
+// published, and that it lands in Included — verified against a configured trust tier, resolved
+// from the verifying key. A query that finds nothing would have passed every assertion the
+// previous producer test made.
+func TestAsk_ProducerFindsTheJustPublishedFotonAndVerifiesIt(t *testing.T) {
+	r := testrepo.New(t)
+	r.Use(t)
+	pub := publishOne(t, r)
+
+	result, out, err := Ask(context.Background(), nil, AskInput{Query: "producer", Ref: pub.OutputHashes["data/out.csv"]})
+	if err != nil {
+		t.Fatalf("Ask returned a Go error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("producer query failed: %+v", result.Content)
+	}
+	if len(out.Included) == 0 {
+		t.Fatalf("producer found nothing for a hash just published; records=%+v raw=%q", out.Records, out.Raw)
+	}
+	var found bool
+	for _, rec := range out.Records {
+		if rec.ID == pub.FotonID {
+			found = true
+			if !rec.Verified || rec.Tier != "self" {
+				t.Fatalf("the published foton verified as %+v; expected verified in tier \"self\"", rec)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("producer did not return the foton publish reported (%s); got %+v", pub.FotonID, out.Records)
+	}
+}
+
+func TestAsk_ProducerOnUnknownHashIncludesNothing(t *testing.T) {
+	r := testrepo.New(t)
+	r.Use(t)
 
 	result, out, err := Ask(context.Background(), nil, AskInput{Query: "producer", Ref: unknownHash})
 	if err != nil {
-		t.Fatalf("Ask returned Go error: %v", err)
+		t.Fatalf("Ask returned a Go error: %v", err)
 	}
 	if result.IsError {
-		t.Fatalf("Ask reported a tool error for a plain not-found query: %+v", result.Content)
+		t.Fatalf("a plain not-found query must not be a tool error: %+v", result.Content)
 	}
-	// plankton's own "(none) - <hash> is a lineage root or unknown" message echoes the queried
-	// hash back into the raw text, so it legitimately shows up in Records — the guarantee we
-	// actually care about is that it's correctly unverified and therefore excluded, not that it
-	// never appears in the raw-text scrape at all.
 	if len(out.Included) != 0 {
-		t.Fatalf("expected nothing verified+included for an unknown hash, got %+v", out.Included)
+		t.Fatalf("expected nothing included for an unknown hash, got %+v", out.Included)
 	}
-	t.Logf("producer query on unknown hash: records=%+v, filter=%q", out.Records, out.FilterApplied)
 }
 
-func TestAsk_ReproductionsOnUnknownHashAgainstRealRegistry(t *testing.T) {
-	chdir(t, realParticipantRepo)
+// Against the 0.1 binaries this repo used to vendor, `reproductions --trust-keys` did not exist
+// and the cockpit had to fail loudly rather than hand back a forgeable, self-declared count. The
+// 0.2 kernel supports the flag, so the same query is now expected to succeed — and to report the
+// one verified producer that actually exists.
+func TestAsk_ReproductionsCountsTheVerifiedProducer(t *testing.T) {
+	r := testrepo.New(t)
+	r.Use(t)
+	pub := publishOne(t, r)
 
-	const unknownHash = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
-
-	result, out, err := Ask(context.Background(), nil, AskInput{Query: "reproductions", Ref: unknownHash})
+	result, out, err := Ask(context.Background(), nil, AskInput{Query: "reproductions", Ref: pub.OutputHashes["data/out.csv"]})
 	if err != nil {
-		t.Fatalf("Ask returned Go error: %v", err)
+		t.Fatalf("Ask returned a Go error: %v", err)
 	}
-
-	// Reproductions() now always requires --trust-keys (Michael's review, blocking item 2): a
-	// self-declared, forgeable signer count is worse than no count at all. The vendored plankton
-	// binary in this real participant repo predates --trust-keys support on `reproductions`
-	// (review item 9: no version/capability pinning on the vendored binaries), so against it the
-	// query must fail loudly rather than silently hand back an unverified answer. Once the
-	// vendored binary is upgraded to one that supports the flag, replace this with a success-path
-	// assertion again (see git history for the pre-fix version of this test).
-	if !result.IsError {
-		t.Fatalf("expected a tool error: this repo's vendored plankton binary does not support --trust-keys on reproductions, so the query must fail rather than return a forgeable answer; got out=%+v", out)
+	if result.IsError {
+		t.Fatalf("reproductions failed against a --trust-keys-capable binary: %+v", result.Content)
 	}
-	t.Logf("reproductions on a --trust-keys-incapable binary correctly surfaced as an error: %+v", result.Content)
+	if !strings.Contains(out.Raw, "1") {
+		t.Fatalf("expected a verified count of 1 for a single publisher, raw=%q", out.Raw)
+	}
+	t.Logf("reproductions raw: %s", out.Raw)
 }
 
 func TestAsk_UnknownQueryIsRejected(t *testing.T) {
-	chdir(t, realParticipantRepo)
+	r := testrepo.New(t)
+	r.Use(t)
 
-	result, _, err := Ask(context.Background(), nil, AskInput{Query: "delete-everything", Ref: "sha256:whatever"})
+	result, _, err := Ask(context.Background(), nil, AskInput{Query: "delete-everything", Ref: unknownHash})
 	if err != nil {
 		t.Fatalf("expected a tool-level error, not a Go error: %v", err)
 	}
@@ -91,10 +190,110 @@ func TestAsk_UnknownQueryIsRejected(t *testing.T) {
 	}
 }
 
+func TestSay_RecordsAClaimAndConfirmsItIsQueryable(t *testing.T) {
+	r := testrepo.New(t)
+	r.Use(t)
+	pub := publishOne(t, r)
+
+	result, out, err := Say(context.Background(), nil, SayInput{
+		Subject:  pub.FotonID,
+		Template: "working-on",
+		Fields:   map[string]string{"step": "analysis", "by-session": testrepo.SessionID},
+	})
+	if err != nil {
+		t.Fatalf("Say returned a Go error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("say failed: %+v", result.Content)
+	}
+	if !strings.HasPrefix(out.ClaimID, "sha256:") {
+		t.Fatalf("expected a sha256 claim id, got %q", out.ClaimID)
+	}
+	// The confirmation is `nekton about <subject>` run after the write — if the claim did not
+	// really register, this is where it shows.
+	if !strings.Contains(out.Confirmation, out.ClaimID) {
+		t.Fatalf("the claim does not appear in its own confirmation query:\nclaim=%s\nabout=%s", out.ClaimID, out.Confirmation)
+	}
+
+	ask, askOut, err := Ask(context.Background(), nil, AskInput{Query: "about", Ref: pub.FotonID})
+	if err != nil || ask.IsError {
+		t.Fatalf("about query failed: err=%v result=%+v", err, ask.Content)
+	}
+	var included bool
+	for _, id := range askOut.Included {
+		if id == out.ClaimID {
+			included = true
+		}
+	}
+	if !included {
+		t.Fatalf("the claim did not verify into a configured trust tier; records=%+v", askOut.Records)
+	}
+}
+
+func TestSay_RefusesATemplateOutsideTheConfiguredCeiling(t *testing.T) {
+	r := testrepo.New(t)
+	r.Use(t)
+
+	result, _, err := Say(context.Background(), nil, SayInput{Subject: unknownHash, Template: "gxp/review"})
+	if err != nil {
+		t.Fatalf("expected a tool-level error, not a Go error: %v", err)
+	}
+	if !result.IsError {
+		t.Fatal("say accepted a template that is not in allowedTemplates")
+	}
+}
+
+// The cockpit runs the reproduction precondition itself rather than believing a level Claude
+// supplies. Outputs that do not match must not produce a claim at all.
+func TestSay_ReproducesRefusesWhenTheOutputsDoNotMatch(t *testing.T) {
+	r := testrepo.New(t)
+	r.Use(t)
+	pub := publishOne(t, r)
+	r.Write(t, "data/different.csv", "id,result\n1,999\n")
+
+	result, _, err := Say(context.Background(), nil, SayInput{
+		Subject:           pub.FotonID,
+		Template:          "reproduces",
+		SubjectOutputHash: pub.OutputHashes["data/out.csv"],
+		ReproducedOutput:  "data/different.csv",
+		ReproducedFotonID: pub.FotonID,
+	})
+	if err != nil {
+		t.Fatalf("expected a tool-level error, not a Go error: %v", err)
+	}
+	if !result.IsError {
+		t.Fatal("say recorded a reproduces claim for outputs that do not reproduce")
+	}
+}
+
+func TestSay_ReproducesRecordsL0ForIdenticalBytes(t *testing.T) {
+	r := testrepo.New(t)
+	r.Use(t)
+	pub := publishOne(t, r)
+	r.Write(t, "data/rerun.csv", "id,result\n1,84\n") // byte-identical to data/out.csv
+
+	result, out, err := Say(context.Background(), nil, SayInput{
+		Subject:           pub.FotonID,
+		Template:          "reproduces",
+		SubjectOutputHash: pub.OutputHashes["data/out.csv"],
+		ReproducedOutput:  "data/rerun.csv",
+		ReproducedFotonID: pub.FotonID,
+	})
+	if err != nil {
+		t.Fatalf("Say returned a Go error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("say refused a genuine byte-identical reproduction: %+v", result.Content)
+	}
+	if out.Level != "L0" {
+		t.Fatalf("byte-identical outputs must be L0, got %q", out.Level)
+	}
+}
+
 func TestConfigGuard_RefusesOutsideAnyGitRepo(t *testing.T) {
 	chdir(t, os.TempDir())
 
-	result, _, err := Ask(context.Background(), nil, AskInput{Query: "producer", Ref: "sha256:deadbeef"})
+	result, _, err := Ask(context.Background(), nil, AskInput{Query: "producer", Ref: unknownHash})
 	if err != nil {
 		t.Fatalf("expected a tool-level error, not a Go error: %v", err)
 	}
@@ -103,17 +302,41 @@ func TestConfigGuard_RefusesOutsideAnyGitRepo(t *testing.T) {
 	}
 }
 
-func TestConfigGuard_CockpitRepoDirEnvOverridesCwd(t *testing.T) {
-	chdir(t, os.TempDir()) // cwd is deliberately NOT the participant repo
+// The guard's actual job, which nothing exercised before: a config bound to one repo, sitting in
+// a different one, must refuse — not act against the wrong repo.
+func TestConfigGuard_RefusesWhenTheConfigNamesADifferentRepo(t *testing.T) {
+	r := testrepo.New(t)
+	r.Use(t)
 
-	t.Setenv("COCKPIT_REPO_DIR", realParticipantRepo)
+	raw := testrepo.DefaultConfig()
+	raw.Repo.Owner = "someone-else"
+	b, err := json.MarshalIndent(raw, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(r.Root, "cockpit.config.json"), b, 0o644); err != nil {
+		t.Fatal(err)
+	}
 
-	const unknownHash = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
 	result, _, err := Ask(context.Background(), nil, AskInput{Query: "producer", Ref: unknownHash})
 	if err != nil {
-		t.Fatalf("Ask returned Go error: %v", err)
+		t.Fatalf("expected a tool-level error, not a Go error: %v", err)
+	}
+	if !result.IsError {
+		t.Fatal("the guard did not refuse a config bound to a different repo")
+	}
+}
+
+func TestConfigGuard_CockpitRepoDirEnvOverridesCwd(t *testing.T) {
+	r := testrepo.New(t)
+	chdir(t, os.TempDir()) // cwd is deliberately NOT the participant repo
+	r.Use(t)
+
+	result, _, err := Ask(context.Background(), nil, AskInput{Query: "producer", Ref: unknownHash})
+	if err != nil {
+		t.Fatalf("Ask returned a Go error: %v", err)
 	}
 	if result.IsError {
-		t.Fatalf("expected COCKPIT_REPO_DIR to make this resolve against the real repo, got: %+v", result.Content)
+		t.Fatalf("expected COCKPIT_REPO_DIR to resolve against the fixture repo, got: %+v", result.Content)
 	}
 }

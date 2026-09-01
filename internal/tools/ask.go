@@ -17,7 +17,7 @@ import (
 // absent from cockpit.config.json.
 type AskInput struct {
 	Query  string     `json:"query" jsonschema:"one of: producer, uses, lineage, reproductions, about, by"`
-	Ref    string      `json:"ref" jsonschema:"the hash, subject, or value to query"`
+	Ref    string     `json:"ref" jsonschema:"the hash, subject, or value to query"`
 	Filter *AskFilter `json:"filter,omitempty"`
 }
 

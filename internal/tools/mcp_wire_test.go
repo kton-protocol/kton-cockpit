@@ -6,6 +6,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/deathbychoco/claude-science-cockpit/internal/testrepo"
 	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -120,10 +121,10 @@ func TestMCPWire_AskErrorPathReturnsToolError(t *testing.T) {
 }
 
 func TestMCPWire_AskSuccessPathAgainstRealRegistry(t *testing.T) {
-	chdir(t, realParticipantRepo)
+	r := testrepo.New(t)
+	r.Use(t)
 	cs := newTestServerAndClient(t)
 
-	const unknownHash = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
 	result, err := cs.CallTool(context.Background(), &mcp.CallToolParams{
 		Name:      "cockpit_ask",
 		Arguments: map[string]any{"query": "producer", "ref": unknownHash},
