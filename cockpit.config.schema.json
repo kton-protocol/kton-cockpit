@@ -9,12 +9,13 @@
   "properties": {
     "repo": {
       "type": "object",
-      "description": "The exact GitHub owner/repo this config is bound to. Every cockpit call verifies this against the repo's actual `git remote get-url origin` and refuses on any mismatch (the anti-wrong-folder guard).",
-      "required": ["owner", "name"],
+      "description": "What this config is bound to, and therefore what the anti-wrong-folder guard checks on every call. In \"git\" mode (the default) the repo's actual `git remote get-url origin` must name the configured owner/repo, and the config must sit at the repository root. In \"local\" mode there is no git repository and no remote to disagree with, so the anchor is the config's own declared absolute path, which must equal where the config actually is — that catches a directory copied or moved away from the one it was written for. Neither check catches everything: git mode passes a duplicated clone, local mode passes two directories whose paths both look right. See ADR-004.",
       "additionalProperties": false,
       "properties": {
-        "owner": { "type": "string", "minLength": 1 },
-        "name": { "type": "string", "minLength": 1 }
+        "mode": { "enum": ["git", "local"], "description": "Defaults to \"git\" when absent." },
+        "owner": { "type": "string", "minLength": 1, "description": "Required in git mode." },
+        "name": { "type": "string", "minLength": 1, "description": "Required in git mode." },
+        "root": { "type": "string", "minLength": 1, "description": "Required in local mode: the absolute path this config belongs to. In local mode there are no commits, no pushes, and fotons carry no locators, because a permalink needs an owner/repo and a commit." }
       }
     },
     "paths": {

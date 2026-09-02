@@ -14,10 +14,28 @@ import (
 	"strings"
 )
 
+// Mode names how this cockpit is bound to a location, and therefore what the anti-wrong-folder
+// guard checks. Absent means ModeGit, so every existing config keeps its behaviour.
+const (
+	ModeGit   = "git"
+	ModeLocal = "local"
+)
+
+// RepoRef binds a cockpit to exactly one place. Which fields are required depends on Mode.
 type RepoRef struct {
-	Owner string `json:"owner"`
-	Name  string `json:"name"`
+	// Mode is "git" (default) or "local".
+	Mode string `json:"mode,omitempty"`
+	// Owner and Name are the GitHub owner/repo, required in git mode. Every call verifies them
+	// against the repo's actual `git remote get-url origin`.
+	Owner string `json:"owner,omitempty"`
+	Name  string `json:"name,omitempty"`
+	// Root is the absolute path this config belongs to, required in local mode. Every call verifies
+	// that the config really is where it says it is.
+	Root string `json:"root,omitempty"`
 }
+
+// IsLocal reports whether this cockpit runs without git.
+func (r RepoRef) IsLocal() bool { return r.Mode == ModeLocal }
 
 type Paths struct {
 	PlanktonDir  string `json:"plankton_dir"`
@@ -110,6 +128,12 @@ type Execution struct {
 	Network bool `json:"network,omitempty"`
 }
 
+// CommitEnabled and PushEnabled answer for the whole configuration, not just the git block: with no
+// git repository there is nothing to commit to, so local mode turns both off structurally rather
+// than by asking the operator to also set the flags.
+func (r Raw) CommitEnabled() bool { return !r.Repo.IsLocal() && r.Git.CommitEnabled() }
+func (r Raw) PushEnabled() bool   { return r.CommitEnabled() && r.Git.PushEnabled() }
+
 // PinnedEnvRef is the exact execution environment to record in a foton. When the cockpit runs the
 // command itself, that is by definition the image it ran it in — the config cannot disagree,
 // because validateExecution refuses a config where the two differ.
@@ -189,17 +213,20 @@ func Load(ctx context.Context, startDir string) (*Config, error) {
 		startDir = envDir
 	}
 
-	repoRoot, err := repoRootOf(ctx, startDir)
+	// The config has to be found before its mode can be read, so the search is the same either way:
+	// walk up to the nearest cockpit.config.json. Whether that location is legitimate is then
+	// decided by the mode — in git mode it must be the repository root, in local mode it must be the
+	// path the config itself declares. Finding a config somewhere is never on its own enough.
+	cfgDir, err := findConfigDir(startDir)
 	if err != nil {
-		return nil, fmt.Errorf("cockpit: not inside a git repository (cwd=%s): %w", startDir, err)
+		return nil, err
 	}
+	cfgPath := filepath.Join(cfgDir, "cockpit.config.json")
 
-	cfgPath := filepath.Join(repoRoot, "cockpit.config.json")
 	b, err := os.ReadFile(cfgPath)
 	if err != nil {
-		return nil, fmt.Errorf("cockpit: no cockpit.config.json at repo root %s: %w", repoRoot, err)
+		return nil, fmt.Errorf("cockpit: could not read %s: %w", cfgPath, err)
 	}
-
 	var raw Raw
 	if err := json.Unmarshal(b, &raw); err != nil {
 		return nil, fmt.Errorf("cockpit: cockpit.config.json at %s is not valid JSON: %w", cfgPath, err)
@@ -208,10 +235,11 @@ func Load(ctx context.Context, startDir string) (*Config, error) {
 		return nil, fmt.Errorf("cockpit: cockpit.config.json at %s is invalid: %w", cfgPath, err)
 	}
 
-	if err := checkRemoteMatches(ctx, repoRoot, raw.Repo); err != nil {
+	if err := checkBinding(ctx, cfgDir, raw.Repo); err != nil {
 		return nil, fmt.Errorf("cockpit: refusing to act — %w", err)
 	}
 
+	repoRoot := cfgDir
 	cfg := &Config{
 		Raw:          raw,
 		RepoRoot:     repoRoot,
@@ -226,13 +254,94 @@ func Load(ctx context.Context, startDir string) (*Config, error) {
 	return cfg, nil
 }
 
+// findConfigDir walks up from startDir to the nearest directory holding a cockpit.config.json.
+func findConfigDir(startDir string) (string, error) {
+	dir, err := filepath.Abs(startDir)
+	if err != nil {
+		return "", err
+	}
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "cockpit.config.json")); err == nil {
+			return dir, nil
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", fmt.Errorf("cockpit: no cockpit.config.json in %s or any parent directory", startDir)
+		}
+		dir = parent
+	}
+}
+
+// checkBinding is the anti-wrong-folder guard. It answers one question — is this the place this
+// config was written for — and refuses outright on any doubt. How it answers depends on the mode,
+// because the two modes have different second opinions available:
+//
+//   - git: the repository's own `origin` remote must name the configured owner/repo, and the config
+//     must sit at the repository root. The config and git's metadata are independent sources, so
+//     this catches acting on a different repository than the one configured.
+//   - local: there is no remote to disagree with, so the config's own declared absolute path is the
+//     anchor and must equal where the config actually is. This catches a directory that was copied
+//     or moved — the case the guard was originally built for, which was several sibling registries
+//     under one parent rather than a different remote.
+//
+// Neither catches everything: git mode passes a duplicated clone, local mode passes two directories
+// whose paths both look right. See ADR-004.
+func checkBinding(ctx context.Context, cfgDir string, repo RepoRef) error {
+	if repo.IsLocal() {
+		declared, err := filepath.Abs(repo.Root)
+		if err != nil {
+			return fmt.Errorf("repo.root %q is not a usable path: %w", repo.Root, err)
+		}
+		if !samePath(declared, cfgDir) {
+			return fmt.Errorf(
+				"location mismatch: cockpit.config.json says it belongs at %s, but it is at %s — refusing "+
+					"to act against a directory this config was not written for", declared, cfgDir)
+		}
+		return nil
+	}
+
+	repoRoot, err := repoRootOf(ctx, cfgDir)
+	if err != nil {
+		return fmt.Errorf(
+			"not inside a git repository (%s), and repo.mode is not %q: %w", cfgDir, ModeLocal, err)
+	}
+	if !samePath(repoRoot, cfgDir) {
+		return fmt.Errorf(
+			"cockpit.config.json is at %s but the git repository root is %s — the config must sit at the "+
+				"repository root, so that what it binds is unambiguous", cfgDir, repoRoot)
+	}
+	return checkRemoteMatches(ctx, repoRoot, repo)
+}
+
+// samePath compares two absolute paths after resolving symlinks where possible, so a config reached
+// through a symlinked parent is not mistaken for the wrong directory.
+func samePath(a, b string) bool {
+	if a == b {
+		return true
+	}
+	ra, err1 := filepath.EvalSymlinks(a)
+	rb, err2 := filepath.EvalSymlinks(b)
+	return err1 == nil && err2 == nil && ra == rb
+}
+
 func validate(raw *Raw) error {
 	var missing []string
-	if raw.Repo.Owner == "" {
-		missing = append(missing, "repo.owner")
-	}
-	if raw.Repo.Name == "" {
-		missing = append(missing, "repo.name")
+	switch raw.Repo.Mode {
+	case "", ModeGit:
+		if raw.Repo.Owner == "" {
+			missing = append(missing, "repo.owner")
+		}
+		if raw.Repo.Name == "" {
+			missing = append(missing, "repo.name")
+		}
+	case ModeLocal:
+		if raw.Repo.Root == "" {
+			missing = append(missing, "repo.root (the absolute path this config belongs to — in local mode it is what the guard checks, since there is no remote to disagree with)")
+		} else if !filepath.IsAbs(raw.Repo.Root) {
+			return fmt.Errorf("repo.root must be an absolute path, got %q", raw.Repo.Root)
+		}
+	default:
+		return fmt.Errorf("repo.mode %q is not one of %q, %q", raw.Repo.Mode, ModeGit, ModeLocal)
 	}
 	if raw.Paths.PlanktonDir == "" {
 		missing = append(missing, "paths.plankton_dir")
@@ -257,6 +366,9 @@ func validate(raw *Raw) error {
 	}
 	if err := validateExecution(raw.Execution, raw.Environment); err != nil {
 		return err
+	}
+	if raw.Repo.IsLocal() && raw.Git.Commit != nil && *raw.Git.Commit {
+		return fmt.Errorf("git.commit is true but repo.mode is %q — there is no git repository to commit to", ModeLocal)
 	}
 	// Only the explicit contradiction is an error. Setting `commit: false` alone is fine and means
 	// no push either; writing `push: true` next to it states something that cannot happen.

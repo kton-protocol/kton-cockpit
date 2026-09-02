@@ -63,7 +63,7 @@ func redactSlice(args []string, secret string) []string {
 // nothing — a locator pinned to a commit that does not contain the bytes is a URL that resolves to
 // the wrong thing or to nothing, which is exactly the failure locators exist to prevent.
 func CommitAndPush(ctx context.Context, cfg *config.Config, paths []string, message string) (sha string, err error) {
-	if !cfg.Raw.Git.CommitEnabled() {
+	if !cfg.Raw.CommitEnabled() {
 		return "", nil
 	}
 	args := append([]string{"add"}, paths...)
@@ -85,7 +85,7 @@ func CommitAndPush(ctx context.Context, cfg *config.Config, paths []string, mess
 	if _, err := run(ctx, cfg.RepoRoot, "git", commitArgs...); err != nil {
 		return "", err
 	}
-	if cfg.Raw.Git.PushEnabled() {
+	if cfg.Raw.PushEnabled() {
 		if err := push(ctx, cfg); err != nil {
 			return "", err
 		}

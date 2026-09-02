@@ -89,9 +89,12 @@ func runInit(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	// Outside a git repository, scaffold a local-mode config rather than refusing: running without
+	// git is a supported mode, and the current directory is what it binds to. See ADR-004.
 	root, err := gitRoot(ctx, cwd)
-	if err != nil {
-		return fmt.Errorf("not inside a git repository: %w", err)
+	local := err != nil
+	if local {
+		root = cwd
 	}
 	cfgPath := filepath.Join(root, "cockpit.config.json")
 	if _, err := os.Stat(cfgPath); err == nil {
@@ -103,8 +106,12 @@ func runInit(ctx context.Context) error {
 		owner, name = parseOwnerRepo(url)
 	}
 
+	repo := config.RepoRef{Owner: owner, Name: name}
+	if local {
+		repo = config.RepoRef{Mode: config.ModeLocal, Root: root}
+	}
 	raw := config.Raw{
-		Repo: config.RepoRef{Owner: owner, Name: name},
+		Repo: repo,
 		Paths: config.Paths{
 			PlanktonDir:  "registry/plankton",
 			NektonDir:    "registry/nekton",
@@ -134,7 +141,11 @@ func runInit(ctx context.Context) error {
 	if err := os.WriteFile(cfgPath, b, 0o644); err != nil {
 		return err
 	}
-	fmt.Printf("wrote %s (owner=%q name=%q — fill in trust.tiers before use)\n", cfgPath, owner, name)
+	if local {
+		fmt.Printf("wrote %s (local mode, bound to %s — no git repository here; fill in trust.tiers before use)\n", cfgPath, root)
+	} else {
+		fmt.Printf("wrote %s (owner=%q name=%q — fill in trust.tiers before use)\n", cfgPath, owner, name)
+	}
 	return nil
 }
 
@@ -149,7 +160,11 @@ func runDoctor(ctx context.Context) error {
 	}
 
 	fmt.Printf("repo root:      %s\n", cfg.RepoRoot)
-	fmt.Printf("bound to:       %s/%s (verified against origin remote)\n", cfg.Raw.Repo.Owner, cfg.Raw.Repo.Name)
+	if cfg.Raw.Repo.IsLocal() {
+		fmt.Printf("bound to:       %s (local mode — verified that this config is where it says it is)\n", cfg.Raw.Repo.Root)
+	} else {
+		fmt.Printf("bound to:       %s/%s (verified against origin remote)\n", cfg.Raw.Repo.Owner, cfg.Raw.Repo.Name)
+	}
 	fmt.Printf("plankton_dir:   %s\n", checkPath(cfg.PlanktonDir))
 	fmt.Printf("nekton_dir:     %s\n", checkPath(cfg.NektonDir))
 	fmt.Printf("templates_dir:  %s\n", checkPath(cfg.TemplatesDir))
@@ -177,10 +192,13 @@ func runDoctor(ctx context.Context) error {
 		binaries.RequiredKernelMajor, binaries.RequiredKernelMinor)
 
 	switch {
-	case !cfg.Raw.Git.CommitEnabled():
+	case cfg.Raw.Repo.IsLocal():
+		fmt.Printf("git:            none — no repository, so no commits, no pushes, and fotons carry no\n")
+		fmt.Printf("                locators (a permalink needs an owner/repo and a commit)\n")
+	case !cfg.Raw.CommitEnabled():
 		fmt.Printf("git:            commits OFF — records are signed and registered, files are not committed,\n")
 		fmt.Printf("                and fotons carry no locators (no commit exists for a permalink to pin)\n")
-	case !cfg.Raw.Git.PushEnabled():
+	case !cfg.Raw.PushEnabled():
 		fmt.Printf("git:            commits on, push OFF — permalinks are built and correct, but do not\n")
 		fmt.Printf("                resolve until someone pushes\n")
 	default:

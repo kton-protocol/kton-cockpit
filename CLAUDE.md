@@ -70,7 +70,8 @@ participant repo from nothing for each test — git init, a real github.com `ori
 anti-wrong-folder guard runs unmodified; only the remote's *push* url points at a local bare repo,
 so commits and pushes complete offline), the registry/keys/templates/bin layout, signing identities
 from the real `keygen`, the claim templates, and a `cockpit.config.json`. Records are genuinely
-signed; assertions are about what actually happened.
+signed; assertions are about what actually happened. `testrepo.NewLocal` builds the same thing with
+no git repository at all, for the local-mode guard (ADR-004).
 
 If `bin/` is empty, the tests build the kernel themselves from `$KTON_SRC`, else a sibling `../kton`
 checkout. `COCKPIT_TEST_PLANKTON`/`COCKPIT_TEST_NEKTON` override both. They never fall back to
@@ -111,11 +112,14 @@ uat/cleanup.sh <workdir printed by setup.sh>   # deletes everything setup.sh cre
 ```
 cmd/cockpit/main.go     entry point: mcp / init / doctor subcommands
 internal/
-├── config/              cockpit.config.json schema, loader, and the repo/remote-match guard
+├── config/              cockpit.config.json schema, loader, and the anti-wrong-folder guard
+│                          (git mode: the origin remote must match; local mode: the config must be
+│                           where it declares itself to be — ADR-004)
+├── container/            runs a published command in a pinned image, when a repo opts in (ADR-003)
 ├── gitops/               commit/push wrappers, commit-pinned permalink construction
 ├── binaries/             thin process wrappers around bin/plankton, bin/nekton
 ├── verify/               trust-tier resolution from the actual verifying key, never a declared keyid
-└── tools/                the three MCP tool handlers (publish.go, say.go, ask.go)
+├── tools/                the three MCP tool handlers (publish.go, say.go, ask.go)
 cockpit.config.schema.json   JSON Schema for cockpit.config.json (documentation + tooling)
 ```
 

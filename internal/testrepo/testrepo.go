@@ -37,7 +37,8 @@ const (
 // Repo is one built participant repo.
 type Repo struct {
 	Root   string // the working repo: git root, cockpit.config.json, registries, keys, bin
-	Origin string // the bare repo that pushes actually land in
+	Origin string // the bare repo that pushes actually land in; unused in local mode
+	Local  bool   // built with no git repository at all
 }
 
 // New builds a participant repo from nothing and returns it. Every step a human operator would
@@ -46,26 +47,46 @@ type Repo struct {
 // config allows, a cockpit.config.json, and an initial commit pushed to the remote.
 func New(t *testing.T) *Repo {
 	t.Helper()
+	return buildRepo(t, false)
+}
+
+// NewLocal builds the same participant directory with no git repository at all — repo.mode
+// "local", where the guard checks that the config is where it declares itself to be rather than
+// what a remote says. See ADR-004.
+func NewLocal(t *testing.T) *Repo {
+	t.Helper()
+	return buildRepo(t, true)
+}
+
+func buildRepo(t *testing.T, local bool) *Repo {
+	t.Helper()
 
 	base := t.TempDir()
 	r := &Repo{
 		Root:   filepath.Join(base, "repo"),
 		Origin: filepath.Join(base, "origin.git"),
+		Local:  local,
 	}
 
-	git(t, base, "init", "--bare", "--quiet", "-b", "main", r.Origin)
+	if !local {
+		git(t, base, "init", "--bare", "--quiet", "-b", "main", r.Origin)
+	}
 	if err := os.MkdirAll(r.Root, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	git(t, r.Root, "init", "--quiet", "-b", "main")
+	if !local {
+		git(t, r.Root, "init", "--quiet", "-b", "main")
+	}
 
 	// The fetch URL is what the anti-wrong-folder guard reads (`git remote get-url origin`), so it
 	// must be the real github.com form the config claims. The push URL is set separately to the
 	// local bare repo, which `get-url` without --push does not report — so the guard sees exactly
 	// what it would see in production while pushes stay offline. (An `insteadOf` rewrite would NOT
 	// work here: that one does rewrite `get-url`, and the guard would then see a local path.)
-	git(t, r.Root, "remote", "add", "origin", "git@github.com:"+Owner+"/"+Name+".git")
-	git(t, r.Root, "remote", "set-url", "--push", "origin", r.Origin)
+	if !local {
+		git(t, r.Root, "remote", "add", "origin", "git@github.com:"+Owner+"/"+Name+".git")
+		git(t, r.Root, "remote", "set-url", "--push", "origin", r.Origin)
+	}
 
 	for _, d := range []string{"registry/plankton", "registry/nekton", "registry/keys", "templates", "keys", "bin", "data"} {
 		if err := os.MkdirAll(filepath.Join(r.Root, d), 0o755); err != nil {
@@ -97,15 +118,17 @@ func New(t *testing.T) *Repo {
 		copyFile(t, filepath.Join(skeleton, "templates", tmpl), filepath.Join(r.Root, "templates", tmpl))
 	}
 
-	b, err := json.MarshalIndent(DefaultConfig(), "", "  ")
-	if err != nil {
-		t.Fatal(err)
+	raw := DefaultConfig()
+	if local {
+		raw.Repo = config.RepoRef{Mode: config.ModeLocal, Root: r.Root}
 	}
-	writeFile(t, filepath.Join(r.Root, "cockpit.config.json"), string(b)+"\n")
+	r.WriteConfig(t, raw)
 
-	git(t, r.Root, "add", "-A")
-	git(t, r.Root, "-c", "user.name=fixture", "-c", "user.email=fixture@cockpit.local", "commit", "--quiet", "-m", "fixture: participant repo")
-	git(t, r.Root, "push", "--quiet", "-u", "origin", "main")
+	if !local {
+		git(t, r.Root, "add", "-A")
+		git(t, r.Root, "-c", "user.name=fixture", "-c", "user.email=fixture@cockpit.local", "commit", "--quiet", "-m", "fixture: participant repo")
+		git(t, r.Root, "push", "--quiet", "-u", "origin", "main")
+	}
 
 	return r
 }

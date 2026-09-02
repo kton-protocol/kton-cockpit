@@ -3,6 +3,8 @@ package tools
 import (
 	"context"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -942,5 +944,126 @@ func TestPublish_WillNotRecordAnEnvironmentOtherThanTheOneItRanIn(t *testing.T) 
 	}
 	if !strings.Contains(errText(result), "what it ran in") {
 		t.Fatalf("the error does not explain the problem: %s", errText(result))
+	}
+}
+
+// Git stage 2: no repository at all. The verbs work, the records are signed and registered, and
+// what goes away is git — including the locators, which need an owner/repo and a commit.
+func TestLocalMode_PublishAndSayWorkWithNoGitRepositoryAtAll(t *testing.T) {
+	r := testrepo.NewLocal(t)
+	r.Use(t)
+
+	if _, err := os.Stat(filepath.Join(r.Root, ".git")); err == nil {
+		t.Fatal("the fixture is supposed to have no git repository")
+	}
+
+	pub := publishOne(t, r)
+	if !strings.HasPrefix(pub.FotonID, "sha256:") {
+		t.Fatalf("the foton was not registered: %q", pub.FotonID)
+	}
+	if pub.CommitSHA != "" || len(pub.Permalinks) != 0 || pub.Committed || pub.Pushed {
+		t.Errorf("git happened in a repo with no git: sha=%q permalinks=%d committed=%v pushed=%v",
+			pub.CommitSHA, len(pub.Permalinks), pub.Committed, pub.Pushed)
+	}
+
+	claimID := sayWorkingOn(t, pub.FotonID)
+
+	// And the record is queryable and verifies into a configured tier, which is the whole point:
+	// none of signing, the registry or trust ever involved git.
+	result, out, err := Ask(context.Background(), nil, AskInput{Query: "about", Ref: pub.FotonID})
+	if err != nil || result.IsError {
+		t.Fatalf("about query failed: err=%v %s", err, errText(result))
+	}
+	if len(out.Included) != 1 || out.Included[0] != claimID {
+		t.Fatalf("the claim did not verify into a tier; records=%+v", out.Records)
+	}
+}
+
+// The guard in local mode: the config must be where it says it is. This is the case it exists for —
+// a directory copied next to its original, which is what the incident behind this project was.
+func TestLocalMode_GuardRefusesAConfigThatWasCopiedElsewhere(t *testing.T) {
+	r := testrepo.NewLocal(t)
+
+	// A copy of the whole directory, carrying a config that still names the original.
+	elsewhere := filepath.Join(t.TempDir(), "copy")
+	if out, err := exec.Command("cp", "-a", r.Root, elsewhere).CombinedOutput(); err != nil {
+		t.Fatalf("cp: %v\n%s", err, out)
+	}
+	t.Setenv("COCKPIT_REPO_DIR", elsewhere)
+
+	result, _, err := Ask(context.Background(), nil, AskInput{Query: "producer", Ref: unknownHash})
+	if err != nil {
+		t.Fatalf("expected a tool-level error, not a Go error: %v", err)
+	}
+	if !result.IsError {
+		t.Fatal("the cockpit acted against a copy of the directory its config was written for")
+	}
+	if !strings.Contains(errText(result), "location mismatch") {
+		t.Fatalf("the error does not name the problem: %s", errText(result))
+	}
+}
+
+// Committing to a repository that does not exist cannot happen, so saying so is refused rather
+// than quietly ignored.
+func TestLocalMode_RefusesGitCommitTrue(t *testing.T) {
+	r := testrepo.NewLocal(t)
+	raw := testrepo.DefaultConfig()
+	raw.Repo = config.RepoRef{Mode: config.ModeLocal, Root: r.Root}
+	raw.Git = config.Git{Commit: testrepo.Bool(true)}
+	r.WriteConfig(t, raw)
+	r.Use(t)
+
+	result, _, err := Ask(context.Background(), nil, AskInput{Query: "producer", Ref: unknownHash})
+	if err != nil {
+		t.Fatalf("expected a tool-level error, not a Go error: %v", err)
+	}
+	if !result.IsError {
+		t.Fatal("a config that commits without a repository was accepted")
+	}
+}
+
+// Local mode needs the anchor, or it is no guard at all: without repo.root the cockpit would act on
+// whatever directory it was pointed at, which is the original incident exactly.
+func TestLocalMode_RefusesAConfigWithNoDeclaredRoot(t *testing.T) {
+	r := testrepo.NewLocal(t)
+	raw := testrepo.DefaultConfig()
+	raw.Repo = config.RepoRef{Mode: config.ModeLocal}
+	r.WriteConfig(t, raw)
+	r.Use(t)
+
+	result, _, err := Ask(context.Background(), nil, AskInput{Query: "producer", Ref: unknownHash})
+	if err != nil {
+		t.Fatalf("expected a tool-level error, not a Go error: %v", err)
+	}
+	if !result.IsError {
+		t.Fatal("local mode was accepted with no declared root")
+	}
+	if !strings.Contains(errText(result), "repo.root") {
+		t.Fatalf("the error does not say what is missing: %s", errText(result))
+	}
+}
+
+// In git mode the config must sit at the repository root, so that what it binds is unambiguous.
+func TestGitMode_RefusesAConfigBelowTheRepositoryRoot(t *testing.T) {
+	r := testrepo.New(t)
+	sub := filepath.Join(r.Root, "nested")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(filepath.Join(r.Root, "cockpit.config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sub, "cockpit.config.json"), b, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("COCKPIT_REPO_DIR", sub)
+
+	result, _, err := Ask(context.Background(), nil, AskInput{Query: "producer", Ref: unknownHash})
+	if err != nil {
+		t.Fatalf("expected a tool-level error, not a Go error: %v", err)
+	}
+	if !result.IsError {
+		t.Fatal("a config below the repository root was accepted")
 	}
 }

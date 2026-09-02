@@ -3,7 +3,7 @@ title: "Running without git, and what replaces the anti-wrong-folder guard there
 type: "decision"
 project: "claude-science-cockpit"
 date: 2026-09-02
-status: "proposed"
+status: "accepted"
 tags: [architecture, guard, git, config]
 ---
 
@@ -11,7 +11,7 @@ tags: [architecture, guard, git, config]
 
 ## Status
 
-Proposed.
+Accepted and implemented (2026-09-02).
 
 ## Context
 
@@ -38,8 +38,6 @@ remote, so both sources still agree. That limit is worth naming, because the rep
 the opposite shape — and neither shape catches everything.
 
 ## Decision
-
-*(Proposed.)*
 
 `repo` gains a mode.
 

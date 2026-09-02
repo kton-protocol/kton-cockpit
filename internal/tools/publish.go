@@ -179,8 +179,8 @@ func Publish(ctx context.Context, _ *mcp.CallToolRequest, in PublishInput) (*mcp
 		Permalinks:   permalinks,
 		Environment:  cfg.Raw.Environment.Spectrum,
 		EnvRef:       envRef,
-		Committed:    cfg.Raw.Git.CommitEnabled(),
-		Pushed:       cfg.Raw.Git.PushEnabled(),
+		Committed:    cfg.Raw.CommitEnabled(),
+		Pushed:       cfg.Raw.PushEnabled(),
 	}
 	if ran != nil {
 		out.ExecutedIn = ran.Image
