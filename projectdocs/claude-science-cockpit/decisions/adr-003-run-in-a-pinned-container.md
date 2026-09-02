@@ -110,6 +110,27 @@ why its constraints are part of the decision and not a detail:
    `cockpit_publish` reports `networkAllowed` when it did, so whoever reads the result sees that the
    run depended on something the foton does not pin, rather than having to know the repo's config.
 
+## Where this is NOT the answer: claude-science
+
+claude-science already runs the session inside a docker image. There, spawning another container to
+run the command would be a container inside a container for no gain — the environment that produced
+the outputs is the one the session is already in, and what is missing is not execution but a
+*record* of which image that is.
+
+That case is served by `environment.envRef` alone: the operator names the image claude-science
+pinned, and publish records it. It stays a declaration rather than an observation, and the honest
+limit is worth stating: a process inside a container cannot generally learn its own image digest
+unaided — that is something only the platform can tell it, via an injected environment variable or
+a label. Deriving it there rather than declaring it is possible, but only with the platform's
+cooperation, and is not attempted here.
+
+So the two paths divide by context, and both are configuration the operator sets:
+
+- **claude-science**, and anywhere the session already runs in a pinned image: `environment.envRef`.
+  Declared, one line, no runtime dependency.
+- **A session with a shell in an unpinned environment** (the Claude Code CLI on someone's laptop):
+  `execution.image`. Derived, at the cost of a container runtime.
+
 ## Consequences
 
 - The environment pin stops being a declaration and becomes a property of how the record was made.
