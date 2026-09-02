@@ -204,3 +204,75 @@ func TestContainer_OutputsAreOwnedByTheInvokingUser(t *testing.T) {
 		t.Error("the container wrote a file the invoking user does not own")
 	}
 }
+
+// The declaration is held against what the run actually did. An output produced and not declared is
+// otherwise invisible: the foton understates the work, nothing fails, and the omission surfaces much
+// later as a chain that does not join.
+func TestContainer_ReportsAFileTheRunWroteButThePublishDidNotDeclare(t *testing.T) {
+	r := executingRepo(t, false)
+	r.Write(t, "data/in.csv", "x\n")
+
+	result, out, err := Publish(context.Background(), nil, PublishInput{
+		Inputs:  []string{"data/in.csv"},
+		Outputs: []string{"data/out.csv"},
+		// Two files written, one declared.
+		Cmd: "cp data/in.csv data/out.csv; cp data/in.csv data/forgotten.csv",
+	})
+	if err != nil {
+		t.Fatalf("Publish returned a Go error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("publish failed: %s", errText(result))
+	}
+
+	var named bool
+	for _, c := range out.UndeclaredChanges {
+		if c == "data/forgotten.csv" {
+			named = true
+		}
+	}
+	if !named {
+		t.Fatalf("the undeclared file was not reported; got %v", out.UndeclaredChanges)
+	}
+	// Reported, not adopted: taking it as an output would put it into the foton's identity.
+	if _, adopted := out.OutputHashes["data/forgotten.csv"]; adopted {
+		t.Error("the undeclared file was recorded as an output")
+	}
+}
+
+// Reporting is not failing. A run that leaves a temp file behind is doing something legitimate, and
+// a publish that refused would be wrong far more often than right.
+func TestContainer_AnUndeclaredChangeDoesNotFailThePublish(t *testing.T) {
+	r := executingRepo(t, false)
+	r.Write(t, "data/in.csv", "x\n")
+
+	result, out, err := Publish(context.Background(), nil, PublishInput{
+		Inputs:  []string{"data/in.csv"},
+		Outputs: []string{"data/out.csv"},
+		Cmd:     "echo scratch > data/scratch.tmp; cp data/in.csv data/out.csv",
+	})
+	if err != nil || result.IsError {
+		t.Fatalf("a temp file must not fail the publish: err=%v %s", err, errText(result))
+	}
+	if !strings.HasPrefix(out.FotonID, "sha256:") {
+		t.Fatal("no foton was recorded")
+	}
+}
+
+// A run whose declaration is complete says nothing, so the field is a signal rather than noise.
+func TestContainer_NothingIsReportedWhenTheDeclarationIsComplete(t *testing.T) {
+	r := executingRepo(t, false)
+	r.Write(t, "data/in.csv", "x\n")
+
+	_, out, err := Publish(context.Background(), nil, PublishInput{
+		Inputs:  []string{"data/in.csv"},
+		Outputs: []string{"data/out.csv"},
+		Cmd:     "cp data/in.csv data/out.csv",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out.UndeclaredChanges) != 0 {
+		t.Fatalf("a complete declaration still reported changes: %v", out.UndeclaredChanges)
+	}
+}

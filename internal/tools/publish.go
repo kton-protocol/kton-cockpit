@@ -65,6 +65,16 @@ type PublishOutput struct {
 	// UnionPublished reports that this repo's aggregate was regenerated and committed alongside the
 	// record, so the graph is reachable online without running `cockpit show`.
 	UnionPublished bool `json:"unionPublished,omitempty"`
+	// UndeclaredChanges lists files the run changed that this publish did not name as an input or an
+	// output — reported only when the cockpit ran the command, since otherwise it has no way to know.
+	//
+	// Not an error: a temp file or a cache is legitimate, and a foton is not meant to describe every
+	// byte a machine touched. But an OUTPUT produced and not declared is invisible without this —
+	// the foton understates the work, nothing fails, and the omission surfaces much later as a chain
+	// that does not join. It is also why the outputs are not simply taken from what changed: they
+	// are COVERED, so incidental files would enter the foton's identity and two identical runs would
+	// stop producing the same record.
+	UndeclaredChanges []string `json:"undeclaredChanges,omitempty"`
 	// Committed and Pushed say what actually happened to git, because both are configurable and
 	// each changes what the permalinks are worth. Not committed means there are none: the sha one
 	// would pin does not exist. Committed but not pushed means they are correct and will resolve
@@ -100,18 +110,33 @@ func Publish(ctx context.Context, _ *mcp.CallToolRequest, in PublishInput) (*mcp
 	// the outputs do not exist until it has. A failed run is a failed publish — a foton describing
 	// whatever a failed run left behind would assert work that never completed.
 	var ran *container.Result
+	var undeclared []string
 	if cfg.Raw.Execution.Enabled() {
+		// Snapshotted around the run so the declaration can be held against what actually happened.
+		// This is the only point where that is possible: when the cockpit does not run the command,
+		// it has no idea what the command touched.
+		before, serr := container.TakeSnapshot(cfg.RepoRoot)
+		if serr != nil {
+			return errResult[PublishOutput]("could not read the working tree before the run: %v", serr)
+		}
+
 		ran, err = container.Run(ctx, cfg, in.Cmd)
 		if err != nil {
 			return errResult[PublishOutput]("%v", err)
 		}
 		for _, o := range in.Outputs {
-			if _, serr := os.Stat(filepath.Join(cfg.RepoRoot, o)); serr != nil {
+			if _, statErr := os.Stat(filepath.Join(cfg.RepoRoot, o)); statErr != nil {
 				return errResult[PublishOutput](
 					"the command succeeded in %s but produced no %s — publish declares outputs that must exist afterwards",
 					cfg.Raw.Execution.Image, o)
 			}
 		}
+
+		after, serr := container.TakeSnapshot(cfg.RepoRoot)
+		if serr != nil {
+			return errResult[PublishOutput]("could not read the working tree after the run: %v", serr)
+		}
+		undeclared = before.ChangedSince(after, append(append([]string{}, in.Inputs...), in.Outputs...))
 	}
 
 	var corpusPath string
@@ -197,6 +222,7 @@ func Publish(ctx context.Context, _ *mcp.CallToolRequest, in PublishInput) (*mcp
 		Pushed:         cfg.Raw.PushEnabled(),
 		UnionPublished: cfg.Raw.Union.Publish,
 	}
+	out.UndeclaredChanges = undeclared
 	if ran != nil {
 		out.ExecutedIn = ran.Image
 		out.NetworkAllowed = cfg.Raw.Execution.Network
