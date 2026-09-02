@@ -22,7 +22,7 @@ func TestTrustKeysDir_MaterializesEveryConfiguredPubkey(t *testing.T) {
 		"team": {"b.pub"},
 	})
 
-	dir, cleanup, err := trustKeysDir(cfg)
+	dir, cleanup, err := trustKeysDir(cfg, "")
 	if err != nil {
 		t.Fatalf("trustKeysDir: %v", err)
 	}
@@ -51,7 +51,7 @@ func TestTrustKeysDir_SamePubkeyInTwoTiersMaterializesOnce(t *testing.T) {
 		"team": {"shared.pub"},
 	})
 
-	dir, cleanup, err := trustKeysDir(cfg)
+	dir, cleanup, err := trustKeysDir(cfg, "")
 	if err != nil {
 		t.Fatalf("trustKeysDir: %v", err)
 	}
@@ -66,7 +66,7 @@ func TestTrustKeysDir_SamePubkeyInTwoTiersMaterializesOnce(t *testing.T) {
 func TestTrustKeysDir_EmptyTrustTiersMaterializesEmptyDir(t *testing.T) {
 	cfg := testConfig(t.TempDir(), map[string][]string{})
 
-	dir, cleanup, err := trustKeysDir(cfg)
+	dir, cleanup, err := trustKeysDir(cfg, "")
 	if err != nil {
 		t.Fatalf("trustKeysDir: %v", err)
 	}
@@ -82,7 +82,7 @@ func TestTrustKeysDir_MissingPubkeyPathFailsAndCleansUp(t *testing.T) {
 		"self": {"does-not-exist.pub"},
 	})
 
-	dir, _, err := trustKeysDir(cfg)
+	dir, _, err := trustKeysDir(cfg, "")
 	if err == nil {
 		t.Fatal("expected an error for a configured pubkey path that does not exist on disk")
 	}

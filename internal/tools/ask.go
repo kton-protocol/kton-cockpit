@@ -3,7 +3,6 @@ package tools
 import (
 	"context"
 	"fmt"
-	"regexp"
 	"strings"
 
 	"github.com/deathbychoco/claude-science-cockpit/internal/binaries"
@@ -58,11 +57,16 @@ type AskOutput struct {
 	// actually says, not merely that it exists. It holds ONLY included claims: unlike Raw, which is
 	// scraped text that has to be redacted line by line, this is built from parsed records, so an
 	// unverified or filtered-out claim is never assembled into it in the first place.
-	Claims        []binaries.ClaimAxis `json:"claims,omitempty"`
-	FilterApplied string               `json:"filterApplied"`
+	Claims []binaries.ClaimAxis `json:"claims,omitempty"`
+	// Fotons is the lineage-query counterpart of Claims: the foton records "producer", "uses",
+	// "lineage" and "reproductions" found, again only the included ones.
+	Fotons []binaries.FotonRecord `json:"fotons,omitempty"`
+	// VerifiedSigners is plankton's own ↻N for a "reproductions" query — distinct signers whose
+	// signature actually verified against the trust keys the cockpit passed it, never a
+	// self-declared count. Scoped to the requested tier when the query asked for one.
+	VerifiedSigners int    `json:"verifiedSigners,omitempty"`
+	FilterApplied   string `json:"filterApplied"`
 }
-
-var recordIDRe = regexp.MustCompile(`sha256:[0-9a-f]{64}`)
 
 func Ask(ctx context.Context, _ *mcp.CallToolRequest, in AskInput) (*mcp.CallToolResult, AskOutput, error) {
 	cfg, err := config.Load(ctx, ".")
@@ -155,68 +159,107 @@ func askClaims(ctx context.Context, cfg *config.Config, r *binaries.Runner, in A
 	}, nil
 }
 
-// askLineage serves the plankton queries, whose output is text with one record per line.
+// askLineage serves the plankton queries. Every foton the query names is verified by id, and only
+// fotons that verify into a configured trust tier (and, if a filter was given, into that tier) are
+// assembled into the answer — the rest are accounted for in Records/Excluded, never rendered.
+//
+// This used to scrape ids out of plankton's prose with a regex and then blank whole lines of it.
+// That worked only while a record's own id happened to be the first hash on its line — an
+// assumption no doc guaranteed and no test upstream protected. kton #57 gave these four queries a
+// --json mode where the id is a named field, so the assumption is gone rather than defended.
 func askLineage(ctx context.Context, cfg *config.Config, r *binaries.Runner, in AskInput, wantTier string) (*mcp.CallToolResult, AskOutput, error) {
-	var raw string
+	if in.Query == "reproductions" {
+		return askReproductions(ctx, cfg, r, in, wantTier)
+	}
+
+	var res *binaries.LineageResult
 	var err error
 	switch in.Query {
 	case "producer":
-		raw, err = r.Producer(ctx, in.Ref)
+		res, err = r.Producer(ctx, in.Ref)
 	case "uses":
-		raw, err = r.Uses(ctx, in.Ref)
+		res, err = r.Uses(ctx, in.Ref)
 	case "lineage":
-		raw, err = r.Lineage(ctx, in.Ref)
-	case "reproductions":
-		raw, err = r.Reproductions(ctx, in.Ref)
+		res, err = r.Lineage(ctx, in.Ref)
 	}
 	if err != nil {
 		return errResult[AskOutput]("query failed: %v", err)
 	}
 
-	// Exclude the query subject itself from the extracted ids: it's what was ASKED about, not a
-	// record the query FOUND, but it's often echoed back verbatim in the raw text (e.g.
-	// reproductions' own summary line, or producer/uses/lineage's "(none) - <ref> is a lineage
-	// root..." message). Left in, it would get run through verification like any other record —
-	// and since a query subject essentially never itself verifies as a record (an output hash
-	// looked up as a foton id normally won't resolve), it would always land in Excluded and get
-	// its own line redacted below, which for reproductions means redacting the line with the
-	// actual answer.
-	ids := excludeRef(uniqueMatches(recordIDRe, raw), in.Ref)
-	records := make([]RecordVerification, 0, len(ids))
-	included := []string{}
-	excluded := []string{}
-	excludedReasons := map[string]string{}
+	out := AskOutput{Query: in.Query, Ref: in.Ref, FilterApplied: filterDescription(wantTier)}
+	var lines []string
+	for _, rec := range res.Records {
+		included, verr := siftFoton(ctx, cfg, r, rec.ID, wantTier, &out)
+		if verr != "" {
+			return errResult[AskOutput]("%s", verr)
+		}
+		if included {
+			out.Fotons = append(out.Fotons, rec)
+			lines = append(lines, rec.Line())
+		}
+	}
+	out.Raw = joinWithWarning(lines, res.Warning)
+	return &mcp.CallToolResult{}, out, nil
+}
 
-	for _, id := range ids {
-		tier, _, verr := verify.ResolveTier(ctx, r, cfg, id, verify.Foton)
-		if verr != nil {
-			return errResult[AskOutput]("verifying %s failed: %v", id, verr)
-		}
-		verified := tier != verify.Untrusted
-		records = append(records, RecordVerification{ID: id, Tier: tier, Verified: verified})
-
-		if !verified {
-			excluded = append(excluded, id)
-			excludedReasons[id] = "not verified against any configured trust tier"
-			continue
-		}
-		if wantTier != "" && tier != wantTier {
-			excluded = append(excluded, id)
-			excludedReasons[id] = fmt.Sprintf("verified as trust tier %q, but this query requested trustTier=%q", tier, wantTier)
-			continue
-		}
-		included = append(included, id)
+// askReproductions answers ↻N. The count is plankton's own, computed over exactly the keys the
+// cockpit hands it — which is why the tier filter is passed down rather than applied afterwards: a
+// count taken over every tier and then labelled as one tier's would be a filtered answer that is
+// not filtered.
+func askReproductions(ctx context.Context, cfg *config.Config, r *binaries.Runner, in AskInput, wantTier string) (*mcp.CallToolResult, AskOutput, error) {
+	res, err := r.Reproductions(ctx, in.Ref, wantTier)
+	if err != nil {
+		return errResult[AskOutput]("query failed: %v", err)
 	}
 
-	return &mcp.CallToolResult{}, AskOutput{
-		Query:         in.Query,
-		Ref:           in.Ref,
-		Raw:           redactExcluded(raw, excludedReasons),
-		Records:       records,
-		Included:      included,
-		Excluded:      excluded,
-		FilterApplied: filterDescription(wantTier),
-	}, nil
+	out := AskOutput{Query: in.Query, Ref: in.Ref, FilterApplied: filterDescription(wantTier)}
+	var lines []string
+	for _, p := range res.Producers {
+		included, verr := siftFoton(ctx, cfg, r, p.ID, wantTier, &out)
+		if verr != "" {
+			return errResult[AskOutput]("%s", verr)
+		}
+		if included {
+			out.Fotons = append(out.Fotons, binaries.FotonRecord{ID: p.ID})
+			lines = append(lines, fmt.Sprintf("%s  by key:%s", p.ID, p.KeyID))
+		}
+	}
+	out.VerifiedSigners = res.DistinctSigners
+	summary := fmt.Sprintf("reproductions: %d distinct verified signer(s) produced %s (%d producer foton(s))",
+		res.DistinctSigners, res.Output, res.ProducerFotons)
+	if res.ExcludedUntrusted > 0 {
+		summary += fmt.Sprintf("; %d producer foton(s) excluded — signed by no key this repo trusts",
+			res.ExcludedUntrusted)
+	}
+	out.Raw = joinWithWarning(append([]string{summary}, lines...), res.Warning)
+	return &mcp.CallToolResult{}, out, nil
+}
+
+// siftFoton verifies one foton id and records the verdict on out, reporting whether it belongs in
+// the answer. The second return value is a non-empty error message.
+func siftFoton(ctx context.Context, cfg *config.Config, r *binaries.Runner, id, wantTier string, out *AskOutput) (bool, string) {
+	tier, _, err := verify.ResolveTier(ctx, r, cfg, id, verify.Foton)
+	if err != nil {
+		return false, fmt.Sprintf("verifying %s failed: %v", id, err)
+	}
+	verified := tier != verify.Untrusted
+	out.Records = append(out.Records, RecordVerification{ID: id, Tier: tier, Verified: verified})
+	if !verified || (wantTier != "" && tier != wantTier) {
+		out.Excluded = append(out.Excluded, id)
+		return false, ""
+	}
+	out.Included = append(out.Included, id)
+	return true, ""
+}
+
+// joinWithWarning appends plankton's success-path stderr, if any, as a clearly delimited block —
+// a degraded "this read is INCOMPLETE" notice must not vanish just because it was not an error.
+func joinWithWarning(lines []string, warning string) string {
+	raw := strings.Join(lines, "\n")
+	if warning != "" {
+		raw += "\n\n[stderr]\n" + warning
+	}
+	return raw
 }
 
 func filterDescription(wantTier string) string {
@@ -224,60 +267,4 @@ func filterDescription(wantTier string) string {
 		return fmt.Sprintf("trustTier=%s", wantTier)
 	}
 	return "none — every record verified against a configured trust tier is included; unverified records are always excluded"
-}
-
-func uniqueMatches(re *regexp.Regexp, s string) []string {
-	seen := map[string]bool{}
-	var out []string
-	for _, m := range re.FindAllString(s, -1) {
-		if !seen[m] {
-			seen[m] = true
-			out = append(out, m)
-		}
-	}
-	return out
-}
-
-// excludeRef drops ref from ids, case-insensitively — see the comment at its call site in Ask.
-func excludeRef(ids []string, ref string) []string {
-	out := make([]string, 0, len(ids))
-	for _, id := range ids {
-		if !strings.EqualFold(id, ref) {
-			out = append(out, id)
-		}
-	}
-	return out
-}
-
-// redactExcluded replaces every line of raw whose OWN record id is in excludedReasons with a
-// placeholder, so unverified (or filtered-out) content never reaches whatever reads Raw. Every
-// plankton/nekton query this tool calls prints one record per line, and — verified against the
-// actual print statements for all six supported query types — that record's own id is always the
-// FIRST sha256 hash on its line (plankton's producer/uses/lineage/reproductions listings; nekton's
-// printClaims for about/by). Anchoring to the first match specifically (not "does this line
-// contain an excluded id anywhere") matters: a line can legitimately contain a SECOND, unrelated
-// sha256 hash that must never trigger redaction of an otherwise-trusted line — e.g. a nekton
-// claim's own predicate is spec-allowed to itself be a content hash (a term reference), which
-// almost never resolves as a real claim and so is almost always "excluded" in its own right, even
-// though the claim carrying it is fully verified; naive substring matching would wipe the whole
-// trusted claim's line because of that unrelated embedded hash. (Same risk, lower probability:
-// plankton's free-text `kind=` field on producer/uses/lineage lines is not an enum and could in
-// principle embed another hash.) The query subject itself is filtered out before ids ever reaches
-// the verification loop — see excludeRef — specifically so a summary line that merely echoes it,
-// e.g. reproductions', is never mistaken for an excluded record's line either.
-func redactExcluded(raw string, excludedReasons map[string]string) string {
-	if len(excludedReasons) == 0 {
-		return raw
-	}
-	lines := strings.Split(raw, "\n")
-	for i, line := range lines {
-		id := recordIDRe.FindString(line)
-		if id == "" {
-			continue
-		}
-		if reason, isExcluded := excludedReasons[id]; isExcluded {
-			lines[i] = fmt.Sprintf("[excluded: %s — %s]", id, reason)
-		}
-	}
-	return strings.Join(lines, "\n")
 }

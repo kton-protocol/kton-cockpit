@@ -144,19 +144,35 @@ func (r *Runner) Show(ctx context.Context, idOrFile string) (string, error) {
 	return r.plankton(ctx, "show", idOrFile)
 }
 
-// Producer, Uses, Lineage, Reproductions are read-only graph queries by hash. Producer/Uses/
-// Lineage share plankton's degraded-registry-read code path, which can print an "INCOMPLETE"
-// warning to stderr even on a clean exit — planktonQuery (not plankton) preserves that warning.
-func (r *Runner) Producer(ctx context.Context, hash string) (string, error) {
-	return r.planktonQuery(ctx, "producer", hash)
+// Producer, Uses, Lineage, Reproductions are read-only graph queries by hash, read through
+// plankton's --json mode so a record's id comes from a named field rather than from guessing at
+// text (see reads.go). Producer/Uses/Lineage share plankton's degraded-registry-read code path,
+// which can warn "INCOMPLETE" on stderr even on a clean exit — that warning is carried through on
+// the result rather than dropped, because an incomplete read presented as a complete answer is
+// worse than an error.
+func (r *Runner) Producer(ctx context.Context, hash string) (*LineageResult, error) {
+	return r.lineage(ctx, "producer", hash)
 }
 
-func (r *Runner) Uses(ctx context.Context, hash string) (string, error) {
-	return r.planktonQuery(ctx, "uses", hash)
+func (r *Runner) Uses(ctx context.Context, hash string) (*LineageResult, error) {
+	return r.lineage(ctx, "uses", hash)
 }
 
-func (r *Runner) Lineage(ctx context.Context, hash string) (string, error) {
-	return r.planktonQuery(ctx, "lineage", hash)
+func (r *Runner) Lineage(ctx context.Context, hash string) (*LineageResult, error) {
+	return r.lineage(ctx, "lineage", hash)
+}
+
+func (r *Runner) lineage(ctx context.Context, relation, hash string) (*LineageResult, error) {
+	out, errText, err := r.exec(ctx, "plankton", relation, "--json", hash)
+	if err != nil {
+		return nil, err
+	}
+	res, perr := parseLineageJSON(out)
+	if perr != nil {
+		return nil, perr
+	}
+	res.Warning = errText
+	return res, nil
 }
 
 // Reproductions returns plankton's ↻N report for outputHash, verified against this repo's
@@ -165,36 +181,43 @@ func (r *Runner) Lineage(ctx context.Context, hash string) (string, error) {
 // reproduction to a party who never signed); the cockpit already holds exactly the keys that
 // should count; it must pass them.
 //
+// tier scopes which keys are passed. It is not cosmetic: plankton computes the count itself over
+// the keys it is given, so asking for one tier while handing it every tier's keys returns a number
+// that silently spans all of them — an answer labelled as filtered that is not.
+//
 // The binary exits non-zero for the legitimate "0 distinct producers" case (not just for real
-// failures), and plankton always prints that answer to stdout before exiting — so a non-zero exit
-// with non-empty stdout is treated as a valid, informational zero-count result, same convention
-// as Reproduces below. A non-zero exit with EMPTY stdout means the command itself rejected the
-// call outright (most plausibly: the vendored plankton binary predates --trust-keys support on
-// `reproductions`, which kton 0.2 does provide but 0.1 did not) rather than answering "zero
-// producers", and is surfaced as a real, actionable error instead of being handed to Claude as if
-// it were a valid count.
-func (r *Runner) Reproductions(ctx context.Context, outputHash string) (string, error) {
-	dir, cleanup, err := trustKeysDir(r.cfg)
+// failures), and prints that answer before exiting — so a non-zero exit with output is a valid,
+// informational zero-count result. A non-zero exit with EMPTY stdout means the command rejected the
+// call outright (most plausibly a vendored plankton predating --trust-keys, which kton 0.2 provides
+// and 0.1 did not) rather than answering "zero producers", and is surfaced as a real error instead
+// of being handed to Claude as if it were a count.
+func (r *Runner) Reproductions(ctx context.Context, outputHash, tier string) (*ReproductionsResult, error) {
+	dir, cleanup, err := trustKeysDir(r.cfg, tier)
 	if err != nil {
-		return "", fmt.Errorf("materializing trust keys for reproductions: %w", err)
+		return nil, fmt.Errorf("materializing trust keys for reproductions: %w", err)
 	}
 	defer cleanup()
 
-	out, err := r.plankton(ctx, "reproductions", "--trust-keys", dir, outputHash)
+	out, errText, err := r.exec(ctx, "plankton", "reproductions", "--trust-keys", dir, "--json", outputHash)
 	if err != nil && out == "" {
-		return "", fmt.Errorf(
+		return nil, fmt.Errorf(
 			"plankton rejected `reproductions --trust-keys` outright (no answer on stdout) — most "+
 				"likely this vendored plankton binary predates --trust-keys support on `reproductions` "+
 				"and needs upgrading; the cockpit refuses to fall back to an unverified, forgeable count. "+
 				"underlying error: %w", err)
 	}
-	return out, nil
+	res, perr := parseReproductionsJSON(out)
+	if perr != nil {
+		return nil, perr
+	}
+	res.Warning = errText
+	return res, nil
 }
 
 // trustKeysDir materializes every pubkey configured across this repo's trust tiers into a fresh
 // flat directory of *.pub files — the shape `--trust-keys <dir>` expects (raw hex Ed25519, one key
 // per *.pub file, loaded non-recursively). Callers must invoke the returned cleanup once done.
-func trustKeysDir(cfg *config.Config) (dir string, cleanup func(), err error) {
+func trustKeysDir(cfg *config.Config, tier string) (dir string, cleanup func(), err error) {
 	dir, err = os.MkdirTemp("", "cockpit-trust-keys-")
 	if err != nil {
 		return "", func() {}, err
@@ -202,7 +225,10 @@ func trustKeysDir(cfg *config.Config) (dir string, cleanup func(), err error) {
 	cleanup = func() { os.RemoveAll(dir) }
 
 	i := 0
-	for pubkeyPath := range cfg.TierPubkeys() {
+	for pubkeyPath, keyTier := range cfg.TierPubkeys() {
+		if tier != "" && keyTier != tier {
+			continue
+		}
 		b, rerr := os.ReadFile(pubkeyPath)
 		if rerr != nil {
 			cleanup()

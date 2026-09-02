@@ -603,3 +603,81 @@ func TestConfig_RefusesASpectrumThatIsNotAContentHash(t *testing.T) {
 		t.Fatal("a non-hash env-spectrum was accepted")
 	}
 }
+
+// plankton computes the ↻N count itself, over exactly the keys the cockpit hands it. So a tier
+// filter has to be pushed down into --trust-keys, not applied to the records afterwards:
+// previously every tier's keys went in and only the record LIST was filtered, so a query asking
+// for one tier got a count spanning all of them while the response said trustTier=<that one>.
+func TestAsk_ReproductionsCountIsScopedToTheRequestedTier(t *testing.T) {
+	r := testrepo.New(t)
+
+	// Two tiers, and the key that actually signs fotons is in "other" — so a query scoped to
+	// "self" must find nothing, and one scoped to "other" must find the publisher.
+	raw := testrepo.DefaultConfig()
+	raw.Trust.Tiers = map[string][]string{
+		"self":  {"registry/keys/" + testrepo.SessionID + "-claims.pub"},
+		"other": {"registry/keys/" + testrepo.SessionID + ".pub"},
+	}
+	r.WriteConfig(t, raw)
+	r.Use(t)
+	pub := publishOne(t, r)
+	hash := pub.OutputHashes["data/out.csv"]
+
+	ask := func(tier string) AskOutput {
+		t.Helper()
+		in := AskInput{Query: "reproductions", Ref: hash}
+		if tier != "" {
+			in.Filter = &AskFilter{TrustTier: tier}
+		}
+		result, out, err := Ask(context.Background(), nil, in)
+		if err != nil {
+			t.Fatalf("Ask returned a Go error: %v", err)
+		}
+		if result.IsError {
+			t.Fatalf("reproductions(tier=%q) failed: %s", tier, errText(result))
+		}
+		return out
+	}
+
+	if got := ask("other").VerifiedSigners; got != 1 {
+		t.Errorf("tier \"other\" holds the signing key, so it must count 1 signer; got %d", got)
+	}
+	if got := ask("self").VerifiedSigners; got != 0 {
+		t.Errorf("tier \"self\" does not hold the signing key, so the count must be 0, not a number "+
+			"taken over every tier; got %d", got)
+	}
+	if got := ask("").VerifiedSigners; got != 1 {
+		t.Errorf("unfiltered, every configured tier counts: expected 1, got %d", got)
+	}
+}
+
+// The lineage queries return records, not text to be parsed by whoever reads the answer.
+func TestAsk_ProducerReturnsAStructuredFotonRecord(t *testing.T) {
+	r := testrepo.New(t)
+	r.Use(t)
+	pub := publishOne(t, r)
+
+	result, out, err := Ask(context.Background(), nil, AskInput{
+		Query: "producer", Ref: pub.OutputHashes["data/out.csv"],
+	})
+	if err != nil {
+		t.Fatalf("Ask returned a Go error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("producer query failed: %s", errText(result))
+	}
+	if len(out.Fotons) != 1 {
+		t.Fatalf("expected exactly the one foton just published, got %+v", out.Fotons)
+	}
+	f := out.Fotons[0]
+	if f.ID != pub.FotonID {
+		t.Errorf("foton id: got %s, published %s", f.ID, pub.FotonID)
+	}
+	// publishOne records two inputs and one output.
+	if f.Inputs != 2 || f.Outputs != 1 {
+		t.Errorf("input/output counts not decoded: %+v", f)
+	}
+	if f.Kind == "" {
+		t.Errorf("kind not decoded: %+v", f)
+	}
+}

@@ -10,8 +10,9 @@ import (
 // RequiredKernelMajor/Minor is the oldest kton kernel this cockpit can drive. It is a real
 // requirement, not a preference: three things the cockpit does have no pre-0.2 form.
 //
-//   - `nekton about --json` / `nekton by --json` (upstream #39/#40). Without them the claim axis —
-//     what a claim actually says — is unreachable; only prose naming the id and predicate exists.
+//   - `nekton about --json` / `nekton by --json` (#39/#40) and `--json` on plankton's read surface
+//     (#57). Without them the claim axis — what a claim actually says — is unreachable, and a
+//     record's id has to be guessed at as the first hash on a line of prose.
 //   - `plankton reproductions --trust-keys`. Without it the ↻N count is self-declared and
 //     forgeable, and serving a forgeable number is worse than serving none.
 //   - `nekton annotate --print-id` (#56). Without it the claim id has to be scraped back out of
