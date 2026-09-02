@@ -1,0 +1,6 @@
+# Private signing keys live in the ROOT /keys/ dir — NEVER commit these.
+# The leading slash anchors this to the repo root, so it does NOT match registry/keys/.
+/keys/
+
+# Your PUBLISHED public keys live in registry/keys/*.pub and MUST be committed
+# (a peer needs them to verify your signatures). Verify with: git ls-files registry/keys

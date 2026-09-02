@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/deathbychoco/claude-science-cockpit/internal/testrepo"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // These drive the real tool handlers against a real participant repo with a real registry — one
@@ -37,6 +38,18 @@ func chdir(t *testing.T, dir string) {
 
 const unknownHash = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
 
+// errText renders a tool result's content as text. Printing []mcp.Content with %+v yields a slice
+// of pointers, which makes every failure message useless exactly when it is needed.
+func errText(result *mcp.CallToolResult) string {
+	var b strings.Builder
+	for _, c := range result.Content {
+		if tc, ok := c.(*mcp.TextContent); ok {
+			b.WriteString(tc.Text)
+		}
+	}
+	return b.String()
+}
+
 // publishOne runs a real publish of one input and one output through the real handler, and
 // returns its result. It fails the test if the publish itself failed.
 func publishOne(t *testing.T, r *testrepo.Repo) PublishOutput {
@@ -54,7 +67,7 @@ func publishOne(t *testing.T, r *testrepo.Repo) PublishOutput {
 		t.Fatalf("Publish returned a Go error: %v", err)
 	}
 	if result.IsError {
-		t.Fatalf("publish failed: %+v", result.Content)
+		t.Fatalf("publish failed: %+v", errText(result))
 	}
 	return out
 }
@@ -120,7 +133,7 @@ func TestAsk_ProducerFindsTheJustPublishedFotonAndVerifiesIt(t *testing.T) {
 		t.Fatalf("Ask returned a Go error: %v", err)
 	}
 	if result.IsError {
-		t.Fatalf("producer query failed: %+v", result.Content)
+		t.Fatalf("producer query failed: %+v", errText(result))
 	}
 	if len(out.Included) == 0 {
 		t.Fatalf("producer found nothing for a hash just published; records=%+v raw=%q", out.Records, out.Raw)
@@ -148,7 +161,7 @@ func TestAsk_ProducerOnUnknownHashIncludesNothing(t *testing.T) {
 		t.Fatalf("Ask returned a Go error: %v", err)
 	}
 	if result.IsError {
-		t.Fatalf("a plain not-found query must not be a tool error: %+v", result.Content)
+		t.Fatalf("a plain not-found query must not be a tool error: %+v", errText(result))
 	}
 	if len(out.Included) != 0 {
 		t.Fatalf("expected nothing included for an unknown hash, got %+v", out.Included)
@@ -169,7 +182,7 @@ func TestAsk_ReproductionsCountsTheVerifiedProducer(t *testing.T) {
 		t.Fatalf("Ask returned a Go error: %v", err)
 	}
 	if result.IsError {
-		t.Fatalf("reproductions failed against a --trust-keys-capable binary: %+v", result.Content)
+		t.Fatalf("reproductions failed against a --trust-keys-capable binary: %+v", errText(result))
 	}
 	if !strings.Contains(out.Raw, "1") {
 		t.Fatalf("expected a verified count of 1 for a single publisher, raw=%q", out.Raw)
@@ -204,7 +217,7 @@ func TestSay_RecordsAClaimAndConfirmsItIsQueryable(t *testing.T) {
 		t.Fatalf("Say returned a Go error: %v", err)
 	}
 	if result.IsError {
-		t.Fatalf("say failed: %+v", result.Content)
+		t.Fatalf("say failed: %+v", errText(result))
 	}
 	if !strings.HasPrefix(out.ClaimID, "sha256:") {
 		t.Fatalf("expected a sha256 claim id, got %q", out.ClaimID)
@@ -217,7 +230,7 @@ func TestSay_RecordsAClaimAndConfirmsItIsQueryable(t *testing.T) {
 
 	ask, askOut, err := Ask(context.Background(), nil, AskInput{Query: "about", Ref: pub.FotonID})
 	if err != nil || ask.IsError {
-		t.Fatalf("about query failed: err=%v result=%+v", err, ask.Content)
+		t.Fatalf("about query failed: err=%v result=%+v", err, errText(ask))
 	}
 	var included bool
 	for _, id := range askOut.Included {
@@ -283,7 +296,7 @@ func TestSay_ReproducesRecordsL0ForIdenticalBytes(t *testing.T) {
 		t.Fatalf("Say returned a Go error: %v", err)
 	}
 	if result.IsError {
-		t.Fatalf("say refused a genuine byte-identical reproduction: %+v", result.Content)
+		t.Fatalf("say refused a genuine byte-identical reproduction: %+v", errText(result))
 	}
 	if out.Level != "L0" {
 		t.Fatalf("byte-identical outputs must be L0, got %q", out.Level)
@@ -337,7 +350,7 @@ func TestConfigGuard_CockpitRepoDirEnvOverridesCwd(t *testing.T) {
 		t.Fatalf("Ask returned a Go error: %v", err)
 	}
 	if result.IsError {
-		t.Fatalf("expected COCKPIT_REPO_DIR to resolve against the fixture repo, got: %+v", result.Content)
+		t.Fatalf("expected COCKPIT_REPO_DIR to resolve against the fixture repo, got: %+v", errText(result))
 	}
 }
 
@@ -353,7 +366,7 @@ func sayWorkingOn(t *testing.T, subject string) string {
 		t.Fatalf("Say returned a Go error: %v", err)
 	}
 	if result.IsError {
-		t.Fatalf("say failed: %+v", result.Content)
+		t.Fatalf("say failed: %+v", errText(result))
 	}
 	return out.ClaimID
 }
@@ -372,7 +385,7 @@ func TestAsk_AboutReturnsWhatTheClaimSaysNotJustThatItExists(t *testing.T) {
 		t.Fatalf("Ask returned a Go error: %v", err)
 	}
 	if result.IsError {
-		t.Fatalf("about query failed: %+v", result.Content)
+		t.Fatalf("about query failed: %+v", errText(result))
 	}
 	if len(out.Claims) != 1 {
 		t.Fatalf("expected exactly the one claim just recorded, got %d: %+v", len(out.Claims), out.Claims)
@@ -417,7 +430,7 @@ func TestAsk_ByPredicateFindsTheClaim(t *testing.T) {
 		t.Fatalf("Ask returned a Go error: %v", err)
 	}
 	if result.IsError {
-		t.Fatalf("by/predicate query failed: %+v", result.Content)
+		t.Fatalf("by/predicate query failed: %+v", errText(result))
 	}
 	if len(out.Included) != 1 || out.Included[0] != claimID {
 		t.Fatalf("by/predicate did not find the claim; included=%+v claims=%+v", out.Included, out.Claims)
@@ -442,7 +455,7 @@ func TestAsk_BySignerFindsTheClaim(t *testing.T) {
 		t.Fatalf("Ask returned a Go error: %v", err)
 	}
 	if result.IsError {
-		t.Fatalf("by/signer query failed: %+v", result.Content)
+		t.Fatalf("by/signer query failed: %+v", errText(result))
 	}
 	if len(out.Included) != 1 || out.Included[0] != claimID {
 		t.Fatalf("by/signer did not find the claim; included=%+v", out.Included)
@@ -502,12 +515,34 @@ func TestAsk_AboutExcludesAClaimThatVerifiesAgainstNoConfiguredTier(t *testing.T
 		t.Fatalf("Ask returned a Go error: %v", err)
 	}
 	if result.IsError {
-		t.Fatalf("about query failed: %+v", result.Content)
+		t.Fatalf("about query failed: %+v", errText(result))
 	}
 	if len(out.Claims) != 0 || out.Raw != "" {
 		t.Fatalf("an unverifiable claim's content reached the answer: claims=%+v raw=%q", out.Claims, out.Raw)
 	}
 	if len(out.Excluded) != 1 || out.Excluded[0] != claimID {
 		t.Fatalf("the claim was not accounted for as excluded: %+v", out.Excluded)
+	}
+}
+
+// The private signing keys must never be committed, and the public halves must be — a peer
+// cannot verify this participant's signatures without them. Both halves are generated side by
+// side in keys/, so this is exactly the kind of thing that goes wrong quietly.
+func TestFixture_CommitsThePublicKeysAndNeverThePrivateOnes(t *testing.T) {
+	r := testrepo.New(t)
+	r.Use(t)
+	publishOne(t, r) // a publish commits more paths; the rule must still hold afterwards
+
+	var sawPub bool
+	for _, f := range r.TrackedFiles(t) {
+		if strings.HasSuffix(f, ".key") {
+			t.Errorf("a private signing key is tracked by git: %s", f)
+		}
+		if f == "registry/keys/"+testrepo.SessionID+".pub" {
+			sawPub = true
+		}
+	}
+	if !sawPub {
+		t.Errorf("the published public key registry/keys/%s.pub is not tracked; a peer could not verify this participant", testrepo.SessionID)
 	}
 }

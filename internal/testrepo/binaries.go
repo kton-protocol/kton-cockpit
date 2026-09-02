@@ -136,29 +136,3 @@ func copyFile(t *testing.T, src, dst string) {
 		t.Fatal(err)
 	}
 }
-
-// The two claim templates the default allowed-templates ceiling names, copied from the
-// participant template repo they come from in production (gitmick/plankton-participant-template).
-// Templates are federated data, not protocol — the cockpit only ever passes a name through to
-// nekton, so these have to exist on disk for `say` to work at all.
-const reproducesTemplate = `{
-  "name": "reproduces",
-  "target": "foton",
-  "predicate": "https://kton.dev/v/reproduces",
-  "fields": {
-    "level":        {"type": "enum", "required": true, "values": ["L0", "L1", "L2"]},
-    "reproducedBy": {"type": "ref",  "required": true}
-  }
-}
-`
-
-const workingOnTemplate = `{
-  "name": "working-on",
-  "target": "either",
-  "predicate": "https://kton.dev/v/working-on",
-  "fields": {
-    "step":       {"type": "string", "required": true},
-    "by-session": {"type": "string", "required": true}
-  }
-}
-`

@@ -20,6 +20,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/deathbychoco/claude-science-cockpit/internal/config"
@@ -66,7 +67,7 @@ func New(t *testing.T) *Repo {
 	git(t, r.Root, "remote", "add", "origin", "git@github.com:"+Owner+"/"+Name+".git")
 	git(t, r.Root, "remote", "set-url", "--push", "origin", r.Origin)
 
-	for _, d := range []string{"registry/plankton", "registry/nekton", "templates", "keys", "bin", "data"} {
+	for _, d := range []string{"registry/plankton", "registry/nekton", "registry/keys", "templates", "keys", "bin", "data"} {
 		if err := os.MkdirAll(filepath.Join(r.Root, d), 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -81,8 +82,20 @@ func New(t *testing.T) *Repo {
 	run(t, r.Root, filepath.Join(r.Root, "bin", "plankton"), "keygen", "keys/"+SessionID)
 	run(t, r.Root, filepath.Join(r.Root, "bin", "nekton"), "keygen", "keys/"+SessionID+"-claims")
 
-	writeFile(t, filepath.Join(r.Root, "templates", "reproduces.json"), reproducesTemplate)
-	writeFile(t, filepath.Join(r.Root, "templates", "working-on.json"), workingOnTemplate)
+	// The two halves go to different places, and this is the layout, not a detail: the private
+	// .key stays in /keys/, which .gitignore excludes, while the .pub is copied to registry/keys/
+	// and IS committed — a peer cannot verify this participant's signatures without it.
+	for _, base := range []string{SessionID, SessionID + "-claims"} {
+		copyFile(t, filepath.Join(r.Root, "keys", base+".pub"), filepath.Join(r.Root, "registry", "keys", base+".pub"))
+	}
+
+	// The claim templates and the key hygiene come from uat/participant-skeleton, so this fixture
+	// and the UAT scaffold participants from one definition rather than two that can drift.
+	skeleton := filepath.Join(cockpitRoot(t), "uat", "participant-skeleton")
+	copyFile(t, filepath.Join(skeleton, "gitignore"), filepath.Join(r.Root, ".gitignore"))
+	for _, tmpl := range []string{"reproduces.json", "working-on.json"} {
+		copyFile(t, filepath.Join(skeleton, "templates", tmpl), filepath.Join(r.Root, "templates", tmpl))
+	}
 
 	b, err := json.MarshalIndent(DefaultConfig(), "", "  ")
 	if err != nil {
@@ -117,7 +130,7 @@ func DefaultConfig() config.Raw {
 		Verbs:  config.Verbs{Publish: true, Say: true, Ask: true},
 		Claims: config.Claims{AllowedTemplates: []string{"reproduces", "working-on"}},
 		Trust: config.Trust{Tiers: map[string][]string{
-			"self": {"keys/" + SessionID + ".pub", "keys/" + SessionID + "-claims.pub"},
+			"self": {"registry/keys/" + SessionID + ".pub", "registry/keys/" + SessionID + "-claims.pub"},
 		}},
 		Reproduction: config.Reproduction{RequiredLevel: "L0"},
 	}
@@ -173,4 +186,14 @@ func (r *Repo) OriginContains(t *testing.T, sha string) bool {
 	cmd := exec.Command("git", "--git-dir", r.Origin, "merge-base", "--is-ancestor", sha, "main")
 	cmd.Dir = filepath.Dir(r.Origin)
 	return cmd.Run() == nil
+}
+
+// TrackedFiles lists every path git actually tracks in the working repo.
+func (r *Repo) TrackedFiles(t *testing.T) []string {
+	t.Helper()
+	out := git(t, r.Root, "ls-files")
+	if out == "" {
+		return nil
+	}
+	return strings.Split(out, "\n")
 }

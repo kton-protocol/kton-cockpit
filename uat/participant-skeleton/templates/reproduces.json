@@ -1,0 +1,9 @@
+{
+  "name": "reproduces",
+  "target": "foton",
+  "predicate": "https://kton.dev/v/reproduces",
+  "fields": {
+    "level":        {"type": "enum", "required": true, "values": ["L0", "L1", "L2"]},
+    "reproducedBy": {"type": "ref",  "required": true}
+  }
+}
