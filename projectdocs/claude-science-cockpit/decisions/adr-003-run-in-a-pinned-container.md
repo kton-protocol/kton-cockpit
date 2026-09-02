@@ -3,7 +3,7 @@ title: "Run the published command in a pinned container, so the environment is d
 type: "decision"
 project: "claude-science-cockpit"
 date: 2026-09-02
-status: "proposed"
+status: "accepted"
 tags: [architecture, execution, environment, reproducibility, security]
 ---
 
@@ -11,7 +11,8 @@ tags: [architecture, execution, environment, reproducibility, security]
 
 ## Status
 
-**Proposed.** Not implemented. Two questions below are open and are the operator's to settle.
+**Accepted and implemented** (2026-09-02). Both open questions were settled by the operator; see
+"Open questions, as settled" below.
 
 ## Context
 
@@ -92,16 +93,22 @@ why its constraints are part of the decision and not a detail:
 - non-root, mapped to the invoking uid/gid, so outputs are not root-owned artefacts the operator
   cannot clean up.
 
-## Open questions
+## Open questions, as settled
 
-1. **Verification.** Docker is not available where this was developed (Docker Desktop's engine is
-   not reachable from this WSL distro). Argument construction, digest handling and failure paths
-   can be tested against a substitutable runtime; that the real engine behaves as expected cannot.
-   Shipping stub-only coverage would repeat exactly the failure this project spent a day removing —
-   a suite reporting success over something it never exercised.
-2. **How far the container is locked down**, and whether `network: true` may be configurable at
-   all. Allowing it makes some real pipelines work and makes every published foton's environment
-   claim weaker.
+1. **Verification: against a real engine.** Docker was started rather than stubbed. Six tests drive
+   an actual runtime, behind a `docker` build tag so the default suite keeps its no-skips property:
+   the command runs and produces its output, a non-zero exit publishes nothing and leaves no commit,
+   a declared output the run never produced is refused, files come back owned by the invoking user,
+   and `envRef` is the same string the runtime was given.
+
+   The isolation test carries a negative control, without which it proves nothing: the same command
+   under `network: true` must reach out. A container with no DNS configured at all would otherwise
+   report "isolated" while `--network none` did nothing, and the test would pass for the wrong
+   reason.
+
+2. **Network: isolated by default, configurable.** `--network none` unless the repo opts out.
+   `cockpit_publish` reports `networkAllowed` when it did, so whoever reads the result sees that the
+   run depended on something the foton does not pin, rather than having to know the repo's config.
 
 ## Consequences
 

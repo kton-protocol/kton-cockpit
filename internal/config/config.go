@@ -64,6 +64,51 @@ type Environment struct {
 	EnvRef string `json:"envRef,omitempty"`
 }
 
+// Execution turns cockpit_publish from recording a command into running one, inside a pinned
+// container. Off unless Image is set.
+//
+// The point is that the environment stops being a declaration. Config alone can only assert "we run
+// in image X"; nothing checks the command actually ran there. When the cockpit runs it, the string
+// handed to the container runtime and the string pinned into the foton are the same string, so what
+// ran and what is recorded cannot differ. See ADR-003.
+type Execution struct {
+	// Engine is the container runtime executable. Empty means "docker".
+	Engine string `json:"engine,omitempty"`
+	// Image is the digest-pinned OCI reference to run in, e.g. oci://ghcr.io/org/x@sha256:...
+	// Setting it is what enables execution.
+	Image string `json:"image,omitempty"`
+	// Network allows the container to reach the network. Default false: a run that reaches the
+	// internet depended on something the foton does not pin, so its environment claim is weaker —
+	// and inside claude-science's sandbox, where the cockpit is Claude's entire surface, it is also
+	// the cheapest way out of it. Publishing records when this was on.
+	Network bool `json:"network,omitempty"`
+}
+
+// PinnedEnvRef is the exact execution environment to record in a foton. When the cockpit runs the
+// command itself, that is by definition the image it ran it in — the config cannot disagree,
+// because validateExecution refuses a config where the two differ.
+func (r Raw) PinnedEnvRef() string {
+	if r.Execution.Enabled() {
+		return r.Execution.Image
+	}
+	return r.Environment.EnvRef
+}
+
+// Enabled reports whether this repo runs published commands rather than recording them.
+func (e Execution) Enabled() bool { return e.Image != "" }
+
+// EngineOrDefault is the runtime executable to invoke.
+func (e Execution) EngineOrDefault() string {
+	if e.Engine == "" {
+		return "docker"
+	}
+	return e.Engine
+}
+
+// ImageRef strips the oci:// scheme, which pins the reference in a foton but is not what a
+// container runtime accepts on its command line.
+func (e Execution) ImageRef() string { return strings.TrimPrefix(e.Image, "oci://") }
+
 type Reproduction struct {
 	RequiredLevel string `json:"requiredLevel"`
 	Normalizer    string `json:"normalizer"`
@@ -79,6 +124,7 @@ type Raw struct {
 	Trust        Trust        `json:"trust"`
 	Reproduction Reproduction `json:"reproduction"`
 	Environment  Environment  `json:"environment,omitempty"`
+	Execution    Execution    `json:"execution,omitempty"`
 }
 
 // Config is the loaded, validated, path-resolved configuration for one cockpit invocation. Every
@@ -179,7 +225,37 @@ func validate(raw *Raw) error {
 	if len(missing) > 0 {
 		return fmt.Errorf("missing required field(s): %s", strings.Join(missing, ", "))
 	}
-	return validateEnvironment(raw.Environment)
+	if err := validateEnvironment(raw.Environment); err != nil {
+		return err
+	}
+	return validateExecution(raw.Execution, raw.Environment)
+}
+
+// validateExecution refuses a configuration that cannot mean what it says.
+func validateExecution(ex Execution, env Environment) error {
+	if !ex.Enabled() {
+		if ex.Network {
+			return fmt.Errorf("execution.network is set but execution.image is not — nothing runs, so nothing is being allowed onto the network")
+		}
+		return nil
+	}
+	if !strings.HasPrefix(ex.Image, "oci://") {
+		return fmt.Errorf("execution.image must be an oci:// reference, got %q", ex.Image)
+	}
+	if !strings.Contains(ex.Image, "@sha256:") {
+		return fmt.Errorf(
+			"execution.image %q has no digest — a tag names whatever it points at today, so running "+
+				"\"in that image\" would pin nothing. Use oci://<image>@sha256:<digest>", ex.Image)
+	}
+	// A repo that says it runs in one environment and records another is not a configuration; it is
+	// a false record waiting to be signed.
+	if env.EnvRef != "" && env.EnvRef != ex.Image {
+		return fmt.Errorf(
+			"environment.envRef (%s) and execution.image (%s) disagree: the cockpit would run in one "+
+				"environment and pin the other into the foton. Set only execution.image — it is used for both",
+			env.EnvRef, ex.Image)
+	}
+	return nil
 }
 
 // validateEnvironment rejects the two ways an environment pin can be quietly meaningless. Both

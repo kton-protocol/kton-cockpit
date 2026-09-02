@@ -76,7 +76,17 @@ If `bin/` is empty, the tests build the kernel themselves from `$KTON_SRC`, else
 checkout. `COCKPIT_TEST_PLANKTON`/`COCKPIT_TEST_NEKTON` override both. They never fall back to
 `$PATH` — see the warning under "The kernel binaries" for why.
 
-Nothing in the suite skips. If a test cannot run it fails, because a suite that quietly degrades to
+One area is behind a build tag, and deliberately so:
+
+```bash
+go test -tags docker ./...     # adds the tests that drive a real container runtime
+```
+
+Those cover `internal/container` and publish's execution path (ADR-003). They are excluded from the
+default run so `go test ./...` keeps the property below; asking for them without an engine is a
+failure, not a skip, because you asked. Run them before merging anything that touches either.
+
+Nothing in the default suite skips. If a test cannot run it fails, because a suite that quietly degrades to
 skips is how this one previously spent months reporting success while exercising none of the
 handlers: it pointed at a hand-made local clone by absolute path (`/mnt/c/dev/planktonReproduce/…`)
 that had been reorganized away.

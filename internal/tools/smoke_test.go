@@ -681,3 +681,70 @@ func TestAsk_ProducerReturnsAStructuredFotonRecord(t *testing.T) {
 		t.Errorf("kind not decoded: %+v", f)
 	}
 }
+
+// The execution config is refused at load time for the ways it can be quietly wrong. None of these
+// need a container runtime: a configuration that cannot mean what it says should never get as far
+// as starting one.
+func TestConfig_RefusesExecutionSettingsThatCannotMeanWhatTheySay(t *testing.T) {
+	cases := map[string]struct {
+		mutate func(*config.Raw)
+		expect string
+	}{
+		"image without a digest": {
+			func(raw *config.Raw) { raw.Execution.Image = "oci://ghcr.io/example/analysis:latest" },
+			"digest",
+		},
+		"image that is not an oci reference": {
+			func(raw *config.Raw) { raw.Execution.Image = "ghcr.io/example/analysis@sha256:abc" },
+			"oci://",
+		},
+		// Running in one environment while recording another is a false record waiting to be signed.
+		"execution and environment disagreeing": {
+			func(raw *config.Raw) {
+				raw.Execution.Image = "oci://ghcr.io/example/a@sha256:1111111111111111111111111111111111111111111111111111111111111111"
+				raw.Environment.EnvRef = "oci://ghcr.io/example/b@sha256:2222222222222222222222222222222222222222222222222222222222222222"
+			},
+			"disagree",
+		},
+		"network allowed with nothing to run": {
+			func(raw *config.Raw) { raw.Execution.Network = true },
+			"nothing runs",
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			r := testrepo.New(t)
+			raw := testrepo.DefaultConfig()
+			tc.mutate(&raw)
+			r.WriteConfig(t, raw)
+			r.Use(t)
+
+			result, _, err := Ask(context.Background(), nil, AskInput{Query: "producer", Ref: unknownHash})
+			if err != nil {
+				t.Fatalf("expected a tool-level error, not a Go error: %v", err)
+			}
+			if !result.IsError {
+				t.Fatal("the configuration was accepted")
+			}
+			if !strings.Contains(errText(result), tc.expect) {
+				t.Fatalf("the error does not explain the problem (want %q): %s", tc.expect, errText(result))
+			}
+		})
+	}
+}
+
+// The counterpart to the container tests: with no execution configured, publish records a command
+// it did not run, and says so by leaving executedIn empty.
+func TestPublish_WithoutExecutionConfiguredTheCommandIsOnlyRecorded(t *testing.T) {
+	r := testrepo.New(t)
+	r.Use(t)
+	out := publishOne(t, r)
+
+	if out.ExecutedIn != "" {
+		t.Errorf("nothing was configured to run the command, yet publish reported executedIn=%q", out.ExecutedIn)
+	}
+	if out.Stdout != "" {
+		t.Errorf("publish reported stdout for a command it never ran: %q", out.Stdout)
+	}
+}

@@ -14,6 +14,7 @@ import (
 
 	"github.com/deathbychoco/claude-science-cockpit/internal/binaries"
 	"github.com/deathbychoco/claude-science-cockpit/internal/config"
+	"github.com/deathbychoco/claude-science-cockpit/internal/container"
 	"github.com/deathbychoco/claude-science-cockpit/internal/tools"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -174,6 +175,25 @@ func runDoctor(ctx context.Context) error {
 	}
 	fmt.Printf("kernel:         meets the required %d.%d minimum  [ok]\n",
 		binaries.RequiredKernelMajor, binaries.RequiredKernelMinor)
+
+	if !cfg.Raw.Execution.Enabled() {
+		fmt.Printf("execution:      not configured — cockpit_publish RECORDS the command, does not run it\n")
+		if cfg.Raw.Environment.EnvRef != "" {
+			fmt.Printf("                (environment.envRef is set, so the pinned environment is asserted, not observed)\n")
+		}
+		return nil
+	}
+	fmt.Printf("execution:      %s in %s\n", cfg.Raw.Execution.EngineOrDefault(), cfg.Raw.Execution.Image)
+	ver, verr := container.Version(ctx, cfg)
+	if verr != nil {
+		return fmt.Errorf("execution is configured but the engine is unusable: %w", verr)
+	}
+	fmt.Printf("engine ver:     %s\n", ver)
+	if cfg.Raw.Execution.Network {
+		fmt.Printf("network:        ALLOWED — runs are not isolated, so their environment claim is weaker\n")
+	} else {
+		fmt.Printf("network:        isolated (--network none)\n")
+	}
 	return nil
 }
 

@@ -10,6 +10,7 @@ import (
 
 	"github.com/deathbychoco/claude-science-cockpit/internal/binaries"
 	"github.com/deathbychoco/claude-science-cockpit/internal/config"
+	"github.com/deathbychoco/claude-science-cockpit/internal/container"
 	"github.com/deathbychoco/claude-science-cockpit/internal/gitops"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -37,11 +38,19 @@ type PublishOutput struct {
 	OutputHashes map[string]string `json:"outputHashes,omitempty"`
 	CommitSHA    string            `json:"commitSha"`
 	Permalinks   map[string]string `json:"permalinks,omitempty"`
-	// Environment reports which execution environment this foton pinned, if any. Reported because
-	// it is otherwise invisible: it is covered by the foton id, but `plankton show` prints only the
-	// descriptor's cmd, so nothing downstream displays it.
+	// Environment reports which execution environment this foton pinned, if any.
 	Environment string `json:"environment,omitempty"`
 	EnvRef      string `json:"envRef,omitempty"`
+	// ExecutedIn names the image the cockpit ran the command in, when this repo is configured to
+	// run rather than record. Empty means the command was run elsewhere and only recorded here —
+	// in which case envRef, if set, is the operator's assertion rather than an observation.
+	ExecutedIn string `json:"executedIn,omitempty"`
+	// NetworkAllowed reports that the run was NOT network-isolated. Surfaced deliberately: such a
+	// run depended on something the foton does not pin, so its environment claim is weaker, and
+	// whoever reads the result should see that rather than have to know the repo's config.
+	NetworkAllowed bool `json:"networkAllowed,omitempty"`
+	// Stdout is what the command printed, when the cockpit ran it.
+	Stdout string `json:"stdout,omitempty"`
 }
 
 func Publish(ctx context.Context, _ *mcp.CallToolRequest, in PublishInput) (*mcp.CallToolResult, PublishOutput, error) {
@@ -61,6 +70,24 @@ func Publish(ctx context.Context, _ *mcp.CallToolRequest, in PublishInput) (*mcp
 
 	r := binaries.New(cfg)
 	allPaths := append(append([]string{}, in.Inputs...), in.Outputs...)
+
+	// When this repo runs rather than records, the command executes BEFORE anything is committed:
+	// the outputs do not exist until it has. A failed run is a failed publish — a foton describing
+	// whatever a failed run left behind would assert work that never completed.
+	var ran *container.Result
+	if cfg.Raw.Execution.Enabled() {
+		ran, err = container.Run(ctx, cfg, in.Cmd)
+		if err != nil {
+			return errResult[PublishOutput]("%v", err)
+		}
+		for _, o := range in.Outputs {
+			if _, serr := os.Stat(filepath.Join(cfg.RepoRoot, o)); serr != nil {
+				return errResult[PublishOutput](
+					"the command succeeded in %s but produced no %s — publish declares outputs that must exist afterwards",
+					cfg.Raw.Execution.Image, o)
+			}
+		}
+	}
 
 	var corpusPath string
 	if len(in.Corpus) > 0 {
@@ -97,7 +124,7 @@ func Publish(ctx context.Context, _ *mcp.CallToolRequest, in PublishInput) (*mcp
 		// would bake an unverified assertion about which environment ran into the record's own
 		// identity. See config.Environment.
 		Environment: cfg.Raw.Environment.Spectrum,
-		EnvRef:      cfg.Raw.Environment.EnvRef,
+		EnvRef:      cfg.Raw.PinnedEnvRef(),
 	})
 	if err != nil {
 		return errResult[PublishOutput]("plankton author failed: %v", err)
@@ -122,14 +149,20 @@ func Publish(ctx context.Context, _ *mcp.CallToolRequest, in PublishInput) (*mcp
 		permalinks[p] = base + "/" + p
 	}
 
-	return &mcp.CallToolResult{}, PublishOutput{
+	out := PublishOutput{
 		FotonID:      fotonID,
 		OutputHashes: outputHashes,
 		CommitSHA:    sha,
 		Permalinks:   permalinks,
 		Environment:  cfg.Raw.Environment.Spectrum,
-		EnvRef:       cfg.Raw.Environment.EnvRef,
-	}, nil
+		EnvRef:       cfg.Raw.PinnedEnvRef(),
+	}
+	if ran != nil {
+		out.ExecutedIn = ran.Image
+		out.NetworkAllowed = cfg.Raw.Execution.Network
+		out.Stdout = ran.Stdout
+	}
+	return &mcp.CallToolResult{}, out, nil
 }
 
 func errResult[T any](format string, args ...any) (*mcp.CallToolResult, T, error) {

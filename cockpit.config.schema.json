@@ -89,6 +89,16 @@
         "envRef": { "type": "string", "description": "The exact execution environment: an OCI image digest (oci://<image>@sha256:<digest>), a nix store path, a run-server id. The substrate stores it without interpreting it. An oci:// reference MUST carry a digest — a tag names whatever it points at today, so it pins no environment at all. Passed as `plankton author --env-ref`." }
       }
     },
+    "execution": {
+      "type": "object",
+      "description": "Turns cockpit_publish from recording a command into RUNNING one, inside a pinned container. Off unless `image` is set. The point is that the environment stops being a declaration: config alone can only assert 'we run in image X' with nothing checking that the command actually ran there, whereas when the cockpit runs it the string handed to the container runtime and the string pinned into the foton are the same string. See ADR-003.",
+      "additionalProperties": false,
+      "properties": {
+        "engine": { "type": "string", "description": "The container runtime executable. Defaults to \"docker\"." },
+        "image": { "type": "string", "description": "The digest-pinned OCI reference to run in, e.g. oci://ghcr.io/org/x@sha256:<digest>. Setting it is what enables execution. A reference without a digest is refused: a tag names whatever it points at today, so running \"in that image\" would pin nothing. If environment.envRef is also set it must be this same value, since the cockpit would otherwise run in one environment and record another." },
+        "network": { "type": "boolean", "description": "Allow the container to reach the network. Default false. A run that reaches the internet depended on something the foton does not pin, so its environment claim is weaker — and inside claude-science's sandbox, where the cockpit is Claude's entire surface, it is also the cheapest way out of it. cockpit_publish reports when a run was not isolated." }
+      }
+    },
     "reproduction": {
       "type": "object",
       "description": "The reproduction precondition policy cockpit_say runs itself before writing a reproduces claim's level field — never self-declared by Claude.",
