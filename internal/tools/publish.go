@@ -12,6 +12,7 @@ import (
 	"github.com/deathbychoco/claude-science-cockpit/internal/config"
 	"github.com/deathbychoco/claude-science-cockpit/internal/container"
 	"github.com/deathbychoco/claude-science-cockpit/internal/gitops"
+	"github.com/deathbychoco/claude-science-cockpit/internal/show"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -61,6 +62,9 @@ type PublishOutput struct {
 	NetworkAllowed bool `json:"networkAllowed,omitempty"`
 	// Stdout is what the command printed, when the cockpit ran it.
 	Stdout string `json:"stdout,omitempty"`
+	// UnionPublished reports that this repo's aggregate was regenerated and committed alongside the
+	// record, so the graph is reachable online without running `cockpit show`.
+	UnionPublished bool `json:"unionPublished,omitempty"`
 	// Committed and Pushed say what actually happened to git, because both are configurable and
 	// each changes what the permalinks are worth. Not committed means there are none: the sha one
 	// would pin does not exist. Committed but not pushed means they are correct and will resolve
@@ -160,7 +164,17 @@ func Publish(ctx context.Context, _ *mcp.CallToolRequest, in PublishInput) (*mcp
 		outputHashes[o] = h
 	}
 
-	if _, err := gitops.CommitAndPush(ctx, cfg, []string{cfg.Raw.Paths.PlanktonDir}, "foton: "+in.Cmd); err != nil {
+	// The union is regenerated AFTER the foton is in the registry and committed in the same commit
+	// as it, so a published aggregate is never one record behind the registry it summarises.
+	registryPaths := []string{cfg.Raw.Paths.PlanktonDir}
+	if cfg.Raw.Union.Publish {
+		written, uerr := show.WriteUnion(ctx, cfg)
+		if uerr != nil {
+			return errResult[PublishOutput]("the foton was registered but publishing the union failed: %v", uerr)
+		}
+		registryPaths = append(registryPaths, written...)
+	}
+	if _, err := gitops.CommitAndPush(ctx, cfg, registryPaths, "foton: "+in.Cmd); err != nil {
 		return errResult[PublishOutput]("git commit/push of the registry failed: %v", err)
 	}
 
@@ -173,14 +187,15 @@ func Publish(ctx context.Context, _ *mcp.CallToolRequest, in PublishInput) (*mcp
 	}
 
 	out := PublishOutput{
-		FotonID:      fotonID,
-		OutputHashes: outputHashes,
-		CommitSHA:    sha,
-		Permalinks:   permalinks,
-		Environment:  cfg.Raw.Environment.Spectrum,
-		EnvRef:       envRef,
-		Committed:    cfg.Raw.CommitEnabled(),
-		Pushed:       cfg.Raw.PushEnabled(),
+		FotonID:        fotonID,
+		OutputHashes:   outputHashes,
+		CommitSHA:      sha,
+		Permalinks:     permalinks,
+		Environment:    cfg.Raw.Environment.Spectrum,
+		EnvRef:         envRef,
+		Committed:      cfg.Raw.CommitEnabled(),
+		Pushed:         cfg.Raw.PushEnabled(),
+		UnionPublished: cfg.Raw.Union.Publish,
 	}
 	if ran != nil {
 		out.ExecutedIn = ran.Image

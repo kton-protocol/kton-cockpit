@@ -99,6 +99,15 @@
         "push": { "type": "boolean", "description": "When false, the cockpit commits locally without pushing. Permalinks are still built, because the commit they pin is real and stable; they simply do not resolve until someone pushes. cockpit_publish reports committed/pushed so the caller knows which." }
       }
     },
+    "union": {
+      "type": "object",
+      "description": "Whether this repo also publishes its aggregate as committed files, so the graph is reachable online without anyone running `cockpit show`. The files are the same three a viewer fetches — union.json, keys.json, names.json — regenerated after every record this cockpit writes and committed in the same commit as it, so a published aggregate is never one record behind the registry it summarises. Requires committing to be on: a published union IS a committed file.",
+      "additionalProperties": false,
+      "properties": {
+        "publish": { "type": "boolean", "description": "Off by default. It commits a derived file on every publish, which is real diff noise for a repo nobody views online." },
+        "dir": { "type": "string", "description": "Repo-relative destination. Defaults to docs/data, which GitHub Pages serves without further configuration." }
+      }
+    },
     "execution": {
       "type": "object",
       "description": "Turns cockpit_publish from recording a command into RUNNING one, inside a pinned container. Off unless `image` is set. The point is that the environment stops being a declaration: config alone can only assert 'we run in image X' with nothing checking that the command actually ran there, whereas when the cockpit runs it the string handed to the container runtime and the string pinned into the foton are the same string. See ADR-003.",

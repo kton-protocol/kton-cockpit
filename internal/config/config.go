@@ -82,6 +82,29 @@ type Environment struct {
 	EnvRef string `json:"envRef,omitempty"`
 }
 
+// Union controls whether this repo also publishes its aggregate as committed files, so the graph is
+// reachable online without anyone running `cockpit show` locally.
+//
+// The files are the same three a viewer fetches — union.json, keys.json, names.json — regenerated
+// after every record this cockpit writes and committed alongside it. A viewer is then pointed at
+// their raw URLs, or at GitHub Pages if the repo serves them.
+type Union struct {
+	// Publish turns it on. Off by default: it commits a derived file on every publish, which is a
+	// real cost in diff noise for a repo nobody views online.
+	Publish bool `json:"publish,omitempty"`
+	// Dir is where they go, repo-relative. Defaults to docs/data, which is what GitHub Pages serves
+	// from without configuration.
+	Dir string `json:"dir,omitempty"`
+}
+
+// DirOrDefault is where the union files are written.
+func (u Union) DirOrDefault() string {
+	if u.Dir == "" {
+		return "docs/data"
+	}
+	return u.Dir
+}
+
 // Git controls whether the cockpit commits and pushes on Claude's behalf. Both default to on;
 // omitting the block entirely keeps the behaviour every existing repo has.
 //
@@ -176,6 +199,7 @@ type Raw struct {
 	Environment  Environment  `json:"environment,omitempty"`
 	Execution    Execution    `json:"execution,omitempty"`
 	Git          Git          `json:"git,omitempty"`
+	Union        Union        `json:"union,omitempty"`
 }
 
 // Config is the loaded, validated, path-resolved configuration for one cockpit invocation. Every
@@ -369,6 +393,11 @@ func validate(raw *Raw) error {
 	}
 	if raw.Repo.IsLocal() && raw.Git.Commit != nil && *raw.Git.Commit {
 		return fmt.Errorf("git.commit is true but repo.mode is %q — there is no git repository to commit to", ModeLocal)
+	}
+	if raw.Union.Publish && !raw.CommitEnabled() {
+		return fmt.Errorf(
+			"union.publish is on but this repo does not commit — a published union is a committed file, so " +
+				"there would be nowhere for it to go")
 	}
 	// Only the explicit contradiction is an error. Setting `commit: false` alone is fine and means
 	// no push either; writing `push: true` next to it states something that cannot happen.

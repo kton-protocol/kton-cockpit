@@ -271,6 +271,13 @@ func runDoctor(ctx context.Context) error {
 		fmt.Printf("git:            commit + push\n")
 	}
 
+	if cfg.Raw.Union.Publish {
+		fmt.Printf("union:          published to %s on every record (viewable online without `cockpit show`)\n",
+			cfg.Raw.Union.DirOrDefault())
+	} else {
+		fmt.Printf("union:          not published — the graph is reachable via `cockpit show` only\n")
+	}
+
 	if !cfg.Raw.Execution.Enabled() {
 		fmt.Printf("execution:      not configured — cockpit_publish RECORDS the command, does not run it\n")
 		if cfg.Raw.Environment.EnvRef != "" {

@@ -6,9 +6,12 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/deathbychoco/claude-science-cockpit/internal/config"
 	"github.com/deathbychoco/claude-science-cockpit/internal/show"
 	"github.com/deathbychoco/claude-science-cockpit/internal/testrepo"
 )
@@ -140,5 +143,91 @@ func TestShow_TheRingIsTheConfiguredTrustTiers(t *testing.T) {
 		if !strings.Contains(n, "(self)") {
 			t.Errorf("%s is named %q, which does not say which tier it came from", kid, n)
 		}
+	}
+}
+
+// The published union is a committed file, and it must not lag the registry it summarises: a
+// viewer pointed at the repo online would otherwise show a graph missing the record whose publish
+// wrote it.
+func TestUnion_PublishedAlongsideTheRecordThatCausedIt(t *testing.T) {
+	r := testrepo.New(t)
+	raw := testrepo.DefaultConfig()
+	raw.Union = config.Union{Publish: true}
+	r.WriteConfig(t, raw)
+	r.Use(t)
+
+	pub := publishOne(t, r)
+	if !pub.UnionPublished {
+		t.Fatal("publish did not report the union")
+	}
+
+	// Committed, not merely written.
+	var tracked bool
+	for _, f := range r.TrackedFiles(t) {
+		if f == "docs/data/union.json" {
+			tracked = true
+		}
+	}
+	if !tracked {
+		t.Fatalf("docs/data/union.json is not tracked; got %v", r.TrackedFiles(t))
+	}
+
+	b, err := os.ReadFile(filepath.Join(r.Root, "docs/data/union.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var union []struct {
+		FotonID string `json:"fotonId"`
+		ClaimID string `json:"claimId"`
+	}
+	if err := json.Unmarshal(b, &union); err != nil {
+		t.Fatal(err)
+	}
+	var found bool
+	for _, rec := range union {
+		if rec.FotonID == pub.FotonID {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("the published union does not contain the foton whose publish wrote it (%s)", pub.FotonID)
+	}
+
+	// And a claim written afterwards lands in it too.
+	claimID := sayWorkingOn(t, pub.FotonID)
+	b, err = os.ReadFile(filepath.Join(r.Root, "docs/data/union.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	union = union[:0]
+	if err := json.Unmarshal(b, &union); err != nil {
+		t.Fatal(err)
+	}
+	found = false
+	for _, rec := range union {
+		if rec.ClaimID == claimID {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("the published union does not contain the claim say just wrote (%s)", claimID)
+	}
+}
+
+// A union that cannot be committed cannot be published.
+func TestUnion_RefusedWhenTheRepoDoesNotCommit(t *testing.T) {
+	r := testrepo.New(t)
+	raw := testrepo.DefaultConfig()
+	raw.Union = config.Union{Publish: true}
+	raw.Git = config.Git{Commit: testrepo.Bool(false)}
+	r.WriteConfig(t, raw)
+	r.Use(t)
+
+	result, _, err := Ask(context.Background(), nil, AskInput{Query: "producer", Ref: unknownHash})
+	if err != nil {
+		t.Fatalf("expected a tool-level error, not a Go error: %v", err)
+	}
+	if !result.IsError {
+		t.Fatal("a union was accepted in a repo that does not commit")
 	}
 }

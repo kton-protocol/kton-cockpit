@@ -8,6 +8,7 @@ import (
 	"github.com/deathbychoco/claude-science-cockpit/internal/binaries"
 	"github.com/deathbychoco/claude-science-cockpit/internal/config"
 	"github.com/deathbychoco/claude-science-cockpit/internal/gitops"
+	"github.com/deathbychoco/claude-science-cockpit/internal/show"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -67,7 +68,15 @@ func Say(ctx context.Context, _ *mcp.CallToolRequest, in SayInput) (*mcp.CallToo
 		return errResult[SayOutput]("nekton annotate failed: %v", err)
 	}
 
-	if _, err := gitops.CommitAndPush(ctx, cfg, []string{cfg.Raw.Paths.NektonDir}, "claim: "+in.Template+" on "+in.Subject); err != nil {
+	registryPaths := []string{cfg.Raw.Paths.NektonDir}
+	if cfg.Raw.Union.Publish {
+		written, uerr := show.WriteUnion(ctx, cfg)
+		if uerr != nil {
+			return errResult[SayOutput]("the claim was registered but publishing the union failed: %v", uerr)
+		}
+		registryPaths = append(registryPaths, written...)
+	}
+	if _, err := gitops.CommitAndPush(ctx, cfg, registryPaths, "claim: "+in.Template+" on "+in.Subject); err != nil {
 		return errResult[SayOutput]("git commit/push of the claim registry failed: %v", err)
 	}
 

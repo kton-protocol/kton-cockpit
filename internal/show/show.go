@@ -23,6 +23,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -90,6 +91,66 @@ func Start(ctx context.Context, cfg *config.Config) (*Server, error) {
 		return nil, err
 	}
 	return s, nil
+}
+
+// Snapshot returns the three files a viewer fetches, as bytes, by starting the kernel servers,
+// reading them once and shutting them down again. It is what publishing a union to git uses: the
+// same records the live server would hand a viewer, frozen at this moment.
+func Snapshot(ctx context.Context, cfg *config.Config) (union, keys, names []byte, err error) {
+	s, err := Start(ctx, cfg)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	defer s.Stop()
+
+	var recs []json.RawMessage
+	for _, base := range []string{s.plankton, s.nekton} {
+		r, ferr := fetchRecords(ctx, base)
+		if ferr != nil {
+			return nil, nil, nil, ferr
+		}
+		recs = append(recs, r...)
+	}
+	if recs == nil {
+		recs = []json.RawMessage{}
+	}
+	k, n, err := s.ring(ctx)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	if union, err = json.Marshal(recs); err != nil {
+		return nil, nil, nil, err
+	}
+	if keys, err = json.MarshalIndent(k, "", " "); err != nil {
+		return nil, nil, nil, err
+	}
+	if names, err = json.MarshalIndent(n, "", " "); err != nil {
+		return nil, nil, nil, err
+	}
+	return union, keys, names, nil
+}
+
+// WriteUnion regenerates this repo's published union under cfg's configured union directory and
+// returns the repo-relative paths it wrote, for the caller to commit.
+func WriteUnion(ctx context.Context, cfg *config.Config) ([]string, error) {
+	union, keys, names, err := Snapshot(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+	dir := cfg.Raw.Union.DirOrDefault()
+	abs := filepath.Join(cfg.RepoRoot, dir)
+	if err := os.MkdirAll(abs, 0o755); err != nil {
+		return nil, err
+	}
+	var written []string
+	for name, b := range map[string][]byte{"union.json": union, "keys.json": keys, "names.json": names} {
+		if err := os.WriteFile(filepath.Join(abs, name), append(b, '\n'), 0o644); err != nil {
+			return nil, err
+		}
+		written = append(written, filepath.ToSlash(filepath.Join(dir, name)))
+	}
+	sort.Strings(written) // a stable order, so a commit's file list does not churn between runs
+	return written, nil
 }
 
 // Stop shuts the kernel servers down.
