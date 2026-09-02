@@ -9,22 +9,31 @@ to *run* the scripts.
 
 Three **real, public** GitHub repositories under your own authenticated GitHub account:
 `<prefix>-federation`, `<prefix>-p1`, `<prefix>-p2` (prefix defaults to a timestamp, so repeated
-runs never collide). The script performs real `git push`es, opens a real GitHub issue, and
-triggers a real GitHub Actions workflow run. Nothing is simulated. Run `cleanup.sh` when done —
-see below.
+runs never collide). The script performs real `git push`es. Nothing is simulated. Run `cleanup.sh`
+when done — see below.
+
+The repos are created **empty**. Their contents come from [`participant-skeleton/`](participant-skeleton/)
+in this repository, and the kernel binaries are built from a kton checkout during the run. Nothing
+is cloned from a public GitHub template: this software's test material has to be something we ship
+and control. The templates this used to scaffold from vendor kton **0.1** binaries, which reject
+every flag the cockpit now depends on — a run from them drove the cockpit against the wrong kernel
+and said nothing about it.
 
 ## Prerequisites
 
 - **`gh` (GitHub CLI), authenticated**, with these token scopes:
-  - `repo` — create repos, push, open issues
-  - `workflow` — trigger the federation's `mirror.yml` via `gh workflow run`
+  - `repo` — create repos and push
   - `delete_repo` — only needed for `cleanup.sh`, not `setup.sh`
   Check with `gh auth status`; the scopes are listed there. Re-auth with
-  `gh auth refresh -s repo,workflow,delete_repo` if any are missing.
+  `gh auth refresh -s repo,delete_repo` if any are missing. (`workflow` is no longer needed: the
+  aggregation is a local `kton mirror` now, not a GitHub Actions run.)
 - **Go ≥ 1.25** on `PATH` (or just internet access — `go build`/`go run` auto-fetch the toolchain
   version pinned in this repo's `go.mod` if the ambient `go` is older).
-- **`python3`** on `PATH` — used to patch `cockpit.config.json` and to summarize
-  `mirror/union.json` at the end. No packages beyond the standard library.
+- **A kton checkout**, for building `plankton`/`nekton`/`kton`. Defaults to a sibling `../kton`
+  directory next to this repo; override with `KTON_SRC=/path/to/kton`. The script refuses to start
+  without one rather than falling back to a binary of unknown provenance.
+- **`python3`** on `PATH` — used to patch `cockpit.config.json`. No packages beyond the standard
+  library.
 - **`bash`**, not a POSIX-only `sh` — the scripts use bash-specific syntax.
 - **`git`** on `PATH`, obviously.
 - Write access to create **public** repositories under your authenticated GitHub account (the
@@ -52,20 +61,32 @@ the genuinely manual steps. There are only **4 steps you actually do yourself** 
 2. Have participant 1 publish a foton.
 3. Have participant 2 publish independently (deliberately not reusing participant 1's script).
 4. Have participant 2 check reproduction, correct it by fetching participant 1's exact script,
-   confirm ↻2, and record the reproduction claim.
+   confirm 2 verified producers, and record the reproduction claim.
 
-Everything else — repo creation, cloning, cockpit configuration, federation registration,
-triggering mirrors, and (since it's pure git/config, not Claude-specific) mirroring the
-federation's data locally and configuring the trust tier — runs automatically once you confirm
-each explained step. The last step prints the viewer URL plus a raw record count.
+Everything else — repo creation, scaffolding, cockpit configuration, aggregating each participant
+into the federation, and (since it's pure filesystem/config, not Claude-specific) mirroring the
+federation back into participant 2 and configuring its trust tier — runs automatically once you
+confirm each explained step.
+
+**What the aggregate does and does not mean.** `kton mirror` copies signed envelopes between
+registries; it does not check them. The kernel states this itself: *"Claims keep their original
+signatures - mirroring is not confirming (SPEC §6)."* The old federation template additionally
+re-verified every signature before aggregating, and that property is not reproduced here. It is
+also not where this design's guarantee lives: `cockpit_ask` re-verifies every record against the
+reading repo's configured trust tiers before returning it, so trust is established where a record
+is consumed, not where it is transported.
+
+There is no hosted viewer at the end. Rendering the aggregate is separate, still-open work — see
+`kton serve` and `kton/reference/web/graph` upstream.
 
 **Overrides:**
 ```bash
 UAT_PREFIX=myrun uat/setup.sh          # fixed prefix instead of a timestamp
-UAT_WORKDIR=/path/to/dir uat/setup.sh  # clone location (default: /mnt/c/dev/planktonReproduce/<prefix>)
+UAT_WORKDIR=/path/to/dir uat/setup.sh  # where repos are created (default: ../uat-runs/<prefix>)
+KTON_SRC=/path/to/kton uat/setup.sh    # kton checkout to build the kernel from (default: ../kton)
 ```
 
-**Resuming after a failure:** every repo-creation, cloning, keygen, and config-init step is
+**Resuming after a failure:** every repo-creation, scaffolding, keygen, and config-init step is
 idempotent (skips if already done) — if the script dies partway through, just re-run it with the
 *same* `UAT_PREFIX` rather than starting over or hand-cleaning anything.
 

@@ -2,7 +2,7 @@
 # uat/cleanup.sh — tear down everything uat/setup.sh created.
 #
 # Usage:
-#   uat/cleanup.sh /mnt/c/dev/planktonReproduce/uat-20260723-171500
+#   uat/cleanup.sh ../uat-runs/uat-20260723-171500
 #
 # Reads .uat-state.json from the given directory (the same WORKDIR setup.sh printed at the end),
 # shows exactly what it is about to delete, and requires explicit confirmation before deleting

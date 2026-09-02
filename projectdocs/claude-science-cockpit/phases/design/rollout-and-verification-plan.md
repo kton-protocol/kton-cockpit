@@ -8,6 +8,14 @@ tags: [rollout, testing]
 
 # Rollout and verification plan
 
+
+> **Superseded in part (2026-09-01).** Everything below that names
+> `/mnt/c/dev/planktonReproduce/**` as test data is stale: that tree no longer exists, and the
+> tests no longer depend on any hand-made local clone. `internal/testrepo` builds a participant
+> repo from nothing on every run, with real keys and real signed records — see CLAUDE.md, "Test".
+> The reasoning about *what* to verify still holds; only the "point it at this directory" part does
+> not.
+
 ## Summary
 
 How the cockpit moves from "builds and passes tests here" to "actually protects a live

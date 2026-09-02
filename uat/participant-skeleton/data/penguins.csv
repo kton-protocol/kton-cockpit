@@ -1,0 +1,17 @@
+species,island,bill_length_mm,bill_depth_mm,flipper_length_mm,body_mass_g,sex
+Adelie,Torgersen,39.1,18.7,181,3750,male
+Adelie,Torgersen,39.5,17.4,186,3800,female
+Adelie,Torgersen,40.3,18.0,195,3250,female
+Adelie,Torgersen,,,,,
+Adelie,Torgersen,36.7,19.3,193,3450,female
+Adelie,Biscoe,37.8,18.3,174,3400,female
+Adelie,Biscoe,37.7,18.7,180,3600,male
+Chinstrap,Dream,46.5,17.9,192,3500,female
+Chinstrap,Dream,50.0,19.5,196,3900,male
+Chinstrap,Dream,51.3,19.2,193,3650,male
+Chinstrap,Dream,45.4,18.7,188,3525,female
+Gentoo,Biscoe,46.1,13.2,211,4500,female
+Gentoo,Biscoe,50.0,16.3,230,5700,male
+Gentoo,Biscoe,48.7,14.1,210,4450,female
+Gentoo,Biscoe,,,,,
+Gentoo,Biscoe,47.6,14.5,215,5400,male

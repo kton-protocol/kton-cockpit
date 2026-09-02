@@ -19,12 +19,21 @@ a byte mismatch, record the reproduction claim, and verify.
 
 ### 1. Create the repos (one-time, human, via `gh`)
 ```bash
-gh repo create <you>/my-federation --template gitmick/plankton-federation-template --public
-# in the new repo's GitHub settings: enable Actions (read/write) + Pages
-
-gh repo create <you>/participant-x --template gitmick/plankton-participant-template --public
-git clone https://github.com/<you>/participant-x && cd participant-x
+gh repo create <you>/my-federation --public      # empty; no template
+gh repo create <you>/participant-x --public      # empty; no template
 ```
+
+Scaffold their contents from [`uat/participant-skeleton/`](../../../../uat/participant-skeleton/)
+rather than from a GitHub template — `uat/setup.sh` does exactly this and is the executable version
+of this tutorial. Both a participant and the federation aggregate use the same flat layout
+(`registry/plankton`, `registry/nekton`, `registry/keys`), which is what lets `kton mirror` read one
+straight into the other.
+
+The `gitmick/plankton-*-template` repos this step used to clone still exist, but do not use them:
+they vendor kton **0.1** binaries, which reject `nekton about/by --json` and
+`plankton reproductions --trust-keys` — all three of which the cockpit now requires. Build the
+kernel from a [`kton-protocol/kton`](https://github.com/kton-protocol/kton) checkout instead; see
+CLAUDE.md, "The kernel binaries".
 
 ### 2. Configure the cockpit in the participant repo (one-time, human)
 ```bash
@@ -32,7 +41,7 @@ git clone https://github.com/<you>/participant-x && cd participant-x
 # from the current working directory, not from the package argument, so this cannot run from
 # participant-x/. Capture the participant repo's path first, then switch to the cockpit source:
 PARTICIPANT_DIR="$(pwd)"
-cd /mnt/c/dev/planktonClaudeScienceCockpit
+cd /path/to/claude-science-cockpit
 GOOS=linux GOARCH=amd64 go build -o "$PARTICIPANT_DIR/bin/cockpit" ./cmd/cockpit
 cd "$PARTICIPANT_DIR"
 
