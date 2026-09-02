@@ -176,6 +176,17 @@ func runDoctor(ctx context.Context) error {
 	fmt.Printf("kernel:         meets the required %d.%d minimum  [ok]\n",
 		binaries.RequiredKernelMajor, binaries.RequiredKernelMinor)
 
+	switch {
+	case !cfg.Raw.Git.CommitEnabled():
+		fmt.Printf("git:            commits OFF — records are signed and registered, files are not committed,\n")
+		fmt.Printf("                and fotons carry no locators (no commit exists for a permalink to pin)\n")
+	case !cfg.Raw.Git.PushEnabled():
+		fmt.Printf("git:            commits on, push OFF — permalinks are built and correct, but do not\n")
+		fmt.Printf("                resolve until someone pushes\n")
+	default:
+		fmt.Printf("git:            commit + push\n")
+	}
+
 	if !cfg.Raw.Execution.Enabled() {
 		fmt.Printf("execution:      not configured — cockpit_publish RECORDS the command, does not run it\n")
 		if cfg.Raw.Environment.EnvRef != "" {

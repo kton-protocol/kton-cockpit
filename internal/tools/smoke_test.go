@@ -748,3 +748,99 @@ func TestPublish_WithoutExecutionConfiguredTheCommandIsOnlyRecorded(t *testing.T
 		t.Errorf("publish reported stdout for a command it never ran: %q", out.Stdout)
 	}
 }
+
+// Git stage 1: the cockpit can be told not to write to git. The record is still signed and
+// registered — what goes away is the locators, because the commit a permalink would pin does not
+// exist, and pinning some other commit would point a peer at bytes that are not there.
+func TestPublish_WithCommitsOffTheRecordIsStillMadeButCarriesNoLocators(t *testing.T) {
+	r := testrepo.New(t)
+	raw := testrepo.DefaultConfig()
+	raw.Git = config.Git{Commit: testrepo.Bool(false)}
+	r.WriteConfig(t, raw)
+	r.Use(t)
+
+	before := r.HeadSHA(t)
+	out := publishOne(t, r)
+
+	if !strings.HasPrefix(out.FotonID, "sha256:") {
+		t.Fatalf("the foton was not registered: %q", out.FotonID)
+	}
+	if r.HeadSHA(t) != before {
+		t.Error("commits are off, yet publish created one")
+	}
+	if out.CommitSHA != "" {
+		t.Errorf("publish reported a commit sha (%q) for a commit it did not make", out.CommitSHA)
+	}
+	if len(out.Permalinks) != 0 {
+		t.Errorf("permalinks were built without a commit to pin them to: %+v", out.Permalinks)
+	}
+	if out.Committed || out.Pushed {
+		t.Errorf("publish reported committed=%v pushed=%v", out.Committed, out.Pushed)
+	}
+}
+
+// Commits on, push off: the permalinks are correct and will resolve once someone pushes, so they
+// are reported — together with the fact that they do not resolve yet.
+func TestPublish_WithPushOffItCommitsLocallyAndSaysSo(t *testing.T) {
+	r := testrepo.New(t)
+	raw := testrepo.DefaultConfig()
+	raw.Git = config.Git{Push: testrepo.Bool(false)}
+	r.WriteConfig(t, raw)
+	r.Use(t)
+
+	remoteBefore := r.OriginSHA(t)
+	out := publishOne(t, r)
+
+	if out.CommitSHA == "" || !out.Committed {
+		t.Fatal("publish did not commit")
+	}
+	if out.Pushed {
+		t.Error("publish reported a push it was configured not to make")
+	}
+	if r.OriginSHA(t) != remoteBefore {
+		t.Error("push is off, yet the remote moved")
+	}
+	if len(out.Permalinks) == 0 {
+		t.Error("a local commit is still a real commit — its permalinks should be reported")
+	}
+}
+
+// Turning commits off must not weaken the guard. It is the reason this project exists, and it
+// checks which repo the cockpit is in, not whether it writes to it.
+func TestConfigGuard_StillRefusesTheWrongRepoWithCommitsOff(t *testing.T) {
+	r := testrepo.New(t)
+	raw := testrepo.DefaultConfig()
+	raw.Git = config.Git{Commit: testrepo.Bool(false)}
+	raw.Repo.Owner = "someone-else"
+	r.WriteConfig(t, raw)
+	r.Use(t)
+
+	result, _, err := Ask(context.Background(), nil, AskInput{Query: "producer", Ref: unknownHash})
+	if err != nil {
+		t.Fatalf("expected a tool-level error, not a Go error: %v", err)
+	}
+	if !result.IsError {
+		t.Fatal("the guard did not refuse a config bound to a different repo")
+	}
+}
+
+// `commit: false` alone is a complete statement; writing `push: true` beside it states something
+// that cannot happen.
+func TestConfig_RefusesPushTrueWithCommitFalse(t *testing.T) {
+	r := testrepo.New(t)
+	raw := testrepo.DefaultConfig()
+	raw.Git = config.Git{Commit: testrepo.Bool(false), Push: testrepo.Bool(true)}
+	r.WriteConfig(t, raw)
+	r.Use(t)
+
+	result, _, err := Ask(context.Background(), nil, AskInput{Query: "producer", Ref: unknownHash})
+	if err != nil {
+		t.Fatalf("expected a tool-level error, not a Go error: %v", err)
+	}
+	if !result.IsError {
+		t.Fatal("a config that pushes without committing was accepted")
+	}
+	if !strings.Contains(errText(result), "nothing to push") {
+		t.Fatalf("the error does not explain the problem: %s", errText(result))
+	}
+}

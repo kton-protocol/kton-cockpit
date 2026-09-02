@@ -56,7 +56,16 @@ func redactSlice(args []string, secret string) []string {
 // CommitAndPush stages exactly the given repo-relative paths, commits with message, and pushes.
 // It is a no-op (not an error) if there is nothing staged to commit — repeated publishes of
 // already-committed bytes should not fail.
+//
+// When this repo has turned commits off, it returns an empty sha and does nothing. That is not a
+// failure: the record is still signed and registered, it simply gets no locators, because the sha
+// a permalink would pin does not exist. Returning HEAD instead would be worse than returning
+// nothing — a locator pinned to a commit that does not contain the bytes is a URL that resolves to
+// the wrong thing or to nothing, which is exactly the failure locators exist to prevent.
 func CommitAndPush(ctx context.Context, cfg *config.Config, paths []string, message string) (sha string, err error) {
+	if !cfg.Raw.Git.CommitEnabled() {
+		return "", nil
+	}
 	args := append([]string{"add"}, paths...)
 	if _, err := run(ctx, cfg.RepoRoot, "git", args...); err != nil {
 		return "", err
@@ -76,8 +85,10 @@ func CommitAndPush(ctx context.Context, cfg *config.Config, paths []string, mess
 	if _, err := run(ctx, cfg.RepoRoot, "git", commitArgs...); err != nil {
 		return "", err
 	}
-	if err := push(ctx, cfg); err != nil {
-		return "", err
+	if cfg.Raw.Git.PushEnabled() {
+		if err := push(ctx, cfg); err != nil {
+			return "", err
+		}
 	}
 	return CurrentSHA(ctx, cfg)
 }
@@ -136,6 +147,11 @@ func PermalinkBase(cfg *config.Config, sha string) string {
 // author --located` expects. Claude supplies plain paths; the cockpit is the only thing that ever
 // constructs the URL.
 func LocatedFlags(cfg *config.Config, sha string, paths []string) []string {
+	// No commit, no locator. A URL pinned to no commit — or to whatever HEAD happened to be —
+	// points at bytes that are not there.
+	if sha == "" {
+		return nil
+	}
 	base := PermalinkBase(cfg, sha)
 	out := make([]string, 0, len(paths))
 	for _, p := range paths {

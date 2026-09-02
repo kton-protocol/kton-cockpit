@@ -51,6 +51,12 @@ type PublishOutput struct {
 	NetworkAllowed bool `json:"networkAllowed,omitempty"`
 	// Stdout is what the command printed, when the cockpit ran it.
 	Stdout string `json:"stdout,omitempty"`
+	// Committed and Pushed say what actually happened to git, because both are configurable and
+	// each changes what the permalinks are worth. Not committed means there are none: the sha one
+	// would pin does not exist. Committed but not pushed means they are correct and will resolve
+	// once someone pushes — but do not yet.
+	Committed bool `json:"committed"`
+	Pushed    bool `json:"pushed"`
 }
 
 func Publish(ctx context.Context, _ *mcp.CallToolRequest, in PublishInput) (*mcp.CallToolResult, PublishOutput, error) {
@@ -144,9 +150,11 @@ func Publish(ctx context.Context, _ *mcp.CallToolRequest, in PublishInput) (*mcp
 	}
 
 	permalinks := map[string]string{}
-	base := gitops.PermalinkBase(cfg, sha)
-	for _, p := range allPaths {
-		permalinks[p] = base + "/" + p
+	if sha != "" {
+		base := gitops.PermalinkBase(cfg, sha)
+		for _, p := range allPaths {
+			permalinks[p] = base + "/" + p
+		}
 	}
 
 	out := PublishOutput{
@@ -156,6 +164,8 @@ func Publish(ctx context.Context, _ *mcp.CallToolRequest, in PublishInput) (*mcp
 		Permalinks:   permalinks,
 		Environment:  cfg.Raw.Environment.Spectrum,
 		EnvRef:       cfg.Raw.PinnedEnvRef(),
+		Committed:    cfg.Raw.Git.CommitEnabled(),
+		Pushed:       cfg.Raw.Git.PushEnabled(),
 	}
 	if ran != nil {
 		out.ExecutedIn = ran.Image

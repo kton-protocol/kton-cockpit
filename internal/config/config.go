@@ -64,6 +64,32 @@ type Environment struct {
 	EnvRef string `json:"envRef,omitempty"`
 }
 
+// Git controls whether the cockpit commits and pushes on Claude's behalf. Both default to on;
+// omitting the block entirely keeps the behaviour every existing repo has.
+//
+// This does NOT touch the anti-wrong-folder guard. That check reads the repo's own `origin` remote
+// on every call and is the reason this project exists; it applies whether or not the cockpit writes
+// anything. Turning commits off makes the cockpit stop WRITING to git, never stop CHECKING which
+// repo it is in.
+type Git struct {
+	// Commit, when false, means the cockpit signs and registers records without committing the
+	// files they describe. The foton is still valid — a foton never implied its bytes were
+	// published anywhere — but it carries no locators, so a peer has nowhere to fetch and re-hash
+	// them from.
+	Commit *bool `json:"commit,omitempty"`
+	// Push, when false, commits locally without pushing. Permalinks are still built, because the
+	// commit they pin is real and stable; they simply do not resolve until someone pushes.
+	Push *bool `json:"push,omitempty"`
+}
+
+// CommitEnabled and PushEnabled default to true, so an absent block behaves as before. Turning
+// commits off turns pushes off with them — there would be nothing to push — so `commit: false`
+// alone is a complete statement and needs no second flag.
+func (g Git) CommitEnabled() bool { return g.Commit == nil || *g.Commit }
+func (g Git) PushEnabled() bool {
+	return g.CommitEnabled() && (g.Push == nil || *g.Push)
+}
+
 // Execution turns cockpit_publish from recording a command into running one, inside a pinned
 // container. Off unless Image is set.
 //
@@ -125,6 +151,7 @@ type Raw struct {
 	Reproduction Reproduction `json:"reproduction"`
 	Environment  Environment  `json:"environment,omitempty"`
 	Execution    Execution    `json:"execution,omitempty"`
+	Git          Git          `json:"git,omitempty"`
 }
 
 // Config is the loaded, validated, path-resolved configuration for one cockpit invocation. Every
@@ -228,7 +255,15 @@ func validate(raw *Raw) error {
 	if err := validateEnvironment(raw.Environment); err != nil {
 		return err
 	}
-	return validateExecution(raw.Execution, raw.Environment)
+	if err := validateExecution(raw.Execution, raw.Environment); err != nil {
+		return err
+	}
+	// Only the explicit contradiction is an error. Setting `commit: false` alone is fine and means
+	// no push either; writing `push: true` next to it states something that cannot happen.
+	if raw.Git.Push != nil && *raw.Git.Push && !raw.Git.CommitEnabled() {
+		return fmt.Errorf("git.push is true but git.commit is false — there would be nothing to push")
+	}
+	return nil
 }
 
 // validateExecution refuses a configuration that cannot mean what it says.

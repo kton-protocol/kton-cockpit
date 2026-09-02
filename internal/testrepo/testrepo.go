@@ -208,3 +208,7 @@ func (r *Repo) WriteConfig(t *testing.T, raw config.Raw) {
 	}
 	writeFile(t, filepath.Join(r.Root, "cockpit.config.json"), string(b)+"\n")
 }
+
+// Bool is a helper for the config's optional booleans, whose zero value has to stay
+// distinguishable from an explicit false.
+func Bool(b bool) *bool { return &b }
