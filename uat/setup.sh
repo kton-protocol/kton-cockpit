@@ -382,10 +382,16 @@ real." "\
 Still in the $P2_REPO session, ask Claude to call cockpit_ask (query=reproductions) against
 participant 1's output hash (from step 5). This will most likely show 1 verified producer, not 2.
 
-To correct it: have Claude fetch participant 1's EXACT clean.py from the commit-pinned permalink
-in its foton's descriptor (already returned by participant 1's cockpit_publish; also visible via
-cockpit_ask's producer/about output), reuse it verbatim, and call cockpit_publish again with it —
-producing a new, now byte-identical foton. Re-run cockpit_ask (reproductions) to confirm 2.
+To correct it: have Claude fetch participant 1's EXACT clean.py from the commit-pinned permalink,
+reuse it verbatim, and call cockpit_publish again with it — producing a new, now byte-identical
+foton. Re-run cockpit_ask (reproductions) to confirm 2.
+
+You have to hand that permalink over yourself: it comes from participant 1's own cockpit_publish
+return value in the OTHER session. cockpit_ask cannot reach it — producer/uses/lineage report a
+foton's id, kind, and how MANY inputs and outputs it has, never their paths, hashes, or locators,
+and there is no verb that shows a foton's descriptor. So participant 2 cannot currently discover on
+its own how to reproduce a peer's work; a human relays it. Reaching that would mean exposing
+`plankton show` through cockpit_ask, which is a deliberate open question, not an oversight.
 
 Finally, have it call cockpit_say (template=reproduces, subject=participant 1's foton id,
 subjectOutputHash=participant 1's output hash, reproducedOutput=session-1/clean.csv,
