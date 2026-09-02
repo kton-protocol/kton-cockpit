@@ -51,8 +51,18 @@ re-run `go test ./...` before trusting anything, and update this line.
 ```
 cockpit mcp      start the MCP stdio server (cockpit_publish/cockpit_say/cockpit_ask)
 cockpit init     scaffold a cockpit.config.json in the current git repo (human operator only)
-cockpit doctor   validate cockpit.config.json + the repo/remote binding (human operator only)
+cockpit doctor   validate cockpit.config.json + the repo binding (human operator only)
+cockpit show     serve this repo's records to a kton-web viewer (human operator only)
 ```
+
+`show` is an operator subcommand, not a fourth verb: Claude's MCP surface stays at three and cannot
+reach it. It renders nothing and reads no registry files — it starts `kton serve` for both
+substrates and forwards their `/sync` records as the union a viewer fetches, which is the cockpit's
+side of the kernel's own division ("RENDERING … is a cockpit's job, not the kernel's", see
+`plankton export`). `keys.json` is built from the configured trust tiers rather than from whatever
+`.pub` files sit in the registry, so the viewer re-verifies against exactly what `cockpit_ask` does.
+Point it at a [kton-web](https://github.com/gitmick/kton-web) checkout with `--web`/`$KTON_WEB`, or
+omit that and serve only the data endpoints for a viewer running elsewhere.
 
 Only `mcp` is ever registered as Claude's tool surface (via a participant repo's `.mcp.json`).
 `init`/`doctor` are for whoever is setting up or debugging a participant repo — Claude never calls
@@ -117,6 +127,7 @@ internal/
 │                           where it declares itself to be — ADR-004)
 ├── container/            runs a published command in a pinned image, when a repo opts in (ADR-003)
 ├── gitops/               commit/push wrappers, commit-pinned permalink construction
+├── show/                 serves the union/keys/names a kton-web viewer fetches, via `kton serve`
 ├── binaries/             thin process wrappers around bin/plankton, bin/nekton
 ├── verify/               trust-tier resolution from the actual verifying key, never a declared keyid
 ├── tools/                the three MCP tool handlers (publish.go, say.go, ask.go)

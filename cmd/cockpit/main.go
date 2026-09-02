@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,6 +16,7 @@ import (
 	"github.com/deathbychoco/claude-science-cockpit/internal/binaries"
 	"github.com/deathbychoco/claude-science-cockpit/internal/config"
 	"github.com/deathbychoco/claude-science-cockpit/internal/container"
+	"github.com/deathbychoco/claude-science-cockpit/internal/show"
 	"github.com/deathbychoco/claude-science-cockpit/internal/tools"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -32,6 +34,8 @@ func main() {
 		err = runMCP(ctx)
 	case "init":
 		err = runInit(ctx)
+	case "show":
+		err = runShow(ctx, os.Args[2:])
 	case "doctor":
 		err = runDoctor(ctx)
 	default:
@@ -50,10 +54,13 @@ func usage() {
 usage:
   cockpit mcp      start the MCP stdio server (cockpit_publish/cockpit_say/cockpit_ask)
   cockpit init     scaffold cockpit.config.json in the current git repo
-  cockpit doctor   validate cockpit.config.json + the repo/remote binding
+  cockpit doctor   validate cockpit.config.json + the repo binding
+  cockpit show     serve this repo's records to a kton-web viewer
+                   [addr] [--web <kton-web checkout>|$KTON_WEB]
 
-Claude never invokes 'init'/'doctor' — they are for the human operator setting up a participant
-repo. Only 'mcp' is registered as the tool surface (via .mcp.json).
+Claude never invokes 'init'/'doctor'/'show' — they are for the human operator setting up or
+inspecting a participant repo. Only 'mcp' is registered as the tool surface (via .mcp.json), and
+it exposes exactly three verbs.
 `)
 }
 
@@ -147,6 +154,65 @@ func runInit(ctx context.Context) error {
 		fmt.Printf("wrote %s (owner=%q name=%q — fill in trust.tiers before use)\n", cfgPath, owner, name)
 	}
 	return nil
+}
+
+// runShow serves this repo's records to a kton-web viewer. It is an operator subcommand alongside
+// init and doctor — NOT a fourth verb: Claude's MCP surface is unchanged at three, and nothing here
+// is reachable from it.
+func runShow(ctx context.Context, args []string) error {
+	addr := ":8377" // the port kton-web's own serve.sh uses, for the same WSL reason it documents
+	webDir := os.Getenv("KTON_WEB")
+	for i := 0; i < len(args); i++ {
+		switch {
+		case args[i] == "--web" && i+1 < len(args):
+			i++
+			webDir = args[i]
+		case strings.HasPrefix(args[i], "-"):
+			return fmt.Errorf("usage: cockpit show [addr] [--web <kton-web checkout>]")
+		default:
+			addr = args[i]
+		}
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+	cfg, err := config.Load(ctx, cwd)
+	if err != nil {
+		return err
+	}
+
+	srv, err := show.Start(ctx, cfg)
+	if err != nil {
+		return err
+	}
+	defer srv.Stop()
+	handler, err := srv.Handler(webDir)
+	if err != nil {
+		return err
+	}
+
+	base := "http://" + displayAddr(addr)
+	fmt.Printf("cockpit show on %s/  (registry %s)\n", base, cfg.RepoRoot)
+	fmt.Printf("  data     %s/data/union.json  keys.json  names.json\n", base)
+	if webDir == "" {
+		fmt.Printf("\nNo kton-web checkout given (--web or KTON_WEB), so only the data is served. Point any\n")
+		fmt.Printf("viewer at it: <viewer>/?union=%s/data/union.json\n", base)
+	} else {
+		fmt.Printf("  graph    %s/viewers/graph/?union=/data/union.json\n", base)
+	}
+	fmt.Printf("\nkeys.json holds this repo's CONFIGURED trust tiers, so the viewer re-verifies against\n")
+	fmt.Printf("exactly what cockpit_ask does — not every pubkey that happens to sit in the registry.\n")
+	return http.ListenAndServe(addr, handler)
+}
+
+// displayAddr turns a listen address into something clickable: ":8377" is a valid thing to listen
+// on but not to open.
+func displayAddr(addr string) string {
+	if strings.HasPrefix(addr, ":") {
+		return "localhost" + addr
+	}
+	return addr
 }
 
 func runDoctor(ctx context.Context) error {

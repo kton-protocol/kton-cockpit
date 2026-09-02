@@ -134,6 +134,14 @@ func (r *Runner) Author(ctx context.Context, in AuthorInput) (fotonID string, er
 	return strings.TrimSpace(out), nil
 }
 
+// KeyID returns the keyid a signature carries for this public key, as the substrate derives it.
+// Shelled out rather than computed here for the usual reason: an identifier the kernel also derives
+// is the kernel's to derive.
+func (r *Runner) KeyID(ctx context.Context, pubkeyPath string) (string, error) {
+	out, err := r.plankton(ctx, "keyid", pubkeyPath)
+	return strings.TrimSpace(out), err
+}
+
 // Hash returns the content hash of a file as `plankton hash` prints it.
 func (r *Runner) Hash(ctx context.Context, file string) (string, error) {
 	return r.plankton(ctx, "hash", file)

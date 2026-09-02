@@ -94,9 +94,10 @@ func buildRepo(t *testing.T, local bool) *Repo {
 		}
 	}
 
-	plankton, nekton := resolveBinaries(t)
+	plankton, nekton, kton := resolveBinaries(t)
 	copyFile(t, plankton, filepath.Join(r.Root, "bin", "plankton"))
 	copyFile(t, nekton, filepath.Join(r.Root, "bin", "nekton"))
+	copyFile(t, kton, filepath.Join(r.Root, "bin", "kton"))
 
 	// Real keypairs from the real binaries — the trust tiers below name the .pub these emit, so
 	// verification resolves a tier from the actual verifying key, as in production.

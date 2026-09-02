@@ -22,18 +22,18 @@ import (
 // It never falls back to a plankton/nekton found on PATH: which kernel build produced a store
 // decides whether that store reads as populated or as empty-with-exit-0, so an ambient binary of
 // unknown provenance is precisely the thing not to test against.
-func resolveBinaries(t *testing.T) (plankton, nekton string) {
+func resolveBinaries(t *testing.T) (plankton, nekton, kton string) {
 	t.Helper()
-
-	if p, n := os.Getenv("COCKPIT_TEST_PLANKTON"), os.Getenv("COCKPIT_TEST_NEKTON"); p != "" && n != "" {
-		return p, n
-	}
 
 	binDir := filepath.Join(cockpitRoot(t), "bin")
 	plankton = filepath.Join(binDir, "plankton")
 	nekton = filepath.Join(binDir, "nekton")
-	if exists(plankton) && exists(nekton) {
-		return plankton, nekton
+	kton = filepath.Join(binDir, "kton")
+	if p, n := os.Getenv("COCKPIT_TEST_PLANKTON"), os.Getenv("COCKPIT_TEST_NEKTON"); p != "" && n != "" {
+		plankton, nekton = p, n
+	}
+	if exists(plankton) && exists(nekton) && exists(kton) {
+		return plankton, nekton, kton
 	}
 
 	src := ktonSrc(t)
@@ -48,7 +48,10 @@ func resolveBinaries(t *testing.T) (plankton, nekton string) {
 	t.Logf("building plankton/nekton from %s into %s", src, binDir)
 	build(t, src, plankton, "./reference/cmd/plankton")
 	build(t, src, nekton, "./nekton/reference/cmd/nekton")
-	return plankton, nekton
+	// kton too: `cockpit show` reads the records through `kton serve` rather than parsing the
+	// registry, so the tests need it for the same reason the product does.
+	build(t, src, kton, "./kton/reference/cmd/kton")
+	return plankton, nekton, kton
 }
 
 // ktonSrc locates a kton checkout to build the kernel from, or returns "" if there is none.
