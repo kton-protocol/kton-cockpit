@@ -112,24 +112,37 @@ why its constraints are part of the decision and not a detail:
 
 ## Where this is NOT the answer: claude-science
 
-claude-science already runs the session inside a docker image. There, spawning another container to
-run the command would be a container inside a container for no gain — the environment that produced
-the outputs is the one the session is already in, and what is missing is not execution but a
-*record* of which image that is.
+claude-science starts containers itself. You bring the image(s) it should execute in, and it runs
+the work there. So the work is *already* containerised, in an image the operator chose and pinned —
+spawning a second container from inside the cockpit would add a layer and change nothing about what
+the foton can honestly say.
 
-That case is served by `environment.envRef` alone: the operator names the image claude-science
-pinned, and publish records it. It stays a declaration rather than an observation, and the honest
-limit is worth stating: a process inside a container cannot generally learn its own image digest
-unaided — that is something only the platform can tell it, via an injected environment variable or
-a label. Deriving it there rather than declaring it is possible, but only with the platform's
-cooperation, and is not attempted here.
+The cockpit cannot observe that container either. It runs as a Local command connector, i.e. as a
+process on the host, **outside** the container claude-science executes in. It never sees the run. It cannot read the
+image digest, and no amount of care on this side changes that — the information is on the other
+side of a boundary the cockpit is not on.
 
-So the two paths divide by context, and both are configuration the operator sets:
+So there, `environment.envRef` is the mechanism, and it is a declaration by construction. The
+operator writes the same digest twice: once where claude-science is told what to execute in, once
+in `cockpit.config.json`.
 
-- **claude-science**, and anywhere the session already runs in a pinned image: `environment.envRef`.
-  Declared, one line, no runtime dependency.
-- **A session with a shell in an unpinned environment** (the Claude Code CLI on someone's laptop):
-  `execution.image`. Derived, at the cost of a container runtime.
+**That duplication is the hazard, and it is quiet.** If the two drift — claude-science's image is
+updated, the cockpit's config is not — every foton published afterwards pins an image that did not
+run. Nothing fails. The value is COVERED, so it silently becomes part of records that are correctly
+signed and wrong, and a reproduction "via" one of them commits to re-executing somewhere the
+original never ran. There is no check on this side that could catch it, because the truth is not
+visible from here.
+
+What would actually fix it is not a cockpit feature: claude-science would have to expose the
+executing image's digest to the connector — an injected environment variable or an equivalent — at
+which point the cockpit could pin what it is told rather than what it was configured with, and
+refuse a mismatch between the two. Until then, the honest mitigation is procedural: keep one source
+of truth for that digest, and note that `doctor` says in as many words when a pinned environment is
+asserted rather than observed.
+
+`execution.image` is for the other context: a session with a shell in an environment nobody pinned —
+the Claude Code CLI on someone's laptop — where containerising the run is what makes the pin an
+observation instead of a claim.
 
 ## Consequences
 
