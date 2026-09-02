@@ -110,49 +110,33 @@ why its constraints are part of the decision and not a detail:
    `cockpit_publish` reports `networkAllowed` when it did, so whoever reads the result sees that the
    run depended on something the foton does not pin, rather than having to know the repo's config.
 
-## claude-science: the platform states the container, the cockpit does not guess
+## Naming the environment vs. running it
 
-claude-science starts containers for execution, using images the operator brings. The work is
-already containerised there in an image someone chose and pinned. Spawning another container from
-inside the cockpit would add a layer and change nothing about what the foton can honestly say, so
-`execution.image` is not the answer there.
+The two are alternatives, not a hierarchy, and a repo may use either.
 
-Neither is configuring the same digest a second time in `cockpit.config.json`. That would mean the
-operator maintains one value in two places, and if they drift — claude-science gets a new image,
-the cockpit's config does not — every foton published afterwards pins an image that did not run.
-Nothing fails. The value is COVERED, so it becomes part of records that are correctly signed and
-wrong, and a reproduction "via" one of them commits to re-executing where the original never ran.
-No check on this side can catch it: the cockpit runs as a Local command connector, a host process
-outside the container, and never sees the run.
+**Naming it.** `cockpit_publish` takes an optional `envRef`: the caller says which container the
+work ran in, and the cockpit records that. This is the normal case, and the only one that can work
+when a session moves between many containers — as claude-science does, starting containers from
+images the operator brings. No configured value could be right for all of them, so the value belongs
+in the call.
 
-A declaration that cannot be checked, duplicated across two systems, is worse than no pin at all —
-an unpinned foton is honestly unpinned, while a stale one asserts something false. This project's
-own rule covers the case: a capability gap is raised where it belongs, not worked around here.
+That it is a claim is not a weakness to be engineered around. The inputs, the outputs and the
+command are already claims: Claude names the paths, and the cockpit hashes the files it is pointed
+at. An omitted input would be a more consequential false statement than a wrong `envRef`, and
+nothing prevents that either. A foton is a signed statement about what someone did; the hashes make
+inputs and outputs checkable, the signature makes the signer accountable for the rest. plankton says
+the same of the command: it RECORDS it, and never runs it.
 
-**So: claude-science should state which container it executed in.** One value, from the side that
-knows it, passed to the connector — an injected environment variable is enough. The cockpit then
-records what it is told rather than what it was configured with, and can refuse a mismatch instead
-of silently preferring one. See "Requirements on the platform" below.
+**Running it.** With `execution.image` configured, the cockpit starts the container itself. The
+environment then stops being a claim and becomes an observation — the string handed to the runtime
+and the string pinned into the foton are the same string. This is for a session with a shell in an
+environment nobody pinned, such as the Claude Code CLI on a laptop.
 
-Until that exists, the cockpit does not pretend. `environment.envRef` stays for environments it can
-neither run nor be told about — a nix store path, a run-server id — and `doctor` says in as many
-words that such a pin is asserted rather than observed.
+The one thing the cockpit will not do is record an environment other than the one it ran in: with
+execution configured, an `envRef` naming something else is refused rather than preferred either way.
 
-## Requirements on the platform (claude-science)
-
-**P1 — report the executing container to the MCP connector.**
-
-The connector process runs on the host, outside the container claude-science executes in, and has
-no way to learn its image. Exposing it — `CLAUDE_SCIENCE_EXEC_IMAGE=oci://…@sha256:…` or equivalent,
-in the connector's environment — turns the cockpit's environment pin from a duplicated declaration
-into a value derived from the run.
-
-The digest matters, not a tag: a tag names whatever it points at today, so a reproduction
-committing to "that image" would commit to nothing.
-
-With it, the cockpit can do what it already does elsewhere — record what it observed, and refuse
-when an observation and a configuration disagree — instead of asking an operator to keep two
-systems in sync by hand.
+`environment.envRef` in the config remains as a default for repos whose environment nobody names
+per call. A supplied value wins over it.
 
 ## Consequences
 

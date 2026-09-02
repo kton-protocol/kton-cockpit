@@ -27,6 +27,16 @@ type PublishInput struct {
 	// as an extra foton input, so the reasoning-as-basis is itself a registered foton whose
 	// inputs are the touched nektons — never a silent re-attestation ("Lake bleibt Lake").
 	Corpus []string `json:"corpus,omitempty" jsonschema:"nekton claim or plankton foton refs (sha256:...) this reasoning drew on as its basis, if any"`
+	// EnvRef names the execution environment this work actually ran in — the container image, nix
+	// store path, or run-server id. It is per-call because it varies per call: a session can work
+	// across many containers, so no configured value could be right for all of them.
+	//
+	// Like Cmd, it is attested rather than proven. A foton is a signed statement — "I ran this
+	// command, in this environment, on these inputs, producing these outputs" — where the hashes
+	// make inputs and outputs checkable and the command and environment are what the signer vouches
+	// for. plankton says as much of the command: it RECORDS it, and never runs it. Treating the
+	// command that way and the environment differently would be an inconsistency, not a safeguard.
+	EnvRef string `json:"envRef,omitempty" jsonschema:"the execution environment this ran in, digest-pinned: oci://<image>@sha256:<digest>, a nix store path, or a run-server id"`
 }
 
 type PublishOutput struct {
@@ -72,6 +82,11 @@ func Publish(ctx context.Context, _ *mcp.CallToolRequest, in PublishInput) (*mcp
 	}
 	if in.Cmd == "" {
 		return errResult[PublishOutput]("publish requires cmd (the command that produced the outputs)")
+	}
+
+	envRef, envErr := resolveEnvRef(cfg, in.EnvRef)
+	if envErr != "" {
+		return errResult[PublishOutput]("%s", envErr)
 	}
 
 	r := binaries.New(cfg)
@@ -130,7 +145,7 @@ func Publish(ctx context.Context, _ *mcp.CallToolRequest, in PublishInput) (*mcp
 		// would bake an unverified assertion about which environment ran into the record's own
 		// identity. See config.Environment.
 		Environment: cfg.Raw.Environment.Spectrum,
-		EnvRef:      cfg.Raw.PinnedEnvRef(),
+		EnvRef:      envRef,
 	})
 	if err != nil {
 		return errResult[PublishOutput]("plankton author failed: %v", err)
@@ -163,7 +178,7 @@ func Publish(ctx context.Context, _ *mcp.CallToolRequest, in PublishInput) (*mcp
 		CommitSHA:    sha,
 		Permalinks:   permalinks,
 		Environment:  cfg.Raw.Environment.Spectrum,
-		EnvRef:       cfg.Raw.PinnedEnvRef(),
+		EnvRef:       envRef,
 		Committed:    cfg.Raw.Git.CommitEnabled(),
 		Pushed:       cfg.Raw.Git.PushEnabled(),
 	}
@@ -173,6 +188,41 @@ func Publish(ctx context.Context, _ *mcp.CallToolRequest, in PublishInput) (*mcp
 		out.Stdout = ran.Stdout
 	}
 	return &mcp.CallToolResult{}, out, nil
+}
+
+// resolveEnvRef decides which execution environment this publish records.
+//
+// The caller names it, because only the caller knows: a session can work across many containers, so
+// no configured value could be right for all of them. It is a claim, like the inputs, the outputs
+// and the command already are — Claude names those too, and the cockpit only hashes the files it is
+// pointed at. An omitted input would be a more consequential false statement than a wrong envRef,
+// and nothing prevents that either. What makes any of it trustworthy is the signature, not a check
+// the cockpit could not perform anyway.
+//
+// The one case the cockpit does not take a claim about is the one where it knows: when it ran the
+// container itself, what it ran in is not open to argument.
+//
+// The second return value is a non-empty error message.
+func resolveEnvRef(cfg *config.Config, supplied string) (envRef string, errMsg string) {
+	if supplied != "" {
+		if err := config.ValidateEnvRef(supplied); err != nil {
+			return "", err.Error()
+		}
+	}
+	if cfg.Raw.Execution.Enabled() {
+		if supplied != "" && supplied != cfg.Raw.Execution.Image {
+			return "", fmt.Sprintf(
+				"envRef %s was supplied, but this repo runs the command itself in %s — the cockpit records "+
+					"what it ran in, and will not record something else", supplied, cfg.Raw.Execution.Image)
+		}
+		return cfg.Raw.Execution.Image, ""
+	}
+	// Otherwise the call wins and the config is only a default, for repos whose environment nobody
+	// names per call.
+	if supplied != "" {
+		return supplied, ""
+	}
+	return cfg.Raw.Environment.EnvRef, ""
 }
 
 func errResult[T any](format string, args ...any) (*mcp.CallToolResult, T, error) {

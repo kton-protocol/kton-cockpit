@@ -293,6 +293,21 @@ func validateExecution(ex Execution, env Environment) error {
 	return nil
 }
 
+// ValidateEnvRef checks an exact execution-environment reference, wherever it came from: the
+// config, or the caller of cockpit_publish. The substrate does not interpret the value — it may be
+// a container image, a nix store path, a run-server id — so the only thing that can be checked is
+// the one form that is checkable, and the one that has a common way of being wrong.
+func ValidateEnvRef(ref string) error {
+	// A tag is a moving target: `oci://img:latest` names whatever that tag points at today, so a
+	// reproduction committing to "this environment" would commit to nothing. Only a digest pins.
+	if strings.HasPrefix(ref, "oci://") && !strings.Contains(ref, "@sha256:") {
+		return fmt.Errorf(
+			"envRef %q is an OCI reference without a digest — a tag names whatever it points at "+
+				"today, so it pins no environment at all. Use oci://<image>@sha256:<digest>", ref)
+	}
+	return nil
+}
+
 // validateEnvironment rejects the two ways an environment pin can be quietly meaningless. Both
 // values are COVERED, so a wrong one does not fail — it silently produces a foton that pins
 // something other than what ran, and no later check can tell.
@@ -300,14 +315,7 @@ func validateEnvironment(env Environment) error {
 	if env.Spectrum != "" && !strings.HasPrefix(env.Spectrum, "sha256:") {
 		return fmt.Errorf("environment.spectrum must be an env-spectrum content hash (sha256:...), got %q", env.Spectrum)
 	}
-	// A tag is a moving target: `oci://img:latest` names whatever that tag points at today, so a
-	// reproduction committing to "this environment" would commit to nothing. Only a digest pins.
-	if strings.HasPrefix(env.EnvRef, "oci://") && !strings.Contains(env.EnvRef, "@sha256:") {
-		return fmt.Errorf(
-			"environment.envRef %q is an OCI reference without a digest — a tag names whatever it points at "+
-				"today, so it pins no environment at all. Use oci://<image>@sha256:<digest>", env.EnvRef)
-	}
-	return nil
+	return ValidateEnvRef(env.EnvRef)
 }
 
 // AllowsTemplate reports whether template is in the configured claim-template ceiling.

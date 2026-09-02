@@ -844,3 +844,103 @@ func TestConfig_RefusesPushTrueWithCommitFalse(t *testing.T) {
 		t.Fatalf("the error does not explain the problem: %s", errText(result))
 	}
 }
+
+// The environment is named per call, because only the caller knows it: a session works across many
+// containers. It is a claim, exactly as the inputs, outputs and command already are.
+func TestPublish_TheCallerNamesTheEnvironmentAndItReachesTheFoton(t *testing.T) {
+	const digest = "oci://ghcr.io/example/analysis@sha256:3333333333333333333333333333333333333333333333333333333333333333"
+
+	plain := testrepo.New(t)
+	plain.Use(t)
+	a := publishOne(t, plain)
+
+	named := testrepo.New(t)
+	named.Use(t)
+	named.Write(t, "data/in.csv", "id,value\n1,42\n")
+	named.Write(t, "data/analyse.py", "print('deterministic')\n")
+	named.Write(t, "data/out.csv", "id,result\n1,84\n")
+	result, b, err := Publish(context.Background(), nil, PublishInput{
+		Inputs:  []string{"data/in.csv", "data/analyse.py"},
+		Outputs: []string{"data/out.csv"},
+		Cmd:     "python data/analyse.py data/in.csv > data/out.csv",
+		EnvRef:  digest,
+	})
+	if err != nil {
+		t.Fatalf("Publish returned a Go error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("publish failed: %s", errText(result))
+	}
+	if b.EnvRef != digest {
+		t.Fatalf("publish reported envRef %q, want %q", b.EnvRef, digest)
+	}
+	if a.FotonID == b.FotonID {
+		t.Fatal("the supplied envRef did not reach the foton: identical ids for runs in different environments")
+	}
+}
+
+func TestPublish_RefusesASuppliedEnvRefWithoutADigest(t *testing.T) {
+	r := testrepo.New(t)
+	r.Use(t)
+	r.Write(t, "data/out.csv", "x\n")
+
+	result, _, err := Publish(context.Background(), nil, PublishInput{
+		Outputs: []string{"data/out.csv"},
+		Cmd:     "true",
+		EnvRef:  "oci://ghcr.io/example/analysis:latest",
+	})
+	if err != nil {
+		t.Fatalf("expected a tool-level error, not a Go error: %v", err)
+	}
+	if !result.IsError {
+		t.Fatal("a tag was accepted as an environment pin; it names whatever it points at today")
+	}
+}
+
+// A non-OCI reference is passed through: the substrate does not interpret the value, and a nix
+// store path or a run-server id has no digest to require.
+func TestPublish_AcceptsANonOciEnvironmentReference(t *testing.T) {
+	r := testrepo.New(t)
+	r.Use(t)
+	r.Write(t, "data/out.csv", "x\n")
+
+	const nixPath = "/nix/store/abc123-analysis-1.0"
+	result, out, err := Publish(context.Background(), nil, PublishInput{
+		Outputs: []string{"data/out.csv"},
+		Cmd:     "true",
+		EnvRef:  nixPath,
+	})
+	if err != nil || result.IsError {
+		t.Fatalf("publish failed: err=%v %s", err, errText(result))
+	}
+	if out.EnvRef != nixPath {
+		t.Fatalf("envRef: got %q, want %q", out.EnvRef, nixPath)
+	}
+}
+
+// The cockpit takes a claim about the environment everywhere except where it knows better.
+func TestPublish_WillNotRecordAnEnvironmentOtherThanTheOneItRanIn(t *testing.T) {
+	r := testrepo.New(t)
+	raw := testrepo.DefaultConfig()
+	raw.Execution = config.Execution{
+		Image: "oci://ghcr.io/example/real@sha256:4444444444444444444444444444444444444444444444444444444444444444",
+	}
+	r.WriteConfig(t, raw)
+	r.Use(t)
+	r.Write(t, "data/out.csv", "x\n")
+
+	result, _, err := Publish(context.Background(), nil, PublishInput{
+		Outputs: []string{"data/out.csv"},
+		Cmd:     "true",
+		EnvRef:  "oci://ghcr.io/example/other@sha256:5555555555555555555555555555555555555555555555555555555555555555",
+	})
+	if err != nil {
+		t.Fatalf("expected a tool-level error, not a Go error: %v", err)
+	}
+	if !result.IsError {
+		t.Fatal("the cockpit accepted an environment other than the one it runs the command in")
+	}
+	if !strings.Contains(errText(result), "what it ran in") {
+		t.Fatalf("the error does not explain the problem: %s", errText(result))
+	}
+}
