@@ -197,3 +197,14 @@ func (r *Repo) TrackedFiles(t *testing.T) []string {
 	}
 	return strings.Split(out, "\n")
 }
+
+// WriteConfig replaces the repo's cockpit.config.json, for tests that need a configuration
+// different from the default.
+func (r *Repo) WriteConfig(t *testing.T, raw config.Raw) {
+	t.Helper()
+	b, err := json.MarshalIndent(raw, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(r.Root, "cockpit.config.json"), string(b)+"\n")
+}

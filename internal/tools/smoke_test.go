@@ -2,12 +2,11 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/deathbychoco/claude-science-cockpit/internal/config"
 	"github.com/deathbychoco/claude-science-cockpit/internal/testrepo"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -323,13 +322,7 @@ func TestConfigGuard_RefusesWhenTheConfigNamesADifferentRepo(t *testing.T) {
 
 	raw := testrepo.DefaultConfig()
 	raw.Repo.Owner = "someone-else"
-	b, err := json.MarshalIndent(raw, "", "  ")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(r.Root, "cockpit.config.json"), b, 0o644); err != nil {
-		t.Fatal(err)
-	}
+	r.WriteConfig(t, raw)
 
 	result, _, err := Ask(context.Background(), nil, AskInput{Query: "producer", Ref: unknownHash})
 	if err != nil {
@@ -502,13 +495,7 @@ func TestAsk_AboutExcludesAClaimThatVerifiesAgainstNoConfiguredTier(t *testing.T
 	// config can verify it any more.
 	raw := testrepo.DefaultConfig()
 	raw.Trust.Tiers = map[string][]string{"self": {}}
-	b, err := json.MarshalIndent(raw, "", "  ")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(r.Root, "cockpit.config.json"), b, 0o644); err != nil {
-		t.Fatal(err)
-	}
+	r.WriteConfig(t, raw)
 
 	result, out, err := Ask(context.Background(), nil, AskInput{Query: "about", Ref: pub.FotonID})
 	if err != nil {
@@ -544,5 +531,75 @@ func TestFixture_CommitsThePublicKeysAndNeverThePrivateOnes(t *testing.T) {
 	}
 	if !sawPub {
 		t.Errorf("the published public key registry/keys/%s.pub is not tracked; a peer could not verify this participant", testrepo.SessionID)
+	}
+}
+
+// The property that makes an environment pin worth anything: it is COVERED, so the same command
+// over the same inputs in a DIFFERENT pinned environment is a different foton, and a reproduction
+// via it commits to re-executing there. Two repos, identical publishes, one with a pin.
+func TestPublish_TheEnvironmentPinChangesTheFotonIdentity(t *testing.T) {
+	const digest = "oci://ghcr.io/example/analysis@sha256:1111111111111111111111111111111111111111111111111111111111111111"
+
+	unpinned := testrepo.New(t)
+	unpinned.Use(t)
+	a := publishOne(t, unpinned)
+	if a.EnvRef != "" {
+		t.Fatalf("no environment was configured, yet publish reported %q", a.EnvRef)
+	}
+
+	pinned := testrepo.New(t)
+	raw := testrepo.DefaultConfig()
+	raw.Environment = config.Environment{EnvRef: digest}
+	pinned.WriteConfig(t, raw)
+	pinned.Use(t)
+	b := publishOne(t, pinned)
+
+	if b.EnvRef != digest {
+		t.Fatalf("publish did not report the pinned environment: %q", b.EnvRef)
+	}
+	if a.FotonID == b.FotonID {
+		t.Fatalf("the environment pin did not reach the foton: both runs produced %s, so --env-ref was not passed", a.FotonID)
+	}
+	// Same bytes either way — only the recorded environment differs.
+	if a.OutputHashes["data/out.csv"] != b.OutputHashes["data/out.csv"] {
+		t.Fatalf("the two runs produced different outputs, so the differing foton ids prove nothing")
+	}
+}
+
+// A tag is a moving target: it names whatever it points at today, so a reproduction committing to
+// "this environment" would commit to nothing. Since the value is covered, a wrong pin does not
+// fail — it silently produces a foton pinning something other than what ran.
+func TestConfig_RefusesAnOciEnvRefWithoutADigest(t *testing.T) {
+	r := testrepo.New(t)
+	raw := testrepo.DefaultConfig()
+	raw.Environment = config.Environment{EnvRef: "oci://ghcr.io/example/analysis:latest"}
+	r.WriteConfig(t, raw)
+	r.Use(t)
+
+	result, _, err := Ask(context.Background(), nil, AskInput{Query: "producer", Ref: unknownHash})
+	if err != nil {
+		t.Fatalf("expected a tool-level error, not a Go error: %v", err)
+	}
+	if !result.IsError {
+		t.Fatal("an oci:// env-ref without a digest was accepted; it pins no environment at all")
+	}
+	if !strings.Contains(errText(result), "digest") {
+		t.Fatalf("the error does not explain the problem: %s", errText(result))
+	}
+}
+
+func TestConfig_RefusesASpectrumThatIsNotAContentHash(t *testing.T) {
+	r := testrepo.New(t)
+	raw := testrepo.DefaultConfig()
+	raw.Environment = config.Environment{Spectrum: "our-standard-image"}
+	r.WriteConfig(t, raw)
+	r.Use(t)
+
+	result, _, err := Ask(context.Background(), nil, AskInput{Query: "producer", Ref: unknownHash})
+	if err != nil {
+		t.Fatalf("expected a tool-level error, not a Go error: %v", err)
+	}
+	if !result.IsError {
+		t.Fatal("a non-hash env-spectrum was accepted")
 	}
 }

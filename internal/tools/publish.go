@@ -37,6 +37,11 @@ type PublishOutput struct {
 	OutputHashes map[string]string `json:"outputHashes,omitempty"`
 	CommitSHA    string            `json:"commitSha"`
 	Permalinks   map[string]string `json:"permalinks,omitempty"`
+	// Environment reports which execution environment this foton pinned, if any. Reported because
+	// it is otherwise invisible: it is covered by the foton id, but `plankton show` prints only the
+	// descriptor's cmd, so nothing downstream displays it.
+	Environment string `json:"environment,omitempty"`
+	EnvRef      string `json:"envRef,omitempty"`
 }
 
 func Publish(ctx context.Context, _ *mcp.CallToolRequest, in PublishInput) (*mcp.CallToolResult, PublishOutput, error) {
@@ -88,6 +93,11 @@ func Publish(ctx context.Context, _ *mcp.CallToolRequest, in PublishInput) (*mcp
 		Cmd:     in.Cmd,
 		Located: located,
 		SignKey: cfg.PlanktonKey,
+		// From the config, never from Claude: both values are COVERED, so a self-declared one
+		// would bake an unverified assertion about which environment ran into the record's own
+		// identity. See config.Environment.
+		Environment: cfg.Raw.Environment.Spectrum,
+		EnvRef:      cfg.Raw.Environment.EnvRef,
 	})
 	if err != nil {
 		return errResult[PublishOutput]("plankton author failed: %v", err)
@@ -117,6 +127,8 @@ func Publish(ctx context.Context, _ *mcp.CallToolRequest, in PublishInput) (*mcp
 		OutputHashes: outputHashes,
 		CommitSHA:    sha,
 		Permalinks:   permalinks,
+		Environment:  cfg.Raw.Environment.Spectrum,
+		EnvRef:       cfg.Raw.Environment.EnvRef,
 	}, nil
 }
 

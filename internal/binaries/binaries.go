@@ -98,6 +98,13 @@ type AuthorInput struct {
 	Cmd     string
 	Located []string // "path=url" pairs for every input+output, from gitops.LocatedFlags
 	SignKey string   // absolute path to the plankton signing key
+
+	// Environment/EnvRef pin which execution environment produced this foton. Both are COVERED:
+	// they ride in the descriptor into the foton id, so two runs of the same command in different
+	// pinned environments are different fotons, and a reproduction commits to re-executing in the
+	// pinned one. Empty means unpinned — which is a weaker record, not an invalid one.
+	Environment string // qualified env-spectrum id (sha256:...)
+	EnvRef      string // exact execution environment, e.g. oci://image@sha256:...
 }
 
 // Author runs `plankton author` and returns the printed foton id.
@@ -111,6 +118,12 @@ func (r *Runner) Author(ctx context.Context, in AuthorInput) (fotonID string, er
 	}
 	for _, l := range in.Located {
 		args = append(args, "--located", l)
+	}
+	if in.Environment != "" {
+		args = append(args, "--environment", in.Environment)
+	}
+	if in.EnvRef != "" {
+		args = append(args, "--env-ref", in.EnvRef)
 	}
 	args = append(args, "--cmd", in.Cmd, "--sign", in.SignKey, "--add", "--print-id")
 

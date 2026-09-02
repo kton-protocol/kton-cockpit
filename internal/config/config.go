@@ -47,6 +47,23 @@ type Trust struct {
 	Tiers map[string][]string `json:"tiers"`
 }
 
+// Environment pins WHICH execution environment produced this repo's fotons.
+//
+// Deliberately config, not a tool argument. Both fields are COVERED — they ride in the foton's
+// descriptor into its id, so they are part of what a reproduction commits to re-executing. A value
+// supplied per-call by Claude would therefore be a self-declared, unverified assertion about which
+// environment ran, baked into the record's identity; the same class of thing this project refuses
+// everywhere else (see how say computes the reproduction level itself). The human operator knows
+// which environment their cockpit runs in; Claude does not.
+type Environment struct {
+	// Spectrum is the qualified env-spectrum id (`plankton author --environment`), which must be a
+	// content hash. It QUALIFIES an environment; it does not name an exact one.
+	Spectrum string `json:"spectrum,omitempty"`
+	// EnvRef is the exact execution environment (`plankton author --env-ref`): an OCI image digest,
+	// a nix store path, a run-server id. The substrate stores it without interpreting it.
+	EnvRef string `json:"envRef,omitempty"`
+}
+
 type Reproduction struct {
 	RequiredLevel string `json:"requiredLevel"`
 	Normalizer    string `json:"normalizer"`
@@ -61,6 +78,7 @@ type Raw struct {
 	Claims       Claims       `json:"claims"`
 	Trust        Trust        `json:"trust"`
 	Reproduction Reproduction `json:"reproduction"`
+	Environment  Environment  `json:"environment,omitempty"`
 }
 
 // Config is the loaded, validated, path-resolved configuration for one cockpit invocation. Every
@@ -160,6 +178,23 @@ func validate(raw *Raw) error {
 	}
 	if len(missing) > 0 {
 		return fmt.Errorf("missing required field(s): %s", strings.Join(missing, ", "))
+	}
+	return validateEnvironment(raw.Environment)
+}
+
+// validateEnvironment rejects the two ways an environment pin can be quietly meaningless. Both
+// values are COVERED, so a wrong one does not fail — it silently produces a foton that pins
+// something other than what ran, and no later check can tell.
+func validateEnvironment(env Environment) error {
+	if env.Spectrum != "" && !strings.HasPrefix(env.Spectrum, "sha256:") {
+		return fmt.Errorf("environment.spectrum must be an env-spectrum content hash (sha256:...), got %q", env.Spectrum)
+	}
+	// A tag is a moving target: `oci://img:latest` names whatever that tag points at today, so a
+	// reproduction committing to "this environment" would commit to nothing. Only a digest pins.
+	if strings.HasPrefix(env.EnvRef, "oci://") && !strings.Contains(env.EnvRef, "@sha256:") {
+		return fmt.Errorf(
+			"environment.envRef %q is an OCI reference without a digest — a tag names whatever it points at "+
+				"today, so it pins no environment at all. Use oci://<image>@sha256:<digest>", env.EnvRef)
 	}
 	return nil
 }

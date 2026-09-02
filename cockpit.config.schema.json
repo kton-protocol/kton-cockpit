@@ -80,6 +80,15 @@
         }
       }
     },
+    "environment": {
+      "type": "object",
+      "description": "Pins WHICH execution environment produced this repo's fotons. Deliberately config rather than a tool argument: both values are COVERED (they ride in the foton's descriptor into its id, so a reproduction commits to re-executing in the pinned environment), which means a value supplied per-call by Claude would bake a self-declared, unverified assertion about which environment ran into the record's own identity. Omit the block entirely to publish unpinned fotons.",
+      "additionalProperties": false,
+      "properties": {
+        "spectrum": { "type": "string", "description": "The qualified env-spectrum id, which must be a content hash (sha256:...). It QUALIFIES an environment; it does not name an exact one. Passed as `plankton author --environment`." },
+        "envRef": { "type": "string", "description": "The exact execution environment: an OCI image digest (oci://<image>@sha256:<digest>), a nix store path, a run-server id. The substrate stores it without interpreting it. An oci:// reference MUST carry a digest — a tag names whatever it points at today, so it pins no environment at all. Passed as `plankton author --env-ref`." }
+      }
+    },
     "reproduction": {
       "type": "object",
       "description": "The reproduction precondition policy cockpit_say runs itself before writing a reproduces claim's level field — never self-declared by Claude.",
