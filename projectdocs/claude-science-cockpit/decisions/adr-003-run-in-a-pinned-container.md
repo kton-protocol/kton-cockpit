@@ -110,39 +110,49 @@ why its constraints are part of the decision and not a detail:
    `cockpit_publish` reports `networkAllowed` when it did, so whoever reads the result sees that the
    run depended on something the foton does not pin, rather than having to know the repo's config.
 
-## Where this is NOT the answer: claude-science
+## claude-science: the platform states the container, the cockpit does not guess
 
-claude-science starts containers itself. You bring the image(s) it should execute in, and it runs
-the work there. So the work is *already* containerised, in an image the operator chose and pinned —
-spawning a second container from inside the cockpit would add a layer and change nothing about what
-the foton can honestly say.
+claude-science starts containers for execution, using images the operator brings. The work is
+already containerised there in an image someone chose and pinned. Spawning another container from
+inside the cockpit would add a layer and change nothing about what the foton can honestly say, so
+`execution.image` is not the answer there.
 
-The cockpit cannot observe that container either. It runs as a Local command connector, i.e. as a
-process on the host, **outside** the container claude-science executes in. It never sees the run. It cannot read the
-image digest, and no amount of care on this side changes that — the information is on the other
-side of a boundary the cockpit is not on.
+Neither is configuring the same digest a second time in `cockpit.config.json`. That would mean the
+operator maintains one value in two places, and if they drift — claude-science gets a new image,
+the cockpit's config does not — every foton published afterwards pins an image that did not run.
+Nothing fails. The value is COVERED, so it becomes part of records that are correctly signed and
+wrong, and a reproduction "via" one of them commits to re-executing where the original never ran.
+No check on this side can catch it: the cockpit runs as a Local command connector, a host process
+outside the container, and never sees the run.
 
-So there, `environment.envRef` is the mechanism, and it is a declaration by construction. The
-operator writes the same digest twice: once where claude-science is told what to execute in, once
-in `cockpit.config.json`.
+A declaration that cannot be checked, duplicated across two systems, is worse than no pin at all —
+an unpinned foton is honestly unpinned, while a stale one asserts something false. This project's
+own rule covers the case: a capability gap is raised where it belongs, not worked around here.
 
-**That duplication is the hazard, and it is quiet.** If the two drift — claude-science's image is
-updated, the cockpit's config is not — every foton published afterwards pins an image that did not
-run. Nothing fails. The value is COVERED, so it silently becomes part of records that are correctly
-signed and wrong, and a reproduction "via" one of them commits to re-executing somewhere the
-original never ran. There is no check on this side that could catch it, because the truth is not
-visible from here.
+**So: claude-science should state which container it executed in.** One value, from the side that
+knows it, passed to the connector — an injected environment variable is enough. The cockpit then
+records what it is told rather than what it was configured with, and can refuse a mismatch instead
+of silently preferring one. See "Requirements on the platform" below.
 
-What would actually fix it is not a cockpit feature: claude-science would have to expose the
-executing image's digest to the connector — an injected environment variable or an equivalent — at
-which point the cockpit could pin what it is told rather than what it was configured with, and
-refuse a mismatch between the two. Until then, the honest mitigation is procedural: keep one source
-of truth for that digest, and note that `doctor` says in as many words when a pinned environment is
-asserted rather than observed.
+Until that exists, the cockpit does not pretend. `environment.envRef` stays for environments it can
+neither run nor be told about — a nix store path, a run-server id — and `doctor` says in as many
+words that such a pin is asserted rather than observed.
 
-`execution.image` is for the other context: a session with a shell in an environment nobody pinned —
-the Claude Code CLI on someone's laptop — where containerising the run is what makes the pin an
-observation instead of a claim.
+## Requirements on the platform (claude-science)
+
+**P1 — report the executing container to the MCP connector.**
+
+The connector process runs on the host, outside the container claude-science executes in, and has
+no way to learn its image. Exposing it — `CLAUDE_SCIENCE_EXEC_IMAGE=oci://…@sha256:…` or equivalent,
+in the connector's environment — turns the cockpit's environment pin from a duplicated declaration
+into a value derived from the run.
+
+The digest matters, not a tag: a tag names whatever it points at today, so a reproduction
+committing to "that image" would commit to nothing.
+
+With it, the cockpit can do what it already does elsewhere — record what it observed, and refuse
+when an observation and a configuration disagree — instead of asking an operator to keep two
+systems in sync by hand.
 
 ## Consequences
 
