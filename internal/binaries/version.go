@@ -14,6 +14,8 @@ import (
 //     what a claim actually says — is unreachable; only prose naming the id and predicate exists.
 //   - `plankton reproductions --trust-keys`. Without it the ↻N count is self-declared and
 //     forgeable, and serving a forgeable number is worse than serving none.
+//   - `nekton annotate --print-id` (#56). Without it the claim id has to be scraped back out of
+//     four lines of prose printed to stdout.
 //
 // A 0.1 binary rejects all three on its usage line, which reads as a confusing syntax error rather
 // than "your kernel is too old" — hence this check, rather than letting each call fail on its own.
@@ -52,10 +54,11 @@ func (r *Runner) CheckKernel(ctx context.Context) error {
 		}
 		if major < RequiredKernelMajor || (major == RequiredKernelMajor && minor < RequiredKernelMinor) {
 			return fmt.Errorf(
-				"%s is %d.%d, but this cockpit requires %d.%d or newer: `nekton about/by --json` and "+
-					"`plankton reproductions --trust-keys` do not exist before %d.%d, and the cockpit has no "+
-					"fallback for either — the pre-%d.%d alternatives are unparseable prose and a forgeable "+
-					"count. Rebuild the binaries from a kton checkout (see CLAUDE.md, \"The kernel binaries\")",
+				"%s is %d.%d, but this cockpit requires %d.%d or newer: `nekton about/by --json`, "+
+					"`nekton annotate --print-id` and `plankton reproductions --trust-keys` do not exist "+
+					"before %d.%d, and the cockpit has no fallback for any of them — the pre-%d.%d "+
+					"alternatives are unparseable prose and a forgeable count. Rebuild the binaries from a "+
+					"kton checkout (see CLAUDE.md, \"The kernel binaries\")",
 				name, major, minor, RequiredKernelMajor, RequiredKernelMinor,
 				RequiredKernelMajor, RequiredKernelMinor, RequiredKernelMajor, RequiredKernelMinor)
 		}

@@ -248,35 +248,31 @@ func (r *Runner) VerifyFoton(ctx context.Context, idOrFile, pubkeyPath string) (
 // prints the claim's registry id on `--add`; callers should follow up with About to confirm
 // registration, mirroring the manual workflow's explicit confirm step).
 //
-// Unlike `plankton author --print-id`, `nekton annotate` has no machine-readable mode: it prints
-// four lines of human prose to STDOUT (not stderr), the id embedded among them. So the id is
-// parsed out here rather than returned raw — returning the whole block would hand the caller a
-// paragraph where it expects an id. Filed upstream against kton-protocol/kton alongside #39,
-// which is the same problem on the read side (about/by print prose too).
+// --print-id is the same contract `plankton author` uses: the bare id is the only thing on stdout,
+// every human line goes to stderr. Until kton 0.2's #56 added it, annotate printed four lines of
+// prose to STDOUT with the id embedded among them, and this had to scrape the "indexed claim" line
+// back out. Say still confirms registration by querying the claim back — the parsing went away, the
+// confirmation did not.
 func (r *Runner) Annotate(ctx context.Context, subject, template string, sets map[string]string, signKey string) (string, error) {
 	args := []string{"annotate", subject, "--template", template}
 	for k, v := range sets {
 		args = append(args, "--set", fmt.Sprintf("%s=%s", k, v))
 	}
-	args = append(args, "--sign", signKey, "--add")
+	args = append(args, "--sign", signKey, "--add", "--print-id")
 	out, err := r.nekton(ctx, args...)
 	if err != nil {
 		return "", err
 	}
-	// Anchored on the "indexed claim" line specifically, not on the earlier "claim <id>" line
-	// that merely reports what was authored: only the indexed line means --add actually ingested
-	// it into the registry. If ingestion did not happen, there is no id to report and this fails
-	// closed rather than handing back an id for a claim no query will find.
-	m := indexedClaimRe.FindStringSubmatch(out)
-	if m == nil {
-		return "", fmt.Errorf("nekton annotate did not report an indexed claim id; output was:\n%s", out)
+	id := strings.TrimSpace(out)
+	if !claimIDRe.MatchString(id) {
+		return "", fmt.Errorf("nekton annotate --print-id did not return a claim id; stdout was:\n%s", out)
 	}
-	return m[1], nil
+	return id, nil
 }
 
-// indexedClaimRe matches nekton's own registration line, e.g.
-// `indexed claim sha256:98a1…  (registry now holds 1 claims)`.
-var indexedClaimRe = regexp.MustCompile(`(?m)^indexed claim (sha256:[0-9a-f]{64})\b`)
+// claimIDRe is the whole of what --print-id may put on stdout. Matching the entire string, not
+// searching within it, is the point: anything else there means the contract did not hold.
+var claimIDRe = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 
 // About lists claims about a subject (hash or URI) — used both to serve `ask` and to confirm a
 // `say` registered. It reads nekton's --json mode rather than its prose (upstream #39): the prose

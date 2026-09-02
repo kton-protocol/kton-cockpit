@@ -43,7 +43,7 @@ successfully; kton 0.2 added `objects/.format` so a store can say what wrote it,
 does not know to look. So: never use a `plankton`/`nekton` from `$PATH`, a package manager, or
 another checkout — only one built from the kton tree you mean.
 
-**Verified against:** kton `dev` at `cdc50b2` (0.2). `dev` moves; when this drifts, rebuild and
+**Verified against:** kton `dev` at `85376b0` (0.2). `dev` moves; when this drifts, rebuild and
 re-run `go test ./...` before trusting anything, and update this line.
 
 ## Subcommands
