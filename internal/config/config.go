@@ -1,6 +1,12 @@
-// Package config loads and validates cockpit.config.json — the static ceiling the cockpit
-// applies on every call. It is never written by the cockpit itself; Claude never sees or edits it
-// through any tool.
+// Package config loads and validates cockpit.config.json — the static ceiling the cockpit applies
+// on every call. It is never written by the cockpit itself, and no tool exposes it: Claude cannot
+// read or change it through publish, say or ask.
+//
+// One path had to be closed to keep that true. With execution configured the cockpit mounts the
+// repository into a container and runs a Claude-supplied command there, and the config sits inside
+// that mount. It is masked — see internal/container's maskArgs — along with the keys, the binaries,
+// the registry and .git. Without that, "no tool reaches it" would have been a statement about the
+// tool surface that the tool surface itself had made untrue.
 package config
 
 import (
@@ -264,7 +270,7 @@ func Load(ctx context.Context, startDir string) (*Config, error) {
 	// walk up to the nearest cockpit.config.json. Whether that location is legitimate is then
 	// decided by the mode — in git mode it must be the repository root, in local mode it must be the
 	// path the config itself declares. Finding a config somewhere is never on its own enough.
-	cfgDir, err := findConfigDir(startDir)
+	cfgDir, err := findConfigDir(ctx, startDir)
 	if err != nil {
 		return nil, err
 	}
@@ -301,22 +307,42 @@ func Load(ctx context.Context, startDir string) (*Config, error) {
 	return cfg, nil
 }
 
-// findConfigDir walks up from startDir to the nearest directory holding a cockpit.config.json.
-func findConfigDir(startDir string) (string, error) {
+// findConfigDir locates the cockpit.config.json that governs startDir, in exactly two places and no
+// others: startDir itself, and — if startDir is inside a git repository — that repository's root.
+//
+// It used to walk up to the filesystem root and take the first config it found. That is a weaker
+// rule than the one it replaced, and weaker in the direction that matters: the original design
+// required the config AT the git root and refused otherwise, so a session in a directory with no
+// config of its own could not bind to an ancestor's. Under an unbounded walk it can — including out
+// of a git repository it is standing in, into a parent that has one. That is the incident this
+// project exists for, reintroduced by a search.
+//
+// "The declared root proves it was not moved" does not answer it. It proves the config is where it
+// says it belongs; it says nothing about whether that is the directory the session was meant to act
+// in, which is the whole question.
+//
+// So: bounded. In git mode the config can only ever be at the repository root, which is the property
+// the previous design had. In local mode it must be in the directory itself.
+func findConfigDir(ctx context.Context, startDir string) (string, error) {
 	dir, err := filepath.Abs(startDir)
 	if err != nil {
 		return "", err
 	}
-	for {
-		if _, err := os.Stat(filepath.Join(dir, "cockpit.config.json")); err == nil {
-			return dir, nil
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			return "", fmt.Errorf("cockpit: no cockpit.config.json in %s or any parent directory", startDir)
-		}
-		dir = parent
+	if hasConfig(dir) {
+		return dir, nil
 	}
+	// One step, and only to a place git itself names — never an arbitrary ancestor.
+	if root, rerr := repoRootOf(ctx, dir); rerr == nil && hasConfig(root) {
+		return root, nil
+	}
+	return "", fmt.Errorf(
+		"cockpit: no cockpit.config.json in %s, and none at its git repository root — the config is "+
+			"looked for in those two places only, never in an arbitrary parent directory", startDir)
+}
+
+func hasConfig(dir string) bool {
+	_, err := os.Stat(filepath.Join(dir, "cockpit.config.json"))
+	return err == nil
 }
 
 // checkBinding is the anti-wrong-folder guard. It answers one question — is this the place this
@@ -335,6 +361,19 @@ func findConfigDir(startDir string) (string, error) {
 // whose paths both look right. See ADR-004.
 func checkBinding(ctx context.Context, cfgDir string, repo RepoRef) error {
 	if repo.IsLocal() {
+		// Local mode is for a directory with no git repository. Accepting it inside one that HAS an
+		// origin would silently trade the stronger check for the weaker: the remote is an independent
+		// second source, and the declared path is only the config agreeing with itself. A config that
+		// turns that off by naming a mode, in a repo where it was available, is the kind of quiet
+		// downgrade this guard exists to prevent.
+		if root, err := repoRootOf(ctx, cfgDir); err == nil {
+			if _, rerr := originURL(ctx, root); rerr == nil {
+				return fmt.Errorf(
+					"repo.mode is %q, but %s is a git repository with an origin remote — local mode would "+
+						"drop the remote check for a weaker one. Use the default git mode here",
+					ModeLocal, root)
+			}
+		}
 		declared, err := filepath.Abs(repo.Root)
 		if err != nil {
 			return fmt.Errorf("repo.root %q is not a usable path: %w", repo.Root, err)
@@ -531,17 +570,25 @@ func repoRootOf(ctx context.Context, dir string) (string, error) {
 
 var remoteRe = regexp.MustCompile(`(?:github\.com[:/])([^/]+)/([^/.]+?)(?:\.git)?$`)
 
-// checkRemoteMatches is the hard-refuse step of the anti-wrong-folder guard: the repo's own
-// `origin` remote must name the exact owner/repo the config claims to be. On any mismatch —
-// including no remote at all — every cockpit tool call refuses outright.
-func checkRemoteMatches(ctx context.Context, repoRoot string, want RepoRef) error {
+// originURL reads a repository's origin remote, or errors if it has none.
+func originURL(ctx context.Context, repoRoot string) (string, error) {
 	cmd := exec.CommandContext(ctx, "git", "remote", "get-url", "origin")
 	cmd.Dir = repoRoot
 	out, err := cmd.Output()
 	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// checkRemoteMatches is the hard-refuse step of the anti-wrong-folder guard: the repo's own
+// `origin` remote must name the exact owner/repo the config claims to be. On any mismatch —
+// including no remote at all — every cockpit tool call refuses outright.
+func checkRemoteMatches(ctx context.Context, repoRoot string, want RepoRef) error {
+	url, err := originURL(ctx, repoRoot)
+	if err != nil {
 		return fmt.Errorf("could not read git remote 'origin' in %s: %w", repoRoot, err)
 	}
-	url := strings.TrimSpace(string(out))
 	m := remoteRe.FindStringSubmatch(url)
 	if m == nil {
 		return fmt.Errorf("remote 'origin' (%s) is not a recognizable github.com owner/repo URL", url)

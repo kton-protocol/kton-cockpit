@@ -1131,3 +1131,76 @@ func stagedFiles(t *testing.T, repoDir string) string {
 	}
 	return strings.TrimSpace(string(out))
 }
+
+// The config is looked for in two places and no others. An unbounded walk to the filesystem root
+// would let a session in a directory with no config of its own bind to an ancestor's — including
+// out of a git repository it is standing in — which is the incident this project exists for,
+// reintroduced by a search.
+func TestConfigGuard_DoesNotBindToAnAncestorsConfig(t *testing.T) {
+	r := testrepo.New(t)
+
+	// A directory beside the repo's root, inside the same parent, with no config of its own. The
+	// parent holds one only because the fixture's repo dir is under it — which is exactly the shape
+	// that used to be picked up.
+	parent := filepath.Dir(r.Root)
+	if err := os.WriteFile(filepath.Join(parent, "cockpit.config.json"), []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stray := filepath.Join(parent, "elsewhere")
+	if err := os.MkdirAll(stray, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("COCKPIT_REPO_DIR", stray)
+
+	result, _, err := Ask(context.Background(), nil, AskInput{Query: "producer", Ref: unknownHash})
+	if err != nil {
+		t.Fatalf("expected a tool-level error, not a Go error: %v", err)
+	}
+	if !result.IsError {
+		t.Fatal("the cockpit bound to a config in a parent directory")
+	}
+	if !strings.Contains(errText(result), "never in an arbitrary parent") {
+		t.Fatalf("the error does not say why: %s", errText(result))
+	}
+}
+
+// A session in a SUBDIRECTORY of a real repo still resolves — the one step to the git root that
+// bounding the search deliberately keeps.
+func TestConfigGuard_ResolvesFromASubdirectoryOfTheRepo(t *testing.T) {
+	r := testrepo.New(t)
+	sub := filepath.Join(r.Root, "data", "nested")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("COCKPIT_REPO_DIR", sub)
+
+	result, _, err := Ask(context.Background(), nil, AskInput{Query: "producer", Ref: unknownHash})
+	if err != nil {
+		t.Fatalf("Ask returned a Go error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("a subdirectory of the repo should resolve to its root: %s", errText(result))
+	}
+}
+
+// Naming local mode inside a repo that HAS an origin would trade the stronger check for the weaker
+// one — the remote is an independent second source, the declared path is only the config agreeing
+// with itself. A config that turns that off by naming a mode is the quiet downgrade the guard is for.
+func TestLocalMode_RefusedInsideAGitRepoWithARemote(t *testing.T) {
+	r := testrepo.New(t) // a real git repo with an origin
+	raw := testrepo.DefaultConfig()
+	raw.Repo = config.RepoRef{Mode: config.ModeLocal, Root: r.Root}
+	r.WriteConfig(t, raw)
+	r.Use(t)
+
+	result, _, err := Ask(context.Background(), nil, AskInput{Query: "producer", Ref: unknownHash})
+	if err != nil {
+		t.Fatalf("expected a tool-level error, not a Go error: %v", err)
+	}
+	if !result.IsError {
+		t.Fatal("local mode was accepted in a git repo that has an origin remote")
+	}
+	if !strings.Contains(errText(result), "drop the remote check") {
+		t.Fatalf("the error does not explain the downgrade: %s", errText(result))
+	}
+}

@@ -276,3 +276,72 @@ func TestContainer_NothingIsReportedWhenTheDeclarationIsComplete(t *testing.T) {
 		t.Fatalf("a complete declaration still reported changes: %v", out.UndeclaredChanges)
 	}
 }
+
+// The finding this closes, run as the finding described it: a command that replaces bin/plankton
+// would make the cockpit author the record with a kernel `doctor` never checked, and nothing would
+// fail — what ran and what was recorded would simply diverge.
+//
+// `go build -o bin/plankton …` is a legitimate command straight out of this project's own
+// instructions, which is what makes it worth closing rather than forbidding.
+func TestContainer_TheTrustBaseIsNotInTheRoom(t *testing.T) {
+	r := executingRepo(t, false)
+	r.Write(t, "data/in.csv", "x\n")
+
+	before := readFile(t, filepath.Join(r.Root, "bin", "plankton"))
+	keyBefore := readFile(t, filepath.Join(r.Root, "keys", testrepo.SessionID+".key"))
+
+	// One command, reporting what it can see and trying to overwrite each of them.
+	result, out, err := Publish(context.Background(), nil, PublishInput{
+		Inputs:  []string{"data/in.csv"},
+		Outputs: []string{"data/out.csv"},
+		Cmd: `{
+		   echo "keys: $(ls keys 2>&1 | wc -l)"
+		   echo "bin: $(ls bin 2>&1 | wc -l)"
+		   echo "git: $(ls .git 2>&1 | wc -l)"
+		   echo "registry: $(ls registry/plankton 2>&1 | wc -l)"
+		   echo "config: $(wc -c < cockpit.config.json)"
+		   echo replaced > bin/plankton 2>/dev/null || echo "bin/plankton: not writable through to the host"
+		   echo stolen > keys/leak 2>/dev/null || true
+		 } > data/out.csv 2>&1`,
+	})
+	if err != nil {
+		t.Fatalf("Publish returned a Go error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("publish failed: %s", errText(result))
+	}
+	t.Logf("what the container saw:\n%s", readFile(t, filepath.Join(r.Root, "data", "out.csv")))
+
+	// The assertions that matter are on the HOST, after the run.
+	if got := readFile(t, filepath.Join(r.Root, "bin", "plankton")); got != before {
+		t.Fatal("the container replaced bin/plankton on the host — the cockpit would then author with it")
+	}
+	if got := readFile(t, filepath.Join(r.Root, "keys", testrepo.SessionID+".key")); got != keyBefore {
+		t.Fatal("the container reached the signing key")
+	}
+	if _, err := os.Stat(filepath.Join(r.Root, "keys", "leak")); err == nil {
+		t.Fatal("the container wrote into the host's keys directory")
+	}
+	if !strings.HasPrefix(out.FotonID, "sha256:") {
+		t.Fatal("the publish itself should still have succeeded")
+	}
+
+	// And the masking is real rather than the command merely having failed: the container saw the
+	// directories as EMPTY, which is what "empty the room" means. `ls` on an empty dir prints
+	// nothing, so wc -l is 0; the config is masked to /dev/null, so it reads as 0 bytes.
+	saw := readFile(t, filepath.Join(r.Root, "data", "out.csv"))
+	for _, want := range []string{"keys: 0", "bin: 0", "git: 0", "registry: 0", "config: 0"} {
+		if !strings.Contains(saw, want) {
+			t.Errorf("expected the container to see %q, got:\n%s", want, saw)
+		}
+	}
+}
+
+func readFile(t *testing.T, path string) string {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}

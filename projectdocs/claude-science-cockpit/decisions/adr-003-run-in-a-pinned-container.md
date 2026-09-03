@@ -91,7 +91,35 @@ why its constraints are part of the decision and not a detail:
   and it is also the cheapest exfiltration path out of the sandbox;
 - the repo mounted, and nothing else;
 - non-root, mapped to the invoking uid/gid, so outputs are not root-owned artefacts the operator
-  cannot clean up.
+  cannot clean up;
+- `--cap-drop=ALL --security-opt=no-new-privileges`: reading and writing files in a working
+  directory needs no capabilities, and nothing should become more privileged than the command;
+- **the trust base emptied out of the mount** — see below;
+- what the run prints back is capped, since it reaches the model.
+
+### The mount contains the trust base, so the trust base is emptied
+
+The constraint "the repo mounted, and nothing else" was not enough, because the repo *is* where the
+trust base lives: `keys_dir`, `bin_dir`, the registry, `.git` and `cockpit.config.json` are all under
+`RepoRoot`, and the defaults put them there.
+
+The ordering makes it concrete. `container.Run` happens first; then `CommitAndPush`, which fires
+`.git/hooks` **on the host**; then `Author`, which execs `bin/plankton` **on the host**, from the
+mount.
+
+And the failure is not adversarial, which is what makes it worth closing rather than forbidding:
+`go build -o bin/plankton ./reference/cmd/plankton` is a legitimate command straight out of this
+project's own instructions. Run in the container against an unmasked mount, it replaces the binary,
+and the record is then authored by a kernel `doctor` never checked. Nothing fails — what ran and what
+was recorded simply diverge.
+
+So the room is emptied rather than the command constrained: fresh tmpfs over `keys/`, `bin/`, the two
+registry directories and `.git`, and an empty read-only bind over `cockpit.config.json`. A denylist
+of forbidden commands is a guessing game; an empty directory is not.
+
+The registry is included although the finding did not ask for it: a command that can write into
+`objects/` can plant records the cockpit later reads back as its own — the same silent divergence,
+one layer down — and nothing a published command legitimately does needs to reach it.
 
 ## Open questions, as settled
 
