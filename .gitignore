@@ -1,1 +1,4 @@
 /bin/
+
+# Each example builds its participant repo fresh; nothing in .work/ is worth keeping.
+examples/*/.work/

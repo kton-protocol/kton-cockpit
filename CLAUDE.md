@@ -125,6 +125,22 @@ skips is how this one previously spent months reporting success while exercising
 handlers: it pointed at a hand-made local clone by absolute path (`/mnt/c/dev/planktonReproduce/…`)
 that had been reorganized away.
 
+### Examples
+
+```bash
+examples/run-all.sh          # all of them
+examples/02-chain/run.sh     # or one
+```
+
+One property per directory, each a readable script that builds its own participant repo from
+nothing. They demonstrate what the cockpit adds over the kernel — the guard, the claim ceiling, the
+verified-not-declared rule, the environment pin — over the MCP surface a session actually gets,
+rather than by driving plankton and git directly.
+
+They live here rather than in their own repository on purpose: kton-examples is separate from kton
+and went stale exactly as that predicts, its CI checking out an archived repo and reporting success
+for six weeks with every step silently skipped. See [`examples/README.md`](examples/README.md).
+
 ### Automated end-to-end UAT
 
 See [`uat/README.md`](uat/README.md) for prerequisites (gh CLI scopes, Go, python3, claude-science
