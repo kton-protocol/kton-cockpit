@@ -1067,3 +1067,67 @@ func TestGitMode_RefusesAConfigBelowTheRepositoryRoot(t *testing.T) {
 		t.Fatal("a config below the repository root was accepted")
 	}
 }
+
+// The integration-level companion to publish_denylist_test.go: it drives the real Publish() and
+// confirms two things a unit test on the pure function cannot — that the denial happens inside
+// Publish before anything else runs, and that NO git state changed. An error returned alongside a
+// mutation that happened anyway would pass a check that only looked at the error.
+func TestPublish_RefusesToCommitSigningKey(t *testing.T) {
+	r := testrepo.New(t)
+	r.Use(t)
+	before := r.HeadSHA(t)
+
+	result, out, err := Publish(context.Background(), nil, PublishInput{
+		Outputs: []string{"keys/session-1.key"},
+		Cmd:     "cat keys/session-1.key",
+	})
+	if err != nil {
+		t.Fatalf("expected a tool-level error, not a Go error: %v", err)
+	}
+	if !result.IsError {
+		t.Fatalf("publish committed a signing key: %+v", out)
+	}
+	if after := r.HeadSHA(t); after != before {
+		t.Fatalf("HEAD moved (%s -> %s) although publish should have refused before touching git", before, after)
+	}
+}
+
+// The regression test for the worse bypass: gitops built `git add` with no "--" separator, so
+// outputs ["-f", "."] became `git add -f .` — a FLAG, not a path — force-adding every gitignored
+// file including the keys, without "keys/" ever appearing in the request.
+//
+// The assertion that matters is the index, not HEAD: a partial "staged but never committed"
+// failure would pass a HEAD-only check while the key sat in the index.
+func TestPublish_RefusesLeadingDashOutput(t *testing.T) {
+	r := testrepo.New(t)
+	r.Use(t)
+	before := r.HeadSHA(t)
+
+	result, out, err := Publish(context.Background(), nil, PublishInput{
+		Outputs: []string{"-f", "."},
+		Cmd:     "echo pwned",
+	})
+	if err != nil {
+		t.Fatalf("expected a tool-level error, not a Go error: %v", err)
+	}
+	if !result.IsError {
+		t.Fatalf("publish accepted a leading-dash output path: %+v", out)
+	}
+	if after := r.HeadSHA(t); after != before {
+		t.Fatalf("HEAD moved (%s -> %s)", before, after)
+	}
+	if staged := stagedFiles(t, r.Root); staged != "" {
+		t.Fatalf("expected nothing staged, found:\n%s", staged)
+	}
+}
+
+func stagedFiles(t *testing.T, repoDir string) string {
+	t.Helper()
+	cmd := exec.Command("git", "diff", "--cached", "--name-only")
+	cmd.Dir = repoDir
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("git diff --cached --name-only in %s: %v", repoDir, err)
+	}
+	return strings.TrimSpace(string(out))
+}

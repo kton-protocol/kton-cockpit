@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/deathbychoco/claude-science-cockpit/internal/anchor"
@@ -112,6 +113,25 @@ func Publish(ctx context.Context, _ *mcp.CallToolRequest, in PublishInput) (*mcp
 	r := binaries.New(cfg)
 	allPaths := append(append([]string{}, in.Inputs...), in.Outputs...)
 
+	// Claude only gets three narrow verbs; the cockpit owns key hygiene — but without this check,
+	// publish is a general "commit and push any path in this repo" primitive, since git itself
+	// doesn't care whether a staged path is a signing key. Validate every input/output path BEFORE
+	// touching git or plankton at all, and report every denied path at once (not just the first),
+	// so a Claude retry can fix everything in one pass.
+	//
+	// It runs before the container too, and that ordering is the point once this repo executes: a
+	// run is the first thing that touches anything, so a path denied here is denied before a
+	// command has had the chance to act on it.
+	var denied []string
+	for _, p := range allPaths {
+		if verr := validatePublishPath(cfg, p); verr != nil {
+			denied = append(denied, verr.Error())
+		}
+	}
+	if len(denied) > 0 {
+		return errResult[PublishOutput]("publish refused %d path(s):\n%s", len(denied), strings.Join(denied, "\n"))
+	}
+
 	// When this repo runs rather than records, the command executes BEFORE anything is committed:
 	// the outputs do not exist until it has. A failed run is a failed publish — a foton describing
 	// whatever a failed run left behind would assert work that never completed.
@@ -215,13 +235,25 @@ func Publish(ctx context.Context, _ *mcp.CallToolRequest, in PublishInput) (*mcp
 		}
 		registryPaths = append(registryPaths, written...)
 	}
-	if _, err := gitops.CommitAndPush(ctx, cfg, registryPaths, "foton: "+in.Cmd); err != nil {
+
+	// Publish does two SEPARATE commits — inputs+outputs first, then the signed registry entry,
+	// since the foton can't be authored until its --located permalinks (anchored to the FIRST
+	// commit) already exist. This second commit's sha is what the call returns: the first was
+	// always one commit stale by the time Publish came back, and `git ls-remote origin HEAD`
+	// disagreed with it. The foton's OWN embedded --located permalinks stay anchored to the first
+	// commit — unavoidable, since authoring happens between the two — but the bytes are identical
+	// in both, so they resolve either way.
+	finalSHA, err := gitops.CommitAndPush(ctx, cfg, registryPaths, "foton: "+in.Cmd)
+	if err != nil {
 		return errResult[PublishOutput]("git commit/push of the registry failed: %v", err)
 	}
 
+	// finalSHA is empty when this repo does not commit: there is then no commit for a permalink to
+	// pin, and returning HEAD instead would be worse than returning nothing — a locator pinned to a
+	// commit that does not contain the bytes resolves to the wrong thing or to nothing.
 	permalinks := map[string]string{}
-	if sha != "" {
-		base := gitops.PermalinkBase(cfg, sha)
+	if finalSHA != "" {
+		base := gitops.PermalinkBase(cfg, finalSHA)
 		for _, p := range allPaths {
 			permalinks[p] = base + "/" + p
 		}
@@ -230,7 +262,7 @@ func Publish(ctx context.Context, _ *mcp.CallToolRequest, in PublishInput) (*mcp
 	out := PublishOutput{
 		FotonID:        fotonID,
 		OutputHashes:   outputHashes,
-		CommitSHA:      sha,
+		CommitSHA:      finalSHA,
 		Permalinks:     permalinks,
 		Environment:    cfg.Raw.Environment.Spectrum,
 		EnvRef:         envRef,
@@ -291,4 +323,94 @@ func errResult[T any](format string, args ...any) (*mcp.CallToolResult, T, error
 		IsError: true,
 		Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf(format, args...)}},
 	}, zero, nil
+}
+
+// validatePublishPath rejects a repo-relative path publish must never commit/push: an absolute or
+// ..-escaping path, anything that could be parsed as a git command-line flag rather than a literal
+// path, anything inside this repo's configured keys_dir, anything inside .git, this repo's own
+// cockpit.config.json, or anything with a .key extension regardless of location (a floor of
+// protection independent of keys_dir being configured correctly at all — see the "smaller" review
+// item that config validation doesn't require keys_dir to be set). Comparisons are
+// case-insensitive: this project develops on WSL/NTFS, a case-insensitive filesystem, where e.g.
+// "KEYS/x" and "keys/x" name the same file regardless of what a case-sensitive string compare
+// would conclude.
+//
+// Known, deliberately out of scope: this is a PATH check only, never a content check. Copying a
+// key's bytes into an innocuously-named file (`cp keys/session-1.key data/results.csv`) and
+// publishing that sails through untouched — closing that requires inspecting file content, a
+// fundamentally different mechanism than a denylist. This fix closes the path-based hole Michael
+// described; content-based exfiltration is a separate, unaddressed risk.
+func validatePublishPath(cfg *config.Config, p string) error {
+	if p == "" {
+		return fmt.Errorf("empty path is not a valid publish path")
+	}
+	if filepath.IsAbs(p) {
+		return fmt.Errorf("%q is an absolute path — publish only accepts repo-relative paths", p)
+	}
+	// gitops.CommitAndPush passes paths to `git add` with a "--" separator specifically so a path
+	// starting with "-" can never be parsed as a flag (see that fix for the full rationale) — this
+	// is the second, defense-in-depth layer: reject it here too, on both the raw string actually
+	// passed to git and its cleaned form, so this check keeps working even if some future refactor
+	// ever dropped the "--" or fed a cleaned path to git instead of the raw one.
+	if strings.HasPrefix(p, "-") {
+		return fmt.Errorf("%q looks like a command-line flag (starts with -), not a path — refusing", p)
+	}
+
+	clean := filepath.ToSlash(filepath.Clean(p))
+	if strings.HasPrefix(clean, "-") {
+		return fmt.Errorf("%q looks like a command-line flag once cleaned (starts with -) — refusing", p)
+	}
+	if clean == ".." || strings.HasPrefix(clean, "../") {
+		return fmt.Errorf("%q escapes the repository root (contains ..) — refusing", p)
+	}
+	// Defense in depth: confirm the cleaned path still resolves inside the repo root, in case some
+	// traversal shape slips past the plain ".." prefix check above.
+	rel, err := filepath.Rel(cfg.RepoRoot, filepath.Join(cfg.RepoRoot, clean))
+	if err != nil {
+		return fmt.Errorf("%q could not be resolved against the repository root: %v", p, err)
+	}
+	rel = filepath.ToSlash(rel)
+	if rel == ".." || strings.HasPrefix(rel, "../") {
+		return fmt.Errorf("%q resolves outside the repository root — refusing", p)
+	}
+
+	// Compared against cfg.KeysDir — the already-resolved ABSOLUTE path (config.go joins RepoRoot
+	// with raw.Paths.KeysDir) — not the raw cfg.Raw.Paths.KeysDir string. Comparing against the raw
+	// value directly would silently no-op if an operator ever wrote keys_dir anchored like "/keys"
+	// (config.validate() doesn't forbid it): filepath.Join resolves that correctly into cfg.KeysDir
+	// regardless, but the raw string itself stays "/keys" — which, compared as-is against a
+	// repo-relative cleaned path, never shares a prefix and never matches.
+	absPath := filepath.ToSlash(filepath.Join(cfg.RepoRoot, clean))
+	if pathIsUnderOrEqual(absPath, cfg.KeysDir) {
+		return fmt.Errorf("%q is inside this repo's configured keys_dir (%s) — publish never touches signing keys", p, cfg.Raw.Paths.KeysDir)
+	}
+	if pathIsUnderOrEqual(clean, ".git") {
+		return fmt.Errorf("%q is inside .git — publish never touches git internals", p)
+	}
+	if strings.EqualFold(clean, "cockpit.config.json") {
+		return fmt.Errorf("%q is this repo's cockpit.config.json — publish never touches its own config", p)
+	}
+	// TrimRight strips trailing dots/spaces before checking the extension: filepath.Ext("x.key.")
+	// is ".", not ".key", so a trailing dot or space would otherwise let a key slip past this
+	// check under a name like "session-1.key." or "session-1.key " — exactly the kind of
+	// NTFS/Windows-adjacent artifact this project's WSL/NTFS dev environment can actually produce.
+	if strings.EqualFold(filepath.Ext(strings.TrimRight(clean, ". ")), ".key") {
+		return fmt.Errorf("%q matches *.key — publish never commits signing key material, regardless of location", p)
+	}
+
+	return nil
+}
+
+// pathIsUnderOrEqual reports whether path is dir itself or somewhere inside it, comparing
+// case-insensitively. Both arguments must already be slash-separated and in the same form (both
+// repo-relative, or both absolute) — callers are responsible for that; this makes no attempt to
+// resolve or normalize further. dir may be empty (an unset config path never matches anything,
+// rather than matching everything).
+func pathIsUnderOrEqual(path, dir string) bool {
+	if dir == "" {
+		return false
+	}
+	pathLower := strings.ToLower(path)
+	dirLower := strings.ToLower(filepath.ToSlash(filepath.Clean(dir)))
+	return pathLower == dirLower || strings.HasPrefix(pathLower, dirLower+"/")
 }
