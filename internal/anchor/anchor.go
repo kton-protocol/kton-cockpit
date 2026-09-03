@@ -24,8 +24,8 @@ import (
 	"os/exec"
 	"path/filepath"
 
+	"github.com/deathbychoco/claude-science-cockpit/internal/binaries"
 	"github.com/deathbychoco/claude-science-cockpit/internal/config"
-	"github.com/deathbychoco/claude-science-cockpit/internal/show"
 )
 
 // Kind selects which substrate holds the record, which decides both the pubkey to anchor under and
@@ -51,7 +51,7 @@ type Entry struct {
 // signature without checking it on ingest. Verification is this cockpit's business, and it already
 // happened: `kton anchor` refuses rather than prints on any of the three checks failing.
 func Record(ctx context.Context, cfg *config.Config, recordID string, kind Kind) (*Entry, error) {
-	env, err := show.EnvelopeFor(ctx, cfg, recordID)
+	env, err := binaries.New(cfg).EnvelopeFor(ctx, recordID)
 	if err != nil {
 		return nil, err
 	}

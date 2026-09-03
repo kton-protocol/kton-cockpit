@@ -6,6 +6,7 @@ package binaries
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -141,6 +142,48 @@ func (r *Runner) Author(ctx context.Context, in AuthorInput) (fotonID string, er
 func (r *Runner) KeyID(ctx context.Context, pubkeyPath string) (string, error) {
 	out, err := r.plankton(ctx, "keyid", pubkeyPath)
 	return strings.TrimSpace(out), err
+}
+
+// Records returns every record this repo's plankton and nekton registries hold, in that order.
+//
+// It replaces reading them over `kton serve`'s /sync, which #83 removed with the observation that
+// the cockpit was launching a server on a local port to talk to itself — HTTP as a worse CLI. #85
+// answered the same SPEC §12 query over stdout, so this is two subprocess calls where it used to be
+// two servers, two free ports and a readiness poll.
+//
+// It still does not read the store. Which is the point: kton-web's own reader measures what parsing
+// it wrongly costs — against a 2032-record corpus, a whole-file JSON.parse alone found 68 records
+// and skipped 44 files "without a word", and the viewer drew a convincing lineage-only picture from
+// it. Nothing errored.
+func (r *Runner) Records(ctx context.Context) ([]Record, error) {
+	var all []Record
+	for _, bin := range []string{"plankton", "nekton"} {
+		out, _, err := r.exec(ctx, bin, "records", "--json")
+		if err != nil {
+			return nil, fmt.Errorf("reading records from %s: %w", bin, err)
+		}
+		recs, perr := parseRecordsJSON(out)
+		if perr != nil {
+			return nil, fmt.Errorf("reading records from %s: %w", bin, perr)
+		}
+		all = append(all, recs...)
+	}
+	return all, nil
+}
+
+// EnvelopeFor returns one record's signed envelope, by id. Fotons come from `plankton show --json`
+// and claims from `nekton about --json`; a caller that knows which it holds saves the miss.
+func (r *Runner) EnvelopeFor(ctx context.Context, recordID string) (json.RawMessage, error) {
+	recs, err := r.Records(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, rec := range recs {
+		if rec.ID() == recordID {
+			return rec.Envelope, nil
+		}
+	}
+	return nil, fmt.Errorf("no record %s in this repo's registries", recordID)
 }
 
 // Hash returns the content hash of a file as `plankton hash` prints it.

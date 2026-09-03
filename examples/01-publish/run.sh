@@ -31,15 +31,31 @@ HASH=$(echo "$OUT" | python3 -c 'import json,sys; print(json.load(sys.stdin)["ou
 
 echo ""
 echo "== what the cockpit did on the caller's behalf =="
-# The permalink pins the commit holding the DATA, which is not HEAD: publish commits the files
-# first and the registry second, so HEAD is one commit further on. A locator pinned to HEAD would
-# point at a commit that does contain the file — here — and would not, the moment anything else
-# lands between the two. So it pins the sha publish reported.
+# publish makes TWO commits — the files first, then the signed registry entry, because the foton
+# cannot be authored until the permalinks it embeds exist. Two shas therefore exist, and they mean
+# different things:
+#
+#   commitSha (returned)  the repo's real final state after this call. Reporting the first would be
+#                         stale the moment publish returned.
+#   the foton's OWN uri   pinned to the first commit, unavoidably: authoring happens between the
+#                         two. Both resolve — the files' bytes are identical in either.
 DATA_SHA=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["commitSha"])' <<<"$OUT")
 require "the output is committed"        test -n "$(git log --oneline -- work/sum.csv)"
 require "everything was pushed"          test "$(git rev-parse HEAD)" = "$(git -C "$WORK/origin.git" rev-parse main)"
-require "the permalink pins the data commit, not HEAD" grep -q "$DATA_SHA/work/sum.csv" <<<"$OUT"
-require "and HEAD really is further on"  test "$(git rev-parse HEAD)" != "$DATA_SHA"
+require "the reported sha IS the repo's final state" test "$DATA_SHA" = "$(git rev-parse HEAD)"
+require "and the returned permalink pins it" grep -q "$DATA_SHA/work/sum.csv" <<<"$OUT"
+
+# The foton's embedded locator is a different sha, and this is the assertion that shows it rather
+# than the comment above claiming it.
+EMBEDDED=$(PLANKTON_DIR="$PWD/registry/plankton" ./bin/plankton show "$FOTON" --json \
+  | python3 -c 'import json,sys; print(json.load(sys.stdin)["outputs"][0]["uri"][0])')
+EMBEDDED_SHA=$(sed -E 's#.*/([0-9a-f]{40})/.*#\1#' <<<"$EMBEDDED")
+require "the foton's locator carries a real commit sha" test "${#EMBEDDED_SHA}" = "40"
+require "which is NOT the one publish returned"         test "$EMBEDDED_SHA" != "$DATA_SHA"
+require "and it is that sha's parent"                   test "$EMBEDDED_SHA" = "$(git rev-parse "$DATA_SHA^")"
+require "both name the same file"                       grep -q 'work/sum.csv$' <<<"$EMBEDDED"
+echo "  returned:  $DATA_SHA"
+echo "  in foton:  $EMBEDDED_SHA  (its parent)"
 
 echo ""
 echo "== and the record is queryable, and verifies =="

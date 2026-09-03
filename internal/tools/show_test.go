@@ -24,13 +24,7 @@ func showServer(t *testing.T) (*httptest.Server, PublishOutput, string) {
 	pub := publishOne(t, r)
 	claimID := sayWorkingOn(t, pub.FotonID)
 
-	srv, err := show.Start(context.Background(), r.Config(t))
-	if err != nil {
-		t.Fatalf("starting the record servers: %v", err)
-	}
-	t.Cleanup(srv.Stop)
-
-	h, err := srv.Handler("")
+	h, err := show.New(r.Config(t)).Handler("")
 	if err != nil {
 		t.Fatal(err)
 	}

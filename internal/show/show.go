@@ -9,110 +9,48 @@
 // convenient. kton-web's own reader documents what parsing them wrongly costs: against a 2032-record
 // corpus, a whole-file JSON.parse alone found 68 records and skipped 44 files "without a word", and
 // the graph viewer drew a perfectly convincing lineage-only picture from it. Nothing errored. The
-// cockpit has never known the store layout, so it cannot get that wrong — it asks `kton serve` for
-// the records, over the same /sync endpoint a peer would use, and forwards what comes back.
+// cockpit has never known the store layout, so it cannot get that wrong — it asks the kernels for
+// their records and forwards what comes back.
 package show
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/deathbychoco/claude-science-cockpit/internal/binaries"
 	"github.com/deathbychoco/claude-science-cockpit/internal/config"
 )
 
-// syncResp is what `kton serve`'s /sync returns. A record is `{seq, fotonId|claimId, envelope}`,
-// which is exactly the shape kton-web's union reader accepts:
-// `isRecord = (r) => !!(r && r.envelope && (r.fotonId || r.claimId))`. So the union is the two
-// substrates' records concatenated, and nothing here has to understand what is inside them.
-type syncResp struct {
-	Records []json.RawMessage `json:"records"`
-	Max     int               `json:"max"`
-}
-
-// Server holds the two kernel servers this one reads from.
+// Server answers the three files a viewer fetches.
+//
+// It used to start `kton serve` for both substrates and read /sync over HTTP. #83 removed that,
+// noting that the cockpit was launching a server on a free local port to talk to itself — HTTP as a
+// worse CLI — and #85 answered the same SPEC §12 query over stdout. So this is now two subprocess
+// calls where it was two servers, two ports and a readiness poll, and the property that mattered is
+// unchanged: the records come from the kernels, not from the store.
 type Server struct {
-	cfg      *config.Config
-	plankton string // base URL of the kernel's plankton federation API
-	nekton   string
-	procs    []*exec.Cmd
+	cfg *config.Config
+	r   *binaries.Runner
 }
 
-// Start launches `kton serve` for both substrates on free local ports. They are the only thing that
-// touches the registry directories; this process never opens them.
-func Start(ctx context.Context, cfg *config.Config) (*Server, error) {
-	ktonBin := filepath.Join(cfg.BinDir, "kton")
-	if _, err := os.Stat(ktonBin); err != nil {
-		return nil, fmt.Errorf(
-			"no kton binary at %s — show reads the records through `kton serve` rather than parsing the "+
-				"registry itself. Build it from a kton checkout (see CLAUDE.md, \"The kernel binaries\")", ktonBin)
-	}
-	s := &Server{cfg: cfg}
-	for _, sub := range []struct {
-		name, dir string
-		target    *string
-	}{
-		{"plankton", cfg.PlanktonDir, &s.plankton},
-		{"nekton", cfg.NektonDir, &s.nekton},
-	} {
-		port, err := freePort()
-		if err != nil {
-			s.Stop()
-			return nil, err
-		}
-		addr := fmt.Sprintf("127.0.0.1:%d", port)
-		cmd := exec.CommandContext(ctx, ktonBin, "serve", sub.name, addr)
-		cmd.Dir = cfg.RepoRoot
-		cmd.Env = append(os.Environ(),
-			"PLANKTON_DIR="+cfg.PlanktonDir,
-			"NEKTON_DIR="+cfg.NektonDir,
-		)
-		cmd.Stdout, cmd.Stderr = io.Discard, os.Stderr
-		if err := cmd.Start(); err != nil {
-			s.Stop()
-			return nil, fmt.Errorf("starting kton serve %s: %w", sub.name, err)
-		}
-		s.procs = append(s.procs, cmd)
-		*sub.target = "http://" + addr
-	}
-
-	if err := s.waitReady(ctx); err != nil {
-		s.Stop()
-		return nil, err
-	}
-	return s, nil
+// New returns a server over this repo's registries. Nothing is started: each request reads the
+// registries as they are, so a reload shows what is there now rather than a snapshot from start-up.
+func New(cfg *config.Config) *Server {
+	return &Server{cfg: cfg, r: binaries.New(cfg)}
 }
 
-// Snapshot returns the three files a viewer fetches, as bytes, by starting the kernel servers,
-// reading them once and shutting them down again. It is what publishing a union to git uses: the
-// same records the live server would hand a viewer, frozen at this moment.
+// Snapshot returns the three files a viewer fetches, as bytes.
 func Snapshot(ctx context.Context, cfg *config.Config) (union, keys, names []byte, err error) {
-	s, err := Start(ctx, cfg)
+	s := New(cfg)
+	recs, err := s.r.Records(ctx)
 	if err != nil {
 		return nil, nil, nil, err
-	}
-	defer s.Stop()
-
-	var recs []json.RawMessage
-	for _, base := range []string{s.plankton, s.nekton} {
-		r, ferr := fetchRecords(ctx, base)
-		if ferr != nil {
-			return nil, nil, nil, ferr
-		}
-		recs = append(recs, r...)
-	}
-	if recs == nil {
-		recs = []json.RawMessage{}
 	}
 	k, n, err := s.ring(ctx)
 	if err != nil {
@@ -128,41 +66,6 @@ func Snapshot(ctx context.Context, cfg *config.Config) (union, keys, names []byt
 		return nil, nil, nil, err
 	}
 	return union, keys, names, nil
-}
-
-// EnvelopeFor returns the signed envelope of one record, by id.
-//
-// It exists because anchoring needs the envelope as a file and no CLI emits one: the binaries can
-// resolve an id to an envelope internally (`verify` does), but nothing prints it. /sync does, which
-// is the same route the union takes — so this stays inside the rule that the cockpit reads records
-// through the kernel rather than out of the store.
-func EnvelopeFor(ctx context.Context, cfg *config.Config, recordID string) (json.RawMessage, error) {
-	s, err := Start(ctx, cfg)
-	if err != nil {
-		return nil, err
-	}
-	defer s.Stop()
-
-	for _, base := range []string{s.plankton, s.nekton} {
-		recs, ferr := fetchRecords(ctx, base)
-		if ferr != nil {
-			return nil, ferr
-		}
-		for _, raw := range recs {
-			var rec struct {
-				FotonID  string          `json:"fotonId"`
-				ClaimID  string          `json:"claimId"`
-				Envelope json.RawMessage `json:"envelope"`
-			}
-			if json.Unmarshal(raw, &rec) != nil {
-				continue
-			}
-			if rec.FotonID == recordID || rec.ClaimID == recordID {
-				return rec.Envelope, nil
-			}
-		}
-	}
-	return nil, fmt.Errorf("no record %s in this repo's registries", recordID)
 }
 
 // WriteUnion regenerates this repo's published union under cfg's configured union directory and
@@ -188,34 +91,18 @@ func WriteUnion(ctx context.Context, cfg *config.Config) ([]string, error) {
 	return written, nil
 }
 
-// Stop shuts the kernel servers down.
-func (s *Server) Stop() {
-	for _, p := range s.procs {
-		if p.Process != nil {
-			_ = p.Process.Kill()
-		}
+// serveUnion answers with every record both registries hold. Read per request rather than cached:
+// a viewer of a live working repo that showed a start-up snapshot would be quietly stale.
+func (s *Server) serveUnion(w http.ResponseWriter, req *http.Request) {
+	recs, err := s.r.Records(req.Context())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
-}
-
-func (s *Server) waitReady(ctx context.Context) error {
-	deadline := time.Now().Add(10 * time.Second)
-	for _, base := range []string{s.plankton, s.nekton} {
-		for {
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-			resp, err := http.Get(base + "/healthz")
-			if err == nil {
-				resp.Body.Close()
-				break
-			}
-			if time.Now().After(deadline) {
-				return fmt.Errorf("kton serve at %s did not become reachable", base)
-			}
-			time.Sleep(50 * time.Millisecond)
-		}
+	if recs == nil {
+		recs = []binaries.Record{}
 	}
-	return nil
+	writeJSON(w, recs)
 }
 
 // Handler serves the three data files a viewer fetches, and — when webDir names a kton-web checkout
@@ -238,42 +125,6 @@ func (s *Server) Handler(webDir string) (http.Handler, error) {
 		mux.Handle("/", http.FileServer(http.Dir(webDir)))
 	}
 	return mux, nil
-}
-
-// serveUnion concatenates both substrates' records. Fetched per request rather than cached, so a
-// reload shows what the registry holds now — a viewer of a live working repo that showed a snapshot
-// from start-up would be quietly stale.
-func (s *Server) serveUnion(w http.ResponseWriter, req *http.Request) {
-	var all []json.RawMessage
-	for _, base := range []string{s.plankton, s.nekton} {
-		recs, err := fetchRecords(req.Context(), base)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadGateway)
-			return
-		}
-		all = append(all, recs...)
-	}
-	if all == nil {
-		all = []json.RawMessage{}
-	}
-	writeJSON(w, all)
-}
-
-func fetchRecords(ctx context.Context, base string) ([]json.RawMessage, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/sync", nil)
-	if err != nil {
-		return nil, err
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("reading records from %s: %w", base, err)
-	}
-	defer resp.Body.Close()
-	var sr syncResp
-	if err := json.NewDecoder(resp.Body).Decode(&sr); err != nil {
-		return nil, fmt.Errorf("reading records from %s: %w", base, err)
-	}
-	return sr.Records, nil
 }
 
 // serveKeys maps keyid -> public key, which is what lets the viewer re-verify a signature instead
@@ -328,16 +179,4 @@ func (s *Server) ring(ctx context.Context) (keys, names map[string]string, err e
 func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(v)
-}
-
-// freePort asks the kernel for an unused port and hands it on. There is a window between closing
-// and `kton serve` binding; on a developer machine serving one repo that is acceptable, and a
-// collision surfaces as a startup error rather than as wrong data.
-func freePort() (int, error) {
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		return 0, err
-	}
-	defer l.Close()
-	return l.Addr().(*net.TCPAddr).Port, nil
 }

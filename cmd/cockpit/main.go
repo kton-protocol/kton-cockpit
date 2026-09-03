@@ -182,12 +182,7 @@ func runShow(ctx context.Context, args []string) error {
 		return err
 	}
 
-	srv, err := show.Start(ctx, cfg)
-	if err != nil {
-		return err
-	}
-	defer srv.Stop()
-	handler, err := srv.Handler(webDir)
+	handler, err := show.New(cfg).Handler(webDir)
 	if err != nil {
 		return err
 	}

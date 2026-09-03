@@ -16,6 +16,33 @@ import (
 // Nothing here verifies anything. Trust is still resolved per record by the verify package, which
 // runs the binaries' own verify against the configured trust tiers.
 
+// Record is one stored record: the id the substrate filed it under, and the signed envelope
+// itself. `{seq, fotonId|claimId, envelope}` is what the kernel persists, what `add` accepts, and
+// byte-for-byte the SPEC §12 sync(since) answer — so this is that query, answered over stdout.
+//
+// The envelope is kept raw. Anything that must CHECK a record — a viewer re-verifying in the
+// browser, `kton anchor` handing it to Rekor — needs the bytes as signed, and a struct that decoded
+// and re-encoded them would be handing on something re-serialised rather than what was signed.
+type Record struct {
+	Seq      int             `json:"seq"`
+	FotonID  string          `json:"fotonId,omitempty"`
+	ClaimID  string          `json:"claimId,omitempty"`
+	Envelope json.RawMessage `json:"envelope"`
+}
+
+// ID is whichever id this record carries.
+func (r Record) ID() string {
+	if r.FotonID != "" {
+		return r.FotonID
+	}
+	return r.ClaimID
+}
+
+type recordsJSON struct {
+	Max     int      `json:"max"`
+	Records []Record `json:"records"`
+}
+
 // FotonRecord is one foton as the lineage queries report it.
 type FotonRecord struct {
 	ID      string `json:"id"`
@@ -91,6 +118,21 @@ type reproductionsJSON struct {
 		KeyID    string `json:"keyid"`
 		Verified bool   `json:"verified"`
 	} `json:"producers"`
+}
+
+func parseRecordsJSON(out string) ([]Record, error) {
+	var w recordsJSON
+	if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &w); err != nil {
+		return nil, fmt.Errorf("could not read the records: %w", err)
+	}
+	for _, rec := range w.Records {
+		// A record with no envelope is not a record anything can verify, and silently passing it on
+		// would put it in a union a viewer then draws without being able to check it.
+		if len(rec.Envelope) == 0 {
+			return nil, fmt.Errorf("record %s came back without an envelope", rec.ID())
+		}
+	}
+	return w.Records, nil
 }
 
 func parseLineageJSON(out string) (*LineageResult, error) {
