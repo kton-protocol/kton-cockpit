@@ -32,11 +32,11 @@ func resolveBinaries(t *testing.T) (plankton, nekton, kton string) {
 	if p, n := os.Getenv("COCKPIT_TEST_PLANKTON"), os.Getenv("COCKPIT_TEST_NEKTON"); p != "" && n != "" {
 		plankton, nekton = p, n
 	}
-	if exists(plankton) && exists(nekton) && exists(kton) {
+	src := ktonSrc(t)
+	if exists(plankton) && exists(nekton) && exists(kton) && !stale(t, src, plankton, nekton, kton) {
 		return plankton, nekton, kton
 	}
 
-	src := ktonSrc(t)
 	if src == "" {
 		t.Fatalf("no plankton/nekton binaries and no kton source to build them from.\n"+
 			"Either build them:  go build -o %s/plankton ./reference/cmd/plankton  (in a kton checkout)\n"+
@@ -52,6 +52,56 @@ func resolveBinaries(t *testing.T) (plankton, nekton, kton string) {
 	// registry, so the tests need it for the same reason the product does.
 	build(t, src, kton, "./kton/reference/cmd/kton")
 	return plankton, nekton, kton
+}
+
+// stale reports whether the built binaries came from a different commit than the kton checkout
+// currently holds.
+//
+// This exists because the alternative kept happening. bin/ is gitignored and reused across runs, so
+// a checkout that moves on leaves binaries behind that still look fine — and the symptom is not a
+// clear failure but a subcommand that does not exist yet, or worse, a store written by one kernel
+// read by another. Go stamps vcs.revision into a binary built from a git tree, so the question
+// "were these built from what is checked out now" has an actual answer rather than a habit of
+// remembering to rebuild.
+//
+// With no checkout to compare against, nothing is stale: an explicitly provided binary
+// (COCKPIT_TEST_PLANKTON) is the caller's choice and not second-guessed.
+func stale(t *testing.T, src string, bins ...string) bool {
+	t.Helper()
+	if src == "" {
+		return false
+	}
+	head, err := exec.Command("git", "-C", src, "rev-parse", "HEAD").Output()
+	if err != nil {
+		return false // not a git checkout, so there is nothing to be stale against
+	}
+	want := strings.TrimSpace(string(head))
+	for _, bin := range bins {
+		if buildRevision(bin) != want {
+			t.Logf("rebuilding: %s was built from %.12s, %s is at %.12s",
+				filepath.Base(bin), buildRevision(bin), src, want)
+			return true
+		}
+	}
+	return false
+}
+
+// buildRevision reads the commit Go stamped into a binary, or "" if it carries none.
+func buildRevision(bin string) string {
+	out, err := exec.Command("go", "version", "-m", bin).Output()
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		f := strings.Fields(line)
+		if len(f) == 3 && f[0] == "build" && f[1] == "vcs.revision" {
+			return f[2]
+		}
+		if len(f) == 2 && f[0] == "build" && strings.HasPrefix(f[1], "vcs.revision=") {
+			return strings.TrimPrefix(f[1], "vcs.revision=")
+		}
+	}
+	return ""
 }
 
 // ktonSrc locates a kton checkout to build the kernel from, or returns "" if there is none.

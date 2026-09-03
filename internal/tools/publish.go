@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/deathbychoco/claude-science-cockpit/internal/anchor"
 	"github.com/deathbychoco/claude-science-cockpit/internal/binaries"
 	"github.com/deathbychoco/claude-science-cockpit/internal/config"
 	"github.com/deathbychoco/claude-science-cockpit/internal/container"
@@ -75,6 +76,11 @@ type PublishOutput struct {
 	// are COVERED, so incidental files would enter the foton's identity and two identical runs would
 	// stop producing the same record.
 	UndeclaredChanges []string `json:"undeclaredChanges,omitempty"`
+	// RekorLogIndex and RekorUUID are where an independent witness recorded that this exact record
+	// existed by that time. Present only when this repo anchors: a signature says who signed, not
+	// when, and not that the signer did not later prefer a different record.
+	RekorLogIndex int64  `json:"rekorLogIndex,omitempty"`
+	RekorUUID     string `json:"rekorUuid,omitempty"`
 	// Committed and Pushed say what actually happened to git, because both are configurable and
 	// each changes what the permalinks are worth. Not committed means there are none: the sha one
 	// would pin does not exist. Committed but not pushed means they are correct and will resolve
@@ -189,6 +195,16 @@ func Publish(ctx context.Context, _ *mcp.CallToolRequest, in PublishInput) (*mcp
 		outputHashes[o] = h
 	}
 
+	// Anchored before the registry commit, so the proof travels with the record it witnesses rather
+	// than in a later commit that could be missing from a partial share.
+	var anchored *anchor.Entry
+	if cfg.Raw.Anchor.Enabled {
+		anchored, err = anchor.Record(ctx, cfg, fotonID, anchor.Foton)
+		if err != nil {
+			return errResult[PublishOutput]("the foton was registered but anchoring it failed: %v", err)
+		}
+	}
+
 	// The union is regenerated AFTER the foton is in the registry and committed in the same commit
 	// as it, so a published aggregate is never one record behind the registry it summarises.
 	registryPaths := []string{cfg.Raw.Paths.PlanktonDir}
@@ -223,6 +239,9 @@ func Publish(ctx context.Context, _ *mcp.CallToolRequest, in PublishInput) (*mcp
 		UnionPublished: cfg.Raw.Union.Publish,
 	}
 	out.UndeclaredChanges = undeclared
+	if anchored != nil {
+		out.RekorLogIndex, out.RekorUUID = anchored.LogIndex, anchored.UUID
+	}
 	if ran != nil {
 		out.ExecutedIn = ran.Image
 		out.NetworkAllowed = cfg.Raw.Execution.Network

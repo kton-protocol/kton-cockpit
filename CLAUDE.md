@@ -83,9 +83,15 @@ from the real `keygen`, the claim templates, and a `cockpit.config.json`. Record
 signed; assertions are about what actually happened. `testrepo.NewLocal` builds the same thing with
 no git repository at all, for the local-mode guard (ADR-004).
 
-If `bin/` is empty, the tests build the kernel themselves from `$KTON_SRC`, else a sibling `../kton`
-checkout. `COCKPIT_TEST_PLANKTON`/`COCKPIT_TEST_NEKTON` override both. They never fall back to
-`$PATH` — see the warning under "The kernel binaries" for why.
+If `bin/` is empty the tests build the kernel themselves from `$KTON_SRC`, else a sibling `../kton`
+checkout — and they rebuild it when what is in `bin/` was built from a different commit than that
+checkout now holds. Go stamps `vcs.revision` into a binary, so "were these built from what is
+checked out now" has an answer rather than depending on someone remembering. That check exists
+because the alternative kept happening: a moving `dev`, binaries left behind, and a symptom that
+looks like a missing subcommand rather than a stale build.
+
+`COCKPIT_TEST_PLANKTON`/`COCKPIT_TEST_NEKTON` override both and are never second-guessed. Nothing
+ever falls back to `$PATH` — see the warning under "The kernel binaries" for why.
 
 One area is behind a build tag, and deliberately so:
 
@@ -96,6 +102,14 @@ go test -tags docker ./...     # adds the tests that drive a real container runt
 Those cover `internal/container` and publish's execution path (ADR-003). They are excluded from the
 default run so `go test ./...` keeps the property below; asking for them without an engine is a
 failure, not a skip, because you asked. Run them before merging anything that touches either.
+
+Anchoring is covered differently, and the limit is worth stating rather than discovering: the call
+into Rekor is stubbed (`testrepo.StubAnchor`), because it writes to a public, permanent log and a
+suite that anchored on every run would leave entries nobody can withdraw — the kernel gates its own
+live Rekor test behind a `live` tag for the same reason. What the stub covers is everything on this
+side of the network: the envelope is found by id, handed to `kton anchor`, the entry it prints is
+read, and the proof is attached to the record and committed with it. That Rekor behaves as expected
+it does not cover.
 
 Nothing in the default suite skips. If a test cannot run it fails, because a suite that quietly degrades to
 skips is how this one previously spent months reporting success while exercising none of the
@@ -126,6 +140,7 @@ internal/
 │                          (git mode: the origin remote must match; local mode: the config must be
 │                           where it declares itself to be — ADR-004)
 ├── container/            runs a published command in a pinned image, when a repo opts in (ADR-003)
+├── anchor/               witnesses a record in Rekor via `kton anchor` and attaches the proof
 ├── gitops/               commit/push wrappers, commit-pinned permalink construction
 ├── show/                 serves the union/keys/names a kton-web viewer fetches, via `kton serve`
 ├── binaries/             thin process wrappers around bin/plankton, bin/nekton

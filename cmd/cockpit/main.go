@@ -271,6 +271,17 @@ func runDoctor(ctx context.Context) error {
 		fmt.Printf("git:            commit + push\n")
 	}
 
+	if cfg.Raw.Anchor.Enabled {
+		where := "the public Sigstore Rekor log"
+		if cfg.Raw.Anchor.RekorURL != "" {
+			where = cfg.Raw.Anchor.RekorURL + " (key pinned)"
+		}
+		fmt.Printf("anchor:         every record is witnessed in %s\n", where)
+		fmt.Printf("                entries there are PUBLIC and PERMANENT and cannot be withdrawn\n")
+	} else {
+		fmt.Printf("anchor:         off — records are signed, but nothing independent attests WHEN they existed\n")
+	}
+
 	if cfg.Raw.Union.Publish {
 		fmt.Printf("union:          published to %s on every record (viewable online without `cockpit show`)\n",
 			cfg.Raw.Union.DirOrDefault())

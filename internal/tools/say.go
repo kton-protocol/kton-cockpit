@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"regexp"
 
+	"github.com/deathbychoco/claude-science-cockpit/internal/anchor"
 	"github.com/deathbychoco/claude-science-cockpit/internal/binaries"
 	"github.com/deathbychoco/claude-science-cockpit/internal/config"
 	"github.com/deathbychoco/claude-science-cockpit/internal/gitops"
@@ -32,6 +33,9 @@ type SayOutput struct {
 	ClaimID      string `json:"claimId"`
 	Level        string `json:"level,omitempty"`
 	Confirmation string `json:"confirmation"`
+	// RekorLogIndex and RekorUUID are set when this repo anchors its records — see PublishOutput.
+	RekorLogIndex int64  `json:"rekorLogIndex,omitempty"`
+	RekorUUID     string `json:"rekorUuid,omitempty"`
 }
 
 func Say(ctx context.Context, _ *mcp.CallToolRequest, in SayInput) (*mcp.CallToolResult, SayOutput, error) {
@@ -68,6 +72,14 @@ func Say(ctx context.Context, _ *mcp.CallToolRequest, in SayInput) (*mcp.CallToo
 		return errResult[SayOutput]("nekton annotate failed: %v", err)
 	}
 
+	var anchored *anchor.Entry
+	if cfg.Raw.Anchor.Enabled {
+		anchored, err = anchor.Record(ctx, cfg, claimID, anchor.Claim)
+		if err != nil {
+			return errResult[SayOutput]("the claim was registered but anchoring it failed: %v", err)
+		}
+	}
+
 	registryPaths := []string{cfg.Raw.Paths.NektonDir}
 	if cfg.Raw.Union.Publish {
 		written, uerr := show.WriteUnion(ctx, cfg)
@@ -102,11 +114,15 @@ func Say(ctx context.Context, _ *mcp.CallToolRequest, in SayInput) (*mcp.CallToo
 	}
 
 	level := sets["level"]
-	return &mcp.CallToolResult{}, SayOutput{
+	out := SayOutput{
 		ClaimID:      claimID,
 		Level:        level,
 		Confirmation: fmt.Sprintf("registered: nekton reports %s among the %d claim(s) about %s", claimID, len(claims), in.Subject),
-	}, nil
+	}
+	if anchored != nil {
+		out.RekorLogIndex, out.RekorUUID = anchored.LogIndex, anchored.UUID
+	}
+	return &mcp.CallToolResult{}, out, nil
 }
 
 // reproductionLevelRe matches plankton's own `reproduction: <level>` line — printed at the start

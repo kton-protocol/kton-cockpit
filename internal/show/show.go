@@ -130,6 +130,41 @@ func Snapshot(ctx context.Context, cfg *config.Config) (union, keys, names []byt
 	return union, keys, names, nil
 }
 
+// EnvelopeFor returns the signed envelope of one record, by id.
+//
+// It exists because anchoring needs the envelope as a file and no CLI emits one: the binaries can
+// resolve an id to an envelope internally (`verify` does), but nothing prints it. /sync does, which
+// is the same route the union takes — so this stays inside the rule that the cockpit reads records
+// through the kernel rather than out of the store.
+func EnvelopeFor(ctx context.Context, cfg *config.Config, recordID string) (json.RawMessage, error) {
+	s, err := Start(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+	defer s.Stop()
+
+	for _, base := range []string{s.plankton, s.nekton} {
+		recs, ferr := fetchRecords(ctx, base)
+		if ferr != nil {
+			return nil, ferr
+		}
+		for _, raw := range recs {
+			var rec struct {
+				FotonID  string          `json:"fotonId"`
+				ClaimID  string          `json:"claimId"`
+				Envelope json.RawMessage `json:"envelope"`
+			}
+			if json.Unmarshal(raw, &rec) != nil {
+				continue
+			}
+			if rec.FotonID == recordID || rec.ClaimID == recordID {
+				return rec.Envelope, nil
+			}
+		}
+	}
+	return nil, fmt.Errorf("no record %s in this repo's registries", recordID)
+}
+
 // WriteUnion regenerates this repo's published union under cfg's configured union directory and
 // returns the repo-relative paths it wrote, for the caller to commit.
 func WriteUnion(ctx context.Context, cfg *config.Config) ([]string, error) {

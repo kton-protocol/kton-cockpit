@@ -99,6 +99,16 @@
         "push": { "type": "boolean", "description": "When false, the cockpit commits locally without pushing. Permalinks are still built, because the commit they pin is real and stable; they simply do not resolve until someone pushes. cockpit_publish reports committed/pushed so the caller knows which." }
       }
     },
+    "anchor": {
+      "type": "object",
+      "description": "Whether records are witnessed in a Sigstore Rekor transparency log. A signature says WHO signed; it does not say WHEN, and it does not stop a signer from later producing a different record and calling that one the original. An anchor adds an independent append-only witness, and the verified proof is stored beside the record as verification material (SPEC §8.1). Off by default, and deliberately: anchoring writes to a PUBLIC, PERMANENT log — the entry cannot be withdrawn, and although the payload is a signature over a hash rather than the data, the fact that this repo produced a record at that moment becomes public and stays public.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean", "description": "Anchor every record this cockpit writes. A failed anchor fails the publish: a witness reported but not recorded is worse than none." },
+        "rekorUrl": { "type": "string", "description": "Override the public log. Requires rekorPubkey — see below." },
+        "rekorPubkey": { "type": "string", "description": "The pinned public key the log's Signed Entry Timestamp is checked against: a PEM file path or inline PEM. Required whenever rekorUrl is set, because a log that issues its own SET and is then checked against its own key verifies nothing — a fabricated entry would self-verify." }
+      }
+    },
     "union": {
       "type": "object",
       "description": "Whether this repo also publishes its aggregate as committed files, so the graph is reachable online without anyone running `cockpit show`. The files are the same three a viewer fetches — union.json, keys.json, names.json — regenerated after every record this cockpit writes and committed in the same commit as it, so a published aggregate is never one record behind the registry it summarises. Requires committing to be on: a published union IS a committed file.",

@@ -82,6 +82,28 @@ type Environment struct {
 	EnvRef string `json:"envRef,omitempty"`
 }
 
+// Anchor controls whether records are witnessed in a Sigstore Rekor transparency log.
+//
+// A signature says who signed. It does not say WHEN, and it does not stop the signer from later
+// producing a different record and claiming that one was the original. An anchor adds an
+// independent, append-only witness: Rekor attests that this exact record existed by a given time,
+// and the proof is stored beside the record as verification material (SPEC §8.1).
+//
+// Off by default, and that default is not timidity. Anchoring writes to a PUBLIC, PERMANENT log:
+// the entry cannot be withdrawn, and while the payload is a signature over a hash rather than the
+// data, the fact that this repo produced a record at that moment becomes public and stays public.
+type Anchor struct {
+	// Enabled turns it on for every record this cockpit writes.
+	Enabled bool `json:"enabled,omitempty"`
+	// RekorURL overrides the public log. Empty means the well-known public Rekor.
+	RekorURL string `json:"rekorUrl,omitempty"`
+	// RekorPubkey pins the key the log's Signed Entry Timestamp is checked against — a PEM file
+	// path, or inline PEM. Required whenever RekorURL is set: an endpoint that both issues and
+	// verifies its own SET verifies nothing, so a custom log without a pinned key could fabricate
+	// entries that self-verify. The kernel refuses that case; this refuses it earlier, at load.
+	RekorPubkey string `json:"rekorPubkey,omitempty"`
+}
+
 // Union controls whether this repo also publishes its aggregate as committed files, so the graph is
 // reachable online without anyone running `cockpit show` locally.
 //
@@ -200,6 +222,7 @@ type Raw struct {
 	Execution    Execution    `json:"execution,omitempty"`
 	Git          Git          `json:"git,omitempty"`
 	Union        Union        `json:"union,omitempty"`
+	Anchor       Anchor       `json:"anchor,omitempty"`
 }
 
 // Config is the loaded, validated, path-resolved configuration for one cockpit invocation. Every
@@ -393,6 +416,16 @@ func validate(raw *Raw) error {
 	}
 	if raw.Repo.IsLocal() && raw.Git.Commit != nil && *raw.Git.Commit {
 		return fmt.Errorf("git.commit is true but repo.mode is %q — there is no git repository to commit to", ModeLocal)
+	}
+	if raw.Anchor.RekorURL != "" && raw.Anchor.RekorPubkey == "" {
+		return fmt.Errorf(
+			"anchor.rekorUrl names a custom log but anchor.rekorPubkey is empty — a log that issues its " +
+				"own Signed Entry Timestamp and is then checked against its own key verifies nothing, so a " +
+				"fabricated entry would self-verify. Pin the log's public key, or use the public Rekor by " +
+				"leaving rekorUrl empty")
+	}
+	if raw.Anchor.RekorURL != "" && !raw.Anchor.Enabled {
+		return fmt.Errorf("anchor.rekorUrl is set but anchor.enabled is not — nothing would be anchored anywhere")
 	}
 	if raw.Union.Publish && !raw.CommitEnabled() {
 		return fmt.Errorf(

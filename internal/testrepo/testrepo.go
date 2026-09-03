@@ -17,6 +17,7 @@ package testrepo
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -236,3 +237,35 @@ func (r *Repo) WriteConfig(t *testing.T, raw config.Raw) {
 // Bool is a helper for the config's optional booleans, whose zero value has to stay
 // distinguishable from an explicit false.
 func Bool(b bool) *bool { return &b }
+
+// StubAnchor replaces bin/kton with a wrapper that answers `kton anchor` from a canned Rekor entry
+// and passes every other subcommand — `serve` above all — to the real binary.
+//
+// It stubs the one thing that cannot honestly be exercised offline. Anchoring writes to a public,
+// permanent transparency log; the kernel gates its own live test behind a `live` build tag for that
+// reason, and a suite that anchored on every run would leave a trail of test entries nobody can
+// withdraw. What this DOES cover is everything on this side of the network: that the envelope is
+// found by id, written where kton expects it, that the printed entry is read correctly, and that
+// the proof is attached to the record and committed with it. What it does NOT cover is that Rekor
+// behaves as expected — that is the live test's job, and this comment is here so nobody mistakes a
+// green run for one.
+func (r *Repo) StubAnchor(t *testing.T, logIndex int64, uuid string) {
+	t.Helper()
+	real := filepath.Join(r.Root, "bin", "kton.real")
+	if err := os.Rename(filepath.Join(r.Root, "bin", "kton"), real); err != nil {
+		t.Fatal(err)
+	}
+	script := fmt.Sprintf(`#!/bin/sh
+if [ "$1" = anchor ]; then
+  echo "anchored in Rekor: logIndex=%d  uuid=%s"
+  echo "  inclusion proof + SET verified against Rekor's public key (independent witness)"
+  printf '{\n  "logIndex": %d,\n  "uuid": "%s",\n  "integratedTime": 1788000000\n}\n'
+  exit 0
+fi
+exec %q "$@"
+`, logIndex, uuid, logIndex, uuid, real)
+	writeFile(t, filepath.Join(r.Root, "bin", "kton"), script)
+	if err := os.Chmod(filepath.Join(r.Root, "bin", "kton"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
