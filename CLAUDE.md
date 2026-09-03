@@ -108,8 +108,17 @@ into Rekor is stubbed (`testrepo.StubAnchor`), because it writes to a public, pe
 suite that anchored on every run would leave entries nobody can withdraw — the kernel gates its own
 live Rekor test behind a `live` tag for the same reason. What the stub covers is everything on this
 side of the network: the envelope is found by id, handed to `kton anchor`, the entry it prints is
-read, and the proof is attached to the record and committed with it. That Rekor behaves as expected
-it does not cover.
+read, and the proof is attached to the record and committed with it.
+
+The other side has its own test, gated the same way:
+
+```bash
+go test -tags live -run TestAnchorLive ./internal/tools/
+```
+
+It anchors a throwaway record in the public log and then asks Rekor — not the cockpit — whether the
+entry it reported is really there. Every run leaves a permanent public entry, so run it when the
+anchoring path changes, not as a habit. Verified once on 2026-09-03: logIndex 2698571462.
 
 Nothing in the default suite skips. If a test cannot run it fails, because a suite that quietly degrades to
 skips is how this one previously spent months reporting success while exercising none of the
