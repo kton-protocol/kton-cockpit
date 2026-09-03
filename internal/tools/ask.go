@@ -82,6 +82,9 @@ func Ask(ctx context.Context, _ *mcp.CallToolRequest, in AskInput) (*mcp.CallToo
 	}
 
 	r := binaries.New(cfg)
+	if err := r.EnsureKernel(ctx); err != nil {
+		return errResult[AskOutput]("%v", err)
+	}
 	wantTier := ""
 	if in.Filter != nil {
 		wantTier = in.Filter.TrustTier

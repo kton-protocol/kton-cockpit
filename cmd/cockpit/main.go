@@ -160,7 +160,11 @@ func runInit(ctx context.Context) error {
 // init and doctor — NOT a fourth verb: Claude's MCP surface is unchanged at three, and nothing here
 // is reachable from it.
 func runShow(ctx context.Context, args []string) error {
-	addr := ":8377" // the port kton-web's own serve.sh uses, for the same WSL reason it documents
+	// Loopback, not every interface. ":8377" would bind all of them while the URL printed below says
+	// localhost — so a repo's whole graph, including a private one's, would be reachable from the
+	// network to anyone who could reach the host, and nothing on screen would suggest it. Pass an
+	// explicit host to widen it deliberately.
+	addr := "127.0.0.1:8377" // the port kton-web's own serve.sh uses, for the WSL reason it documents
 	webDir := os.Getenv("KTON_WEB")
 	for i := 0; i < len(args); i++ {
 		switch {
@@ -187,6 +191,10 @@ func runShow(ctx context.Context, args []string) error {
 		return err
 	}
 
+	if strings.HasPrefix(addr, ":") {
+		fmt.Printf("note: %s binds every interface, not just loopback — this repo's records will be\n", addr)
+		fmt.Printf("      reachable from the network by anyone who can reach this host.\n\n")
+	}
 	base := "http://" + displayAddr(addr)
 	fmt.Printf("cockpit show on %s/  (registry %s)\n", base, cfg.RepoRoot)
 	fmt.Printf("  data     %s/data/union.json  keys.json  names.json\n", base)

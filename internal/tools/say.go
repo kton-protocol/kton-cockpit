@@ -54,6 +54,9 @@ func Say(ctx context.Context, _ *mcp.CallToolRequest, in SayInput) (*mcp.CallToo
 	}
 
 	r := binaries.New(cfg)
+	if err := r.EnsureKernel(ctx); err != nil {
+		return errResult[SayOutput]("%v", err)
+	}
 	sets := in.Fields
 	if sets == nil {
 		sets = map[string]string{}
@@ -125,7 +128,16 @@ func Say(ctx context.Context, _ *mcp.CallToolRequest, in SayInput) (*mcp.CallToo
 	return &mcp.CallToolResult{}, out, nil
 }
 
-// reproductionLevelRe matches plankton's own `reproduction: <level>` line — printed at the start
+// reproductionLevelRe matches plankton's own `reproduction: <level>` line.
+//
+// This is the one place left where the cockpit reads a value out of prose. #57 gave plankton's read
+// surface --json and #85 gave it records, but `reproduces` has neither — checked against kton dev
+// d2abb97 — so the level still has to be parsed from the line it prints. Raised upstream rather
+// than left implied: the same request as #39 and #57, on the last command that has not had it.
+//
+// It is a narrower exposure than the scraping that was removed. That one had to find WHICH record a
+// line belonged to and could attribute a line to the wrong one; this reads a single fixed token from
+// a single command's own output, and fails closed when it does not match. — printed at the start
 // of a line whether the match was identical bytes (L0) or a --via normalizer match (L1); see
 // reproductionLevelRe's use in determineReproductionLevel for why this is parsed rather than
 // inferred from whether --via was passed. `plankton reproduces` only ever emits L0 or L1 on this

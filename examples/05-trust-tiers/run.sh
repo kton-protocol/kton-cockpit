@@ -37,7 +37,13 @@ require "the stranger's record is NOT included"      test "$(inc "$B")" = "0"
 # Accounted for, not hidden: the answer says something was found and left out, which is a different
 # statement from "nothing is there" and the reader needs to be able to tell them apart.
 require "but it IS reported as found and excluded"   test "$(exc "$B")" = "1"
-absent  "and its content never reaches the answer" "a stranger" "$B"
+# Asserted on the foton's ID in the structured answer, not on its command text. The lineage
+# queries report id, kind and counts — never the command — so searching for "a stranger" would
+# hold whether the record was included or not, which is a check that cannot fail.
+THEIRS_FOTON=$(./bin/plankton producer --json "$THEIRS" | python3 -c 'import json,sys; print(json.load(sys.stdin)["records"][0]["fotonId"])')
+absent  "and the record itself is not in the answer's included set" "$THEIRS_FOTON" \
+  "$(python3 -c 'import json,sys; print(json.dumps(json.load(sys.stdin).get("fotons",[])))' <<<"$B")"
+require "though the answer does account for having found it" grep -q "$THEIRS_FOTON" <<<"$B"
 
 echo ""
 echo "== now configure that key into a tier =="

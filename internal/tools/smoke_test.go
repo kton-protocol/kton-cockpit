@@ -185,10 +185,16 @@ func TestAsk_ReproductionsCountsTheVerifiedProducer(t *testing.T) {
 	if result.IsError {
 		t.Fatalf("reproductions failed against a --trust-keys-capable binary: %+v", errText(result))
 	}
-	if !strings.Contains(out.Raw, "1") {
-		t.Fatalf("expected a verified count of 1 for a single publisher, raw=%q", out.Raw)
+	// Asserted on the number, not on the text. Raw embeds 64-hex hashes, so searching it for "1"
+	// passes on almost any answer — including one that found nothing — and would be a latent flake
+	// rather than a check.
+	if out.VerifiedSigners != 1 {
+		t.Fatalf("expected exactly one verified signer for a single publisher, got %d (raw=%q)",
+			out.VerifiedSigners, out.Raw)
 	}
-	t.Logf("reproductions raw: %s", out.Raw)
+	if len(out.Included) != 1 || out.Included[0] != pub.FotonID {
+		t.Fatalf("the count is not about the foton that was published: %+v", out.Included)
+	}
 }
 
 func TestAsk_UnknownQueryIsRejected(t *testing.T) {
@@ -223,11 +229,10 @@ func TestSay_RecordsAClaimAndConfirmsItIsQueryable(t *testing.T) {
 	if !strings.HasPrefix(out.ClaimID, "sha256:") {
 		t.Fatalf("expected a sha256 claim id, got %q", out.ClaimID)
 	}
-	// The confirmation is `nekton about <subject>` run after the write — if the claim did not
-	// really register, this is where it shows.
-	if !strings.Contains(out.Confirmation, out.ClaimID) {
-		t.Fatalf("the claim does not appear in its own confirmation query:\nclaim=%s\nabout=%s", out.ClaimID, out.Confirmation)
-	}
+	// Confirmation is not asserted on: the cockpit builds that string by interpolating the claim id
+	// into it, so a check that the id appears in it verifies this test's own formatting. The
+	// registration check that matters happens inside say (it refuses when the registry does not
+	// report the claim), and independently below, by querying it back.
 
 	ask, askOut, err := Ask(context.Background(), nil, AskInput{Query: "about", Ref: pub.FotonID})
 	if err != nil || ask.IsError {

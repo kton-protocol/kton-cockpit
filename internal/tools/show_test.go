@@ -108,8 +108,13 @@ func TestShow_KeysAreFiledUnderTheKeyidASignatureCarries(t *testing.T) {
 		t.Fatal("no keys served, so nothing in the viewer could be verified")
 	}
 
+	// Counted, because the loop below checks nothing when there is nothing to loop over: an empty
+	// union, or records without signatures, would leave every assertion unexecuted and the test
+	// green.
+	checked := 0
 	for _, rec := range union {
 		for _, sig := range rec.Envelope.Signatures {
+			checked++
 			hex, ok := keys[sig.KeyID]
 			if !ok {
 				t.Errorf("a record is signed by %s, which keys.json does not hold — the viewer could not verify it", sig.KeyID)
@@ -119,6 +124,10 @@ func TestShow_KeysAreFiledUnderTheKeyidASignatureCarries(t *testing.T) {
 				t.Errorf("key %s is not a raw ed25519 public key: %q", sig.KeyID, hex)
 			}
 		}
+	}
+	if checked < 2 {
+		t.Fatalf("only %d signature(s) were checked; the fixture publishes a foton and a claim, so this "+
+			"test was not looking at what it is about", checked)
 	}
 }
 

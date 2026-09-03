@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"regexp"
 	"strconv"
+	"sync"
 )
 
 // RequiredKernelMajor/Minor is the oldest kton kernel this cockpit can drive. It is a real
@@ -38,6 +39,31 @@ func (r *Runner) KernelVersions(ctx context.Context) (plankton, nekton string, e
 		return "", "", fmt.Errorf("could not run nekton: %w", err)
 	}
 	return plankton, nekton, nil
+}
+
+// checked remembers the verdict per bin directory, so the gate can run on the path Claude actually
+// takes without paying for two subprocess execs on every call. The binaries cannot change under a
+// running cockpit without someone replacing them on disk — and with execution configured, the
+// container can no longer be the one to do it (the bin directory is masked out of the mount).
+var (
+	checkedMu sync.Mutex
+	checked   = map[string]error{}
+)
+
+// EnsureKernel is CheckKernel, once per bin directory per process.
+//
+// It exists because the gate was documentation rather than enforcement: CheckKernel ran only in
+// `doctor`, which is an operator command Claude never invokes, so a session against a 0.1 kernel met
+// the usage errors rather than the explanation. This runs on every tool call.
+func (r *Runner) EnsureKernel(ctx context.Context) error {
+	checkedMu.Lock()
+	defer checkedMu.Unlock()
+	if err, seen := checked[r.cfg.BinDir]; seen {
+		return err
+	}
+	err := r.CheckKernel(ctx)
+	checked[r.cfg.BinDir] = err
+	return err
 }
 
 // CheckKernel fails if either binary is older than this cockpit requires. It reads each binary's

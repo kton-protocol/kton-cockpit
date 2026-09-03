@@ -72,7 +72,10 @@ func TestPublish_ReturnsTheActualFinalCommitSHA(t *testing.T) {
 	}
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
-	// Fake plankton/nekton: Publish only calls `author` and `hash` (never nekton). `author` must
+	// Fake plankton/nekton: Publish calls `author` and `hash`, and — since the kernel-version gate
+	// moved onto the path Claude actually takes — `version` on BOTH binaries. That gate used to run
+	// only in `doctor`, which Claude never invokes, so it was documentation rather than enforcement;
+	// enforcing it means every fixture needs both binaries present, including this one. `author` must
 	// actually write a registry file — matching the real binary's side effect — otherwise the
 	// SECOND CommitAndPush call (of registry/plankton) has nothing new to stage, both calls take
 	// the "nothing staged" branch, and this test can't distinguish a stale first-commit sha from
@@ -81,6 +84,7 @@ func TestPublish_ReturnsTheActualFinalCommitSHA(t *testing.T) {
 	fakePlankton := filepath.Join(binDir, "plankton")
 	planktonScript := `#!/bin/sh
 case "$1" in
+  version) echo "plankton 0.2 (reference)" ;;
   author)
     mkdir -p "$PLANKTON_DIR/objects/sha256"
     echo "{}" > "$PLANKTON_DIR/objects/sha256/fakefoton.json"
@@ -91,6 +95,11 @@ case "$1" in
 esac
 `
 	if err := os.WriteFile(fakePlankton, []byte(planktonScript), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Only `version` is ever asked of it here, but the gate asks both.
+	if err := os.WriteFile(filepath.Join(binDir, "nekton"),
+		[]byte("#!/bin/sh\ncase \"$1\" in version) echo \"nekton 0.2 (reference)\" ;; *) exit 0 ;; esac\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 

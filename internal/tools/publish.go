@@ -111,6 +111,9 @@ func Publish(ctx context.Context, _ *mcp.CallToolRequest, in PublishInput) (*mcp
 	}
 
 	r := binaries.New(cfg)
+	if err := r.EnsureKernel(ctx); err != nil {
+		return errResult[PublishOutput]("%v", err)
+	}
 	allPaths := append(append([]string{}, in.Inputs...), in.Outputs...)
 
 	// Claude only gets three narrow verbs; the cockpit owns key hygiene — but without this check,

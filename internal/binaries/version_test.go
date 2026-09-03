@@ -69,3 +69,26 @@ func TestCheckKernel_UnreadableVersionIsAnError(t *testing.T) {
 		t.Fatal("a binary whose version cannot be read must not pass the check")
 	}
 }
+
+// The gate has to be on the path Claude takes. It used to run only in `doctor`, an operator command
+// Claude never invokes, so a session against an old kernel met the usage errors rather than the
+// explanation — documentation rather than enforcement.
+func TestEnsureKernel_AnswersOncePerBinDirAndRemembersTheVerdict(t *testing.T) {
+	r := stubKernel(t, "plankton 0.1 (reference)", "nekton 0.1 (reference)")
+	first := r.EnsureKernel(context.Background())
+	if first == nil {
+		t.Fatal("a 0.1 kernel was accepted")
+	}
+	// Same verdict on the second call, from the cache rather than from running the binaries again:
+	// the point of caching is that this runs per tool call.
+	if second := r.EnsureKernel(context.Background()); second == nil || second.Error() != first.Error() {
+		t.Fatalf("the remembered verdict differs: %v vs %v", first, second)
+	}
+}
+
+func TestEnsureKernel_AcceptsACurrentKernel(t *testing.T) {
+	r := stubKernel(t, "plankton 0.2 (reference)", "nekton 0.2 (reference)")
+	if err := r.EnsureKernel(context.Background()); err != nil {
+		t.Fatalf("0.2 should pass: %v", err)
+	}
+}
