@@ -272,7 +272,10 @@ func runDoctor(ctx context.Context) error {
 			where = cfg.Raw.Anchor.RekorURL + " (key pinned)"
 		}
 		fmt.Printf("anchor:         every record is witnessed in %s\n", where)
-		fmt.Printf("                entries there are PUBLIC and PERMANENT and cannot be withdrawn\n")
+		fmt.Printf("                the WHOLE envelope is submitted, so the command, every input/output path\n")
+		fmt.Printf("                and hash, and the permalinks (which name %s/%s) become public\n",
+			cfg.Raw.Repo.Owner, cfg.Raw.Repo.Name)
+		fmt.Printf("                and stay public. File contents do not — only their hashes.\n")
 	} else {
 		fmt.Printf("anchor:         off — records are signed, but nothing independent attests WHEN they existed\n")
 	}

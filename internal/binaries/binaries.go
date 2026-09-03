@@ -262,6 +262,18 @@ func (r *Runner) Reproductions(ctx context.Context, outputHash, tier string) (*R
 	if perr != nil {
 		return nil, perr
 	}
+	// plankton answers "self-declared" when it had no trusted key to check against — an empty
+	// trust-tier config produces an empty --trust-keys directory, and it then falls back to the
+	// keyid each envelope claims about itself, which its author wrote. Returning that count under a
+	// field named verifiedSigners would be the forgeable number this whole path exists to refuse,
+	// with a label saying the opposite. plankton warns on stderr; a warning beside a wrong number is
+	// not enough, because the number is what gets read.
+	if res.Trust != "verified" {
+		return nil, fmt.Errorf(
+			"plankton answered with a %s count, not a verified one — this repo's trust tiers name no key "+
+				"that could verify anything, so ↻N would be over keyids the records claim about themselves. "+
+				"Configure trust.tiers", res.Trust)
+	}
 	res.Warning = errText
 	return res, nil
 }

@@ -1204,3 +1204,104 @@ func TestLocalMode_RefusedInsideAGitRepoWithARemote(t *testing.T) {
 		t.Fatalf("the error does not explain the downgrade: %s", errText(result))
 	}
 }
+
+// The four "serious" review findings, each asserted at the point it would have gone wrong.
+func TestConfig_RefusesSettingsThatWouldDiscloseOrOverwrite(t *testing.T) {
+	cases := map[string]struct {
+		mutate func(*testrepo.Repo, *config.Raw)
+		expect string
+	}{
+		// A public and a private ed25519 key are the same shape on disk and `plankton keyid` takes
+		// either, so this is one character — and keys.json is built from these entries, committed,
+		// and served to every viewer.
+		"a private key in a trust tier, by extension": {
+			func(_ *testrepo.Repo, raw *config.Raw) {
+				raw.Trust.Tiers["self"] = []string{"keys/" + testrepo.SessionID + ".key"}
+			}, "private key by its extension",
+		},
+		// The floor above is a filename check; this is the exact one, for a copy under any name.
+		"a private key in a trust tier, by contents": {
+			func(r *testrepo.Repo, raw *config.Raw) {
+				b, err := os.ReadFile(filepath.Join(r.Root, "keys", testrepo.SessionID+".key"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				r.Write(t, "registry/keys/innocuous.pub", string(b))
+				raw.Trust.Tiers["self"] = []string{"registry/keys/innocuous.pub"}
+			}, "this repo's own signing key",
+		},
+		"a union directory that escapes the repo": {
+			func(_ *testrepo.Repo, raw *config.Raw) { raw.Union.Dir = "../elsewhere" }, "escapes the repository",
+		},
+		"a union directory aimed at the keys": {
+			func(_ *testrepo.Repo, raw *config.Raw) { raw.Union.Dir = "keys/data" }, "must not overwrite",
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			r := testrepo.New(t)
+			raw := testrepo.DefaultConfig()
+			tc.mutate(r, &raw)
+			r.WriteConfig(t, raw)
+			r.Use(t)
+
+			result, _, err := Ask(context.Background(), nil, AskInput{Query: "producer", Ref: unknownHash})
+			if err != nil {
+				t.Fatalf("expected a tool-level error, not a Go error: %v", err)
+			}
+			if !result.IsError {
+				t.Fatal("the configuration was accepted")
+			}
+			if !strings.Contains(errText(result), tc.expect) {
+				t.Fatalf("the error does not explain it (want %q): %s", tc.expect, errText(result))
+			}
+		})
+	}
+}
+
+// An empty trust-tier set gives plankton nothing to check against, so it falls back to the keyid
+// each envelope claims about itself — the forgeable count this path exists to refuse. Reporting it
+// under a field called verifiedSigners would be that number with a label saying the opposite.
+func TestAsk_RefusesASelfDeclaredReproductionCount(t *testing.T) {
+	r := testrepo.New(t)
+	r.Use(t)
+	pub := publishOne(t, r)
+
+	raw := testrepo.DefaultConfig()
+	raw.Trust.Tiers = map[string][]string{"self": {}}
+	r.WriteConfig(t, raw)
+
+	result, _, err := Ask(context.Background(), nil, AskInput{
+		Query: "reproductions", Ref: pub.OutputHashes["data/out.csv"],
+	})
+	if err != nil {
+		t.Fatalf("expected a tool-level error, not a Go error: %v", err)
+	}
+	if !result.IsError {
+		t.Fatal("a self-declared count was reported as verified")
+	}
+	if !strings.Contains(errText(result), "self-declared") {
+		t.Fatalf("the error does not name the problem: %s", errText(result))
+	}
+}
+
+// A tier name that does not exist matches nothing, so every record is excluded and the answer looks
+// exactly like "this repo trusts none of this" — a typo reading as a finding.
+func TestAsk_RefusesAnUnknownTrustTierName(t *testing.T) {
+	r := testrepo.New(t)
+	r.Use(t)
+
+	result, _, err := Ask(context.Background(), nil, AskInput{
+		Query: "producer", Ref: unknownHash, Filter: &AskFilter{TrustTier: "sef"},
+	})
+	if err != nil {
+		t.Fatalf("expected a tool-level error, not a Go error: %v", err)
+	}
+	if !result.IsError {
+		t.Fatal("an unknown tier name was accepted")
+	}
+	if !strings.Contains(errText(result), "self") {
+		t.Fatalf("the error does not say which tiers exist: %s", errText(result))
+	}
+}

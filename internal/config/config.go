@@ -95,9 +95,17 @@ type Environment struct {
 // independent, append-only witness: Rekor attests that this exact record existed by a given time,
 // and the proof is stored beside the record as verification material (SPEC §8.1).
 //
-// Off by default, and that default is not timidity. Anchoring writes to a PUBLIC, PERMANENT log:
-// the entry cannot be withdrawn, and while the payload is a signature over a hash rather than the
-// data, the fact that this repo produced a record at that moment becomes public and stays public.
+// Off by default, and that default is not timidity: anchoring PUBLISHES THE RECORD, permanently.
+//
+// What goes to Rekor is the whole DSSE envelope — sigstore/rekor.go sets
+// `ProposedContent.Envelope` to the serialised envelope, not a digest of it. The payload inside is
+// the in-toto statement, so the log receives the command that was run, every input and output path
+// and hash, the pinned environment, and the commit-pinned permalinks, which name the GitHub
+// owner/repo. For a PRIVATE repository that means its name, its file layout and its commands become
+// public and stay public; the file CONTENTS do not, since only their hashes are recorded.
+//
+// The entry cannot be withdrawn. Turn this on for work that is meant to be public, or where an
+// independent witness of WHEN is worth that disclosure.
 type Anchor struct {
 	// Enabled turns it on for every record this cockpit writes.
 	Enabled bool `json:"enabled,omitempty"`
@@ -288,6 +296,10 @@ func Load(ctx context.Context, startDir string) (*Config, error) {
 		return nil, fmt.Errorf("cockpit: cockpit.config.json at %s is invalid: %w", cfgPath, err)
 	}
 
+	if err := checkTrustTierContents(cfgDir, &raw); err != nil {
+		return nil, fmt.Errorf("cockpit: cockpit.config.json at %s is invalid: %w", cfgPath, err)
+	}
+
 	if err := checkBinding(ctx, cfgDir, raw.Repo); err != nil {
 		return nil, fmt.Errorf("cockpit: refusing to act — %w", err)
 	}
@@ -447,6 +459,9 @@ func validate(raw *Raw) error {
 	if len(missing) > 0 {
 		return fmt.Errorf("missing required field(s): %s", strings.Join(missing, ", "))
 	}
+	if err := validateTrustTiers(raw); err != nil {
+		return err
+	}
 	if err := validateEnvironment(raw.Environment); err != nil {
 		return err
 	}
@@ -465,6 +480,15 @@ func validate(raw *Raw) error {
 	}
 	if raw.Anchor.RekorURL != "" && !raw.Anchor.Enabled {
 		return fmt.Errorf("anchor.rekorUrl is set but anchor.enabled is not — nothing would be anchored anywhere")
+	}
+	if raw.Union.Dir != "" {
+		// The union files are written into the repo and then committed, so this path is as
+		// consequential as a publish path: `../..` escapes the repository, and `keys` or `.git`
+		// aims at exactly what publish's denylist exists to keep out — with the difference that
+		// nobody has to ask for it, since every record rewrites these files.
+		if err := validateRepoRelativeDir(raw.Union.Dir, raw.Paths); err != nil {
+			return fmt.Errorf("union.dir: %w", err)
+		}
 	}
 	if raw.Union.Publish && !raw.CommitEnabled() {
 		return fmt.Errorf(
@@ -502,6 +526,94 @@ func validateExecution(ex Execution, env Environment) error {
 			"environment.envRef (%s) and execution.image (%s) disagree: the cockpit would run in one "+
 				"environment and pin the other into the foton. Set only execution.image — it is used for both",
 			env.EnvRef, ex.Image)
+	}
+	return nil
+}
+
+// validateRepoRelativeDir refuses a directory the cockpit must not write into or commit from.
+func validateRepoRelativeDir(dir string, paths Paths) error {
+	if filepath.IsAbs(dir) {
+		return fmt.Errorf("%q is an absolute path; it must be repo-relative", dir)
+	}
+	clean := filepath.ToSlash(filepath.Clean(dir))
+	if clean == ".." || strings.HasPrefix(clean, "../") {
+		return fmt.Errorf("%q escapes the repository", dir)
+	}
+	if strings.HasPrefix(clean, "-") {
+		return fmt.Errorf("%q starts with a dash and could be read by git as a flag rather than a path", dir)
+	}
+	for _, forbidden := range []string{".git", paths.KeysDir, paths.BinDir, paths.PlanktonDir, paths.NektonDir} {
+		if forbidden == "" {
+			continue
+		}
+		f := filepath.ToSlash(filepath.Clean(forbidden))
+		if clean == f || strings.HasPrefix(clean, f+"/") {
+			return fmt.Errorf("%q is inside %s, which the cockpit must not overwrite", dir, forbidden)
+		}
+	}
+	return nil
+}
+
+// validateTrustTiers refuses a tier entry that is a PRIVATE key.
+//
+// A public and a private ed25519 key are the same shape on disk — 64 hex characters — and
+// `plankton keyid` accepts either without complaint. So `keys/session-1.key` where
+// `registry/keys/session-1.pub` was meant is one character, produces no error anywhere, and the
+// consequence is not a wrong answer but a disclosure: `cockpit show` and the published union build
+// keys.json from exactly these entries, so the private key would be written into a committed file
+// and served to every viewer.
+//
+// Two checks, because neither is sufficient alone. The extension is a floor that holds even for a
+// key this config never names. Comparing against the identity keys is exact for the transposition
+// that actually happens — swapping one of THIS repo's own halves — since the config names both.
+func validateTrustTiers(raw *Raw) error {
+	for tier, entries := range raw.Trust.Tiers {
+		for _, entry := range entries {
+			if strings.EqualFold(filepath.Ext(entry), ".key") {
+				return fmt.Errorf(
+					"trust.tiers[%q] names %s, which is a private key by its extension — trust tiers hold the "+
+						"PUBLIC halves (.pub). keys.json is built from these and committed, so this would "+
+						"publish a signing key", tier, entry)
+			}
+		}
+	}
+	return nil
+}
+
+// checkTrustTierContents is the exact half of the same check, and it lives here rather than in
+// validate because it has to read files: the entries are repo-relative, and resolving them against
+// the process's working directory instead of the repo root would make it read nothing and pass
+// everything — a check that cannot fire.
+func checkTrustTierContents(root string, raw *Raw) error {
+	private := map[string]string{}
+	for _, p := range []string{raw.Identity.PlanktonKey, raw.Identity.NektonKey} {
+		if p == "" {
+			continue
+		}
+		if b, err := os.ReadFile(filepath.Join(root, p)); err == nil {
+			private[strings.TrimSpace(string(b))] = p
+		}
+	}
+	if len(private) == 0 {
+		return nil
+	}
+	for tier, entries := range raw.Trust.Tiers {
+		for _, entry := range entries {
+			path := entry
+			if !filepath.IsAbs(path) {
+				path = filepath.Join(root, entry)
+			}
+			b, err := os.ReadFile(path)
+			if err != nil {
+				continue // a missing path is reported later, by whatever tries to read it
+			}
+			if named, isPrivate := private[strings.TrimSpace(string(b))]; isPrivate {
+				return fmt.Errorf(
+					"trust.tiers[%q] names %s, whose contents are this repo's own signing key (%s) — trust "+
+						"tiers hold public halves, and keys.json is built from them and committed",
+					tier, entry, named)
+			}
+		}
 	}
 	return nil
 }

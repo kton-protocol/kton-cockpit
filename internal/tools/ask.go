@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/deathbychoco/claude-science-cockpit/internal/binaries"
@@ -84,6 +85,16 @@ func Ask(ctx context.Context, _ *mcp.CallToolRequest, in AskInput) (*mcp.CallToo
 	wantTier := ""
 	if in.Filter != nil {
 		wantTier = in.Filter.TrustTier
+		// A tier name that does not exist matches nothing, so every record is excluded and the
+		// answer looks exactly like "this repo trusts none of this" — a typo reading as a finding.
+		if wantTier != "" {
+			if _, ok := cfg.Raw.Trust.Tiers[wantTier]; !ok {
+				return errResult[AskOutput](
+					"no trust tier named %q is configured (this repo has: %s) — an unknown tier would match "+
+						"nothing and read as though nothing here verified",
+					wantTier, strings.Join(sortedTierNames(cfg), ", "))
+			}
+		}
 	}
 
 	// The two families answer in different shapes and are handled separately rather than being
@@ -260,6 +271,16 @@ func joinWithWarning(lines []string, warning string) string {
 		raw += "\n\n[stderr]\n" + warning
 	}
 	return raw
+}
+
+// sortedTierNames lists this repo's configured tiers, for an error that says what IS available.
+func sortedTierNames(cfg *config.Config) []string {
+	names := make([]string, 0, len(cfg.Raw.Trust.Tiers))
+	for n := range cfg.Raw.Trust.Tiers {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	return names
 }
 
 func filterDescription(wantTier string) string {
