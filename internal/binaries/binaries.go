@@ -308,36 +308,46 @@ func trustKeysDir(cfg *config.Config, tier string) (dir string, cleanup func(), 
 	return dir, cleanup, nil
 }
 
-// Reproduces checks two output hashes for L0/L1 equivalence (exit 0 = pass); via, if non-empty,
-// names the shared normalizer.
+// ReproducesResult is plankton's verdict on two sets of output bytes.
+type ReproducesResult struct {
+	// Level is "L0" (identical bytes) or "L1" (equal after the shared normalizer), and empty when
+	// they do not reproduce at all. It is READ, never inferred from whether --via was passed:
+	// plankton checks ref == cand BEFORE consulting a normalizer, so a byte-identical pair is L0
+	// even when one was offered — and inferring "L1 whenever via != \"\"" mislabels a genuine L0 in
+	// any repo that configures a default normalizer, which an L0 policy then rejects.
+	Level   string `json:"level"`
+	Matched bool   `json:"matched"`
+	Via     string `json:"via"`
+}
+
+// Reproduces asks whether two output hashes reproduce, and at what level.
 //
-// Distinguishes an exec-level failure (the vendored binary itself couldn't run at all — missing,
-// not executable, permission denied) from the binary actually running and reporting non-zero: an
-// independent cold-session review found the previous "any non-zero exit -> false, no error"
-// collapse meant a missing/broken plankton binary was silently reported to the caller as "outputs
-// do not match" (say.go's determineReproductionLevel has a real `if err != nil` branch after this
-// call that could never fire before this fix — dead code, confirmed live). Unlike VerifyFoton/
-// VerifyClaim, `reproduces` has no documented exit code distinguishing "no match" from a usage
-// error (both were confirmed to return exit 1 with the vendored binary) — so a real usage error
-// still can't be told apart from a genuine non-match here; that gap is a known, upstream-shaped
-// limitation (the same class of thing as the --trust-keys-on-reproductions gap already tracked
-// elsewhere), not something a cockpit-side workaround should paper over. This fix closes the
-// narrower, unambiguous case: the exec layer itself failing before the binary ever got to render
-// any verdict at all.
-func (r *Runner) Reproduces(ctx context.Context, refHash, candHash, via string) (ok bool, output string, err error) {
-	args := []string{"reproduces", refHash, candHash}
+// It reads plankton's --json verdict rather than the sentence it prints. That closes a gap this
+// wrapper previously documented as unclosable: `reproduces` exits 1 both for a genuine non-match
+// and for a usage error, so the two could not be told apart, and a broken invocation would have
+// been reported to the caller as "these outputs differ". With --json they are distinguishable
+// without relying on the exit code at all — a real verdict comes with a parseable answer, a usage
+// error comes with none.
+func (r *Runner) Reproduces(ctx context.Context, refHash, candHash, via string) (*ReproducesResult, error) {
+	args := []string{"reproduces", refHash, candHash, "--json"}
 	if via != "" {
 		args = append(args, "--via", via)
 	}
-	out, err := r.plankton(ctx, args...)
-	if err == nil {
-		return true, out, nil
+	out, errText, err := r.exec(ctx, "plankton", args...)
+
+	var res ReproducesResult
+	if jerr := json.Unmarshal([]byte(strings.TrimSpace(out)), &res); jerr != nil {
+		// No verdict. Exit 1 alone would have looked exactly like "they do not match".
+		return nil, fmt.Errorf("plankton reproduces gave no verdict: %w\n%s", errOr(err, jerr), errText)
 	}
-	var exitErr *exec.ExitError
-	if errors.As(err, &exitErr) {
-		return false, out, nil // the binary ran and reported non-zero — a legitimate non-match, not a tool failure
+	return &res, nil
+}
+
+func errOr(primary, fallback error) error {
+	if primary != nil {
+		return primary
 	}
-	return false, out, err // exec-level failure (missing binary, permission denied, ...) — a real error
+	return fallback
 }
 
 // VerifyFoton verifies a plankton envelope/id against an explicit pubkey — never against the

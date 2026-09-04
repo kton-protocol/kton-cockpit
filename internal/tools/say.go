@@ -3,7 +3,6 @@ package tools
 import (
 	"context"
 	"fmt"
-	"regexp"
 
 	"github.com/deathbychoco/claude-science-cockpit/internal/anchor"
 	"github.com/deathbychoco/claude-science-cockpit/internal/binaries"
@@ -128,24 +127,6 @@ func Say(ctx context.Context, _ *mcp.CallToolRequest, in SayInput) (*mcp.CallToo
 	return &mcp.CallToolResult{}, out, nil
 }
 
-// reproductionLevelRe matches plankton's own `reproduction: <level>` line.
-//
-// This is the one place left where the cockpit reads a value out of prose. #57 gave plankton's read
-// surface --json and #85 gave it records, but `reproduces` has neither — checked against kton dev
-// d2abb97 — so the level still has to be parsed from the line it prints. Raised upstream rather
-// than left implied: the same request as #39 and #57, on the last command that has not had it.
-//
-// It is a narrower exposure than the scraping that was removed. That one had to find WHICH record a
-// line belonged to and could attribute a line to the wrong one; this reads a single fixed token from
-// a single command's own output, and fails closed when it does not match. — printed at the start
-// of a line whether the match was identical bytes (L0) or a --via normalizer match (L1); see
-// reproductionLevelRe's use in determineReproductionLevel for why this is parsed rather than
-// inferred from whether --via was passed. `plankton reproduces` only ever emits L0 or L1 on this
-// line (L2 is a comparator's signed verdict, not a kernel check, and is never printed here) — the
-// character class is deliberately just L[01], not L[012], so an L2 (or anything else) this command
-// was never supposed to print fails closed as unparseable rather than being silently accepted.
-var reproductionLevelRe = regexp.MustCompile(`(?m)^reproduction: (L[01])\b`)
-
 // determineReproductionLevel runs the reproduction precondition itself (never trusting a
 // self-declared level from Claude) and returns either the achieved level ("L0"/"L1") or, as
 // its second return value, a non-empty error message.
@@ -164,25 +145,24 @@ func determineReproductionLevel(ctx context.Context, cfg *config.Config, r *bina
 		via = cfg.Raw.Reproduction.Normalizer
 	}
 
-	ok, out, err := r.Reproduces(ctx, in.SubjectOutputHash, candHash, via)
+	verdict, err := r.Reproduces(ctx, in.SubjectOutputHash, candHash, via)
 	if err != nil {
 		return "", "plankton reproduces failed: " + err.Error()
 	}
-	if !ok {
-		return "", "reproduction precondition failed — outputs do not match:\n" + out
+	if !verdict.Matched {
+		return "", fmt.Sprintf(
+			"reproduction precondition failed — the outputs do not match: %s does not reproduce %s",
+			candHash, in.SubjectOutputHash)
 	}
-
-	// The achieved level comes from plankton's own printed answer, never from whether --via was
-	// passed: byte-identical outputs are L0 even when a normalizer was requested (plankton checks
-	// ref == cand BEFORE ever consulting --via — see the reference source's `reproduces` case), so
-	// inferring "L1 whenever via != \"\"" mislabels a genuine L0 as L1 for any repo that configures
-	// a default normalizer, and a mislabelled L1 then fails an L0 policy outright even though the
-	// underlying reproduction was correct.
-	m := reproductionLevelRe.FindStringSubmatch(out)
-	if m == nil {
-		return "", "plankton reported success but its reproduction level could not be parsed from its output:\n" + out
+	// The level is plankton's own answer, read from a named field. It is never inferred from whether
+	// --via was passed: byte-identical outputs are L0 even when a normalizer was offered, since
+	// plankton checks ref == cand before consulting one — so inferring "L1 whenever via != \"\""
+	// mislabels a genuine L0 in any repo with a default normalizer, and an L0 policy then rejects a
+	// reproduction that was correct.
+	achieved := verdict.Level
+	if achieved == "" {
+		return "", "plankton reported a match without a level, which is not an answer this can record"
 	}
-	achieved := m[1]
 
 	if cfg.Raw.Reproduction.RequiredLevel == "L0" && achieved != "L0" {
 		return "", fmt.Sprintf("this repo's policy requires L0; this reproduction only reached %s", achieved)
