@@ -1,1 +1,7 @@
 /bin/
+
+# Personal working notes for the "Claude Workflow" VS Code extension's project-docs convention —
+# not committed/shared history (see CLAUDE.md). Untracked here on 2026-08-07 after these files
+# ended up committed anyway via a broad `git add`/`git commit -a` sweeping up the whole working
+# tree; already-committed history keeps them, this just stops any new commits from re-adding them.
+/projectdocs/

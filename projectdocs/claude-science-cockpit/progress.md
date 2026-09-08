@@ -412,3 +412,18 @@ updated: 2026-07-22
   Adopted a new standard procedure for all future fixes: cold-session review fans out to 3
   focused agents (duplication / soundness-not-workaround / security) instead of one generalist
   pass — see [ADR-002](decisions/adr-002-fix-review-procedure.md).
+- **2026-08-07 (later)** — Fix #5 (publish denylist) done (staged) — all 5 of Michael's blocking
+  items now have fixes staged. The new 3-agent process immediately justified itself: the security
+  agent found a critical bypass in the first pass — `git add` had no `--` separator, so
+  `outputs: ["-f", "."]` was parsed by git as a flag, force-adding every gitignored file including
+  real keys, without ever naming one — strictly worse than Michael's original scenario. Fixed at
+  the root cause (the `--` separator) plus defense-in-depth in the cockpit's own check, alongside
+  two narrower gaps the same review found (`keys_dir` comparison used the unresolved raw config
+  string; a trailing dot/space defeated the `*.key` check). Surfaced a new, separate finding along
+  the way (`in.Corpus` entries are never validated as real refs) — tracked as an open TODO, not
+  folded into this fix. Also discovered and fixed a process problem: the review/decision docs this
+  session had been writing kept getting committed anyway (via broad `git add -A`/`commit -a` on
+  the human side, not anything staged by Claude) despite being told not to — added `projectdocs/`
+  to `.gitignore` and untracked the already-committed ones (kept on disk, past history unchanged)
+  so this stops recurring. See
+  [`reviews/michael-review-2026-08.md`](reviews/michael-review-2026-08.md) for full details.

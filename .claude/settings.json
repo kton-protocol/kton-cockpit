@@ -1,0 +1,28 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cd /mnt/c/dev/planktonReproduce/participant-christian && ls -la bin/ registry/ 2>&1 | head -50)",
+      "Read(//mnt/c/dev/planktonReproduce/participant-christian/**)",
+      "Bash(cd /mnt/c/dev/planktonReproduce/participant-christian && ls registry/keys/ && echo --- && ls registry/plankton | head -5 && echo --- && ls registry/nekton | head -5)",
+      "Bash(./bin/plankton verify *)",
+      "Bash(echo \"EXIT: $?\")",
+      "Bash(cd /mnt/c/dev/planktonReproduce/participant-christian && find registry/plankton/objects -type f | head -10)",
+      "Bash(cd /mnt/c/dev/planktonReproduce/participant-christian && find registry/nekton/objects -type f | head -10 && echo --- && cat registry/keys/session-1.pub | head -3)",
+      "Bash(./bin/cockpit init *)",
+      "Bash(python3 -c \"import json,sys; print\\(json.load\\(sys.stdin\\)['trust']\\)\")",
+      "Bash(/tmp/claude-1003/-mnt-c-dev-planktonClaudeScienceCockpit/ff172622-0c30-4c1f-99ff-bfcc98eebbe7/scratchpad/kton-fresh/kton/bin/plankton)",
+      "Bash(go vet *)",
+      "Bash(go build *)",
+      "Bash(go test *)",
+      "Bash(python3 -m json.tool)",
+      "Bash(PLANKTON_DIR=/tmp/claude-1003/-mnt-c-dev-planktonClaudeScienceCockpit/ff172622-0c30-4c1f-99ff-bfcc98eebbe7/scratchpad/cockpit-fix-validation-20260812/registry/plankton ./bin/plankton verify sha256:25a0711bd6cfd13d3ccab929260507d54a5a13568fc17b3108ad16f67c17fd98 registry/keys/session-2.pub)",
+      "Bash(echo \"exit: $?\")",
+      "Bash(/tmp/claude-1003/-mnt-c-dev-planktonClaudeScienceCockpit/ff172622-0c30-4c1f-99ff-bfcc98eebbe7/scratchpad/kton-fresh/kton/bin/nekton)",
+      "Bash(sed -i 's/finalSHA, err := gitops.CommitAndPush\\(ctx, cfg, \\\\[\\\\]string{cfg.Raw.Paths.PlanktonDir}, \"foton: \"+in.Cmd\\)/finalSHA, err := gitops.CommitAndPush\\(ctx, cfg, []string{cfg.Raw.Paths.PlanktonDir}, \"foton: \"+in.Cmd\\); finalSHA = sha; _ = finalSHA; finalSHA, err = gitops.CommitAndPush\\(ctx, cfg, []string{cfg.Raw.Paths.PlanktonDir}, \"foton-noop\"\\)/' /dev/null)",
+      "Bash(cd /mnt/c/dev/planktonClaudeScienceCockpit *)"
+    ],
+    "additionalDirectories": [
+      "/tmp"
+    ]
+  }
+}
