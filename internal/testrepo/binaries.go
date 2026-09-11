@@ -48,8 +48,9 @@ func resolveBinaries(t *testing.T) (plankton, nekton, kton string) {
 	t.Logf("building plankton/nekton from %s into %s", src, binDir)
 	build(t, src, plankton, "./reference/cmd/plankton")
 	build(t, src, nekton, "./nekton/reference/cmd/nekton")
-	// kton too: `cockpit show` reads the records through `kton serve` rather than parsing the
-	// registry, so the tests need it for the same reason the product does.
+	// kton too: anchoring shells out to `kton anchor`, so the tests need it for the same reason the
+	// product does. `cockpit show` no longer does — it reads `plankton records`/`nekton records`
+	// since #85 — but the anchor path still holds this dependency.
 	build(t, src, kton, "./kton/reference/cmd/kton")
 	return plankton, nekton, kton
 }

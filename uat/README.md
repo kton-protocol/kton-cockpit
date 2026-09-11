@@ -76,8 +76,9 @@ also not where this design's guarantee lives: `cockpit_ask` re-verifies every re
 reading repo's configured trust tiers before returning it, so trust is established where a record
 is consumed, not where it is transported.
 
-There is no hosted viewer at the end. Rendering the aggregate is separate, still-open work — see
-`kton serve` and `kton/reference/web/graph` upstream.
+There is no hosted viewer at the end. To look at the aggregate, point `cockpit show` at it — or a
+[kton-web](https://github.com/gitmick/kton-web) checkout, which is where the browser side lives since
+it was taken out of the protocol repo.
 
 **Overrides:**
 ```bash

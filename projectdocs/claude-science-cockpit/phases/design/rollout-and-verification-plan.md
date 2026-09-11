@@ -59,7 +59,8 @@ Open questions, flagged rather than blocking (per the spec's own "Offen" section
 
 - Exact MCP Go SDK version to pin (`modelcontextprotocol/go-sdk` was confirmed available at
   v1.6.1/v1.7.0-pre.2 as of 2026-07-22 — re-check maturity at implementation time).
-- Whether `cockpit_ask` should also shell to `kton mirror <url>`/`kton serve` for live federation
+- Whether `cockpit_ask` should also shell to `kton mirror <url>` for live federation (`kton serve`,
+  named here when this was written, was removed in kton #83)
   queries in v1, or stay local-registry-only initially. The spec's own "Offen" section already
   names this class of question ("fehlt eine kton-CLI-Fähigkeit?") as something to raise as a
   protocol change-request if a gap is found, not to solve with a cockpit-side hack.

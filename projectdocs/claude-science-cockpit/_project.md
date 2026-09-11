@@ -66,7 +66,10 @@ into a concrete, buildable design, and to record the design decisions made along
   hash-chains) — explicitly forbidden by the governing spec's "Nicht bauen" section.
 - A fourth verb, or any cockpit-owned mutable state beyond the static config file.
 - Live network federation features beyond what `plankton`/`nekton`/`kton` already provide
-  (`kton serve`/`mirror`/`anchor` stay as-is; the cockpit only decides *whether* to shell to them).
+  (`kton mirror`/`anchor` stay as-is; the cockpit only decides *whether* to shell to them).
+  `kton serve` was named here too and no longer exists: kton removed it in #83 — "a protocol
+  reference is not a place to ship a service" — and #85 answered the same query over stdout, which
+  is what `cockpit show` reads now.
 - Governance/trust-root policy decisions themselves — the cockpit applies a config; who goes in
   that config is a decision made by whoever operates a given participant repo, not by this project.
 

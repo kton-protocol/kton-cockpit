@@ -7,9 +7,9 @@ after every record and committed *in the same commit as it*. A union published o
 would mean every online view is a record behind the registry it summarises, with no way for a reader
 to tell which state they are looking at.
 
-**Served.** `cockpit show` answers the same three files live. It starts `kton serve` for both
-substrates and forwards their `/sync` records — a record there is `{seq, fotonId|claimId, envelope}`,
-which is exactly what kton-web's reader accepts.
+**Served.** `cockpit show` answers the same three files live. It asks both kernels for their
+records (`plankton records --json`, `nekton records --json`) and forwards them — a record there is
+`{seq, fotonId|claimId, envelope}`, which is exactly what kton-web's reader accepts.
 
 ## Why the cockpit does not read the registry itself
 

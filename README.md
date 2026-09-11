@@ -48,8 +48,7 @@ This repo is only the cockpit. It sits on the **participant side** of a separate
   gate.
 - **[`kton-protocol/kton`](https://github.com/kton-protocol/kton)** — the kernel itself: the
   `plankton` and `nekton` reference implementations this cockpit shells out to, plus the protocol's
-  own reference cockpit / CLI, which is what actually serves or mirrors a federation live
-  (`kton serve`, `kton mirror`). This project is a different, narrower cockpit purpose-built for a
+  own reference cockpit / CLI (`kton mirror`, `kton anchor`). This project is a different, narrower cockpit purpose-built for a
   Claude session, not a replacement for it. The kernel used to live in `gitmick/plankton`, which is
   now archived and private — anything still pointing there is stale. The two *template* repos above
   did not move and are still live.
