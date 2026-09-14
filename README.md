@@ -10,6 +10,10 @@ verbs for cooperating in a [kton](https://kton.dev) federation:
 | `cockpit_say` | sagen | Bind a claim — from a fixed template — to a foton or output. For the `reproduces` template, the cockpit itself computes the L0 reproduction level; it never trusts a self-declared claim. |
 | `cockpit_ask` | fragen | Query the federated graph (producer, uses, lineage, reproductions, ...) — every result is independently re-verified against the configured trust tiers before being returned. |
 
+What the cockpit guarantees — and, as importantly, what it does not — is written up clause by
+clause in [`spec/SPEC.md`](spec/SPEC.md). Every normative statement there names the test that
+exercises it, so the document is checkable rather than merely asserted.
+
 Nothing else is exposed to Claude. The cockpit reimplements no plankton/nekton logic of its own —
 every mutation and query shells out to the vendored `bin/plankton`/`bin/nekton` binaries in
 whichever participant repo it's configured for. See

@@ -13,8 +13,14 @@ project deliberately does not build — is written up in
 [`projectdocs/claude-science-cockpit/`](projectdocs/claude-science-cockpit/_project.md). Read that
 before making architectural changes; this file only covers building/testing the cockpit itself.
 
-The governing spec is [`# Claude-Science-Cockpit — Bau-Spezifika.md`](./%23%20Claude-Science-Cockpit%20%E2%80%94%20Bau-Spezifika.md)
-(German; the internal build spec this project implements).
+What the cockpit guarantees is specified in [`spec/SPEC.md`](spec/SPEC.md) — clause by clause, each
+naming the test that exercises it, with the limits stated beside the guarantees. Read that before
+changing behaviour a clause depends on; `spec/spec_test.go` fails if a clause cites a test that is
+no longer there, or states a MUST without saying how it is checked.
+
+The design *brief* is [`# Claude-Science-Cockpit — Bau-Spezifika.md`](./%23%20Claude-Science-Cockpit%20%E2%80%94%20Bau-Spezifika.md)
+(German). It says of itself that it is an internal document, so it is what the work was commissioned
+from, not what the cockpit promises — that is `spec/SPEC.md`.
 
 ## Build
 
