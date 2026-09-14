@@ -24,8 +24,61 @@ type AskInput struct {
 	Filter *AskFilter `json:"filter,omitempty"`
 }
 
+// AskFilter narrows an answer. Every dimension can only ever REMOVE records: none of them can
+// surface a record the trust configuration would otherwise have excluded, and none can reach past
+// the configured tiers. A filter is a question about the answer, not a way to widen it.
+//
+// A value naming something that does not exist is refused rather than matching nothing. An unknown
+// tier, level or signer would otherwise empty the answer and read exactly like "this repository
+// trusts none of this" — a typo presenting as a finding.
 type AskFilter struct {
+	// TrustTier restricts to records a key in that configured tier verified.
 	TrustTier string `json:"trustTier,omitempty" jsonschema:"only include records verified against this configured trust tier"`
+	// Signer restricts to records a specific key verified — the keyid of a configured public key,
+	// never the keyid a record declares about itself.
+	Signer string `json:"signer,omitempty" jsonschema:"only include records verified by this keyid (a configured key's, not a record's declared one)"`
+	// Level restricts claims to a reproduction level: L0, L1 or L2.
+	Level string `json:"level,omitempty" jsonschema:"only include reproduces claims at this level: L0, L1 or L2"`
+	// Scope restricts claims to one nekton scope.
+	Scope string `json:"scope,omitempty" jsonschema:"only include claims chained under this scope id"`
+	// MinReproductions drops a reproductions answer that does not reach this many verified
+	// independent producers. The count is the verified one; a self-declared ↻N is refused outright.
+	MinReproductions int `json:"minReproductions,omitempty" jsonschema:"for query reproductions: require at least this many verified independent producers"`
+}
+
+// active reports whether this filter says anything at all.
+//
+// A NON-ZERO threshold counts, not a positive one: a negative value narrows nothing but is still
+// something the caller wrote, and treating it as an absent filter would skip the validation that
+// tells them it is meaningless.
+func (f *AskFilter) active() bool {
+	return f != nil && (f.TrustTier != "" || f.Signer != "" || f.Level != "" || f.Scope != "" || f.MinReproductions != 0)
+}
+
+// describe says what was applied, because requirement 2 of the governing brief is that the active
+// filter travels with the answer: "no trustworthy cleanup" and "no cleanup" are different findings,
+// and a reader who cannot see which filter ran cannot tell them apart.
+func (f *AskFilter) describe() string {
+	if !f.active() {
+		return "none — every record verified against a configured trust tier is included; unverified records are always excluded"
+	}
+	var parts []string
+	if f.TrustTier != "" {
+		parts = append(parts, "trustTier="+f.TrustTier)
+	}
+	if f.Signer != "" {
+		parts = append(parts, "signer="+f.Signer)
+	}
+	if f.Level != "" {
+		parts = append(parts, "level="+f.Level)
+	}
+	if f.Scope != "" {
+		parts = append(parts, "scope="+f.Scope)
+	}
+	if f.MinReproductions > 0 {
+		parts = append(parts, fmt.Sprintf("minReproductions=%d", f.MinReproductions))
+	}
+	return strings.Join(parts, ", ")
 }
 
 // RecordVerification is what the record actually verified as — resolved from the verifying key,
@@ -85,19 +138,12 @@ func Ask(ctx context.Context, _ *mcp.CallToolRequest, in AskInput) (*mcp.CallToo
 	if err := r.EnsureKernel(ctx); err != nil {
 		return errResult[AskOutput]("%v", err)
 	}
-	wantTier := ""
-	if in.Filter != nil {
-		wantTier = in.Filter.TrustTier
-		// A tier name that does not exist matches nothing, so every record is excluded and the
-		// answer looks exactly like "this repo trusts none of this" — a typo reading as a finding.
-		if wantTier != "" {
-			if _, ok := cfg.Raw.Trust.Tiers[wantTier]; !ok {
-				return errResult[AskOutput](
-					"no trust tier named %q is configured (this repo has: %s) — an unknown tier would match "+
-						"nothing and read as though nothing here verified",
-					wantTier, strings.Join(sortedTierNames(cfg), ", "))
-			}
-		}
+	if msg := validateFilter(ctx, cfg, r, in.Filter); msg != "" {
+		return errResult[AskOutput]("%s", msg)
+	}
+	filter := in.Filter
+	if filter == nil {
+		filter = &AskFilter{}
 	}
 
 	// The two families answer in different shapes and are handled separately rather than being
@@ -106,9 +152,9 @@ func Ask(ctx context.Context, _ *mcp.CallToolRequest, in AskInput) (*mcp.CallToo
 	// on scraped text with the line-anchored redaction below.
 	switch in.Query {
 	case "about", "by":
-		return askClaims(ctx, cfg, r, in, wantTier)
+		return askClaims(ctx, cfg, r, in, filter)
 	case "producer", "uses", "lineage", "reproductions":
-		return askLineage(ctx, cfg, r, in, wantTier)
+		return askLineage(ctx, cfg, r, in, filter)
 	default:
 		return errResult[AskOutput]("unknown query %q (must be one of: producer, uses, lineage, reproductions, about, by)", in.Query)
 	}
@@ -118,7 +164,7 @@ func Ask(ctx context.Context, _ *mcp.CallToolRequest, in AskInput) (*mcp.CallToo
 // into a configured trust tier (and, if a filter was given, into that tier) are assembled into the
 // answer at all — the excluded ones are accounted for in Records/Excluded but their content is
 // never rendered anywhere.
-func askClaims(ctx context.Context, cfg *config.Config, r *binaries.Runner, in AskInput, wantTier string) (*mcp.CallToolResult, AskOutput, error) {
+func askClaims(ctx context.Context, cfg *config.Config, r *binaries.Runner, in AskInput, filter *AskFilter) (*mcp.CallToolResult, AskOutput, error) {
 	var claims []binaries.ClaimAxis
 	var err error
 
@@ -152,7 +198,7 @@ func askClaims(ctx context.Context, cfg *config.Config, r *binaries.Runner, in A
 		verified := tier != verify.Untrusted
 		records = append(records, RecordVerification{ID: c.ID, Tier: tier, Verified: verified})
 
-		if !verified || (wantTier != "" && tier != wantTier) {
+		if !verified || !filter.keeps(tier, c) {
 			excluded = append(excluded, c.ID)
 			continue
 		}
@@ -169,7 +215,7 @@ func askClaims(ctx context.Context, cfg *config.Config, r *binaries.Runner, in A
 		Included:      included,
 		Excluded:      excluded,
 		Claims:        includedClaims,
-		FilterApplied: filterDescription(wantTier),
+		FilterApplied: filter.describe(),
 	}, nil
 }
 
@@ -181,9 +227,9 @@ func askClaims(ctx context.Context, cfg *config.Config, r *binaries.Runner, in A
 // That worked only while a record's own id happened to be the first hash on its line — an
 // assumption no doc guaranteed and no test upstream protected. kton #57 gave these four queries a
 // --json mode where the id is a named field, so the assumption is gone rather than defended.
-func askLineage(ctx context.Context, cfg *config.Config, r *binaries.Runner, in AskInput, wantTier string) (*mcp.CallToolResult, AskOutput, error) {
+func askLineage(ctx context.Context, cfg *config.Config, r *binaries.Runner, in AskInput, filter *AskFilter) (*mcp.CallToolResult, AskOutput, error) {
 	if in.Query == "reproductions" {
-		return askReproductions(ctx, cfg, r, in, wantTier)
+		return askReproductions(ctx, cfg, r, in, filter)
 	}
 
 	var res *binaries.LineageResult
@@ -200,10 +246,15 @@ func askLineage(ctx context.Context, cfg *config.Config, r *binaries.Runner, in 
 		return errResult[AskOutput]("query failed: %v", err)
 	}
 
-	out := AskOutput{Query: in.Query, Ref: in.Ref, FilterApplied: filterDescription(wantTier)}
+	keyidOf, kerr := keyidsByPath(ctx, cfg, r)
+	if kerr != nil {
+		return errResult[AskOutput]("resolving this repo's configured keys failed: %v", kerr)
+	}
+
+	out := AskOutput{Query: in.Query, Ref: in.Ref, FilterApplied: filter.describe()}
 	var lines []string
 	for _, rec := range res.Records {
-		included, verr := siftFoton(ctx, cfg, r, rec.ID, wantTier, &out)
+		included, verr := siftFoton(ctx, cfg, r, rec.ID, filter, keyidOf, &out)
 		if verr != "" {
 			return errResult[AskOutput]("%s", verr)
 		}
@@ -220,16 +271,21 @@ func askLineage(ctx context.Context, cfg *config.Config, r *binaries.Runner, in 
 // cockpit hands it — which is why the tier filter is passed down rather than applied afterwards: a
 // count taken over every tier and then labelled as one tier's would be a filtered answer that is
 // not filtered.
-func askReproductions(ctx context.Context, cfg *config.Config, r *binaries.Runner, in AskInput, wantTier string) (*mcp.CallToolResult, AskOutput, error) {
-	res, err := r.Reproductions(ctx, in.Ref, wantTier)
+func askReproductions(ctx context.Context, cfg *config.Config, r *binaries.Runner, in AskInput, filter *AskFilter) (*mcp.CallToolResult, AskOutput, error) {
+	res, err := r.Reproductions(ctx, in.Ref, filter.TrustTier)
 	if err != nil {
 		return errResult[AskOutput]("query failed: %v", err)
 	}
 
-	out := AskOutput{Query: in.Query, Ref: in.Ref, FilterApplied: filterDescription(wantTier)}
+	keyidOf, kerr := keyidsByPath(ctx, cfg, r)
+	if kerr != nil {
+		return errResult[AskOutput]("resolving this repo's configured keys failed: %v", kerr)
+	}
+
+	out := AskOutput{Query: in.Query, Ref: in.Ref, FilterApplied: filter.describe()}
 	var lines []string
 	for _, p := range res.Producers {
-		included, verr := siftFoton(ctx, cfg, r, p.ID, wantTier, &out)
+		included, verr := siftFoton(ctx, cfg, r, p.ID, filter, keyidOf, &out)
 		if verr != "" {
 			return errResult[AskOutput]("%s", verr)
 		}
@@ -239,6 +295,18 @@ func askReproductions(ctx context.Context, cfg *config.Config, r *binaries.Runne
 		}
 	}
 	out.VerifiedSigners = res.DistinctSigners
+	// A threshold on the count is the one dimension that can empty an answer without excluding any
+	// single record: the records are fine, there are just not enough of them. Said plainly rather
+	// than by returning nothing.
+	if filter.MinReproductions > 0 && res.DistinctSigners < filter.MinReproductions {
+		out.Included, out.Fotons, lines = nil, nil, nil
+		summaryPrefix := fmt.Sprintf(
+			"below the requested threshold: %d verified independent producer(s), %d asked for.\n",
+			res.DistinctSigners, filter.MinReproductions)
+		out.Raw = summaryPrefix
+		out.FilterApplied = filter.describe()
+		return &mcp.CallToolResult{}, out, nil
+	}
 	summary := fmt.Sprintf("reproductions: %d distinct verified signer(s) produced %s (%d producer foton(s))",
 		res.DistinctSigners, res.Output, res.ProducerFotons)
 	if res.ExcludedUntrusted > 0 {
@@ -251,14 +319,18 @@ func askReproductions(ctx context.Context, cfg *config.Config, r *binaries.Runne
 
 // siftFoton verifies one foton id and records the verdict on out, reporting whether it belongs in
 // the answer. The second return value is a non-empty error message.
-func siftFoton(ctx context.Context, cfg *config.Config, r *binaries.Runner, id, wantTier string, out *AskOutput) (bool, string) {
-	tier, _, err := verify.ResolveTier(ctx, r, cfg, id, verify.Foton)
+func siftFoton(ctx context.Context, cfg *config.Config, r *binaries.Runner, id string, filter *AskFilter, keyidOf map[string]string, out *AskOutput) (bool, string) {
+	tier, verifyingKey, err := verify.ResolveTier(ctx, r, cfg, id, verify.Foton)
 	if err != nil {
 		return false, fmt.Sprintf("verifying %s failed: %v", id, err)
 	}
 	verified := tier != verify.Untrusted
 	out.Records = append(out.Records, RecordVerification{ID: id, Tier: tier, Verified: verified})
-	if !verified || (wantTier != "" && tier != wantTier) {
+	// A foton carries no level and no scope; those dimensions are claim-shaped, so a lineage answer
+	// is narrowed by tier and signer only. Naming a claim dimension on a lineage query is not an
+	// error — it simply has nothing to act on here, and describe() still reports it, so a reader can
+	// see that the filter they asked for did not apply rather than assuming it did.
+	if !verified || !filter.keepsFoton(tier, keyidOf[verifyingKey]) {
 		out.Excluded = append(out.Excluded, id)
 		return false, ""
 	}
@@ -276,6 +348,51 @@ func joinWithWarning(lines []string, warning string) string {
 	return raw
 }
 
+// validateFilter refuses a filter naming something this repo does not have. The second return value
+// is a non-empty error message.
+func validateFilter(ctx context.Context, cfg *config.Config, r *binaries.Runner, f *AskFilter) string {
+	if !f.active() {
+		return ""
+	}
+	if f.TrustTier != "" {
+		if _, ok := cfg.Raw.Trust.Tiers[f.TrustTier]; !ok {
+			return fmt.Sprintf(
+				"no trust tier named %q is configured (this repo has: %s) — an unknown tier would match "+
+					"nothing and read as though nothing here verified",
+				f.TrustTier, strings.Join(sortedTierNames(cfg), ", "))
+		}
+	}
+	switch f.Level {
+	case "", "L0", "L1", "L2":
+	default:
+		return fmt.Sprintf("level %q is not one of L0, L1, L2", f.Level)
+	}
+	if f.MinReproductions < 0 {
+		return "minReproductions cannot be negative"
+	}
+	if f.Signer != "" {
+		// The keyid must name a key this repo CONFIGURES. Accepting any keyid would be filtering on
+		// what a record says about itself, which is the thing §9.1 refuses to use.
+		byPath, err := keyidsByPath(ctx, cfg, r)
+		if err != nil {
+			return fmt.Sprintf("could not resolve this repo's configured keys: %v", err)
+		}
+		known := make([]string, 0, len(byPath))
+		for _, kid := range byPath {
+			if kid == f.Signer {
+				return ""
+			}
+			known = append(known, kid)
+		}
+		sort.Strings(known)
+		return fmt.Sprintf(
+			"no configured key has keyid %q (this repo configures: %s) — filtering on a keyid this repo "+
+				"does not hold would be filtering on what a record claims about itself",
+			f.Signer, strings.Join(known, ", "))
+	}
+	return ""
+}
+
 // sortedTierNames lists this repo's configured tiers, for an error that says what IS available.
 func sortedTierNames(cfg *config.Config) []string {
 	names := make([]string, 0, len(cfg.Raw.Trust.Tiers))
@@ -286,9 +403,70 @@ func sortedTierNames(cfg *config.Config) []string {
 	return names
 }
 
-func filterDescription(wantTier string) string {
-	if wantTier != "" {
-		return fmt.Sprintf("trustTier=%s", wantTier)
+// keepsFoton decides whether a FOTON survives. A foton carries no level and no scope, so only the
+// tier and the verifying key apply; the claim-shaped dimensions have nothing here to act on, and
+// describe() still reports them so a reader sees that what they asked for did not bite.
+func (f *AskFilter) keepsFoton(tier, verifiedBy string) bool {
+	if f.TrustTier != "" && tier != f.TrustTier {
+		return false
 	}
-	return "none — every record verified against a configured trust tier is included; unverified records are always excluded"
+	if f.Signer != "" && verifiedBy != f.Signer {
+		return false
+	}
+	return true
+}
+
+// keyidsByPath maps each configured pubkey path to the keyid a signature carries for it. Resolved
+// once per call rather than per record: it is one substrate invocation per configured key, and the
+// answer cannot change while a call is running.
+func keyidsByPath(ctx context.Context, cfg *config.Config, r *binaries.Runner) (map[string]string, error) {
+	out := map[string]string{}
+	for path := range cfg.TierPubkeys() {
+		kid, err := r.KeyID(ctx, path)
+		if err != nil {
+			return nil, err
+		}
+		out[path] = kid
+	}
+	return out, nil
+}
+
+// keeps decides whether a CLAIM survives the filter, given the tier it verified into.
+func (f *AskFilter) keeps(tier string, c binaries.ClaimAxis) bool {
+	if f.TrustTier != "" && tier != f.TrustTier {
+		return false
+	}
+	if f.Scope != "" && c.Scope != f.Scope {
+		return false
+	}
+	if f.Level != "" && claimLevel(c) != f.Level {
+		return false
+	}
+	if f.Signer != "" && !carriesSignature(c, f.Signer) {
+		return false
+	}
+	return true
+}
+
+// claimLevel reads the reproduction level out of a claim's object, or "" when it carries none. The
+// object is free-form vocabulary, so this reads a field rather than assuming a shape.
+func claimLevel(c binaries.ClaimAxis) string {
+	obj, ok := c.Object.(map[string]any)
+	if !ok {
+		return ""
+	}
+	lvl, _ := obj["level"].(string)
+	return lvl
+}
+
+// carriesSignature reports whether keyid signed this claim. It reads the envelope's signature list,
+// which is what the record actually carries — the filter is only reached for a record that already
+// verified (§9.1), so this narrows within what verification established rather than replacing it.
+func carriesSignature(c binaries.ClaimAxis, keyid string) bool {
+	for _, k := range c.SignatureKeyIDs {
+		if k == keyid {
+			return true
+		}
+	}
+	return false
 }

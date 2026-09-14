@@ -168,6 +168,15 @@ func Publish(ctx context.Context, _ *mcp.CallToolRequest, in PublishInput) (*mcp
 		undeclared = before.ChangedSince(after, append(append([]string{}, in.Inputs...), in.Outputs...))
 	}
 
+	// A corpus entry is a record this result STANDS ON, so this repo's bar for standing on someone
+	// else's work applies here and nowhere else. Checked before anything is written: a publish that
+	// failed this after committing would leave the basis recorded and the conclusion refused.
+	if len(in.Corpus) > 0 && cfg.Raw.Reproduction.MinReproductions > 0 {
+		if msg := checkCorpusCorroboration(ctx, cfg, r, in.Corpus); msg != "" {
+			return errResult[PublishOutput]("%s", msg)
+		}
+	}
+
 	var corpusPath string
 	if len(in.Corpus) > 0 {
 		corpusPath = filepath.Join("corpus", fmt.Sprintf("%s-%d.json", cfg.Raw.Identity.SessionID, time.Now().UnixNano()))
@@ -318,6 +327,41 @@ func resolveEnvRef(cfg *config.Config, supplied string) (envRef string, errMsg s
 		return supplied, ""
 	}
 	return cfg.Raw.Environment.EnvRef, ""
+}
+
+// checkCorpusCorroboration requires every record the caller names as a basis to have been produced
+// independently at least minReproductions times, counted by verified signature.
+//
+// It asks about the record's OUTPUT bytes rather than the record itself, because that is what
+// reproduction means here: another party ran the work and arrived at the same bytes. Two signatures
+// on one foton is exactly that (kton §6.3) — identical work is the same record, and the count is of
+// distinct verified signers.
+//
+// The second return value is a non-empty error message.
+func checkCorpusCorroboration(ctx context.Context, cfg *config.Config, r *binaries.Runner, corpus []string) string {
+	want := cfg.Raw.Reproduction.MinReproductions
+	for _, ref := range corpus {
+		res, err := r.Reproductions(ctx, ref, "")
+		if err != nil {
+			return fmt.Sprintf(
+				"this repo requires %d independent reproduction(s) before a record may be the basis of its "+
+					"own work, and the count for %s could not be established: %v", want, ref, err)
+		}
+		if res.DistinctSigners < want {
+			excluded := ""
+			if res.ExcludedUntrusted > 0 {
+				// The difference between "nobody reproduced this" and "somebody did, but nobody this
+				// repo trusts" is the one a reader needs to act on.
+				excluded = fmt.Sprintf(" (%d further producer(s) were signed by no key this repo trusts)",
+					res.ExcludedUntrusted)
+			}
+			return fmt.Sprintf(
+				"%s has %d verified independent reproduction(s)%s, and this repo requires %d before a "+
+					"record may be the basis of its own work",
+				ref, res.DistinctSigners, excluded, want)
+		}
+	}
+	return ""
 }
 
 func errResult[T any](format string, args ...any) (*mcp.CallToolResult, T, error) {

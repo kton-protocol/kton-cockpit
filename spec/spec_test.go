@@ -22,6 +22,8 @@ var (
 	citationRe = regexp.MustCompile(`\bTest[A-Za-z0-9_]+\b`)
 	familyRe   = regexp.MustCompile(`\bTest[A-Za-z0-9_]+_\*`)
 	declRe     = regexp.MustCompile(`(?m)^func (Test[A-Za-z0-9_]+)\(`)
+	// A leading clause number, e.g. "5.4 " or "12 ".
+	clauseNumberRe = regexp.MustCompile(`^[0-9]+(\.[0-9]+)?\s+`)
 )
 
 func TestSpec_EveryCitedTestExists(t *testing.T) {
@@ -80,7 +82,11 @@ func TestSpec_EveryNormativeSectionSaysHowItIsChecked(t *testing.T) {
 	sections := regexp.MustCompile(`(?m)^#{2,3} `).Split(string(spec), -1)
 	var missing []string
 	for _, sec := range sections {
+		// Matched on the title's NAME, with any leading clause number stripped. Renumbering a section
+		// is an editorial act; it should not silently move a section out of the exemption list, which
+		// is what matching on "14 Conformance" did the first time a clause was inserted above it.
 		title := strings.TrimSpace(strings.SplitN(sec, "\n", 2)[0])
+		title = clauseNumberRe.ReplaceAllString(title, "")
 		if !strings.Contains(sec, "MUST") {
 			continue
 		}
@@ -89,12 +95,12 @@ func TestSpec_EveryNormativeSectionSaysHowItIsChecked(t *testing.T) {
 			strings.HasPrefix(title, "Scope"), strings.HasPrefix(title, "Conventions"),
 			strings.HasPrefix(title, "Terms"), strings.HasPrefix(title, "Normative references"),
 			strings.HasPrefix(title, "Foreword"), strings.HasPrefix(title, "Introduction"),
-			strings.HasPrefix(title, "1 Scope"), strings.HasPrefix(title, "1.2 Out of scope"),
-			strings.HasPrefix(title, "4 Conventions"),
-			strings.HasPrefix(title, "13 What a cockpit does not do"),
-			strings.HasPrefix(title, "14 Conformance"),
-			strings.HasPrefix(title, "5.4"), strings.HasPrefix(title, "6 The surface"),
-			strings.HasPrefix(title, "12.3"), strings.HasPrefix(title, "11 Anchoring"):
+			strings.HasPrefix(title, "Scope"), strings.HasPrefix(title, "Out of scope"),
+			strings.HasPrefix(title, "Conventions"),
+			strings.HasPrefix(title, "What a cockpit does not do"),
+			strings.HasPrefix(title, "Conformance"),
+			strings.HasPrefix(title, "What neither mode catches"), strings.HasPrefix(title, "The surface"),
+			strings.HasPrefix(title, "Reading records"), strings.HasPrefix(title, "Anchoring"):
 			continue
 		default:
 			missing = append(missing, title)

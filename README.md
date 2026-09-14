@@ -86,6 +86,5 @@ layout, and the manual smoke-test recipe against a real populated registry.
 
 [`projectdocs/claude-science-cockpit/`](projectdocs/claude-science-cockpit/_project.md) has the
 full rationale: the anti-wrong-folder guard, the config schema, the three-verb boundary, and what
-this project deliberately does not build — read it before making architectural changes. The
-governing internal build spec (German) is
-[`# Claude-Science-Cockpit — Bau-Spezifika.md`](./%23%20Claude-Science-Cockpit%20%E2%80%94%20Bau-Spezifika.md).
+this project deliberately does not build — read it before making architectural changes. It is a
+working record rather than a contract; the contract is [`spec/SPEC.md`](spec/SPEC.md).

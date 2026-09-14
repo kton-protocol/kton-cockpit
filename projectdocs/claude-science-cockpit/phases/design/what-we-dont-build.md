@@ -10,8 +10,10 @@ tags: [scope, constraints]
 
 ## Summary
 
-Directly from the governing spec's "Nicht bauen" section — recorded here as a design constraint,
-not just a note in the spec, so it stays visible during implementation.
+Originally from the German design brief's "Nicht bauen" section. That brief is no longer in the
+repository (it described three things that were never built, and keeping it would have published
+commitments the code does not keep). These constraints are now normative in
+[`spec/SPEC.md` §13](../../../../spec/SPEC.md), where each one is checked.
 
 ## Details
 

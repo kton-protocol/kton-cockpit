@@ -1310,3 +1310,160 @@ func TestAsk_RefusesAnUnknownTrustTierName(t *testing.T) {
 		t.Fatalf("the error does not say which tiers exist: %s", errText(result))
 	}
 }
+
+// The brief's filter dimensions, each narrowing and none able to widen. A filter naming something
+// this repo does not have is refused rather than matching nothing — an unknown value would empty
+// the answer and read exactly like "this repository trusts none of this".
+func TestAsk_FilterDimensionsNarrowAndAreValidated(t *testing.T) {
+	r := testrepo.New(t)
+	r.Use(t)
+	pub := publishOne(t, r)
+	claimID := sayWorkingOn(t, pub.FotonID)
+
+	// The keyid that actually signed the claim, taken from the record rather than recomputed.
+	_, about, err := Ask(context.Background(), nil, AskInput{Query: "about", Ref: pub.FotonID})
+	if err != nil || len(about.Claims) == 0 {
+		t.Fatalf("could not read the claim back: err=%v claims=%+v", err, about.Claims)
+	}
+	signer := about.Claims[0].SignatureKeyIDs[0]
+
+	ask := func(f *AskFilter) (AskOutput, string) {
+		t.Helper()
+		result, out, err := Ask(context.Background(), nil, AskInput{Query: "about", Ref: pub.FotonID, Filter: f})
+		if err != nil {
+			t.Fatalf("Ask returned a Go error: %v", err)
+		}
+		if result.IsError {
+			return out, errText(result)
+		}
+		return out, ""
+	}
+
+	t.Run("signer keeps a claim its key signed", func(t *testing.T) {
+		out, e := ask(&AskFilter{Signer: signer})
+		if e != "" {
+			t.Fatalf("refused: %s", e)
+		}
+		if len(out.Included) != 1 || out.Included[0] != claimID {
+			t.Fatalf("the claim its own signer signed was dropped: %+v", out.Included)
+		}
+		if !strings.Contains(out.FilterApplied, "signer=") {
+			t.Errorf("the active filter must travel with the answer: %q", out.FilterApplied)
+		}
+	})
+
+	t.Run("a level the claim does not carry drops it", func(t *testing.T) {
+		// working-on carries no level at all, so asking for one must exclude it — narrowing, not
+		// an error.
+		out, e := ask(&AskFilter{Level: "L0"})
+		if e != "" {
+			t.Fatalf("refused: %s", e)
+		}
+		if len(out.Included) != 0 {
+			t.Fatalf("a claim with no level survived a level filter: %+v", out.Included)
+		}
+		if len(out.Excluded) != 1 {
+			t.Fatalf("it must still be accounted for as found-and-excluded: %+v", out.Excluded)
+		}
+	})
+
+	t.Run("a scope the claim is not in drops it", func(t *testing.T) {
+		out, e := ask(&AskFilter{Scope: "sha256:" + strings.Repeat("a", 64)})
+		if e != "" {
+			t.Fatalf("refused: %s", e)
+		}
+		if len(out.Included) != 0 {
+			t.Fatalf("an unscoped claim survived a scope filter: %+v", out.Included)
+		}
+	})
+
+	for name, f := range map[string]*AskFilter{
+		"an unknown signer":       {Signer: "0000000000000000"},
+		"a level that is not one": {Level: "L7"},
+		"a negative threshold":    {MinReproductions: -1},
+	} {
+		t.Run(name+" is refused", func(t *testing.T) {
+			if _, e := ask(f); e == "" {
+				t.Fatal("accepted, and it would have matched nothing while looking like a finding")
+			}
+		})
+	}
+}
+
+// A threshold on the count empties an answer without any single record being at fault: the records
+// are fine, there are just not enough of them, and that has to be said rather than returned as
+// silence.
+func TestAsk_MinReproductionsSaysTheThresholdWasNotMet(t *testing.T) {
+	r := testrepo.New(t)
+	r.Use(t)
+	pub := publishOne(t, r)
+	hash := pub.OutputHashes["data/out.csv"]
+
+	_, met, err := Ask(context.Background(), nil, AskInput{
+		Query: "reproductions", Ref: hash, Filter: &AskFilter{MinReproductions: 1}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if met.VerifiedSigners != 1 || len(met.Included) != 1 {
+		t.Fatalf("one producer meets a threshold of one: %+v", met)
+	}
+
+	_, unmet, err := Ask(context.Background(), nil, AskInput{
+		Query: "reproductions", Ref: hash, Filter: &AskFilter{MinReproductions: 2}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(unmet.Included) != 0 {
+		t.Fatalf("a threshold of two was reported as met by one producer: %+v", unmet.Included)
+	}
+	if !strings.Contains(unmet.Raw, "below the requested threshold") {
+		t.Fatalf("the answer does not say the threshold was not met: %q", unmet.Raw)
+	}
+	if !strings.Contains(unmet.FilterApplied, "minReproductions=2") {
+		t.Errorf("the active filter must travel with the answer: %q", unmet.FilterApplied)
+	}
+}
+
+// The corroboration bar: a record may not be the basis of this repo's own work until enough
+// independent parties have produced it. The count is the verified one — a self-declared ↻N would
+// make the threshold satisfiable by relabelling a keyid.
+func TestPublish_RefusesACorpusRecordNobodyElseHasReproduced(t *testing.T) {
+	r := testrepo.New(t)
+	raw := testrepo.DefaultConfig()
+	raw.Reproduction.MinReproductions = 2
+	r.WriteConfig(t, raw)
+	r.Use(t)
+
+	basis := publishOne(t, r) // one producer: this repo
+	r.Write(t, "data/derived.csv", "built on the above\n")
+
+	result, _, err := Publish(context.Background(), nil, PublishInput{
+		Inputs:  []string{"data/out.csv"},
+		Outputs: []string{"data/derived.csv"},
+		Cmd:     "derive from data/out.csv",
+		Corpus:  []string{basis.OutputHashes["data/out.csv"]},
+	})
+	if err != nil {
+		t.Fatalf("expected a tool-level error, not a Go error: %v", err)
+	}
+	if !result.IsError {
+		t.Fatal("a record with one producer was accepted as a basis where two are required")
+	}
+	if !strings.Contains(errText(result), "basis of its own work") {
+		t.Fatalf("the error does not explain the bar: %s", errText(result))
+	}
+
+	// And with no threshold configured, the same publish goes through — the bar is the repo's, not
+	// something the cockpit imposes.
+	raw.Reproduction.MinReproductions = 0
+	r.WriteConfig(t, raw)
+	ok, _, err := Publish(context.Background(), nil, PublishInput{
+		Inputs:  []string{"data/out.csv"},
+		Outputs: []string{"data/derived.csv"},
+		Cmd:     "derive from data/out.csv",
+		Corpus:  []string{basis.OutputHashes["data/out.csv"]},
+	})
+	if err != nil || ok.IsError {
+		t.Fatalf("without a threshold this must publish: err=%v %s", err, errText(ok))
+	}
+}

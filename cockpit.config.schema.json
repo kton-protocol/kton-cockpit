@@ -135,7 +135,8 @@
       "additionalProperties": false,
       "properties": {
         "requiredLevel": { "type": "string", "enum": ["L0", "L1"] },
-        "normalizer": { "type": ["string", "null"] }
+        "normalizer": { "type": ["string", "null"] },
+        "minReproductions": { "type": "integer", "minimum": 0, "description": "How many independent, VERIFIED producers a record must have before this repo will let it be the basis of its own work — the corpus of a publish. Different from requiredLevel, which is about work THIS repo did (did my re-run match); this is about work somebody else did (how many independent parties produced these same bytes before I build on them). A result nobody has reproduced may be perfectly correct; it has simply not been corroborated. Zero, the default, requires nothing. Always the verified count: a self-declared ↻N would make the threshold satisfiable by relabelling a keyid." }
       }
     }
   }

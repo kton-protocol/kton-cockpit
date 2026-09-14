@@ -25,9 +25,11 @@ folders from earlier experiments — a Claude session with an ambiguous working 
 onto the wrong project's registry and keep "cooperating" there. The cockpit's job is to make that
 structurally impossible, not just discouraged by convention.
 
-The governing spec is `# Claude-Science-Cockpit — Bau-Spezifika.md` (this repo's root) — a short,
-intentionally minimal internal build spec. This project's docs exist to carry that spec forward
-into a concrete, buildable design, and to record the design decisions made along the way.
+The work was commissioned from a short German build brief, `Bau-Spezifika.md`, which is no longer in
+the repository: it said of itself that it was internal, and it described three things that were
+never built. What governs now is [`spec/SPEC.md`](../../spec/SPEC.md) — what the cockpit guarantees,
+clause by clause, each naming the test that checks it. These docs are the working record of getting
+from one to the other, not a contract.
 
 ## Goals
 

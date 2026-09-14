@@ -18,9 +18,16 @@ naming the test that exercises it, with the limits stated beside the guarantees.
 changing behaviour a clause depends on; `spec/spec_test.go` fails if a clause cites a test that is
 no longer there, or states a MUST without saying how it is checked.
 
-The design *brief* is [`# Claude-Science-Cockpit — Bau-Spezifika.md`](./%23%20Claude-Science-Cockpit%20%E2%80%94%20Bau-Spezifika.md)
-(German). It says of itself that it is an internal document, so it is what the work was commissioned
-from, not what the cockpit promises — that is `spec/SPEC.md`.
+The German design brief this was commissioned from is not in the repository. It said of itself that
+it was an internal document, and it described three things that were never built — a Sigstore-backed
+signing identity, a reproduction-count precondition, and four of the five filter dimensions. Two of
+those are now built and specified; the third is [an open request](spec/SPEC.md#open-questions).
+Keeping the brief would have published commitments the code does not keep, which is the failure this
+project spends its effort preventing one level down.
+
+Everything in it that still governs — the three verbs, verified-not-declared, the configuration as a
+ceiling, the "do not build" list — is in `spec/SPEC.md`, where each clause names the test that
+checks it.
 
 ## Build
 
@@ -49,7 +56,7 @@ successfully; kton 0.2 added `objects/.format` so a store can say what wrote it,
 does not know to look. So: never use a `plankton`/`nekton` from `$PATH`, a package manager, or
 another checkout — only one built from the kton tree you mean.
 
-**Verified against:** kton `dev` at `46823ec` (0.2).
+**Verified against:** kton `dev` at `43f1600` (0.2).
 
 `dev` moves, and this line is checked rather than remembered: `TestVerifiedAgainst` compares it
 against the `vcs.revision` Go stamped into `bin/plankton`. When upstream has moved, the fixture

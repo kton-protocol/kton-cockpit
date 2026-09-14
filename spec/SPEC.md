@@ -284,6 +284,22 @@ If the outputs do not reproduce, **no claim is written at all.**
 > `TestSay_ReproducesRefusesWhenTheOutputsDoNotMatch`,
 > `TestReproduces_IdenticalBytesAreL0EvenWithViaPassed`, `examples/04-claim-ceiling`.
 
+### 8.4 Building on someone else's result
+
+A repository MAY require that a record have been independently reproduced before it will let that
+record be the basis of its own work — the `corpus` of a publish (§7.1).
+
+The count MUST be the verified one (§9.3). A self-declared ↻N would make the threshold satisfiable
+by relabelling a keyid, which is the opposite of what a corroboration bar is for.
+
+The check MUST happen before anything is written. A publish that failed it after committing would
+leave the basis recorded and the conclusion refused.
+
+> **Checked by:** `TestPublish_RefusesACorpusRecordNobodyElseHasReproduced`.
+
+> **Not guaranteed:** that a corroborated record is correct. Independent reproduction says several
+> parties produced the same bytes, which is a statement about agreement, not about truth.
+
 ### 8.3 Registration
 
 A cockpit MUST confirm, by querying the record back, that the claim registered — and MUST NOT report
@@ -310,12 +326,40 @@ is there" and "something is there that you do not trust" are different answers.
 
 ### 9.2 Filtering
 
-A filter MAY narrow within the configured tiers. It MUST NOT widen past them. A tier name that is
-not configured MUST be refused rather than matching nothing — an unknown name otherwise reads
-exactly like "this repository trusts none of this".
+A filter MAY narrow. It MUST NOT widen: no dimension can surface a record the trust configuration
+would otherwise exclude, and none can reach past the configured tiers.
 
-> **Checked by:** `TestAsk_RefusesAnUnknownTrustTierName`,
-> `TestAsk_ReproductionsCountIsScopedToTheRequestedTier`.
+| dimension | narrows to |
+|---|---|
+| `trustTier` | records a key in that configured tier verified |
+| `signer` | records a specific configured key verified — never a keyid a record declares about itself |
+| `level` | claims at a given reproduction level |
+| `scope` | claims chained under one scope |
+| `minReproductions` | a `reproductions` answer reaching at least that many verified producers |
+
+A value naming something this repository does not have MUST be refused rather than matching
+nothing. An unknown tier, level or signer would otherwise empty the answer and read exactly like
+"this repository trusts none of this" — a typo presenting as a finding.
+
+A dimension that has nothing to act on is not an error: a foton carries no level and no scope, so a
+lineage answer is narrowed by tier and signer only. The report in §9.5 still names what was asked
+for, so a reader can see that a filter did not bite rather than assuming it did.
+
+> **Checked by:** `TestAsk_FilterDimensionsNarrowAndAreValidated`,
+> `TestAsk_RefusesAnUnknownTrustTierName`, `TestAsk_ReproductionsCountIsScopedToTheRequestedTier`,
+> `TestAsk_MinReproductionsSaysTheThresholdWasNotMet`.
+
+### 9.5 The active filter travels with the answer
+
+Every answer MUST report which filter was applied. "No trustworthy cleanup was found" and "no
+cleanup was found" are different findings, and a reader who cannot see which filter ran cannot tell
+them apart.
+
+A threshold that is not met MUST say so rather than return silence: no single record was at fault,
+there were simply not enough of them.
+
+> **Checked by:** `TestAsk_MinReproductionsSaysTheThresholdWasNotMet`,
+> `TestAsk_FilterDimensionsNarrowAndAreValidated`.
 
 ### 9.3 Counting reproductions
 
@@ -452,7 +496,42 @@ From the governing design, restated normatively:
 
 A capability gap in the substrate MUST be raised against the protocol, not worked around here.
 
-## 14 Conformance
+## 14 Open questions
+
+Recorded here rather than left implied, and phrased as what is missing rather than what is planned.
+
+### 14.1 The signing identity is a key, not a person
+
+A record signed by this cockpit carries an ed25519 key. Nothing binds that key to a person, and the
+cockpit makes no claim that it does.
+
+Where the work is a sign-off — a review, a release gate, anything a regulated process would have to
+attribute — a key is not enough. The gap is real and this document does not paper over it: §9.1's
+"verified, not declared" establishes *which key* signed, and stops there.
+
+Two routes exist and they are not interchangeable:
+
+- **Keyless (Fulcio/OIDC).** A short-lived certificate binds an OIDC identity to an ephemeral key.
+  The kernel carries a scaffold for this and has deliberately not wired it, because obtaining the
+  token needs an interactive browser flow or an ambient CI token — and a cockpit running as a
+  sandboxed connector has neither. Building it here would be reimplementing kernel logic, which §13
+  forbids; it is a request against the protocol.
+- **Organisational PKI.** A durable X.509 identity as the `by`, with the transparency log used
+  purely as a witness of time. The kernel's own note recommends this for regulated signing and
+  observes that keyless "fits the public/open-federation edge, not internal sign-offs". kton §8.1
+  already names `cms-detached` and `jades` as verification-material schemes, so the substrate
+  anticipates it.
+
+Which of the two a deployment needs is a property of that deployment, not of the cockpit. Until one
+is wired, §11's anchoring establishes *when* a record existed and never *who* made it.
+
+### 14.2 Determinism is possible, not required
+
+§10 lets a repository pin the environment by running the command itself. Nothing requires it: a
+record that becomes the basis of a claim may have been produced anywhere. A repository that needs
+that guarantee currently configures it and is trusted to have done so.
+
+## 15 Conformance
 
 An implementation conforms if every MUST above holds. Because each clause names its check,
 conformance is demonstrable rather than asserted:

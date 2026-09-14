@@ -219,8 +219,21 @@ func (e Execution) EngineOrDefault() string {
 func (e Execution) ImageRef() string { return strings.TrimPrefix(e.Image, "oci://") }
 
 type Reproduction struct {
+	// RequiredLevel is the level a `reproduces` claim must reach before it is written at all.
 	RequiredLevel string `json:"requiredLevel"`
 	Normalizer    string `json:"normalizer"`
+	// MinReproductions is how many independent, VERIFIED producers a record must have before this
+	// repo will let it be the basis of its own work — the corpus of a publish.
+	//
+	// The difference from RequiredLevel is which question it answers. RequiredLevel is about work
+	// this repo did: did my re-run actually match. MinReproductions is about work somebody ELSE did:
+	// how many independent parties have produced these same bytes before I build on them. A result
+	// nobody has reproduced may be perfectly correct; it has simply not been corroborated, and a
+	// repo may reasonably decline to stand on it.
+	//
+	// Zero, the default, requires nothing. The count is always the verified one (§9.3): a
+	// self-declared ↻N would make this threshold satisfiable by relabelling a keyid.
+	MinReproductions int `json:"minReproductions,omitempty"`
 }
 
 // Raw is the on-disk shape of cockpit.config.json, with paths still relative to RepoRoot.
