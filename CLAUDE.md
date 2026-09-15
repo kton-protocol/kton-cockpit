@@ -156,9 +156,11 @@ examples/02-chain/run.sh     # or one
 ```
 
 One property per directory, each a readable script that builds its own participant repo from
-nothing. Two need something the others do not: `07-run-in-container` a container engine, and
-`09-carried-evidence` `openssl`, which it uses to issue a certificate for the key plankton already
-holds — the step an operator actually has to perform, so it is performed rather than assumed. They demonstrate what the cockpit adds over the kernel — the guard, the claim ceiling, the
+nothing. Three need something the others do not: `07-run-in-container` a container engine,
+`09-carried-evidence` `openssl` (it issues a certificate for the key plankton already holds — the
+step an operator actually has to perform, so it is performed rather than assumed), and
+`10-cleaning-is-an-argument` R and network, because it works on real open data and pinning the
+bytes that were actually downloaded is half of what it is about. They demonstrate what the cockpit adds over the kernel — the guard, the claim ceiling, the
 verified-not-declared rule, the environment pin — over the MCP surface a session actually gets,
 rather than by driving plankton and git directly.
 
