@@ -94,7 +94,7 @@ type Environment struct {
 // A signature says who signed. It does not say WHEN, and it does not stop the signer from later
 // producing a different record and claiming that one was the original. An anchor adds an
 // independent, append-only witness: Rekor attests that this exact record existed by a given time,
-// and the proof is stored beside the record as verification material (SPEC §8.1).
+// and the proof is stored beside the record as verification material (kton §8.1).
 //
 // Off by default, and that default is not timidity: anchoring PUBLISHES THE RECORD, permanently.
 //
@@ -122,7 +122,7 @@ type Anchor struct {
 // Material is external evidence this cockpit attaches to every record it writes, plus the roots it
 // is able to check such evidence against.
 //
-// SPEC §8.1 keeps verification material deliberately open, and `plankton attach` says why in as
+// kton §8.1 keeps verification material deliberately open, and `plankton attach` says why in as
 // many words: an unknown scheme is carried rather than rejected, because "refusing unknown evidence
 // would make this list a protocol version". This block inherits that stance exactly. It prescribes
 // no key form, no issuer, no algorithm and no scheme token — it says what to carry, and separately
@@ -152,7 +152,7 @@ type Material struct {
 
 // Attachment is one piece of evidence to carry, named the way `plankton attach` takes it.
 type Attachment struct {
-	// Scheme is the SPEC §8.1 token that says what produced Material. The listed tokens are
+	// Scheme is the kton §8.1 token that says what produced Material. The listed tokens are
 	// sigstore-bundle, rekor-entry, rfc3161, cms-detached, jades and pgp-detached — but the list is
 	// open and an unlisted one is accepted here for the same reason the kernel accepts it.
 	Scheme string `json:"scheme"`
@@ -280,7 +280,7 @@ type Reproduction struct {
 	// nobody has reproduced may be perfectly correct; it has simply not been corroborated, and a
 	// repo may reasonably decline to stand on it.
 	//
-	// Zero, the default, requires nothing. The count is always the verified one (§9.3): a
+	// Zero, the default, requires nothing. The count is always the verified one (SPEC §9.3): a
 	// self-declared ↻N would make this threshold satisfiable by relabelling a keyid.
 	MinReproductions int `json:"minReproductions,omitempty"`
 }

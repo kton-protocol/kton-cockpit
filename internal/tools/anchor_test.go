@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -53,7 +54,6 @@ func TestAnchor_TheProofIsAttachedToTheRecordAndCommittedWithIt(t *testing.T) {
 		Material []struct {
 			Scheme   string `json:"scheme"`
 			Material string `json:"material"`
-			Verified bool   `json:"verified"`
 		} `json:"material"`
 	}
 	if err := json.Unmarshal(out, &read); err != nil {
@@ -66,9 +66,13 @@ func TestAnchor_TheProofIsAttachedToTheRecordAndCommittedWithIt(t *testing.T) {
 	if m.Scheme != "rekor-entry" {
 		t.Errorf("scheme: %q", m.Scheme)
 	}
-	// The kernel stores it without evaluating it — SPEC §8.1 — so `verified` being false here is
-	// correct and not a failure. The verification happened before the attach, in `kton anchor`.
-	if m.Verified {
+	// The kernel stores material without evaluating it (kton §8.1), so it must never report a
+	// verdict about it. Asserted against the RAW json rather than the decoded struct: the field is
+	// being removed upstream as a kton §8.1 violation — it makes a verification statement the clause
+	// forbids the kernel from making — and once it is gone, a decoded bool would be checking a
+	// zero value and passing for the wrong reason. Absent and false are both correct here; true
+	// never is.
+	if bytes.Contains(out, []byte(`"verified":true`)) || bytes.Contains(out, []byte(`"verified": true`)) {
 		t.Error("the kernel reported the material as verified; it does not evaluate material")
 	}
 	blob, derr := base64.StdEncoding.DecodeString(m.Material)

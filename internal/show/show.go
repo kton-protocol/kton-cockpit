@@ -31,7 +31,7 @@ import (
 //
 // It used to start `kton serve` for both substrates and read /sync over HTTP. #83 removed that,
 // noting that the cockpit was launching a server on a free local port to talk to itself — HTTP as a
-// worse CLI — and #85 answered the same SPEC §12 query over stdout. So this is now two subprocess
+// worse CLI — and #85 answered the same kton §12 query over stdout. So this is now two subprocess
 // calls where it was two servers, two ports and a readiness poll, and the property that mattered is
 // unchanged: the records come from the kernels, not from the store.
 type Server struct {

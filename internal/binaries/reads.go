@@ -18,7 +18,7 @@ import (
 
 // Record is one stored record: the id the substrate filed it under, and the signed envelope
 // itself. `{seq, fotonId|claimId, envelope}` is what the kernel persists, what `add` accepts, and
-// byte-for-byte the SPEC §12 sync(since) answer — so this is that query, answered over stdout.
+// byte-for-byte the kton §12 sync(since) answer — so this is that query, answered over stdout.
 //
 // The envelope is kept raw. Anything that must CHECK a record — a viewer re-verifying in the
 // browser, `kton anchor` handing it to Rekor — needs the bytes as signed, and a struct that decoded

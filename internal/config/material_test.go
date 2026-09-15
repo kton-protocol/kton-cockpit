@@ -10,7 +10,7 @@ import (
 // The single most important case in this file is the one that must PASS: an unlisted scheme.
 // Everything else here refuses something, and a validator that grew one more refusal — of evidence
 // it simply had not heard of — would quietly turn this repo's scheme list into a protocol version,
-// which is exactly what SPEC §8.1 exists to prevent.
+// which is exactly what kton §8.1 exists to prevent.
 func TestValidateMaterial_AnUnlistedSchemeIsAccepted(t *testing.T) {
 	err := validateMaterial(Material{Attach: []Attachment{{
 		Scheme: "acme-internal-badge-v3", MediaType: "application/octet-stream", File: "identity/badge.bin",

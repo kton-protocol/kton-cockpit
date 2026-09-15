@@ -88,7 +88,7 @@ type RecordVerification struct {
 	ID       string `json:"id"`
 	Tier     string `json:"tier"`
 	Verified bool   `json:"verified"`
-	// Material is the external evidence attached to this record (SPEC §8.1), each item carrying
+	// Material is the external evidence attached to this record (kton §8.1), each item carrying
 	// whether this cockpit evaluated it. Present only for INCLUDED records, for the same reason Raw
 	// is redacted: evidence attached to a record that did not verify is content from an untrusted
 	// record, and surfacing it would route around the filter it was excluded by.
@@ -391,7 +391,7 @@ func validateFilter(ctx context.Context, cfg *config.Config, r *binaries.Runner,
 	}
 	if f.Signer != "" {
 		// The keyid must name a key this repo CONFIGURES. Accepting any keyid would be filtering on
-		// what a record says about itself, which is the thing §9.1 refuses to use.
+		// what a record says about itself, which is the thing SPEC §9.1 refuses to use.
 		byPath, err := keyidsByPath(ctx, cfg, r)
 		if err != nil {
 			return fmt.Sprintf("could not resolve this repo's configured keys: %v", err)
@@ -480,7 +480,7 @@ func claimLevel(c binaries.ClaimAxis) string {
 
 // carriesSignature reports whether keyid signed this claim. It reads the envelope's signature list,
 // which is what the record actually carries — the filter is only reached for a record that already
-// verified (§9.1), so this narrows within what verification established rather than replacing it.
+// verified (SPEC §9.1), so this narrows within what verification established rather than replacing it.
 func carriesSignature(c binaries.ClaimAxis, keyid string) bool {
 	for _, k := range c.SignatureKeyIDs {
 		if k == keyid {

@@ -95,6 +95,11 @@ func TestEvaluate_CertificateForAnotherKeyIsFailed(t *testing.T) {
 	if got.Verdict != Failed {
 		t.Fatalf("a certificate for a different key must be %q, got %q (%s)", Failed, got.Verdict, got.Detail)
 	}
+	// The reason separates this from damaged bytes: this one is a file wired to the wrong record and
+	// is fixed by editing the config, not by investigating an attack.
+	if got.Reason != NotBound {
+		t.Errorf("want reason %q, got %q — a caller cannot tell a misconfiguration from bitrot", NotBound, got.Reason)
+	}
 }
 
 // TestEvaluate_ExpiredCertificateIsFailed: the chain check is crypto/x509's, and the validity
@@ -112,6 +117,9 @@ func TestEvaluate_ExpiredCertificateIsFailed(t *testing.T) {
 	got := evaluate(stored("x509-cert", leafDER), signerPub, roots)
 	if got.Verdict != Failed {
 		t.Fatalf("an expired certificate must be %q, got %q (%s)", Failed, got.Verdict, got.Detail)
+	}
+	if got.Reason != Chain {
+		t.Errorf("want reason %q for a certificate nothing configured vouches for, got %q", Chain, got.Reason)
 	}
 }
 
@@ -198,7 +206,7 @@ func TestEvaluate_RekorEntrySaysItWasVerifiedWhenAttached(t *testing.T) {
 	}
 }
 
-// TestEvaluate_CorruptBase64IsFailed: §8.1 guarantees material never invalidates a record, and it
+// TestEvaluate_CorruptBase64IsFailed: kton §8.1 guarantees material never invalidates a record, and it
 // does not — but evidence that cannot even be decoded is unusable, and saying nothing about it
 // would let a reader assume it was fine.
 func TestEvaluate_CorruptBase64IsFailed(t *testing.T) {
@@ -206,6 +214,59 @@ func TestEvaluate_CorruptBase64IsFailed(t *testing.T) {
 	got := evaluate(binaries.StoredMaterial{Scheme: "rfc3161", Material: "not!base64!"}, signerPub, nil)
 	if got.Verdict != Failed {
 		t.Fatalf("want %q for undecodable material, got %q", Failed, got.Verdict)
+	}
+	if got.Reason != Unreadable {
+		t.Errorf("want reason %q for damaged bytes, got %q", Unreadable, got.Reason)
+	}
+}
+
+// TestEvaluate_EveryFailureNamesWhichOne: the property behind the individual cases. A failed verdict
+// with no reason forces a caller back into parsing Detail, which is keying on a sentence — the
+// mistake this project removed from say.go's reproduction level.
+func TestEvaluate_EveryFailureNamesWhichOne(t *testing.T) {
+	caPub, caKey, _ := ed25519.GenerateKey(rand.Reader)
+	caCert, _ := mkCert(t, "Test Root", caPub, nil, caKey, time.Now().Add(24*time.Hour))
+	signerPub, _, _ := ed25519.GenerateKey(rand.Reader)
+	otherPub, _, _ := ed25519.GenerateKey(rand.Reader)
+	roots := x509.NewCertPool()
+	roots.AddCert(caCert)
+
+	_, wrongKey := mkCert(t, "Somebody Else", otherPub, caCert, caKey, time.Now().Add(time.Hour))
+	_, expired := mkCert(t, "Jane Researcher", signerPub, caCert, caKey, time.Now().Add(-time.Minute))
+
+	cases := map[string]binaries.StoredMaterial{
+		"a certificate for another key": stored("x509-cert", wrongKey),
+		"an expired certificate":        stored("x509-cert", expired),
+		"undecodable bytes":             {Scheme: "rfc3161", Material: "not!base64!"},
+	}
+	for name, in := range cases {
+		got := evaluate(in, signerPub, roots)
+		if got.Verdict != Failed {
+			t.Fatalf("%s: expected a failure to assert a reason about, got %q", name, got.Verdict)
+		}
+		if got.Reason == "" {
+			t.Errorf("%s: failed with no reason — a caller can only tell why by reading prose", name)
+		}
+	}
+}
+
+// And the inverse: a verdict that is not a failure must not carry a reason, or "reason" starts
+// meaning two things depending on which verdict it sits beside.
+func TestEvaluate_OnlyFailuresCarryAReason(t *testing.T) {
+	caPub, caKey, _ := ed25519.GenerateKey(rand.Reader)
+	caCert, _ := mkCert(t, "Test Root", caPub, nil, caKey, time.Now().Add(24*time.Hour))
+	signerPub, _, _ := ed25519.GenerateKey(rand.Reader)
+	_, der := mkCert(t, "Jane Researcher", signerPub, caCert, caKey, time.Now().Add(time.Hour))
+	roots := x509.NewCertPool()
+	roots.AddCert(caCert)
+
+	for name, got := range map[string]Report{
+		"verified": evaluate(stored("x509-cert", der), signerPub, roots),
+		"carried":  evaluate(stored("jades", []byte(`{"protected":"eyJ9"}`)), signerPub, roots),
+	} {
+		if got.Reason != "" {
+			t.Errorf("%s carries reason %q; reason belongs to a failure only", name, got.Reason)
+		}
 	}
 }
 

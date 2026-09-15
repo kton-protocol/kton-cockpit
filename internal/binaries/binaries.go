@@ -148,7 +148,7 @@ func (r *Runner) KeyID(ctx context.Context, pubkeyPath string) (string, error) {
 //
 // It replaces reading them over `kton serve`'s /sync, which #83 removed with the observation that
 // the cockpit was launching a server on a local port to talk to itself — HTTP as a worse CLI. #85
-// answered the same SPEC §12 query over stdout, so this is two subprocess calls where it used to be
+// answered the same kton §12 query over stdout, so this is two subprocess calls where it used to be
 // two servers, two free ports and a readiness poll.
 //
 // It still does not read the store. Which is the point: kton-web's own reader measures what parsing
@@ -476,7 +476,7 @@ func (r *Runner) VerifyClaim(ctx context.Context, idOrFile, pubkeyPath string) (
 	return false, out, err
 }
 
-// --- verification material (SPEC §8.1) ---
+// --- verification material (kton §8.1) ---
 
 // StoredMaterial is one piece of evidence as the kernel hands it back.
 //

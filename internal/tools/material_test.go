@@ -1,15 +1,19 @@
 package tools
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"encoding/pem"
 	"math/big"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -379,4 +383,70 @@ func TestMaterial_PreflightReportsTheVerdictBeforeAnythingIsPublished(t *testing
 			t.Fatalf("want one %q report for the claim key's certificate, got %+v", material.Verified, got)
 		}
 	})
+}
+
+// TestMaterial_TheVerdictIsNeverStored is the mechanical half of "the verdict does not federate".
+//
+// Operators assume the opposite — "verified" reads like a property of the record, and it is a
+// property of the reading — so it is worth checking rather than asserting in prose. What is stored
+// is the configured bytes and nothing else: no verdict, no reason, no subject line. A peer that
+// mirrors this record receives the evidence and re-evaluates it against ITS OWN configured roots,
+// and may legitimately reach a different answer about identical bytes.
+func TestMaterial_TheVerdictIsNeverStored(t *testing.T) {
+	r := testrepo.New(t)
+	certPath, rootPath := certifyRepoKey(t, r, "Jane Researcher", time.Now().Add(time.Hour))
+	raw := testrepo.DefaultConfig()
+	raw.Material = config.Material{
+		Attach:    []config.Attachment{{Scheme: "x509-cert", MediaType: "application/x-pem-file", File: certPath}},
+		X509Roots: []string{rootPath},
+	}
+	r.WriteConfig(t, raw)
+	r.Use(t)
+
+	pub := publishOne(t, r)
+
+	// The control: this repo does report it as verified, so the assertion below is about what
+	// TRAVELS rather than about a verdict that was never reached.
+	if got := askFotonRecord(t, pub.OutputHashes["data/out.csv"], pub.FotonID); len(got.Material) != 1 ||
+		got.Material[0].Verdict != material.Verified {
+		t.Fatalf("control: this repo should report the certificate verified, got %+v", got.Material)
+	}
+
+	cmd := exec.Command(r.Root+"/bin/plankton", "material", pub.FotonID, "--json")
+	cmd.Dir = r.Root
+	cmd.Env = append(os.Environ(), "PLANKTON_DIR="+filepath.Join(r.Root, "registry/plankton"))
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("plankton material: %v", err)
+	}
+	var read struct {
+		Material []struct {
+			Scheme   string `json:"scheme"`
+			Material string `json:"material"`
+		} `json:"material"`
+	}
+	if err := json.Unmarshal(out, &read); err != nil {
+		t.Fatalf("could not read the stored material: %v\n%s", err, out)
+	}
+	if len(read.Material) != 1 {
+		t.Fatalf("expected exactly the one attachment, got %d", len(read.Material))
+	}
+	stored, err := base64.StdEncoding.DecodeString(read.Material[0].Material)
+	if err != nil {
+		t.Fatalf("the stored material is not readable: %v", err)
+	}
+	onDisk, err := os.ReadFile(filepath.Join(r.Root, certPath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(stored, onDisk) {
+		t.Fatalf("what was stored is not byte-for-byte the configured file (%d vs %d bytes)", len(stored), len(onDisk))
+	}
+	// Named explicitly, so a future change that helpfully records the verdict alongside the evidence
+	// fails here instead of quietly exporting this repo's trust decisions to every peer.
+	for _, leak := range []string{"verdict", "verified", "checkedBy", "Jane Researcher"} {
+		if bytes.Contains(out, []byte(`"`+leak+`"`)) && leak != "verified" {
+			t.Errorf("the stored record carries %q; a verdict must not travel with the evidence", leak)
+		}
+	}
 }

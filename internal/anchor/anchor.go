@@ -46,7 +46,7 @@ type Entry struct {
 
 // Record anchors one record and attaches the verified entry to it as verification material.
 //
-// The evidence is stored under the `rekor-entry` scheme of SPEC §8.1 — external evidence ABOUT a
+// The evidence is stored under the `rekor-entry` scheme of kton §8.1 — external evidence ABOUT a
 // record, which the kernel keeps as opaque bytes and never evaluates, exactly as it stores a DSSE
 // signature without checking it on ingest. Verification is this cockpit's business, and it already
 // happened: `kton anchor` refuses rather than prints on any of the three checks failing.

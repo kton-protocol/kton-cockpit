@@ -81,6 +81,12 @@ and does not intend to repeat at the level of its contract.
 Where something is *not* guaranteed, it says so under **Not guaranteed:**. A guarantee without its
 limit is the more dangerous half of a true statement.
 
+**Section references.** A bare §N is a clause of *this* document. A clause of the kton protocol
+specification is always written **kton §N**. The two numbering schemes collide — this document's §11
+is "Carried evidence" where kton's is "Registry, resolution, and completeness", and §13 and §14
+differ likewise — so the prefix is not decoration. Go comments in this repository use `SPEC §N` for
+this document, since there is no ambient "this document" at a call site.
+
 ## 5 The binding
 
 Every tool call MUST re-resolve the configuration and re-check the binding before doing anything
@@ -488,6 +494,12 @@ correct verdict is *carried*.
 A *failed* item MUST NOT on its own exclude the record. Whose word counts is a trust decision, and
 trust here is §9.1 plus the configuration, not the evidence judging itself.
 
+A failure MUST say which failure it is, in a machine-readable field rather than in prose. Damaged or
+forged bytes and a perfectly good certificate wired to the wrong record are both *failed*, and they
+demand opposite responses — one is investigated, the other is a line in the configuration. Leaving
+that difference in a sentence would make a caller parse prose to act, which is the mistake this
+project removed from `say`'s reproduction level.
+
 Evidence attached to a record that was excluded MUST NOT be reported, for the same reason §9.2
 redacts an excluded record's line: it is content from a record the caller was not given.
 
@@ -495,6 +507,16 @@ A cockpit MUST make the same verdict available to the operator before any record
 Evidence that will never verify — a certificate for the wrong key, or one with no configured root to
 judge it against — otherwise produces valid records that report *carried* indefinitely while the
 operator believes an identity was established. Nothing fails, so nothing says so.
+
+> **Not guaranteed: the verdict does not travel.** A cockpit MUST NOT store a verdict alongside the
+> evidence. What is attached is the evidence and only the evidence, so a peer that mirrors the record
+> receives bytes and re-evaluates them against its own configured roots — and may legitimately reach
+> a different answer about identical bytes.
+>
+> This is stated rather than implied because operators reliably assume the opposite. *Verified* reads
+> like a property of the record; it is a property of the reading. A record is not "a verified record"
+> anywhere but in the repository whose configuration produced that word, which is the same shape as
+> §9.1: a trust tier is this repository's judgement, not a label the record carries.
 
 > **Checked by:** `TestEvaluate_CertificateBoundToSigningKeyAndChainingToAConfiguredRoot`,
 > `TestEvaluate_CertificateForAnotherKeyIsFailed`, `TestEvaluate_ExpiredCertificateIsFailed`,
@@ -507,7 +529,9 @@ operator believes an identity was established. Nothing fails, so nothing says so
 > `TestMaterial_ACertificateForSomebodyElseIsReportedFailed`,
 > `TestMaterial_EvidenceOnAnExcludedRecordIsNotReported`,
 > `TestMaterial_NoConfiguredMaterialMeansNoneReported`,
-> `TestMaterial_PreflightReportsTheVerdictBeforeAnythingIsPublished`.
+> `TestMaterial_PreflightReportsTheVerdictBeforeAnythingIsPublished`,
+> `TestEvaluate_EveryFailureNamesWhichOne`, `TestEvaluate_OnlyFailuresCarryAReason`,
+> `TestMaterial_TheVerdictIsNeverStored`.
 
 ### 11.3 Anchoring
 
@@ -591,12 +615,21 @@ belongs to the key that actually signed and chains to a root the repository conf
 organisational-PKI route, and it is built. What §9.1 establishes is still only *which key* signed;
 what §11.2 adds is a checkable statement about whose key that is.
 
-The keyless route (Fulcio/OIDC) is not wired, and the gap is narrower than it first looks. The
-kernel's `sigstore.Anchor` already takes an arbitrary verifier PEM, so the log would accept a Fulcio
-certificate today. What is missing is obtaining an OIDC token and exchanging it at Fulcio for one —
-and, before that matters at all, `kton anchor` parses its second argument as a hex ed25519 public
-key, so a certificate cannot be handed to it even by a caller holding one. Both are kernel-side and
-§13 forbids building either here; they are raised as requests rather than worked around.
+The keyless route (Fulcio/OIDC) is not wired, and exactly one thing is missing: obtaining an OIDC
+token and exchanging it at Fulcio for a certificate. Nothing below that is blocked.
+`sigstore.Anchor(url, env, verifierPEM)` takes an arbitrary verifier PEM, so the log would accept a
+Fulcio certificate today; the hex-ed25519 narrowing sits only in `kton anchor`'s argument parsing,
+and a cockpit is not obliged to reach the library through another cockpit's CLI. That is a
+dependency decision to make when there is a token to exchange, and `kton anchor` moves into a
+cockpit anyway (kton #103), which is the moment to make it — not a protocol request, and it was
+raised as one in error.
+
+Re-verifying a *stored* transparency-log entry is a separate matter and is deliberately not done.
+Nothing re-checks one: the kernel verifies material neither on write nor on read, and `kton anchor`
+verifies before attaching and never again. Doing that check on the read path would be this cockpit
+growing its own transparency-log cryptography, which §13 forbids. So a stored entry reports as
+*carried*, with a detail saying it was verified when attached and is not re-checked now — the
+presence of an entry is not evidence that anyone ever checked it.
 
 The two routes also answer different questions. A short-lived certificate over an ephemeral key fits
 an open federation, where signers are not known in advance and the certificate is what carries the

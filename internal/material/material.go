@@ -1,7 +1,7 @@
 // Package material carries external evidence about a record, and evaluates as much of it as this
 // repo is actually able to evaluate.
 //
-// SPEC §8.1 makes verification material deliberately open: the kernel stores opaque bytes under a
+// kton §8.1 makes verification material deliberately open: the kernel stores opaque bytes under a
 // scheme token it never interprets, and `plankton attach` refuses nothing for being unfamiliar,
 // because "refusing unknown evidence would make this list a protocol version". This package keeps
 // that stance and adds the half the kernel leaves to a cockpit — deciding what any of it is worth.
@@ -62,17 +62,57 @@ const (
 	Failed Verdict = "failed"
 )
 
+// Reason says WHICH failure, and exists because "failed" alone collapses two findings that demand
+// opposite responses: bytes that are damaged or forged, and a perfectly good certificate wired to
+// the wrong record. Reading that difference out of the prose in Detail would be keying on a
+// sentence, which is the mistake this project removed from say.go's reproduction level.
+//
+// It is a separate axis from Verdict on purpose. Verdict answers "did we check it and did it hold",
+// and for all three of these the answer is the same no; a fourth verdict would make that one axis
+// mean two things.
+type Reason string
+
+const (
+	// NotBound: the certificate parses and may be entirely valid, but it belongs to a different key
+	// than the one that verified this record. Almost always a misconfigured file — the operator
+	// pointed material.attach at the wrong certificate — and almost never an attack, since a forged
+	// binding is what the check makes impossible rather than what it detects.
+	NotBound Reason = "not-bound"
+	// Unreadable: the bytes cannot be decoded or parsed as what they are filed as. Damage or
+	// tampering, not configuration. Worth investigating rather than editing.
+	Unreadable Reason = "unreadable"
+	// Chain: bound to the right key, but nothing this repository configured vouches for it —
+	// expired, or issued by an unknown root. Renew it, or add the root.
+	Chain Reason = "chain"
+)
+
 // Report is one piece of attached evidence, as this cockpit describes it.
 type Report struct {
 	Scheme    string  `json:"scheme"`
 	MediaType string  `json:"mediaType"`
 	Bytes     int     `json:"bytes"`
 	Verdict   Verdict `json:"verdict"`
-	// CheckedBy names what produced the verdict, so "verified" is never an unattributed claim.
+	// Reason is set only on a Failed verdict and names which failure it is, so a caller can act on
+	// it without parsing Detail. See Reason.
+	Reason Reason `json:"reason,omitempty"`
+	// CheckedBy names what produced the verdict, so "verified" is never an unattributed claim. It is
+	// a fixed string written in this package, never a value from the configuration — a
+	// configurable one would be a self-asserted label, which is what kton §7.2 says about `by`.
 	CheckedBy string `json:"checkedBy,omitempty"`
 	// Detail says what was found — the certificate's subject, or why nothing could be checked.
 	Detail string `json:"detail,omitempty"`
 }
+
+// A Report is produced HERE, for THIS query, and is never written anywhere. Nothing in this package
+// stores a verdict: Attach writes the configured bytes and only those, so what a peer receives when
+// a record is mirrored is the evidence, never the judgement.
+//
+// That is the correct behaviour and it is also the one operators assume backwards. A verdict is a
+// statement about what THIS repository's configuration trusts — which roots it named, which keys are
+// in its tiers — and carrying it to a peer would be asserting that repository's conclusions inside
+// another one's trust boundary. A peer re-evaluates with its own roots and may legitimately reach a
+// different answer about the identical bytes. Said out loud here because "verified" reads like a
+// property of the record, and it is a property of the reading.
 
 // Attach records every attachment this repo's config declares onto one record.
 //
@@ -142,9 +182,10 @@ func evaluate(s binaries.StoredMaterial, signer ed25519.PublicKey, roots *x509.C
 	raw, err := base64.StdEncoding.DecodeString(s.Material)
 	if err != nil {
 		// Stored material that will not even base64-decode is corrupt, and saying so is the point:
-		// §8.1 guarantees material never affects a record's validity, so the record stands — but the
+		// kton §8.1 guarantees material never affects a record's validity, so the record stands — but the
 		// evidence is unusable and a reader must not read silence as absence.
 		rep.Verdict = Failed
+		rep.Reason = Unreadable
 		rep.CheckedBy = "base64 decode"
 		rep.Detail = "the stored bytes are not valid base64, so this evidence cannot be read at all"
 		return rep
@@ -200,6 +241,7 @@ func checkCertificate(rep Report, cert *x509.Certificate, signer ed25519.PublicK
 	certKey, isEd := cert.PublicKey.(ed25519.PublicKey)
 	if !isEd || !certKey.Equal(signer) {
 		rep.Verdict = Failed
+		rep.Reason = NotBound
 		rep.CheckedBy = "key binding"
 		rep.Detail = fmt.Sprintf(
 			"certificate for %q does not belong to the key that signed this record — it may be a valid "+
@@ -221,6 +263,7 @@ func checkCertificate(rep Report, cert *x509.Certificate, signer ed25519.PublicK
 	})
 	if err != nil {
 		rep.Verdict = Failed
+		rep.Reason = Chain
 		rep.CheckedBy = "crypto/x509 chain verify against material.x509Roots"
 		rep.Detail = fmt.Sprintf("certificate for %q belongs to the signing key but does not verify: %v", subject, err)
 		return rep
@@ -292,7 +335,7 @@ func Preflight(cfg *config.Config) []Report {
 		b, err := os.ReadFile(a.File)
 		if err != nil {
 			out = append(out, Report{
-				Scheme: a.Scheme, MediaType: a.MediaType, Verdict: Failed,
+				Scheme: a.Scheme, MediaType: a.MediaType, Verdict: Failed, Reason: Unreadable,
 				CheckedBy: "reading the configured file",
 				Detail:    fmt.Sprintf("%s cannot be read: %v", a.File, err),
 			})
