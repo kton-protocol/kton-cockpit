@@ -45,7 +45,7 @@ const Untrusted = ""
 // here, since such a claim is stored but is not retrievable by id.
 //
 // Returns Untrusted when no configured key verifies it. That is not a forged record: it is one
-// signed by somebody outside this repository's trust configuration, and §9.1 requires callers to
+// signed by somebody outside this repository's trust configuration, and SPEC §9.1 requires callers to
 // exclude it rather than surface it unverified.
 func ResolveTier(ctx context.Context, r *binaries.Runner, cfg *config.Config, idOrFile string, kind Kind) (tier string, verifyingKey string, err error) {
 	env, err := envelopeOf(ctx, r, idOrFile, kind)

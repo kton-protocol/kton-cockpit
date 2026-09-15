@@ -84,8 +84,14 @@ limit is the more dangerous half of a true statement.
 **Section references.** A bare §N is a clause of *this* document. A clause of the kton protocol
 specification is always written **kton §N**. The two numbering schemes collide — this document's §11
 is "Carried evidence" where kton's is "Registry, resolution, and completeness", and §13 and §14
-differ likewise — so the prefix is not decoration. Go comments in this repository use `SPEC §N` for
-this document, since there is no ambient "this document" at a call site.
+differ likewise — so the prefix is not decoration.
+
+**Outside this document the bare form is never used.** In Go comments, commit messages and anything
+sent upstream, a clause of this document is written `SPEC §N` and one of the protocol's `kton §N` —
+both qualified, always. The bare form only means "this document" to a reader who is holding it, and
+a request sent to the protocol's maintainers is read by someone holding the other one. That is not
+hypothetical: a request from this repository cited §8.1 and §8.2 meaning the clauses below, and kton
+§8.1 is *Attached verification material* while kton has no §8.2 at all.
 
 ## 5 The binding
 

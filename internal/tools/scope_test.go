@@ -131,7 +131,7 @@ func TestScope_RefusesAScopeThisRegistryDoesNotHold(t *testing.T) {
 	}
 }
 
-// kton §7.4 makes ingest monotone and §11 forbids generalizing the sealed-world rule to it, so
+// kton §7.4 makes ingest monotone and kton §11 forbids generalizing the sealed-world rule to it, so
 // neither a branch nor a missing predecessor may stop a true claim being recorded. An earlier
 // version refused on both — which also handed anyone whose records reach this registry a veto over
 // its own work, since a scope id is public and one claim from an untrusted key was enough.
@@ -236,7 +236,7 @@ func TestScope_TheSealVerdictReportsAGapAsPartialNotBroken(t *testing.T) {
 }
 
 // A writer whose key is in no configured tier is reported as having written — that is a fact about
-// the chain — and their claims are excluded from the answer, which is §9.1 unchanged.
+// the chain — and their claims are excluded from the answer, which is SPEC §9.1 unchanged.
 func TestScope_AnUntrustedWriterIsReportedButExcluded(t *testing.T) {
 	r, scope := scopedRepo(t)
 	pub := publishOne(t, r)

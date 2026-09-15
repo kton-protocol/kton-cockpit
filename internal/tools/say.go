@@ -224,7 +224,7 @@ func determineReproductionLevel(ctx context.Context, cfg *config.Config, r *bina
 // than a preference. kton §7.4 makes ingest MONOTONE: a well-formed signed scoped statement is
 // accepted "even if its `prev` is not yet resolvable (it may live in another source)", and the
 // closed-world guarantee — that the chain reaches the seed without a gap — is a SEAL-VERIFICATION
-// judgment over the resolved union of sources, evaluated when the seal is relied upon. §11 then
+// judgment over the resolved union of sources, evaluated when the seal is relied upon. kton §11 then
 // says it outright: a reader MUST NOT generalize that closed-world rule to the open substrate.
 //
 // An earlier version of this function did exactly that, refusing to write when the scope was
@@ -246,7 +246,7 @@ func resolveChain(ctx context.Context, r *binaries.Runner, cfg *config.Config, n
 					"operator (`nekton seed <name> --sign <key> --add --print-id`) and listed in claims.scopes; "+
 					"a claim written without a scope stands on its own.", name)
 		}
-		// Named rather than matched as empty, for the reason §9.2 refuses an unknown filter value: a
+		// Named rather than matched as empty, for the reason SPEC §9.2 refuses an unknown filter value: a
 		// typo that quietly wrote somewhere else, or nowhere, reads like a decision.
 		return nil, nil, fmt.Sprintf("no claim scope named %q in this repo's config; it has: %s",
 			name, strings.Join(configured, ", "))

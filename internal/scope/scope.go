@@ -8,7 +8,7 @@ package scope
 // guarantee is "a seal-verification judgment, evaluated over the resolved union of sources WHEN THE
 // SEAL IS RELIED UPON". Relying on it is a read, so this is a read.
 //
-// And §7.4 leaves it to a consumer in as many words — "sealing rules are checked by
+// And kton §7.4 leaves it to a consumer in as many words — "sealing rules are checked by
 // consumers/aggregators, not the kernel". That makes this the cockpit's work rather than something
 // to request upstream, which is the opposite of the usual answer in this repository.
 //

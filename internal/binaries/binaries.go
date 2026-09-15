@@ -583,7 +583,7 @@ func (r *Runner) ScopeChain(ctx context.Context, scopeID string) ([]ScopeClaim, 
 // is not retrievable by id: `records` returns it and `verify <id>` answers "no claim in the
 // registry". Verifying such a claim therefore has to go through its bytes. Reading that distinction
 // out of the kernel's error text would be parsing prose, and treating any verify failure as
-// "unresolvable" would swallow the operational errors §9.1 insists stay loud.
+// "unresolvable" would swallow the operational errors SPEC §9.1 insists stay loud.
 type ScopeClaim struct {
 	ClaimAxis
 	Envelope json.RawMessage
@@ -662,7 +662,7 @@ const SealPredicate = "https://kton.dev/v/sealedAt"
 // Sealing is repeatable and is meant to be repeated. Each seal fixes a point the chain can no
 // longer be rewound behind, because the parent now carries that head: dropping the tail afterwards
 // produces a chain whose head no longer matches what the parent recorded. That is what closes the
-// gap §9.6 otherwise has to state as a limit — tail truncation is undetectable IN-BAND, and a seal
+// gap SPEC §9.6 otherwise has to state as a limit — tail truncation is undetectable IN-BAND, and a seal
 // is the out-of-band record that detects it.
 func (r *Runner) SealScope(ctx context.Context, childScope, childHead, parentScope, parentHead, signKey string) (string, error) {
 	// `by` is the signer's own keyid and `when` the moment of sealing. Both are covered by the

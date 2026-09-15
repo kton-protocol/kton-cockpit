@@ -211,7 +211,7 @@ canonicalization/signing/registry/chain logic, no trust logic beyond applying
 file. If a change would require one of these, raise it against the protocol spec first, not as a
 cockpit-side workaround.
 
-Applying the config is the line, and it is not the same as doing nothing: §11.2's certificate check
+Applying the config is the line, and it is not the same as doing nothing: SPEC SPEC §11.2's certificate check
 is `crypto/x509` against roots the config names, which is applying configured trust. Re-verifying a
 stored Rekor entry would not be — that is transparency-log cryptography, and it belongs in the
 kernel, which is where it is raised.
