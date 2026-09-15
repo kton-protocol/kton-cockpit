@@ -299,7 +299,15 @@ func runDoctor(ctx context.Context) error {
 			if i > 0 {
 				label = "         "
 			}
-			fmt.Printf("%-15s %s → %s\n", label, m.Scheme, m.Verdict)
+			// The reason is printed beside the verdict, not buried in the detail line: for a
+			// failure it is the actionable half. `not-bound` is a line in this config to fix,
+			// `unreadable` is damaged or tampered bytes to investigate, `chain` is a certificate
+			// to renew or a root to add. Those are three different afternoons.
+			verdict := string(m.Verdict)
+			if m.Reason != "" {
+				verdict += " (" + string(m.Reason) + ")"
+			}
+			fmt.Printf("%-15s %s → %s\n", label, m.Scheme, verdict)
 			if m.Detail != "" {
 				fmt.Printf("                %s\n", m.Detail)
 			}
