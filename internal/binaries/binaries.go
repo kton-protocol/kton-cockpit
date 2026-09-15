@@ -16,6 +16,9 @@ import (
 	"time"
 
 	"github.com/deathbychoco/claude-science-cockpit/internal/config"
+	nregistry "kton.dev/nekton/registry"
+	"kton.dev/plankton/core"
+	pregistry "kton.dev/plankton/registry"
 )
 
 // Runner shells out to plankton/nekton with PLANKTON_DIR/NEKTON_DIR/NEKTON_TEMPLATES pinned from
@@ -140,8 +143,15 @@ func (r *Runner) Author(ctx context.Context, in AuthorInput) (fotonID string, er
 // Shelled out rather than computed here for the usual reason: an identifier the kernel also derives
 // is the kernel's to derive.
 func (r *Runner) KeyID(ctx context.Context, pubkeyPath string) (string, error) {
-	out, err := r.plankton(ctx, "keyid", pubkeyPath)
-	return strings.TrimSpace(out), err
+	b, err := os.ReadFile(pubkeyPath)
+	if err != nil {
+		return "", err
+	}
+	pub, err := core.ParsePublicKeyHex(strings.TrimSpace(string(b)))
+	if err != nil {
+		return "", fmt.Errorf("%s is not a public key: %w", pubkeyPath, err)
+	}
+	return core.KeyIDHex(pub), nil
 }
 
 // Records returns every record this repo's plankton and nekton registries hold, in that order.
@@ -156,39 +166,69 @@ func (r *Runner) KeyID(ctx context.Context, pubkeyPath string) (string, error) {
 // and skipped 44 files "without a word", and the viewer drew a convincing lineage-only picture from
 // it. Nothing errored.
 func (r *Runner) Records(ctx context.Context) ([]Record, error) {
+	preg, err := pregistry.Open(r.cfg.PlanktonDir)
+	if err != nil {
+		return nil, fmt.Errorf("opening the plankton registry: %w", err)
+	}
+	nreg, err := nregistry.Open(r.cfg.NektonDir)
+	if err != nil {
+		return nil, fmt.Errorf("opening the nekton registry: %w", err)
+	}
+
 	var all []Record
-	for _, bin := range []string{"plankton", "nekton"} {
-		out, _, err := r.exec(ctx, bin, "records", "--json")
-		if err != nil {
-			return nil, fmt.Errorf("reading records from %s: %w", bin, err)
+	for _, rec := range preg.Records(0) {
+		env, merr := json.Marshal(rec.Envelope)
+		if merr != nil {
+			return nil, merr
 		}
-		recs, perr := parseRecordsJSON(out)
-		if perr != nil {
-			return nil, fmt.Errorf("reading records from %s: %w", bin, perr)
+		all = append(all, Record{Seq: rec.Seq, FotonID: rec.FotonID, Envelope: env})
+	}
+	for _, rec := range nreg.Records(0) {
+		env, merr := json.Marshal(rec.Envelope)
+		if merr != nil {
+			return nil, merr
 		}
-		all = append(all, recs...)
+		all = append(all, Record{Seq: rec.Seq, ClaimID: rec.ClaimID, Envelope: env})
+	}
+	// A degraded read is INCOMPLETE and must never pass for a whole one. The CLI printed this on
+	// stderr and the wrappers forwarded it; the registry reports it as a number, so it is checked
+	// rather than forwarded as text somebody might not read.
+	if n := preg.Degraded(); n > 0 {
+		return nil, fmt.Errorf("the plankton registry skipped %d record(s) on load — this read is "+
+			"INCOMPLETE, and a partial answer must not be returned as a whole one", n)
 	}
 	return all, nil
 }
 
-// EnvelopeFor returns one record's signed envelope, by id. Fotons come from `plankton show --json`
-// and claims from `nekton about --json`; a caller that knows which it holds saves the miss.
+// EnvelopeFor returns one record's signed envelope, by id.
+//
+// Both registries are opened fresh, never cached on the Runner. A Runner outlives a write —
+// publish authors and then reads, say annotates and then reads — so a cached registry would answer
+// from before the write that just happened. Opening reads the whole store, which is exactly what
+// each CLI invocation did too; the saving is the process, not the read.
 func (r *Runner) EnvelopeFor(ctx context.Context, recordID string) (json.RawMessage, error) {
-	recs, err := r.Records(ctx)
-	if err != nil {
-		return nil, err
-	}
-	for _, rec := range recs {
-		if rec.ID() == recordID {
-			return rec.Envelope, nil
+	if preg, err := pregistry.Open(r.cfg.PlanktonDir); err == nil {
+		if env, ok := preg.Envelope(recordID); ok {
+			return json.Marshal(env)
 		}
+	}
+	nreg, err := nregistry.Open(r.cfg.NektonDir)
+	if err != nil {
+		return nil, fmt.Errorf("opening the nekton registry: %w", err)
+	}
+	if rec, ok := nreg.Claim(recordID); ok {
+		return json.Marshal(rec.Envelope)
 	}
 	return nil, fmt.Errorf("no record %s in this repo's registries", recordID)
 }
 
 // Hash returns the content hash of a file as `plankton hash` prints it.
 func (r *Runner) Hash(ctx context.Context, file string) (string, error) {
-	return r.plankton(ctx, "hash", file)
+	b, err := os.ReadFile(filepath.Join(r.cfg.RepoRoot, file))
+	if err != nil {
+		return "", err
+	}
+	return core.HashBytes(b), nil
 }
 
 // Show prints a foton's descriptor (command, inputs, outputs).
@@ -215,15 +255,44 @@ func (r *Runner) Lineage(ctx context.Context, hash string) (*LineageResult, erro
 }
 
 func (r *Runner) lineage(ctx context.Context, relation, hash string) (*LineageResult, error) {
-	out, errText, err := r.exec(ctx, "plankton", relation, "--json", hash)
+	reg, err := pregistry.Open(r.cfg.PlanktonDir)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("opening the plankton registry: %w", err)
 	}
-	res, perr := parseLineageJSON(out)
-	if perr != nil {
-		return nil, perr
+	if n, ok := core.NormalizeContentHash(hash); ok {
+		hash = n
 	}
-	res.Warning = errText
+
+	var ids []string
+	switch relation {
+	case "producer":
+		ids = reg.Producer(hash)
+	case "uses":
+		ids = reg.Uses(hash)
+	case "lineage":
+		ids = reg.Lineage(hash)
+	default:
+		return nil, fmt.Errorf("unknown lineage relation %q", relation)
+	}
+
+	// In the registry's own order, which the CLI's --json form can no longer convey: it answers
+	// records as bare envelopes with the ids beside them in a `summary` OBJECT, and a JSON object
+	// has no order. For `producer` that costs nothing — the answer is a set — but `lineage` is a
+	// walk toward the roots, and the sequence is the answer.
+	res := &LineageResult{Relation: relation, Query: hash}
+	for _, id := range ids {
+		f, ok := reg.Foton(id)
+		if !ok {
+			continue
+		}
+		res.Records = append(res.Records, FotonRecord{
+			ID: id, Kind: f.Protocol.Kind, Inputs: len(f.Inputs), Outputs: len(f.Outputs),
+		})
+	}
+	if n := reg.Degraded(); n > 0 {
+		return nil, fmt.Errorf("the plankton registry skipped %d record(s) on load — this lineage read "+
+			"is INCOMPLETE, and a partial provenance answer must not be returned as a whole one", n)
+	}
 	return res, nil
 }
 
@@ -526,18 +595,21 @@ type ScopeHead struct {
 // cached it would be keeping mutable state about the chain (kton §13 forbids that), and would
 // chain onto a stale tip the moment a mirror brought in a peer's claim.
 func (r *Runner) Head(ctx context.Context, scopeID string) (*ScopeHead, error) {
-	out, _, err := r.exec(ctx, "nekton", "head", scopeID, "--json")
+	reg, err := nregistry.Open(r.cfg.NektonDir)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("opening the nekton registry: %w", err)
 	}
-	var h ScopeHead
-	if jerr := json.Unmarshal([]byte(strings.TrimSpace(out)), &h); jerr != nil {
-		return nil, fmt.Errorf("could not read the head of scope %s: %w\n%s", scopeID, jerr, out)
+	heads, chainLen, ok := reg.Heads(scopeID)
+	if !ok {
+		return nil, fmt.Errorf("no such scope %s (not a seed ingested in %s)", scopeID, r.cfg.NektonDir)
 	}
-	if len(h.Heads) == 0 {
-		return nil, fmt.Errorf("nekton head reported scope %s with no head at all; refusing to guess one", scopeID)
+	if len(heads) == 0 {
+		return nil, fmt.Errorf("the registry reported scope %s with no head at all; refusing to guess one", scopeID)
 	}
-	return &h, nil
+	return &ScopeHead{
+		Scope: scopeID, Heads: heads, ChainLength: chainLen,
+		Branched: len(heads) > 1, Unresolved: reg.Unresolved(scopeID),
+	}, nil
 }
 
 // ScopeChain returns every claim this registry holds that names scopeID, in the order the registry

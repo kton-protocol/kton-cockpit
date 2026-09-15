@@ -16,7 +16,7 @@ import (
 //  1. COCKPIT_TEST_PLANKTON / COCKPIT_TEST_NEKTON, if set — an explicit override for CI or for
 //     testing against a specific kernel build.
 //  2. bin/plankton and bin/nekton in this repo, if already built.
-//  3. built on demand from a kton checkout (KTON_SRC, else a sibling ./kton directory) into
+//  3. built on demand from a kton checkout (KTON_SRC, else a sibling ./kton-pinned, else ./kton) into
 //     bin/, which is gitignored.
 //
 // It never falls back to a plankton/nekton found on PATH: which kernel build produced a store
@@ -108,8 +108,17 @@ func buildRevision(bin string) string {
 // ktonSrc locates a kton checkout to build the kernel from, or returns "" if there is none.
 func ktonSrc(t *testing.T) string {
 	t.Helper()
+	// A sibling `kton-pinned` is preferred over `kton`, and the difference is not cosmetic: the
+	// second is somebody's WORKING TREE. Building from it makes every intermediate state of their
+	// work a build input here, and a multi-step refactor upstream will at some point not compile —
+	// which is not their mistake but this repository's, for reading a directory nobody promised
+	// would be buildable. `kton-pinned` is a checkout this repo controls, parked on the commit
+	// CLAUDE.md names, which is also what CI does. KTON_SRC still overrides both.
 	candidates := []string{os.Getenv("KTON_SRC")}
-	candidates = append(candidates, filepath.Join(filepath.Dir(cockpitRoot(t)), "kton"))
+	root := filepath.Dir(cockpitRoot(t))
+	candidates = append(candidates,
+		filepath.Join(root, "kton-pinned"),
+		filepath.Join(root, "kton"))
 	for _, c := range candidates {
 		if c == "" {
 			continue

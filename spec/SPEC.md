@@ -518,12 +518,21 @@ no number.
 
 ### 9.4 Reading structurally
 
-A cockpit MUST read the substrate's machine-readable surfaces where they exist, and MUST NOT parse
-values out of human-facing text when a named field is available. A record's id in particular MUST
-come from a field, never from a position in a line.
+A cockpit MUST NOT parse a value out of text when the substrate offers it as a value. A record's id
+in particular MUST come from a field, never from a position in a line.
 
-> **Checked by:** `TestParseLineageJSON_TakesTheIdFromItsNamedField`,
-> `TestParseClaimsJSON_DecodesTheWholeAxis`.
+Where the substrate is a library, this is met by calling it: the lineage queries read the registry
+directly and get ids as a `[]string` in its own order, so there is no text and no wire form between
+the question and the answer. The rule survives the change of mechanism because it was never about
+JSON — it is about not inferring a value that something else already knows.
+
+That is also where this cockpit's reads went wrong twice. A record's id was once assumed to be the
+first hash on its line, which held and was guaranteed nowhere. Later the same queries' JSON form
+moved the ids into a `summary` object, and the decoder read empty ids for a week's worth of commits
+before a test caught it. Both were readings of a projection rather than of the thing.
+
+> **Checked by:** `TestParseClaimsJSON_DecodesTheWholeAxis`,
+> `TestAsk_ProducerReturnsAStructuredFotonRecord`, `TestAsk_LineageReturnsStructuredFotonRecords`.
 
 > **Known exception (0.1):** the reproduction level in §8.2 was read from a printed line until the
 > substrate gained a verdict for it. Any such exception MUST be named here and raised upstream, not

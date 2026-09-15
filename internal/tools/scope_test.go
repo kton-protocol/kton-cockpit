@@ -416,3 +416,73 @@ func TestScope_ASealedScopeSaysWhatItCanBeCheckedAgainst(t *testing.T) {
 		t.Errorf("a scope with no parent should be told it cannot be checked: %q", without.Limit)
 	}
 }
+
+// Lineage answers in the registry's own order, and answers the same way twice.
+//
+// Worth its own test because the order was briefly not conveyable at all: the CLI's --json form
+// answers records as bare envelopes with the ids beside them in a `summary` OBJECT, and a JSON
+// object has no order, so a consumer could only sort by id — which is deterministic but is not the
+// walk. Reading the registry returns []string as the kernel built it. For `producer` this costs
+// nothing, since the answer is a set; for `lineage` the sequence IS the answer.
+func TestAsk_LineageReturnsStructuredFotonRecords(t *testing.T) {
+	r := testrepo.New(t)
+	r.Use(t)
+
+	// Two steps that join by a shared hash: step two consumes step one's output.
+	r.Write(t, "data/in.csv", "id,value\n1,42\n")
+	r.Write(t, "data/mid.csv", "id,value\n1,84\n")
+	first := publish(t, []string{"data/in.csv"}, []string{"data/mid.csv"}, "step one")
+	r.Write(t, "data/out.csv", "id,value\n1,168\n")
+	second := publish(t, []string{"data/mid.csv"}, []string{"data/out.csv"}, "step two")
+
+	ask := func() []string {
+		result, out, err := Ask(context.Background(), nil, AskInput{
+			Query: "lineage", Ref: second.OutputHashes["data/out.csv"],
+		})
+		if err != nil || result.IsError {
+			t.Fatalf("lineage failed: err=%v %s", err, errText(result))
+		}
+		ids := make([]string, 0, len(out.Fotons))
+		for _, f := range out.Fotons {
+			ids = append(ids, f.ID)
+		}
+		return ids
+	}
+
+	got := ask()
+	if len(got) < 2 {
+		t.Fatalf("lineage of a two-step chain returned %d record(s): %v", len(got), got)
+	}
+	var sawFirst, sawSecond bool
+	for _, id := range got {
+		sawFirst = sawFirst || id == first.FotonID
+		sawSecond = sawSecond || id == second.FotonID
+	}
+	if !sawFirst || !sawSecond {
+		t.Fatalf("lineage did not reach both steps: %v (want %s and %s)", got, first.FotonID, second.FotonID)
+	}
+
+	// The same question, asked twice, answered the same way. Map iteration would not.
+	again := ask()
+	if len(again) != len(got) {
+		t.Fatalf("two identical lineage queries returned different lengths: %d then %d", len(got), len(again))
+	}
+	for i := range got {
+		if got[i] != again[i] {
+			t.Fatalf("lineage order is not stable: position %d was %s then %s", i, got[i], again[i])
+		}
+	}
+}
+
+// publish is publishOne with explicit inputs and outputs, for tests that need a chain.
+func publish(t *testing.T, inputs, outputs []string, cmd string) PublishOutput {
+	t.Helper()
+	result, out, err := Publish(context.Background(), nil, PublishInput{Inputs: inputs, Outputs: outputs, Cmd: cmd})
+	if err != nil {
+		t.Fatalf("Publish returned a Go error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("publish failed: %+v", errText(result))
+	}
+	return out
+}
