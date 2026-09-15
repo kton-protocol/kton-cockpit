@@ -427,9 +427,92 @@ visible; it is the only point at which a declaration can be held against anythin
 > **Not guaranteed:** inputs. Which files a command *read* is not observable without tracing, so the
 > declaration in §7.2 is unimproved on that side — and it is the more consequential side.
 
-## 11 Anchoring *(optional)*
+## 11 Carried evidence *(optional)*
 
-A repository MAY have every record witnessed in a transparency log.
+A record MAY carry external evidence about itself: who a signing key belongs to, that the record
+existed by a given time, or anything a scheme this cockpit has never heard of expresses. kton §8.1
+stores such evidence as opaque bytes under a scheme token the kernel never interprets, and leaves
+deciding what any of it is worth to a cockpit. This clause is that decision.
+
+### 11.1 Carrying
+
+A cockpit MUST attach every piece of evidence its configuration declares to every record it writes,
+foton and claim alike. It MUST NOT refuse a scheme for being unfamiliar: the kernel accepts an
+unlisted one, and a cockpit that did not would turn its own scheme list into a protocol version.
+
+A cockpit MUST refuse to attach a private key, and MUST refuse a path outside the repository —
+evidence is committed with the record it is about, so bytes nobody receiving the record can see are
+not evidence. Both MUST be refused when the configuration is loaded, not when a record is written: a
+publish that discovered a missing certificate halfway would leave the record registered and its
+evidence absent.
+
+Evidence MUST be attached before the record is committed, for the reason §11.3 gives for the anchor:
+a record and the evidence about it belong in one commit, because a later one can be missing from a
+partial share.
+
+A cockpit MUST NOT let a failure to attach be silent. The record is valid either way — kton §8.1
+guarantees material never affects validity — so the caller MUST be told that a record exists and
+carries less than was intended, which is a different state from no record at all.
+
+> **Checked by:** `TestMaterial_AnUnknownSchemeIsCarriedNotRejected`,
+> `TestValidateMaterial_AnUnlistedSchemeIsAccepted`,
+> `TestValidateMaterial_RefusesWhatCannotBeCarriedSafely`,
+> `TestCheckMaterialFiles_RefusesEvidenceThatIsNotThere`,
+> `TestCheckMaterialFiles_RefusesARootThatIsNotACertificate`, `TestMaterial_ClaimsCarryItToo`.
+
+### 11.2 Evaluating and reporting
+
+A cockpit MUST evaluate the evidence it is able to evaluate, and MUST report, per item, which of
+those two happened. Exactly three verdicts, and no fourth:
+
+- **verified** — this cockpit checked it and it holds.
+- **carried** — it travels with the record and nothing here evaluated it.
+- **failed** — this cockpit checked it and it does not hold.
+
+*Verified* and *carried* MUST NOT be collapsed into one another. Counting unevaluated evidence as
+verified overstates it; omitting it understates it; and a reader can tell neither from a record that
+says nothing. A *verified* verdict MUST name what produced it.
+
+Recognition MUST be by what the bytes are, not by what the scheme token claims. A certificate filed
+under a house-specific scheme is still a certificate and MUST still be checked. This is the same
+rule as §9.1 in a different place: what a record says about itself does not decide what it is.
+
+A certificate MUST be reported as verified only when it belongs to the key that actually verified
+the record. A certificate for some other key may be impeccable and still says nothing here, and
+accepting it would reintroduce "declared, not verified" by another route.
+
+A cockpit MUST NOT fall back to the host's root store when a repository configures no trust anchor.
+The answer a reader gets MUST NOT depend on which machine ran the query; with no configured root the
+correct verdict is *carried*.
+
+A *failed* item MUST NOT on its own exclude the record. Whose word counts is a trust decision, and
+trust here is §9.1 plus the configuration, not the evidence judging itself.
+
+Evidence attached to a record that was excluded MUST NOT be reported, for the same reason §9.2
+redacts an excluded record's line: it is content from a record the caller was not given.
+
+A cockpit MUST make the same verdict available to the operator before any record is written.
+Evidence that will never verify — a certificate for the wrong key, or one with no configured root to
+judge it against — otherwise produces valid records that report *carried* indefinitely while the
+operator believes an identity was established. Nothing fails, so nothing says so.
+
+> **Checked by:** `TestEvaluate_CertificateBoundToSigningKeyAndChainingToAConfiguredRoot`,
+> `TestEvaluate_CertificateForAnotherKeyIsFailed`, `TestEvaluate_ExpiredCertificateIsFailed`,
+> `TestEvaluate_RecognisesTheArtifactNotTheSchemeToken`,
+> `TestEvaluate_NoConfiguredRootsIsCarriedNotVerified`,
+> `TestEvaluate_UnreadableEvidenceIsCarriedAndSaysSo`,
+> `TestEvaluate_RekorEntrySaysItWasVerifiedWhenAttached`,
+> `TestX509Roots_NoConfiguredRootsIsNilNotTheSystemPool`,
+> `TestMaterial_ACertificateForTheSigningKeyIsAttachedAndReportedVerified`,
+> `TestMaterial_ACertificateForSomebodyElseIsReportedFailed`,
+> `TestMaterial_EvidenceOnAnExcludedRecordIsNotReported`,
+> `TestMaterial_NoConfiguredMaterialMeansNoneReported`,
+> `TestMaterial_PreflightReportsTheVerdictBeforeAnythingIsPublished`.
+
+### 11.3 Anchoring
+
+A repository MAY have every record witnessed in a transparency log. An anchor is one kind of carried
+evidence — the kind that answers *when* — and everything in §11.1 and §11.2 applies to it.
 
 A signature says who signed. It does not say when, and it does not prevent a signer from later
 producing a different record and calling that one the original. An anchor adds an independent,
@@ -500,30 +583,26 @@ A capability gap in the substrate MUST be raised against the protocol, not worke
 
 Recorded here rather than left implied, and phrased as what is missing rather than what is planned.
 
-### 14.1 The signing identity is a key, not a person
+### 14.1 Keyless identity is not wired
 
-A record signed by this cockpit carries an ed25519 key. Nothing binds that key to a person, and the
-cockpit makes no claim that it does.
+A record signed by this cockpit carries an ed25519 key, and §11.2 lets a repository bind that key to
+a person: an X.509 identity certificate rides with every record and is reported as verified when it
+belongs to the key that actually signed and chains to a root the repository configured. That is the
+organisational-PKI route, and it is built. What §9.1 establishes is still only *which key* signed;
+what §11.2 adds is a checkable statement about whose key that is.
 
-Where the work is a sign-off — a review, a release gate, anything a regulated process would have to
-attribute — a key is not enough. The gap is real and this document does not paper over it: §9.1's
-"verified, not declared" establishes *which key* signed, and stops there.
+The keyless route (Fulcio/OIDC) is not wired, and the gap is narrower than it first looks. The
+kernel's `sigstore.Anchor` already takes an arbitrary verifier PEM, so the log would accept a Fulcio
+certificate today. What is missing is obtaining an OIDC token and exchanging it at Fulcio for one —
+and, before that matters at all, `kton anchor` parses its second argument as a hex ed25519 public
+key, so a certificate cannot be handed to it even by a caller holding one. Both are kernel-side and
+§13 forbids building either here; they are raised as requests rather than worked around.
 
-Two routes exist and they are not interchangeable:
-
-- **Keyless (Fulcio/OIDC).** A short-lived certificate binds an OIDC identity to an ephemeral key.
-  The kernel carries a scaffold for this and has deliberately not wired it, because obtaining the
-  token needs an interactive browser flow or an ambient CI token — and a cockpit running as a
-  sandboxed connector has neither. Building it here would be reimplementing kernel logic, which §13
-  forbids; it is a request against the protocol.
-- **Organisational PKI.** A durable X.509 identity as the `by`, with the transparency log used
-  purely as a witness of time. The kernel's own note recommends this for regulated signing and
-  observes that keyless "fits the public/open-federation edge, not internal sign-offs". kton §8.1
-  already names `cms-detached` and `jades` as verification-material schemes, so the substrate
-  anticipates it.
-
-Which of the two a deployment needs is a property of that deployment, not of the cockpit. Until one
-is wired, §11's anchoring establishes *when* a record existed and never *who* made it.
+The two routes also answer different questions. A short-lived certificate over an ephemeral key fits
+an open federation, where signers are not known in advance and the certificate is what carries the
+identity. A durable key with a durable certificate fits an internal sign-off, where the signers are
+known and a list of keys is the point. The kernel's own note reaches the same split. A deployment
+picks one; the cockpit does not pick for it.
 
 ### 14.2 Determinism is possible, not required
 

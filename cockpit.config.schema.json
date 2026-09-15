@@ -109,6 +109,32 @@
         "rekorPubkey": { "type": "string", "description": "The pinned public key the log's Signed Entry Timestamp is checked against: a PEM file path or inline PEM. Required whenever rekorUrl is set, because a log that issues its own SET and is then checked against its own key verifies nothing — a fabricated entry would self-verify." }
       }
     },
+    "material": {
+      "type": "object",
+      "description": "External evidence to carry with every record this cockpit writes, and the roots it can check such evidence against. SPEC §8.1 keeps verification material deliberately open: the kernel stores opaque bytes under a scheme token it never interprets, and `plankton attach` accepts an unfamiliar scheme rather than refusing it, because refusing unknown evidence would make the scheme list a protocol version. This block inherits that stance exactly — it prescribes no key form, no issuer, no algorithm and no scheme token. Carrying and checking are kept apart on purpose: evidence named here always travels with the record, and cockpit_ask reports per item whether anything here evaluated it (verified), could not (carried), or checked it and found it wrong (failed). None of this touches trust.tiers — a tier decides whether a record COUNTS here, while material says who a key belongs to and when the record existed.",
+      "additionalProperties": false,
+      "properties": {
+        "attach": {
+          "type": "array",
+          "description": "One entry per piece of evidence, attached to every foton and every claim this cockpit writes.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["scheme", "mediaType", "file"],
+            "properties": {
+              "scheme": { "type": "string", "description": "The SPEC §8.1 token saying what produced the evidence. The listed tokens are sigstore-bundle, rekor-entry, rfc3161, cms-detached, jades and pgp-detached — but the list is open, and an unlisted one is accepted here for the same reason the kernel accepts it." },
+              "mediaType": { "type": "string", "description": "How to read the bytes. Required even for a scheme the kernel has a default for, so this repo's records do not change what they carry because a default table in the kernel changed — and so an unlisted scheme needs no special case." },
+              "file": { "type": "string", "description": "Repo-relative path to the evidence bytes. Must be inside the repository, since evidence is committed with the record it is about, and must not be a *.key private key." }
+            }
+          }
+        },
+        "x509Roots": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "PEM trust anchors an attached certificate's chain is verified against — together with a check that the certificate belongs to the key that ACTUALLY signed the record, since a certificate for some other key says nothing about this one. Empty is not a failure and does NOT fall back to the host's root store: with no root configured a certificate is still attached and still reported, as carried rather than verified, because a verdict that depended on which machine ran the query would be no verdict at all."
+        }
+      }
+    },
     "union": {
       "type": "object",
       "description": "Whether this repo also publishes its aggregate as committed files, so the graph is reachable online without anyone running `cockpit show`. The files are the same three a viewer fetches — union.json, keys.json, names.json — regenerated after every record this cockpit writes and committed in the same commit as it, so a published aggregate is never one record behind the registry it summarises. Requires committing to be on: a published union IS a committed file.",

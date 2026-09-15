@@ -28,6 +28,7 @@ anything real.
 | [06-reproduce](06-reproduce/) | reproducing adds a signature, not a record |
 | [07-run-in-container](07-run-in-container/) | the environment pin stops being a claim (needs docker) |
 | [08-union-and-show](08-union-and-show/) | the graph, published and served, without reading the store |
+| [09-carried-evidence](09-carried-evidence/) | whose key signed, and the difference between checked and carried (needs openssl) |
 
 ## Why they live here and not in their own repository
 

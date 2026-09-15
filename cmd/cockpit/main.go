@@ -16,6 +16,7 @@ import (
 	"github.com/deathbychoco/claude-science-cockpit/internal/binaries"
 	"github.com/deathbychoco/claude-science-cockpit/internal/config"
 	"github.com/deathbychoco/claude-science-cockpit/internal/container"
+	"github.com/deathbychoco/claude-science-cockpit/internal/material"
 	"github.com/deathbychoco/claude-science-cockpit/internal/show"
 	"github.com/deathbychoco/claude-science-cockpit/internal/tools"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -286,6 +287,25 @@ func runDoctor(ctx context.Context) error {
 		fmt.Printf("                and stay public. File contents do not — only their hashes.\n")
 	} else {
 		fmt.Printf("anchor:         off — records are signed, but nothing independent attests WHEN they existed\n")
+	}
+
+	// Reported before anything is published, because the failure it names is otherwise silent: a
+	// certificate for the wrong key, or one with no configured root to judge it against, produces
+	// valid records that report CARRIED forever while the operator believes an identity was
+	// established. See material.Preflight.
+	if reports := material.Preflight(cfg); len(reports) > 0 {
+		for i, m := range reports {
+			label := "material:"
+			if i > 0 {
+				label = "         "
+			}
+			fmt.Printf("%-15s %s → %s\n", label, m.Scheme, m.Verdict)
+			if m.Detail != "" {
+				fmt.Printf("                %s\n", m.Detail)
+			}
+		}
+	} else {
+		fmt.Printf("material:       none configured — records carry the signature and nothing about whose key it is\n")
 	}
 
 	if cfg.Raw.Union.Publish {

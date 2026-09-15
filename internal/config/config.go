@@ -11,6 +11,7 @@ package config
 
 import (
 	"context"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -116,6 +117,54 @@ type Anchor struct {
 	// verifies its own SET verifies nothing, so a custom log without a pinned key could fabricate
 	// entries that self-verify. The kernel refuses that case; this refuses it earlier, at load.
 	RekorPubkey string `json:"rekorPubkey,omitempty"`
+}
+
+// Material is external evidence this cockpit attaches to every record it writes, plus the roots it
+// is able to check such evidence against.
+//
+// SPEC §8.1 keeps verification material deliberately open, and `plankton attach` says why in as
+// many words: an unknown scheme is carried rather than rejected, because "refusing unknown evidence
+// would make this list a protocol version". This block inherits that stance exactly. It prescribes
+// no key form, no issuer, no algorithm and no scheme token — it says what to carry, and separately
+// what this repo can evaluate.
+//
+// Those two are kept apart on purpose. Evidence named here always travels with the record, whether
+// or not anyone here can read it; the kernel stores it as opaque bytes and never evaluates it. What
+// this cockpit then checks is a smaller set, and `cockpit_ask` reports the difference per item
+// rather than blurring it — carried-but-unevaluated is a real and useful state, and silently
+// counting it as verified, or silently dropping it, would each be a lie in a different direction.
+//
+// None of this touches Trust.Tiers. A tier decides whether a record COUNTS here; material says who
+// a key belongs to and when the record existed. Three orthogonal questions, none prescribing the
+// others.
+type Material struct {
+	// Attach rides along with every record this cockpit writes — one entry per piece of evidence.
+	Attach []Attachment `json:"attach,omitempty"`
+
+	// X509Roots are PEM trust anchors that an attached certificate's chain is verified against.
+	//
+	// Empty is not a failure and not a default-to-system-roots: with no roots configured a
+	// certificate is still attached and still reported, as CARRIED rather than VERIFIED. Falling
+	// back to the host's root store would make the verdict depend on which machine happened to run
+	// the query, which is exactly the kind of ambient answer this project refuses elsewhere.
+	X509Roots []string `json:"x509Roots,omitempty"`
+}
+
+// Attachment is one piece of evidence to carry, named the way `plankton attach` takes it.
+type Attachment struct {
+	// Scheme is the SPEC §8.1 token that says what produced Material. The listed tokens are
+	// sigstore-bundle, rekor-entry, rfc3161, cms-detached, jades and pgp-detached — but the list is
+	// open and an unlisted one is accepted here for the same reason the kernel accepts it.
+	Scheme string `json:"scheme"`
+
+	// MediaType says how to read the bytes. Required here even for a scheme the kernel has a default
+	// for: the kernel's default table is a convenience whose contents can change, and a cockpit that
+	// depended on it would carry a different media type after a kernel upgrade without anything in
+	// this repo having changed. Naming it makes an unlisted scheme need no special case either.
+	MediaType string `json:"mediaType"`
+
+	// File is the repo-relative path to the evidence bytes.
+	File string `json:"file"`
 }
 
 // Union controls whether this repo also publishes its aggregate as committed files, so the graph is
@@ -250,6 +299,7 @@ type Raw struct {
 	Git          Git          `json:"git,omitempty"`
 	Union        Union        `json:"union,omitempty"`
 	Anchor       Anchor       `json:"anchor,omitempty"`
+	Material     Material     `json:"material,omitempty"`
 }
 
 // Config is the loaded, validated, path-resolved configuration for one cockpit invocation. Every
@@ -310,6 +360,10 @@ func Load(ctx context.Context, startDir string) (*Config, error) {
 	}
 
 	if err := checkTrustTierContents(cfgDir, &raw); err != nil {
+		return nil, fmt.Errorf("cockpit: cockpit.config.json at %s is invalid: %w", cfgPath, err)
+	}
+
+	if err := checkMaterialFiles(cfgDir, raw.Material); err != nil {
 		return nil, fmt.Errorf("cockpit: cockpit.config.json at %s is invalid: %w", cfgPath, err)
 	}
 
@@ -479,6 +533,9 @@ func validate(raw *Raw) error {
 		return err
 	}
 	if err := validateExecution(raw.Execution, raw.Environment); err != nil {
+		return err
+	}
+	if err := validateMaterial(raw.Material); err != nil {
 		return err
 	}
 	if raw.Repo.IsLocal() && raw.Git.Commit != nil && *raw.Git.Commit {
@@ -726,4 +783,136 @@ func checkRemoteMatches(ctx context.Context, repoRoot string, want RepoRef) erro
 		)
 	}
 	return nil
+}
+
+// validateMaterial checks the shape of every attachment, and nothing about its contents.
+//
+// The line it holds is worth stating, because it is the whole point of this block: it refuses
+// entries that are unreadable or dangerous, NEVER entries whose scheme it has not heard of. An
+// unlisted scheme is a supported case, not an error — the kernel takes it, and so does this.
+func validateMaterial(m Material) error {
+	seen := map[string]bool{}
+	for i, a := range m.Attach {
+		where := fmt.Sprintf("material.attach[%d]", i)
+		if a.Scheme == "" {
+			return fmt.Errorf("%s has no scheme — evidence must say what produced it, even when nothing here can read it", where)
+		}
+		if strings.ContainsAny(a.Scheme, " \t\"") {
+			return fmt.Errorf("%s scheme %q contains whitespace or a quote; it is passed to `plankton attach --scheme` as one token", where, a.Scheme)
+		}
+		if a.MediaType == "" {
+			return fmt.Errorf(
+				"%s (scheme %q) has no mediaType — it is required here even for a scheme the kernel has a "+
+					"default for, so this repo's records do not change what they carry because a default "+
+					"table in the kernel changed", where, a.Scheme)
+		}
+		if a.File == "" {
+			return fmt.Errorf("%s (scheme %q) names no file", where, a.Scheme)
+		}
+		if filepath.IsAbs(a.File) || !filepath.IsLocal(a.File) {
+			return fmt.Errorf(
+				"%s file %q must be a repo-relative path inside the repository — evidence is committed with "+
+					"the record it is about, so a path outside it would attach bytes nobody receiving the "+
+					"record can see", where, a.File)
+		}
+		if strings.HasSuffix(a.File, ".key") {
+			return fmt.Errorf(
+				"%s file %q matches *.key — verification material is evidence ABOUT a record and is stored "+
+					"and shared with it; a private key must never be attached", where, a.File)
+		}
+		// A scheme+file pair attached twice would append the same bytes to the record twice. The
+		// kernel tolerates it (material is append-only and never deduplicated on write), which is
+		// precisely why it is worth catching here instead of leaving a doubled entry in every record.
+		k := a.Scheme + "\x00" + a.File
+		if seen[k] {
+			return fmt.Errorf("%s repeats scheme %q with file %q — it would be attached to every record twice", where, a.Scheme, a.File)
+		}
+		seen[k] = true
+	}
+	for i, r := range m.X509Roots {
+		if r == "" {
+			return fmt.Errorf("material.x509Roots[%d] is empty", i)
+		}
+		if strings.HasSuffix(r, ".key") {
+			return fmt.Errorf("material.x509Roots[%d] (%s) matches *.key — a trust anchor is a certificate, not a private key", i, r)
+		}
+	}
+	return nil
+}
+
+// checkMaterialFiles is the half of the check that needs the repository root: the bytes must
+// actually be there, and a configured trust anchor must actually parse.
+//
+// Both are checked at load rather than at publish. A missing certificate discovered mid-publish
+// would leave a record authored and its evidence absent, and a root that turns out not to be a
+// certificate would silently mean every attachment reports CARRIED forever — a verification that
+// never happens, with nothing saying so.
+func checkMaterialFiles(root string, m Material) error {
+	for i, a := range m.Attach {
+		p := filepath.Join(root, a.File)
+		if st, err := os.Stat(p); err != nil {
+			return fmt.Errorf("material.attach[%d] (scheme %q) names %s, which cannot be read: %w", i, a.Scheme, a.File, err)
+		} else if st.IsDir() {
+			return fmt.Errorf("material.attach[%d] (scheme %q) names %s, which is a directory", i, a.Scheme, a.File)
+		}
+	}
+	for i, r := range m.X509Roots {
+		p := r
+		if !filepath.IsAbs(p) {
+			p = filepath.Join(root, p)
+		}
+		b, err := os.ReadFile(p)
+		if err != nil {
+			return fmt.Errorf("material.x509Roots[%d] (%s) cannot be read: %w", i, r, err)
+		}
+		if !x509.NewCertPool().AppendCertsFromPEM(b) {
+			return fmt.Errorf(
+				"material.x509Roots[%d] (%s) contains no PEM certificate — with no usable root every "+
+					"attached certificate would be reported as carried-but-unverified forever, and nothing "+
+					"would say why", i, r)
+		}
+	}
+	return nil
+}
+
+// ResolvedAttachment is one configured attachment with its path made absolute.
+type ResolvedAttachment struct {
+	Scheme    string
+	MediaType string
+	File      string // absolute
+}
+
+// Attachments returns every configured attachment with an absolute file path, in config order.
+func (c *Config) Attachments() []ResolvedAttachment {
+	out := make([]ResolvedAttachment, 0, len(c.Raw.Material.Attach))
+	for _, a := range c.Raw.Material.Attach {
+		out = append(out, ResolvedAttachment{
+			Scheme: a.Scheme, MediaType: a.MediaType,
+			File: filepath.Join(c.RepoRoot, a.File),
+		})
+	}
+	return out
+}
+
+// X509Roots returns the configured trust anchors as one pool, or nil when none are configured.
+//
+// nil is meaningful and must not be replaced by the system pool: a caller that gets nil reports
+// CARRIED, which is the honest answer when this repo has declared no root to judge against.
+func (c *Config) X509Roots() *x509.CertPool {
+	if len(c.Raw.Material.X509Roots) == 0 {
+		return nil
+	}
+	pool := x509.NewCertPool()
+	for _, r := range c.Raw.Material.X509Roots {
+		p := r
+		if !filepath.IsAbs(p) {
+			p = filepath.Join(c.RepoRoot, p)
+		}
+		b, err := os.ReadFile(p)
+		if err != nil {
+			continue // unreadable here means it was readable at load and vanished since; CARRIED is then correct
+		}
+		pool.AppendCertsFromPEM(b)
+	}
+	return pool
 }

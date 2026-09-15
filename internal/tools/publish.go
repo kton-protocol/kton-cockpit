@@ -14,6 +14,7 @@ import (
 	"github.com/deathbychoco/claude-science-cockpit/internal/config"
 	"github.com/deathbychoco/claude-science-cockpit/internal/container"
 	"github.com/deathbychoco/claude-science-cockpit/internal/gitops"
+	"github.com/deathbychoco/claude-science-cockpit/internal/material"
 	"github.com/deathbychoco/claude-science-cockpit/internal/show"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -225,6 +226,14 @@ func Publish(ctx context.Context, _ *mcp.CallToolRequest, in PublishInput) (*mcp
 			return errResult[PublishOutput]("plankton hash %s failed: %v", o, err)
 		}
 		outputHashes[o] = h
+	}
+
+	// Configured evidence is attached before anything is committed, for the same reason the anchor
+	// is: material binds to the record's content address and is stored beside it, so a record and
+	// the evidence about it belong in one commit. A later commit could be missing from a partial
+	// share, and the record would then arrive stripped of what was meant to travel with it.
+	if err := material.Attach(ctx, cfg, r, fotonID, material.Foton); err != nil {
+		return errResult[PublishOutput]("%v", err)
 	}
 
 	// Anchored before the registry commit, so the proof travels with the record it witnesses rather

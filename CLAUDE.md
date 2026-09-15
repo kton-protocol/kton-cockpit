@@ -150,7 +150,9 @@ examples/02-chain/run.sh     # or one
 ```
 
 One property per directory, each a readable script that builds its own participant repo from
-nothing. They demonstrate what the cockpit adds over the kernel — the guard, the claim ceiling, the
+nothing. Two need something the others do not: `07-run-in-container` a container engine, and
+`09-carried-evidence` `openssl`, which it uses to issue a certificate for the key plankton already
+holds — the step an operator actually has to perform, so it is performed rather than assumed. They demonstrate what the cockpit adds over the kernel — the guard, the claim ceiling, the
 verified-not-declared rule, the environment pin — over the MCP surface a session actually gets,
 rather than by driving plankton and git directly.
 
@@ -182,6 +184,10 @@ internal/
 │                          (git mode: the origin remote must match; local mode: the config must be
 │                           where it declares itself to be — ADR-004)
 ├── container/            runs a published command in a pinned image, when a repo opts in (ADR-003)
+├── material/             carries external evidence about a record (SPEC §8.1) and evaluates what
+│                          it can: any scheme is attached, a certificate is checked against the key
+│                          that actually signed and the configured roots, the rest is reported as
+│                          carried rather than silently counted or dropped
 ├── anchor/               witnesses a record in Rekor via `kton anchor` and attaches the proof
 ├── gitops/               commit/push wrappers, commit-pinned permalink construction
 ├── show/                 serves the union/keys/names a kton-web viewer fetches
@@ -193,9 +199,15 @@ cockpit.config.schema.json   JSON Schema for cockpit.config.json (documentation 
 
 ## What not to add here
 
-Per the governing spec's "Nicht bauen" section (also recorded in
-[`projectdocs/claude-science-cockpit/phases/design/what-we-dont-build.md`](projectdocs/claude-science-cockpit/phases/design/what-we-dont-build.md)):
-no own canonicalization/signing/registry/chain logic, no trust logic beyond applying
+Per [`spec/SPEC.md` §13](spec/SPEC.md), where each item is checked by a named test (also recorded in
+[`projectdocs/.../what-we-dont-build.md`](projectdocs/claude-science-cockpit/phases/design/what-we-dont-build.md),
+which carries the original German build brief's "Nicht bauen" wording): no own
+canonicalization/signing/registry/chain logic, no trust logic beyond applying
 `cockpit.config.json`, no fourth verb, no cockpit-owned mutable state beyond that static config
 file. If a change would require one of these, raise it against the protocol spec first, not as a
 cockpit-side workaround.
+
+Applying the config is the line, and it is not the same as doing nothing: §11.2's certificate check
+is `crypto/x509` against roots the config names, which is applying configured trust. Re-verifying a
+stored Rekor entry would not be — that is transparency-log cryptography, and it belongs in the
+kernel, which is where it is raised.

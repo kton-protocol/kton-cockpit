@@ -8,6 +8,7 @@ import (
 	"github.com/deathbychoco/claude-science-cockpit/internal/binaries"
 	"github.com/deathbychoco/claude-science-cockpit/internal/config"
 	"github.com/deathbychoco/claude-science-cockpit/internal/gitops"
+	"github.com/deathbychoco/claude-science-cockpit/internal/material"
 	"github.com/deathbychoco/claude-science-cockpit/internal/show"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -72,6 +73,13 @@ func Say(ctx context.Context, _ *mcp.CallToolRequest, in SayInput) (*mcp.CallToo
 	claimID, err := r.Annotate(ctx, in.Subject, in.Template, sets, cfg.NektonKey)
 	if err != nil {
 		return errResult[SayOutput]("nekton annotate failed: %v", err)
+	}
+
+	// A claim carries the same configured evidence a foton does. A cockpit whose certificate rode
+	// only on its fotons would say who produced a result and leave who VOUCHED for it unattributed —
+	// and a claim is exactly the record where that question is being asked.
+	if err := material.Attach(ctx, cfg, r, claimID, material.Claim); err != nil {
+		return errResult[SayOutput]("%v", err)
 	}
 
 	var anchored *anchor.Entry

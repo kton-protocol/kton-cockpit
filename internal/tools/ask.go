@@ -8,6 +8,7 @@ import (
 
 	"github.com/deathbychoco/claude-science-cockpit/internal/binaries"
 	"github.com/deathbychoco/claude-science-cockpit/internal/config"
+	"github.com/deathbychoco/claude-science-cockpit/internal/material"
 	"github.com/deathbychoco/claude-science-cockpit/internal/verify"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -87,6 +88,14 @@ type RecordVerification struct {
 	ID       string `json:"id"`
 	Tier     string `json:"tier"`
 	Verified bool   `json:"verified"`
+	// Material is the external evidence attached to this record (SPEC §8.1), each item carrying
+	// whether this cockpit evaluated it. Present only for INCLUDED records, for the same reason Raw
+	// is redacted: evidence attached to a record that did not verify is content from an untrusted
+	// record, and surfacing it would route around the filter it was excluded by.
+	//
+	// It is a read per record, so it is gathered only where it can be reported. Empty means nothing
+	// is attached — which is the normal case and says nothing bad about the record.
+	Material []material.Report `json:"material,omitempty"`
 }
 
 type AskOutput struct {
@@ -191,7 +200,7 @@ func askClaims(ctx context.Context, cfg *config.Config, r *binaries.Runner, in A
 	var lines []string
 
 	for _, c := range claims {
-		tier, _, verr := verify.ResolveTier(ctx, r, cfg, c.ID, verify.Claim)
+		tier, verifyingKey, verr := verify.ResolveTier(ctx, r, cfg, c.ID, verify.Claim)
 		if verr != nil {
 			return errResult[AskOutput]("verifying %s failed: %v", c.ID, verr)
 		}
@@ -202,6 +211,11 @@ func askClaims(ctx context.Context, cfg *config.Config, r *binaries.Runner, in A
 			excluded = append(excluded, c.ID)
 			continue
 		}
+		mats, merr := material.Describe(ctx, cfg, r, c.ID, material.Claim, verifyingKey)
+		if merr != nil {
+			return errResult[AskOutput]("reading the verification material on %s failed: %v", c.ID, merr)
+		}
+		records[len(records)-1].Material = mats
 		included = append(included, c.ID)
 		includedClaims = append(includedClaims, c)
 		lines = append(lines, c.Line())
@@ -334,6 +348,11 @@ func siftFoton(ctx context.Context, cfg *config.Config, r *binaries.Runner, id s
 		out.Excluded = append(out.Excluded, id)
 		return false, ""
 	}
+	mats, merr := material.Describe(ctx, cfg, r, id, material.Foton, verifyingKey)
+	if merr != nil {
+		return false, fmt.Sprintf("reading the verification material on %s failed: %v", id, merr)
+	}
+	out.Records[len(out.Records)-1].Material = mats
 	out.Included = append(out.Included, id)
 	return true, ""
 }

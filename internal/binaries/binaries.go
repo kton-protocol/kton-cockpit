@@ -475,3 +475,58 @@ func (r *Runner) VerifyClaim(ctx context.Context, idOrFile, pubkeyPath string) (
 	}
 	return false, out, err
 }
+
+// --- verification material (SPEC §8.1) ---
+
+// StoredMaterial is one piece of evidence as the kernel hands it back.
+//
+// The kernel's `--json` includes a `verified` field that is ALWAYS false, and deliberately so: it
+// stores material without evaluating it. That field is not mapped here, because carrying it would
+// invite a caller to read a kernel-side verdict where none exists. Whether any of this checks out
+// is decided by internal/material, on this side.
+type StoredMaterial struct {
+	Subject   string `json:"subject"`
+	Scheme    string `json:"scheme"`
+	MediaType string `json:"mediaType"`
+	Material  string `json:"material"` // base64 of the scheme's own artifact, exactly as stored
+}
+
+// AttachFoton records evidence about a foton; AttachClaim does the same for a nekton claim.
+//
+// mediaType is always passed, never left to the kernel's default table — see config.Attachment.
+func (r *Runner) AttachFoton(ctx context.Context, fotonID, scheme, mediaType, file string) error {
+	return r.attach(ctx, "plankton", fotonID, scheme, mediaType, file)
+}
+
+func (r *Runner) AttachClaim(ctx context.Context, claimID, scheme, mediaType, file string) error {
+	return r.attach(ctx, "nekton", claimID, scheme, mediaType, file)
+}
+
+func (r *Runner) attach(ctx context.Context, bin, id, scheme, mediaType, file string) error {
+	_, _, err := r.exec(ctx, bin, "attach", id, "--scheme", scheme, "--media", mediaType, "--file", file)
+	return err
+}
+
+// MaterialForFoton reads back everything attached to a foton; MaterialForClaim does the same for a
+// claim. An empty result is a normal answer, not an error: most records carry no material.
+func (r *Runner) MaterialForFoton(ctx context.Context, fotonID string) ([]StoredMaterial, error) {
+	return r.material(ctx, "plankton", fotonID)
+}
+
+func (r *Runner) MaterialForClaim(ctx context.Context, claimID string) ([]StoredMaterial, error) {
+	return r.material(ctx, "nekton", claimID)
+}
+
+func (r *Runner) material(ctx context.Context, bin, id string) ([]StoredMaterial, error) {
+	out, _, err := r.exec(ctx, bin, "material", id, "--json")
+	if err != nil {
+		return nil, err
+	}
+	var read struct {
+		Material []StoredMaterial `json:"material"`
+	}
+	if err := json.Unmarshal([]byte(out), &read); err != nil {
+		return nil, fmt.Errorf("could not read %s material %s: %w\n%s", bin, id, err, out)
+	}
+	return read.Material, nil
+}
