@@ -45,14 +45,21 @@ jobs:
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
           echo "pinned kton: $sha"
 
+      # Checked out as `dev` and then moved to the pinned commit, rather than passing the commit as
+      # `ref`: CLAUDE.md pins a SHORT sha, and actions/checkout resolves a ref by fetching it, which
+      # a 7-character sha is not. Full history so the object is present to check out — and so Go can
+      # stamp vcs.revision, which is what TestVerifiedAgainst compares the pin against.
       - uses: actions/checkout@v4
         with:
           repository: kton-protocol/kton
-          ref: ${{ steps.pin.outputs.sha }}
+          ref: dev
           path: kton
-          # Full history: Go stamps vcs.revision from the checkout, and that stamp is what
-          # TestVerifiedAgainst compares the pin against.
           fetch-depth: 0
+
+      - name: Move kton to the pinned commit
+        run: |
+          git -C kton checkout --quiet ${{ steps.pin.outputs.sha }}
+          echo "kton at $(git -C kton rev-parse --short HEAD)"
 
       - uses: actions/setup-go@v5
         with:
@@ -109,12 +116,18 @@ jobs:
           sha=$(sed -n 's/^\*\*Verified against:\*\* kton `dev` at `\([0-9a-f]\{7,40\}\)`.*/\1/p' CLAUDE.md)
           [ -n "$sha" ] || { echo "CLAUDE.md has no 'Verified against' pin" >&2; exit 1; }
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
+      # Same short-sha reason as the job above.
       - uses: actions/checkout@v4
         with:
           repository: kton-protocol/kton
-          ref: ${{ steps.pin.outputs.sha }}
+          ref: dev
           path: kton
           fetch-depth: 0
+
+      - name: Move kton to the pinned commit
+        run: |
+          git -C kton checkout --quiet ${{ steps.pin.outputs.sha }}
+          echo "kton at $(git -C kton rev-parse --short HEAD)"
       - uses: actions/setup-go@v5
         with:
           go-version-file: cockpit/go.mod
