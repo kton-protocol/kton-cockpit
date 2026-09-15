@@ -65,3 +65,13 @@ design discussion, but it is not a vulnerability:
 `keys/*.key` is a private signing key and is gitignored in the participant skeleton. `publish`
 refuses any path matching `*.key` regardless of location, and `material.attach` refuses one too. If
 you find a route that commits one anyway, that is a report worth sending.
+
+**A file mode is a request the platform may decline.** A key created with 0600 lands as 0777 on a
+Windows drive mounted into WSL, and on FAT/exFAT and some network mounts — so on those filesystems
+every statement above about a private key being unreadable by others is false, and nothing about
+the cockpit can make it true. `cockpit doctor` reports the mode it finds rather than the mode that
+was asked for, because that is the only way an operator learns it. A repository moved onto such a
+mount after its keys were made is announced by nobody else.
+
+That is an environment limitation, not a defect to report — but a route by which the cockpit itself
+widens a key's mode, or reports an exposed key as `[ok]`, is one.

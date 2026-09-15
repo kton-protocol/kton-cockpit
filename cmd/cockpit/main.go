@@ -240,8 +240,8 @@ func runDoctor(ctx context.Context) error {
 	fmt.Printf("templates_dir:  %s\n", checkPath(cfg.TemplatesDir))
 	fmt.Printf("plankton bin:   %s\n", checkPath(filepath.Join(cfg.BinDir, "plankton")))
 	fmt.Printf("nekton bin:     %s\n", checkPath(filepath.Join(cfg.BinDir, "nekton")))
-	fmt.Printf("plankton key:   %s\n", checkPath(cfg.PlanktonKey))
-	fmt.Printf("nekton key:     %s\n", checkPath(cfg.NektonKey))
+	fmt.Printf("plankton key:   %s\n", checkKeyPath(cfg.PlanktonKey))
+	fmt.Printf("nekton key:     %s\n", checkKeyPath(cfg.NektonKey))
 	fmt.Printf("allowed templates: %v\n", cfg.Raw.Claims.AllowedTemplates)
 	fmt.Printf("trust tiers:    %v\n", cfg.Raw.Trust.Tiers)
 
@@ -347,6 +347,37 @@ func runDoctor(ctx context.Context) error {
 func checkPath(p string) string {
 	if _, err := os.Stat(p); err != nil {
 		return p + "  [MISSING]"
+	}
+	return p + "  [ok]"
+}
+
+// checkKeyPath is checkPath plus the one thing a private signing key has that an ordinary path does
+// not: a file mode that is supposed to keep other users out.
+//
+// A mode is a request the platform may decline. On a Windows drive mounted into WSL — which is
+// where this repository itself lives — a 0600 request lands as 0777, and every statement this
+// project makes about a private key being unreadable by others is false there. kton's `keygen`
+// warns at creation time, but that warning goes to stderr of a command the operator runs once and
+// the cockpit does not run at all; a key copied in from elsewhere, or a repo moved onto such a
+// mount afterwards, is never announced by anyone.
+//
+// So it is checked here, where "is this repository set up correctly" is the question, and it is
+// checked every time rather than once.
+// keyModeExposed answers the one question, separately from any filesystem, so it can be checked
+// exhaustively: does this mode let anyone but the owner read the key? Group and other, read write
+// or execute — a key a stranger can write is no better than one they can read.
+func keyModeExposed(perm os.FileMode) bool { return perm&0o077 != 0 }
+
+func checkKeyPath(p string) string {
+	fi, err := os.Stat(p)
+	if err != nil {
+		return p + "  [MISSING]"
+	}
+	if perm := fi.Mode().Perm(); keyModeExposed(perm) {
+		return fmt.Sprintf("%s  [READABLE BY OTHERS: mode %v]\n"+
+			"                this is a PRIVATE signing key. Either the filesystem does not enforce\n"+
+			"                modes (a Windows drive mounted into WSL, FAT/exFAT, some network mounts)\n"+
+			"                or the mode was widened. Anyone who can read it can sign as this repo.", p, perm)
 	}
 	return p + "  [ok]"
 }

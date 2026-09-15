@@ -288,7 +288,8 @@ func checkCertificate(rep Report, cert *x509.Certificate, signer ed25519.PublicK
 func carriedNote(scheme string) string {
 	if scheme == "rekor-entry" {
 		return "a Rekor entry, verified by `kton anchor` (inclusion proof, SET, and binding to this " +
-			"record) at the moment it was attached; not re-checked on read"
+			"record) at the moment it was attached; not re-checked on read — kton §8.1: presence is " +
+			"not a check"
 	}
 	return fmt.Sprintf("carried as-is: nothing here can evaluate %q evidence, and it is attached so a consumer that can, may", scheme)
 }

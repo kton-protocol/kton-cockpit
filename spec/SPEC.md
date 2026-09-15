@@ -327,8 +327,27 @@ A record that no configured key verifies MUST be excluded from the answer, and i
 NOT appear anywhere in the result.** It MUST still be accounted for as found-and-excluded: "nothing
 is there" and "something is there that you do not trust" are different answers.
 
+A verdict about a record MUST NOT be confused with a failure to reach one. The substrate answers
+both through the same exit status, and they have opposite correct handlings:
+
+| what the kernel says | what it means | handling |
+|---|---|---|
+| wrong key | no configured key signed this | exclude the record |
+| structurally invalid | the signature is genuine; the record is one `add` refuses | exclude the record |
+| an operational error | the pubkey path is unreadable, the hex is malformed | **fail the call** |
+
+The last row is not pedantry. Reading an operational error as a verdict is a bug this cockpit has
+already had: a typo'd path in a trust tier exited non-zero, and "this cockpit cannot read your
+configured key" was reported as "this signer is not trusted" — a broken trust configuration wearing
+the appearance of a working one. The first two rows must not fail the call for the mirror-image
+reason: this cockpit reads stores it did not write, and a kernel may tighten its structural rules,
+so one record a newer kernel refuses would otherwise deny every answer that touched it.
+
 > **Checked by:** `TestAsk_ProducerFindsTheJustPublishedFotonAndVerifiesIt`,
-> `TestAsk_AboutExcludesAClaimThatVerifiesAgainstNoConfiguredTier`, `examples/05-trust-tiers`.
+> `TestAsk_AboutExcludesAClaimThatVerifiesAgainstNoConfiguredTier`, `examples/05-trust-tiers`,
+> `TestVerifyFoton_ExitOneIsARealErrorNotASilentMismatch`,
+> `TestVerify_ExitThreeExcludesTheRecordRatherThanFailingTheCall`,
+> `TestVerifyExitCodes_OnlyTwoAndThreeAreRecordVerdicts`.
 
 ### 9.2 Filtering
 
@@ -491,6 +510,10 @@ those two happened. Exactly three verdicts, and no fourth:
 verified overstates it; omitting it understates it; and a reader can tell neither from a record that
 says nothing. A *verified* verdict MUST name what produced it.
 
+These three are kton §8.1's own recommendation for a consumer, not a vocabulary invented here: it
+asks for *verified here* (naming who checked), *carried* (nobody here evaluated it) and *failed*,
+having just forbidden the kernel from reporting any verdict of its own.
+
 Recognition MUST be by what the bytes are, not by what the scheme token claims. A certificate filed
 under a house-specific scheme is still a certificate and MUST still be checked. This is the same
 rule as §9.1 in a different place: what a record says about itself does not decide what it is.
@@ -638,8 +661,9 @@ cockpit anyway (kton #103), which is the moment to make it — not a protocol re
 raised as one in error.
 
 Re-verifying a *stored* transparency-log entry is a separate matter and is deliberately not done.
-Nothing re-checks one: the kernel verifies material neither on write nor on read, and `kton anchor`
-verifies before attaching and never again. Doing that check on the read path would be this cockpit
+Nothing re-checks one, and kton §8.1 now states that as a property rather than leaving it to be
+discovered: a kernel verifies material neither when it stores it nor when it hands it back, and
+"presence is not a check". `kton anchor` verifies before attaching and never again. Doing that check on the read path would be this cockpit
 growing its own transparency-log cryptography, which §13 forbids. So a stored entry reports as
 *carried*, with a detail saying it was verified when attached and is not re-checked now — the
 presence of an entry is not evidence that anyone ever checked it.

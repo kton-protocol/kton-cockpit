@@ -56,12 +56,19 @@ successfully; kton 0.2 added `objects/.format` so a store can say what wrote it,
 does not know to look. So: never use a `plankton`/`nekton` from `$PATH`, a package manager, or
 another checkout — only one built from the kton tree you mean.
 
-**Verified against:** kton `dev` at `43f1600` (0.2).
+**Verified against:** kton `dev` at `4308319` (0.2).
 
 `dev` moves, and this line is checked rather than remembered: `TestVerifiedAgainst` compares it
 against the `vcs.revision` Go stamped into `bin/plankton`. When upstream has moved, the fixture
 rebuilds to the newer kernel — so the suite really did run against a different one than this claims,
 and the test says so. Re-run and update the line in the same commit.
+
+One limit worth knowing, because it looks like a pass: **Go can serve that test from its cache.**
+The inputs it actually reads — `CLAUDE.md` and `bin/plankton` — are not inputs Go tracks, and on a
+clean tree `bin/plankton` does not exist when the cache decision is made, so a plain `go test ./...`
+right after upstream moved reports `(cached) ok` for a claim that is no longer true. Use
+`go test -count=1 ./internal/testrepo/` when you have just rebuilt the kernel. CI is unaffected: a
+fresh runner has no cache, and the workflow runs `-count=1` besides.
 
 ## Subcommands
 

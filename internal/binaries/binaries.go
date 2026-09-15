@@ -365,7 +365,7 @@ func (r *Runner) VerifyFoton(ctx context.Context, idOrFile, pubkeyPath string) (
 	if err == nil {
 		return true, out, nil
 	}
-	if isVerifyMismatch(err) {
+	if isVerifyMismatch(err) || isVerifyStructural(err) {
 		return false, out, nil
 	}
 	return false, out, err
@@ -375,8 +375,35 @@ func (r *Runner) VerifyFoton(ctx context.Context, idOrFile, pubkeyPath string) (
 // genuine, expected "this key did not sign the record" outcome — as opposed to any other failure
 // (missing file, bad input, binary crash), which callers must treat as a real error.
 func isVerifyMismatch(err error) bool {
+	return verifyExitCode(err) == 2
+}
+
+// isVerifyStructural reports the kernel's exit 3: the signature IS genuine, and the record is still
+// one `add` refuses — a malformed predicate, a seed carrying the wrong genesis flag, a payload that
+// will not parse at all.
+//
+// It is a verdict about the RECORD, so it belongs with exit 2 rather than with exit 1. Exit 1 stays
+// a hard error and must: it is an operational failure — an unreadable pubkey path, bad hex — and
+// treating it as "this signer isn't trusted" is a bug this package already had once, where a typo'd
+// .pub path read exactly like a legitimate exclusion.
+//
+// Reaching it matters more than it used to. kton tightened `nekton verify` so a payload that cannot
+// be parsed is a structural failure rather than a silent exit 0, which means a claim accepted by an
+// OLDER kernel can now answer exit 3 — and this cockpit reads stores it did not write. Left in the
+// exit-1 bucket, one such record would fail every query that touched it rather than being excluded
+// from the answer, which is a single record denying every answer about the rest.
+func isVerifyStructural(err error) bool {
+	return verifyExitCode(err) == 3
+}
+
+// verifyExitCode returns the process exit code behind err, or -1 when err is not an exit status.
+// -1 is never a kernel verdict, so a non-ExitError can never be mistaken for one.
+func verifyExitCode(err error) int {
 	var exitErr *exec.ExitError
-	return errors.As(err, &exitErr) && exitErr.ExitCode() == 2
+	if !errors.As(err, &exitErr) {
+		return -1
+	}
+	return exitErr.ExitCode()
 }
 
 // --- nekton ---
@@ -470,7 +497,7 @@ func (r *Runner) VerifyClaim(ctx context.Context, idOrFile, pubkeyPath string) (
 	if err == nil {
 		return true, out, nil
 	}
-	if isVerifyMismatch(err) {
+	if isVerifyMismatch(err) || isVerifyStructural(err) {
 		return false, out, nil
 	}
 	return false, out, err

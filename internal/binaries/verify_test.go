@@ -125,3 +125,56 @@ func TestIsVerifyMismatch(t *testing.T) {
 		t.Error("expected nil to NOT be recognized as a mismatch")
 	}
 }
+
+// Exit 3 is the kernel's "the signature is genuine, the record is still one `add` refuses". It is a
+// verdict about the RECORD, so it must exclude rather than fail the call — unlike exit 1, which
+// stays an operational error above.
+//
+// This became reachable for claims when kton made `nekton verify` treat an unparseable payload as a
+// structural failure instead of exiting 0 with no structure line. A claim an OLDER kernel accepted
+// can now answer exit 3, and this cockpit reads stores it did not write — so in the exit-1 bucket a
+// single such record would fail every query that touched it instead of being left out of the answer.
+func TestVerify_ExitThreeExcludesTheRecordRatherThanFailingTheCall(t *testing.T) {
+	for _, tc := range []struct{ bin, stderr string }{
+		{"plankton", "structure:       INVALID - the signature is genuine; the record is still one `add` refuses."},
+		{"nekton", "structure:       INVALID - the signature is genuine; the payload is not a claim this substrate can store."},
+	} {
+		t.Run(tc.bin, func(t *testing.T) {
+			r := runnerWithFakeBinary(t, tc.bin, 3, tc.stderr)
+			var ok bool
+			var err error
+			if tc.bin == "plankton" {
+				ok, _, err = r.VerifyFoton(context.Background(), "sha256:abc", "key.pub")
+			} else {
+				ok, _, err = r.VerifyClaim(context.Background(), "sha256:abc", "key.pub")
+			}
+			if err != nil {
+				t.Fatalf("a structural verdict must not fail the call — one bad record would deny every answer: %v", err)
+			}
+			if ok {
+				t.Fatal("a record `add` refuses must not be reported as verified")
+			}
+		})
+	}
+}
+
+// And the boundary that must not move with it: exit 1 is an operational failure and stays loud.
+// Folding it in with the record verdicts is the bug this file was written for.
+func TestVerifyExitCodes_OnlyTwoAndThreeAreRecordVerdicts(t *testing.T) {
+	exitCode := func(code int) error {
+		return exec.Command("sh", "-c", "exit "+strconv.Itoa(code)).Run()
+	}
+	for code, wantVerdict := range map[int]bool{1: false, 2: true, 3: true, 4: false, 127: false} {
+		got := isVerifyMismatch(exitCode(code)) || isVerifyStructural(exitCode(code))
+		if got != wantVerdict {
+			t.Errorf("exit %d: treated as a record verdict = %v, want %v", code, got, wantVerdict)
+		}
+	}
+	// A non-exit error has no code at all, and must never land on one by accident.
+	if verifyExitCode(errors.New("not an exec.ExitError at all")) != -1 {
+		t.Error("a non-ExitError must report no exit code")
+	}
+	if isVerifyMismatch(nil) || isVerifyStructural(nil) {
+		t.Error("nil is success, not a verdict")
+	}
+}

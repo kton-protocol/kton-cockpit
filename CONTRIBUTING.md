@@ -32,6 +32,10 @@ CLAUDE.md's `**Verified against:**` line names the kton commit the suite ran aga
 `TestVerifiedAgainst` compares it to the `vcs.revision` Go stamped into the binary. CI reads the
 same line. When upstream has moved, rebuild, re-run, and update that line in the same commit.
 
+After rebuilding the kernel, run that check with `-count=1`. Go's test cache does not track
+`bin/plankton` or `CLAUDE.md` as inputs, so it can serve a stale pass for exactly the claim the
+test exists to keep honest. CI runs on a fresh runner with no cache.
+
 ## What not to add
 
 [`spec/SPEC.md` §13](spec/SPEC.md) lists it, and each item there is checked by a named test: no own
