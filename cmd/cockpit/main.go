@@ -243,29 +243,33 @@ func runDoctor(ctx context.Context) error {
 	fmt.Printf("plankton key:   %s\n", checkKeyPath(cfg.PlanktonKey))
 	fmt.Printf("nekton key:     %s\n", checkKeyPath(cfg.NektonKey))
 	fmt.Printf("allowed templates: %v\n", cfg.Raw.Claims.AllowedTemplates)
-	// The scope is reported with its live tip rather than as the configured string, because the
-	// string being well-formed says nothing about whether claims can actually chain under it. A
-	// branched or truncated scope makes `cockpit_say` refuse, and an operator should learn that
-	// here rather than from a refused claim.
+	// Reported with the live chain rather than as the configured string: the string being
+	// well-formed says nothing about the shape a claim would join. Nothing here stops writing —
+	// completeness is judged when a seal is relied upon, not when a claim is made — but an operator
+	// should see a branch or a gap before someone relies on it.
 	if scope := cfg.Raw.Claims.Scope; scope != "" {
-		switch head, err := binaries.New(cfg).Head(ctx, scope); {
+		head, err := binaries.New(cfg).Head(ctx, scope)
+		switch {
 		case err != nil:
-			fmt.Printf("claim scope:    %s  [UNUSABLE: %v]\n", scope, err)
-		case head.Unresolved > 0:
-			fmt.Printf("claim scope:    %s  [PROVISIONAL: %d claim(s) name it with a prev this registry does not hold;\n"+
-				"                the tip below may not be the real head, and say will refuse]\n", scope, head.Unresolved)
-			fmt.Printf("                tip %s  (%d chained)\n", head.Heads[0], head.ChainLength)
-		case head.Branched:
-			fmt.Printf("claim scope:    %s  [BRANCHED into %d heads — say will refuse until one is chosen]\n", scope, len(head.Heads))
-			for _, h := range head.Heads {
-				fmt.Printf("                head %s\n", h)
-			}
+			fmt.Printf("claim scope:    %s  [UNREADABLE: %v]\n", scope, err)
 		default:
-			fmt.Printf("claim scope:    %s  [ok]\n", scope)
+			fmt.Printf("claim scope:    %s\n", scope)
 			fmt.Printf("                tip %s  (%d chained)\n", head.Heads[0], head.ChainLength)
+			if head.Branched {
+				fmt.Printf("                BRANCHED into %d heads: each seals only its own branch, and a claim\n"+
+					"                carries one prev, so nothing rejoins them. Someone has to decide which\n"+
+					"                branch the scope is — `cockpit_ask` query \"scope\" reports it.\n", len(head.Heads))
+				for _, h := range head.Heads {
+					fmt.Printf("                  head %s\n", h)
+				}
+			}
+			if head.Unresolved > 0 {
+				fmt.Printf("                %d claim(s) name this scope with a predecessor this registry does not\n"+
+					"                hold. The view is partial, not broken: another source may have it.\n", head.Unresolved)
+			}
 		}
 	} else {
-		fmt.Printf("claim scope:    none — each claim stands on its own, vouched for one at a time\n")
+		fmt.Printf("claim scope:    none — each claim stands on its own\n")
 	}
 	fmt.Printf("trust tiers:    %v\n", cfg.Raw.Trust.Tiers)
 

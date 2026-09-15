@@ -335,3 +335,21 @@ func (r *Repo) ChainClaimDirectly(t *testing.T, subject, scope, prev, step strin
 		"--sign", "keys/"+SessionID+"-claims.key", "--add", "--print-id")
 	return strings.TrimSpace(id)
 }
+
+// ChainClaimAsStranger chains a claim into a scope signed by a key this repo's trust config knows
+// nothing about — a peer's claim arriving by mirror, or an outsider naming a public scope id.
+//
+// A scope id is public and the substrate restricts nobody from chaining under it, so this state is
+// reachable in any federation. It exists to check that an outsider is reported and excluded rather
+// than able to affect what this repo can do.
+func (r *Repo) ChainClaimAsStranger(t *testing.T, subject, scope, prev, step string) string {
+	t.Helper()
+	key := filepath.Join("keys", "stranger-"+step)
+	runNekton(t, r, "keygen", key)
+	return strings.TrimSpace(runNekton(t, r, "annotate", subject,
+		"--template", "working-on",
+		"--set", "step="+step,
+		"--set", "by-session=outsider",
+		"--scope", scope, "--prev", prev,
+		"--sign", key+".key", "--add", "--print-id"))
+}

@@ -609,3 +609,96 @@ func (r *Runner) Head(ctx context.Context, scopeID string) (*ScopeHead, error) {
 	}
 	return &h, nil
 }
+
+// ScopeChain returns every claim this registry holds that names scopeID, in the order the registry
+// received them.
+//
+// Reading order from the registry rather than by walking prev is deliberate: a scope's claims live
+// in one append-only file, so arrival order is a fact the store already has, while the prev links
+// are the separate, independently checkable statement about what each writer believed preceded
+// them. Keeping the two apart is what makes a disagreement between them visible at all.
+func (r *Runner) ScopeChain(ctx context.Context, scopeID string) ([]ScopeClaim, error) {
+	out, _, err := r.exec(ctx, "nekton", "records", "--json")
+	if err != nil {
+		return nil, fmt.Errorf("reading claims for scope %s: %w", scopeID, err)
+	}
+	recs, err := parseRecordsJSON(out)
+	if err != nil {
+		return nil, err
+	}
+	blob, err := json.Marshal(recs)
+	if err != nil {
+		return nil, err
+	}
+	all, err := parseClaimsJSON(string(blob))
+	if err != nil {
+		return nil, err
+	}
+	envelopes := map[string]json.RawMessage{}
+	for _, rec := range recs {
+		envelopes[rec.ClaimID] = rec.Envelope
+	}
+	chain := make([]ScopeClaim, 0, len(all))
+	for _, c := range all {
+		if c.Scope == scopeID {
+			chain = append(chain, ScopeClaim{ClaimAxis: c, Envelope: envelopes[c.ID]})
+		}
+	}
+	return chain, nil
+}
+
+// ScopeClaim is one claim in a scope, carried WITH its signed envelope.
+//
+// The envelope travels because a claim whose predecessor this registry cannot resolve is held but
+// is not retrievable by id: `records` returns it and `verify <id>` answers "no claim in the
+// registry". Verifying such a claim therefore has to go through its bytes. Reading that distinction
+// out of the kernel's error text would be parsing prose, and treating any verify failure as
+// "unresolvable" would swallow the operational errors §9.1 insists stay loud.
+type ScopeClaim struct {
+	ClaimAxis
+	Envelope json.RawMessage
+}
+
+// Seed reports the scope's genesis statement — who opened it, when, under what name, and the
+// `responsible` identities kton §7.4 lets a seed name. Membership is FIXED BY THE SEED, so this is
+// where "who was supposed to write here" is written down; the kernel stores it and interprets none
+// of it, and the reference implementation emits no `responsible` at all.
+func (r *Runner) Seed(ctx context.Context, scopeID string) (*ScopeSeed, error) {
+	out, _, err := r.exec(ctx, "nekton", "show", scopeID, "--json")
+	if err != nil {
+		return nil, err
+	}
+	var raw struct {
+		ClaimID       string `json:"claimId"`
+		PredicateType string `json:"predicateType"`
+		Predicate     struct {
+			Scope       string   `json:"scope"`
+			Genesis     bool     `json:"genesis"`
+			By          string   `json:"by"`
+			When        string   `json:"when"`
+			Parent      string   `json:"parent,omitempty"`
+			Responsible []string `json:"responsible,omitempty"`
+		} `json:"predicate"`
+	}
+	if jerr := json.Unmarshal([]byte(strings.TrimSpace(out)), &raw); jerr != nil {
+		return nil, fmt.Errorf("could not read the seed of scope %s: %w\n%s", scopeID, jerr, out)
+	}
+	if !raw.Predicate.Genesis {
+		return nil, fmt.Errorf("%s is not a scope seed: its statement does not carry genesis", scopeID)
+	}
+	return &ScopeSeed{
+		ID: raw.ClaimID, Name: raw.Predicate.Scope, By: raw.Predicate.By,
+		When: raw.Predicate.When, Parent: raw.Predicate.Parent,
+		Responsible: raw.Predicate.Responsible,
+	}, nil
+}
+
+// ScopeSeed is a scope's genesis statement: the one place its membership is defined.
+type ScopeSeed struct {
+	ID          string   `json:"id"`
+	Name        string   `json:"name,omitempty"`
+	By          string   `json:"by,omitempty"`
+	When        string   `json:"when,omitempty"`
+	Parent      string   `json:"parent,omitempty"`
+	Responsible []string `json:"responsible,omitempty"`
+}

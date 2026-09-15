@@ -309,42 +309,37 @@ leave the basis recorded and the conclusion refused.
 ### 8.5 Chained claims *(optional)*
 
 A repository MAY chain every claim it writes under one nekton scope. Empty is the default and stays
-the common case: a claim that stands on its own needs no chain.
+the common case.
 
-What a scope buys is **wholesale judgement**. Unscoped claims are individually signed and
-individually true; a scoped set is one object, and a reader accepts or rejects the chain rather than
-the claims in it. That is what makes "everything this session said in this review" something a
-person can vouch for, or refuse, without reading each line.
-
-Seeding a scope MUST NOT be a verb. It is an operator action, the same division as mirroring: the
-scope exists before the session does, and a session cannot open one for itself.
+A scope is one of kton's two deliberate closed worlds: its **seed fixes membership**, its **head
+seals order**. Seeding MUST NOT be a verb — it is an operator action, the same division as
+mirroring, and a scope exists before the session does.
 
 The tip MUST be read from the substrate on every claim, never remembered between them. A cockpit
-that cached it would hold mutable state about a chain it does not own, and would chain onto a stale
-tip the moment a mirror brought in a peer's claim.
+that cached it would hold mutable state about a chain it does not own, and would be stale the moment
+a mirror brought in another writer's claim.
 
-Two conditions make a chain unextendable, and a cockpit MUST refuse rather than choose:
+**Writing MUST NOT judge the chain.** A claim whose predecessor this registry cannot resolve, and a
+chain with more than one head, are both conditions a cockpit MUST record through rather than refuse
+on. kton §7.4 makes ingest monotone — a signed scoped statement is accepted "even if its `prev` is
+not yet resolvable (it may live in another source)" — and kton §11 forbids generalizing the
+closed-world rule to the open substrate. Completeness is a **seal-verification** judgment over the
+resolved union of sources, evaluated when the seal is relied upon, which is §9.6.
 
-- **Branched** — claims already share a prev, so each head commits only to its own branch. The
-  substrate reports the structure and deliberately prescribes no remedy (kton §7.4 leaves sealing
-  rules to consumers), so the choice lands here. Picking a head silently would make which branch a
-  claim belongs to depend on which session happened to run first. The refusal MUST name every head,
-  because whoever resolves it is choosing between them.
-- **Unresolved** — a claim names this scope and its prev is not held here, so a withheld middle
-  claim leaves its successors unreachable and the reported tip is provisional. This is the worse of
-  the two: chaining onto a provisional tip does not inherit a fork, it **creates** one as soon as
-  the missing claims arrive.
+The position MUST be reported: which statement this claim follows, how long the chain was, every
+head the substrate saw, and how many claims had an unresolvable predecessor. A reader must be able
+to see the order as it stood rather than infer a clean line that was never there.
 
 > **Checked by:** `TestScope_ClaimsChainInOrderAndAdvanceTheTip`,
 > `TestScope_UnconfiguredLeavesClaimsUnchained`, `TestScope_TheAskFilterFindsWhatSayChained`,
-> `TestScope_RefusesAScopeThisRegistryDoesNotHold`, `TestScope_RefusesABranchedScope`,
-> `TestScope_RefusesAScopeWithUnresolvedClaims`.
+> `TestScope_RefusesAScopeThisRegistryDoesNotHold`,
+> `TestScope_NeitherABranchNorAGapStopsAClaimBeingRecorded`.
 
-> **Not guaranteed: a chain does not prove nothing was withheld from its end.** Dropping the last
-> claim leaves a shorter but internally valid chain with nothing pointing at the missing tip, so no
-> in-band check can detect it. A tip is trustworthy only against a published or anchored head —
-> which is what §11.3 is for. The middle-truncation case *is* detectable, and is the second refusal
-> above.
+**Why refusing was wrong.** An earlier version of this clause refused to write on both conditions.
+Besides contradicting the two clauses above, it was exploitable: a scope id is public and the
+substrate restricts nobody from chaining under it, so one claim from a key in no configured trust
+tier froze writing entirely — a veto over a repository's own records, handed to anyone it mirrors
+from. Recorded here because the refusal looked like caution.
 
 ### 8.3 Registration
 
@@ -437,6 +432,40 @@ there were simply not enough of them.
 
 > **Checked by:** `TestAsk_MinReproductionsSaysTheThresholdWasNotMet`,
 > `TestAsk_FilterDimensionsNarrowAndAreValidated`.
+
+### 9.6 Sealing a scope
+
+A cockpit MUST be able to answer whether a scope's chain reaches its seed without a gap, over the
+sources it holds. This is the judgment kton §7.4 assigns to a consumer — "sealing rules are checked
+by consumers/aggregators, not the kernel" — and the moment it names: when the seal is relied upon.
+
+The verdict MUST distinguish two ways of not being sealable, because they call for opposite
+responses:
+
+- **A gap** — a claim naming the scope whose predecessor is not held here. The view is *partial*,
+  not broken: the missing statement may live in another source, and adding one can only resolve
+  more. The remedy is to fetch.
+- **A branch** — claims sharing a predecessor, so each head seals only its own branch and none
+  seals the whole. A claim carries one `prev`, so nothing rejoins them. The remedy is a decision
+  about which branch the scope is, and it is a person's.
+
+Every verdict MUST state what it cannot see, including a complete one: a withheld **last** claim
+leaves a shorter chain that is internally valid and points at nothing missing, so no in-band check
+finds it. A head is proven final only against one that was published or anchored (§11.3).
+
+The answer MUST report who has written into the scope, resolved from the key that actually verifies
+and never from the `by` a statement declares about itself (§9.1). A writer outside this repository's
+trust configuration MUST be reported as having written — that is a fact about the chain — while
+their claims stay excluded from the answer.
+
+Where a seed names `responsible` identities, they MUST be reported as written and MUST NOT be
+enforced: kton §7.4 keeps their meaning a convention for consumers, and the reference implementation
+emits none.
+
+> **Checked by:** `TestScope_TheSealVerdictSaysWhetherTheChainIsWhole`,
+> `TestScope_TheSealVerdictReportsABranchAsUnsealable`,
+> `TestScope_TheSealVerdictReportsAGapAsPartialNotBroken`,
+> `TestScope_AnUntrustedWriterIsReportedButExcluded`.
 
 ### 9.3 Counting reproductions
 

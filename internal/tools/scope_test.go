@@ -131,68 +131,147 @@ func TestScope_RefusesAScopeThisRegistryDoesNotHold(t *testing.T) {
 	}
 }
 
-// A branched scope is the case the substrate deliberately leaves open: it reports the structure and
-// prescribes no remedy, so the choice lands here. Picking a head silently would make which branch a
-// claim belongs to depend on which session ran first.
-func TestScope_RefusesABranchedScope(t *testing.T) {
-	r, scope := scopedRepo(t)
-	pub := publishOne(t, r)
-	sayWorkingOn(t, pub.FotonID)
+// kton §7.4 makes ingest monotone and §11 forbids generalizing the sealed-world rule to it, so
+// neither a branch nor a missing predecessor may stop a true claim being recorded. An earlier
+// version refused on both — which also handed anyone whose records reach this registry a veto over
+// its own work, since a scope id is public and one claim from an untrusted key was enough.
+func TestScope_NeitherABranchNorAGapStopsAClaimBeingRecorded(t *testing.T) {
+	for name, damage := range map[string]func(t *testing.T, r *testrepo.Repo, scope, subject string){
+		"a branch": func(t *testing.T, r *testrepo.Repo, scope, subject string) {
+			tip, _, _ := r.ScopeHead(t, scope)
+			r.ChainClaimDirectly(t, subject, scope, tip, "branch-a")
+			r.ChainClaimDirectly(t, subject, scope, tip, "branch-b")
+		},
+		"a missing predecessor": func(t *testing.T, r *testrepo.Repo, scope, subject string) {
+			r.ChainClaimDirectly(t, subject, scope, "sha256:"+strings.Repeat("cd", 32), "orphan")
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			r, scope := scopedRepo(t)
+			pub := publishOne(t, r)
+			sayWorkingOn(t, pub.FotonID)
+			damage(t, r, scope, pub.FotonID)
 
-	// Fork it behind the cockpit's back, the way a mirror bringing in a peer's branch would: two
-	// claims chained onto the same prev.
-	tip, _, _ := r.ScopeHead(t, scope)
-	r.ChainClaimDirectly(t, pub.FotonID, scope, tip, "first-branch")
-	r.ChainClaimDirectly(t, pub.FotonID, scope, tip, "second-branch")
-	if _, _, branched := r.ScopeHead(t, scope); !branched {
-		t.Fatal("the fixture did not manage to branch the scope; the rest of this test would assert nothing")
-	}
-
-	result, _, err := Say(context.Background(), nil, SayInput{
-		Subject: pub.FotonID, Template: "working-on",
-		Fields: map[string]string{"step": "analysis", "by-session": testrepo.SessionID},
-	})
-	if err != nil {
-		t.Fatalf("expected a tool-level refusal, not a Go error: %v", err)
-	}
-	if !result.IsError {
-		t.Fatal("say extended a branched scope, choosing a branch by running order")
-	}
-	msg := errText(result)
-	if !strings.Contains(msg, "BRANCHED") {
-		t.Errorf("the refusal does not name the condition: %s", msg)
-	}
-	// Both heads named, because the person resolving this needs to know what they are choosing
-	// between, and the tool is not going to choose for them.
-	if strings.Count(msg, "sha256:") < 3 {
-		t.Errorf("the refusal does not name the scope and both heads: %s", msg)
+			result, out, err := Say(context.Background(), nil, SayInput{
+				Subject: pub.FotonID, Template: "working-on",
+				Fields: map[string]string{"step": "analysis", "by-session": testrepo.SessionID},
+			})
+			if err != nil || result.IsError {
+				t.Fatalf("%s stopped a true claim being recorded: err=%v %s", name, err, errText(result))
+			}
+			if out.Chain == nil || out.Chain.Prev == "" {
+				t.Fatalf("the claim joined the scope but its position was not reported: %+v", out.Chain)
+			}
+		})
 	}
 }
 
-// The other refusal, and the worse of the two. A claim naming this scope whose prev is not held
-// here leaves the reported tip PROVISIONAL: the real head may sit behind a claim this store has
-// never seen. Chaining onto a provisional tip does not inherit a fork — it creates one the moment
-// the missing claims arrive.
-func TestScope_RefusesAScopeWithUnresolvedClaims(t *testing.T) {
+// The seal verdict is where completeness IS judged — kton §7.4 puts it on the read path, over the
+// sources actually held, when the seal is relied upon.
+func TestScope_TheSealVerdictSaysWhetherTheChainIsWhole(t *testing.T) {
 	r, scope := scopedRepo(t)
 	pub := publishOne(t, r)
+	sayWorkingOn(t, pub.FotonID)
+	sayWorkingOn(t, pub.FotonID)
 
-	// A claim chained onto a prev nothing holds. The substrate PERSISTS it — unresolved is
-	// incomplete, not invalid — which is exactly why the condition has to be checked rather than
-	// assumed away by a successful write.
+	seal := askSeal(t, scope)
+	if !seal.Complete {
+		t.Fatalf("an unbroken two-claim chain was not reported complete: %s", seal.Reason)
+	}
+	if seal.ChainLength != 2 || len(seal.Heads) != 1 {
+		t.Fatalf("want one head over two claims, got %d head(s) over %d: %+v", len(seal.Heads), seal.ChainLength, seal)
+	}
+	// Stated on every verdict, including a complete one, because it never goes away.
+	if !strings.Contains(seal.Limit, "published or anchored") {
+		t.Errorf("a complete verdict does not state what it cannot see: %q", seal.Limit)
+	}
+	// Who wrote here, resolved from the verifying key rather than the declared `by`.
+	if len(seal.Writers) != 1 || seal.Writers[0].Claims != 2 || seal.Writers[0].Tier == "" {
+		t.Fatalf("the writers were not resolved from signatures: %+v", seal.Writers)
+	}
+	if seal.SeededWhen == "" || seal.Name == "" {
+		t.Errorf("the verdict does not say who defined the scope and when: %+v", seal)
+	}
+}
+
+func TestScope_TheSealVerdictReportsABranchAsUnsealable(t *testing.T) {
+	r, scope := scopedRepo(t)
+	pub := publishOne(t, r)
+	sayWorkingOn(t, pub.FotonID)
+	tip, _, _ := r.ScopeHead(t, scope)
+	r.ChainClaimDirectly(t, pub.FotonID, scope, tip, "branch-a")
+	r.ChainClaimDirectly(t, pub.FotonID, scope, tip, "branch-b")
+
+	seal := askSeal(t, scope)
+	if seal.Complete {
+		t.Fatal("a branched chain was reported as sealable; no single head carries all of it")
+	}
+	if len(seal.Heads) < 2 {
+		t.Fatalf("the verdict does not name the heads a reader must choose between: %+v", seal)
+	}
+	if !strings.Contains(seal.Reason, "seals only") {
+		t.Errorf("the reason does not say what a branch costs: %q", seal.Reason)
+	}
+}
+
+func TestScope_TheSealVerdictReportsAGapAsPartialNotBroken(t *testing.T) {
+	r, scope := scopedRepo(t)
+	pub := publishOne(t, r)
+	sayWorkingOn(t, pub.FotonID)
 	r.ChainClaimDirectly(t, pub.FotonID, scope, "sha256:"+strings.Repeat("cd", 32), "orphan")
 
-	result, _, err := Say(context.Background(), nil, SayInput{
-		Subject: pub.FotonID, Template: "working-on",
-		Fields: map[string]string{"step": "analysis", "by-session": testrepo.SessionID},
-	})
-	if err != nil {
-		t.Fatalf("expected a tool-level refusal, not a Go error: %v", err)
+	seal := askSeal(t, scope)
+	if seal.Complete {
+		t.Fatal("a chain with an unreachable predecessor was reported complete")
 	}
-	if !result.IsError {
-		t.Fatal("say chained onto a provisional tip; the chain would fork when the missing claim arrives")
+	if seal.Gaps == 0 {
+		t.Fatalf("the gap was not counted: %+v", seal)
 	}
-	if msg := errText(result); !strings.Contains(msg, "PROVISIONAL") {
-		t.Errorf("the refusal does not say why the tip cannot be trusted: %s", msg)
+	// The distinction the specification insists on: incomplete is not invalid, and another source
+	// may hold the missing statement.
+	if !strings.Contains(seal.Reason, "another source") {
+		t.Errorf("the reason presents a partial view as damage: %q", seal.Reason)
 	}
+}
+
+// A writer whose key is in no configured tier is reported as having written — that is a fact about
+// the chain — and their claims are excluded from the answer, which is §9.1 unchanged.
+func TestScope_AnUntrustedWriterIsReportedButExcluded(t *testing.T) {
+	r, scope := scopedRepo(t)
+	pub := publishOne(t, r)
+	mine := sayWorkingOn(t, pub.FotonID)
+	tip, _, _ := r.ScopeHead(t, scope)
+	theirs := r.ChainClaimAsStranger(t, pub.FotonID, scope, tip, "outsider")
+
+	result, out, err := Ask(context.Background(), nil, AskInput{Query: "scope", Ref: scope})
+	if err != nil || result.IsError {
+		t.Fatalf("ask scope failed: err=%v %s", err, errText(result))
+	}
+	if len(out.Included) != 1 || out.Included[0] != mine {
+		t.Fatalf("expected only this repo's own claim included, got %+v", out.Included)
+	}
+	if len(out.Excluded) != 1 || out.Excluded[0] != theirs {
+		t.Fatalf("the stranger's claim was not accounted for as found-and-excluded: %+v", out.Excluded)
+	}
+	var untrusted bool
+	for _, w := range out.Seal.Writers {
+		if w.Tier == "" {
+			untrusted = true
+		}
+	}
+	if !untrusted {
+		t.Fatalf("a writer outside this repo's trust config was not reported at all: %+v", out.Seal.Writers)
+	}
+}
+
+func askSeal(t *testing.T, scope string) *SealVerdict {
+	t.Helper()
+	result, out, err := Ask(context.Background(), nil, AskInput{Query: "scope", Ref: scope})
+	if err != nil || result.IsError {
+		t.Fatalf("ask scope failed: err=%v %s", err, errText(result))
+	}
+	if out.Seal == nil {
+		t.Fatal("ask scope returned no seal verdict")
+	}
+	return out.Seal
 }

@@ -3,7 +3,7 @@ package tools
 import (
 	"context"
 	"fmt"
-	"strings"
+	"sort"
 
 	"github.com/deathbychoco/claude-science-cockpit/internal/anchor"
 	"github.com/deathbychoco/claude-science-cockpit/internal/binaries"
@@ -37,6 +37,26 @@ type SayOutput struct {
 	// RekorLogIndex and RekorUUID are set when this repo anchors its records — see PublishOutput.
 	RekorLogIndex int64  `json:"rekorLogIndex,omitempty"`
 	RekorUUID     string `json:"rekorUuid,omitempty"`
+	// Chain is where this claim joined its scope, present only when one is configured. It reports
+	// what this registry could see at the time and judges none of it: whether the chain is whole is
+	// a seal-verification question, answered by `cockpit_ask` with query "scope".
+	Chain *ChainPosition `json:"chain,omitempty"`
+}
+
+// ChainPosition is where a claim landed in its scope, and what the substrate saw when it did.
+type ChainPosition struct {
+	Scope string `json:"scope"`
+	// Prev is the statement this claim follows.
+	Prev string `json:"prev"`
+	// Length is how many claims the scope held before this one.
+	Length int `json:"length"`
+	// Heads is every head the substrate reported. More than one means claims already shared a prev,
+	// so no single head seals the whole — worth seeing, and not a reason to withhold a true claim.
+	Heads []string `json:"heads,omitempty"`
+	// Unresolved counts claims naming this scope whose prev this registry does not hold. kton §7.4
+	// expects this: the missing statement may live in another source, and adding a source can only
+	// resolve more. It says the view was partial, not that anything is wrong.
+	Unresolved int `json:"unresolved,omitempty"`
 }
 
 func Say(ctx context.Context, _ *mcp.CallToolRequest, in SayInput) (*mcp.CallToolResult, SayOutput, error) {
@@ -71,7 +91,7 @@ func Say(ctx context.Context, _ *mcp.CallToolRequest, in SayInput) (*mcp.CallToo
 		sets = map[string]string{"level": level, "reproducedBy": in.ReproducedFotonID}
 	}
 
-	chain, cerr := resolveChain(ctx, r, cfg)
+	chain, head, cerr := resolveChain(ctx, r, cfg)
 	if cerr != "" {
 		return errResult[SayOutput]("%s", cerr)
 	}
@@ -138,6 +158,12 @@ func Say(ctx context.Context, _ *mcp.CallToolRequest, in SayInput) (*mcp.CallToo
 	if anchored != nil {
 		out.RekorLogIndex, out.RekorUUID = anchored.LogIndex, anchored.UUID
 	}
+	if chain != nil {
+		out.Chain = &ChainPosition{
+			Scope: chain.Scope, Prev: chain.Prev,
+			Length: head.ChainLength, Heads: head.Heads, Unresolved: head.Unresolved,
+		}
+	}
 	return &mcp.CallToolResult{}, out, nil
 }
 
@@ -184,49 +210,41 @@ func determineReproductionLevel(ctx context.Context, cfg *config.Config, r *bina
 	return achieved, ""
 }
 
-// resolveChain decides where in a configured scope's chain this claim goes, or that it must not be
-// written at all. It returns (nil, "") when no scope is configured, which is the default and leaves
-// every claim standing on its own.
+// resolveChain places this claim after the last statement of the configured scope that this
+// registry holds, or returns nil when no scope is configured — the default, which leaves every
+// claim standing on its own.
 //
-// The tip is read from the substrate on each call rather than remembered. Two conditions make it
-// unusable, and both are refusals rather than choices:
+// It judges nothing about the chain's completeness, and that is the specification's rule rather
+// than a preference. kton §7.4 makes ingest MONOTONE: a well-formed signed scoped statement is
+// accepted "even if its `prev` is not yet resolvable (it may live in another source)", and the
+// closed-world guarantee — that the chain reaches the seed without a gap — is a SEAL-VERIFICATION
+// judgment over the resolved union of sources, evaluated when the seal is relied upon. §11 then
+// says it outright: a reader MUST NOT generalize that closed-world rule to the open substrate.
 //
-//   - BRANCHED. Claims already share a prev, so each head commits only to its own branch. The
-//     kernel reports the structure and deliberately prescribes no remedy (kton §7.4 leaves sealing
-//     rules to consumers), so the choice lands here — and picking one silently would make which
-//     branch a claim belongs to depend on which session happened to run first. Someone has to
-//     decide which branch this review IS; that someone is not a tool with no view of the work.
+// An earlier version of this function did exactly that, refusing to write when the scope was
+// branched or held a claim whose prev was missing. Both refusals were wrong twice over: they
+// generalized the sealed-world rule to ingest, and — because a scope id is public and anyone whose
+// records reach this registry can name it — they handed anyone this repo mirrors from a veto over
+// its own work. One claim from a key in no configured tier was enough to freeze writing.
 //
-//   - UNRESOLVED. A claim names this scope and its prev is not held here, so a withheld MIDDLE
-//     claim leaves its successors unreachable and the reported tip is provisional. This is the
-//     worse of the two: chaining onto a provisional tip does not inherit a fork, it CREATES one
-//     the moment the missing claims arrive. Fetch them first.
-func resolveChain(ctx context.Context, r *binaries.Runner, cfg *config.Config) (*binaries.Chain, string) {
+// Where completeness IS judged is the read path: `cockpit_ask` with query "scope".
+func resolveChain(ctx context.Context, r *binaries.Runner, cfg *config.Config) (*binaries.Chain, *binaries.ScopeHead, string) {
 	scope := cfg.Raw.Claims.Scope
 	if scope == "" {
-		return nil, ""
+		return nil, nil, ""
 	}
 	head, err := r.Head(ctx, scope)
 	if err != nil {
-		return nil, fmt.Sprintf(
+		return nil, nil, fmt.Sprintf(
 			"claims.scope names %s, but this repo's nekton registry cannot report its head: %v\n"+
 				"A scope must be seeded and ingested here before claims can chain under it "+
 				"(`nekton seed <name> --sign <key> --add`).", scope, err)
 	}
-	if head.Unresolved > 0 {
-		return nil, fmt.Sprintf(
-			"scope %s has %d claim(s) whose prev this registry does not hold, so the tip it reports "+
-				"(%s) is PROVISIONAL, not the chain's real head. Chaining onto it would not inherit a "+
-				"fork — it would create one as soon as the missing claims arrive. Obtain them first.",
-			scope, head.Unresolved, head.Heads[0])
-	}
-	if head.Branched {
-		return nil, fmt.Sprintf(
-			"scope %s is BRANCHED into %d heads (%s), so each head commits only to the claims on its "+
-				"own branch. Which branch this claim belongs to is a judgement about the work, not "+
-				"something to pick by running order — the substrate leaves it open and so does this. "+
-				"Resolve the branch, then say it again.",
-			scope, len(head.Heads), strings.Join(head.Heads, ", "))
-	}
-	return &binaries.Chain{Scope: scope, Prev: head.Heads[0]}, ""
+	// With several heads the substrate's ordering is not a decision, so the pick is made
+	// deterministic: the same work run twice lands on the same prev rather than on whichever head
+	// came back first. Which head the scope's order should really follow is a seal-verification
+	// question, and it is answered where seals are — on the read path, not here.
+	heads := append([]string(nil), head.Heads...)
+	sort.Strings(heads)
+	return &binaries.Chain{Scope: scope, Prev: heads[0]}, head, ""
 }

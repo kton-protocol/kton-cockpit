@@ -17,7 +17,7 @@ import (
 // narrow within the trust tiers configured for this repo; it can never surface a tier or signer
 // absent from cockpit.config.json.
 type AskInput struct {
-	Query string `json:"query" jsonschema:"one of: producer, uses, lineage, reproductions, about, by"`
+	Query string `json:"query" jsonschema:"one of: producer, uses, lineage, reproductions, about, by, scope"`
 	Ref   string `json:"ref" jsonschema:"the hash, subject, or value to query"`
 	// Axis is required for query "by" and ignored otherwise: nekton indexes claims under three
 	// separate axes and has no combined search, so there is no defensible default to pick here.
@@ -129,8 +129,11 @@ type AskOutput struct {
 	// VerifiedSigners is plankton's own ↻N for a "reproductions" query — distinct signers whose
 	// signature actually verified against the trust keys the cockpit passed it, never a
 	// self-declared count. Scoped to the requested tier when the query asked for one.
-	VerifiedSigners int    `json:"verifiedSigners,omitempty"`
-	FilterApplied   string `json:"filterApplied"`
+	VerifiedSigners int `json:"verifiedSigners,omitempty"`
+	// Seal is the verdict for query "scope": whether the chain reaches its seed without a gap over
+	// the sources this repo holds, who defined the scope, and who has written into it.
+	Seal          *SealVerdict `json:"seal,omitempty"`
+	FilterApplied string       `json:"filterApplied"`
 }
 
 func Ask(ctx context.Context, _ *mcp.CallToolRequest, in AskInput) (*mcp.CallToolResult, AskOutput, error) {
@@ -166,8 +169,20 @@ func Ask(ctx context.Context, _ *mcp.CallToolRequest, in AskInput) (*mcp.CallToo
 		return askClaims(ctx, cfg, r, in, filter)
 	case "producer", "uses", "lineage", "reproductions":
 		return askLineage(ctx, cfg, r, in, filter)
+	case "scope":
+		// The one query that asks about a STRUCTURE rather than about a record, and the only place
+		// this cockpit reaches a verdict about completeness — which kton §7.4 assigns to a consumer
+		// and evaluates "when the seal is relied upon". Relying on it is a read.
+		out := AskOutput{Query: in.Query, Ref: in.Ref, FilterApplied: filter.describe()}
+		verdict, msg := askScope(ctx, cfg, r, in.Ref, &out)
+		if msg != "" {
+			return errResult[AskOutput]("%s", msg)
+		}
+		out.Seal = verdict
+		out.Raw = verdict.Line()
+		return &mcp.CallToolResult{}, out, nil
 	default:
-		return errResult[AskOutput]("unknown query %q (must be one of: producer, uses, lineage, reproductions, about, by)", in.Query)
+		return errResult[AskOutput]("unknown query %q (must be one of: producer, uses, lineage, reproductions, about, by, scope)", in.Query)
 	}
 }
 
