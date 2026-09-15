@@ -81,6 +81,23 @@ For the same walkthrough narrated as prose instead of a script, see the
 
 See [`CLAUDE.md`](CLAUDE.md) — build command, subcommands (`mcp`/`init`/`doctor`), tests, repo
 layout, and the manual smoke-test recipe against a real populated registry.
+[`CONTRIBUTING.md`](CONTRIBUTING.md) has the three rules that are not style preferences: a
+normative clause names the test that checks it, nothing in the default suite skips, and every
+check says what it saw.
+
+CI runs the suite against the kernel commit `CLAUDE.md` pins, and separately against kton `dev`
+HEAD on a schedule — the second one is allowed to fail, because a moving `dev` breaking this
+repository is news rather than a defect in it, and it has arrived four times as a symptom instead.
+
+## Security
+
+Report anything that would let a record be trusted when it should not be to the address in
+[`SECURITY.md`](SECURITY.md), not as a public issue. That file also lists the limits that are
+documented rather than defects — what a guard deliberately does not catch, what is attested rather
+than proven, and why a verdict about carried evidence is a property of the reading rather than of
+the record.
+
+Licensed under [Apache 2.0](LICENSE).
 
 ## Design docs
 

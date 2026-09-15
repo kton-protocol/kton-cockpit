@@ -24,7 +24,14 @@ openssl genpkey -algorithm ed25519 -out identity/ca.key 2>/dev/null
 openssl req -x509 -new -key identity/ca.key -subj "/CN=Cockpit Examples Root" -days 1 \
   -out identity/root.pem 2>/dev/null
 
-printf '302a300506032b6570032100%s' "$(cat keys/session-1.pub)" | xxd -r -p > identity/signer.spki.der
+# The prefix is the fixed ed25519 SubjectPublicKeyInfo header: SEQUENCE(42) { SEQUENCE { OID
+# 1.3.101.112 } BIT STRING(33) }. python3 rather than xxd, which lives in vim-common and is not on
+# every machine an example has to run on.
+python3 - <<'SPKI'
+import binascii
+key = open('keys/session-1.pub').read().strip()
+open('identity/signer.spki.der', 'wb').write(binascii.unhexlify('302a300506032b6570032100' + key))
+SPKI
 openssl pkey -pubin -inform DER -in identity/signer.spki.der -out identity/signer.spki.pem 2>/dev/null
 # -force_pubkey is what makes this a certificate ABOUT plankton's key: the CSR is only a carrier for
 # the subject name, and the key that ends up in the certificate is the one named here.

@@ -450,3 +450,68 @@ func TestMaterial_TheVerdictIsNeverStored(t *testing.T) {
 		}
 	}
 }
+
+// TestAsk_RawCarriesOnlyIncludedRecords guards the property that replaced line redaction.
+//
+// `Raw` used to be produced by scraping the kernel's text output and then blanking the lines of
+// records that had been excluded — which only worked under an assumption nothing guaranteed, that a
+// record's id is the first hash on its line. kton #57 made the reads structured, and the mechanism
+// is now stronger: an excluded record is never assembled into the answer in the first place.
+//
+// The all-excluded case is covered by TestAsk_AboutExcludesAClaimThatVerifiesAgainstNoConfiguredTier.
+// This is the MIXED case, which is where a regression would hide: both claims verify, one is
+// filtered out, and the answer must carry exactly one of them. A build that went back to
+// concatenating everything would still pass the all-excluded test, because there the answer is
+// empty either way.
+func TestAsk_RawCarriesOnlyIncludedRecords(t *testing.T) {
+	r := testrepo.New(t)
+	r.Use(t)
+	pub := publishOne(t, r)
+
+	// Two claims about the same subject, signed by the same key, both verifying. They differ only in
+	// whether they carry a reproduction level, which is what the filter below selects on.
+	r.Write(t, "data/rerun.csv", "id,result\n1,84\n") // byte-identical to data/out.csv
+	repResult, repOut, err := Say(context.Background(), nil, SayInput{
+		Subject:           pub.FotonID,
+		Template:          "reproduces",
+		SubjectOutputHash: pub.OutputHashes["data/out.csv"],
+		ReproducedOutput:  "data/rerun.csv",
+		ReproducedFotonID: pub.FotonID,
+	})
+	if err != nil || repResult.IsError {
+		t.Fatalf("say reproduces: err=%v %s", err, errText(repResult))
+	}
+	workingID := sayWorkingOn(t, pub.FotonID)
+
+	result, out, err := Ask(context.Background(), nil, AskInput{
+		Query: "about", Ref: pub.FotonID,
+		Filter: &AskFilter{Level: "L0"},
+	})
+	if err != nil {
+		t.Fatalf("Ask returned a Go error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("about query failed: %+v", errText(result))
+	}
+
+	// The control: the filter must actually have kept one and dropped the other, or the assertion
+	// below is about an empty answer and proves nothing.
+	if len(out.Included) != 1 || out.Included[0] != repOut.ClaimID {
+		t.Fatalf("control: expected exactly the reproduces claim included, got %+v", out.Included)
+	}
+	if len(out.Excluded) != 1 || out.Excluded[0] != workingID {
+		t.Fatalf("control: expected exactly the working-on claim excluded, got %+v", out.Excluded)
+	}
+
+	if !strings.Contains(out.Raw, repOut.ClaimID) {
+		t.Errorf("the included claim is missing from Raw, so this asserts nothing about what leaked:\n%s", out.Raw)
+	}
+	if strings.Contains(out.Raw, workingID) {
+		t.Errorf("an excluded record's content reached Raw:\n%s", out.Raw)
+	}
+	for _, c := range out.Claims {
+		if c.ID == workingID {
+			t.Errorf("an excluded record was assembled into Claims: %+v", c)
+		}
+	}
+}

@@ -101,13 +101,15 @@ type RecordVerification struct {
 type AskOutput struct {
 	Query string `json:"query"`
 	Ref   string `json:"ref"`
-	// Raw is the underlying plankton/nekton CLI output, kept for human/debugging context — but
-	// redacted before being returned: every record NOT in Included (excluded for any reason —
-	// unverified, or verified but outside a requested trustTier filter) has its line replaced with
-	// a placeholder. Every query this tool supports prints exactly one record per line, each line
-	// carrying that record's own id (see redactExcluded), so this is a safe, generic way to keep
-	// unverified content from ever reaching the model — not just advisory metadata layered around
-	// unfiltered content.
+	// Raw is human/debugging context, ASSEMBLED FROM INCLUDED RECORDS ONLY. A record excluded for
+	// any reason — unverified, or verified but outside a requested filter — never contributes a line
+	// to it.
+	//
+	// It used to work the other way around: the kernel's text output was scraped and the lines of
+	// excluded records were blanked afterwards. That held only under an assumption nothing
+	// guaranteed — that a record's id is the first hash on its line — and plankton's own usage text
+	// now says the opposite. kton #57 made the reads structured, so an excluded record is not
+	// redacted out of the answer, it is never built into it. See internal/binaries/reads.go.
 	Raw string `json:"raw"`
 	// omitempty matters here, not just for tidiness: without it, jsonschema-go marks these fields
 	// required, and a nil slice (the zero value returned on any error path) marshals to JSON null —

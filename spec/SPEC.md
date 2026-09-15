@@ -351,9 +351,21 @@ A dimension that has nothing to act on is not an error: a foton carries no level
 lineage answer is narrowed by tier and signer only. The report in §9.5 still names what was asked
 for, so a reader can see that a filter did not bite rather than assuming it did.
 
+An excluded record's content MUST NOT reach the caller by any route. Not through the decoded
+records, and not through the human-readable text returned alongside them: that text MUST be
+assembled from included records only, never produced whole and then cleaned up.
+
+That distinction is the clause, not an implementation note. Redacting after the fact requires
+knowing which part of a line belongs to which record, and the cockpit did once assume a record's id
+was the first hash on its line — an assumption nothing guaranteed and that the substrate's own
+documentation now contradicts. Building the answer from records that passed leaves nothing to
+redact.
+
 > **Checked by:** `TestAsk_FilterDimensionsNarrowAndAreValidated`,
 > `TestAsk_RefusesAnUnknownTrustTierName`, `TestAsk_ReproductionsCountIsScopedToTheRequestedTier`,
-> `TestAsk_MinReproductionsSaysTheThresholdWasNotMet`.
+> `TestAsk_MinReproductionsSaysTheThresholdWasNotMet`,
+> `TestAsk_AboutExcludesAClaimThatVerifiesAgainstNoConfiguredTier` (nothing included),
+> `TestAsk_RawCarriesOnlyIncludedRecords` (one included, one filtered out).
 
 ### 9.5 The active filter travels with the answer
 
@@ -500,8 +512,9 @@ demand opposite responses — one is investigated, the other is a line in the co
 that difference in a sentence would make a caller parse prose to act, which is the mistake this
 project removed from `say`'s reproduction level.
 
-Evidence attached to a record that was excluded MUST NOT be reported, for the same reason §9.2
-redacts an excluded record's line: it is content from a record the caller was not given.
+Evidence attached to a record that was excluded MUST NOT be reported. It is content from a record
+the caller was not given, and §9.2 already forbids that content reaching them by any route; material
+is one more route.
 
 A cockpit MUST make the same verdict available to the operator before any record is written.
 Evidence that will never verify — a certificate for the wrong key, or one with no configured root to
