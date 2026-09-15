@@ -8,10 +8,9 @@ over MCP, for cooperating in a [kton](https://kton.dev) federation. It reimpleme
 plankton/nekton kernel logic; every mutation and query shells out to the vendored
 `bin/plankton`/`bin/nekton` binaries in whichever participant repo it's configured for.
 
-The full design — why this exists, the anti-wrong-folder guard, the config schema, and what this
-project deliberately does not build — is written up in
-[`projectdocs/claude-science-cockpit/`](projectdocs/claude-science-cockpit/_project.md). Read that
-before making architectural changes; this file only covers building/testing the cockpit itself.
+Two decisions with consequences beyond their clause are written up in
+[`docs/decisions/`](docs/decisions/): running a command in a pinned container (ADR-003) and running
+with no git repository at all (ADR-004). Everything else that governs is in the spec below.
 
 What the cockpit guarantees is specified in [`spec/SPEC.md`](spec/SPEC.md) — clause by clause, each
 naming the test that exercises it, with the limits stated beside the guarantees. Read that before
@@ -206,9 +205,7 @@ cockpit.config.schema.json   JSON Schema for cockpit.config.json (documentation 
 
 ## What not to add here
 
-Per [`spec/SPEC.md` §13](spec/SPEC.md), where each item is checked by a named test (also recorded in
-[`projectdocs/.../what-we-dont-build.md`](projectdocs/claude-science-cockpit/phases/design/what-we-dont-build.md),
-which carries the original German build brief's "Nicht bauen" wording): no own
+Per [`spec/SPEC.md` §13](spec/SPEC.md), where each item is checked by a named test: no own
 canonicalization/signing/registry/chain logic, no trust logic beyond applying
 `cockpit.config.json`, no fourth verb, no cockpit-owned mutable state beyond that static config
 file. If a change would require one of these, raise it against the protocol spec first, not as a

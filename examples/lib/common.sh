@@ -73,20 +73,25 @@ build_binaries() {
   (cd "$REPO"     && go build -o "$bin/cockpit"  ./cmd/cockpit)
 }
 
-# participant <dir> [config-json] - a working participant repo, from nothing.
+# participant <dir> [config-json] [name] - a working participant repo, from nothing.
 #
 # It is a real git repo with a real github.com origin, because the anti-wrong-folder guard reads
 # that remote on every call and an example that bypassed it would be demonstrating something else.
 # Only the remote's PUSH url points at a local bare repo, so commits and pushes complete offline.
+#
+# `name` gives a SECOND participant its own repository identity, and with it its own keys: the demo
+# seeds are derived from it, so two participants in one example sign with genuinely different keys
+# rather than the same one twice. Without that, every federation example would be one party talking
+# to itself, and the trust questions it exists to ask would all answer trivially.
 participant() {
-  local dir="$1" cfg="${2:-}"
+  local dir="$1" cfg="${2:-}" name="${3:-$EXNAME}"
   local base; base="$(dirname "$dir")"
   rm -rf "$dir" "$base/origin.git"
   mkdir -p "$dir"
 
   git init --bare --quiet -b main "$base/origin.git"
   git -C "$dir" init --quiet -b main
-  git -C "$dir" remote add origin "git@github.com:cockpit-examples/$EXNAME.git"
+  git -C "$dir" remote add origin "git@github.com:cockpit-examples/$name.git"
   git -C "$dir" remote set-url --push origin "$base/origin.git"
 
   mkdir -p "$dir"/{registry/plankton,registry/nekton,registry/keys,templates,keys,data,work}
@@ -94,14 +99,14 @@ participant() {
   cp "$REPO/uat/participant-skeleton/templates/"*.json "$dir/templates/"
   build_binaries "$dir/bin"
 
-  (cd "$dir" && ./bin/plankton keygen keys/session-1 --seed "$(demoseed plankton)" >/dev/null
-                ./bin/nekton  keygen keys/session-1-claims --seed "$(demoseed nekton)" >/dev/null
+  (cd "$dir" && ./bin/plankton keygen keys/session-1 --seed "$(demoseed "plankton/$name")" >/dev/null
+                ./bin/nekton  keygen keys/session-1-claims --seed "$(demoseed "nekton/$name")" >/dev/null
                 cp keys/session-1.pub keys/session-1-claims.pub registry/keys/)
 
   if [ -n "$cfg" ]; then printf '%s\n' "$cfg" > "$dir/cockpit.config.json"
   else cp "$EXROOT/lib/cockpit.config.json" "$dir/cockpit.config.json"; fi
   # The origin url the guard checks is written above; keep the config's repo binding in step with it.
-  python3 - "$dir/cockpit.config.json" "$EXNAME" <<'PY'
+  python3 - "$dir/cockpit.config.json" "$name" <<'PY'
 import json, sys
 path, name = sys.argv[1], sys.argv[2]
 cfg = json.load(open(path))
@@ -113,5 +118,5 @@ PY
   git -C "$dir" -c user.name=example -c user.email=example@cockpit.local commit --quiet -m "scaffold"
   git -C "$dir" push --quiet -u origin main
   export COCKPIT_REPO_DIR="$dir"
-  echo "  participant at $dir (git origin cockpit-examples/$EXNAME, pushes to a local bare repo)"
+  echo "  participant at $dir (git origin cockpit-examples/$name, pushes to a local bare repo)"
 }

@@ -1,9 +1,8 @@
 # UAT: end-to-end federation test
 
-`setup.sh` and `cleanup.sh` automate the
-[end-to-end tutorial](../projectdocs/claude-science-cockpit/phases/end-to-end-tutorial/tutorial.md)
-— read that first for what's actually happening at each step; this file only covers what you need
-to *run* the scripts.
+`setup.sh` and `cleanup.sh` build a real federation across real GitHub repositories, end to end.
+This file covers what you need to *run* them; `setup.sh`'s own header comment explains what happens
+at each step and why four of them cannot be scripted.
 
 ## What this creates
 

@@ -29,8 +29,7 @@ against the wrong project's registry, and hand-run infra steps (commit order, ke
 field names) are easy to get subtly wrong. The cockpit's **anti-wrong-folder guard** re-verifies,
 on every single tool call, that the repo it's running in actually matches its own
 `cockpit.config.json` and that config's declared `git remote` — and hard-refuses on any mismatch.
-See [`projectdocs/claude-science-cockpit/`](projectdocs/claude-science-cockpit/_project.md) for
-the full design writeup.
+See [`spec/SPEC.md` §5](spec/SPEC.md) for both anchors the guard uses and what each one misses.
 
 ## The ecosystem this fits into
 
@@ -74,9 +73,6 @@ material), and finishes with a link to the resulting kton graph. See
 [`uat/README.md`](uat/README.md) for prerequisites (`gh` CLI scopes, Go ≥ 1.25, `python3`,
 claude-science or Claude Code) and `uat/cleanup.sh` to tear it all down afterwards.
 
-For the same walkthrough narrated as prose instead of a script, see the
-[end-to-end tutorial](projectdocs/claude-science-cockpit/phases/end-to-end-tutorial/tutorial.md).
-
 ## Building and developing the cockpit itself
 
 See [`CLAUDE.md`](CLAUDE.md) — build command, subcommands (`mcp`/`init`/`doctor`), tests, repo
@@ -99,9 +95,9 @@ the record.
 
 Licensed under [Apache 2.0](LICENSE).
 
-## Design docs
+## Where the reasoning lives
 
-[`projectdocs/claude-science-cockpit/`](projectdocs/claude-science-cockpit/_project.md) has the
-full rationale: the anti-wrong-folder guard, the config schema, the three-verb boundary, and what
-this project deliberately does not build — read it before making architectural changes. It is a
-working record rather than a contract; the contract is [`spec/SPEC.md`](spec/SPEC.md).
+[`spec/SPEC.md`](spec/SPEC.md) is the contract: every normative clause names the test that checks
+it, and states its limit beside the guarantee. [`docs/decisions/`](docs/decisions/) holds the two
+decisions whose reasoning outlives the clause they produced — running in a pinned container
+(ADR-003) and running with no git repository (ADR-004).
