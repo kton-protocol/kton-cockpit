@@ -6,6 +6,11 @@ date: 2026-07-22
 tags: [safety, git]
 ---
 
+> **Design phase, 2026-07-22.** This records what was designed and why, at that time. The shipped
+> contract is [`spec/SPEC.md`](../../../../spec/SPEC.md), whose every normative clause names the test
+> that checks it; where the two disagree, the spec is right and this is history. Kept because the
+> reasoning behind a decision does not survive in the clause that resulted from it.
+
 # The anti-wrong-folder guard
 
 ## Summary
@@ -15,6 +20,15 @@ with an ambiguous working directory found a legacy demo project folder (one of s
 `/mnt/c/dev` containing `plankton-data`/`nekton-data` artifacts from earlier, unrelated
 experiments — `MCP/`, `claudeScience/warfarinTest/`, `plankton_fed_demo/`) and kept working
 against it instead of the intended participant repo.
+
+> **Superseded in part.** What follows describes git mode, which is still the default and still the
+> stronger check. A second mode exists now (`repo.mode: "local"`, ADR-004) for a participant
+> directory with no git repository at all: there is no remote to disagree with, so the anchor is the
+> config's own declared absolute path, which must equal where the config actually is. That catches a
+> directory that was copied or moved — the original incident's shape — and misses what a remote
+> catches. The cockpit refuses local mode inside a repository that *has* an origin, so the weaker
+> check can never be chosen where the stronger one was available. See
+> [`spec/SPEC.md` §5](../../../../spec/SPEC.md).
 
 ## Details
 

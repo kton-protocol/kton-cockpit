@@ -412,3 +412,30 @@ updated: 2026-07-22
   Adopted a new standard procedure for all future fixes: cold-session review fans out to 3
   focused agents (duplication / soundness-not-workaround / security) instead of one generalist
   pass — see [ADR-002](decisions/adr-002-fix-review-procedure.md).
+- **2026-09-15** — The `cockpit-kton-0.2` branch, which is where the log resumes after a five-week
+  gap. The through-line is that the project stopped depending on things nobody was checking.
+  - **The test suite stopped lying.** It had pointed at a hand-made clone under
+    `/mnt/c/dev/planktonReproduce/**` that had been reorganised away, so it reported success for
+    months while exercising none of the handlers. `internal/testrepo` now builds a complete
+    participant repo from nothing per test — real git, a real github.com origin so the guard runs
+    unmodified, real keygen identities — and nothing in the default run skips. Binaries rebuild
+    themselves when Go's `vcs.revision` stamp disagrees with the kton checkout, because "a missing
+    subcommand" turned out four times to be a stale build.
+  - **A spec with teeth.** [`spec/SPEC.md`](../../spec/SPEC.md) replaced the German build brief.
+    Every normative clause names the test that checks it, and two tests check *that*: every cited
+    test exists, and every normative section says how it is checked.
+  - **Six kernel gaps raised rather than worked around**, all since landed upstream (#45, #54,
+    #56, #57, #85, and `reproduces --json`). When #83 removed `kton serve`, reading the store
+    directly would have been the quick fix; #85 was the right one.
+  - **New optional surfaces, each off by default:** running in a pinned container (ADR-003),
+    running with no git repository (ADR-004), publishing the union, `cockpit show`, anchoring in
+    Rekor, and carrying verification material.
+  - **Carried evidence** closed the identity gap that §14.1 used to describe as wholly open. A
+    repository can attach anything — the scheme list is open, exactly as the kernel's is — and the
+    cockpit evaluates what it can and reports which of the two happened, per item. A certificate is
+    verified only when it belongs to the key that actually signed and chains to a configured root.
+    The keyless route stays open, and the request is now narrow: `kton anchor` cannot be handed a
+    certificate.
+  - **Nine examples**, each building its own participant repo, each with negative controls — after
+    kton-examples demonstrated what a separate examples repo does: its CI checked out an archived
+    repository and reported success for six weeks with every step silently skipped.

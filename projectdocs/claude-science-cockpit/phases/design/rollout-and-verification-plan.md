@@ -6,6 +6,11 @@ date: 2026-07-22
 tags: [rollout, testing]
 ---
 
+> **Design phase, 2026-07-22.** This records what was designed and why, at that time. The shipped
+> contract is [`spec/SPEC.md`](../../../../spec/SPEC.md), whose every normative clause names the test
+> that checks it; where the two disagree, the spec is right and this is history. Kept because the
+> reasoning behind a decision does not survive in the clause that resulted from it.
+
 # Rollout and verification plan
 
 

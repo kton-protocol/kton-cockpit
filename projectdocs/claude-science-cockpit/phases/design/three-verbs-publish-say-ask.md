@@ -6,6 +6,11 @@ date: 2026-07-22
 tags: [mcp, tools, plankton, nekton]
 ---
 
+> **Design phase, 2026-07-22.** This records what was designed and why, at that time. The shipped
+> contract is [`spec/SPEC.md`](../../../../spec/SPEC.md), whose every normative clause names the test
+> that checks it; where the two disagree, the spec is right and this is history. Kept because the
+> reasoning behind a decision does not survive in the clause that resulted from it.
+
 # The three verbs in detail: publish, say, ask
 
 ## Summary
@@ -19,6 +24,9 @@ template's `CLAUDE.md` (today's hand-run version of exactly what these tools aut
 ### `cockpit_publish` (veröffentlichen)
 
 Input: `{ inputs: [path...], outputs: [path...], cmd: string, corpus?: [claimOrFotonRef...] }`
+
+> **Superseded.** `publish` also takes `envRef`, the exact execution environment pinned into the
+> record (§7.5), and the cockpit may run the command rather than record it (ADR-003, §10).
 
 1. `git add <inputs> <outputs> && git commit && git push` — commit **first**, so a commit-pinned
    permalink can be built (mirrors the manual recipe's ordering exactly: a foton's locators must
@@ -61,6 +69,11 @@ trustTier? } }`
 (Originally designed with a richer filter — `minRepro`/`level`/`signer`/`scope` in addition to
 `trustTier` — but only `trustTier` shipped in v1; the rest remain a possible future extension, not
 yet implemented in `internal/tools/ask.go`.)
+
+> **Superseded.** All five dimensions are implemented, and an unknown tier, level or signer is
+> refused rather than silently matching nothing — see [`spec/SPEC.md` §9.2](../../../../spec/SPEC.md).
+> `ask` also takes a required `axis` for the `by` query, which this entry does not show; without it
+> the query never worked, because `nekton by` takes two arguments and was being given one.
 
 1. Run the matching read-only command against the local registry (`plankton
    producer/uses/lineage/reproductions`, `nekton about/by`), and/or the aggregator's mirrored

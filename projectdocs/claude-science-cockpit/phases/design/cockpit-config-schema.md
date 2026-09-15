@@ -6,6 +6,11 @@ date: 2026-07-22
 tags: [config, schema]
 ---
 
+> **Design phase, 2026-07-22.** This records what was designed and why, at that time. The shipped
+> contract is [`spec/SPEC.md`](../../../../spec/SPEC.md), whose every normative clause names the test
+> that checks it; where the two disagree, the spec is right and this is history. Kept because the
+> reasoning behind a decision does not survive in the clause that resulted from it.
+
 # cockpit.config.json schema
 
 ## Summary
@@ -45,6 +50,13 @@ requirement from the governing spec made concrete.
   }
 }
 ```
+
+> **Superseded.** Five more blocks exist now, each optional and each off by default: `environment`
+> and `execution` (pinning and running in a container, ADR-003), `git` (committing and pushing are
+> configurable, so a repo can record without either), `union` (publishing the aggregate as committed
+> files), `anchor` (witnessing records in a transparency log) and `material` (carrying evidence about
+> a record, §11). `repo` also gained `mode`, for running with no git repository at all (ADR-004).
+> The authoritative shape is `cockpit.config.schema.json` in the repository root.
 
 `cockpit.config.schema.json` documents this shape for editor/tooling support, but the cockpit's
 own startup check (`internal/config.validate`) is a hand-written required-field validator, not
