@@ -353,3 +353,52 @@ func (r *Repo) ChainClaimAsStranger(t *testing.T, subject, scope, prev, step str
 		"--scope", scope, "--prev", prev,
 		"--sign", key+".key", "--add", "--print-id"))
 }
+
+// SeedScopeUnder opens a scope naming a parent, so it can later be sealed there. A seed covers its
+// parent, so this is the only moment a scope can acquire one.
+func (r *Repo) SeedScopeUnder(t *testing.T, name, parent string) string {
+	t.Helper()
+	id := strings.TrimSpace(runNekton(t, r, "seed", name,
+		"--sign", "keys/"+SessionID+"-claims.key", "--parent", parent, "--add", "--print-id"))
+	if !strings.HasPrefix(id, "sha256:") {
+		t.Fatalf("nekton seed --print-id did not return a scope id, got %q", id)
+	}
+	return id
+}
+
+// SealScope runs the operator's `cockpit scope seal` against this repo and returns the seal claim's
+// id. Driven through the built binary rather than the library, because sealing being an OPERATOR
+// action — outside the three verbs, and written without a template so a session cannot forge one —
+// is the property worth testing.
+func (r *Repo) SealScope(t *testing.T, name string) string {
+	t.Helper()
+	out := runCockpit(t, r, "scope", "seal", name)
+	for _, line := range strings.Split(out, "\n") {
+		if i := strings.Index(line, "as sha256:"); i >= 0 {
+			return strings.TrimSpace(line[i+len("as "):])
+		}
+	}
+	t.Fatalf("`cockpit scope seal %s` reported no seal claim id:\n%s", name, out)
+	return ""
+}
+
+// runCockpit builds the cockpit once per test binary and runs it against this repo.
+func runCockpit(t *testing.T, r *Repo, args ...string) string {
+	t.Helper()
+	bin := filepath.Join(r.Root, "bin", "cockpit")
+	if _, err := os.Stat(bin); err != nil {
+		build := exec.Command("go", "build", "-o", bin, "./cmd/cockpit")
+		build.Dir = cockpitRoot(t)
+		if out, berr := build.CombinedOutput(); berr != nil {
+			t.Fatalf("building the cockpit for an operator command: %v\n%s", berr, out)
+		}
+	}
+	cmd := exec.Command(bin, args...)
+	cmd.Dir = r.Root
+	cmd.Env = append(os.Environ(), "COCKPIT_REPO_DIR="+r.Root)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("cockpit %s: %v\n%s", strings.Join(args, " "), err, out)
+	}
+	return string(out)
+}

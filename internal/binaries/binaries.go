@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/deathbychoco/claude-science-cockpit/internal/config"
 )
@@ -672,12 +673,15 @@ func (r *Runner) Seed(ctx context.Context, scopeID string) (*ScopeSeed, error) {
 		ClaimID       string `json:"claimId"`
 		PredicateType string `json:"predicateType"`
 		Predicate     struct {
-			Scope       string   `json:"scope"`
-			Genesis     bool     `json:"genesis"`
-			By          string   `json:"by"`
-			When        string   `json:"when"`
-			Parent      string   `json:"parent,omitempty"`
-			Responsible []string `json:"responsible,omitempty"`
+			Scope   string `json:"scope"`
+			Genesis bool   `json:"genesis"`
+			By      string `json:"by"`
+			When    string `json:"when"`
+			// Parent is a term reference, not a bare string: the wire carries {"hash": "sha256:…"}.
+			// Decoding it as a string silently yields "" and a scope looks parentless — which is the
+			// difference between "cannot be sealed" and "is sealed somewhere you did not look".
+			Parent      struct{ Hash string } `json:"parent,omitempty"`
+			Responsible []string              `json:"responsible,omitempty"`
 		} `json:"predicate"`
 	}
 	if jerr := json.Unmarshal([]byte(strings.TrimSpace(out)), &raw); jerr != nil {
@@ -688,7 +692,7 @@ func (r *Runner) Seed(ctx context.Context, scopeID string) (*ScopeSeed, error) {
 	}
 	return &ScopeSeed{
 		ID: raw.ClaimID, Name: raw.Predicate.Scope, By: raw.Predicate.By,
-		When: raw.Predicate.When, Parent: raw.Predicate.Parent,
+		When: raw.Predicate.When, Parent: raw.Predicate.Parent.Hash,
 		Responsible: raw.Predicate.Responsible,
 	}, nil
 }
@@ -701,4 +705,97 @@ type ScopeSeed struct {
 	When        string   `json:"when,omitempty"`
 	Parent      string   `json:"parent,omitempty"`
 	Responsible []string `json:"responsible,omitempty"`
+}
+
+// SealPredicate is the term a seal claim uses: the child scope is the subject, the head it was
+// sealed at is the object.
+//
+// Minted rather than reused because nothing published states "this chain stood at this head". The
+// nearest published candidates are about other things — schema:reviewedBy is a real property scoped
+// to a WebPage, pav:hasCurrentVersion is about versions of a resource — and neither is a statement
+// about a hash chain's tip. It lives in kton's namespace by its owner's grant and belongs in that
+// project's vocabulary annex, so this cockpit is not squatting a namespace it does not own.
+//
+// Named `sealedAt` rather than `seal` because a predicate is a PROPERTY and has to read as one. A
+// noun in the predicate slot is syntactically valid RDF that says nothing — the smaller sibling of
+// putting an individual there, which is what `oa:assessing` as a predicate would have been. Form
+// counts as much as existence: a term can be real, spelled right, and still be the wrong part of
+// speech for the slot it is in.
+const SealPredicate = "https://kton.dev/v/sealedAt"
+
+// SealScope records a child scope's current head as a claim chained into its parent.
+//
+// Written through `nekton claim` rather than through a template, deliberately: a template is
+// reachable from the claim ceiling a session writes against, and a seal that a session could forge
+// would be worth nothing. This path takes no template and is only reachable from an operator
+// subcommand.
+//
+// Sealing is repeatable and is meant to be repeated. Each seal fixes a point the chain can no
+// longer be rewound behind, because the parent now carries that head: dropping the tail afterwards
+// produces a chain whose head no longer matches what the parent recorded. That is what closes the
+// gap §9.6 otherwise has to state as a limit — tail truncation is undetectable IN-BAND, and a seal
+// is the out-of-band record that detects it.
+func (r *Runner) SealScope(ctx context.Context, childScope, childHead, parentScope, parentHead, signKey string) (string, error) {
+	// `by` is the signer's own keyid and `when` the moment of sealing. Both are covered by the
+	// claim id, and `when` is what distinguishes one seal of a scope from the next: sealing is
+	// meant to be repeated, so two seals at the same head must still be two records.
+	keyid, err := r.KeyID(ctx, trimKeySuffix(signKey))
+	if err != nil {
+		return "", fmt.Errorf("reading the keyid to seal under: %w", err)
+	}
+	spec := map[string]any{
+		"subject":   []map[string]string{{"hash": childScope}},
+		"predicate": SealPredicate,
+		"object":    map[string]any{"hash": childHead},
+		"by":        "key:" + keyid,
+		"when":      time.Now().UTC().Format(time.RFC3339),
+		"scope":     parentScope,
+		"prev":      parentHead,
+	}
+	blob, err := json.MarshalIndent(spec, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	dir, err := os.MkdirTemp("", "cockpit-seal-")
+	if err != nil {
+		return "", err
+	}
+	defer os.RemoveAll(dir)
+	specPath := filepath.Join(dir, "seal.json")
+	if err := os.WriteFile(specPath, blob, 0o600); err != nil {
+		return "", err
+	}
+	out, _, err := r.exec(ctx, "nekton", "claim", specPath, signKey, "--add", "--print-id")
+	if err != nil {
+		return "", err
+	}
+	id := strings.TrimSpace(out)
+	if !claimIDRe.MatchString(id) {
+		return "", fmt.Errorf("nekton claim --print-id did not return a claim id; stdout was:\n%s", out)
+	}
+	return id, nil
+}
+
+// SeedScope opens a scope and returns its id. An operator action, never a verb: a scope exists
+// before the session that writes into it.
+func (r *Runner) SeedScope(ctx context.Context, name, signKey, parentScope string) (string, error) {
+	args := []string{"seed", name, "--sign", signKey, "--add", "--print-id"}
+	if parentScope != "" {
+		args = append(args, "--parent", parentScope)
+	}
+	out, _, err := r.exec(ctx, "nekton", args...)
+	if err != nil {
+		return "", err
+	}
+	id := strings.TrimSpace(out)
+	if !claimIDRe.MatchString(id) {
+		return "", fmt.Errorf("nekton seed --print-id did not return a scope id; stdout was:\n%s", out)
+	}
+	return id, nil
+}
+
+// trimKeySuffix turns keys/x.key into keys/x.pub — the config names the private half, and the
+// public half sits beside it under the same stem.
+func trimKeySuffix(privateKeyPath string) string {
+	return strings.TrimSuffix(privateKeyPath, ".key") + ".pub"
 }

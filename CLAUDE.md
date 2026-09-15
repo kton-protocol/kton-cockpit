@@ -55,7 +55,7 @@ successfully; kton 0.2 added `objects/.format` so a store can say what wrote it,
 does not know to look. So: never use a `plankton`/`nekton` from `$PATH`, a package manager, or
 another checkout — only one built from the kton tree you mean.
 
-**Verified against:** kton `dev` at `75f93fc` (0.2).
+**Verified against:** kton `dev` at `36ac5dc` (0.2).
 
 `dev` moves, and this line is checked rather than remembered: `TestVerifiedAgainst` compares it
 against the `vcs.revision` Go stamped into `bin/plankton`. When upstream has moved, the fixture

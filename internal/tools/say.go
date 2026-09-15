@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/deathbychoco/claude-science-cockpit/internal/anchor"
 	"github.com/deathbychoco/claude-science-cockpit/internal/binaries"
@@ -28,6 +29,11 @@ type SayInput struct {
 	ReproducedOutput  string `json:"reproducedOutput,omitempty" jsonschema:"repo-relative path of Claude's own output file that reproduces the subject (reproduces template only)"`
 	ReproducedFotonID string `json:"reproducedFotonId,omitempty" jsonschema:"foton id of Claude's own producer foton for reproducedOutput (reproduces template only)"`
 	Via               string `json:"via,omitempty" jsonschema:"optional shared normalizer ref, for an L1 (not L0) reproduction"`
+
+	// Scope names one of the scopes this repo configures, chaining the claim into that
+	// conversation. Omitted, the claim stands on its own — which is the common case. The name must
+	// be one of claims.scopes: the operator fixes the set, exactly as with the template ceiling.
+	Scope string `json:"scope,omitempty" jsonschema:"optional: the name of a configured claim scope to chain this claim into"`
 }
 
 type SayOutput struct {
@@ -91,7 +97,7 @@ func Say(ctx context.Context, _ *mcp.CallToolRequest, in SayInput) (*mcp.CallToo
 		sets = map[string]string{"level": level, "reproducedBy": in.ReproducedFotonID}
 	}
 
-	chain, head, cerr := resolveChain(ctx, r, cfg)
+	chain, head, cerr := resolveChain(ctx, r, cfg, in.Scope)
 	if cerr != "" {
 		return errResult[SayOutput]("%s", cerr)
 	}
@@ -228,10 +234,22 @@ func determineReproductionLevel(ctx context.Context, cfg *config.Config, r *bina
 // its own work. One claim from a key in no configured tier was enough to freeze writing.
 //
 // Where completeness IS judged is the read path: `cockpit_ask` with query "scope".
-func resolveChain(ctx context.Context, r *binaries.Runner, cfg *config.Config) (*binaries.Chain, *binaries.ScopeHead, string) {
-	scope := cfg.Raw.Claims.Scope
-	if scope == "" {
+func resolveChain(ctx context.Context, r *binaries.Runner, cfg *config.Config, name string) (*binaries.Chain, *binaries.ScopeHead, string) {
+	if name == "" {
 		return nil, nil, ""
+	}
+	scope, configured, ok := cfg.ScopeID(name)
+	if !ok {
+		if len(configured) == 0 {
+			return nil, nil, fmt.Sprintf(
+				"this repo configures no claim scopes, so %q cannot be one of them. A scope is opened by an "+
+					"operator (`nekton seed <name> --sign <key> --add --print-id`) and listed in claims.scopes; "+
+					"a claim written without a scope stands on its own.", name)
+		}
+		// Named rather than matched as empty, for the reason §9.2 refuses an unknown filter value: a
+		// typo that quietly wrote somewhere else, or nowhere, reads like a decision.
+		return nil, nil, fmt.Sprintf("no claim scope named %q in this repo's config; it has: %s",
+			name, strings.Join(configured, ", "))
 	}
 	head, err := r.Head(ctx, scope)
 	if err != nil {

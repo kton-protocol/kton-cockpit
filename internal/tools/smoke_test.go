@@ -355,6 +355,26 @@ func TestConfigGuard_CockpitRepoDirEnvOverridesCwd(t *testing.T) {
 }
 
 // sayWorkingOn records a working-on claim on the given subject and returns its id.
+// sayInScope is sayWorkingOn for a repo that configures scopes: the claim names one, so it chains.
+// Kept separate so sayWorkingOn keeps meaning "a claim that stands on its own" — the default, and
+// what most tests are about.
+func sayInScope(t *testing.T, subject, scope string) string {
+	t.Helper()
+	result, out, err := Say(context.Background(), nil, SayInput{
+		Subject:  subject,
+		Template: "working-on",
+		Scope:    scope,
+		Fields:   map[string]string{"step": "analysis", "by-session": testrepo.SessionID},
+	})
+	if err != nil {
+		t.Fatalf("Say returned a Go error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("say failed: %+v", errText(result))
+	}
+	return out.ClaimID
+}
+
 func sayWorkingOn(t *testing.T, subject string) string {
 	t.Helper()
 	result, out, err := Say(context.Background(), nil, SayInput{

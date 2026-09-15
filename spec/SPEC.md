@@ -272,7 +272,17 @@ Binds a claim to a record.
 The configuration names the permitted claim templates. A cockpit MUST refuse any other, and MUST NOT
 allow a caller to introduce a claim shape.
 
-> **Checked by:** `TestSay_RefusesATemplateOutsideTheConfiguredCeiling`, `examples/04-claim-ceiling`.
+A template MUST name its predicate by full IRI, never by a CURIE. An alias file resolves a prefix
+before the claim is built, so the signed record carries the full IRI either way — which means two
+repositories with different alias files produce DIFFERENT records from the same template text, and
+nothing in either record says which file decided. Writing the IRI out removes the resolution step
+rather than pinning it.
+
+Published vocabulary is reused rather than minted: kton's own annex asks for it, and a term that
+already means this is a term a reader may already know.
+
+> **Checked by:** `TestSay_RefusesATemplateOutsideTheConfiguredCeiling`,
+> `TestTemplates_NamePredicatesByFullIRI`, `examples/04-claim-ceiling`.
 
 ### 8.2 The reproduction precondition
 
@@ -308,8 +318,15 @@ leave the basis recorded and the conclusion refused.
 
 ### 8.5 Chained claims *(optional)*
 
-A repository MAY chain every claim it writes under one nekton scope. Empty is the default and stays
-the common case.
+The configuration names the scopes a claim may be chained under, by name. A cockpit MUST refuse a
+name that is not among them, and MUST list the names that are — the same division as the template
+ceiling, and refused for the reason §9.2 refuses an unknown filter value: a typo that quietly wrote
+somewhere else, or nowhere, reads like a decision.
+
+A claim that names no scope stands on its own, and that stays the common case. One repository
+usually runs several scopes: the notes about a result and the review of it are different
+conversations, and putting them in one chain would make "show me the review" a filtering problem
+instead of a lookup.
 
 A scope is one of kton's two deliberate closed worlds: its **seed fixes membership**, its **head
 seals order**. Seeding MUST NOT be a verb — it is an operator action, the same division as
@@ -317,7 +334,7 @@ mirroring, and a scope exists before the session does.
 
 The tip MUST be read from the substrate on every claim, never remembered between them. A cockpit
 that cached it would hold mutable state about a chain it does not own, and would be stale the moment
-a mirror brought in another writer's claim.
+another writer's claim arrived.
 
 **Writing MUST NOT judge the chain.** A claim whose predecessor this registry cannot resolve, and a
 chain with more than one head, are both conditions a cockpit MUST record through rather than refuse
@@ -332,7 +349,8 @@ to see the order as it stood rather than infer a clean line that was never there
 
 > **Checked by:** `TestScope_ClaimsChainInOrderAndAdvanceTheTip`,
 > `TestScope_UnconfiguredLeavesClaimsUnchained`, `TestScope_TheAskFilterFindsWhatSayChained`,
-> `TestScope_RefusesAScopeThisRegistryDoesNotHold`,
+> `TestScope_RefusesAScopeThisRegistryDoesNotHold`, `TestScope_RefusesANameTheConfigDoesNotHave`,
+> `TestScope_TwoScopesInOneRepoChainIndependently`,
 > `TestScope_NeitherABranchNorAGapStopsAClaimBeingRecorded`.
 
 **Why refusing was wrong.** An earlier version of this clause refused to write on both conditions.
@@ -450,8 +468,22 @@ responses:
   about which branch the scope is, and it is a person's.
 
 Every verdict MUST state what it cannot see, including a complete one: a withheld **last** claim
-leaves a shorter chain that is internally valid and points at nothing missing, so no in-band check
-finds it. A head is proven final only against one that was published or anchored (§11.3).
+leaves a shorter chain that is internally valid and points at nothing missing, so no check of the
+chain alone finds it.
+
+What closes that is **sealing**: recording the scope's current head in its parent chain. A rewind
+behind a sealed head no longer matches what the parent carries, so the seal is the out-of-band
+record the chain cannot supply about itself. Sealing is repeatable and is meant to be repeated —
+each seal moves the point beyond which a rewind is detectable, and everything added since the last
+one is not yet covered. A cockpit MUST say which of the two situations a verdict is in: a scope
+with a parent can be checked against a seal, and one without cannot be checked at all.
+
+A scope can only be sealed into a parent it named at birth: the seed covers its `parent`, so this
+cannot be added afterwards.
+
+Sealing MUST NOT be reachable from the claim surface. A seal a session could write is worth
+nothing, so it is an operator action and is written without a template, which is what the claim
+ceiling is expressed in.
 
 The answer MUST report who has written into the scope, resolved from the key that actually verifies
 and never from the `by` a statement declares about itself (§9.1). A writer outside this repository's
@@ -465,7 +497,8 @@ emits none.
 > **Checked by:** `TestScope_TheSealVerdictSaysWhetherTheChainIsWhole`,
 > `TestScope_TheSealVerdictReportsABranchAsUnsealable`,
 > `TestScope_TheSealVerdictReportsAGapAsPartialNotBroken`,
-> `TestScope_AnUntrustedWriterIsReportedButExcluded`.
+> `TestScope_AnUntrustedWriterIsReportedButExcluded`,
+> `TestScope_SealRecordsTheHeadInTheParent`, `TestScope_ASealedScopeSaysWhatItCanBeCheckedAgainst`.
 
 ### 9.3 Counting reproductions
 

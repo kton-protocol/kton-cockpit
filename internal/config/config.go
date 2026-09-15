@@ -18,6 +18,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -67,19 +68,19 @@ type Verbs struct {
 type Claims struct {
 	AllowedTemplates []string `json:"allowedTemplates"`
 
-	// Scope is the nekton scope every claim this cockpit writes chains under: a content hash naming
-	// a seed already ingested in this repo's nekton registry.
+	// Scopes are the nekton scopes this cockpit may chain a claim under, by name.
 	//
-	// A scope is the one structural grammar nekton admits (kton §7.4) — a signed seed, then a hash
-	// chain — and what it buys is wholesale judgement. Unscoped claims are individually signed and
-	// individually true; a scoped set is ONE object, and a reader accepts or rejects the chain
-	// rather than the claims. That is what makes "everything this session said in this review"
-	// something you can vouch for, or refuse, without reading each line.
+	// The shape mirrors AllowedTemplates for the same reason: the operator fixes the SET, the
+	// session picks one from it and can never name a scope that is not here. One repository
+	// usually runs several — the notes about a model and the review of it are different
+	// conversations, and putting them in one chain would make "show me the review" a filtering
+	// problem instead of a lookup.
 	//
-	// Empty is the default and stays the common case: a claim that stands on its own needs no chain.
-	// Seeding a scope is an operator action (`nekton seed`), not a fourth verb — the same division
-	// as mirroring.
-	Scope string `json:"scope,omitempty"`
+	// Each value is the content hash of a seed already ingested in this repo's nekton registry.
+	// Seeding is an operator action (`nekton seed`), never a verb: a scope exists before the
+	// session does. Empty is the default, and a claim written without naming a scope stands on
+	// its own — which stays the common case.
+	Scopes map[string]string `json:"scopes,omitempty"`
 }
 
 type Trust struct {
@@ -552,10 +553,15 @@ func validate(raw *Raw) error {
 	if err := validateMaterial(raw.Material); err != nil {
 		return err
 	}
-	if sc := raw.Claims.Scope; sc != "" && !contentHashRe.MatchString(sc) {
-		return fmt.Errorf(
-			"claims.scope must be the content hash of a seeded scope (sha256:<64 hex>), got %q — "+
-				"`nekton seed <name> --sign <key> --add --print-id` prints one", sc)
+	for name, id := range raw.Claims.Scopes {
+		if name == "" {
+			return fmt.Errorf("claims.scopes has an entry with an empty name; the name is how a claim asks for it")
+		}
+		if !contentHashRe.MatchString(id) {
+			return fmt.Errorf(
+				"claims.scopes[%q] must be the content hash of a seeded scope (sha256:<64 hex>), got %q — "+
+					"`nekton seed <name> --sign <key> --add --print-id` prints one", name, id)
+		}
 	}
 	if raw.Repo.IsLocal() && raw.Git.Commit != nil && *raw.Git.Commit {
 		return fmt.Errorf("git.commit is true but repo.mode is %q — there is no git repository to commit to", ModeLocal)
@@ -939,3 +945,16 @@ func (c *Config) X509Roots() *x509.CertPool {
 // contentHashRe is the whole of a kton content address. Anchored at both ends: a value that merely
 // contains a hash is not one, and a scope id is passed to the substrate as an exact argument.
 var contentHashRe = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
+
+// ScopeID resolves a scope name to the id the substrate knows it by, or reports that this repo
+// configures no such name. The second return is the configured names, so a refusal can say what
+// was available rather than only that the ask was wrong.
+func (c *Config) ScopeID(name string) (string, []string, bool) {
+	names := make([]string, 0, len(c.Raw.Claims.Scopes))
+	for n := range c.Raw.Claims.Scopes {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	id, ok := c.Raw.Claims.Scopes[name]
+	return id, names, ok
+}

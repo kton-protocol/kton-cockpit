@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/deathbychoco/claude-science-cockpit/internal/binaries"
@@ -39,6 +40,8 @@ func main() {
 		err = runShow(ctx, os.Args[2:])
 	case "doctor":
 		err = runDoctor(ctx)
+	case "scope":
+		err = runScope(ctx, os.Args[2:])
 	default:
 		usage()
 		os.Exit(2)
@@ -243,33 +246,43 @@ func runDoctor(ctx context.Context) error {
 	fmt.Printf("plankton key:   %s\n", checkKeyPath(cfg.PlanktonKey))
 	fmt.Printf("nekton key:     %s\n", checkKeyPath(cfg.NektonKey))
 	fmt.Printf("allowed templates: %v\n", cfg.Raw.Claims.AllowedTemplates)
-	// Reported with the live chain rather than as the configured string: the string being
-	// well-formed says nothing about the shape a claim would join. Nothing here stops writing —
-	// completeness is judged when a seal is relied upon, not when a claim is made — but an operator
-	// should see a branch or a gap before someone relies on it.
-	if scope := cfg.Raw.Claims.Scope; scope != "" {
-		head, err := binaries.New(cfg).Head(ctx, scope)
-		switch {
-		case err != nil:
-			fmt.Printf("claim scope:    %s  [UNREADABLE: %v]\n", scope, err)
-		default:
-			fmt.Printf("claim scope:    %s\n", scope)
-			fmt.Printf("                tip %s  (%d chained)\n", head.Heads[0], head.ChainLength)
+	// Reported with the live chain rather than as the configured id: the id being well-formed says
+	// nothing about the shape a claim would join. Nothing here stops writing — completeness is
+	// judged when a seal is relied upon, not when a claim is made — but an operator should see a
+	// branch or a gap before someone relies on it.
+	if scopes := cfg.Raw.Claims.Scopes; len(scopes) > 0 {
+		names := make([]string, 0, len(scopes))
+		for n := range scopes {
+			names = append(names, n)
+		}
+		sort.Strings(names)
+		run := binaries.New(cfg)
+		for i, name := range names {
+			label := "claim scopes:"
+			if i > 0 {
+				label = ""
+			}
+			id := scopes[name]
+			head, err := run.Head(ctx, id)
+			if err != nil {
+				fmt.Printf("%-15s %-12s %s  [UNREADABLE: %v]\n", label, name, id, err)
+				continue
+			}
+			fmt.Printf("%-15s %-12s %s\n", label, name, id)
+			fmt.Printf("                %-12s tip %s  (%d chained)\n", "", head.Heads[0], head.ChainLength)
 			if head.Branched {
-				fmt.Printf("                BRANCHED into %d heads: each seals only its own branch, and a claim\n"+
-					"                carries one prev, so nothing rejoins them. Someone has to decide which\n"+
-					"                branch the scope is — `cockpit_ask` query \"scope\" reports it.\n", len(head.Heads))
-				for _, h := range head.Heads {
-					fmt.Printf("                  head %s\n", h)
-				}
+				fmt.Printf("                %-12s BRANCHED into %d heads: each seals only its own branch, and a\n"+
+					"                %-12s claim carries one prev, so nothing rejoins them. `cockpit_ask`\n"+
+					"                %-12s query \"scope\" reports which.\n", "", len(head.Heads), "", "")
 			}
 			if head.Unresolved > 0 {
-				fmt.Printf("                %d claim(s) name this scope with a predecessor this registry does not\n"+
-					"                hold. The view is partial, not broken: another source may have it.\n", head.Unresolved)
+				fmt.Printf("                %-12s %d claim(s) name it with a predecessor this registry does not\n"+
+					"                %-12s hold. The view is partial, not broken: another source may have it.\n",
+					"", head.Unresolved, "")
 			}
 		}
 	} else {
-		fmt.Printf("claim scope:    none — each claim stands on its own\n")
+		fmt.Printf("claim scopes:   none configured — every claim stands on its own\n")
 	}
 	fmt.Printf("trust tiers:    %v\n", cfg.Raw.Trust.Tiers)
 

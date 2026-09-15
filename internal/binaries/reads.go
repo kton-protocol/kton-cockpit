@@ -3,6 +3,7 @@ package binaries
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -96,15 +97,26 @@ type ReproductionsResult struct {
 }
 
 // wire shapes, named as plankton prints them.
+//
+// `records` is an array of BARE ENVELOPES and the per-record detail sits beside it in `summary`,
+// keyed by foton id. It used to be one array of summary objects with the envelope nested inside,
+// which is what this decoder was first written against — kton corrected it because SPEC §12 declares
+// that the record queries answer `{"records": [<envelope> …]}`, and a consumer decoding the declared
+// shape got an array of things that were not envelopes and could neither verify nor re-ingest them.
+//
+// So the ids come from `summary`, which is now the only place they are stated. Deriving them from
+// the envelopes instead would mean computing foton ids here, and a record's identity is the kernel's
+// to compute — a second implementation would disagree with it on exactly the covered/carried
+// distinction that makes an id what it is.
 type lineageJSON struct {
-	Query    string `json:"query"`
-	Relation string `json:"relation"`
-	Records  []struct {
-		FotonID string `json:"fotonId"`
+	Query    string            `json:"query"`
+	Relation string            `json:"relation"`
+	Records  []json.RawMessage `json:"records"`
+	Summary  map[string]struct {
 		Kind    string `json:"kind"`
 		Inputs  int    `json:"inputs"`
 		Outputs int    `json:"outputs"`
-	} `json:"records"`
+	} `json:"summary"`
 }
 
 type reproductionsJSON struct {
@@ -141,8 +153,29 @@ func parseLineageJSON(out string) (*LineageResult, error) {
 		return nil, fmt.Errorf("could not read plankton's --json output: %w", err)
 	}
 	res := &LineageResult{Relation: w.Relation, Query: w.Query}
-	for _, r := range w.Records {
-		res.Records = append(res.Records, FotonRecord{ID: r.FotonID, Kind: r.Kind, Inputs: r.Inputs, Outputs: r.Outputs})
+	// Sorted, because `summary` is a JSON object and Go's map iteration is deliberately random.
+	// Sorting is not the kernel's order — that is lost with this wire shape, since the records array
+	// is bare envelopes and nothing outside the kernel may compute which id each one has. Sorting at
+	// least makes the same query answer the same way twice, which a caller comparing two answers
+	// needs and random order silently denies.
+	ids := make([]string, 0, len(w.Summary))
+	for id := range w.Summary {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	for _, id := range ids {
+		d := w.Summary[id]
+		res.Records = append(res.Records, FotonRecord{ID: id, Kind: d.Kind, Inputs: d.Inputs, Outputs: d.Outputs})
+	}
+	// The two halves come from one command and must agree. Without this a kernel answering the older
+	// shape — records as summary objects, no `summary` beside them — would parse to zero ids and be
+	// handed on as "nothing found", which is the failure this project keeps catching: an empty
+	// answer wearing the shape of a finding.
+	if len(w.Records) != len(res.Records) {
+		return nil, fmt.Errorf("plankton %s answered %d record(s) but summarised %d. A record's id is "+
+			"stated only in `summary` (kton §12), so this answer cannot be read record by record — the "+
+			"binaries in bin/ are probably older than the kernel this cockpit is pinned to",
+			w.Relation, len(w.Records), len(res.Records))
 	}
 	return res, nil
 }
