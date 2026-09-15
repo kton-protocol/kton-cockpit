@@ -7,7 +7,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -351,62 +350,6 @@ func errOr(primary, fallback error) error {
 	return fallback
 }
 
-// VerifyFoton verifies a plankton envelope/id against an explicit pubkey — never against the
-// envelope's own declared keyid.
-//
-// Confirmed live against the reference binary: exit 0 = "VALID", exit 2 = "UNVERIFIED - WRONG
-// KEY" (this key genuinely did not sign the record — the expected, non-error outcome while trying
-// each configured trust-tier pubkey in turn), and any OTHER non-zero exit (e.g. exit 1, prefixed
-// "error: ...") is a real failure: pubkey file not found, record not found, malformed input.
-// Collapsing all three into "ok=false, err=nil" — the previous behavior — silently turns a broken
-// trust-tier config (e.g. a typo'd .pub path) into what looks like a legitimate "untrusted signer"
-// verdict, with no error ever surfaced to tell the operator their config itself is broken.
-func (r *Runner) VerifyFoton(ctx context.Context, idOrFile, pubkeyPath string) (ok bool, output string, err error) {
-	out, err := r.plankton(ctx, "verify", idOrFile, pubkeyPath)
-	if err == nil {
-		return true, out, nil
-	}
-	if isVerifyMismatch(err) || isVerifyStructural(err) {
-		return false, out, nil
-	}
-	return false, out, err
-}
-
-// isVerifyMismatch reports whether err represents plankton/nekton verify's own exit code 2 — a
-// genuine, expected "this key did not sign the record" outcome — as opposed to any other failure
-// (missing file, bad input, binary crash), which callers must treat as a real error.
-func isVerifyMismatch(err error) bool {
-	return verifyExitCode(err) == 2
-}
-
-// isVerifyStructural reports the kernel's exit 3: the signature IS genuine, and the record is still
-// one `add` refuses — a malformed predicate, a seed carrying the wrong genesis flag, a payload that
-// will not parse at all.
-//
-// It is a verdict about the RECORD, so it belongs with exit 2 rather than with exit 1. Exit 1 stays
-// a hard error and must: it is an operational failure — an unreadable pubkey path, bad hex — and
-// treating it as "this signer isn't trusted" is a bug this package already had once, where a typo'd
-// .pub path read exactly like a legitimate exclusion.
-//
-// Reaching it matters more than it used to. kton tightened `nekton verify` so a payload that cannot
-// be parsed is a structural failure rather than a silent exit 0, which means a claim accepted by an
-// OLDER kernel can now answer exit 3 — and this cockpit reads stores it did not write. Left in the
-// exit-1 bucket, one such record would fail every query that touched it rather than being excluded
-// from the answer, which is a single record denying every answer about the rest.
-func isVerifyStructural(err error) bool {
-	return verifyExitCode(err) == 3
-}
-
-// verifyExitCode returns the process exit code behind err, or -1 when err is not an exit status.
-// -1 is never a kernel verdict, so a non-ExitError can never be mistaken for one.
-func verifyExitCode(err error) int {
-	var exitErr *exec.ExitError
-	if !errors.As(err, &exitErr) {
-		return -1
-	}
-	return exitErr.ExitCode()
-}
-
 // --- nekton ---
 
 // Annotate runs `nekton annotate` from a template and returns the printed claim id (nekton
@@ -493,20 +436,6 @@ func (r *Runner) Templates(ctx context.Context, show string) (string, error) {
 		return r.nekton(ctx, "templates")
 	}
 	return r.nekton(ctx, "templates", "--show", show)
-}
-
-// VerifyClaim verifies a nekton claim envelope/id against an explicit pubkey. Same exit-code
-// convention as VerifyFoton (confirmed live: 0 = valid, 2 = wrong-key mismatch, anything else is
-// a real error) — see that function's comment for why the distinction matters.
-func (r *Runner) VerifyClaim(ctx context.Context, idOrFile, pubkeyPath string) (ok bool, output string, err error) {
-	out, err := r.nekton(ctx, "verify", idOrFile, pubkeyPath)
-	if err == nil {
-		return true, out, nil
-	}
-	if isVerifyMismatch(err) || isVerifyStructural(err) {
-		return false, out, nil
-	}
-	return false, out, err
 }
 
 // --- verification material (kton §8.1) ---

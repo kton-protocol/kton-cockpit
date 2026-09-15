@@ -2,14 +2,33 @@ package binaries
 
 import "testing"
 
+// The wire form kton §12 declares: `records` is an array of bare ENVELOPES, and the per-record
+// detail sits beside it in `summary`, keyed by foton id. It was once one array of summary objects
+// with the envelope nested inside, which meant a consumer decoding the declared shape got an array
+// of things that were not envelopes.
 const producerJSON = `{
   "query": "sha256:0263829989b6fd954f72baaf2fc64bc2e2f01d692d4de72986ea808f6e99813f",
   "records": [
-    {"fotonId": "sha256:d9eb88fb38c71c992cd35bc1d834d8f9bda17d00481d6c986ab11f97fedb3377",
-     "inputs": 1, "kind": "script", "outputs": 1}
+    {"payloadType": "application/vnd.in-toto+json", "payload": "e30=", "signatures": []}
   ],
+  "summary": {
+    "sha256:d9eb88fb38c71c992cd35bc1d834d8f9bda17d00481d6c986ab11f97fedb3377":
+      {"inputs": 1, "kind": "script", "outputs": 1}
+  },
   "relation": "producer"
 }`
+
+// A record's id is stated ONLY in `summary` now, so an answer whose two halves disagree cannot be
+// read record by record. Decoding it as zero records would hand on "nothing found" — an empty
+// answer wearing the shape of a finding.
+func TestParseLineageJSON_RefusesAnAnswerWhoseHalvesDisagree(t *testing.T) {
+	_, err := parseLineageJSON(`{"relation":"producer","query":"x",
+	  "records":[{"payloadType":"application/vnd.in-toto+json","payload":"e30=","signatures":[]}],
+	  "summary":{}}`)
+	if err == nil {
+		t.Fatal("an answer with one record and no summary was decoded as an empty result")
+	}
+}
 
 func TestParseLineageJSON_TakesTheIdFromItsNamedField(t *testing.T) {
 	res, err := parseLineageJSON(producerJSON)

@@ -380,27 +380,27 @@ A record that no configured key verifies MUST be excluded from the answer, and i
 NOT appear anywhere in the result.** It MUST still be accounted for as found-and-excluded: "nothing
 is there" and "something is there that you do not trust" are different answers.
 
-A verdict about a record MUST NOT be confused with a failure to reach one. The substrate answers
-both through the same exit status, and they have opposite correct handlings:
+A verdict about a record MUST NOT be confused with a failure to reach one:
 
-| what the kernel says | what it means | handling |
-|---|---|---|
-| wrong key | no configured key signed this | exclude the record |
-| structurally invalid | the signature is genuine; the record is one `add` refuses | exclude the record |
-| an operational error | the pubkey path is unreadable, the hex is malformed | **fail the call** |
+| | handling |
+|---|---|
+| no configured key verifies the record | exclude it, and account for it as found-and-excluded |
+| a configured key cannot be read or parsed | **fail the call** |
 
-The last row is not pedantry. Reading an operational error as a verdict is a bug this cockpit has
-already had: a typo'd path in a trust tier exited non-zero, and "this cockpit cannot read your
-configured key" was reported as "this signer is not trusted" — a broken trust configuration wearing
-the appearance of a working one. The first two rows must not fail the call for the mirror-image
-reason: this cockpit reads stores it did not write, and a kernel may tighten its structural rules,
-so one record a newer kernel refuses would otherwise deny every answer that touched it.
+The second row is not pedantry, and it is the one this cockpit has already got wrong. A typo'd path
+in a trust tier once reported as "this signer is not trusted" — a broken trust configuration wearing
+the appearance of a working one. Skipping a key that will not load narrows what the repository
+trusts without saying so, and every record that key signed then reads as untrusted. So an unusable
+key is refused outright, never skipped.
+
+The first row must NOT fail the call, for the mirror-image reason: this cockpit reads stores it did
+not write, and one record it cannot place would otherwise deny every answer that touched it.
 
 > **Checked by:** `TestAsk_ProducerFindsTheJustPublishedFotonAndVerifiesIt`,
 > `TestAsk_AboutExcludesAClaimThatVerifiesAgainstNoConfiguredTier`, `examples/05-trust-tiers`,
-> `TestVerifyFoton_ExitOneIsARealErrorNotASilentMismatch`,
-> `TestVerify_ExitThreeExcludesTheRecordRatherThanFailingTheCall`,
-> `TestVerifyExitCodes_OnlyTwoAndThreeAreRecordVerdicts`.
+> `TestTierKeys_AnUnusableKeyIsAnErrorNotASilentNarrowing`,
+> `TestTierKeys_IndexesEveryConfiguredKeyByItsKeyid`,
+> `TestVerifiedSignerKeyID_AStrangerIsUntrustedNotAnError`.
 
 ### 9.2 Filtering
 
