@@ -417,10 +417,15 @@ func verifyExitCode(err error) int {
 // prose to STDOUT with the id embedded among them, and this had to scrape the "indexed claim" line
 // back out. Say still confirms registration by querying the claim back — the parsing went away, the
 // confirmation did not.
-func (r *Runner) Annotate(ctx context.Context, subject, template string, sets map[string]string, signKey string) (string, error) {
+func (r *Runner) Annotate(ctx context.Context, subject, template string, sets map[string]string, signKey string, chain *Chain) (string, error) {
 	args := []string{"annotate", subject, "--template", template}
 	for k, v := range sets {
 		args = append(args, "--set", fmt.Sprintf("%s=%s", k, v))
+	}
+	// Both or neither: the substrate refuses a scoped claim that carries no prev, so passing one
+	// without the other would produce a signed claim the store then declines.
+	if chain != nil {
+		args = append(args, "--scope", chain.Scope, "--prev", chain.Prev)
 	}
 	args = append(args, "--sign", signKey, "--add", "--print-id")
 	out, err := r.nekton(ctx, args...)
@@ -556,4 +561,51 @@ func (r *Runner) material(ctx context.Context, bin, id string) ([]StoredMaterial
 		return nil, fmt.Errorf("could not read %s material %s: %w\n%s", bin, id, err, out)
 	}
 	return read.Material, nil
+}
+
+// --- scopes (kton §7.4) ---
+
+// Chain places a claim in a scope's hash chain: the scope it belongs to, and the claim it follows.
+// Both are required together — the substrate refuses a scoped claim with no prev.
+type Chain struct {
+	Scope string
+	Prev  string
+}
+
+// ScopeHead is what `nekton head` reports about a scope's chain. Every field is load-bearing and
+// none of them is prose: the kernel deliberately puts its two caveats in the data rather than in a
+// line a reader may skip.
+type ScopeHead struct {
+	Scope string   `json:"scope"`
+	Heads []string `json:"heads"`
+	// ChainLength counts the claims chained under the seed. Zero is normal: the seed is its own tip.
+	ChainLength int `json:"chainLength"`
+	// Branched means claims share a prev, so each head commits only to its own branch. The kernel
+	// reports the structure and prescribes no remedy — deciding what a seal over a branched scope
+	// covers is a consumer's call (kton §7.4), which makes it this cockpit's.
+	Branched bool `json:"branched"`
+	// Unresolved counts claims that name this scope but whose prev is not held here. A withheld
+	// MIDDLE claim leaves its successors unreachable, so the reported tip is PROVISIONAL rather
+	// than final — the real head may be behind a claim this store has not seen.
+	Unresolved int `json:"unresolved"`
+}
+
+// Head reads the current tip of a scope's chain.
+//
+// The tip comes from the substrate on every call and is never remembered here. A cockpit that
+// cached it would be keeping mutable state about the chain (kton §13 forbids that), and would
+// chain onto a stale tip the moment a mirror brought in a peer's claim.
+func (r *Runner) Head(ctx context.Context, scopeID string) (*ScopeHead, error) {
+	out, _, err := r.exec(ctx, "nekton", "head", scopeID, "--json")
+	if err != nil {
+		return nil, err
+	}
+	var h ScopeHead
+	if jerr := json.Unmarshal([]byte(strings.TrimSpace(out)), &h); jerr != nil {
+		return nil, fmt.Errorf("could not read the head of scope %s: %w\n%s", scopeID, jerr, out)
+	}
+	if len(h.Heads) == 0 {
+		return nil, fmt.Errorf("nekton head reported scope %s with no head at all; refusing to guess one", scopeID)
+	}
+	return &h, nil
 }

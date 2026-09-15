@@ -63,6 +63,11 @@
           "type": "array",
           "items": { "type": "string" },
           "minItems": 0
+        },
+        "scope": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "description": "The nekton scope every claim this cockpit writes chains under: the content hash of a seed already ingested in this repo's nekton registry. A scope is the one structural grammar nekton admits (kton §7.4) — a signed seed, then a hash chain — and what it buys is wholesale judgement: unscoped claims are individually true, while a scoped set is one object a reader accepts or rejects as a whole. Empty is the default and stays the common case. Seeding is an operator action (`nekton seed <name> --sign <key> --add --print-id`), never a verb: the scope exists before the session does. A branched scope, or one with claims whose prev this registry does not hold, makes cockpit_say refuse rather than pick — `cockpit doctor` reports both conditions."
         }
       }
     },

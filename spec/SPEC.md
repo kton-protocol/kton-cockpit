@@ -306,6 +306,46 @@ leave the basis recorded and the conclusion refused.
 > **Not guaranteed:** that a corroborated record is correct. Independent reproduction says several
 > parties produced the same bytes, which is a statement about agreement, not about truth.
 
+### 8.5 Chained claims *(optional)*
+
+A repository MAY chain every claim it writes under one nekton scope. Empty is the default and stays
+the common case: a claim that stands on its own needs no chain.
+
+What a scope buys is **wholesale judgement**. Unscoped claims are individually signed and
+individually true; a scoped set is one object, and a reader accepts or rejects the chain rather than
+the claims in it. That is what makes "everything this session said in this review" something a
+person can vouch for, or refuse, without reading each line.
+
+Seeding a scope MUST NOT be a verb. It is an operator action, the same division as mirroring: the
+scope exists before the session does, and a session cannot open one for itself.
+
+The tip MUST be read from the substrate on every claim, never remembered between them. A cockpit
+that cached it would hold mutable state about a chain it does not own, and would chain onto a stale
+tip the moment a mirror brought in a peer's claim.
+
+Two conditions make a chain unextendable, and a cockpit MUST refuse rather than choose:
+
+- **Branched** — claims already share a prev, so each head commits only to its own branch. The
+  substrate reports the structure and deliberately prescribes no remedy (kton §7.4 leaves sealing
+  rules to consumers), so the choice lands here. Picking a head silently would make which branch a
+  claim belongs to depend on which session happened to run first. The refusal MUST name every head,
+  because whoever resolves it is choosing between them.
+- **Unresolved** — a claim names this scope and its prev is not held here, so a withheld middle
+  claim leaves its successors unreachable and the reported tip is provisional. This is the worse of
+  the two: chaining onto a provisional tip does not inherit a fork, it **creates** one as soon as
+  the missing claims arrive.
+
+> **Checked by:** `TestScope_ClaimsChainInOrderAndAdvanceTheTip`,
+> `TestScope_UnconfiguredLeavesClaimsUnchained`, `TestScope_TheAskFilterFindsWhatSayChained`,
+> `TestScope_RefusesAScopeThisRegistryDoesNotHold`, `TestScope_RefusesABranchedScope`,
+> `TestScope_RefusesAScopeWithUnresolvedClaims`.
+
+> **Not guaranteed: a chain does not prove nothing was withheld from its end.** Dropping the last
+> claim leaves a shorter but internally valid chain with nothing pointing at the missing tip, so no
+> in-band check can detect it. A tip is trustworthy only against a published or anchored head —
+> which is what §11.3 is for. The middle-truncation case *is* detectable, and is the second refusal
+> above.
+
 ### 8.3 Registration
 
 A cockpit MUST confirm, by querying the record back, that the claim registered — and MUST NOT report

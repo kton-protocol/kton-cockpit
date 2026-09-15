@@ -66,6 +66,20 @@ type Verbs struct {
 
 type Claims struct {
 	AllowedTemplates []string `json:"allowedTemplates"`
+
+	// Scope is the nekton scope every claim this cockpit writes chains under: a content hash naming
+	// a seed already ingested in this repo's nekton registry.
+	//
+	// A scope is the one structural grammar nekton admits (kton §7.4) — a signed seed, then a hash
+	// chain — and what it buys is wholesale judgement. Unscoped claims are individually signed and
+	// individually true; a scoped set is ONE object, and a reader accepts or rejects the chain
+	// rather than the claims. That is what makes "everything this session said in this review"
+	// something you can vouch for, or refuse, without reading each line.
+	//
+	// Empty is the default and stays the common case: a claim that stands on its own needs no chain.
+	// Seeding a scope is an operator action (`nekton seed`), not a fourth verb — the same division
+	// as mirroring.
+	Scope string `json:"scope,omitempty"`
 }
 
 type Trust struct {
@@ -538,6 +552,11 @@ func validate(raw *Raw) error {
 	if err := validateMaterial(raw.Material); err != nil {
 		return err
 	}
+	if sc := raw.Claims.Scope; sc != "" && !contentHashRe.MatchString(sc) {
+		return fmt.Errorf(
+			"claims.scope must be the content hash of a seeded scope (sha256:<64 hex>), got %q — "+
+				"`nekton seed <name> --sign <key> --add --print-id` prints one", sc)
+	}
 	if raw.Repo.IsLocal() && raw.Git.Commit != nil && *raw.Git.Commit {
 		return fmt.Errorf("git.commit is true but repo.mode is %q — there is no git repository to commit to", ModeLocal)
 	}
@@ -916,3 +935,7 @@ func (c *Config) X509Roots() *x509.CertPool {
 	}
 	return pool
 }
+
+// contentHashRe is the whole of a kton content address. Anchored at both ends: a value that merely
+// contains a hash is not one, and a scope id is passed to the substrate as an exact argument.
+var contentHashRe = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)

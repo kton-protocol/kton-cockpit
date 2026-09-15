@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/deathbychoco/claude-science-cockpit/internal/anchor"
 	"github.com/deathbychoco/claude-science-cockpit/internal/binaries"
@@ -70,7 +71,12 @@ func Say(ctx context.Context, _ *mcp.CallToolRequest, in SayInput) (*mcp.CallToo
 		sets = map[string]string{"level": level, "reproducedBy": in.ReproducedFotonID}
 	}
 
-	claimID, err := r.Annotate(ctx, in.Subject, in.Template, sets, cfg.NektonKey)
+	chain, cerr := resolveChain(ctx, r, cfg)
+	if cerr != "" {
+		return errResult[SayOutput]("%s", cerr)
+	}
+
+	claimID, err := r.Annotate(ctx, in.Subject, in.Template, sets, cfg.NektonKey, chain)
 	if err != nil {
 		return errResult[SayOutput]("nekton annotate failed: %v", err)
 	}
@@ -176,4 +182,51 @@ func determineReproductionLevel(ctx context.Context, cfg *config.Config, r *bina
 		return "", fmt.Sprintf("this repo's policy requires L0; this reproduction only reached %s", achieved)
 	}
 	return achieved, ""
+}
+
+// resolveChain decides where in a configured scope's chain this claim goes, or that it must not be
+// written at all. It returns (nil, "") when no scope is configured, which is the default and leaves
+// every claim standing on its own.
+//
+// The tip is read from the substrate on each call rather than remembered. Two conditions make it
+// unusable, and both are refusals rather than choices:
+//
+//   - BRANCHED. Claims already share a prev, so each head commits only to its own branch. The
+//     kernel reports the structure and deliberately prescribes no remedy (kton §7.4 leaves sealing
+//     rules to consumers), so the choice lands here — and picking one silently would make which
+//     branch a claim belongs to depend on which session happened to run first. Someone has to
+//     decide which branch this review IS; that someone is not a tool with no view of the work.
+//
+//   - UNRESOLVED. A claim names this scope and its prev is not held here, so a withheld MIDDLE
+//     claim leaves its successors unreachable and the reported tip is provisional. This is the
+//     worse of the two: chaining onto a provisional tip does not inherit a fork, it CREATES one
+//     the moment the missing claims arrive. Fetch them first.
+func resolveChain(ctx context.Context, r *binaries.Runner, cfg *config.Config) (*binaries.Chain, string) {
+	scope := cfg.Raw.Claims.Scope
+	if scope == "" {
+		return nil, ""
+	}
+	head, err := r.Head(ctx, scope)
+	if err != nil {
+		return nil, fmt.Sprintf(
+			"claims.scope names %s, but this repo's nekton registry cannot report its head: %v\n"+
+				"A scope must be seeded and ingested here before claims can chain under it "+
+				"(`nekton seed <name> --sign <key> --add`).", scope, err)
+	}
+	if head.Unresolved > 0 {
+		return nil, fmt.Sprintf(
+			"scope %s has %d claim(s) whose prev this registry does not hold, so the tip it reports "+
+				"(%s) is PROVISIONAL, not the chain's real head. Chaining onto it would not inherit a "+
+				"fork — it would create one as soon as the missing claims arrive. Obtain them first.",
+			scope, head.Unresolved, head.Heads[0])
+	}
+	if head.Branched {
+		return nil, fmt.Sprintf(
+			"scope %s is BRANCHED into %d heads (%s), so each head commits only to the claims on its "+
+				"own branch. Which branch this claim belongs to is a judgement about the work, not "+
+				"something to pick by running order — the substrate leaves it open and so does this. "+
+				"Resolve the branch, then say it again.",
+			scope, len(head.Heads), strings.Join(head.Heads, ", "))
+	}
+	return &binaries.Chain{Scope: scope, Prev: head.Heads[0]}, ""
 }

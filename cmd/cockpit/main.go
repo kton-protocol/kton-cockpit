@@ -243,6 +243,30 @@ func runDoctor(ctx context.Context) error {
 	fmt.Printf("plankton key:   %s\n", checkKeyPath(cfg.PlanktonKey))
 	fmt.Printf("nekton key:     %s\n", checkKeyPath(cfg.NektonKey))
 	fmt.Printf("allowed templates: %v\n", cfg.Raw.Claims.AllowedTemplates)
+	// The scope is reported with its live tip rather than as the configured string, because the
+	// string being well-formed says nothing about whether claims can actually chain under it. A
+	// branched or truncated scope makes `cockpit_say` refuse, and an operator should learn that
+	// here rather than from a refused claim.
+	if scope := cfg.Raw.Claims.Scope; scope != "" {
+		switch head, err := binaries.New(cfg).Head(ctx, scope); {
+		case err != nil:
+			fmt.Printf("claim scope:    %s  [UNUSABLE: %v]\n", scope, err)
+		case head.Unresolved > 0:
+			fmt.Printf("claim scope:    %s  [PROVISIONAL: %d claim(s) name it with a prev this registry does not hold;\n"+
+				"                the tip below may not be the real head, and say will refuse]\n", scope, head.Unresolved)
+			fmt.Printf("                tip %s  (%d chained)\n", head.Heads[0], head.ChainLength)
+		case head.Branched:
+			fmt.Printf("claim scope:    %s  [BRANCHED into %d heads — say will refuse until one is chosen]\n", scope, len(head.Heads))
+			for _, h := range head.Heads {
+				fmt.Printf("                head %s\n", h)
+			}
+		default:
+			fmt.Printf("claim scope:    %s  [ok]\n", scope)
+			fmt.Printf("                tip %s  (%d chained)\n", head.Heads[0], head.ChainLength)
+		}
+	} else {
+		fmt.Printf("claim scope:    none — each claim stands on its own, vouched for one at a time\n")
+	}
 	fmt.Printf("trust tiers:    %v\n", cfg.Raw.Trust.Tiers)
 
 	// Last, and reported by the binaries themselves rather than from anything recorded: which

@@ -269,3 +269,69 @@ exec %q "$@"
 		t.Fatal(err)
 	}
 }
+
+// SeedScope opens a nekton scope in this repo's registry and returns its id, the way an operator
+// would before pointing a config at it: `nekton seed` is not one of the three verbs, so a scope is
+// something that exists before the session ever runs.
+//
+// The seed is signed with the repo's own claim key and ingested directly, so the scope is real —
+// tests chain against the substrate's own head, never against a hand-written id.
+func (r *Repo) SeedScope(t *testing.T, name string) string {
+	t.Helper()
+	out := runNekton(t, r, "seed", name, "--sign", "keys/"+SessionID+"-claims.key", "--add", "--print-id")
+	id := strings.TrimSpace(out)
+	if !strings.HasPrefix(id, "sha256:") || len(id) != 71 {
+		t.Fatalf("nekton seed --print-id did not return a scope id, got %q", out)
+	}
+	return id
+}
+
+// ScopeHead reports the current tip and chain length, so a test can assert that a claim actually
+// advanced the chain rather than merely being accepted.
+func (r *Repo) ScopeHead(t *testing.T, scopeID string) (tip string, chainLength int, branched bool) {
+	t.Helper()
+	out := runNekton(t, r, "head", scopeID, "--json")
+	var h struct {
+		Heads       []string `json:"heads"`
+		ChainLength int      `json:"chainLength"`
+		Branched    bool     `json:"branched"`
+	}
+	if err := json.Unmarshal([]byte(out), &h); err != nil || len(h.Heads) == 0 {
+		t.Fatalf("could not read the head of %s: %v\n%s", scopeID, err, out)
+	}
+	return h.Heads[0], h.ChainLength, h.Branched
+}
+
+// runNekton invokes the fixture's own nekton with this repo's registry pinned exactly as the
+// cockpit pins it. Without NEKTON_DIR it would read its bare ./nekton-data default, which is a
+// different, empty registry that answers with no scope and no error.
+func runNekton(t *testing.T, r *Repo, args ...string) string {
+	t.Helper()
+	cmd := exec.Command(filepath.Join(r.Root, "bin", "nekton"), args...)
+	cmd.Dir = r.Root
+	cmd.Env = append(os.Environ(),
+		"NEKTON_DIR="+filepath.Join(r.Root, "registry", "nekton"),
+		"NEKTON_TEMPLATES="+filepath.Join(r.Root, "templates"))
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("nekton %s: %v\n%s", strings.Join(args, " "), err, out)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// ChainClaimDirectly writes a scoped claim straight through nekton, bypassing the cockpit, so a
+// test can produce a state the cockpit itself refuses to produce — a branched scope.
+//
+// Going around the tool under test is the point here rather than a shortcut: a fork is exactly what
+// arrives when a peer's branch is mirrored in, and no amount of correct behaviour by this cockpit
+// prevents one turning up. The refusal has to be tested against a fork it did not cause.
+func (r *Repo) ChainClaimDirectly(t *testing.T, subject, scope, prev, step string) string {
+	t.Helper()
+	id := runNekton(t, r, "annotate", subject,
+		"--template", "working-on",
+		"--set", "step="+step,
+		"--set", "by-session="+SessionID,
+		"--scope", scope, "--prev", prev,
+		"--sign", "keys/"+SessionID+"-claims.key", "--add", "--print-id")
+	return strings.TrimSpace(id)
+}
