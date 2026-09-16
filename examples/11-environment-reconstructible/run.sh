@@ -10,10 +10,8 @@
 # and it is stated here rather than discovered halfway through.
 cd "$(dirname "$0")"
 source ../lib/common.sh
-# A fresh install puts nix on PATH only for new login shells, so a script started from an old one
-# finds nothing. Source the profile if it is there before deciding nix is missing.
-command -v nix >/dev/null || . /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh 2>/dev/null || true
-command -v nix >/dev/null || { echo "11 needs nix — skipping is not an option here, so this is a failure" >&2; exit 1; }
+source ../lib/registry.sh
+need_nix
 docker version >/dev/null 2>&1 || { echo "11 needs a running container engine" >&2; exit 1; }
 WORK="$PWD/.work"; participant "$WORK/repo"; cd "$WORK/repo"
 mkdir -p nix R
@@ -52,50 +50,12 @@ echo ""
 echo "== a digest, which means a registry =="
 # An image that was built locally has no RepoDigest: a digest is what a registry assigns when it
 # accepts a manifest. So the example runs one. Accepting an image ID instead would pin something
-# nobody else can resolve.
-# A docker config of this example's own, with no credential helper.
-#
-# Docker Desktop on Windows writes `credsStore: desktop.exe` into ~/.docker/config.json, and from
-# WSL that helper fails for a localhost registry — docker then reports "error getting credentials"
-# and never falls back to an anonymous pull. A local registry needs no credentials at all, so the
-# example hands docker a config that asks for none. The cockpit does not scrub the environment
-# before invoking the engine, so this reaches the run it performs too.
-export DOCKER_CONFIG="$PWD/.docker"
-mkdir -p "$DOCKER_CONFIG" && echo '{}' > "$DOCKER_CONFIG/config.json"
-
-docker rm -f cockpit-ex11-registry >/dev/null 2>&1 || true
-# Docker picks the port, not this script. A fixed 5000 collides with whatever else wants it, and a
-# port picked here can land in a range the host reserves — on Windows the dynamic range belongs to
-# WinNAT, and docker answers "an attempt was made to access a socket in a way forbidden by its
-# access permissions". Publishing to :0 lets the engine choose one it can actually bind.
-# A low, explicit port, tried in a small range.
-#
-# Two host behaviours meet here and both report as something else. Docker Desktop runs its daemon
-# in a VM, so a registry bound to WSL's loopback is unreachable from the side that pulls
-# ("connection refused"). And on Windows the high dynamic range belongs to WinNAT: docker will
-# report a port there as bound and the listener is then not reachable, which arrives as an IPv6
-# timeout. Low ports on every interface avoid both.
-PORT=""
-for p in 5000 5001 5002 5003 5004; do
-  if docker run -d --rm -p "$p:5000" --name cockpit-ex11-registry registry:2 >/dev/null 2>&1; then
-    PORT=$p; break
-  fi
-done
-require "a local registry started" test -n "$PORT"
-for _ in $(seq 1 30); do curl -sf "http://127.0.0.1:$PORT/v2/" >/dev/null 2>&1 && break; sleep 1; done
-require "the local registry answers" curl -sfo /dev/null "http://localhost:$PORT/v2/"
-
-# `localhost` rather than the literal address: docker treats it as an insecure registry by default,
-# so it does not insist on TLS that a local registry has not got, and it resolves on both stacks.
-
-# skopeo copies the tarball straight into the registry. `docker load` would first unpack 4.3 GB
-# onto the daemon for no reason — the bytes are already an image.
-nix run nixpkgs#skopeo -- --insecure-policy copy --dest-tls-verify=false \
-  "docker-archive:$TARBALL" "docker://localhost:$PORT/r-analysis:pinned" >/dev/null 2>&1 \
-  || { echo "  pushing the image failed" >&2; exit 1; }
-DIGEST=$(nix run nixpkgs#skopeo -- --insecure-policy inspect --tls-verify=false \
-  "docker://localhost:$PORT/r-analysis:pinned" 2>/dev/null \
-  | python3 -c 'import json,sys; print(json.load(sys.stdin)["Digest"])')
+# nobody else can resolve. Everything this takes — a credential-free docker config, a port the
+# engine can actually bind, skopeo rather than `docker load` — is in ../lib/registry.sh.
+docker_config_without_helpers
+PORT=$(local_registry cockpit-ex11-registry)
+require "a local registry answers" test -n "$PORT"
+DIGEST=$(push_image "$PORT" "$TARBALL" "r-analysis:pinned")
 require "the registry assigned a digest" test -n "$DIGEST"
 REF="localhost:$PORT/r-analysis@$DIGEST"
 echo "  $REF"

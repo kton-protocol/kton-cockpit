@@ -10,8 +10,13 @@ examples/02-chain/run.sh     # or one
 Each builds its own participant repo from nothing — a real git repo with a real github.com origin,
 because the anti-wrong-folder guard reads that remote on every call and an example that bypassed it
 would be demonstrating something else. Only the remote's *push* url points at a local bare repo, so
-everything completes offline. Binaries are built from a kton checkout (`KTON_SRC`, else `../kton`)
-and the cockpit from this one; nothing is vendored and nothing comes from `$PATH`.
+everything completes offline. Binaries are built from a kton checkout (`KTON_SRC`, else `../kton-pinned`, else `../kton`) and the
+cockpit from this one; nothing is vendored and nothing comes from `$PATH`.
+
+The examples drive the kernel CLI directly in places, which the cockpit itself no longer does — it
+links the kernels as libraries. That is deliberate: what these show is that the work stays
+performable by hand, so where a step is something a person would do at a prompt, it is done at a
+prompt.
 
 Identities come from `keygen --seed`, so ids are a function of this repository rather than of when
 you ran it and two runs print the same hashes. Those are demo keys: the seed is written down, so the
@@ -31,8 +36,14 @@ anything real.
 | [09-carried-evidence](09-carried-evidence/) | whose key signed, and the difference between checked and carried (needs openssl) |
 | [10-cleaning-is-an-argument](10-cleaning-is-an-argument/) | one line decides the answer by centuries, and it is an input (needs R + network) |
 | [11-environment-reconstructible](11-environment-reconstructible/) | the same numbers twice, and only one record can be re-run by anyone else (needs nix + docker) |
+| [12-the-environment-written-in-r](12-the-environment-written-in-r/) | nobody writes Nix: the environment is declared in R, and the digest follows (needs nix + docker) |
 
 ## Sources
+
+`12-the-environment-written-in-r` uses **{rix}** (rOpenSci), which generates a Nix expression from
+an R function call: <https://docs.ropensci.org/rix/>. The lift from the expression it generates to
+an OCI image is that example's own — rix's documented container route runs Nix *inside* a Docker
+image, which pins a base image nobody chose as well as the environment somebody did.
 
 `10-cleaning-is-an-argument` uses the **Vienna Tree Register** (`BAUMKATOGD`), Open Government Data
 of the City of Vienna under **CC BY 4.0**. Required attribution: *Datenquelle: Stadt Wien –

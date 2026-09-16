@@ -23,8 +23,11 @@ func TestExecutables_EveryScriptAnyoneIsToldToRunIsExecutable(t *testing.T) {
 		t.Fatalf("git ls-files: %v", err)
 	}
 
-	// Sourced, never executed: marking it executable would say otherwise.
-	sourced := map[string]bool{"examples/lib/common.sh": true}
+	// Sourced, never executed: marking one executable would say otherwise.
+	sourced := map[string]bool{
+		"examples/lib/common.sh":   true,
+		"examples/lib/registry.sh": true,
+	}
 
 	var wrong []string
 	var seen int

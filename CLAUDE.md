@@ -66,8 +66,9 @@ form nothing had been tested against.
 
 **Verified against:** kton `dev` at `52b49f0` (0.2).
 
-`dev` moves, and this line is checked rather than remembered: `TestVerifiedAgainst` compares it
-against the `vcs.revision` Go stamped into the `bin/plankton` the fixture builds. When upstream has
+`dev` moves, and this line is checked rather than remembered:
+`TestVerifiedAgainst_NamesTheKernelTheBinariesWereBuiltFrom` compares it against the `vcs.revision`
+Go stamped into the `bin/plankton` the fixture builds. When upstream has
 moved, the fixture rebuilds to the newer kernel — so the suite really did run against a different
 one than this claims, and the test says so. Re-run and update the line in the same commit.
 
@@ -137,15 +138,15 @@ from the real `keygen`, the claim templates, and a `cockpit.config.json`. Record
 signed; assertions are about what actually happened. `testrepo.NewLocal` builds the same thing with
 no git repository at all, for the local-mode guard (ADR-004).
 
-If `bin/` is empty the tests build the kernel themselves from `$KTON_SRC`, else a sibling `../kton`
-checkout — and they rebuild it when what is in `bin/` was built from a different commit than that
-checkout now holds. Go stamps `vcs.revision` into a binary, so "were these built from what is
+If `bin/` is empty the tests build those binaries themselves from `$KTON_SRC`, else a sibling
+`../kton-pinned`, else `../kton` — and they rebuild when what is in `bin/` was built from a
+different commit than that checkout now holds. Go stamps `vcs.revision` into a binary, so "were these built from what is
 checked out now" has an answer rather than depending on someone remembering. That check exists
 because the alternative kept happening: a moving `dev`, binaries left behind, and a symptom that
 looks like a missing subcommand rather than a stale build.
 
 `COCKPIT_TEST_PLANKTON`/`COCKPIT_TEST_NEKTON` override both and are never second-guessed. Nothing
-ever falls back to `$PATH` — see the warning under "The kernel binaries" for why.
+ever falls back to `$PATH` — see the warning under "The binaries that are still binaries" for why.
 
 One area is behind a build tag, and deliberately so:
 
@@ -157,12 +158,13 @@ Those cover `internal/container` and publish's execution path (ADR-003). They ar
 default run so `go test ./...` keeps the property below; asking for them without an engine is a
 failure, not a skip, because you asked. Run them before merging anything that touches either.
 
-Anchoring is covered differently, and the limit is worth stating rather than discovering: the call
-into Rekor is stubbed (`testrepo.StubAnchor`), because it writes to a public, permanent log and a
-suite that anchored on every run would leave entries nobody can withdraw — the kernel gates its own
-live Rekor test behind a `live` tag for the same reason. What the stub covers is everything on this
-side of the network: the envelope is found by id, handed to `kton anchor`, the entry it prints is
-read, and the proof is attached to the record and committed with it.
+Anchoring is covered differently, and the limit is worth stating rather than discovering: the one
+function that reaches Rekor is swapped out (`testrepo.StubAnchor`), because it writes to a public,
+permanent log and a suite that anchored on every run would leave entries nobody can withdraw — the
+kernel gates its own live Rekor test behind a `live` tag for the same reason. What the stub leaves
+covered is everything on this side of the network: the envelope is found by id, the verifier is
+derived from the key that actually signed, and the entry is attached to the record as kton §8.1
+material and committed with it.
 
 The other side has its own test, gated the same way:
 
@@ -192,8 +194,8 @@ nothing. Three need something the others do not: `07-run-in-container` a contain
 step an operator actually has to perform, so it is performed rather than assumed), and
 `10-cleaning-is-an-argument` R and network, because it works on real open data and pinning the
 bytes that were actually downloaded is half of what it is about. `11-environment-reconstructible`
-needs nix and docker, and its first run pulls R's Nix closure — about 2 GB, because nixpkgs' R
-carries the toolchain it compiles packages with. They demonstrate what the cockpit adds over the kernel — the guard, the claim ceiling, the
+and `12-the-environment-written-in-r` need nix and docker, and their first run pulls R's Nix
+closure — about 2 GB, because nixpkgs' R carries the toolchain it compiles packages with. They demonstrate what the cockpit adds over the kernel — the guard, the claim ceiling, the
 verified-not-declared rule, the environment pin — over the MCP surface a session actually gets,
 rather than by driving plankton and git directly.
 
