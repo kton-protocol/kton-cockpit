@@ -49,17 +49,21 @@ jobs:
       # `ref`: AGENTS.md pins a SHORT sha, and actions/checkout resolves a ref by fetching it, which
       # a 7-character sha is not. Full history so the object is present to check out — and so Go can
       # stamp vcs.revision, which is what TestVerifiedAgainst compares the pin against.
+      #
+      # `path: kton-pinned`, not `kton`: go.mod resolves the three kton modules through `replace`
+      # directives naming `../kton-pinned/...`, so the directory name is load-bearing until kton.dev
+      # serves them and the replaces come out.
       - uses: actions/checkout@v4
         with:
           repository: kton-protocol/kton
           ref: dev
-          path: kton
+          path: kton-pinned
           fetch-depth: 0
 
       - name: Move kton to the pinned commit
         run: |
-          git -C kton checkout --quiet ${{ steps.pin.outputs.sha }}
-          echo "kton at $(git -C kton rev-parse --short HEAD)"
+          git -C kton-pinned checkout --quiet ${{ steps.pin.outputs.sha }}
+          echo "kton at $(git -C kton-pinned rev-parse --short HEAD)"
 
       - uses: actions/setup-go@v5
         with:
@@ -80,7 +84,7 @@ jobs:
       - name: go test
         working-directory: cockpit
         env:
-          KTON_SRC: ${{ github.workspace }}/kton
+          KTON_SRC: ${{ github.workspace }}/kton-pinned
         run: go test ./...
 
       # Asserted rather than assumed. "Nothing in the default suite skips" is a property this
@@ -89,7 +93,7 @@ jobs:
       - name: no skips in the default suite
         working-directory: cockpit
         env:
-          KTON_SRC: ${{ github.workspace }}/kton
+          KTON_SRC: ${{ github.workspace }}/kton-pinned
         run: |
           go test -count=1 -v ./... > /tmp/test.log 2>&1 || { tail -50 /tmp/test.log; exit 1; }
           if grep -q "^--- SKIP" /tmp/test.log; then
@@ -100,7 +104,7 @@ jobs:
       - name: examples
         working-directory: cockpit
         env:
-          KTON_SRC: ${{ github.workspace }}/kton
+          KTON_SRC: ${{ github.workspace }}/kton-pinned
         run: examples/run-all.sh
 
   docker:
@@ -121,13 +125,13 @@ jobs:
         with:
           repository: kton-protocol/kton
           ref: dev
-          path: kton
+          path: kton-pinned
           fetch-depth: 0
 
       - name: Move kton to the pinned commit
         run: |
-          git -C kton checkout --quiet ${{ steps.pin.outputs.sha }}
-          echo "kton at $(git -C kton rev-parse --short HEAD)"
+          git -C kton-pinned checkout --quiet ${{ steps.pin.outputs.sha }}
+          echo "kton at $(git -C kton-pinned rev-parse --short HEAD)"
       - uses: actions/setup-go@v5
         with:
           go-version-file: cockpit/go.mod
@@ -138,7 +142,7 @@ jobs:
       - name: go test -tags docker
         working-directory: cockpit
         env:
-          KTON_SRC: ${{ github.workspace }}/kton
+          KTON_SRC: ${{ github.workspace }}/kton-pinned
         run: go test -tags docker ./...
 
   kernel-dev:
@@ -155,7 +159,7 @@ jobs:
         with:
           repository: kton-protocol/kton
           ref: dev
-          path: kton
+          path: kton-pinned
           fetch-depth: 0
       - uses: actions/setup-go@v5
         with:
@@ -164,11 +168,11 @@ jobs:
       - name: how far has dev moved
         run: |
           pinned=$(sed -n 's/^\*\*Verified against:\*\* kton `dev` at `\([0-9a-f]\{7,40\}\)`.*/\1/p' cockpit/AGENTS.md)
-          head=$(git -C kton rev-parse --short HEAD)
+          head=$(git -C kton-pinned rev-parse --short HEAD)
           echo "pinned: $pinned   dev HEAD: $head"
           if [ "$pinned" != "$head" ]; then
             echo "::notice::kton dev has moved from $pinned to $head — rebuild, re-run, and update AGENTS.md's pin in the same commit"
-            git -C kton log --oneline "$pinned..HEAD" | head -40 || true
+            git -C kton-pinned log --oneline "$pinned..HEAD" | head -40 || true
           fi
 
       # TestVerifiedAgainst deliberately fails when the pin and the checkout disagree, which is the
@@ -177,5 +181,5 @@ jobs:
       - name: go test against dev
         working-directory: cockpit
         env:
-          KTON_SRC: ${{ github.workspace }}/kton
+          KTON_SRC: ${{ github.workspace }}/kton-pinned
         run: go test ./... -skip TestVerifiedAgainst_NamesTheKernelTheBinariesWereBuiltFrom

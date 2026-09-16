@@ -6,8 +6,8 @@ import (
 	"os"
 	"testing"
 
-	"github.com/kton-protocol/kton-cockpit/internal/testrepo"
 	"github.com/google/jsonschema-go/jsonschema"
+	"github.com/kton-protocol/kton-cockpit/internal/testrepo"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
