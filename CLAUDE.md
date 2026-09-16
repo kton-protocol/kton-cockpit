@@ -160,7 +160,9 @@ nothing. Three need something the others do not: `07-run-in-container` a contain
 `09-carried-evidence` `openssl` (it issues a certificate for the key plankton already holds — the
 step an operator actually has to perform, so it is performed rather than assumed), and
 `10-cleaning-is-an-argument` R and network, because it works on real open data and pinning the
-bytes that were actually downloaded is half of what it is about. They demonstrate what the cockpit adds over the kernel — the guard, the claim ceiling, the
+bytes that were actually downloaded is half of what it is about. `11-environment-reconstructible`
+needs nix and docker, and its first run pulls R's Nix closure — about 2 GB, because nixpkgs' R
+carries the toolchain it compiles packages with. They demonstrate what the cockpit adds over the kernel — the guard, the claim ceiling, the
 verified-not-declared rule, the environment pin — over the MCP surface a session actually gets,
 rather than by driving plankton and git directly.
 

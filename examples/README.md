@@ -30,6 +30,7 @@ anything real.
 | [08-union-and-show](08-union-and-show/) | the graph, published and served, without reading the store |
 | [09-carried-evidence](09-carried-evidence/) | whose key signed, and the difference between checked and carried (needs openssl) |
 | [10-cleaning-is-an-argument](10-cleaning-is-an-argument/) | one line decides the answer by centuries, and it is an input (needs R + network) |
+| [11-environment-reconstructible](11-environment-reconstructible/) | the same numbers twice, and only one record can be re-run by anyone else (needs nix + docker) |
 
 ## Sources
 
