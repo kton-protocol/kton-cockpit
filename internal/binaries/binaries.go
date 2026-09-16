@@ -473,6 +473,11 @@ func (r *Runner) Annotate(ctx context.Context, subject, tmplName string, sets ma
 	// Spec fills neither `by` nor `when`, and should not: the first is the caller's identity and
 	// the second is the caller's clock, so a template package that supplied either would be
 	// answering a question it cannot see. Both are covered by the claim id.
+	//
+	// So `set.Spec(...)` and `nclaim.SignWith(...)` do not compose on their own, and the seam fails
+	// closed — SignWith refuses with "claim spec needs `by` and `when`" rather than signing a claim
+	// that says nobody asserted it at no particular time. Filling them is this function's job, and
+	// it is the only place that can do it.
 	keyid, err := r.KeyID(ctx, pubHalfOf(signKey))
 	if err != nil {
 		return "", fmt.Errorf("reading the keyid to sign under: %w", err)
