@@ -1,0 +1,36 @@
+[
+{
+ "cmd": "cockpit doctor",
+ "out": "repo root:      /tmp/tmp.skG8Dfp882/repo\nbound to:       cockpit-examples/cockpit-tour (verified against origin remote)\nplankton_dir:   /tmp/tmp.skG8Dfp882/repo/registry/plankton  [ok]\nnekton_dir:     /tmp/tmp.skG8Dfp882/repo/registry/nekton  [ok]\ntemplates_dir:  /tmp/tmp.skG8Dfp882/repo/templates  [ok]\nplankton key:   /tmp/tmp.skG8Dfp882/repo/keys/session-1.key  [ok]\nnekton key:     /tmp/tmp.skG8Dfp882/repo/keys/session-1-claims.key  [ok]\nallowed templates: [reproduces working-on]\nclaim scopes:   none configured \u2014 every claim stands on its own\ntrust tiers:    map[self:[registry/keys/session-1.pub registry/keys/session-1-claims.pub]]\nkernel:         linked, not invoked \u2014 no plankton/nekton process is ever started\n                kton.dev/kton        replaced by ../kton-pinned/kton/reference (devel)\n                kton.dev/nekton      replaced by ../kton-pinned/nekton/reference (devel)\n                kton.dev/plankton    replaced by ../kton-pinned/reference (devel)\ngit:            commit + push\nanchor:         off \u2014 records are signed, but nothing independent attests WHEN they existed\nmaterial:       none configured \u2014 records carry the signature and nothing about whose key it is\nunion:          not published \u2014 the graph is reachable via `cockpit show` only\nexecution:      not configured \u2014 cockpit_publish RECORDS the command, does not run it",
+ "code": 0
+},
+{
+ "cmd": "cockpit publish '{\"cmd\":\"mean data/sensor.csv > work/summary.csv\",\"inputs\":[\"data/sensor.csv\"],\"outputs\":[\"work/summary.csv\"]}'",
+ "out": "{\n  \"fotonId\": \"sha256:36ba044073eb562706ca32a5bfb2e8e68bbd7b56da2b95ade1525c1dd19e22a9\",\n  \"outputHashes\": {\n    \"work/summary.csv\": \"sha256:fc9756d8300c0b6de3bf54fd0b6c8bede8298a8f8a4585acc3f03aa24450bfcb\"\n  },\n  \"commitSha\": \"6af50db11e5b5dc1e0c6084c1068b08ef29bbd5e\",\n  \"permalinks\": {\n    \"data/sensor.csv\": \"https://raw.githubusercontent.com/cockpit-examples/cockpit-tour/6af50db11e5b5dc1e0c6084c1068b08ef29bbd5e/data/sensor.csv\",\n    \"work/summary.csv\": \"https://raw.githubusercontent.com/cockpit-examples/cockpit-tour/6af50db11e5b5dc1e0c6084c1068b08ef29bbd5e/work/summary.csv\"\n  },\n  \"committed\": true,\n  \"pushed\": true\n}",
+ "code": 0
+},
+{
+ "cmd": "cockpit ask '{\"query\":\"producer\",\"ref\":\"sha256:fc9756d8300c0b6de3bf54fd0b6c8bede8298a8f8a4585acc3f03aa24450bfcb\"}'",
+ "out": "{\n  \"query\": \"producer\",\n  \"ref\": \"sha256:fc9756d8300c0b6de3bf54fd0b6c8bede8298a8f8a4585acc3f03aa24450bfcb\",\n  \"raw\": \"sha256:36ba044073eb562706ca32a5bfb2e8e68bbd7b56da2b95ade1525c1dd19e22a9  kind=script  in=1 out=1\",\n  \"records\": [\n    {\n      \"id\": \"sha256:36ba044073eb562706ca32a5bfb2e8e68bbd7b56da2b95ade1525c1dd19e22a9\",\n      \"tier\": \"self\",\n      \"verified\": true\n    }\n  ],\n  \"included\": [\n    \"sha256:36ba044073eb562706ca32a5bfb2e8e68bbd7b56da2b95ade1525c1dd19e22a9\"\n  ],\n  \"fotons\": [\n    {\n      \"id\": \"sha256:36ba044073eb562706ca32a5bfb2e8e68bbd7b56da2b95ade1525c1dd19e22a9\",\n      \"kind\": \"script\",\n      \"inputs\": 1,\n      \"outputs\": 1\n    }\n  ],\n  \"filterApplied\": \"none \u2014 every record verified against a configured trust tier is included; unverified records are always excluded\"\n}",
+ "code": 0
+},
+{
+ "cmd": "cockpit say '{\"subject\":\"sha256:36ba044073eb562706ca32a5bfb2e8e68bbd7b56da2b95ade1525c1dd19e22a9\",\"template\":\"working-on\",\"fields\":{\"step\":\"calibration check\",\"by-session\":\"session-1\"}}'",
+ "out": "{\n  \"claimId\": \"sha256:7868403e379e335b0015a17f44a4332d591bd960d6e076d94cc2dbb5e3888a3e\",\n  \"confirmation\": \"registered: nekton reports sha256:7868403e379e335b0015a17f44a4332d591bd960d6e076d94cc2dbb5e3888a3e among the 1 claim(s) about sha256:36ba044073eb562706ca32a5bfb2e8e68bbd7b56da2b95ade1525c1dd19e22a9\"\n}",
+ "code": 0
+},
+{
+ "cmd": "cockpit ask '{\"query\":\"about\",\"ref\":\"sha256:36ba044073eb562706ca32a5bfb2e8e68bbd7b56da2b95ade1525c1dd19e22a9\"}'",
+ "out": "{\n  \"query\": \"about\",\n  \"ref\": \"sha256:36ba044073eb562706ca32a5bfb2e8e68bbd7b56da2b95ade1525c1dd19e22a9\",\n  \"raw\": \"sha256:7868403e379e335b0015a17f44a4332d591bd960d6e076d94cc2dbb5e3888a3e  predicate=https://kton.dev/v/working-on  object={\\\"by-session\\\":\\\"session-1\\\",\\\"step\\\":\\\"calibration check\\\"}  when=2026-09-16T13:29:19Z  declared-by=key:1739591e4a97fc36\",\n  \"records\": [\n    {\n      \"id\": \"sha256:7868403e379e335b0015a17f44a4332d591bd960d6e076d94cc2dbb5e3888a3e\",\n      \"tier\": \"self\",\n      \"verified\": true\n    }\n  ],\n  \"included\": [\n    \"sha256:7868403e379e335b0015a17f44a4332d591bd960d6e076d94cc2dbb5e3888a3e\"\n  ],\n  \"claims\": [\n    {\n      \"id\": \"sha256:7868403e379e335b0015a17f44a4332d591bd960d6e076d94cc2dbb5e3888a3e\",\n      \"subject\": \"sha256:36ba044073eb562706ca32a5bfb2e8e68bbd7b56da2b95ade1525c1dd19e22a9\",\n      \"predicateType\": \"https://kton.dev/claim/v0\",\n      \"predicate\": \"https://kton.dev/v/working-on\",\n      \"object\": {\n        \"by-session\": \"session-1\",\n        \"step\": \"calibration check\"\n      },\n      \"declaredBy\": \"key:1739591e4a97fc36\",\n      \"when\": \"2026-09-16T13:29:19Z\",\n      \"signatureKeyIds\": [\n        \"1739591e4a97fc36\"\n      ]\n    }\n  ],\n  \"filterApplied\": \"none \u2014 every record verified against a configured trust tier is included; unverified records are always excluded\"\n}",
+ "code": 0
+},
+{
+ "cmd": "cockpit publish '{\"cmd\":\"mean data/sensor.csv > work/summary.csv\",\"inputs\":[\"data/sensor.csv\"],\"output\":[\"work/summary.csv\"]}'",
+ "out": "cockpit: the argument is not valid JSON for this verb: json: unknown field \"output\"",
+ "code": 1
+},
+{
+ "cmd": "cockpit publish '{\"cmd\":\"mean data/sensor.csv > work/summary.csv\",\"inputs\":[\"data/sensor.csv\"],\"outputs\":[\"work/summary.csv\"]}'",
+ "out": "cockpit: refusing to act \u2014 repo/remote mismatch: cockpit.config.json says someone-else/cockpit-tour, but this repo's origin is cockpit-examples/cockpit-tour \u2014 refusing to act against the wrong repo",
+ "code": 2
+}]

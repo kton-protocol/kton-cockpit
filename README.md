@@ -1,32 +1,50 @@
 # claude-science-cockpit
 
-A Go binary that gives a Claude session — the Claude Code CLI, or
-[claude-science](https://kton.dev) (a separate, sandboxed, browser-UI product) — exactly three
-verbs for cooperating in a [kton](https://kton.dev) federation:
+A command-line tool with exactly three verbs, for doing work in a [kton](https://kton.dev)
+federation and leaving a record of it that somebody else can check.
+
+📖 **[A tour, with real output →](https://deathbychoco.github.io/claude-science-cockpit/)**
 
 | Verb | German | What it does |
 |---|---|---|
-| `cockpit_publish` | veröffentlichen | Register a work result as a signed, reproducible **foton** (commits + pushes the files, builds commit-pinned permalinks, signs, adds to the local registry). |
-| `cockpit_say` | sagen | Bind a claim — from a fixed template — to a foton or output. For the `reproduces` template, the cockpit itself computes the L0 reproduction level; it never trusts a self-declared claim. |
-| `cockpit_ask` | fragen | Query the federated graph (producer, uses, lineage, reproductions, ...) — every result is independently re-verified against the configured trust tiers before being returned. |
+| `cockpit publish` | veröffentlichen | Register a work result as a signed, reproducible **foton** (commits + pushes the files, builds commit-pinned permalinks, signs, adds to the local registry). |
+| `cockpit say` | sagen | Bind a claim — from a fixed template — to a foton or output. For the `reproduces` template, the cockpit itself computes the L0 reproduction level; it never trusts a self-declared claim. |
+| `cockpit ask` | fragen | Query the federated graph (producer, uses, lineage, reproductions, ...) — every result is independently re-verified against the configured trust tiers before being returned. |
+
+```console
+$ cockpit publish '{"cmd":"mean data/sensor.csv > work/summary.csv",
+                    "inputs":["data/sensor.csv"],"outputs":["work/summary.csv"]}'
+{
+  "fotonId": "sha256:36ba0440…",
+  "outputHashes": { "work/summary.csv": "sha256:fc9756d8…" },
+  "commitSha": "…",
+  "permalinks": { … },
+  "committed": true,
+  "pushed": true
+}
+```
+
+An agent can call the same three verbs over MCP, as `cockpit_publish`/`cockpit_say`/`cockpit_ask`.
+That is a second transport onto the same three handlers, not a second tool: a guard belongs to the
+configuration, never to how the call arrived.
 
 What the cockpit guarantees — and, as importantly, what it does not — is written up clause by
 clause in [`spec/SPEC.md`](spec/SPEC.md). Every normative statement there names the test that
 exercises it, so the document is checkable rather than merely asserted.
 
-Nothing else is exposed to Claude. The cockpit reimplements no plankton/nekton logic of its own —
-every mutation and query shells out to the vendored `bin/plankton`/`bin/nekton` binaries in
-whichever participant repo it's configured for. See
+There is no fourth verb. The cockpit reimplements no plankton/nekton logic of its own — it **links**
+the kernels as Go libraries (`kton.dev/plankton`, `kton.dev/nekton`, `kton.dev/kton`) and calls
+them, so one binary is the whole install and no participant repo needs a kernel binary. See
 [`CLAUDE.md`](CLAUDE.md#what-not-to-add-here) for the full list of what this project deliberately
 does not build.
 
 ## Why this exists
 
-It replaces a fragile manual workflow — a Claude session hand-running `plankton`/`nekton` CLI
-commands, exporting `PLANKTON_DIR`/`NEKTON_DIR` by hand, constructing permalinks itself — which is
-fragile in exactly the way you'd expect: an ambiguous working directory can make a session "cooperate"
-against the wrong project's registry, and hand-run infra steps (commit order, key hygiene, template
-field names) are easy to get subtly wrong. The cockpit's **anti-wrong-folder guard** re-verifies,
+It replaces a fragile manual workflow — hand-running `plankton`/`nekton` CLI commands, exporting
+`PLANKTON_DIR`/`NEKTON_DIR` by hand, constructing permalinks yourself — which is fragile in exactly
+the way you'd expect: an ambiguous working directory makes you "cooperate" against the wrong
+project's registry, and hand-run infra steps (commit order, key hygiene, template field names) are
+easy to get subtly wrong. The cockpit's **anti-wrong-folder guard** re-verifies,
 on every single tool call, that the repo it's running in actually matches its own
 `cockpit.config.json` and that config's declared `git remote` — and hard-refuses on any mismatch.
 See [`spec/SPEC.md` §5](spec/SPEC.md) for both anchors the guard uses and what each one misses.
@@ -39,7 +57,7 @@ This repo is only the cockpit. It sits on the **participant side** of a separate
   cockpit drives: a *foton* is a signed, reproducible record of "this command, these inputs,
   produced these outputs"; a *nekton claim* is a signed attestation about a foton (e.g. "I
   reproduced this"). The cockpit never reimplements their canonicalization, signing, or
-  verification — it only shells out to the vendored `bin/plankton`/`bin/nekton` binaries.
+  verification — it links them and calls them.
 - **[`gitmick/plankton-participant-template`](https://github.com/gitmick/plankton-participant-template)**
   — the GitHub template a participant repo is created from. It vendors `bin/plankton`/`bin/nekton`
   and expects `cockpit.config.json` + a `.mcp.json` registering `cockpit mcp`.
@@ -50,9 +68,9 @@ This repo is only the cockpit. It sits on the **participant side** of a separate
   participant" issue and a maintainer adding the `approved` label — that label **is** the admission
   gate.
 - **[`kton-protocol/kton`](https://github.com/kton-protocol/kton)** — the kernel itself: the
-  `plankton` and `nekton` reference implementations this cockpit shells out to, plus the protocol's
-  own reference cockpit / CLI (`kton mirror`, `kton anchor`). This project is a different, narrower cockpit purpose-built for a
-  Claude session, not a replacement for it. The kernel used to live in `gitmick/plankton`, which is
+  `plankton` and `nekton` reference implementations this cockpit links, plus the protocol's own
+  reference cockpit / CLI (`kton mirror`, `kton anchor`). This project is a different, narrower
+  cockpit, not a replacement for it. The kernel used to live in `gitmick/plankton`, which is
   now archived and private — anything still pointing there is stale. The two *template* repos above
   did not move and are still live.
 
