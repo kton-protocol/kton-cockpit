@@ -6,7 +6,28 @@ source ../lib/common.sh
 docker version >/dev/null 2>&1 || { echo "07 needs a running container engine — skipping is not an option here, so this is a failure" >&2; exit 1; }
 IMAGE_TAG=python:3.12-slim
 docker pull -q "$IMAGE_TAG" >/dev/null
-DIGEST=$(docker image inspect "$IMAGE_TAG" --format '{{index .RepoDigests 0}}')
+# Selected by name rather than taken at index 0. An image has a RepoDigest per repository it has
+# been pulled from or pushed to, and one that was built locally and then pushed carries TWO — the
+# second of which is the only registry-resolvable one. Index 0 happens to be right for a pulled
+# image and is an assumption either way, of the same shape as "a record's id is the first hash on
+# its line": true today, guaranteed nowhere.
+DIGEST=$(docker image inspect "$IMAGE_TAG" --format '{{json .RepoDigests}}' \
+  | python3 -c 'import json, sys
+
+def repo(ref):
+    # The tag is whatever follows the LAST colon, and only when that colon comes after the last
+    # slash: a registry host carries its own colon, so localhost:5000/tiny:probe splits at the
+    # wrong one if you take the first. Same mistake this comment block exists to fix, one level in.
+    slash, colon = ref.rfind("/"), ref.rfind(":")
+    return ref[:colon] if colon > slash else ref
+
+want = repo(sys.argv[1])
+for d in json.load(sys.stdin):
+    if d.split("@")[0] == want:
+        print(d); break
+else:
+    sys.exit("no RepoDigest for " + want + " - the image was never pulled from or pushed to a registry")' "$IMAGE_TAG")
+require "the image has a registry-resolvable digest" test -n "$DIGEST"
 echo "  pinned $IMAGE_TAG at $DIGEST"
 
 WORK="$PWD/.work"

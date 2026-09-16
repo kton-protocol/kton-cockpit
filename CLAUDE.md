@@ -5,8 +5,13 @@ session — whether that's the Claude Code CLI or claude-science (a separate, sa
 browser-UI product; see the tutorial's step 3-4 for the distinction and why it matters) — exactly
 three verbs: `cockpit_publish` (veröffentlichen), `cockpit_say` (sagen), `cockpit_ask` (fragen) —
 over MCP, for cooperating in a [kton](https://kton.dev) federation. It reimplements no
-plankton/nekton kernel logic; every mutation and query shells out to the vendored
-`bin/plankton`/`bin/nekton` binaries in whichever participant repo it's configured for.
+plankton/nekton kernel logic: it LINKS the kernels as Go libraries and calls them. kton's own
+`kton.dev/kton` module describes that role in the same words — "the cockpit that CONDUCTS both
+kernels: it imports plankton AND nekton and reimplements nothing" — and the dependency direction
+is the same. Two things still go through the CLI, because their logic lives in `cmd/` and no
+package exposes it: template-constrained claims (`nekton annotate`) and the reproduction
+comparison (`plankton reproduces`/`reproductions`). Both are requested upstream; when they land,
+a participant repo needs no kernel binaries at all.
 
 Two decisions with consequences beyond their clause are written up in
 [`docs/decisions/`](docs/decisions/): running a command in a pinned container (ADR-003) and running
@@ -201,7 +206,8 @@ internal/
 ├── anchor/               witnesses a record in Rekor via `kton anchor` and attaches the proof
 ├── gitops/               commit/push wrappers, commit-pinned permalink construction
 ├── show/                 serves the union/keys/names a kton-web viewer fetches
-├── binaries/             thin process wrappers around bin/plankton, bin/nekton
+├── binaries/             the kernels, called as libraries — plus the two calls that still shell
+│                          out because their logic is in kton's cmd/ rather than a package
 ├── verify/               trust-tier resolution from the actual verifying key, never a declared keyid
 ├── tools/                the three MCP tool handlers (publish.go, say.go, ask.go)
 cockpit.config.schema.json   JSON Schema for cockpit.config.json (documentation + tooling)
@@ -215,7 +221,7 @@ canonicalization/signing/registry/chain logic, no trust logic beyond applying
 file. If a change would require one of these, raise it against the protocol spec first, not as a
 cockpit-side workaround.
 
-Applying the config is the line, and it is not the same as doing nothing: SPEC SPEC §11.2's certificate check
+Applying the config is the line, and it is not the same as doing nothing: SPEC §11.2's certificate check
 is `crypto/x509` against roots the config names, which is applying configured trust. Re-verifying a
 stored Rekor entry would not be — that is transparency-log cryptography, and it belongs in the
 kernel, which is where it is raised.
