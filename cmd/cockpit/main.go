@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime/debug"
 	"sort"
 	"strings"
 
@@ -241,8 +242,6 @@ func runDoctor(ctx context.Context) error {
 	fmt.Printf("plankton_dir:   %s\n", checkPath(cfg.PlanktonDir))
 	fmt.Printf("nekton_dir:     %s\n", checkPath(cfg.NektonDir))
 	fmt.Printf("templates_dir:  %s\n", checkPath(cfg.TemplatesDir))
-	fmt.Printf("plankton bin:   %s\n", checkPath(filepath.Join(cfg.BinDir, "plankton")))
-	fmt.Printf("nekton bin:     %s\n", checkPath(filepath.Join(cfg.BinDir, "nekton")))
 	fmt.Printf("plankton key:   %s\n", checkKeyPath(cfg.PlanktonKey))
 	fmt.Printf("nekton key:     %s\n", checkKeyPath(cfg.NektonKey))
 	fmt.Printf("allowed templates: %v\n", cfg.Raw.Claims.AllowedTemplates)
@@ -286,21 +285,24 @@ func runDoctor(ctx context.Context) error {
 	}
 	fmt.Printf("trust tiers:    %v\n", cfg.Raw.Trust.Tiers)
 
-	// Last, and reported by the binaries themselves rather than from anything recorded: which
-	// kernel build will actually run decides whether a store reads as populated or as empty with
-	// exit 0, and whether the flags the cockpit depends on exist at all.
-	r := binaries.New(cfg)
-	plankton, nekton, verr := r.KernelVersions(ctx)
-	if verr != nil {
-		return fmt.Errorf("kernel: %w", verr)
+	// Last, and read out of this binary rather than off disk: the kernel is linked in, so which
+	// build will run is not a question an operator can answer wrongly and not one a check can
+	// catch late. What it reports is the module version Go recorded when this cockpit was built.
+	fmt.Printf("kernel:         linked, not invoked — no plankton/nekton process is ever started\n")
+	for _, mod := range linkedKernels() {
+		where := mod.Version
+		if mod.Replace != nil {
+			// A `replace` is what is actually compiled in, so it is what gets reported. Saying
+			// v0.0.0 while the bytes came from a directory on this machine would be the version of
+			// this problem one level up.
+			where = mod.Replace.Path
+			if mod.Replace.Version != "" {
+				where += " " + mod.Replace.Version
+			}
+			where = "replaced by " + where
+		}
+		fmt.Printf("                %-20s %s\n", mod.Path, where)
 	}
-	fmt.Printf("plankton ver:   %s\n", plankton)
-	fmt.Printf("nekton ver:     %s\n", nekton)
-	if err := r.CheckKernel(ctx); err != nil {
-		return fmt.Errorf("kernel too old: %w", err)
-	}
-	fmt.Printf("kernel:         meets the required %d.%d minimum  [ok]\n",
-		binaries.RequiredKernelMajor, binaries.RequiredKernelMinor)
 
 	switch {
 	case cfg.Raw.Repo.IsLocal():
@@ -450,4 +452,23 @@ func parseOwnerRepo(url string) (owner, name string) {
 		return "", ""
 	}
 	return parts[len(parts)-2], parts[len(parts)-1]
+}
+
+// linkedKernels reports the kton modules compiled into this binary, in the order they are listed
+// above. Go records a dependency's version in the build info, so "which kernel is this" has an
+// answer that does not depend on anyone keeping a file in `bin/` in step with a checkout — the
+// failure this replaced. A binary built with `go build` from a module has these; one built in a
+// way that strips build info has none, and then the list is simply empty rather than wrong.
+func linkedKernels() []*debug.Module {
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return nil
+	}
+	var out []*debug.Module
+	for _, dep := range info.Deps {
+		if strings.HasPrefix(dep.Path, "kton.dev/") {
+			out = append(out, dep)
+		}
+	}
+	return out
 }

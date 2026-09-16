@@ -8,10 +8,8 @@ over MCP, for cooperating in a [kton](https://kton.dev) federation. It reimpleme
 plankton/nekton kernel logic: it LINKS the kernels as Go libraries and calls them. kton's own
 `kton.dev/kton` module describes that role in the same words — "the cockpit that CONDUCTS both
 kernels: it imports plankton AND nekton and reimplements nothing" — and the dependency direction
-is the same. Two things still go through the CLI, because their logic lives in `cmd/` and no
-package exposes it: template-constrained claims (`nekton annotate`) and the reproduction
-comparison (`plankton reproduces`/`reproductions`). Both are requested upstream; when they land,
-a participant repo needs no kernel binaries at all.
+is the same. Nothing spawns a kernel process any more — a participant repo needs no kernel binaries
+at all, and one binary is the whole install.
 
 Two decisions with consequences beyond their clause are written up in
 [`docs/decisions/`](docs/decisions/): running a command in a pinned container (ADR-003) and running
@@ -42,14 +40,57 @@ go build -o bin/cockpit ./cmd/cockpit
 Requires Go ≥ 1.25 (the module's `go.mod` pins this via the `github.com/modelcontextprotocol/go-sdk`
 dependency; `go build`/`go run` auto-fetch the matching toolchain if the ambient `go` is older).
 
-### The kernel binaries
+### The kernel
 
-`bin/plankton` and `bin/nekton` are not in this repo (`bin/` is gitignored) and no longer come from
-`gitmick/plankton`, which is archived and private. Build them from
-[`kton-protocol/kton`](https://github.com/kton-protocol/kton):
+The kernels are **linked, not invoked**. `kton.dev/plankton`, `kton.dev/nekton` and `kton.dev/kton`
+are ordinary Go dependencies — all three declare zero third-party dependencies of their own — so
+everything the cockpit does to a registry is a function call: authoring, signing, ingest,
+verification, the lineage and claim queries, verification material, scopes, and the Rekor round
+trip. Nothing spawns a process, nothing parses another program's prose, and a surface the cockpit
+depends on that upstream removed is a build failure rather than a usage error a session meets at
+run time.
+
+Until kton.dev serves the modules, `go.mod` resolves them through `replace` directives to a local
+checkout:
+
+```
+replace kton.dev/plankton => ../kton-pinned/reference
+replace kton.dev/nekton   => ../kton-pinned/nekton/reference
+replace kton.dev/kton     => ../kton-pinned/kton/reference
+```
+
+`kton-pinned` is a clone of [`kton-protocol/kton`](https://github.com/kton-protocol/kton) that this
+repo controls, checked out at the commit below. It is deliberately not a sibling working tree
+someone is editing: building against one mid-refactor is how three examples once broke on a wire
+form nothing had been tested against.
+
+**Verified against:** kton `dev` at `52b49f0` (0.2).
+
+`dev` moves, and this line is checked rather than remembered: `TestVerifiedAgainst` compares it
+against the `vcs.revision` Go stamped into the `bin/plankton` the fixture builds. When upstream has
+moved, the fixture rebuilds to the newer kernel — so the suite really did run against a different
+one than this claims, and the test says so. Re-run and update the line in the same commit.
+
+One limit worth knowing, because it looks like a pass: **Go can serve that test from its cache.**
+The inputs it actually reads — `CLAUDE.md` and `bin/plankton` — are not inputs Go tracks, and on a
+clean tree `bin/plankton` does not exist when the cache decision is made, so a plain `go test ./...`
+right after upstream moved reports `(cached) ok` for a claim that is no longer true. Use
+`go test -count=1 ./internal/testrepo/` when you have just rebuilt the kernel. CI is unaffected: a
+fresh runner has no cache, and the workflow runs `-count=1` besides.
+
+### The binaries that are still binaries
+
+`bin/plankton` and `bin/nekton` are still built (`bin/` is gitignored), and two things use them —
+neither of them the cockpit at run time:
+
+- the **examples**, which drive the kernel CLI directly on purpose, to show that everything the
+  cockpit does stays performable by hand (SPEC §13, "deletable");
+- `TestAuthor_MatchesTheReferenceCLI`, which authors the same record both ways and asserts the
+  **same foton id** comes out. Linking is only safe while it agrees with the reference, so that
+  agreement is a test rather than an assumption.
 
 ```bash
-cd /path/to/kton                                    # branch: dev
+cd /path/to/kton-pinned
 go build -o /path/to/cockpit/bin/plankton ./reference/cmd/plankton
 go build -o /path/to/cockpit/bin/nekton   ./nekton/reference/cmd/nekton
 ```
@@ -59,20 +100,6 @@ go build -o /path/to/cockpit/bin/nekton   ./nekton/reference/cmd/nekton
 successfully; kton 0.2 added `objects/.format` so a store can say what wrote it, but an old binary
 does not know to look. So: never use a `plankton`/`nekton` from `$PATH`, a package manager, or
 another checkout — only one built from the kton tree you mean.
-
-**Verified against:** kton `dev` at `36ac5dc` (0.2).
-
-`dev` moves, and this line is checked rather than remembered: `TestVerifiedAgainst` compares it
-against the `vcs.revision` Go stamped into `bin/plankton`. When upstream has moved, the fixture
-rebuilds to the newer kernel — so the suite really did run against a different one than this claims,
-and the test says so. Re-run and update the line in the same commit.
-
-One limit worth knowing, because it looks like a pass: **Go can serve that test from its cache.**
-The inputs it actually reads — `CLAUDE.md` and `bin/plankton` — are not inputs Go tracks, and on a
-clean tree `bin/plankton` does not exist when the cache decision is made, so a plain `go test ./...`
-right after upstream moved reports `(cached) ok` for a claim that is no longer true. Use
-`go test -count=1 ./internal/testrepo/` when you have just rebuilt the kernel. CI is unaffected: a
-fresh runner has no cache, and the workflow runs `-count=1` besides.
 
 ## Subcommands
 
@@ -84,9 +111,8 @@ cockpit show     serve this repo's records to a kton-web viewer (human operator 
 ```
 
 `show` is an operator subcommand, not a fourth verb: Claude's MCP surface stays at three and cannot
-reach it. It renders nothing and reads no registry files — it asks both kernels for their
-records (`plankton records --json`, `nekton records --json`) and forwards them as the union a viewer
-fetches, which is the cockpit's side of the kernel's own division ("RENDERING … is a cockpit's job,
+reach it. It renders nothing and parses no registry files of its own — it asks both kernels for
+their records and forwards them as the union a viewer fetches, which is the cockpit's side of the kernel's own division ("RENDERING … is a cockpit's job,
 not the kernel's", see `plankton export`). `keys.json` is built from the configured trust tiers rather than from whatever
 `.pub` files sit in the registry, so the viewer re-verifies against exactly what `cockpit_ask` does.
 Point it at a [kton-web](https://github.com/gitmick/kton-web) checkout with `--web`/`$KTON_WEB`, or
@@ -203,11 +229,12 @@ internal/
 │                          it can: any scheme is attached, a certificate is checked against the key
 │                          that actually signed and the configured roots, the rest is reported as
 │                          carried rather than silently counted or dropped
-├── anchor/               witnesses a record in Rekor via `kton anchor` and attaches the proof
+├── anchor/               witnesses a record in Rekor via `kton.dev/kton/sigstore` and attaches
+│                          the verified entry as kton §8.1 material
 ├── gitops/               commit/push wrappers, commit-pinned permalink construction
 ├── show/                 serves the union/keys/names a kton-web viewer fetches
-├── binaries/             the kernels, called as libraries — plus the two calls that still shell
-│                          out because their logic is in kton's cmd/ rather than a package
+├── binaries/             the kernels, called as libraries: one place where every plankton and
+│                          nekton call lives, so the rest of the cockpit sees one surface
 ├── verify/               trust-tier resolution from the actual verifying key, never a declared keyid
 ├── tools/                the three MCP tool handlers (publish.go, say.go, ask.go)
 cockpit.config.schema.json   JSON Schema for cockpit.config.json (documentation + tooling)

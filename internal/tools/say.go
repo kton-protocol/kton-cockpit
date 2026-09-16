@@ -81,9 +81,6 @@ func Say(ctx context.Context, _ *mcp.CallToolRequest, in SayInput) (*mcp.CallToo
 	}
 
 	r := binaries.New(cfg)
-	if err := r.EnsureKernel(ctx); err != nil {
-		return errResult[SayOutput]("%v", err)
-	}
 	sets := in.Fields
 	if sets == nil {
 		sets = map[string]string{}

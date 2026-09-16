@@ -149,9 +149,6 @@ func Ask(ctx context.Context, _ *mcp.CallToolRequest, in AskInput) (*mcp.CallToo
 	}
 
 	r := binaries.New(cfg)
-	if err := r.EnsureKernel(ctx); err != nil {
-		return errResult[AskOutput]("%v", err)
-	}
 	if msg := validateFilter(ctx, cfg, r, in.Filter); msg != "" {
 		return errResult[AskOutput]("%s", msg)
 	}

@@ -173,18 +173,22 @@ over the tool transport.
 
 > **Checked by:** `TestAsk_UnknownQueryIsRejected`, `TestSay_RefusesATemplateOutsideTheConfiguredCeiling`.
 
-### 6.1 Kernel version
+### 6.1 Which kernel
 
-A cockpit MUST verify, on the path a session actually takes, that the substrate binaries it will
-invoke are new enough for the surfaces it depends on, and MUST refuse with an explanation rather
-than letting the session meet a usage error.
+A cockpit MUST NOT reimplement kernel logic, and MUST NOT let which kernel build it runs against be
+a question an operator can answer wrongly. Which build wrote a store decides whether that store
+reads as populated or as empty-with-exit-0 (kton §11), and a version too old for a surface the
+cockpit depends on used to reach a session as a usage error rather than an explanation.
 
-> **Checked by:** `TestCheckKernel_RejectsAnOldKernelAndSaysWhy`,
-> `TestEnsureKernel_AnswersOncePerBinDirAndRemembersTheVerdict`.
+This implementation meets both by **linking** the kernels — `kton.dev/plankton`, `kton.dev/nekton`
+and `kton.dev/kton` are compiled in, so a missing surface is a build failure and a mismatched
+version cannot exist at run time. That is one way of meeting the clause, not the clause: a cockpit
+that invokes binaries meets it by refusing anything but the build its configuration names, never one
+from `$PATH`, and by checking the version on the path a session actually takes.
 
-A cockpit MUST NOT invoke a substrate binary from `$PATH` or any location other than the one its
-configuration names. Which build wrote a store decides whether that store reads as populated or as
-empty-with-exit-0 (kton §11).
+> **Checked by:** `TestVerifiedAgainst_NamesTheKernelTheBinariesWereBuiltFrom` (the pinned kernel
+> commit is compared against the build the fixture runs), `TestAuthor_MatchesTheReferenceCLI` (the
+> linked write path produces the same foton id as the reference binary does).
 
 ## 7 publish
 
@@ -304,7 +308,7 @@ If the outputs do not reproduce, **no claim is written at all.**
 
 > **Checked by:** `TestSay_ReproducesRecordsL0ForIdenticalBytes`,
 > `TestSay_ReproducesRefusesWhenTheOutputsDoNotMatch`,
-> `TestReproduces_IdenticalBytesAreL0EvenWithViaPassed`, `examples/04-claim-ceiling`.
+> `TestSay_ReproducesRecordsL0ForIdenticalBytes`, `examples/04-claim-ceiling`.
 
 ### 8.4 Building on someone else's result
 

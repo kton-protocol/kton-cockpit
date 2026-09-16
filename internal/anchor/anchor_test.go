@@ -1,53 +1,90 @@
 package anchor
 
-import "testing"
+import (
+	"crypto/ecdsa"
+	"crypto/ed25519"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"encoding/pem"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
 
-// What `kton anchor` actually prints: two human lines, then the entry, on one stream. The entry is
-// found by its opening brace rather than by line position, so a third human line does not silently
-// shift the parse.
-const anchorOutput = `anchored in Rekor: logIndex=12345678  uuid=24296fb24b8ad77a9f
-  inclusion proof + SET verified against Rekor's public key (independent witness)
-{
-  "logIndex": 12345678,
-  "uuid": "24296fb24b8ad77a9f",
-  "body": "eyJhcGlWZXJzaW9uIjoiMC4wLjEifQ==",
-  "integratedTime": 1788000000
-}
-`
+	"github.com/deathbychoco/claude-science-cockpit/internal/config"
+)
 
-func TestParseAnchorOutput_FindsTheEntryPastTheProse(t *testing.T) {
-	raw, e, err := parseAnchorOutput(anchorOutput)
+func pemOf(t *testing.T, pub any) string {
+	t.Helper()
+	der, err := x509.MarshalPKIXPublicKey(pub)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if e.LogIndex != 12345678 || e.UUID != "24296fb24b8ad77a9f" {
-		t.Fatalf("coordinates not read: %+v", e)
-	}
-	// The whole entry is kept for the sidecar, not just the two fields reported back: the proof is
-	// the point, and a caller who only stored the coordinates would have stored nothing verifiable.
-	if len(raw) < len(`{"logIndex":1,"uuid":"x"}`) {
-		t.Fatalf("the stored entry is too small to be the proof: %s", raw)
-	}
+	return string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der}))
 }
 
-// An extra human line must not break the parse — the whole reason the brace is searched for.
-func TestParseAnchorOutput_SurvivesAnExtraProseLine(t *testing.T) {
-	if _, _, err := parseAnchorOutput("note: something\n" + anchorOutput); err != nil {
+func cfgWith(a config.Anchor) *config.Config {
+	c := &config.Config{}
+	c.Raw.Anchor = a
+	return c
+}
+
+// The pinned key is the whole trust root of an anchor: the SET is an ECDSA signature, and verifying
+// it against a key the same endpoint just served is not verification at all. Inline PEM and a file
+// path are both accepted because an operator has both — a key checked into the repo, or one pasted
+// into the config.
+func TestTrustedRekorPub_AcceptsAPinnedKeyInlineOrByPath(t *testing.T) {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
 		t.Fatal(err)
 	}
+	inline := pemOf(t, &key.PublicKey)
+	path := filepath.Join(t.TempDir(), "rekor.pub")
+	if err := os.WriteFile(path, []byte(inline), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for name, pin := range map[string]string{"inline PEM": inline, "a file path": path} {
+		t.Run(name, func(t *testing.T) {
+			got, err := trustedRekorPub(cfgWith(config.Anchor{Enabled: true, RekorPubkey: pin}))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !got.Equal(&key.PublicKey) {
+				t.Fatal("a different key came back than was pinned")
+			}
+		})
+	}
 }
 
-// Failing closed matters more here than elsewhere: an anchor that was not really recorded, reported
-// as if it were, is a witness that does not exist.
-func TestParseAnchorOutput_RefusesOutputWithNoEntry(t *testing.T) {
-	for name, in := range map[string]string{
-		"only prose":         "anchored in Rekor: logIndex=1 uuid=x\n",
-		"not json":           "anchored\n{ this is not json }\n",
-		"entry with no uuid": "anchored\n{\"logIndex\": 5}\n",
+// The case this exists for: a custom endpoint with nothing pinned. `internal/config` already
+// refuses it at load, so this is the second of two — and it is the one that holds if the config
+// ever grows a path that reaches here without that check.
+func TestTrustedRekorPub_RefusesACustomLogWithNoPinnedKey(t *testing.T) {
+	_, err := trustedRekorPub(cfgWith(config.Anchor{Enabled: true, RekorURL: "https://rekor.example.invalid"}))
+	if err == nil {
+		t.Fatal("a custom log with no pinned key was accepted")
+	}
+	if !strings.Contains(err.Error(), "self-verify") {
+		t.Fatalf("the error does not explain the problem: %v", err)
+	}
+}
+
+// Failing closed matters more here than elsewhere: a key that cannot verify a SET, accepted as if
+// it could, is a witness that was never checked.
+func TestTrustedRekorPub_RefusesAPinThatIsNotAnECDSAKey(t *testing.T) {
+	pub, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, pin := range map[string]string{
+		"not PEM at all":   "sha256:not-a-key",
+		"PEM, wrong curve": pemOf(t, pub),
+		"PEM, empty block": "-----BEGIN PUBLIC KEY-----\n-----END PUBLIC KEY-----\n",
 	} {
 		t.Run(name, func(t *testing.T) {
-			if _, _, err := parseAnchorOutput(in); err == nil {
-				t.Fatal("expected an error, got none")
+			if _, err := trustedRekorPub(cfgWith(config.Anchor{Enabled: true, RekorPubkey: pin})); err == nil {
+				t.Fatal("expected a refusal, got none")
 			}
 		})
 	}

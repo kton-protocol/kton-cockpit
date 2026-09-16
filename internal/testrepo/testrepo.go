@@ -17,13 +17,16 @@ package testrepo
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"kton.dev/kton/sigstore"
+	"kton.dev/plankton/core"
+
+	"github.com/deathbychoco/claude-science-cockpit/internal/anchor"
 	"github.com/deathbychoco/claude-science-cockpit/internal/config"
 )
 
@@ -238,36 +241,27 @@ func (r *Repo) WriteConfig(t *testing.T, raw config.Raw) {
 // distinguishable from an explicit false.
 func Bool(b bool) *bool { return &b }
 
-// StubAnchor replaces bin/kton with a wrapper that answers `kton anchor` from a canned Rekor entry
-// and passes every other subcommand — `serve` above all — to the real binary.
+// StubAnchor replaces the Rekor round trip with a canned entry for the rest of the test, and
+// restores the real one afterwards.
 //
 // It stubs the one thing that cannot honestly be exercised offline. Anchoring writes to a public,
 // permanent transparency log; the kernel gates its own live test behind a `live` build tag for that
 // reason, and a suite that anchored on every run would leave a trail of test entries nobody can
 // withdraw. What this DOES cover is everything on this side of the network: that the envelope is
-// found by id, written where kton expects it, that the printed entry is read correctly, and that
-// the proof is attached to the record and committed with it. What it does NOT cover is that Rekor
-// behaves as expected — that is the live test's job, and this comment is here so nobody mistakes a
-// green run for one.
+// found by id, that the verifier is derived from the key that actually signed, that the entry is
+// attached to the record as kton §8.1 material and committed with it. What it does NOT cover is that
+// Rekor behaves as expected — that is the live test's job, and this comment is here so nobody
+// mistakes a green run for one.
 func (r *Repo) StubAnchor(t *testing.T, logIndex int64, uuid string) {
 	t.Helper()
-	real := filepath.Join(r.Root, "bin", "kton.real")
-	if err := os.Rename(filepath.Join(r.Root, "bin", "kton"), real); err != nil {
-		t.Fatal(err)
-	}
-	script := fmt.Sprintf(`#!/bin/sh
-if [ "$1" = anchor ]; then
-  echo "anchored in Rekor: logIndex=%d  uuid=%s"
-  echo "  inclusion proof + SET verified against Rekor's public key (independent witness)"
-  printf '{\n  "logIndex": %d,\n  "uuid": "%s",\n  "integratedTime": 1788000000\n}\n'
-  exit 0
-fi
-exec %q "$@"
-`, logIndex, uuid, logIndex, uuid, real)
-	writeFile(t, filepath.Join(r.Root, "bin", "kton"), script)
-	if err := os.Chmod(filepath.Join(r.Root, "bin", "kton"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	t.Cleanup(anchor.Use(func(_ context.Context, _ *config.Config, _ core.Envelope, _ []byte) (*sigstore.Entry, error) {
+		return &sigstore.Entry{
+			LogIndex:       logIndex,
+			UUID:           uuid,
+			IntegratedTime: 1788000000,
+			Body:           "eyJhcGlWZXJzaW9uIjoiMC4wLjEifQ==",
+		}, nil
+	}))
 }
 
 // SeedScope opens a nekton scope in this repo's registry and returns its id, the way an operator

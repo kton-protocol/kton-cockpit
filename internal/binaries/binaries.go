@@ -1,98 +1,46 @@
-// Package binaries shells out to the vendored plankton/nekton binaries. It never reimplements
-// any of their logic (canonicalization, hashing, signing, registry, verification) — it only
-// invokes them with the cockpit's resolved config and parses their plain-text stdout.
+// Package binaries is the cockpit's whole surface onto the kton kernels. It reimplements none of
+// their logic — canonicalization, hashing, signing, ingest, verification, the query semantics are
+// all theirs — it calls them, as linked Go libraries, with the cockpit's resolved config.
+//
+// The name is older than the arrangement: these used to be subprocess wrappers around
+// `bin/plankton` and `bin/nekton`, and it is kept because what the package IS has not changed —
+// one place where every kernel call lives, so the rest of the cockpit sees one surface rather than
+// a scattering of registry opens.
 package binaries
 
 import (
-	"bytes"
 	"context"
+	"crypto/ed25519"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/deathbychoco/claude-science-cockpit/internal/config"
+	nclaim "kton.dev/nekton/claim"
 	nregistry "kton.dev/nekton/registry"
+	ntemplate "kton.dev/nekton/template"
 	"kton.dev/plankton/core"
+	ffoton "kton.dev/plankton/foton"
 	pregistry "kton.dev/plankton/registry"
 )
 
-// Runner shells out to plankton/nekton with PLANKTON_DIR/NEKTON_DIR/NEKTON_TEMPLATES pinned from
-// the cockpit's resolved, verified config — never inherited from ambient shell env vars.
+// Runner is the one place the kernels are called from. Both are LINKED — `kton.dev/plankton` and
+// `kton.dev/nekton` are ordinary Go dependencies — so nothing here spawns a process or parses
+// another program's output. The registries, templates and keys it opens come from the cockpit's
+// resolved, verified config, never from ambient PLANKTON_DIR/NEKTON_DIR environment variables:
+// which store is written to is a property of the configuration, not of the shell that started it.
 type Runner struct {
 	cfg *config.Config
 }
 
 func New(cfg *config.Config) *Runner {
 	return &Runner{cfg: cfg}
-}
-
-func (r *Runner) env() []string {
-	return []string{
-		"PLANKTON_DIR=" + r.cfg.PlanktonDir,
-		"NEKTON_DIR=" + r.cfg.NektonDir,
-		"NEKTON_TEMPLATES=" + r.cfg.TemplatesDir,
-	}
-}
-
-// exec runs bin with args, capturing stdout and stderr into separate buffers — never combined:
-// plankton/nekton's own contract (see e.g. `author --print-id`) is bare, machine-readable output
-// on stdout and human/warning/error lines on stderr. Both are returned so each caller can decide
-// what it needs: a machine value parsed from stdout alone, or stdout plus any success-path
-// warning on stderr (e.g. plankton's "this read is INCOMPLETE" degraded-registry notice, which
-// prints even on a clean exit — see planktonQuery below). On a non-zero exit, stderr is also
-// folded into the returned error for debugging context.
-func (r *Runner) exec(ctx context.Context, bin string, args ...string) (stdout string, stderr string, err error) {
-	binPath := filepath.Join(r.cfg.BinDir, bin)
-	cmd := exec.CommandContext(ctx, binPath, args...)
-	cmd.Dir = r.cfg.RepoRoot
-	cmd.Env = append(cmd.Env, r.env()...)
-
-	var outBuf, errBuf bytes.Buffer
-	cmd.Stdout = &outBuf
-	cmd.Stderr = &errBuf
-
-	runErr := cmd.Run()
-	stdout = strings.TrimSpace(outBuf.String())
-	stderr = strings.TrimSpace(errBuf.String())
-	if runErr != nil {
-		return stdout, stderr, fmt.Errorf("%s %s: %w\n%s", bin, strings.Join(args, " "), runErr, stderr)
-	}
-	return stdout, stderr, nil
-}
-
-// plankton returns plankton's bare stdout only, discarding stderr on success. Use this for
-// commands whose result is (or is parsed as) an exact machine-readable value — Author's fotonID,
-// Hash's hash, Reproduces'/VerifyFoton's pass/fail — where any success-path stderr text is status
-// noise that must not contaminate the parsed value (Author's --print-id relies on this: with it
-// set, plankton deliberately routes every human status line to stderr, leaving only the bare id
-// on stdout).
-func (r *Runner) plankton(ctx context.Context, args ...string) (string, error) {
-	out, _, err := r.exec(ctx, "plankton", args...)
-	return out, err
-}
-
-// planktonQuery is like plankton, but for human-facing reads whose stdout is a report rather than
-// a single parsed value (producer/uses/lineage): plankton can legitimately warn on stderr even on
-// a clean exit — e.g. "warning: N record(s) skipped on load - this read is INCOMPLETE" when the
-// registry read is degraded but not `--strict`. That warning must still reach the caller (and, via
-// AskOutput.Raw, the model) rather than silently vanish just because it wasn't a parse error, so
-// it's appended to the returned text as a clearly delimited block instead of being discarded.
-func (r *Runner) planktonQuery(ctx context.Context, args ...string) (string, error) {
-	out, errText, err := r.exec(ctx, "plankton", args...)
-	if errText != "" {
-		out += "\n\n[stderr]\n" + errText
-	}
-	return out, err
-}
-
-func (r *Runner) nekton(ctx context.Context, args ...string) (string, error) {
-	out, _, err := r.exec(ctx, "nekton", args...)
-	return out, err
 }
 
 // --- plankton ---
@@ -112,36 +60,76 @@ type AuthorInput struct {
 	EnvRef      string // exact execution environment, e.g. oci://image@sha256:...
 }
 
-// Author runs `plankton author` and returns the printed foton id.
+// Author builds the foton descriptor, signs it, and ingests it. Returns the foton id.
+//
+// The descriptor is what a foton's IDENTITY is computed over, so every default here is load-bearing
+// and matches what `plankton author` produces for the same arguments: protocol kind "script", the
+// descriptor as {cmd, environment?, envRef?}, and no automatic file:// locator — a logical path is
+// the repo-relative one the caller gave. TestAuthor_MatchesTheReferenceCLI holds that equivalence
+// against the binary, because "the same id" is not something to take on reading.
 func (r *Runner) Author(ctx context.Context, in AuthorInput) (fotonID string, err error) {
-	args := []string{"author"}
-	for _, p := range in.Inputs {
-		args = append(args, "--in", p)
-	}
-	for _, p := range in.Outputs {
-		args = append(args, "--out", p)
-	}
+	located := map[string][]string{}
 	for _, l := range in.Located {
-		args = append(args, "--located", l)
+		path, uri, ok := strings.Cut(l, "=")
+		if !ok {
+			return "", fmt.Errorf("located %q is not path=uri", l)
+		}
+		located[path] = append(located[path], uri)
 	}
-	if in.Environment != "" {
-		args = append(args, "--environment", in.Environment)
-	}
-	if in.EnvRef != "" {
-		args = append(args, "--env-ref", in.EnvRef)
-	}
-	args = append(args, "--cmd", in.Cmd, "--sign", in.SignKey, "--add", "--print-id")
 
-	out, err := r.plankton(ctx, args...)
+	hashFiles := func(paths []string) ([]ffoton.FileSpec, error) {
+		fs := make([]ffoton.FileSpec, 0, len(paths))
+		for _, p := range paths {
+			b, rerr := os.ReadFile(filepath.Join(r.cfg.RepoRoot, p))
+			if rerr != nil {
+				return nil, rerr
+			}
+			fs = append(fs, ffoton.FileSpec{Path: p, Hash: core.HashBytes(b), URI: located[p]})
+		}
+		return fs, nil
+	}
+	inputs, err := hashFiles(in.Inputs)
 	if err != nil {
 		return "", err
 	}
-	return strings.TrimSpace(out), nil
+	outputs, err := hashFiles(in.Outputs)
+	if err != nil {
+		return "", err
+	}
+
+	desc := map[string]any{"cmd": in.Cmd}
+	if in.Environment != "" {
+		desc["environment"] = in.Environment
+	}
+	if in.EnvRef != "" {
+		desc["envRef"] = in.EnvRef
+	}
+	spec := ffoton.Spec{
+		Predicate: "foton", Inputs: inputs, Outputs: outputs,
+		Protocol: &ffoton.ProtocolSpec{Kind: "script", Descriptor: desc},
+	}
+
+	priv, err := loadSigningKey(in.SignKey)
+	if err != nil {
+		return "", err
+	}
+	env, id, err := ffoton.SignWith(spec, priv)
+	if err != nil {
+		return "", fmt.Errorf("signing the foton: %w", err)
+	}
+	reg, err := pregistry.Open(r.cfg.PlanktonDir)
+	if err != nil {
+		return "", fmt.Errorf("opening the plankton registry: %w", err)
+	}
+	if _, _, err := reg.Add(env); err != nil {
+		return "", fmt.Errorf("the foton was signed but the registry refused it: %w", err)
+	}
+	return id, nil
 }
 
-// KeyID returns the keyid a signature carries for this public key, as the substrate derives it.
-// Shelled out rather than computed here for the usual reason: an identifier the kernel also derives
-// is the kernel's to derive.
+// KeyID returns the keyid a signature carries for this public key, as the substrate derives it —
+// `core.KeyIDHex`, not a local reimplementation of it. An identifier the kernel also derives is the
+// kernel's to derive, or the two drift and every trust decision drifts with them.
 func (r *Runner) KeyID(ctx context.Context, pubkeyPath string) (string, error) {
 	b, err := os.ReadFile(pubkeyPath)
 	if err != nil {
@@ -158,8 +146,8 @@ func (r *Runner) KeyID(ctx context.Context, pubkeyPath string) (string, error) {
 //
 // It replaces reading them over `kton serve`'s /sync, which #83 removed with the observation that
 // the cockpit was launching a server on a local port to talk to itself — HTTP as a worse CLI. #85
-// answered the same kton §12 query over stdout, so this is two subprocess calls where it used to be
-// two servers, two free ports and a readiness poll.
+// answered the same kton §12 query over stdout; linking made even that a function call, so this is
+// two registry opens where it used to be two servers, two free ports and a readiness poll.
 //
 // It still does not read the store. Which is the point: kton-web's own reader measures what parsing
 // it wrongly costs — against a 2032-record corpus, a whole-file JSON.parse alone found 68 records
@@ -231,17 +219,11 @@ func (r *Runner) Hash(ctx context.Context, file string) (string, error) {
 	return core.HashBytes(b), nil
 }
 
-// Show prints a foton's descriptor (command, inputs, outputs).
-func (r *Runner) Show(ctx context.Context, idOrFile string) (string, error) {
-	return r.plankton(ctx, "show", idOrFile)
-}
-
-// Producer, Uses, Lineage, Reproductions are read-only graph queries by hash, read through
-// plankton's --json mode so a record's id comes from a named field rather than from guessing at
-// text (see reads.go). Producer/Uses/Lineage share plankton's degraded-registry-read code path,
-// which can warn "INCOMPLETE" on stderr even on a clean exit — that warning is carried through on
-// the result rather than dropped, because an incomplete read presented as a complete answer is
-// worse than an error.
+// Producer, Uses, Lineage, Reproductions are read-only graph queries by hash, answered from the
+// registry's own index rather than from parsed text — a record's id comes from the record. They
+// share plankton's degraded-read path, which can find fewer records than the store holds; that is
+// reported rather than dropped, because an incomplete read presented as a complete answer is worse
+// than an error.
 func (r *Runner) Producer(ctx context.Context, hash string) (*LineageResult, error) {
 	return r.lineage(ctx, "producer", hash)
 }
@@ -306,45 +288,79 @@ func (r *Runner) lineage(ctx context.Context, relation, hash string) (*LineageRe
 // the keys it is given, so asking for one tier while handing it every tier's keys returns a number
 // that silently spans all of them — an answer labelled as filtered that is not.
 //
-// The binary exits non-zero for the legitimate "0 distinct producers" case (not just for real
-// failures), and prints that answer before exiting — so a non-zero exit with output is a valid,
-// informational zero-count result. A non-zero exit with EMPTY stdout means the command rejected the
-// call outright (most plausibly a vendored plankton predating --trust-keys, which kton 0.2 provides
-// and 0.1 did not) rather than answering "zero producers", and is surfaced as a real error instead
-// of being handed to Claude as if it were a count.
+// Zero distinct producers is an answer, not a failure. The CLI signalled it with a non-zero exit
+// and the answer printed anyway, which had to be told apart from a real refusal by whether stdout
+// was empty; the library returns the count, so the distinction is structural and there is nothing
+// left to misread.
 func (r *Runner) Reproductions(ctx context.Context, outputHash, tier string) (*ReproductionsResult, error) {
-	dir, cleanup, err := trustKeysDir(r.cfg, tier)
+	keys, err := TrustKeys(r.cfg, tier)
 	if err != nil {
-		return nil, fmt.Errorf("materializing trust keys for reproductions: %w", err)
+		return nil, err
 	}
-	defer cleanup()
+	// An empty key set would make the kernel fall back to the keyid each envelope claims about
+	// ITSELF, which its author wrote — the forgeable count this path exists to refuse. It reports
+	// that as Verified=false, but a wrong number under a field named for verification is read as a
+	// number, so it is refused here rather than relabelled.
+	if len(keys) == 0 {
+		return nil, fmt.Errorf(
+			"↻N would be self-declared: this repo's trust tiers name no key%s that could verify "+
+				"anything, so the count would be over keyids the records assert about themselves, "+
+				"which their authors wrote. Configure trust.tiers", tierNote(tier))
+	}
 
-	out, errText, err := r.exec(ctx, "plankton", "reproductions", "--trust-keys", dir, "--json", outputHash)
-	if err != nil && out == "" {
-		return nil, fmt.Errorf(
-			"plankton rejected `reproductions --trust-keys` outright (no answer on stdout) — most "+
-				"likely this vendored plankton binary predates --trust-keys support on `reproductions` "+
-				"and needs upgrading; the cockpit refuses to fall back to an unverified, forgeable count. "+
-				"underlying error: %w", err)
+	reg, err := pregistry.Open(r.cfg.PlanktonDir)
+	if err != nil {
+		return nil, fmt.Errorf("opening the plankton registry: %w", err)
 	}
-	res, perr := parseReproductionsJSON(out)
-	if perr != nil {
-		return nil, perr
+	if n, ok := core.NormalizeContentHash(outputHash); ok {
+		outputHash = n
 	}
-	// plankton answers "self-declared" when it had no trusted key to check against — an empty
-	// trust-tier config produces an empty --trust-keys directory, and it then falls back to the
-	// keyid each envelope claims about itself, which its author wrote. Returning that count under a
-	// field named verifiedSigners would be the forgeable number this whole path exists to refuse,
-	// with a label saying the opposite. plankton warns on stderr; a warning beside a wrong number is
-	// not enough, because the number is what gets read.
-	if res.Trust != "verified" {
-		return nil, fmt.Errorf(
-			"plankton answered with a %s count, not a verified one — this repo's trust tiers name no key "+
-				"that could verify anything, so ↻N would be over keyids the records claim about themselves. "+
-				"Configure trust.tiers", res.Trust)
+	got := reg.Reproductions(outputHash, keys)
+	if !got.Verified {
+		return nil, fmt.Errorf("the substrate answered a self-declared count for %s, not a verified "+
+			"one; refusing to report it as ↻N", outputHash)
 	}
-	res.Warning = errText
+
+	res := &ReproductionsResult{
+		Output: got.Output, DistinctSigners: got.DistinctSigners,
+		ProducerFotons: got.ProducerFotons, ExcludedUntrusted: got.ExcludedUntrusted,
+		Trust: "verified",
+	}
+	for _, p := range got.Producers {
+		res.Producers = append(res.Producers, ReproductionProducer{ID: p.FotonID, KeyID: p.KeyID, Verified: p.Verified})
+	}
 	return res, nil
+}
+
+func tierNote(tier string) string {
+	if tier == "" {
+		return ""
+	}
+	return " in tier " + strconv.Quote(tier)
+}
+
+// TrustKeys loads every configured public key, optionally narrowed to one tier.
+//
+// A key that will not read or parse is an ERROR, never a skip: skipping one silently narrows what
+// the repository trusts, and every record it signed then reads as untrusted — a broken
+// configuration wearing the appearance of a working one (SPEC §9.1).
+func TrustKeys(cfg *config.Config, tier string) ([]ed25519.PublicKey, error) {
+	var keys []ed25519.PublicKey
+	for path, t := range cfg.TierPubkeys() {
+		if tier != "" && t != tier {
+			continue
+		}
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			return nil, fmt.Errorf("trust tier %q names %s, which cannot be read: %w", t, path, err)
+		}
+		pub, err := core.ParsePublicKeyHex(strings.TrimSpace(string(raw)))
+		if err != nil {
+			return nil, fmt.Errorf("trust tier %q names %s, which is not a public key: %w", t, path, err)
+		}
+		keys = append(keys, pub)
+	}
+	return keys, nil
 }
 
 // trustKeysDir materializes every pubkey configured across this repo's trust tiers into a fresh
@@ -391,25 +407,21 @@ type ReproducesResult struct {
 
 // Reproduces asks whether two output hashes reproduce, and at what level.
 //
-// It reads plankton's --json verdict rather than the sentence it prints. That closes a gap this
-// wrapper previously documented as unclosable: `reproduces` exits 1 both for a genuine non-match
-// and for a usage error, so the two could not be told apart, and a broken invocation would have
-// been reported to the caller as "these outputs differ". With --json they are distinguishable
-// without relying on the exit code at all — a real verdict comes with a parseable answer, a usage
-// error comes with none.
+// The verdict and a refusal come back separately, which closes a gap this wrapper once documented
+// as unclosable: `reproduces` exits 1 both for a genuine non-match and for a usage error, so a
+// broken invocation would have been reported to the caller as "these outputs differ".
 func (r *Runner) Reproduces(ctx context.Context, refHash, candHash, via string) (*ReproducesResult, error) {
-	args := []string{"reproduces", refHash, candHash, "--json"}
-	if via != "" {
-		args = append(args, "--via", via)
+	reg, err := pregistry.Open(r.cfg.PlanktonDir)
+	if err != nil {
+		return nil, fmt.Errorf("opening the plankton registry: %w", err)
 	}
-	out, errText, err := r.exec(ctx, "plankton", args...)
-
-	var res ReproducesResult
-	if jerr := json.Unmarshal([]byte(strings.TrimSpace(out)), &res); jerr != nil {
-		// No verdict. Exit 1 alone would have looked exactly like "they do not match".
-		return nil, fmt.Errorf("plankton reproduces gave no verdict: %w\n%s", errOr(err, jerr), errText)
+	got, err := reg.Reproduces(refHash, candHash, via)
+	if err != nil {
+		// A refusal, not a verdict. The two used to arrive as one non-zero exit, and "they do not
+		// match" reads the same as "those are not content hashes" when both are exit 1.
+		return nil, fmt.Errorf("plankton could not compare %s with %s: %w", refHash, candHash, err)
 	}
-	return &res, nil
+	return &ReproducesResult{Matched: got.Matches, Level: got.Level, Via: got.Via}, nil
 }
 
 func errOr(primary, fallback error) error {
@@ -421,51 +433,135 @@ func errOr(primary, fallback error) error {
 
 // --- nekton ---
 
-// Annotate runs `nekton annotate` from a template and returns the printed claim id (nekton
-// prints the claim's registry id on `--add`; callers should follow up with About to confirm
-// registration, mirroring the manual workflow's explicit confirm step).
+// Annotate builds a claim from a template, signs it, ingests it, and returns its id. Callers
+// follow up with About to confirm registration, mirroring the manual workflow's explicit confirm
+// step — the id coming back says the claim was signed, not that the store kept it.
 //
-// --print-id is the same contract `plankton author` uses: the bare id is the only thing on stdout,
-// every human line goes to stderr. Until kton 0.2's #56 added it, annotate printed four lines of
-// prose to STDOUT with the id embedded among them, and this had to scrape the "indexed claim" line
-// back out. Say still confirms registration by querying the claim back — the parsing went away, the
-// confirmation did not.
-func (r *Runner) Annotate(ctx context.Context, subject, template string, sets map[string]string, signKey string, chain *Chain) (string, error) {
-	args := []string{"annotate", subject, "--template", template}
-	for k, v := range sets {
-		args = append(args, "--set", fmt.Sprintf("%s=%s", k, v))
-	}
-	// Both or neither: the substrate refuses a scoped claim that carries no prev, so passing one
-	// without the other would produce a signed claim the store then declines.
-	if chain != nil {
-		args = append(args, "--scope", chain.Scope, "--prev", chain.Prev)
-	}
-	args = append(args, "--sign", signKey, "--add", "--print-id")
-	out, err := r.nekton(ctx, args...)
+// The template is the ceiling: a claim's fields are whatever the template declares, so what a
+// session can say is decided by files an operator put in `templates/`, not by this function.
+func (r *Runner) Annotate(ctx context.Context, subject, tmplName string, sets map[string]string, signKey string, chain *Chain) (string, error) {
+	set, err := r.templates()
 	if err != nil {
 		return "", err
 	}
-	id := strings.TrimSpace(out)
-	if !claimIDRe.MatchString(id) {
-		return "", fmt.Errorf("nekton annotate --print-id did not return a claim id; stdout was:\n%s", out)
+	t, ok := set.Get(tmplName)
+	if !ok {
+		return "", fmt.Errorf("no template %q in %s", tmplName, r.cfg.TemplatesDir)
+	}
+
+	// A `file` field carries BYTES, not a path: the package never touches a filesystem, so that it
+	// links from a browser as readily as from here. Which fields those are comes from the template,
+	// and reading them is this cockpit's job — with the same rule publish applies, since a claim's
+	// evidence is committed and shared exactly as a published output is.
+	values, files := map[string]string{}, map[string][]byte{}
+	for k, v := range sets {
+		if f, isField := t.Fields[k]; isField && f.Type == "file" {
+			b, rerr := r.readRepoFile(v)
+			if rerr != nil {
+				return "", fmt.Errorf("field %q of template %q: %w", k, tmplName, rerr)
+			}
+			files[k] = b
+			continue
+		}
+		values[k] = v
+	}
+
+	spec, err := set.Spec(tmplName, subject, values, files)
+	if err != nil {
+		return "", err
+	}
+	// Spec fills neither `by` nor `when`, and should not: the first is the caller's identity and
+	// the second is the caller's clock, so a template package that supplied either would be
+	// answering a question it cannot see. Both are covered by the claim id.
+	keyid, err := r.KeyID(ctx, pubHalfOf(signKey))
+	if err != nil {
+		return "", fmt.Errorf("reading the keyid to sign under: %w", err)
+	}
+	spec.By = "key:" + keyid
+	spec.When = time.Now().UTC().Format(time.RFC3339)
+	// Both or neither: the substrate refuses a scoped claim that carries no prev, so setting one
+	// without the other would produce a signed claim the store then declines.
+	if chain != nil {
+		spec.Scope, spec.Prev = chain.Scope, chain.Prev
+	}
+
+	priv, err := loadSigningKey(signKey)
+	if err != nil {
+		return "", err
+	}
+	env, id, err := nclaim.SignWith(spec, priv)
+	if err != nil {
+		return "", fmt.Errorf("signing the claim: %w", err)
+	}
+	reg, err := nregistry.Open(r.cfg.NektonDir)
+	if err != nil {
+		return "", fmt.Errorf("opening the nekton registry: %w", err)
+	}
+	if _, _, err := reg.Add(env); err != nil {
+		return "", fmt.Errorf("the claim was signed but the registry refused it: %w", err)
 	}
 	return id, nil
 }
 
-// claimIDRe is the whole of what --print-id may put on stdout. Matching the entire string, not
-// searching within it, is the point: anything else there means the contract did not hold.
-var claimIDRe = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
+// templates loads this repo's template set. An alias file is optional and this cockpit ships none:
+// its templates name predicates by full IRI, so there is no prefix to resolve (SPEC §8.1).
+func (r *Runner) templates() (ntemplate.Set, error) {
+	set, err := ntemplate.Load(r.cfg.TemplatesDir, filepath.Join(r.cfg.RepoRoot, "aliases.json"))
+	if err != nil {
+		return ntemplate.Set{}, err
+	}
+	// Reported rather than absorbed: a file in the template directory that is not a template is
+	// usually a typo'd one, and silence there means a claim shape the operator believes is
+	// configured simply is not.
+	if skipped := set.Skipped(); len(skipped) > 0 {
+		return set, fmt.Errorf("%s holds %d file(s) that are not templates: %s",
+			r.cfg.TemplatesDir, len(skipped), strings.Join(skipped, ", "))
+	}
+	return set, nil
+}
 
-// About lists claims about a subject (hash or URI) — used both to serve `ask` and to confirm a
-// `say` registered. It reads nekton's --json mode rather than its prose (upstream #39): the prose
-// carries only the id, predicate and declared signer, so the claim's actual content — the object,
-// i.e. what was said — was unreachable through it.
-func (r *Runner) About(ctx context.Context, subject string) ([]ClaimAxis, error) {
-	out, err := r.nekton(ctx, "about", subject, "--json")
+// readRepoFile reads a repo-relative path, refusing anything that leaves the repository or names a
+// signing key — the same floor publish holds, for the same reason: this content is committed and
+// travels with the record.
+func (r *Runner) readRepoFile(rel string) ([]byte, error) {
+	if rel == "" {
+		return nil, fmt.Errorf("no path given")
+	}
+	if filepath.IsAbs(rel) || !filepath.IsLocal(rel) {
+		return nil, fmt.Errorf("%q must be a repo-relative path inside the repository", rel)
+	}
+	if strings.HasSuffix(rel, ".key") {
+		return nil, fmt.Errorf("%q matches *.key — a private signing key is never attached to a record", rel)
+	}
+	return os.ReadFile(filepath.Join(r.cfg.RepoRoot, rel))
+}
+
+// loadSigningKey reads a keygen-written private key: the 32-byte seed, as hex.
+func loadSigningKey(path string) (ed25519.PrivateKey, error) {
+	b, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
-	return parseClaimsJSON(out)
+	seed, err := hex.DecodeString(strings.TrimSpace(string(b)))
+	if err != nil {
+		return nil, fmt.Errorf("%s is not a hex-encoded key: %w", path, err)
+	}
+	if len(seed) != ed25519.SeedSize {
+		return nil, fmt.Errorf("%s: expected a %d-byte seed, got %d", path, ed25519.SeedSize, len(seed))
+	}
+	return ed25519.NewKeyFromSeed(seed), nil
+}
+
+// About lists claims about a subject (hash or URI) — used both to serve `ask` and to confirm a
+// `say` registered. It returns the claims themselves, so the object — what was actually said — is
+// reachable; nekton's prose form carried only the id, predicate and declared signer (upstream #39),
+// and a claim you cannot read the content of is a claim you cannot serve.
+func (r *Runner) About(ctx context.Context, subject string) ([]ClaimAxis, error) {
+	reg, err := nregistry.Open(r.cfg.NektonDir)
+	if err != nil {
+		return nil, fmt.Errorf("opening the nekton registry: %w", err)
+	}
+	return claimsFrom(reg.About(subject))
 }
 
 // ByAxis is which index `nekton by` searches. It is a required argument of that command, not an
@@ -492,29 +588,45 @@ func ValidByAxis(s string) bool {
 // nekton back to 0.1 rejects outright with its usage line — so `ask` with query "by" could never
 // have returned an answer, despite being advertised in the tool's own schema.
 func (r *Runner) By(ctx context.Context, axis ByAxis, value string) ([]ClaimAxis, error) {
-	out, err := r.nekton(ctx, "by", string(axis), value, "--json")
+	reg, err := nregistry.Open(r.cfg.NektonDir)
+	if err != nil {
+		return nil, fmt.Errorf("opening the nekton registry: %w", err)
+	}
+	switch axis {
+	case BySigner:
+		return claimsFrom(reg.BySigner(value))
+	case ByPredicate:
+		return claimsFrom(reg.ByPredicate(value))
+	case ByObject:
+		return claimsFrom(reg.ByObject(value))
+	default:
+		return nil, fmt.Errorf("unknown axis %q (signer, predicate, object)", axis)
+	}
+}
+
+// claimsFrom decodes registry records into the axis shape the answer is built from.
+//
+// It marshals and re-parses rather than reaching into the statement directly, because
+// parseClaimsJSON is where the payload's shape is understood — including the cases that matter:
+// a payload that will not decode is REPORTED as an unreadable claim rather than dropped, and the
+// signature keyids are kept as declared so nothing downstream mistakes them for verified ones.
+// Two decoders would disagree exactly there.
+func claimsFrom(recs []nregistry.Record) ([]ClaimAxis, error) {
+	blob, err := json.Marshal(recs)
 	if err != nil {
 		return nil, err
 	}
-	return parseClaimsJSON(out)
-}
-
-// Templates lists available claim templates, or shows one template's fields with show != "".
-func (r *Runner) Templates(ctx context.Context, show string) (string, error) {
-	if show == "" {
-		return r.nekton(ctx, "templates")
-	}
-	return r.nekton(ctx, "templates", "--show", show)
+	return parseClaimsJSON(string(blob))
 }
 
 // --- verification material (kton §8.1) ---
 
 // StoredMaterial is one piece of evidence as the kernel hands it back.
 //
-// The kernel's `--json` includes a `verified` field that is ALWAYS false, and deliberately so: it
-// stores material without evaluating it. That field is not mapped here, because carrying it would
-// invite a caller to read a kernel-side verdict where none exists. Whether any of this checks out
-// is decided by internal/material, on this side.
+// The kernel carries a `verified` field on stored material that is ALWAYS false, and deliberately
+// so: it stores material without evaluating it. That field is not mapped here, because carrying it
+// would invite a caller to read a kernel-side verdict where none exists. Whether any of this checks
+// out is decided by internal/material, on this side.
 type StoredMaterial struct {
 	Subject   string `json:"subject"`
 	Scheme    string `json:"scheme"`
@@ -534,8 +646,27 @@ func (r *Runner) AttachClaim(ctx context.Context, claimID, scheme, mediaType, fi
 }
 
 func (r *Runner) attach(ctx context.Context, bin, id, scheme, mediaType, file string) error {
-	_, _, err := r.exec(ctx, bin, "attach", id, "--scheme", scheme, "--media", mediaType, "--file", file)
-	return err
+	b, err := os.ReadFile(file)
+	if err != nil {
+		return err
+	}
+	blob := base64.StdEncoding.EncodeToString(b)
+	if bin == "plankton" {
+		reg, oerr := pregistry.Open(r.cfg.PlanktonDir)
+		if oerr != nil {
+			return oerr
+		}
+		return reg.AttachMaterial(pregistry.VerificationMaterial{
+			Subject: id, Scheme: scheme, MediaType: mediaType, Material: blob,
+		})
+	}
+	reg, oerr := nregistry.Open(r.cfg.NektonDir)
+	if oerr != nil {
+		return oerr
+	}
+	return reg.AttachMaterial(nregistry.VerificationMaterial{
+		Subject: id, Scheme: scheme, MediaType: mediaType, Material: blob,
+	})
 }
 
 // MaterialForFoton reads back everything attached to a foton; MaterialForClaim does the same for a
@@ -549,17 +680,25 @@ func (r *Runner) MaterialForClaim(ctx context.Context, claimID string) ([]Stored
 }
 
 func (r *Runner) material(ctx context.Context, bin, id string) ([]StoredMaterial, error) {
-	out, _, err := r.exec(ctx, bin, "material", id, "--json")
+	var out []StoredMaterial
+	if bin == "plankton" {
+		reg, err := pregistry.Open(r.cfg.PlanktonDir)
+		if err != nil {
+			return nil, err
+		}
+		for _, m := range reg.Material(id) {
+			out = append(out, StoredMaterial{Subject: m.Subject, Scheme: m.Scheme, MediaType: m.MediaType, Material: m.Material})
+		}
+		return out, nil
+	}
+	reg, err := nregistry.Open(r.cfg.NektonDir)
 	if err != nil {
 		return nil, err
 	}
-	var read struct {
-		Material []StoredMaterial `json:"material"`
+	for _, m := range reg.Material(id) {
+		out = append(out, StoredMaterial{Subject: m.Subject, Scheme: m.Scheme, MediaType: m.MediaType, Material: m.Material})
 	}
-	if err := json.Unmarshal([]byte(out), &read); err != nil {
-		return nil, fmt.Errorf("could not read %s material %s: %w\n%s", bin, id, err, out)
-	}
-	return read.Material, nil
+	return out, nil
 }
 
 // --- scopes (kton §7.4) ---
@@ -620,25 +759,22 @@ func (r *Runner) Head(ctx context.Context, scopeID string) (*ScopeHead, error) {
 // are the separate, independently checkable statement about what each writer believed preceded
 // them. Keeping the two apart is what makes a disagreement between them visible at all.
 func (r *Runner) ScopeChain(ctx context.Context, scopeID string) ([]ScopeClaim, error) {
-	out, _, err := r.exec(ctx, "nekton", "records", "--json")
+	reg, err := nregistry.Open(r.cfg.NektonDir)
 	if err != nil {
-		return nil, fmt.Errorf("reading claims for scope %s: %w", scopeID, err)
+		return nil, fmt.Errorf("opening the nekton registry: %w", err)
 	}
-	recs, err := parseRecordsJSON(out)
-	if err != nil {
-		return nil, err
-	}
-	blob, err := json.Marshal(recs)
-	if err != nil {
-		return nil, err
-	}
-	all, err := parseClaimsJSON(string(blob))
+	recs := reg.Records(0)
+	all, err := claimsFrom(recs)
 	if err != nil {
 		return nil, err
 	}
 	envelopes := map[string]json.RawMessage{}
 	for _, rec := range recs {
-		envelopes[rec.ClaimID] = rec.Envelope
+		b, merr := json.Marshal(rec.Envelope)
+		if merr != nil {
+			return nil, merr
+		}
+		envelopes[rec.ClaimID] = b
 	}
 	chain := make([]ScopeClaim, 0, len(all))
 	for _, c := range all {
@@ -666,35 +802,35 @@ type ScopeClaim struct {
 // where "who was supposed to write here" is written down; the kernel stores it and interprets none
 // of it, and the reference implementation emits no `responsible` at all.
 func (r *Runner) Seed(ctx context.Context, scopeID string) (*ScopeSeed, error) {
-	out, _, err := r.exec(ctx, "nekton", "show", scopeID, "--json")
+	reg, err := nregistry.Open(r.cfg.NektonDir)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("opening the nekton registry: %w", err)
 	}
-	var raw struct {
-		ClaimID       string `json:"claimId"`
-		PredicateType string `json:"predicateType"`
-		Predicate     struct {
-			Scope   string `json:"scope"`
-			Genesis bool   `json:"genesis"`
-			By      string `json:"by"`
-			When    string `json:"when"`
-			// Parent is a term reference, not a bare string: the wire carries {"hash": "sha256:…"}.
-			// Decoding it as a string silently yields "" and a scope looks parentless — which is the
-			// difference between "cannot be sealed" and "is sealed somewhere you did not look".
-			Parent      struct{ Hash string } `json:"parent,omitempty"`
-			Responsible []string              `json:"responsible,omitempty"`
-		} `json:"predicate"`
+	rec, ok := reg.Claim(scopeID)
+	if !ok {
+		return nil, fmt.Errorf("no such scope %s (not a seed ingested in %s)", scopeID, r.cfg.NektonDir)
 	}
-	if jerr := json.Unmarshal([]byte(strings.TrimSpace(out)), &raw); jerr != nil {
-		return nil, fmt.Errorf("could not read the seed of scope %s: %w\n%s", scopeID, jerr, out)
+	st, _, perr := nclaim.ParseEnvelope(rec.Envelope)
+	if perr != nil {
+		return nil, fmt.Errorf("the seed of scope %s is not readable: %w", scopeID, perr)
 	}
-	if !raw.Predicate.Genesis {
+	var body struct {
+		Scope       string                `json:"scope"`
+		Genesis     bool                  `json:"genesis"`
+		By          string                `json:"by"`
+		When        string                `json:"when"`
+		Parent      struct{ Hash string } `json:"parent"`
+		Responsible []string              `json:"responsible"`
+	}
+	if jerr := json.Unmarshal(st.Predicate, &body); jerr != nil {
+		return nil, fmt.Errorf("the seed of scope %s is not readable: %w", scopeID, jerr)
+	}
+	if !body.Genesis {
 		return nil, fmt.Errorf("%s is not a scope seed: its statement does not carry genesis", scopeID)
 	}
 	return &ScopeSeed{
-		ID: raw.ClaimID, Name: raw.Predicate.Scope, By: raw.Predicate.By,
-		When: raw.Predicate.When, Parent: raw.Predicate.Parent.Hash,
-		Responsible: raw.Predicate.Responsible,
+		ID: scopeID, Name: body.Scope, By: body.By, When: body.When,
+		Parent: body.Parent.Hash, Responsible: body.Responsible,
 	}, nil
 }
 
@@ -737,42 +873,35 @@ const SealPredicate = "https://kton.dev/v/sealedAt"
 // gap SPEC §9.6 otherwise has to state as a limit — tail truncation is undetectable IN-BAND, and a seal
 // is the out-of-band record that detects it.
 func (r *Runner) SealScope(ctx context.Context, childScope, childHead, parentScope, parentHead, signKey string) (string, error) {
-	// `by` is the signer's own keyid and `when` the moment of sealing. Both are covered by the
-	// claim id, and `when` is what distinguishes one seal of a scope from the next: sealing is
-	// meant to be repeated, so two seals at the same head must still be two records.
-	keyid, err := r.KeyID(ctx, trimKeySuffix(signKey))
+	keyid, err := r.KeyID(ctx, pubHalfOf(signKey))
 	if err != nil {
 		return "", fmt.Errorf("reading the keyid to seal under: %w", err)
 	}
-	spec := map[string]any{
-		"subject":   []map[string]string{{"hash": childScope}},
-		"predicate": SealPredicate,
-		"object":    map[string]any{"hash": childHead},
-		"by":        "key:" + keyid,
-		"when":      time.Now().UTC().Format(time.RFC3339),
-		"scope":     parentScope,
-		"prev":      parentHead,
+	// Built as a spec rather than through a template, deliberately: a template is what the claim
+	// ceiling is expressed in, and a seal a session could forge would be worth nothing.
+	spec := nclaim.Spec{
+		Subject:   []nclaim.SubjectSpec{{Hash: childScope}},
+		Predicate: SealPredicate,
+		Object:    map[string]any{"hash": childHead},
+		By:        "key:" + keyid,
+		When:      time.Now().UTC().Format(time.RFC3339),
+		Scope:     parentScope,
+		Prev:      parentHead,
 	}
-	blob, err := json.MarshalIndent(spec, "", "  ")
+	priv, err := loadSigningKey(signKey)
 	if err != nil {
 		return "", err
 	}
-	dir, err := os.MkdirTemp("", "cockpit-seal-")
+	env, id, err := nclaim.SignWith(spec, priv)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("signing the seal: %w", err)
 	}
-	defer os.RemoveAll(dir)
-	specPath := filepath.Join(dir, "seal.json")
-	if err := os.WriteFile(specPath, blob, 0o600); err != nil {
-		return "", err
-	}
-	out, _, err := r.exec(ctx, "nekton", "claim", specPath, signKey, "--add", "--print-id")
+	reg, err := nregistry.Open(r.cfg.NektonDir)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("opening the nekton registry: %w", err)
 	}
-	id := strings.TrimSpace(out)
-	if !claimIDRe.MatchString(id) {
-		return "", fmt.Errorf("nekton claim --print-id did not return a claim id; stdout was:\n%s", out)
+	if _, _, err := reg.Add(env); err != nil {
+		return "", fmt.Errorf("the seal was signed but the registry refused it: %w", err)
 	}
 	return id, nil
 }
@@ -780,19 +909,54 @@ func (r *Runner) SealScope(ctx context.Context, childScope, childHead, parentSco
 // SeedScope opens a scope and returns its id. An operator action, never a verb: a scope exists
 // before the session that writes into it.
 func (r *Runner) SeedScope(ctx context.Context, name, signKey, parentScope string) (string, error) {
-	args := []string{"seed", name, "--sign", signKey, "--add", "--print-id"}
-	if parentScope != "" {
-		args = append(args, "--parent", parentScope)
+	keyid, err := r.KeyID(ctx, pubHalfOf(signKey))
+	if err != nil {
+		return "", fmt.Errorf("reading the keyid to seed under: %w", err)
 	}
-	out, _, err := r.exec(ctx, "nekton", args...)
+	body := map[string]any{
+		"scope":   name,
+		"genesis": true,
+		"by":      "key:" + keyid,
+		"when":    time.Now().UTC().Format(time.RFC3339),
+	}
+	if parentScope != "" {
+		// A Ref — {hash} — not the subject shape {"digest":{"sha256":…}}. The two look
+		// interchangeable and are not: a parent emitted in the wrong one resolves to nothing, in a
+		// claim id that is permanent.
+		h, ok := core.NormalizeContentHash(parentScope)
+		if !ok {
+			return "", fmt.Errorf("parent %q is not a scope id (sha256:<64 hex>)", parentScope)
+		}
+		body["parent"] = map[string]any{"hash": h}
+	}
+	// PredicateBody rather than the convenience fields: a seed has no predicate at all — it carries
+	// scope/genesis/by/when/parent, which is a different statement shape (kton §7.4).
+	spec := nclaim.Spec{
+		Subject:       []nclaim.SubjectSpec{{URI: "urn:nekton:scope:" + name}},
+		PredicateType: nclaim.ScopePredicateType,
+		PredicateBody: body,
+	}
+	priv, err := loadSigningKey(signKey)
 	if err != nil {
 		return "", err
 	}
-	id := strings.TrimSpace(out)
-	if !claimIDRe.MatchString(id) {
-		return "", fmt.Errorf("nekton seed --print-id did not return a scope id; stdout was:\n%s", out)
+	env, id, err := nclaim.SignWith(spec, priv)
+	if err != nil {
+		return "", fmt.Errorf("signing the seed: %w", err)
+	}
+	reg, err := nregistry.Open(r.cfg.NektonDir)
+	if err != nil {
+		return "", fmt.Errorf("opening the nekton registry: %w", err)
+	}
+	if _, _, err := reg.Add(env); err != nil {
+		return "", fmt.Errorf("the seed was signed but the registry refused it: %w", err)
 	}
 	return id, nil
+}
+
+// pubHalfOf turns keys/x.key into keys/x.pub — keygen writes both side by side.
+func pubHalfOf(privateKeyPath string) string {
+	return strings.TrimSuffix(privateKeyPath, ".key") + ".pub"
 }
 
 // trimKeySuffix turns keys/x.key into keys/x.pub — the config names the private half, and the

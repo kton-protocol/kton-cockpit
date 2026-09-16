@@ -5,7 +5,7 @@ go 1.25.0
 require (
 	github.com/google/jsonschema-go v0.4.3
 	github.com/modelcontextprotocol/go-sdk v1.6.1
-	kton.dev/nekton v0.0.0-00010101000000-000000000000
+	kton.dev/nekton v0.0.0
 	kton.dev/plankton v0.0.0
 )
 
@@ -15,6 +15,7 @@ require (
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	golang.org/x/oauth2 v0.35.0 // indirect
 	golang.org/x/sys v0.41.0 // indirect
+	kton.dev/kton v0.0.0-00010101000000-000000000000 // indirect
 )
 
 replace kton.dev/plankton => ../kton-pinned/reference

@@ -2,6 +2,9 @@ package tools
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/hex"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -32,15 +35,15 @@ func resultText(result *mcp.CallToolResult) string {
 // HEAD by the time Publish returns. Confirmed live: `git ls-remote origin HEAD` disagreed with
 // the reported CommitSHA. This drives the real Publish() handler against a real local git repo
 // (real add/commit/rev-parse; only `push` is faked as a no-op, since it targets a well-formed but
-// nonexistent github.com URL) and a fake plankton/nekton pair, and confirms the returned
-// CommitSHA matches the repo's actual final HEAD after both commits.
+// nonexistent github.com URL) and confirms the returned CommitSHA matches the repo's actual final
+// HEAD after both commits.
 func TestPublish_ReturnsTheActualFinalCommitSHA(t *testing.T) {
 	repoDir := t.TempDir()
 	// bin_dir is documented as repo-relative (cockpit.config.schema.json: "Repo-relative paths"),
 	// and config.Load's resolution (filepath.Join(repoRoot, raw.Paths.BinDir)) only actually
 	// behaves sensibly for a relative value — joining an absolute path as the second argument
-	// nests it under repoRoot instead of using it as-is. Keep the fake binaries inside the repo,
-	// matching how every real participant repo is actually laid out.
+	// nests it under repoRoot instead of using it as-is. The one binary this test still stands in
+	// for is `git`, and it lives there, matching how a real participant repo is laid out.
 	binDir := filepath.Join(repoDir, "bin")
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -72,35 +75,24 @@ func TestPublish_ReturnsTheActualFinalCommitSHA(t *testing.T) {
 	}
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
-	// Fake plankton/nekton: Publish calls `author` and `hash`, and — since the kernel-version gate
-	// moved onto the path Claude actually takes — `version` on BOTH binaries. That gate used to run
-	// only in `doctor`, which Claude never invokes, so it was documentation rather than enforcement;
-	// enforcing it means every fixture needs both binaries present, including this one. `author` must
-	// actually write a registry file — matching the real binary's side effect — otherwise the
-	// SECOND CommitAndPush call (of registry/plankton) has nothing new to stage, both calls take
-	// the "nothing staged" branch, and this test can't distinguish a stale first-commit sha from
-	// the correct final one at all (caught live: an earlier version of this test passed even
-	// against the pre-fix code, for exactly this reason).
-	fakePlankton := filepath.Join(binDir, "plankton")
-	planktonScript := `#!/bin/sh
-case "$1" in
-  version) echo "plankton 0.2 (reference)" ;;
-  author)
-    mkdir -p "$PLANKTON_DIR/objects/sha256"
-    echo "{}" > "$PLANKTON_DIR/objects/sha256/fakefoton.json"
-    echo "sha256:fakefoton0000000000000000000000000000000000000000000000000000"
-    ;;
-  hash) echo "sha256:fakehash00000000000000000000000000000000000000000000000000000" ;;
-  *) exit 0 ;;
-esac
-`
-	if err := os.WriteFile(fakePlankton, []byte(planktonScript), 0o755); err != nil {
+	// The kernel is linked in, so there is no plankton to fake — `author` really signs and really
+	// writes into `registry/plankton`, which is what makes the SECOND CommitAndPush call have
+	// something to stage. That matters for this test specifically: if both calls took the "nothing
+	// staged" branch it could not distinguish a stale first-commit sha from the correct final one
+	// at all (caught live: an earlier version of this test passed against the pre-fix code for
+	// exactly that reason). So a real signing key, in the shape `keys/` holds them — a hex seed.
+	if err := os.MkdirAll(filepath.Join(repoDir, "keys"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	// Only `version` is ever asked of it here, but the gate asks both.
-	if err := os.WriteFile(filepath.Join(binDir, "nekton"),
-		[]byte("#!/bin/sh\ncase \"$1\" in version) echo \"nekton 0.2 (reference)\" ;; *) exit 0 ;; esac\n"), 0o755); err != nil {
+	seed := make([]byte, ed25519.SeedSize)
+	if _, err := rand.Read(seed); err != nil {
 		t.Fatal(err)
+	}
+	for _, name := range []string{"session-1.key", "session-1-claims.key"} {
+		if err := os.WriteFile(filepath.Join(repoDir, "keys", name),
+			[]byte(hex.EncodeToString(seed)), 0o600); err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	cfgJSON := `{
