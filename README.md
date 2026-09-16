@@ -82,14 +82,14 @@ cockpit is built to sit alongside.
 The fastest way to see the whole thing work, end to end, without touching your own real repos:
 
 ```bash
-uat/setup.sh
+uat/e2e.sh
 ```
 
-This creates two throwaway participant repos plus a federation repo under your own GitHub account,
-walks through every step (with an explanation before each one — it doubles as guided training
-material), and finishes with a link to the resulting kton graph. See
-[`uat/README.md`](uat/README.md) for prerequisites (`gh` CLI scopes, Go ≥ 1.25, `python3`,
-claude-science or Claude Code) and `uat/cleanup.sh` to tear it all down afterwards.
+Two participants and a federation, driven end to end by the three verbs: participant 1 publishes,
+participant 2 solves the same task its own way and gets different bytes, fetches the exact script
+participant 1's record names, reproduces it, and claims it — with the cockpit measuring the level
+rather than believing one. Needs `git`, `go` and `python3`; no GitHub account and no network. See
+[`uat/README.md`](uat/README.md).
 
 ## Building and developing the cockpit itself
 

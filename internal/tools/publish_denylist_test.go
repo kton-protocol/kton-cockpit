@@ -21,7 +21,7 @@ func denylistTestConfig() *config.Config {
 func TestValidatePublishPath_AllowsOrdinaryRepoRelativePaths(t *testing.T) {
 	cfg := denylistTestConfig()
 	for _, p := range []string{
-		"data/penguins.csv",
+		"data/runs.csv",
 		"session-1/clean.py",
 		"out.csv",
 		"corpus/session-1-12345.json",
@@ -41,7 +41,7 @@ func TestValidatePublishPath_RejectsEmptyPath(t *testing.T) {
 
 func TestValidatePublishPath_RejectsAbsolutePaths(t *testing.T) {
 	cfg := denylistTestConfig()
-	for _, p := range []string{"/etc/passwd", "/repo/root/data/penguins.csv"} {
+	for _, p := range []string{"/etc/passwd", "/repo/root/data/runs.csv"} {
 		if err := validatePublishPath(cfg, p); err == nil {
 			t.Errorf("expected absolute path %q to be rejected", p)
 		}
@@ -162,7 +162,7 @@ func TestValidatePublishPath_RejectsKeyExtensionWithTrailingDotOrSpace(t *testin
 func TestValidatePublishPath_UnsetKeysDirMatchesNothing(t *testing.T) {
 	cfg := &config.Config{RepoRoot: "/repo/root"} // KeysDir left empty (misconfigured repo)
 	// Must not match everything just because dir=="" - that would deny all publishes outright.
-	if err := validatePublishPath(cfg, "data/penguins.csv"); err != nil {
+	if err := validatePublishPath(cfg, "data/runs.csv"); err != nil {
 		t.Fatalf("expected an ordinary path to still be allowed when keys_dir is unset, got: %v", err)
 	}
 }

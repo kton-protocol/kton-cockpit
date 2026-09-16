@@ -223,20 +223,23 @@ They live here rather than in their own repository on purpose: kton-examples is 
 and went stale exactly as that predicts, its CI checking out an archived repo and reporting success
 for six weeks with every step silently skipped. See [`examples/README.md`](examples/README.md).
 
-### Automated end-to-end UAT
-
-See [`uat/README.md`](uat/README.md) for prerequisites (gh CLI scopes, Go, python3, claude-science
-account). Follows the tutorial's federation-first sequence: participant 1 publishes and federates
-before participant 2 does anything, so participant 2 can mirror participant 1's real aggregated
-foton, hit the realistic byte-mismatch, correct it, and record a genuine ↻2 reproduction.
+### End to end, across two parties
 
 ```bash
-uat/setup.sh      # creates a federation + 2 participant repos, configures the cockpit in both,
-                   # pauses 4 times for claude-science steps (connector setup; p1 publish; p2
-                   # publish independently; p2 mirror+correct+claim) — not scriptable, see the
-                   # script's header comment for why — then shows the resulting graph
-uat/cleanup.sh <workdir printed by setup.sh>   # deletes everything setup.sh created, with confirmation
+uat/e2e.sh
 ```
+
+What `examples/` cannot show, because each example builds one participant: two identities with
+genuinely different keys, an aggregate that mirrors both, and a ↻2 that is two verified signatures
+over the same bytes rather than one repository agreeing with itself. Federation-first — participant
+1 publishes and is aggregated before participant 2 does anything, so participant 2 can mirror
+participant 1's real foton, hit a realistic byte mismatch, fetch the exact script the record names,
+and correct it.
+
+Needs `git`, `go` and `python3`; no GitHub account, no network, no pauses. It paused four times for
+a browser until the verbs became subcommands — including at the step it called the one that
+"genuinely needs reasoning", which turned out to be a lookup. See
+[`uat/README.md`](uat/README.md).
 
 ## Repo layout
 

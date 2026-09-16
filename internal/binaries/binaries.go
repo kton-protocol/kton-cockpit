@@ -46,7 +46,7 @@ func New(cfg *config.Config) *Runner {
 // --- plankton ---
 
 type AuthorInput struct {
-	Inputs  []string // repo-relative paths, e.g. "data/penguins.csv"
+	Inputs  []string // repo-relative paths, e.g. "data/runs.csv"
 	Outputs []string
 	Cmd     string
 	Located []string // "path=url" pairs for every input+output, from gitops.LocatedFlags
