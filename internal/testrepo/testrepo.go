@@ -376,23 +376,41 @@ func (r *Repo) SealScope(t *testing.T, name string) string {
 	return ""
 }
 
-// runCockpit builds the cockpit once per test binary and runs it against this repo.
-func runCockpit(t *testing.T, r *Repo, args ...string) string {
+// Cockpit runs the built binary against this repo and returns everything it printed plus its exit
+// code — the same three things a person at a shell gets.
+//
+// The exit code is returned rather than fatal'd because it carries meaning here: the cockpit leaves
+// by 2 when it REFUSES and by 1 when the call itself was malformed, and a test that could not tell
+// those apart could not test either.
+func (r *Repo) Cockpit(t *testing.T, args ...string) (output string, exitCode int) {
 	t.Helper()
 	bin := filepath.Join(r.Root, "bin", "cockpit")
 	if _, err := os.Stat(bin); err != nil {
 		build := exec.Command("go", "build", "-o", bin, "./cmd/cockpit")
 		build.Dir = cockpitRoot(t)
 		if out, berr := build.CombinedOutput(); berr != nil {
-			t.Fatalf("building the cockpit for an operator command: %v\n%s", berr, out)
+			t.Fatalf("building the cockpit: %v\n%s", berr, out)
 		}
 	}
 	cmd := exec.Command(bin, args...)
 	cmd.Dir = r.Root
 	cmd.Env = append(os.Environ(), "COCKPIT_REPO_DIR="+r.Root)
 	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("cockpit %s: %v\n%s", strings.Join(args, " "), err, out)
+	code := 0
+	if ee, ok := err.(*exec.ExitError); ok {
+		code = ee.ExitCode()
+	} else if err != nil {
+		t.Fatalf("cockpit %s could not run at all: %v\n%s", strings.Join(args, " "), err, out)
 	}
-	return string(out)
+	return string(out), code
+}
+
+// runCockpit is Cockpit for the callers that only expect success.
+func runCockpit(t *testing.T, r *Repo, args ...string) string {
+	t.Helper()
+	out, code := r.Cockpit(t, args...)
+	if code != 0 {
+		t.Fatalf("cockpit %s exited %d:\n%s", strings.Join(args, " "), code, out)
+	}
+	return out
 }

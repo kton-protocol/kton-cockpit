@@ -4,6 +4,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -43,6 +44,8 @@ func main() {
 		err = runDoctor(ctx)
 	case "scope":
 		err = runScope(ctx, os.Args[2:])
+	case "publish", "say", "ask":
+		err = runVerb(ctx, os.Args[1], os.Args[2:])
 	default:
 		usage()
 		os.Exit(2)
@@ -57,6 +60,10 @@ func usage() {
 	fmt.Fprint(os.Stderr, `cockpit - Claude-Science-Cockpit
 
 usage:
+  cockpit publish '<json>' [--field NAME]   record a result as a signed foton
+  cockpit say     '<json>' [--field NAME]   bind a claim from an allowed template
+  cockpit ask     '<json>' [--field NAME]   query the graph, re-verified against configured trust
+
   cockpit mcp      start the MCP stdio server (cockpit_publish/cockpit_say/cockpit_ask)
   cockpit init     scaffold cockpit.config.json in the current git repo
   cockpit doctor   validate cockpit.config.json + the repo binding
@@ -471,4 +478,133 @@ func linkedKernels() []*debug.Module {
 		}
 	}
 	return out
+}
+
+// --- the three verbs, at a command line ---
+//
+// The same three handlers the MCP server registers above, reached a second way. That is the whole
+// of it: no CLI-only path through publish, no flag that loosens a guard, no answer a session would
+// not also get. `TestVerbs_TheCommandLineAndTheToolSurfaceRunTheSameHandler` holds that.
+//
+// They exist because this is a command-line tool and its three verbs could not be typed. The
+// examples stood in for them with an MCP client written in Python, so every example demonstrated
+// its own harness — "to publish a result, run run.sh" — which teaches nobody anything and hid the
+// gap for as long as it was the only way anyone drove the binary.
+//
+// Reaching them from a shell grants nothing that was withheld: whoever can type this already has
+// the registry, the keys and the config on their filesystem. What the tool surface withholds from a
+// SESSION it still withholds, because the ceiling is the configuration, not the transport.
+
+// callVerb decodes one verb's arguments, runs the handler, and prints what came back.
+//
+// Unknown fields are refused rather than ignored. Over MCP the schema catches a misspelled
+// argument; at a shell nothing would, and `{"output":["x"]}` for `outputs` would publish a record
+// naming no outputs at all — signed, valid, and wrong, which is the failure this repository exists
+// to prevent one level down.
+func callVerb[In, Out any](ctx context.Context, raw, field string,
+	fn func(context.Context, *mcp.CallToolRequest, In) (*mcp.CallToolResult, Out, error)) error {
+	var in In
+	dec := json.NewDecoder(strings.NewReader(raw))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&in); err != nil {
+		return fmt.Errorf("the argument is not valid JSON for this verb: %w", err)
+	}
+	res, out, err := fn(ctx, nil, in)
+	if err != nil {
+		return err
+	}
+	// A refusal is not a crash. It is the cockpit declining, with a reason, and it leaves by a
+	// different exit code so a script can tell "you may not" from "something broke".
+	if res != nil && res.IsError {
+		for _, c := range res.Content {
+			if tc, ok := c.(*mcp.TextContent); ok {
+				fmt.Fprintln(os.Stderr, tc.Text)
+			}
+		}
+		os.Exit(2)
+	}
+	return printResult(out, field)
+}
+
+// printResult prints the whole answer, or one field of it. `--field` exists because the answers are
+// objects and a shell wants one value out of them; without it every caller grows its own JSON
+// parser, which is how an id comes to be read off a line of prose by position.
+func printResult(out any, field string) error {
+	b, err := json.MarshalIndent(out, "", "  ")
+	if err != nil {
+		return err
+	}
+	if field == "" {
+		fmt.Println(string(b))
+		return nil
+	}
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(b, &m); err != nil {
+		return err
+	}
+	v, ok := m[field]
+	if !ok {
+		// Said rather than printed as empty: a field that is not there and a field that is there
+		// and empty are different answers, and a script that cannot tell them apart will read the
+		// first as the second.
+		return fmt.Errorf("this answer has no field %q; it has %s", field, strings.Join(sortedFields(m), ", "))
+	}
+	var s string
+	if err := json.Unmarshal(v, &s); err == nil {
+		fmt.Println(s)
+		return nil
+	}
+	// Compacted, not re-printed from the indented form: a shell consumer wants one line, and the
+	// inner indentation of a nested value carries the outer document's margins with it.
+	var buf bytes.Buffer
+	if err := json.Compact(&buf, v); err != nil {
+		return err
+	}
+	fmt.Println(buf.String())
+	return nil
+}
+
+func sortedFields(m map[string]json.RawMessage) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// verbArgs splits `<json> [--field NAME]` into its two parts.
+func verbArgs(verb string, args []string) (raw, field string, err error) {
+	var rest []string
+	for i := 0; i < len(args); i++ {
+		if args[i] == "--field" {
+			if i+1 >= len(args) {
+				return "", "", fmt.Errorf("--field needs the name of a field")
+			}
+			field = args[i+1]
+			i++
+			continue
+		}
+		rest = append(rest, args[i])
+	}
+	if len(rest) != 1 {
+		return "", "", fmt.Errorf("usage: cockpit %s '<json arguments>' [--field NAME]", verb)
+	}
+	return rest[0], field, nil
+}
+
+func runVerb(ctx context.Context, verb string, args []string) error {
+	raw, field, err := verbArgs(verb, args)
+	if err != nil {
+		return err
+	}
+	switch verb {
+	case "publish":
+		return callVerb(ctx, raw, field, tools.Publish)
+	case "say":
+		return callVerb(ctx, raw, field, tools.Say)
+	case "ask":
+		return callVerb(ctx, raw, field, tools.Ask)
+	}
+	return fmt.Errorf("no verb %q", verb)
 }

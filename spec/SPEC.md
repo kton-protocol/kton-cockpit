@@ -168,10 +168,17 @@ A cockpit MUST expose exactly three verbs: `publish`, `say`, `ask`. It MUST NOT 
 MUST NOT expose the configuration, the signing keys, the registry, or a general command channel
 through any of them.
 
-Operator subcommands (`init`, `doctor`, `show`) MAY exist on the binary. They MUST NOT be reachable
-over the tool transport.
+A cockpit MAY offer those three verbs over more than one transport — this one offers them as
+subcommands and over MCP. Where it does, every transport MUST reach the same implementation: a guard
+belongs to the configuration, never to the way a call arrived, and a verb that is stricter over one
+transport than another has a ceiling that depends on who is asking.
 
-> **Checked by:** `TestAsk_UnknownQueryIsRejected`, `TestSay_RefusesATemplateOutsideTheConfiguredCeiling`.
+Operator subcommands (`init`, `doctor`, `show`, `scope`) MAY exist on the binary. They MUST NOT be
+reachable over the tool transport.
+
+> **Checked by:** `TestAsk_UnknownQueryIsRejected`,
+> `TestSay_RefusesATemplateOutsideTheConfiguredCeiling`,
+> `TestVerbs_TheGuardsApplyAtTheCommandLineToo`.
 
 ### 6.1 Which kernel
 

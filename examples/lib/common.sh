@@ -23,9 +23,15 @@ _kton_src() {
 KTON_SRC="$(_kton_src)"
 EXNAME="$(basename "$PWD")"
 
-# cockpit <verb> <json> [--field NAME] - one MCP call. Every guard in the cockpit arrives as a
-# refusal, and this exits non-zero on one, so `set -e` stops the example rather than carrying on.
-cockpit() { python3 "$EXROOT/lib/mcp.py" "$@"; }
+# cockpit - the binary in the participant repo, called the way anyone would call it.
+#
+# It is a function only so the examples do not repeat the path. Every argument after it is a real
+# argument to a real command: what an example prints is what you type. Every guard in the cockpit
+# arrives as a refusal and leaves by exit 2, so `set -e` stops the example rather than carrying on.
+#
+# The same three verbs are also the MCP tool surface, and `examples/lib/mcp.py` drives them that
+# way. Both reach the same handler — nothing here is a shortcut past a check a session would meet.
+cockpit() { "${COCKPIT_REPO_DIR:-$PWD}/bin/cockpit" "$@"; }
 
 # expect_fail <what> <cmd...> - a NEGATIVE CONTROL. It fails the example when the command SUCCEEDS.
 # Without these, an example that demonstrates a guard proves nothing: a guard that never fires and a

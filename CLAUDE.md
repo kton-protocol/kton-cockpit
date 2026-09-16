@@ -1,10 +1,11 @@
 # CLAUDE.md
 
-This is the source repository for **claude-science-cockpit**: a Go binary that gives a Claude
-session — whether that's the Claude Code CLI or claude-science (a separate, sandboxed,
-browser-UI product; see the tutorial's step 3-4 for the distinction and why it matters) — exactly
-three verbs: `cockpit_publish` (veröffentlichen), `cockpit_say` (sagen), `cockpit_ask` (fragen) —
-over MCP, for cooperating in a [kton](https://kton.dev) federation. It reimplements no
+This is the source repository for **claude-science-cockpit**: a command-line tool with exactly
+three verbs — `publish` (veröffentlichen), `say` (sagen), `ask` (fragen) — for doing work in a
+[kton](https://kton.dev) federation and leaving a record of it that somebody else can check.
+
+You type them. An agent can also call them over MCP, as `cockpit_publish`/`cockpit_say`/
+`cockpit_ask`; that is a second transport onto the same three handlers, not a second tool. It reimplements no
 plankton/nekton kernel logic: it LINKS the kernels as Go libraries and calls them. kton's own
 `kton.dev/kton` module describes that role in the same words — "the cockpit that CONDUCTS both
 kernels: it imports plankton AND nekton and reimplements nothing" — and the dependency direction
@@ -105,11 +106,30 @@ another checkout — only one built from the kton tree you mean.
 ## Subcommands
 
 ```
+cockpit publish '<json>' [--field NAME]   record a result as a signed foton
+cockpit say     '<json>' [--field NAME]   bind a claim from an allowed template
+cockpit ask     '<json>' [--field NAME]   query the graph, re-verified against configured trust
+
 cockpit mcp      start the MCP stdio server (cockpit_publish/cockpit_say/cockpit_ask)
 cockpit init     scaffold a cockpit.config.json in the current git repo (human operator only)
 cockpit doctor   validate cockpit.config.json + the repo binding (human operator only)
 cockpit show     serve this repo's records to a kton-web viewer (human operator only)
+cockpit scope    seed, seal or read a nekton scope (human operator only)
 ```
+
+The three verbs have **two transports and one implementation**: `publish`/`say`/`ask` at a shell and
+`cockpit_publish`/`cockpit_say`/`cockpit_ask` over MCP dispatch to the same three handlers, so a
+guard is the configuration's and never the transport's. `TestVerbs_TheGuardsApplyAtTheCommandLineToo`
+holds that for the anti-wrong-folder guard specifically.
+
+Reaching them from a shell grants nothing that was withheld: whoever can type them already has the
+registry, the keys and the config on their filesystem. What the tool surface withholds from a
+*session* it still withholds, because the ceiling is `cockpit.config.json`, not the transport.
+
+Two exit codes, and the difference matters to a script: **2** means the cockpit understood and
+**refused**; **1** means the call itself was wrong. At a shell nothing validates the argument the
+way an MCP tool schema does, so unknown fields are refused rather than ignored — `{"output":[…]}`
+for `outputs` would otherwise publish a record naming no outputs at all.
 
 `show` is an operator subcommand, not a fourth verb: Claude's MCP surface stays at three and cannot
 reach it. It renders nothing and parses no registry files of its own — it asks both kernels for
