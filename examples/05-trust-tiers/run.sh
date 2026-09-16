@@ -40,7 +40,15 @@ require "but it IS reported as found and excluded"   test "$(exc "$B")" = "1"
 # Asserted on the foton's ID in the structured answer, not on its command text. The lineage
 # queries report id, kind and counts — never the command — so searching for "a stranger" would
 # hold whether the record was included or not, which is a check that cannot fail.
-THEIRS_FOTON=$(./bin/plankton producer --json "$THEIRS" | python3 -c 'import json,sys; print(json.load(sys.stdin)["records"][0]["fotonId"])')
+# The id comes from `summary`, which is where kton §12 puts it: `records` is an array of bare
+# ENVELOPES, so there is no id to read off one. Taken by name rather than by position — a JSON
+# object has no order, and this query has exactly one producer.
+THEIRS_FOTON=$(./bin/plankton producer --json "$THEIRS" | python3 -c 'import json, sys
+d = json.load(sys.stdin)
+ids = list(d.get("summary", {}))
+if len(ids) != 1:
+    sys.exit("expected exactly one producer, got %d" % len(ids))
+print(ids[0])')
 absent  "and the record itself is not in the answer's included set" "$THEIRS_FOTON" \
   "$(python3 -c 'import json,sys; print(json.dumps(json.load(sys.stdin).get("fotons",[])))' <<<"$B")"
 require "though the answer does account for having found it" grep -q "$THEIRS_FOTON" <<<"$B"

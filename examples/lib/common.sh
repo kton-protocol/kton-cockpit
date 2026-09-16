@@ -9,7 +9,18 @@ set -euo pipefail
 
 EXROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"   # examples/
 REPO="$(cd "$EXROOT/.." && pwd)"                            # the cockpit checkout
-KTON_SRC="${KTON_SRC:-$(dirname "$REPO")/kton}"
+# A sibling `kton-pinned` before `kton`, for the reason internal/testrepo prefers it: the second is
+# somebody's WORKING TREE, so every intermediate state of their work becomes a build input here —
+# and an example then runs against a kernel the pin in CLAUDE.md does not name. That is how three
+# examples came to fail on a wire form nothing in this repository had been tested against.
+_kton_src() {
+  local root; root="$(dirname "$REPO")"
+  for c in "${KTON_SRC:-}" "$root/kton-pinned" "$root/kton"; do
+    [ -n "$c" ] && [ -d "$c/reference/cmd/plankton" ] && { echo "$c"; return; }
+  done
+  echo "${KTON_SRC:-$root/kton}"
+}
+KTON_SRC="$(_kton_src)"
 EXNAME="$(basename "$PWD")"
 
 # cockpit <verb> <json> [--field NAME] - one MCP call. Every guard in the cockpit arrives as a
