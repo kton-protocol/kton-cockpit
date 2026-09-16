@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/deathbychoco/claude-science-cockpit/internal/testrepo"
+	"github.com/kton-protocol/kton-cockpit/internal/testrepo"
 )
 
 // A scope is what turns a session's claims from a pile into one object. These cover the whole of

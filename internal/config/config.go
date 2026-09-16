@@ -1,9 +1,9 @@
 // Package config loads and validates cockpit.config.json — the static ceiling the cockpit applies
-// on every call. It is never written by the cockpit itself, and no tool exposes it: Claude cannot
+// on every call. It is never written by the cockpit itself, and no tool exposes it: a session cannot
 // read or change it through publish, say or ask.
 //
 // One path had to be closed to keep that true. With execution configured the cockpit mounts the
-// repository into a container and runs a Claude-supplied command there, and the config sits inside
+// repository into a container and runs a caller-supplied command there, and the config sits inside
 // that mount. It is masked — see internal/container's maskArgs — along with the keys, the binaries,
 // the registry and .git. Without that, "no tool reaches it" would have been a statement about the
 // tool surface that the tool surface itself had made untrue.
@@ -91,10 +91,10 @@ type Trust struct {
 //
 // Deliberately config, not a tool argument. Both fields are COVERED — they ride in the foton's
 // descriptor into its id, so they are part of what a reproduction commits to re-executing. A value
-// supplied per-call by Claude would therefore be a self-declared, unverified assertion about which
+// supplied per-call by the caller would therefore be a self-declared, unverified assertion about which
 // environment ran, baked into the record's identity; the same class of thing this project refuses
 // everywhere else (see how say computes the reproduction level itself). The human operator knows
-// which environment their cockpit runs in; Claude does not.
+// which environment their cockpit runs in; a session does not.
 type Environment struct {
 	// Spectrum is the qualified env-spectrum id (`plankton author --environment`), which must be a
 	// content hash. It QUALIFIES an environment; it does not name an exact one.
@@ -205,7 +205,7 @@ func (u Union) DirOrDefault() string {
 	return u.Dir
 }
 
-// Git controls whether the cockpit commits and pushes on Claude's behalf. Both default to on;
+// Git controls whether the cockpit commits and pushes on the caller's behalf. Both default to on;
 // omitting the block entirely keeps the behaviour every existing repo has.
 //
 // This does NOT touch the anti-wrong-folder guard. That check reads the repo's own `origin` remote
@@ -246,7 +246,7 @@ type Execution struct {
 	Image string `json:"image,omitempty"`
 	// Network allows the container to reach the network. Default false: a run that reaches the
 	// internet depended on something the foton does not pin, so its environment claim is weaker —
-	// and inside claude-science's sandbox, where the cockpit is Claude's entire surface, it is also
+	// and inside a sandboxed agent host, where the cockpit is the session's entire surface, it is also
 	// the cheapest way out of it. Publishing records when this was on.
 	Network bool `json:"network,omitempty"`
 }
@@ -343,7 +343,7 @@ type Config struct {
 // If the COCKPIT_REPO_DIR environment variable is set, it replaces startDir. This exists for MCP
 // client runtimes that give no way to pin a spawned local command's working directory (e.g. a
 // managed sandbox with no shell available to `cd` first) — the human operator sets it once, in
-// the same place they'd configure the command itself, so it is not something Claude can reach or
+// the same place they'd configure the command itself, so it is not something a session can reach or
 // change at runtime. This is not the kind of ambient env var this guard exists to distrust
 // (PLANKTON_DIR/NEKTON_DIR/etc. are still always derived from the resolved repo root, never from
 // the environment) — it only answers "which repo," never "which registry paths within it."

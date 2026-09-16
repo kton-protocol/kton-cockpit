@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# 04 - what Claude may say, and what it may not decide.
+# 04 - what a session may say, and what it may not decide.
 #
-# cockpit_say binds a claim from a FIXED set of templates. Claude picks one and fills its fields; it
+# cockpit_say binds a claim from a FIXED set of templates. The caller picks one and fills its fields; it
 # cannot invent a claim shape. And for `reproduces` it cannot state the level either — the cockpit
 # runs the check itself and records what that answers.
 cd "$(dirname "$0")"

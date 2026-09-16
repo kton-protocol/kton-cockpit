@@ -11,9 +11,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/deathbychoco/claude-science-cockpit/internal/config"
-	"github.com/deathbychoco/claude-science-cockpit/internal/show"
-	"github.com/deathbychoco/claude-science-cockpit/internal/testrepo"
+	"github.com/kton-protocol/kton-cockpit/internal/config"
+	"github.com/kton-protocol/kton-cockpit/internal/show"
+	"github.com/kton-protocol/kton-cockpit/internal/testrepo"
 )
 
 // showServer starts the data server over a fixture that already holds a foton and a claim.

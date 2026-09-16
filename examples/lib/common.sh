@@ -11,7 +11,7 @@ EXROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"   # examples/
 REPO="$(cd "$EXROOT/.." && pwd)"                            # the cockpit checkout
 # A sibling `kton-pinned` before `kton`, for the reason internal/testrepo prefers it: the second is
 # somebody's WORKING TREE, so every intermediate state of their work becomes a build input here —
-# and an example then runs against a kernel the pin in CLAUDE.md does not name. That is how three
+# and an example then runs against a kernel the pin in AGENTS.md does not name. That is how three
 # examples came to fail on a wire form nothing in this repository had been tested against.
 _kton_src() {
   local root; root="$(dirname "$REPO")"

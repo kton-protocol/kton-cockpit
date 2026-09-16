@@ -113,7 +113,7 @@ func ktonSrc(t *testing.T) string {
 	// work a build input here, and a multi-step refactor upstream will at some point not compile —
 	// which is not their mistake but this repository's, for reading a directory nobody promised
 	// would be buildable. `kton-pinned` is a checkout this repo controls, parked on the commit
-	// CLAUDE.md names, which is also what CI does. KTON_SRC still overrides both.
+	// AGENTS.md names, which is also what CI does. KTON_SRC still overrides both.
 	candidates := []string{os.Getenv("KTON_SRC")}
 	root := filepath.Dir(cockpitRoot(t))
 	candidates = append(candidates,

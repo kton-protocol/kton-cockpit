@@ -6,18 +6,18 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/deathbychoco/claude-science-cockpit/internal/anchor"
-	"github.com/deathbychoco/claude-science-cockpit/internal/binaries"
-	"github.com/deathbychoco/claude-science-cockpit/internal/config"
-	"github.com/deathbychoco/claude-science-cockpit/internal/gitops"
-	"github.com/deathbychoco/claude-science-cockpit/internal/material"
-	"github.com/deathbychoco/claude-science-cockpit/internal/show"
+	"github.com/kton-protocol/kton-cockpit/internal/anchor"
+	"github.com/kton-protocol/kton-cockpit/internal/binaries"
+	"github.com/kton-protocol/kton-cockpit/internal/config"
+	"github.com/kton-protocol/kton-cockpit/internal/gitops"
+	"github.com/kton-protocol/kton-cockpit/internal/material"
+	"github.com/kton-protocol/kton-cockpit/internal/show"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // SayInput is cockpit_say's argument shape — the "sagen" verb: bind a claim, from an allowed
-// template, to a foton or file. Claude names a template and supplies field values; for the
-// "reproduces" template specifically, the cockpit — not Claude — determines the resulting
+// template, to a foton or file. The caller names a template and supplies field values; for the
+// "reproduces" template specifically, the cockpit — not the caller — determines the resulting
 // level/reproducedBy fields by actually running the reproduction precondition.
 type SayInput struct {
 	Subject  string            `json:"subject" jsonschema:"the sha256 foton id or hash the claim is about"`
@@ -26,8 +26,8 @@ type SayInput struct {
 
 	// reproduces-only fields: the cockpit computes level/reproducedBy itself from these.
 	SubjectOutputHash string `json:"subjectOutputHash,omitempty" jsonschema:"output hash of the producer foton being reproduced (reproduces template only)"`
-	ReproducedOutput  string `json:"reproducedOutput,omitempty" jsonschema:"repo-relative path of Claude's own output file that reproduces the subject (reproduces template only)"`
-	ReproducedFotonID string `json:"reproducedFotonId,omitempty" jsonschema:"foton id of Claude's own producer foton for reproducedOutput (reproduces template only)"`
+	ReproducedOutput  string `json:"reproducedOutput,omitempty" jsonschema:"repo-relative path of the caller's own output file that reproduces the subject (reproduces template only)"`
+	ReproducedFotonID string `json:"reproducedFotonId,omitempty" jsonschema:"foton id of the caller's own producer foton for reproducedOutput (reproduces template only)"`
 	Via               string `json:"via,omitempty" jsonschema:"optional shared normalizer ref, for an L1 (not L0) reproduction"`
 
 	// Scope names one of the scopes this repo configures, chaining the claim into that
@@ -171,7 +171,7 @@ func Say(ctx context.Context, _ *mcp.CallToolRequest, in SayInput) (*mcp.CallToo
 }
 
 // determineReproductionLevel runs the reproduction precondition itself (never trusting a
-// self-declared level from Claude) and returns either the achieved level ("L0"/"L1") or, as
+// self-declared level from the caller) and returns either the achieved level ("L0"/"L1") or, as
 // its second return value, a non-empty error message.
 func determineReproductionLevel(ctx context.Context, cfg *config.Config, r *binaries.Runner, in SayInput) (level string, errMsg string) {
 	if in.SubjectOutputHash == "" || in.ReproducedOutput == "" || in.ReproducedFotonID == "" {

@@ -1,4 +1,4 @@
-module github.com/deathbychoco/claude-science-cockpit
+module github.com/kton-protocol/kton-cockpit
 
 go 1.25.0
 

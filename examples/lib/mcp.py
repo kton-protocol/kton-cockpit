@@ -4,7 +4,7 @@
     mcp.py <tool> '<json arguments>' [--field NAME]
 
 The cockpit exposes its three verbs over MCP and nowhere else, so the examples speak MCP rather
-than reaching for the binaries underneath: what they demonstrate is what a Claude session actually
+than reaching for the binaries underneath: what they demonstrate is what a session actually
 gets, not an approximation assembled from plankton and git.
 
 Exits non-zero when the cockpit refuses, printing its reason. That matters more than it looks —

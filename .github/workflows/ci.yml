@@ -2,7 +2,7 @@ name: ci
 
 # Two jobs, and the split is the point.
 #
-# `test` runs against the kernel commit CLAUDE.md names. That is the claim this repository makes
+# `test` runs against the kernel commit AGENTS.md names. That is the claim this repository makes
 # about itself, so it is the one that gates a merge.
 #
 # `kernel-dev` runs the same suite against kton `dev` HEAD and is allowed to fail. kton's `dev`
@@ -33,20 +33,20 @@ jobs:
         with:
           path: cockpit
 
-      # The pin is read from CLAUDE.md rather than duplicated here. Two places naming a commit is
+      # The pin is read from AGENTS.md rather than duplicated here. Two places naming a commit is
       # two places to forget, and `TestVerifiedAgainst` already fails when that line disagrees with
       # what the binaries were built from — so CI and the suite check the same single statement.
-      - name: Read the kernel commit CLAUDE.md pins
+      - name: Read the kernel commit AGENTS.md pins
         id: pin
         working-directory: cockpit
         run: |
-          sha=$(sed -n 's/^\*\*Verified against:\*\* kton `dev` at `\([0-9a-f]\{7,40\}\)`.*/\1/p' CLAUDE.md)
-          [ -n "$sha" ] || { echo "CLAUDE.md has no 'Verified against' pin" >&2; exit 1; }
+          sha=$(sed -n 's/^\*\*Verified against:\*\* kton `dev` at `\([0-9a-f]\{7,40\}\)`.*/\1/p' AGENTS.md)
+          [ -n "$sha" ] || { echo "AGENTS.md has no 'Verified against' pin" >&2; exit 1; }
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
           echo "pinned kton: $sha"
 
       # Checked out as `dev` and then moved to the pinned commit, rather than passing the commit as
-      # `ref`: CLAUDE.md pins a SHORT sha, and actions/checkout resolves a ref by fetching it, which
+      # `ref`: AGENTS.md pins a SHORT sha, and actions/checkout resolves a ref by fetching it, which
       # a 7-character sha is not. Full history so the object is present to check out — and so Go can
       # stamp vcs.revision, which is what TestVerifiedAgainst compares the pin against.
       - uses: actions/checkout@v4
@@ -84,7 +84,7 @@ jobs:
         run: go test ./...
 
       # Asserted rather than assumed. "Nothing in the default suite skips" is a property this
-      # repository states in CLAUDE.md, and a suite that quietly degrades to skips is precisely how
+      # repository states in AGENTS.md, and a suite that quietly degrades to skips is precisely how
       # it previously spent months reporting success while exercising none of the handlers.
       - name: no skips in the default suite
         working-directory: cockpit
@@ -113,8 +113,8 @@ jobs:
       - id: pin
         working-directory: cockpit
         run: |
-          sha=$(sed -n 's/^\*\*Verified against:\*\* kton `dev` at `\([0-9a-f]\{7,40\}\)`.*/\1/p' CLAUDE.md)
-          [ -n "$sha" ] || { echo "CLAUDE.md has no 'Verified against' pin" >&2; exit 1; }
+          sha=$(sed -n 's/^\*\*Verified against:\*\* kton `dev` at `\([0-9a-f]\{7,40\}\)`.*/\1/p' AGENTS.md)
+          [ -n "$sha" ] || { echo "AGENTS.md has no 'Verified against' pin" >&2; exit 1; }
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
       # Same short-sha reason as the job above.
       - uses: actions/checkout@v4
@@ -163,11 +163,11 @@ jobs:
 
       - name: how far has dev moved
         run: |
-          pinned=$(sed -n 's/^\*\*Verified against:\*\* kton `dev` at `\([0-9a-f]\{7,40\}\)`.*/\1/p' cockpit/CLAUDE.md)
+          pinned=$(sed -n 's/^\*\*Verified against:\*\* kton `dev` at `\([0-9a-f]\{7,40\}\)`.*/\1/p' cockpit/AGENTS.md)
           head=$(git -C kton rev-parse --short HEAD)
           echo "pinned: $pinned   dev HEAD: $head"
           if [ "$pinned" != "$head" ]; then
-            echo "::notice::kton dev has moved from $pinned to $head — rebuild, re-run, and update CLAUDE.md's pin in the same commit"
+            echo "::notice::kton dev has moved from $pinned to $head — rebuild, re-run, and update AGENTS.md's pin in the same commit"
             git -C kton log --oneline "$pinned..HEAD" | head -40 || true
           fi
 

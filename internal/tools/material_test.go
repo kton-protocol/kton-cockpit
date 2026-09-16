@@ -19,9 +19,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/deathbychoco/claude-science-cockpit/internal/config"
-	"github.com/deathbychoco/claude-science-cockpit/internal/material"
-	"github.com/deathbychoco/claude-science-cockpit/internal/testrepo"
+	"github.com/kton-protocol/kton-cockpit/internal/config"
+	"github.com/kton-protocol/kton-cockpit/internal/material"
+	"github.com/kton-protocol/kton-cockpit/internal/testrepo"
 )
 
 // These cover the whole carried-evidence path against the real kernel: a certificate issued for the

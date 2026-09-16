@@ -9,17 +9,17 @@ import (
 	"strings"
 	"time"
 
-	"github.com/deathbychoco/claude-science-cockpit/internal/anchor"
-	"github.com/deathbychoco/claude-science-cockpit/internal/binaries"
-	"github.com/deathbychoco/claude-science-cockpit/internal/config"
-	"github.com/deathbychoco/claude-science-cockpit/internal/container"
-	"github.com/deathbychoco/claude-science-cockpit/internal/gitops"
-	"github.com/deathbychoco/claude-science-cockpit/internal/material"
-	"github.com/deathbychoco/claude-science-cockpit/internal/show"
+	"github.com/kton-protocol/kton-cockpit/internal/anchor"
+	"github.com/kton-protocol/kton-cockpit/internal/binaries"
+	"github.com/kton-protocol/kton-cockpit/internal/config"
+	"github.com/kton-protocol/kton-cockpit/internal/container"
+	"github.com/kton-protocol/kton-cockpit/internal/gitops"
+	"github.com/kton-protocol/kton-cockpit/internal/material"
+	"github.com/kton-protocol/kton-cockpit/internal/show"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// PublishInput is cockpit_publish's argument shape — the "veröffentlichen" verb. Claude supplies
+// PublishInput is cockpit_publish's argument shape — the "veröffentlichen" verb. The caller supplies
 // plain repo-relative paths and the command that was run; the cockpit owns every permalink,
 // commit, and signature.
 type PublishInput struct {
@@ -114,11 +114,11 @@ func Publish(ctx context.Context, _ *mcp.CallToolRequest, in PublishInput) (*mcp
 	r := binaries.New(cfg)
 	allPaths := append(append([]string{}, in.Inputs...), in.Outputs...)
 
-	// Claude only gets three narrow verbs; the cockpit owns key hygiene — but without this check,
+	// a session only gets three narrow verbs; the cockpit owns key hygiene — but without this check,
 	// publish is a general "commit and push any path in this repo" primitive, since git itself
 	// doesn't care whether a staged path is a signing key. Validate every input/output path BEFORE
 	// touching git or plankton at all, and report every denied path at once (not just the first),
-	// so a Claude retry can fix everything in one pass.
+	// so a retry can fix everything in one pass.
 	//
 	// It runs before the container too, and that ordering is the point once this repo executes: a
 	// run is the first thing that touches anything, so a path denied here is denied before a
@@ -206,7 +206,7 @@ func Publish(ctx context.Context, _ *mcp.CallToolRequest, in PublishInput) (*mcp
 		Cmd:     in.Cmd,
 		Located: located,
 		SignKey: cfg.PlanktonKey,
-		// From the config, never from Claude: both values are COVERED, so a self-declared one
+		// From the config, never from the caller: both values are COVERED, so a self-declared one
 		// would bake an unverified assertion about which environment ran into the record's own
 		// identity. See config.Environment.
 		Environment: cfg.Raw.Environment.Spectrum,
@@ -304,7 +304,7 @@ func Publish(ctx context.Context, _ *mcp.CallToolRequest, in PublishInput) (*mcp
 //
 // The caller names it, because only the caller knows: a session can work across many containers, so
 // no configured value could be right for all of them. It is a claim, like the inputs, the outputs
-// and the command already are — Claude names those too, and the cockpit only hashes the files it is
+// and the command already are — the caller names those too, and the cockpit only hashes the files it is
 // pointed at. An omitted input would be a more consequential false statement than a wrong envRef,
 // and nothing prevents that either. What makes any of it trustworthy is the signature, not a check
 // the cockpit could not perform anyway.

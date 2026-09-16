@@ -11,8 +11,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/deathbychoco/claude-science-cockpit/internal/config"
-	"github.com/deathbychoco/claude-science-cockpit/internal/testrepo"
+	"github.com/kton-protocol/kton-cockpit/internal/config"
+	"github.com/kton-protocol/kton-cockpit/internal/testrepo"
 )
 
 // These cover this side of the network: the record's envelope is found by id and handed to kton,

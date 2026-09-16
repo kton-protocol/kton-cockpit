@@ -28,7 +28,7 @@ anything real.
 | [01-publish](01-publish/) | one call, and everything the caller did *not* have to do |
 | [02-chain](02-chain/) | two steps join by a shared hash, and nothing declares the link |
 | [03-anti-wrong-folder](03-anti-wrong-folder/) | the guard, and what it deliberately does not catch |
-| [04-claim-ceiling](04-claim-ceiling/) | the claim shapes Claude may use, and the level it cannot state |
+| [04-claim-ceiling](04-claim-ceiling/) | the claim shapes a session may use, and the level it cannot state |
 | [05-trust-tiers](05-trust-tiers/) | verified, not declared — the record does not change, the config does |
 | [06-reproduce](06-reproduce/) | reproducing adds a signature, not a record |
 | [07-run-in-container](07-run-in-container/) | the environment pin stops being a claim (needs docker) |

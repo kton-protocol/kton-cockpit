@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/deathbychoco/claude-science-cockpit/internal/binaries"
+	"github.com/kton-protocol/kton-cockpit/internal/binaries"
 )
 
 // The linked authoring path and `plankton author` must produce the SAME foton id.

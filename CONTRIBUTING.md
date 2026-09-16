@@ -1,6 +1,6 @@
 # Contributing
 
-Start with [`CLAUDE.md`](CLAUDE.md) for building and testing, and
+Start with [`AGENTS.md`](AGENTS.md) for building and testing, and
 [`spec/SPEC.md`](spec/SPEC.md) for what the cockpit actually guarantees.
 
 ## The three rules that are not style preferences
@@ -28,12 +28,12 @@ negative control — three refusals prove nothing if the same call also fails wh
 taken from `$PATH` or a package manager: an older binary reads the current store layout as empty
 and exits 0, so the wrong kernel looks like an empty registry rather than an error.
 
-CLAUDE.md's `**Verified against:**` line names the kton commit the suite ran against, and
+AGENTS.md's `**Verified against:**` line names the kton commit the suite ran against, and
 `TestVerifiedAgainst` compares it to the `vcs.revision` Go stamped into the binary. CI reads the
 same line. When upstream has moved, rebuild, re-run, and update that line in the same commit.
 
 After rebuilding the kernel, run that check with `-count=1`. Go's test cache does not track
-`bin/plankton` or `CLAUDE.md` as inputs, so it can serve a stale pass for exactly the claim the
+`bin/plankton` or `AGENTS.md` as inputs, so it can serve a stale pass for exactly the claim the
 test exists to keep honest. CI runs on a fresh runner with no cache.
 
 ## What not to add

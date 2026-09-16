@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/deathbychoco/claude-science-cockpit/internal/config"
-	"github.com/deathbychoco/claude-science-cockpit/internal/testrepo"
+	"github.com/kton-protocol/kton-cockpit/internal/config"
+	"github.com/kton-protocol/kton-cockpit/internal/testrepo"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -262,7 +262,7 @@ func TestSay_RefusesATemplateOutsideTheConfiguredCeiling(t *testing.T) {
 	}
 }
 
-// The cockpit runs the reproduction precondition itself rather than believing a level Claude
+// The cockpit runs the reproduction precondition itself rather than believing a level the caller
 // supplies. Outputs that do not match must not produce a claim at all.
 func TestSay_ReproducesRefusesWhenTheOutputsDoNotMatch(t *testing.T) {
 	r := testrepo.New(t)

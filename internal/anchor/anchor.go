@@ -30,8 +30,8 @@ import (
 	"kton.dev/kton/sigstore"
 	"kton.dev/plankton/core"
 
-	"github.com/deathbychoco/claude-science-cockpit/internal/binaries"
-	"github.com/deathbychoco/claude-science-cockpit/internal/config"
+	"github.com/kton-protocol/kton-cockpit/internal/binaries"
+	"github.com/kton-protocol/kton-cockpit/internal/config"
 )
 
 // Kind selects which substrate holds the record, which decides both the pubkey to anchor under and
@@ -172,7 +172,7 @@ func live(ctx context.Context, cfg *config.Config, env core.Envelope, verifierPE
 // So: a pinned key from the config is always used; a custom endpoint with no pinned key is REFUSED;
 // only the well-known public Rekor falls back to the fetched key, and then with the caveat said out
 // loud. This is the kernel's own policy, applied from the config rather than from the environment —
-// which is the line this cockpit draws (CLAUDE.md, "What not to add here").
+// which is the line this cockpit draws (AGENTS.md, "What not to add here").
 func trustedRekorPub(cfg *config.Config) (*ecdsa.PublicKey, error) {
 	if pin := cfg.Raw.Anchor.RekorPubkey; pin != "" {
 		txt := pin

@@ -1,7 +1,7 @@
 ---
 title: "Run the published command in a pinned container, so the environment is derived rather than declared"
 type: "decision"
-project: "claude-science-cockpit"
+project: "kton-cockpit"
 date: 2026-09-02
 status: "accepted"
 tags: [architecture, execution, environment, reproducibility, security]
@@ -17,14 +17,14 @@ tags: [architecture, execution, environment, reproducibility, security]
 ## Context
 
 `cockpit_publish` records a command. It does not run one — `plankton author` says so of itself
-("RECORDS --cmd as a label; never runs it"), and the cockpit inherited that: Claude executes the
+("RECORDS --cmd as a label; never runs it"), and the cockpit inherited that: the caller executes the
 work by whatever means it has, then tells the cockpit what it ran.
 
 Since ADR-002's successor work the cockpit also pins the execution environment into the foton, via
 `plankton author --env-ref`. That value is COVERED — it rides in the descriptor into the foton id,
 so two runs of the same command in different pinned environments are different fotons and a
 reproduction commits to re-executing in the pinned one. It comes from `cockpit.config.json` rather
-than from a tool argument, precisely because a Claude-supplied value would be an unverified
+than from a tool argument, precisely because a caller-supplied value would be an unverified
 assertion baked into the record's identity.
 
 But a configured value is still a *declaration*. The operator writes "we run in image X"; nothing
@@ -71,7 +71,7 @@ false record waiting to be signed.
 ### Why this does not breach "Nicht bauen"
 
 - **No fourth verb.** Execution happens inside `cockpit_publish`, which already takes `cmd`. The
-  tool surface Claude sees does not grow.
+  tool surface a session sees does not grow.
 - **No reimplemented kernel logic.** Canonicalisation, hashing, signing and verification stay with
   the binaries. The cockpit gains one more thing it shells out to.
 - **Still deletable.** With `bin/cockpit` removed, the same operation remains runnable by hand:
@@ -81,9 +81,8 @@ false record waiting to be signed.
 
 ### What genuinely changes, and it is not small
 
-The cockpit becomes able to **execute**, not only record. In the Claude Code CLI that adds little —
-Claude has Bash there anyway. In claude-science it adds a great deal: the cockpit is the *entire*
-surface Claude has, deliberately three verbs and nothing else, and this puts arbitrary command
+The cockpit becomes able to **execute**, not only record. At an ordinary shell that adds little — the caller has one anyway. In a sandboxed agent host it
+adds a great deal: the cockpit is the *entire* surface a session has, deliberately three verbs and nothing else, and this puts arbitrary command
 execution behind one of them. The container is the boundary that keeps that acceptable, which is
 why its constraints are part of the decision and not a detail:
 
@@ -144,12 +143,12 @@ The two are alternatives, not a hierarchy, and a repo may use either.
 
 **Naming it.** `cockpit_publish` takes an optional `envRef`: the caller says which container the
 work ran in, and the cockpit records that. This is the normal case, and the only one that can work
-when a session moves between many containers — as claude-science does, starting containers from
+when a session moves between many containers — as a sandboxed agent host does, starting containers from
 images the operator brings. No configured value could be right for all of them, so the value belongs
 in the call.
 
 That it is a claim is not a weakness to be engineered around. The inputs, the outputs and the
-command are already claims: Claude names the paths, and the cockpit hashes the files it is pointed
+command are already claims: the caller names the paths, and the cockpit hashes the files it is pointed
 at. An omitted input would be a more consequential false statement than a wrong `envRef`, and
 nothing prevents that either. A foton is a signed statement about what someone did; the hashes make
 inputs and outputs checkable, the signature makes the signer accountable for the rest. plankton says
@@ -158,7 +157,7 @@ the same of the command: it RECORDS it, and never runs it.
 **Running it.** With `execution.image` configured, the cockpit starts the container itself. The
 environment then stops being a claim and becomes an observation — the string handed to the runtime
 and the string pinned into the foton are the same string. This is for a session with a shell in an
-environment nobody pinned, such as the Claude Code CLI on a laptop.
+environment nobody pinned, such as an ordinary shell on a laptop.
 
 The one thing the cockpit will not do is record an environment other than the one it ran in: with
 execution configured, an `envRef` naming something else is refused rather than preferred either way.

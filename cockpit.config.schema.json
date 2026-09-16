@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/deathbychoco/claude-science-cockpit/cockpit.config.schema.json",
+  "$id": "https://github.com/kton-protocol/kton-cockpit/cockpit.config.schema.json",
   "title": "cockpit.config.json",
-  "description": "Static, per-repo configuration for the Claude-Science-Cockpit. Never written by the cockpit itself; Claude never sees or edits it through any MCP tool. See projectdocs/claude-science-cockpit/phases/design/cockpit-config-schema.md for the full design rationale.",
+  "description": "Static, per-repo configuration for the kton-cockpit. Never written by the cockpit itself; a session never sees or edits it through any MCP tool. See projectdocs/kton-cockpit/phases/design/cockpit-config-schema.md for the full design rationale.",
   "type": "object",
   "required": ["repo", "paths", "identity", "verbs", "claims", "trust", "reproduction"],
   "additionalProperties": false,
@@ -44,7 +44,7 @@
     },
     "verbs": {
       "type": "object",
-      "description": "Which of the three verbs are active. Claude has no way to enable a disabled verb.",
+      "description": "Which of the three verbs are active. a session has no way to enable a disabled verb.",
       "required": ["publish", "say", "ask"],
       "additionalProperties": false,
       "properties": {
@@ -55,7 +55,7 @@
     },
     "claims": {
       "type": "object",
-      "description": "The claim-template ceiling for cockpit_say. Claude can request one of these; it can never invent a new claim shape.",
+      "description": "The claim-template ceiling for cockpit_say. a session can request one of these; it can never invent a new claim shape.",
       "required": ["allowedTemplates"],
       "additionalProperties": false,
       "properties": {
@@ -97,7 +97,7 @@
     },
     "git": {
       "type": "object",
-      "description": "Whether the cockpit commits and pushes on Claude's behalf. Both default to true; omit the block to keep the behaviour every existing repo has. This does NOT affect the anti-wrong-folder guard, which reads the repo's own origin remote on every call regardless — turning commits off makes the cockpit stop WRITING to git, never stop CHECKING which repo it is in.",
+      "description": "Whether the cockpit commits and pushes on the caller's behalf. Both default to true; omit the block to keep the behaviour every existing repo has. This does NOT affect the anti-wrong-folder guard, which reads the repo's own origin remote on every call regardless — turning commits off makes the cockpit stop WRITING to git, never stop CHECKING which repo it is in.",
       "additionalProperties": false,
       "properties": {
         "commit": { "type": "boolean", "description": "When false, records are signed and registered but the files they describe are not committed. The foton stays valid — a foton never implied its bytes were published anywhere — but it carries no locators, because the commit a permalink would pin does not exist, and a locator pinned to some other commit points at bytes that are not there. Turning this off turns pushing off with it." },
@@ -156,12 +156,12 @@
       "properties": {
         "engine": { "type": "string", "description": "The container runtime executable. Defaults to \"docker\"." },
         "image": { "type": "string", "description": "The digest-pinned OCI reference to run in, e.g. oci://ghcr.io/org/x@sha256:<digest>. Setting it is what enables execution. A reference without a digest is refused: a tag names whatever it points at today, so running \"in that image\" would pin nothing. If environment.envRef is also set it must be this same value, since the cockpit would otherwise run in one environment and record another." },
-        "network": { "type": "boolean", "description": "Allow the container to reach the network. Default false. A run that reaches the internet depended on something the foton does not pin, so its environment claim is weaker — and inside claude-science's sandbox, where the cockpit is Claude's entire surface, it is also the cheapest way out of it. cockpit_publish reports when a run was not isolated." }
+        "network": { "type": "boolean", "description": "Allow the container to reach the network. Default false. A run that reaches the internet depended on something the foton does not pin, so its environment claim is weaker — and inside a sandboxed agent host, where the cockpit is the session's entire surface, it is also the cheapest way out of it. cockpit_publish reports when a run was not isolated." }
       }
     },
     "reproduction": {
       "type": "object",
-      "description": "The reproduction precondition policy cockpit_say runs itself before writing a reproduces claim's level field — never self-declared by Claude.",
+      "description": "The reproduction precondition policy cockpit_say runs itself before writing a reproduces claim's level field — never self-declared by the caller.",
       "required": ["requiredLevel"],
       "additionalProperties": false,
       "properties": {

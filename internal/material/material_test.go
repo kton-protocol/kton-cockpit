@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/deathbychoco/claude-science-cockpit/internal/binaries"
+	"github.com/kton-protocol/kton-cockpit/internal/binaries"
 )
 
 // mkCert issues a certificate for pub, signed by the given issuer (self-signed when issuerCert is

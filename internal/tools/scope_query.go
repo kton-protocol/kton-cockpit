@@ -7,10 +7,10 @@ package tools
 import (
 	"context"
 
-	"github.com/deathbychoco/claude-science-cockpit/internal/binaries"
-	"github.com/deathbychoco/claude-science-cockpit/internal/config"
-	"github.com/deathbychoco/claude-science-cockpit/internal/scope"
-	"github.com/deathbychoco/claude-science-cockpit/internal/verify"
+	"github.com/kton-protocol/kton-cockpit/internal/binaries"
+	"github.com/kton-protocol/kton-cockpit/internal/config"
+	"github.com/kton-protocol/kton-cockpit/internal/scope"
+	"github.com/kton-protocol/kton-cockpit/internal/verify"
 )
 
 // SealVerdict is what a reader needs before relying on a scope. Aliased rather than redefined so

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/deathbychoco/claude-science-cockpit/internal/testrepo"
+	"github.com/kton-protocol/kton-cockpit/internal/testrepo"
 )
 
 // The three verbs are the whole point of the binary and, until they were added as subcommands,

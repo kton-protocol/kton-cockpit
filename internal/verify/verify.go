@@ -22,8 +22,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/deathbychoco/claude-science-cockpit/internal/binaries"
-	"github.com/deathbychoco/claude-science-cockpit/internal/config"
+	"github.com/kton-protocol/kton-cockpit/internal/binaries"
+	"github.com/kton-protocol/kton-cockpit/internal/config"
 	"kton.dev/plankton/core"
 )
 

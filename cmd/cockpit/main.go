@@ -1,4 +1,4 @@
-// Command cockpit is the Claude-Science-Cockpit: it exposes exactly three verbs to Claude
+// Command cockpit is the kton-cockpit: it exposes exactly three verbs
 // (publish/say/ask) over MCP, and reimplements no plankton/nekton kernel logic — every mutation
 // and query shells out to the vendored bin/plankton, bin/nekton binaries.
 package main
@@ -16,12 +16,12 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/deathbychoco/claude-science-cockpit/internal/binaries"
-	"github.com/deathbychoco/claude-science-cockpit/internal/config"
-	"github.com/deathbychoco/claude-science-cockpit/internal/container"
-	"github.com/deathbychoco/claude-science-cockpit/internal/material"
-	"github.com/deathbychoco/claude-science-cockpit/internal/show"
-	"github.com/deathbychoco/claude-science-cockpit/internal/tools"
+	"github.com/kton-protocol/kton-cockpit/internal/binaries"
+	"github.com/kton-protocol/kton-cockpit/internal/config"
+	"github.com/kton-protocol/kton-cockpit/internal/container"
+	"github.com/kton-protocol/kton-cockpit/internal/material"
+	"github.com/kton-protocol/kton-cockpit/internal/show"
+	"github.com/kton-protocol/kton-cockpit/internal/tools"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -57,7 +57,7 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprint(os.Stderr, `cockpit - Claude-Science-Cockpit
+	fmt.Fprint(os.Stderr, `cockpit - kton-cockpit
 
 usage:
   cockpit publish '<json>' [--field NAME]   record a result as a signed foton
@@ -70,14 +70,14 @@ usage:
   cockpit show     serve this repo's records to a kton-web viewer
                    [addr] [--web <kton-web checkout>|$KTON_WEB]
 
-Claude never invokes 'init'/'doctor'/'show' — they are for the human operator setting up or
+a session never invokes 'init'/'doctor'/'show' — they are for the human operator setting up or
 inspecting a participant repo. Only 'mcp' is registered as the tool surface (via .mcp.json), and
 it exposes exactly three verbs.
 `)
 }
 
 func runMCP(ctx context.Context) error {
-	server := mcp.NewServer(&mcp.Implementation{Name: "claude-science-cockpit", Version: "0.1.0"}, nil)
+	server := mcp.NewServer(&mcp.Implementation{Name: "kton-cockpit", Version: "0.1.0"}, nil)
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "cockpit_publish",
@@ -169,7 +169,7 @@ func runInit(ctx context.Context) error {
 }
 
 // runShow serves this repo's records to a kton-web viewer. It is an operator subcommand alongside
-// init and doctor — NOT a fourth verb: Claude's MCP surface is unchanged at three, and nothing here
+// init and doctor — NOT a fourth verb: the MCP surface is unchanged at three, and nothing here
 // is reachable from it.
 func runShow(ctx context.Context, args []string) error {
 	// Loopback, not every interface. ":8377" would bind all of them while the URL printed below says

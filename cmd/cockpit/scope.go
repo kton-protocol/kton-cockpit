@@ -21,10 +21,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/deathbychoco/claude-science-cockpit/internal/binaries"
-	"github.com/deathbychoco/claude-science-cockpit/internal/config"
-	"github.com/deathbychoco/claude-science-cockpit/internal/gitops"
-	"github.com/deathbychoco/claude-science-cockpit/internal/scope"
+	"github.com/kton-protocol/kton-cockpit/internal/binaries"
+	"github.com/kton-protocol/kton-cockpit/internal/config"
+	"github.com/kton-protocol/kton-cockpit/internal/gitops"
+	"github.com/kton-protocol/kton-cockpit/internal/scope"
 )
 
 func runScope(ctx context.Context, args []string) error {

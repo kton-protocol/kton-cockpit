@@ -23,8 +23,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/deathbychoco/claude-science-cockpit/internal/binaries"
-	"github.com/deathbychoco/claude-science-cockpit/internal/config"
+	"github.com/kton-protocol/kton-cockpit/internal/binaries"
+	"github.com/kton-protocol/kton-cockpit/internal/config"
 )
 
 // Server answers the three files a viewer fetches.

@@ -25,8 +25,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/deathbychoco/claude-science-cockpit/internal/config"
-	"github.com/deathbychoco/claude-science-cockpit/internal/testrepo"
+	"github.com/kton-protocol/kton-cockpit/internal/config"
+	"github.com/kton-protocol/kton-cockpit/internal/testrepo"
 )
 
 func TestAnchorLive_TheEntryTheCockpitReportsIsInThePublicLog(t *testing.T) {
@@ -37,7 +37,7 @@ func TestAnchorLive_TheEntryTheCockpitReportsIsInThePublicLog(t *testing.T) {
 	r.Use(t)
 
 	r.Write(t, "data/in.csv", "this file exists only to be anchored by a test\n")
-	r.Write(t, "data/out.csv", "claude-science-cockpit live anchor test\n")
+	r.Write(t, "data/out.csv", "kton-cockpit live anchor test\n")
 
 	result, pub, err := Publish(context.Background(), nil, PublishInput{
 		Inputs:  []string{"data/in.csv"},

@@ -4,7 +4,7 @@
 // binaries package has to plankton/nekton.
 //
 // See ADR-003 for why this lives inside cockpit_publish rather than becoming a verb of its own, and
-// for what it changes: inside claude-science the cockpit is Claude's entire surface, so the
+// for what it changes: inside a sandboxed agent host the cockpit is the session's entire surface, so the
 // container's constraints are the boundary that keeps command execution behind one of the three
 // verbs acceptable.
 package container
@@ -19,7 +19,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/deathbychoco/claude-science-cockpit/internal/config"
+	"github.com/kton-protocol/kton-cockpit/internal/config"
 )
 
 // workdir is where the repo is mounted inside the container. A fixed path, not the host's: the
@@ -61,7 +61,7 @@ func maskArgs(cfg *config.Config) []string {
 	}
 	// A single file cannot be tmpfs-mounted; an empty read-only bind over it is the equivalent.
 	// cockpit.config.json is the ceiling every call is measured against, and config.go promises it
-	// is not something Claude reaches through any tool — this keeps that true once a repo executes.
+	// is not something a session reaches through any tool — this keeps that true once a repo executes.
 	args = append(args, "--volume", "/dev/null:"+path.Join(workdir, "cockpit.config.json")+":ro")
 	return args
 }

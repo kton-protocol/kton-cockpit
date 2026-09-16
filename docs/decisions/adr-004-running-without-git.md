@@ -1,7 +1,7 @@
 ---
 title: "Running without git, and what replaces the anti-wrong-folder guard there"
 type: "decision"
-project: "claude-science-cockpit"
+project: "kton-cockpit"
 date: 2026-09-02
 status: "accepted"
 tags: [architecture, guard, git, config]

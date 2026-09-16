@@ -1,4 +1,4 @@
-// Package gitops wraps the git plumbing the cockpit performs on Claude's behalf: committing and
+// Package gitops wraps the git plumbing the cockpit performs on the caller's behalf: committing and
 // pushing, and building the commit-pinned raw.githubusercontent.com permalinks every foton needs
 // so peers can fetch and re-hash its bytes. It shells out to the git binary only — no
 // reimplemented git logic.
@@ -13,7 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/deathbychoco/claude-science-cockpit/internal/config"
+	"github.com/kton-protocol/kton-cockpit/internal/config"
 )
 
 func run(ctx context.Context, dir, name string, args ...string) (string, error) {
@@ -28,7 +28,7 @@ func run(ctx context.Context, dir, name string, args ...string) (string, error) 
 
 // runRedacted behaves like run, but scrubs every given secret from both the command line and the
 // command's output before it can appear in a returned error — used for git push, whose auth
-// header must never leak into an error message that becomes visible to Claude or a log file.
+// header must never leak into an error message that becomes visible to the caller or a log file.
 //
 // Takes secrets, plural: an independent cold-session security review found that push() passing
 // only the raw token here left the actual leak vector completely unredacted. The credential never
@@ -123,7 +123,7 @@ func CommitAndPush(ctx context.Context, cfg *config.Config, paths []string, mess
 
 	// The commit identity is passed via -c, not written to any git config file: it must not
 	// depend on the ambient environment already having user.name/user.email set (it often
-	// doesn't, e.g. a fresh claude-science sandbox), and -c sidesteps a real failure mode seen in
+	// doesn't, e.g. a fresh agent sandbox), and -c sidesteps a real failure mode seen in
 	// practice where writing to .git/config directly hit "Device or resource busy" inside that
 	// sandbox. Derived from the session identity already in config — not a new config field.
 	commitArgs := append(commitIdentityArgs(cfg), "commit", "-m", message)
@@ -165,7 +165,7 @@ func commitIdentityArgs(cfg *config.Config) []string {
 // is opt-in and additive: with neither variable set, push behaves exactly as before, relying on
 // whatever git credential setup already exists in the environment (a normal terminal with `gh
 // auth login` already configured, for instance). It exists because a sandboxed MCP client runtime
-// (claude-science's Local command connector) does not necessarily inherit that ambient credential
+// (an agent host's local-command connector) does not necessarily inherit that ambient credential
 // setup, so git push there fails with no way to authenticate unless told to explicitly.
 func push(ctx context.Context, cfg *config.Config) error {
 	token := os.Getenv("GITHUB_TOKEN")
@@ -221,7 +221,7 @@ func PermalinkBase(cfg *config.Config, sha string) string {
 }
 
 // LocatedFlags builds one `path=permalink` pair per repo-relative path, in the form `plankton
-// author --located` expects. Claude supplies plain paths; the cockpit is the only thing that ever
+// author --located` expects. The caller supplies plain paths; the cockpit is the only thing that ever
 // constructs the URL.
 func LocatedFlags(cfg *config.Config, sha string, paths []string) []string {
 	// No commit, no locator. A URL pinned to no commit — or to whatever HEAD happened to be —

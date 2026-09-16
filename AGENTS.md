@@ -1,6 +1,6 @@
-# CLAUDE.md
+# AGENTS.md
 
-This is the source repository for **claude-science-cockpit**: a command-line tool with exactly
+This is the source repository for **kton-cockpit**: a command-line tool with exactly
 three verbs — `publish` (veröffentlichen), `say` (sagen), `ask` (fragen) — for doing work in a
 [kton](https://kton.dev) federation and leaving a record of it that somebody else can check.
 
@@ -74,7 +74,7 @@ moved, the fixture rebuilds to the newer kernel — so the suite really did run 
 one than this claims, and the test says so. Re-run and update the line in the same commit.
 
 One limit worth knowing, because it looks like a pass: **Go can serve that test from its cache.**
-The inputs it actually reads — `CLAUDE.md` and `bin/plankton` — are not inputs Go tracks, and on a
+The inputs it actually reads — `AGENTS.md` and `bin/plankton` — are not inputs Go tracks, and on a
 clean tree `bin/plankton` does not exist when the cache decision is made, so a plain `go test ./...`
 right after upstream moved reports `(cached) ok` for a claim that is no longer true. Use
 `go test -count=1 ./internal/testrepo/` when you have just rebuilt the kernel. CI is unaffected: a
@@ -131,7 +131,7 @@ Two exit codes, and the difference matters to a script: **2** means the cockpit 
 way an MCP tool schema does, so unknown fields are refused rather than ignored — `{"output":[…]}`
 for `outputs` would otherwise publish a record naming no outputs at all.
 
-`show` is an operator subcommand, not a fourth verb: Claude's MCP surface stays at three and cannot
+`show` is an operator subcommand, not a fourth verb: the MCP surface stays at three and cannot
 reach it. It renders nothing and parses no registry files of its own — it asks both kernels for
 their records and forwards them as the union a viewer fetches, which is the cockpit's side of the kernel's own division ("RENDERING … is a cockpit's job,
 not the kernel's", see `plankton export`). `keys.json` is built from the configured trust tiers rather than from whatever
@@ -139,9 +139,9 @@ not the kernel's", see `plankton export`). `keys.json` is built from the configu
 Point it at a [kton-web](https://github.com/gitmick/kton-web) checkout with `--web`/`$KTON_WEB`, or
 omit that and serve only the data endpoints for a viewer running elsewhere.
 
-Only `mcp` is ever registered as Claude's tool surface (via a participant repo's `.mcp.json`).
-`init`/`doctor` are for whoever is setting up or debugging a participant repo — Claude never calls
-them.
+Only `mcp` is ever registered as the tool surface (via a participant repo's `.mcp.json`).
+`init`/`doctor` are for whoever is setting up or debugging a participant repo — a session never
+calls them.
 
 ## Test
 

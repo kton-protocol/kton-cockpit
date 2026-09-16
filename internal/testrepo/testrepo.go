@@ -26,8 +26,8 @@ import (
 	"kton.dev/kton/sigstore"
 	"kton.dev/plankton/core"
 
-	"github.com/deathbychoco/claude-science-cockpit/internal/anchor"
-	"github.com/deathbychoco/claude-science-cockpit/internal/config"
+	"github.com/kton-protocol/kton-cockpit/internal/anchor"
+	"github.com/kton-protocol/kton-cockpit/internal/config"
 )
 
 // The identity the built repo claims. Owner/Name only ever appear in the remote URL and the

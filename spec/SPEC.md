@@ -1,4 +1,4 @@
-# claude-science-cockpit — what the cockpit guarantees
+# kton-cockpit — what the cockpit guarantees
 
 ### Version 0.1
 ### Status: draft
@@ -9,7 +9,7 @@ This is not a protocol specification. The protocol is [kton](https://github.com/
 and its `spec/SPEC.md` governs fotons, claims, signatures, content addressing and federation. Every
 clause here sits on top of that one and adds nothing to it.
 
-What this document specifies is a **cockpit**: the surface one party — a Claude session — is given
+What this document specifies is a **cockpit**: the surface one party — a session — is given
 onto that protocol, and what may be relied upon when a record arrives through it. A reader who wants
 to know what a foton *is* should read the kton spec. A reader who wants to know what it means that
 *this* cockpit produced one should read this.

@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// CLAUDE.md states which kernel commit this repo was verified against, and tells the reader to
+// AGENTS.md states which kernel commit this repo was verified against, and tells the reader to
 // update it when it drifts. That made it a claim maintained by remembering — and it went three
 // updates without moving, because each edit matched against a string that had already changed and
 // silently did nothing.
@@ -19,13 +19,13 @@ var verifiedAgainstRe = regexp.MustCompile(`(?m)^\*\*Verified against:\*\* kton 
 
 func TestVerifiedAgainst_NamesTheKernelTheBinariesWereBuiltFrom(t *testing.T) {
 	root := cockpitRoot(t)
-	doc, err := os.ReadFile(filepath.Join(root, "CLAUDE.md"))
+	doc, err := os.ReadFile(filepath.Join(root, "AGENTS.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	m := verifiedAgainstRe.FindSubmatch(doc)
 	if m == nil {
-		t.Fatal(`CLAUDE.md has no "**Verified against:** kton ` + "`dev`" + ` at ` + "`<commit>`" + `" line — ` +
+		t.Fatal(`AGENTS.md has no "**Verified against:** kton ` + "`dev`" + ` at ` + "`<commit>`" + `" line — ` +
 			"which kernel the suite ran against is not something to leave unstated")
 	}
 	stated := string(m[1])
@@ -40,7 +40,7 @@ func TestVerifiedAgainst_NamesTheKernelTheBinariesWereBuiltFrom(t *testing.T) {
 		return
 	}
 	if len(stated) > len(rev) || rev[:len(stated)] != stated {
-		t.Fatalf("CLAUDE.md says the suite was verified against %s, but bin/plankton was built from "+
+		t.Fatalf("AGENTS.md says the suite was verified against %s, but bin/plankton was built from "+
 			"%.12s.\n\nThis is upstream having moved, not something wrong in this repo — the fixture "+
 			"rebuilt to the newer kernel, so the suite really did run against a different one than the "+
 			"line claims. Re-run the suite and update the line in the same commit; that pairing is the "+

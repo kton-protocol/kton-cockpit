@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/deathbychoco/claude-science-cockpit/internal/config"
+	"github.com/kton-protocol/kton-cockpit/internal/config"
 )
 
 func TestRunRedacted_ScrubsSecretFromErrorOnFailure(t *testing.T) {
@@ -266,7 +266,7 @@ exit 0
 // encoding does not preserve substrings, so a redact pass matching only the RAW token string never
 // matches anything in that argv element. Any push failure with token auth configured returned the
 // fully intact, trivially-decodable token straight into the returned error (and from there,
-// unredacted, into the MCP tool result shown to a Claude session — precisely the sandboxed,
+// unredacted, into the MCP tool result shown to a session — precisely the sandboxed,
 // less-trusted runtime this token mechanism exists for). This drives the real push() against a
 // fake git that fails, and confirms the token is unrecoverable from the returned error by BOTH
 // checks the original bug would have passed: the raw substring, AND the base64 blob actually

@@ -1,9 +1,9 @@
-# claude-science-cockpit
+# kton-cockpit
 
 A command-line tool with exactly three verbs, for doing work in a [kton](https://kton.dev)
 federation and leaving a record of it that somebody else can check.
 
-📖 **[A tour, with real output →](https://deathbychoco.github.io/claude-science-cockpit/)**
+📖 **[A tour, with real output →](https://kton-protocol.github.io/kton-cockpit/)**
 
 | Verb | German | What it does |
 |---|---|---|
@@ -35,7 +35,7 @@ exercises it, so the document is checkable rather than merely asserted.
 There is no fourth verb. The cockpit reimplements no plankton/nekton logic of its own — it **links**
 the kernels as Go libraries (`kton.dev/plankton`, `kton.dev/nekton`, `kton.dev/kton`) and calls
 them, so one binary is the whole install and no participant repo needs a kernel binary. See
-[`CLAUDE.md`](CLAUDE.md#what-not-to-add-here) for the full list of what this project deliberately
+[`AGENTS.md`](AGENTS.md#what-not-to-add-here) for the full list of what this project deliberately
 does not build.
 
 ## Why this exists
@@ -93,13 +93,13 @@ claude-science or Claude Code) and `uat/cleanup.sh` to tear it all down afterwar
 
 ## Building and developing the cockpit itself
 
-See [`CLAUDE.md`](CLAUDE.md) — build command, subcommands (`mcp`/`init`/`doctor`), tests, repo
+See [`AGENTS.md`](AGENTS.md) — build command, subcommands (`mcp`/`init`/`doctor`), tests, repo
 layout, and the manual smoke-test recipe against a real populated registry.
 [`CONTRIBUTING.md`](CONTRIBUTING.md) has the three rules that are not style preferences: a
 normative clause names the test that checks it, nothing in the default suite skips, and every
 check says what it saw.
 
-CI runs the suite against the kernel commit `CLAUDE.md` pins, and separately against kton `dev`
+CI runs the suite against the kernel commit `AGENTS.md` pins, and separately against kton `dev`
 HEAD on a schedule — the second one is allowed to fail, because a moving `dev` breaking this
 repository is news rather than a defect in it, and it has arrived four times as a symptom instead.
 

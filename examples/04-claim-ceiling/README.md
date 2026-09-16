@@ -1,10 +1,10 @@
-# 04 - the claim ceiling, and the one thing Claude cannot state
+# 04 - the claim ceiling, and the one thing a session cannot state
 
-`cockpit_say` binds a claim from a fixed set of templates named in `cockpit.config.json`. Claude
+`cockpit_say` binds a claim from a fixed set of templates named in `cockpit.config.json`. The caller
 picks one and fills its fields. It cannot invent a claim shape, and a template outside the ceiling
 is refused.
 
-The sharper half is `reproduces`. Claude does not supply the level:
+The sharper half is `reproduces`. the caller does not supply the level:
 
 ```json
 { "subject": "sha256:…", "template": "reproduces",
