@@ -72,7 +72,9 @@ jobs:
       - name: gofmt
         working-directory: cockpit
         run: |
-          unformatted=$(gofmt -l .)
+          # `./...`, not `.`: the second walks vendor/, which is other people's source and not
+          # ours to reformat. Go's own package list already excludes it.
+          unformatted=$(gofmt -l $(go list -f '{{.Dir}}' ./...))
           [ -z "$unformatted" ] || { echo "not gofmt'd:"; echo "$unformatted"; exit 1; }
 
       - name: go vet
