@@ -1,5 +1,8 @@
 # kton-cockpit
 
+[![CI](https://github.com/kton-protocol/kton-cockpit/actions/workflows/ci.yml/badge.svg)](https://github.com/kton-protocol/kton-cockpit/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
+
 A command-line tool with exactly three verbs, for doing work in a [kton](https://kton.dev)
 federation and leaving a record of it that somebody else can check.
 
