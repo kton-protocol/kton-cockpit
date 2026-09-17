@@ -1,81 +1,56 @@
-# UAT: end-to-end federation test
+# uat
 
-`setup.sh` and `cleanup.sh` automate the
-[end-to-end tutorial](../projectdocs/claude-science-cockpit/phases/end-to-end-tutorial/tutorial.md)
-— read that first for what's actually happening at each step; this file only covers what you need
-to *run* the scripts.
-
-## What this creates
-
-Three **real, public** GitHub repositories under your own authenticated GitHub account:
-`<prefix>-federation`, `<prefix>-p1`, `<prefix>-p2` (prefix defaults to a timestamp, so repeated
-runs never collide). The script performs real `git push`es, opens a real GitHub issue, and
-triggers a real GitHub Actions workflow run. Nothing is simulated. Run `cleanup.sh` when done —
-see below.
-
-## Prerequisites
-
-- **`gh` (GitHub CLI), authenticated**, with these token scopes:
-  - `repo` — create repos, push, open issues
-  - `workflow` — trigger the federation's `mirror.yml` via `gh workflow run`
-  - `delete_repo` — only needed for `cleanup.sh`, not `setup.sh`
-  Check with `gh auth status`; the scopes are listed there. Re-auth with
-  `gh auth refresh -s repo,workflow,delete_repo` if any are missing.
-- **Go ≥ 1.25** on `PATH` (or just internet access — `go build`/`go run` auto-fetch the toolchain
-  version pinned in this repo's `go.mod` if the ambient `go` is older).
-- **`python3`** on `PATH` — used to patch `cockpit.config.json` and to summarize
-  `mirror/union.json` at the end. No packages beyond the standard library.
-- **`bash`**, not a POSIX-only `sh` — the scripts use bash-specific syntax.
-- **`git`** on `PATH`, obviously.
-- Write access to create **public** repositories under your authenticated GitHub account (the
-  script always creates under the token's own user, via `gh api user --jq .login` — not an org;
-  edit `GH_OWNER` in `setup.sh` if you need org-owned repos instead).
-- **claude-science installed and signed in** (or the Claude Code CLI, `claude`, as the alternative
-  path — see the tutorial's step 3 for both). The script itself never launches either; it pauses
-  and gives you exact values to paste into whichever one you're using.
-- Internet access (GitHub API/push, Go module fetching, and `npx` if you also want to try the
-  tutorial's MCP Inspector manual-test aside).
-- A few hundred MB of free disk for three clones plus Go build artifacts.
-
-## Running it
+Two participants and a federation, driven end to end by the three verbs.
 
 ```bash
-uat/setup.sh
+uat/e2e.sh
 ```
 
-This doubles as guided training material: **every phase, including the automated ones, prints
-what it's about to do and *why* before doing it**, and waits for you to press Enter — not just
-the genuinely manual steps. There are only **4 steps you actually do yourself** in claude-science
-(or Claude Code), because they need live Claude reasoning or a UI with no scriptable API:
+Needs `git`, `go` and `python3`. No GitHub account, no network, no browser, no pauses — origins
+are real github.com URLs so the anti-wrong-folder guard runs unmodified, and only the *push* url
+points at a local bare repo.
 
-1. Register the MCP connector for both participants.
-2. Have participant 1 publish a foton.
-3. Have participant 2 publish independently (deliberately not reusing participant 1's script).
-4. Have participant 2 check reproduction, correct it by fetching participant 1's exact script,
-   confirm ↻2, and record the reproduction claim.
+## What it covers that `examples/` does not
 
-Everything else — repo creation, cloning, cockpit configuration, federation registration,
-triggering mirrors, and (since it's pure git/config, not Claude-specific) mirroring the
-federation's data locally and configuring the trust tier — runs automatically once you confirm
-each explained step. The last step prints the viewer URL plus a raw record count.
+Each example builds **one** participant and demonstrates **one** property. This is the
+federation-shaped path, and three things only exist there:
 
-**Overrides:**
-```bash
-UAT_PREFIX=myrun uat/setup.sh          # fixed prefix instead of a timestamp
-UAT_WORKDIR=/path/to/dir uat/setup.sh  # clone location (default: /mnt/c/dev/planktonReproduce/<prefix>)
-```
+- **Two identities.** Both participants sign with genuinely different keys, so a claim one makes
+  about the other's work is a claim between parties rather than a repository talking to itself.
+- **An aggregate.** Records are mirrored into a federation repo by hash — a filesystem operation
+  over a peer's registry directory, with no server, no admission gate, and no network call.
+- **A reproduction that means something.** The ↻2 at the end is two distinct verified signatures
+  over the same output bytes.
 
-**Resuming after a failure:** every repo-creation, cloning, keygen, and config-init step is
-idempotent (skips if already done) — if the script dies partway through, just re-run it with the
-*same* `UAT_PREFIX` rather than starting over or hand-cleaning anything.
+The sequence is federation-first on purpose: participant 2 must be able to see participant 1's real
+foton before it can reproduce it, so participant 1 publishes and is aggregated before participant 2
+does anything at all.
 
-## Cleaning up
+## The arc
 
-```bash
-uat/cleanup.sh <workdir printed at the end of setup.sh>
-```
+1. Participant 1 drops incomplete runs from an instrument log, summarises per instrument, and
+   publishes.
+2. Aggregated into the federation.
+3. Participant 2 is given **the task in words, not the solution**, and writes its own script. Both
+   are correct. The bytes differ — one sorts by sample count and rounds to two places — which is a
+   realistic starting point rather than a mistake.
+4. The federation is mirrored back into participant 2, which asks how many parties stand behind
+   participant 1's result. One.
+5. **The correction, which turns out to be a lookup.** This was the step the old UAT called the one
+   that "genuinely needs reasoning". It does not: participant 1's foton names its inputs by hash and
+   carries a commit-pinned locator for each, so the exact script that produced that result is
+   fetchable. Participant 2 fetches it, re-runs it, and gets identical bytes.
+6. Participant 2 says `reproduces`. **It does not get to state the level** — the cockpit runs the
+   comparison itself and records what that answers. The same claim over participant 2's own,
+   different bytes is refused, because a check that cannot fail is not a check.
+7. Participant 1 mirrors the federation back and asks again. Two.
 
-Shows exactly what it's about to delete (the 3 GitHub repos + the local clone directory) and
-requires typing `yes` to confirm before deleting anything. It does **not** remove the
-claude-science project/connector entries you created manually — remove those yourself via its UI
-if desired.
+## Why it is a script now
+
+It used to pause four times for a human to drive a browser, because the three verbs existed only
+over MCP and nothing could type them. They are subcommands now, so the whole run is a script —
+including step 5.
+
+What was lost with the pauses: the old version created three real repositories under your GitHub
+account and exercised a real `git push` over the network against `github.com`. This does not. If you
+want that, point the participants' push urls at real repositories; everything above is unchanged.

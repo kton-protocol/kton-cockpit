@@ -1,1 +1,6 @@
 /bin/
+
+# Each example and the end-to-end run build their participant repos fresh; nothing in .work/ is
+# worth keeping, and each one is a git repository of its own.
+examples/*/.work/
+uat/.work/

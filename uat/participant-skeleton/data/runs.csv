@@ -1,0 +1,13 @@
+run_id,instrument,analyte,concentration_mg_l,recovery_pct,operator
+R-0101,HPLC-A,caffeine,12.4,98.2,ms
+R-0102,HPLC-A,caffeine,12.9,101.4,ms
+R-0103,HPLC-A,theobromine,3.05,,ms
+R-0104,HPLC-B,caffeine,11.8,96.7,jk
+R-0105,HPLC-B,theobromine,,94.1,jk
+R-0106,HPLC-B,theophylline,0.62,99.0,jk
+R-0107,HPLC-A,caffeine,13.1,102.8,ms
+R-0108,HPLC-C,caffeine,12.0,,
+R-0109,HPLC-C,theobromine,2.98,97.5,rw
+R-0110,HPLC-C,theophylline,0.58,95.3,rw
+R-0111,HPLC-A,theophylline,0.61,100.1,ms
+R-0112,HPLC-B,caffeine,12.6,,jk

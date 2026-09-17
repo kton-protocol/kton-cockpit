@@ -1,20 +1,21 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/deathbychoco/claude-science-cockpit/cockpit.config.schema.json",
+  "$id": "https://github.com/kton-protocol/kton-cockpit/cockpit.config.schema.json",
   "title": "cockpit.config.json",
-  "description": "Static, per-repo configuration for the Claude-Science-Cockpit. Never written by the cockpit itself; Claude never sees or edits it through any MCP tool. See projectdocs/claude-science-cockpit/phases/design/cockpit-config-schema.md for the full design rationale.",
+  "description": "Static, per-repo configuration for the kton-cockpit. Never written by the cockpit itself; a session never sees or edits it through any MCP tool. See projectdocs/kton-cockpit/phases/design/cockpit-config-schema.md for the full design rationale.",
   "type": "object",
   "required": ["repo", "paths", "identity", "verbs", "claims", "trust", "reproduction"],
   "additionalProperties": false,
   "properties": {
     "repo": {
       "type": "object",
-      "description": "The exact GitHub owner/repo this config is bound to. Every cockpit call verifies this against the repo's actual `git remote get-url origin` and refuses on any mismatch (the anti-wrong-folder guard).",
-      "required": ["owner", "name"],
+      "description": "What this config is bound to, and therefore what the anti-wrong-folder guard checks on every call. In \"git\" mode (the default) the repo's actual `git remote get-url origin` must name the configured owner/repo, and the config must sit at the repository root. In \"local\" mode there is no git repository and no remote to disagree with, so the anchor is the config's own declared absolute path, which must equal where the config actually is — that catches a directory copied or moved away from the one it was written for. Neither check catches everything: git mode passes a duplicated clone, local mode passes two directories whose paths both look right. See ADR-004.",
       "additionalProperties": false,
       "properties": {
-        "owner": { "type": "string", "minLength": 1 },
-        "name": { "type": "string", "minLength": 1 }
+        "mode": { "enum": ["git", "local"], "description": "Defaults to \"git\" when absent." },
+        "owner": { "type": "string", "minLength": 1, "description": "Required in git mode." },
+        "name": { "type": "string", "minLength": 1, "description": "Required in git mode." },
+        "root": { "type": "string", "minLength": 1, "description": "Required in local mode: the absolute path this config belongs to. In local mode there are no commits, no pushes, and fotons carry no locators, because a permalink needs an owner/repo and a commit." }
       }
     },
     "paths": {
@@ -43,7 +44,7 @@
     },
     "verbs": {
       "type": "object",
-      "description": "Which of the three verbs are active. Claude has no way to enable a disabled verb.",
+      "description": "Which of the three verbs are active. a session has no way to enable a disabled verb.",
       "required": ["publish", "say", "ask"],
       "additionalProperties": false,
       "properties": {
@@ -54,7 +55,7 @@
     },
     "claims": {
       "type": "object",
-      "description": "The claim-template ceiling for cockpit_say. Claude can request one of these; it can never invent a new claim shape.",
+      "description": "The claim-template ceiling for cockpit_say. a session can request one of these; it can never invent a new claim shape.",
       "required": ["allowedTemplates"],
       "additionalProperties": false,
       "properties": {
@@ -62,6 +63,11 @@
           "type": "array",
           "items": { "type": "string" },
           "minItems": 0
+        },
+        "scopes": {
+          "type": "object",
+          "additionalProperties": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+          "description": "The nekton scopes a claim may be chained under, by name. The shape mirrors allowedTemplates for the same reason: the operator fixes the SET, cockpit_say picks one from it by name and can never name a scope that is not here. One repository usually runs several — the notes about a model and the review of it are different conversations, and putting them in one chain would make \"show me the review\" a filtering problem instead of a lookup. Each value is the content hash of a seed already ingested in this repo's nekton registry; seeding is an operator action (`nekton seed <name> --sign <key> --add --print-id`), never a verb, because a scope exists before the session does. A claim written without naming a scope stands on its own, which stays the common case. Neither a branch nor an unresolvable predecessor stops a claim being written — completeness is judged when a seal is relied upon, by `cockpit_ask` query \"scope\"."
         }
       }
     },
@@ -80,14 +86,88 @@
         }
       }
     },
+    "environment": {
+      "type": "object",
+      "description": "Default execution environment for this repo's fotons, for repos whose environment nobody names per call. cockpit_publish takes an `envRef` argument that wins over this, because a session can work across many containers and no configured value would be right for all of them. Omit the block entirely to publish unpinned fotons unless a call names one.",
+      "additionalProperties": false,
+      "properties": {
+        "spectrum": { "type": "string", "description": "The qualified env-spectrum id, which must be a content hash (sha256:...). It QUALIFIES an environment; it does not name an exact one. Passed as `plankton author --environment`." },
+        "envRef": { "type": "string", "description": "The default exact execution environment: an OCI image digest (oci://<image>@sha256:<digest>), a nix store path, a run-server id. The substrate stores it without interpreting it. An oci:// reference MUST carry a digest — a tag names whatever it points at today, so it pins no environment at all. Overridden by cockpit_publish's envRef argument. Passed as `plankton author --env-ref`." }
+      }
+    },
+    "git": {
+      "type": "object",
+      "description": "Whether the cockpit commits and pushes on the caller's behalf. Both default to true; omit the block to keep the behaviour every existing repo has. This does NOT affect the anti-wrong-folder guard, which reads the repo's own origin remote on every call regardless — turning commits off makes the cockpit stop WRITING to git, never stop CHECKING which repo it is in.",
+      "additionalProperties": false,
+      "properties": {
+        "commit": { "type": "boolean", "description": "When false, records are signed and registered but the files they describe are not committed. The foton stays valid — a foton never implied its bytes were published anywhere — but it carries no locators, because the commit a permalink would pin does not exist, and a locator pinned to some other commit points at bytes that are not there. Turning this off turns pushing off with it." },
+        "push": { "type": "boolean", "description": "When false, the cockpit commits locally without pushing. Permalinks are still built, because the commit they pin is real and stable; they simply do not resolve until someone pushes. cockpit_publish reports committed/pushed so the caller knows which." }
+      }
+    },
+    "anchor": {
+      "type": "object",
+      "description": "Whether records are witnessed in a Sigstore Rekor transparency log. A signature says WHO signed; it does not say WHEN, and it does not stop a signer from later producing a different record and calling that one the original. An anchor adds an independent append-only witness, and the verified proof is stored beside the record as verification material (SPEC §8.1). Off by default, and deliberately: anchoring PUBLISHES THE RECORD, permanently. What is submitted is the whole DSSE envelope, not a digest of it, so the log receives the command that was run, every input and output path and hash, the pinned environment, and the commit-pinned permalinks — which name the GitHub owner/repo. For a PRIVATE repository that means its name, file layout and commands become public and stay public. File contents do not: only their hashes are recorded. The entry cannot be withdrawn.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean", "description": "Anchor every record this cockpit writes. A failed anchor fails the publish: a witness reported but not recorded is worse than none." },
+        "rekorUrl": { "type": "string", "description": "Override the public log. Requires rekorPubkey — see below." },
+        "rekorPubkey": { "type": "string", "description": "The pinned public key the log's Signed Entry Timestamp is checked against: a PEM file path or inline PEM. Required whenever rekorUrl is set, because a log that issues its own SET and is then checked against its own key verifies nothing — a fabricated entry would self-verify." }
+      }
+    },
+    "material": {
+      "type": "object",
+      "description": "External evidence to carry with every record this cockpit writes, and the roots it can check such evidence against. SPEC §8.1 keeps verification material deliberately open: the kernel stores opaque bytes under a scheme token it never interprets, and `plankton attach` accepts an unfamiliar scheme rather than refusing it, because refusing unknown evidence would make the scheme list a protocol version. This block inherits that stance exactly — it prescribes no key form, no issuer, no algorithm and no scheme token. Carrying and checking are kept apart on purpose: evidence named here always travels with the record, and cockpit_ask reports per item whether anything here evaluated it (verified), could not (carried), or checked it and found it wrong (failed). None of this touches trust.tiers — a tier decides whether a record COUNTS here, while material says who a key belongs to and when the record existed.",
+      "additionalProperties": false,
+      "properties": {
+        "attach": {
+          "type": "array",
+          "description": "One entry per piece of evidence, attached to every foton and every claim this cockpit writes.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["scheme", "mediaType", "file"],
+            "properties": {
+              "scheme": { "type": "string", "description": "The SPEC §8.1 token saying what produced the evidence. The listed tokens are sigstore-bundle, rekor-entry, rfc3161, cms-detached, jades and pgp-detached — but the list is open, and an unlisted one is accepted here for the same reason the kernel accepts it." },
+              "mediaType": { "type": "string", "description": "How to read the bytes. Required even for a scheme the kernel has a default for, so this repo's records do not change what they carry because a default table in the kernel changed — and so an unlisted scheme needs no special case." },
+              "file": { "type": "string", "description": "Repo-relative path to the evidence bytes. Must be inside the repository, since evidence is committed with the record it is about, and must not be a *.key private key." }
+            }
+          }
+        },
+        "x509Roots": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "PEM trust anchors an attached certificate's chain is verified against — together with a check that the certificate belongs to the key that ACTUALLY signed the record, since a certificate for some other key says nothing about this one. Empty is not a failure and does NOT fall back to the host's root store: with no root configured a certificate is still attached and still reported, as carried rather than verified, because a verdict that depended on which machine ran the query would be no verdict at all."
+        }
+      }
+    },
+    "union": {
+      "type": "object",
+      "description": "Whether this repo also publishes its aggregate as committed files, so the graph is reachable online without anyone running `cockpit show`. The files are the same three a viewer fetches — union.json, keys.json, names.json — regenerated after every record this cockpit writes and committed in the same commit as it, so a published aggregate is never one record behind the registry it summarises. Requires committing to be on: a published union IS a committed file.",
+      "additionalProperties": false,
+      "properties": {
+        "publish": { "type": "boolean", "description": "Off by default. It commits a derived file on every publish, which is real diff noise for a repo nobody views online." },
+        "dir": { "type": "string", "description": "Repo-relative destination. Defaults to docs/data, which GitHub Pages serves without further configuration." }
+      }
+    },
+    "execution": {
+      "type": "object",
+      "description": "Turns cockpit_publish from recording a command into RUNNING one, inside a pinned container. Off unless `image` is set. The point is that the environment stops being a declaration: config alone can only assert 'we run in image X' with nothing checking that the command actually ran there, whereas when the cockpit runs it the string handed to the container runtime and the string pinned into the foton are the same string. See ADR-003.",
+      "additionalProperties": false,
+      "properties": {
+        "engine": { "type": "string", "description": "The container runtime executable. Defaults to \"docker\"." },
+        "image": { "type": "string", "description": "The digest-pinned OCI reference to run in, e.g. oci://ghcr.io/org/x@sha256:<digest>. Setting it is what enables execution. A reference without a digest is refused: a tag names whatever it points at today, so running \"in that image\" would pin nothing. If environment.envRef is also set it must be this same value, since the cockpit would otherwise run in one environment and record another." },
+        "network": { "type": "boolean", "description": "Allow the container to reach the network. Default false. A run that reaches the internet depended on something the foton does not pin, so its environment claim is weaker — and inside a sandboxed agent host, where the cockpit is the session's entire surface, it is also the cheapest way out of it. cockpit_publish reports when a run was not isolated." }
+      }
+    },
     "reproduction": {
       "type": "object",
-      "description": "The reproduction precondition policy cockpit_say runs itself before writing a reproduces claim's level field — never self-declared by Claude.",
+      "description": "The reproduction precondition policy cockpit_say runs itself before writing a reproduces claim's level field — never self-declared by the caller.",
       "required": ["requiredLevel"],
       "additionalProperties": false,
       "properties": {
         "requiredLevel": { "type": "string", "enum": ["L0", "L1"] },
-        "normalizer": { "type": ["string", "null"] }
+        "normalizer": { "type": ["string", "null"] },
+        "minReproductions": { "type": "integer", "minimum": 0, "description": "How many independent, VERIFIED producers a record must have before this repo will let it be the basis of its own work — the corpus of a publish. Different from requiredLevel, which is about work THIS repo did (did my re-run match); this is about work somebody else did (how many independent parties produced these same bytes before I build on them). A result nobody has reproduced may be perfectly correct; it has simply not been corroborated. Zero, the default, requires nothing. Always the verified count: a self-declared ↻N would make the threshold satisfiable by relabelling a keyid." }
       }
     }
   }

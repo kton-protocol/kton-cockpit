@@ -1,0 +1,57 @@
+# github.com/google/jsonschema-go v0.4.3
+## explicit; go 1.23.0
+github.com/google/jsonschema-go/jsonschema
+# github.com/modelcontextprotocol/go-sdk v1.6.1
+## explicit; go 1.25.0
+github.com/modelcontextprotocol/go-sdk/auth
+github.com/modelcontextprotocol/go-sdk/internal/json
+github.com/modelcontextprotocol/go-sdk/internal/jsonrpc2
+github.com/modelcontextprotocol/go-sdk/internal/mcpgodebug
+github.com/modelcontextprotocol/go-sdk/internal/util
+github.com/modelcontextprotocol/go-sdk/internal/xcontext
+github.com/modelcontextprotocol/go-sdk/jsonrpc
+github.com/modelcontextprotocol/go-sdk/mcp
+github.com/modelcontextprotocol/go-sdk/oauthex
+# github.com/segmentio/asm v1.1.3
+## explicit; go 1.17
+github.com/segmentio/asm/ascii
+github.com/segmentio/asm/base64
+github.com/segmentio/asm/cpu
+github.com/segmentio/asm/cpu/arm
+github.com/segmentio/asm/cpu/arm64
+github.com/segmentio/asm/cpu/cpuid
+github.com/segmentio/asm/cpu/x86
+github.com/segmentio/asm/internal/unsafebytes
+github.com/segmentio/asm/keyset
+# github.com/segmentio/encoding v0.5.4
+## explicit; go 1.23
+github.com/segmentio/encoding/ascii
+github.com/segmentio/encoding/iso8601
+github.com/segmentio/encoding/json
+# github.com/yosida95/uritemplate/v3 v3.0.2
+## explicit; go 1.14
+github.com/yosida95/uritemplate/v3
+# golang.org/x/oauth2 v0.35.0
+## explicit; go 1.24.0
+golang.org/x/oauth2
+golang.org/x/oauth2/internal
+# golang.org/x/sys v0.41.0
+## explicit; go 1.24.0
+golang.org/x/sys/cpu
+golang.org/x/sys/windows
+# kton.dev/kton v0.0.0-00010101000000-000000000000 => ../kton-pinned/kton/reference
+## explicit; go 1.22
+kton.dev/kton/sigstore
+# kton.dev/nekton v0.0.0 => ../kton-pinned/nekton/reference
+## explicit; go 1.22
+kton.dev/nekton/claim
+kton.dev/nekton/registry
+kton.dev/nekton/template
+# kton.dev/plankton v0.0.0 => ../kton-pinned/reference
+## explicit; go 1.22
+kton.dev/plankton/core
+kton.dev/plankton/foton
+kton.dev/plankton/registry
+# kton.dev/plankton => ../kton-pinned/reference
+# kton.dev/nekton => ../kton-pinned/nekton/reference
+# kton.dev/kton => ../kton-pinned/kton/reference

@@ -7,10 +7,11 @@ import (
 	"testing"
 
 	"github.com/google/jsonschema-go/jsonschema"
+	"github.com/kton-protocol/kton-cockpit/internal/testrepo"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// A real production failure (claude-science logs, 2026-07-23): cockpit_publish and cockpit_ask
+// A real production failure (agent-host logs, 2026-07-23): cockpit_publish and cockpit_ask
 // error paths return their Out struct's zero value via errResult, which for map/slice fields is
 // nil — and encoding/json marshals a nil map/slice as JSON null, not {}/[] . The MCP Go SDK infers
 // each tool's output schema from the struct via reflection and marks every field without
@@ -120,10 +121,10 @@ func TestMCPWire_AskErrorPathReturnsToolError(t *testing.T) {
 }
 
 func TestMCPWire_AskSuccessPathAgainstRealRegistry(t *testing.T) {
-	chdir(t, realParticipantRepo)
+	r := testrepo.New(t)
+	r.Use(t)
 	cs := newTestServerAndClient(t)
 
-	const unknownHash = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
 	result, err := cs.CallTool(context.Background(), &mcp.CallToolParams{
 		Name:      "cockpit_ask",
 		Arguments: map[string]any{"query": "producer", "ref": unknownHash},
