@@ -1,6 +1,6 @@
 # Changelog
 
-## v0.2.0 — unreleased
+## v0.2.0 — 2026-09-17
 
 First release under the name **kton-cockpit**, in `kton-protocol`. Tracks kton 0.2.
 
