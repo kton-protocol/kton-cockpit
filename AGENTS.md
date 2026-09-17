@@ -38,6 +38,15 @@ checks it.
 go build -o bin/cockpit ./cmd/cockpit
 ```
 
+For a release build, stamp the version and the kernel commit — a binary that cannot say which build
+it is, or which kton is inside it, cannot answer the first question anyone asks of it:
+
+```bash
+go build -ldflags "-X main.Version=v0.2.0 -X main.KernelPin=$(sed -n 's/.*kton `dev` at `\([0-9a-f]*\)`.*/\1/p' AGENTS.md)" \
+  -o bin/cockpit ./cmd/cockpit
+cockpit version
+```
+
 Requires Go ≥ 1.25 (the module's `go.mod` pins this via the `github.com/modelcontextprotocol/go-sdk`
 dependency; `go build`/`go run` auto-fetch the matching toolchain if the ambient `go` is older).
 
@@ -51,8 +60,12 @@ trip. Nothing spawns a process, nothing parses another program's prose, and a su
 depends on that upstream removed is a build failure rather than a usage error a session meets at
 run time.
 
-Until kton.dev serves the modules, `go.mod` resolves them through `replace` directives to a local
-checkout:
+The kernel source is **vendored** (`vendor/`), so a clean clone builds with nothing beside it. That
+is not a preference: until kton.dev serves the modules, `go.mod` resolves them through `replace`
+directives naming a sibling directory, and a clone without that sibling could not build at all —
+which is not a thing to ship. `vendor/` comes out when the modules are fetchable.
+
+The `replace` directives are still what a rebuild of `vendor/` reads:
 
 ```
 replace kton.dev/plankton => ../kton-pinned/reference

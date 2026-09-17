@@ -46,6 +46,8 @@ func main() {
 		err = runScope(ctx, os.Args[2:])
 	case "publish", "say", "ask":
 		err = runVerb(ctx, os.Args[1], os.Args[2:])
+	case "version":
+		err = runVersion()
 	default:
 		usage()
 		os.Exit(2)
@@ -64,6 +66,7 @@ usage:
   cockpit say     '<json>' [--field NAME]   bind a claim from an allowed template
   cockpit ask     '<json>' [--field NAME]   query the graph, re-verified against configured trust
 
+  cockpit version  what this binary is, and which kernel is compiled into it
   cockpit mcp      start the MCP stdio server (cockpit_publish/cockpit_say/cockpit_ask)
   cockpit init     scaffold cockpit.config.json in the current git repo
   cockpit doctor   validate cockpit.config.json + the repo binding
@@ -607,4 +610,60 @@ func runVerb(ctx context.Context, verb string, args []string) error {
 		return callVerb(ctx, raw, field, tools.Ask)
 	}
 	return fmt.Errorf("no verb %q", verb)
+}
+
+// Version is this cockpit's own version, set at build time with
+// `-ldflags "-X main.Version=v0.2.0"`. A binary built without it says so rather than claiming a
+// number nobody stamped: "which build is this" is a question a release has to be able to answer,
+// and an invented answer is worse than none.
+var Version = "(devel)"
+
+// KernelPin is the kton commit this binary's kernels were built from, stamped at release time with
+// `-X main.KernelPin=<sha>`. The vendored kernel source carries no vcs stamp of its own, so without
+// this a released binary can only report "(devel), replaced by a directory" — true, and useless to
+// whoever has the binary. AGENTS.md names the same commit, and `TestVerifiedAgainst_...` checks
+// that line against a kernel actually built from that checkout, so the number has been verified
+// somewhere even though nothing can verify it here.
+var KernelPin = ""
+
+// runVersion reports this binary and the kernel inside it.
+//
+// Both, always, and on one screen: the cockpit's own version says nothing about which kton wrote a
+// store, and which kton wrote a store is what decides whether that store reads as populated or as
+// empty-with-exit-0. An operator comparing two machines needs the pair.
+func runVersion() error {
+	fmt.Printf("cockpit %s\n", Version)
+	if info, ok := debug.ReadBuildInfo(); ok {
+		if rev := buildSetting(info, "vcs.revision"); rev != "" {
+			dirty := ""
+			if buildSetting(info, "vcs.modified") == "true" {
+				dirty = " (uncommitted changes)"
+			}
+			fmt.Printf("  built from %s%s\n", rev, dirty)
+		}
+		fmt.Printf("  %s\n", info.GoVersion)
+	}
+	if KernelPin != "" {
+		fmt.Printf("  kton kernels     %s (kton-protocol/kton)\n", KernelPin)
+	}
+	for _, mod := range linkedKernels() {
+		where := mod.Version
+		if mod.Replace != nil {
+			where = "replaced by " + mod.Replace.Path
+			if mod.Replace.Version != "" {
+				where += " " + mod.Replace.Version
+			}
+		}
+		fmt.Printf("  %-20s %s\n", mod.Path, where)
+	}
+	return nil
+}
+
+func buildSetting(info *debug.BuildInfo, key string) string {
+	for _, s := range info.Settings {
+		if s.Key == key {
+			return s.Value
+		}
+	}
+	return ""
 }

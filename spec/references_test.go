@@ -34,7 +34,9 @@ func TestReferences_EverySectionCitationSaysWhichSpec(t *testing.T) {
 		}
 		if info.IsDir() {
 			switch info.Name() {
-			case ".git", "bin", ".work", "node_modules":
+			case ".git", "bin", ".work", "node_modules", "vendor":
+				// vendor holds other people's source. Their § references are to their own
+				// specifications and this convention is not theirs to follow.
 				return filepath.SkipDir
 			}
 			return nil
