@@ -3,12 +3,16 @@ package tools
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
 	"github.com/kton-protocol/kton-cockpit/internal/binaries"
 	"github.com/kton-protocol/kton-cockpit/internal/config"
 	"github.com/kton-protocol/kton-cockpit/internal/material"
+	"kton.dev/plankton/core"
+
 	"github.com/kton-protocol/kton-cockpit/internal/verify"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -132,8 +136,14 @@ type AskOutput struct {
 	VerifiedSigners int `json:"verifiedSigners,omitempty"`
 	// Seal is the verdict for query "scope": whether the chain reaches its seed without a gap over
 	// the sources this repo holds, who defined the scope, and who has written into it.
-	Seal          *SealVerdict `json:"seal,omitempty"`
-	FilterApplied string       `json:"filterApplied"`
+	Seal *SealVerdict `json:"seal,omitempty"`
+	// Record is the answer to query "record": what one run actually did — its command, the
+	// environment it ran in, and every file it named going in and coming out.
+	Record *binaries.FotonDetail `json:"record,omitempty"`
+	// SignerName is what this repo's trust configuration calls the key that verified, when it
+	// names it at all. A keyid is not a person; the tiers are the only place that says whose is whose.
+	SignerName    string `json:"signerName,omitempty"`
+	FilterApplied string `json:"filterApplied"`
 }
 
 func Ask(ctx context.Context, _ *mcp.CallToolRequest, in AskInput) (*mcp.CallToolResult, AskOutput, error) {
@@ -166,6 +176,8 @@ func Ask(ctx context.Context, _ *mcp.CallToolRequest, in AskInput) (*mcp.CallToo
 		return askClaims(ctx, cfg, r, in, filter)
 	case "producer", "uses", "lineage", "reproductions":
 		return askLineage(ctx, cfg, r, in, filter)
+	case "record":
+		return askRecord(ctx, cfg, r, in, filter)
 	case "scope":
 		// The one query that asks about a STRUCTURE rather than about a record, and the only place
 		// this cockpit reaches a verdict about completeness — which kton §7.4 assigns to a consumer
@@ -179,7 +191,7 @@ func Ask(ctx context.Context, _ *mcp.CallToolRequest, in AskInput) (*mcp.CallToo
 		out.Raw = verdict.Line()
 		return &mcp.CallToolResult{}, out, nil
 	default:
-		return errResult[AskOutput]("unknown query %q (must be one of: producer, uses, lineage, reproductions, about, by, scope)", in.Query)
+		return errResult[AskOutput]("unknown query %q (must be one of: record, producer, uses, lineage, reproductions, about, by, scope)", in.Query)
 	}
 }
 
@@ -502,4 +514,97 @@ func carriesSignature(c binaries.ClaimAxis, keyid string) bool {
 		}
 	}
 	return false
+}
+
+// askRecord answers "what did this run actually do", given the id a publish returned.
+//
+// Every other lineage query takes a FILE hash, which makes a foton id an answer and never a
+// question: the thing the cockpit hands you when you publish could not be used to ask it anything.
+// Two first-time users hit that independently and both named it their biggest obstacle, and both
+// worked around it by decoding the registry's stored payloads themselves.
+//
+// The signer is reported as the key that actually verified, and named when this repo's
+// configuration names it — a keyid is not a person, and the trust tiers are the only place that
+// says whose key is whose.
+func askRecord(ctx context.Context, cfg *config.Config, r *binaries.Runner, in AskInput, filter *AskFilter) (*mcp.CallToolResult, AskOutput, error) {
+	out := AskOutput{Query: in.Query, Ref: in.Ref, FilterApplied: filter.describe()}
+	rec, err := r.FotonByID(ctx, in.Ref)
+	if err != nil {
+		if !strings.HasPrefix(in.Ref, "sha256:") {
+			return errResult[AskOutput](
+				"%v\n\nThis query takes the foton id a publish returned (sha256:…), not a path. "+
+					"To go the other way — from bytes to the run that made them — use producer.", err)
+		}
+		return errResult[AskOutput]("%v", err)
+	}
+
+	tier, _, verr := verify.ResolveTier(ctx, r, cfg, rec.ID, verify.Foton)
+	if verr != nil {
+		return errResult[AskOutput]("verifying %s: %v", rec.ID, verr)
+	}
+	verified := tier != verify.Untrusted
+	out.Records = []RecordVerification{{ID: rec.ID, Tier: string(tier), Verified: verified}}
+	if verified {
+		out.Included = []string{rec.ID}
+	} else {
+		out.Excluded = []string{rec.ID}
+	}
+	out.Record = rec
+	out.SignerName = signerName(cfg, rec.SignerKeyID)
+	out.Raw = recordLines(rec, out.SignerName)
+	return &mcp.CallToolResult{}, out, nil
+}
+
+// signerName turns a keyid into whatever this repo's configuration calls that key, or "" when it
+// names no such key. Derived from the trust tiers because that is the only place in the system
+// that connects a key to a name at all.
+func signerName(cfg *config.Config, keyID string) string {
+	if keyID == "" {
+		return ""
+	}
+	for tier, paths := range cfg.Raw.Trust.Tiers {
+		for _, p := range paths {
+			b, err := os.ReadFile(filepath.Join(cfg.RepoRoot, p))
+			if err != nil {
+				continue
+			}
+			pub, perr := core.ParsePublicKeyHex(strings.TrimSpace(string(b)))
+			if perr != nil {
+				continue
+			}
+			if core.KeyIDHex(pub) == keyID {
+				name := strings.TrimSuffix(filepath.Base(p), ".pub")
+				return name + " (" + tier + ")"
+			}
+		}
+	}
+	return ""
+}
+
+func recordLines(rec *binaries.FotonDetail, signer string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s\n", rec.ID)
+	fmt.Fprintf(&b, "  cmd      %s\n", rec.Cmd)
+	if rec.EnvRef != "" {
+		fmt.Fprintf(&b, "  ran in   %s\n", rec.EnvRef)
+	}
+	who := rec.SignerKeyID
+	if signer != "" {
+		who = signer + "  key:" + rec.SignerKeyID
+	}
+	fmt.Fprintf(&b, "  signed   %s\n", who)
+	for _, f := range rec.Inputs {
+		fmt.Fprintf(&b, "  in       %-52s %s\n", f.Path, short(f.Hash))
+	}
+	for _, f := range rec.Outputs {
+		fmt.Fprintf(&b, "  out      %-52s %s\n", f.Path, short(f.Hash))
+	}
+	return b.String()
+}
+
+func short(h string) string {
+	if len(h) > 23 {
+		return h[:23] + "\u2026"
+	}
+	return h
 }

@@ -969,3 +969,64 @@ func pubHalfOf(privateKeyPath string) string {
 func trimKeySuffix(privateKeyPath string) string {
 	return strings.TrimSuffix(privateKeyPath, ".key") + ".pub"
 }
+
+// FotonFile is one file a record names, with the locator it carries.
+type FotonFile struct {
+	Path string   `json:"path,omitempty"`
+	Hash string   `json:"hash,omitempty"`
+	URI  []string `json:"uri,omitempty"`
+}
+
+// FotonRecord is what one foton says about itself.
+//
+// Two first-time users, working independently, reported the same thing as their single biggest
+// obstacle: a foton id is only ever an answer and never a question. Every lineage query takes a
+// FILE hash, so given the id a publish just handed back, there was no way to ask what that run did
+// — while `plankton show` printed it in full, one layer down. Nothing was missing; it was unexposed.
+type FotonDetail struct {
+	ID          string      `json:"id"`
+	Cmd         string      `json:"cmd,omitempty"`
+	Kind        string      `json:"kind,omitempty"`
+	Environment string      `json:"environment,omitempty"`
+	EnvRef      string      `json:"envRef,omitempty"`
+	SignerKeyID string      `json:"signerKeyId,omitempty"`
+	Inputs      []FotonFile `json:"inputs"`
+	Outputs     []FotonFile `json:"outputs"`
+}
+
+// FotonByID reads one record out of this repo's registry, by the id a publish returned.
+func (r *Runner) FotonByID(ctx context.Context, id string) (*FotonDetail, error) {
+	reg, err := pregistry.Open(r.cfg.PlanktonDir)
+	if err != nil {
+		return nil, fmt.Errorf("opening the plankton registry: %w", err)
+	}
+	f, ok := reg.Foton(id)
+	if !ok {
+		return nil, fmt.Errorf("no foton %s in this repo's registry", id)
+	}
+	rec := &FotonDetail{ID: id, Kind: f.Protocol.Kind}
+	if d, dok := f.Protocol.Descriptor["cmd"].(string); dok {
+		rec.Cmd = d
+	}
+	if d, dok := f.Protocol.Descriptor["environment"].(string); dok {
+		rec.Environment = d
+	}
+	if d, dok := f.Protocol.Descriptor["envRef"].(string); dok {
+		rec.EnvRef = d
+	}
+	if env, eok := reg.Envelope(id); eok {
+		// The key that actually VERIFIED, never the one the record declares about itself — so the
+		// candidates are this repo's configured keys, and a record signed by nobody it trusts
+		// reports no signer rather than reporting the signer it claims to have.
+		if keys, kerr := TrustKeys(r.cfg, ""); kerr == nil {
+			rec.SignerKeyID = core.VerifiedSignerKeyID(env, keys)
+		}
+	}
+	for _, in := range f.Inputs {
+		rec.Inputs = append(rec.Inputs, FotonFile{Path: in.Path, Hash: in.Hash, URI: in.URI})
+	}
+	for _, o := range f.Outputs {
+		rec.Outputs = append(rec.Outputs, FotonFile{Path: o.Path, Hash: o.Hash, URI: o.URI})
+	}
+	return rec, nil
+}
