@@ -226,8 +226,11 @@ func runExecute(ctx context.Context, slug string) error {
 			fmt.Printf("  %s\n", p)
 		}
 	}
-	if !out.Pushed {
-		fmt.Printf("\nnot pushed. If a teammate pushed first: git pull --rebase && git push\n")
+	if out.PushRejected {
+		fmt.Printf("\nThe record is made and committed here. The push was rejected because somebody\n")
+		fmt.Printf("pushed while this was running:  git pull --rebase && git push\n")
+	} else if !out.Pushed {
+		fmt.Printf("\nnot pushed (this repo has push off)\n")
 	}
 	return nil
 }

@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -94,6 +95,11 @@ type PublishOutput struct {
 	// when, and not that the signer did not later prefer a different record.
 	RekorLogIndex int64  `json:"rekorLogIndex,omitempty"`
 	RekorUUID     string `json:"rekorUuid,omitempty"`
+	// PushRejected means the record is committed here and not yet anywhere else — somebody pushed
+	// between this run starting and finishing. Nothing is lost: `git pull --rebase && git push`.
+	// Reported as its own field rather than as pushed:false, because "this repo does not push" and
+	// "this push was refused" call for different things from whoever reads it.
+	PushRejected bool `json:"pushRejected,omitempty"`
 	// Committed and Pushed say what actually happened to git, because both are configurable and
 	// each changes what the permalinks are worth. Not committed means there are none: the sha one
 	// would pin does not exist. Committed but not pushed means they are correct and will resolve
@@ -234,9 +240,17 @@ func Publish(ctx context.Context, _ *mcp.CallToolRequest, in PublishInput) (*mcp
 		allPaths = append(allPaths, corpusPath)
 	}
 
+	// A rejected push is NOT a failed publish. The commit is made, its sha is real, and the
+	// permalinks built from it will resolve the moment somebody pushes — so the record is still
+	// worth writing, and throwing it away also throws away the container run that produced it.
+	pushRejected := false
 	sha, err := gitops.CommitAndPush(ctx, cfg, allPaths, "publish: "+in.Cmd)
 	if err != nil {
-		return errResult[PublishOutput]("git commit/push of inputs+outputs failed: %v", err)
+		var pf *gitops.PushFailed
+		if !errors.As(err, &pf) {
+			return errResult[PublishOutput]("git commit of inputs+outputs failed: %v", err)
+		}
+		pushRejected, sha = true, pf.SHA
 	}
 
 	located := gitops.LocatedFlags(cfg, sha, allPaths)
@@ -308,6 +322,12 @@ func Publish(ctx context.Context, _ *mcp.CallToolRequest, in PublishInput) (*mcp
 	// in both, so they resolve either way.
 	finalSHA, err := gitops.CommitAndPush(ctx, cfg, registryPaths, "foton: "+in.Cmd)
 	if err != nil {
+		var pf *gitops.PushFailed
+		if errors.As(err, &pf) {
+			pushRejected, finalSHA, err = true, pf.SHA, nil
+		}
+	}
+	if err != nil {
 		return errResult[PublishOutput]("git commit/push of the registry failed: %v", err)
 	}
 
@@ -330,7 +350,8 @@ func Publish(ctx context.Context, _ *mcp.CallToolRequest, in PublishInput) (*mcp
 		Environment:    cfg.Raw.Environment.Spectrum,
 		EnvRef:         envRef,
 		Committed:      cfg.Raw.CommitEnabled(),
-		Pushed:         cfg.Raw.PushEnabled(),
+		Pushed:         cfg.Raw.PushEnabled() && !pushRejected,
+		PushRejected:   pushRejected,
 		UnionPublished: cfg.Raw.Union.Publish,
 	}
 	out.UndeclaredChanges = undeclared

@@ -115,7 +115,8 @@ func CommitAndPush(ctx context.Context, cfg *config.Config, paths []string, mess
 		}
 		if ahead {
 			if err := push(ctx, cfg); err != nil {
-				return "", err
+				sha, serr := CurrentSHA(ctx, cfg)
+				return sha, errOrPushFailed(sha, err, serr)
 			}
 		}
 		return CurrentSHA(ctx, cfg)
@@ -132,10 +133,49 @@ func CommitAndPush(ctx context.Context, cfg *config.Config, paths []string, mess
 	}
 	if cfg.Raw.PushEnabled() {
 		if err := push(ctx, cfg); err != nil {
-			return "", err
+			sha, serr := CurrentSHA(ctx, cfg)
+			return sha, errOrPushFailed(sha, err, serr)
 		}
 	}
 	return CurrentSHA(ctx, cfg)
+}
+
+// PushFailed says that everything local succeeded and only the push did not.
+//
+// It exists because the two were indistinguishable, and the difference is the whole record. A
+// teammate pushing first rejects your push; the commit it would have carried is already made and
+// its sha is real, so the permalinks built from it are correct and will resolve the moment somebody
+// pushes. Treating that as a failed publish threw away a signed record and, when the cockpit had
+// just spent two minutes running the command in a container, the run as well.
+//
+// Found by a first-time user: twelve of twenty-eight publishes in one afternoon, three people in
+// one repository. Each one committed the artifacts, wrote no foton, and said only that git had
+// failed.
+type PushFailed struct {
+	SHA string
+	Err error
+}
+
+func (e *PushFailed) Error() string {
+	return fmt.Sprintf("committed as %s, but the push was rejected: %v", shortSHA(e.SHA), e.Err)
+}
+
+func (e *PushFailed) Unwrap() error { return e.Err }
+
+// errOrPushFailed reports a rejected push as PushFailed when the commit it belongs to can still be
+// named, and as a plain error when it cannot — a sha this could not read is a state worth failing on.
+func errOrPushFailed(sha string, pushErr, shaErr error) error {
+	if shaErr != nil || sha == "" {
+		return pushErr
+	}
+	return &PushFailed{SHA: sha, Err: pushErr}
+}
+
+func shortSHA(s string) string {
+	if len(s) > 8 {
+		return s[:8]
+	}
+	return s
 }
 
 // commitIdentityArgs returns the `-c user.name=... -c user.email=...` flags for this cockpit's
