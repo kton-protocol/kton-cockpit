@@ -142,7 +142,10 @@ type AskOutput struct {
 	Record *binaries.FotonDetail `json:"record,omitempty"`
 	// SignerName is what this repo's trust configuration calls the key that verified, when it
 	// names it at all. A keyid is not a person; the tiers are the only place that says whose is whose.
-	SignerName    string `json:"signerName,omitempty"`
+	SignerName string `json:"signerName,omitempty"`
+	// ResolvedFrom is set when ref was a file on disk and the answer is about its CONTENTS. The
+	// hash is the question the substrate actually answers; the path is how you asked it.
+	ResolvedFrom  string `json:"resolvedFrom,omitempty"`
 	FilterApplied string `json:"filterApplied"`
 }
 
@@ -159,6 +162,24 @@ func Ask(ctx context.Context, _ *mcp.CallToolRequest, in AskInput) (*mcp.CallToo
 	}
 
 	r := binaries.New(cfg)
+
+	// A file you have is a question you can ask. The substrate indexes bytes, so every lineage
+	// query wants a content hash — but the thing in front of somebody is a file, and hashing it by
+	// hand first is a step with no judgement in it. A path that exists is hashed and the answer
+	// says so; a path that does not is a mistake worth naming, because the alternative was what
+	// three first-time users met: an empty answer and exit 0, which reads exactly like "nothing
+	// used this file" when the truth was "that is not how you ask".
+	resolvedFrom := ""
+	if wantsContentHash(in.Query) && !strings.HasPrefix(in.Ref, "sha256:") {
+		hash, path, herr := hashLocalFile(ctx, cfg, r, in.Ref)
+		switch {
+		case herr != nil:
+			return errResult[AskOutput]("%v", herr)
+		case hash != "":
+			resolvedFrom, in.Ref = path, hash
+		}
+	}
+
 	if msg := validateFilter(ctx, cfg, r, in.Filter); msg != "" {
 		return errResult[AskOutput]("%s", msg)
 	}
@@ -171,6 +192,12 @@ func Ask(ctx context.Context, _ *mcp.CallToolRequest, in AskInput) (*mcp.CallToo
 	// forced through one path. nekton's about/by have a --json mode, so their claims are parsed and
 	// filtered structurally. plankton's lineage queries have no --json mode at all, so those stay
 	// on scraped text with the line-anchored redaction below.
+	result, out, aerr := dispatchAsk(ctx, cfg, r, in, filter)
+	out.ResolvedFrom = resolvedFrom
+	return result, out, aerr
+}
+
+func dispatchAsk(ctx context.Context, cfg *config.Config, r *binaries.Runner, in AskInput, filter *AskFilter) (*mcp.CallToolResult, AskOutput, error) {
 	switch in.Query {
 	case "about", "by":
 		return askClaims(ctx, cfg, r, in, filter)
@@ -607,4 +634,55 @@ func short(h string) string {
 		return h[:23] + "\u2026"
 	}
 	return h
+}
+
+// wantsContentHash says whether this query's ref names BYTES.
+//
+// The lineage queries do: they are answered out of an index keyed on content. `about` does too — a
+// claim's subject is a hash or a URI. `record` does not (its ref is a foton id, which is not the
+// hash of any file), and neither does `by`, whose ref is a value on an axis. Resolving a path for
+// those would turn a wrong question into a differently wrong question.
+func wantsContentHash(query string) bool {
+	switch query {
+	case "producer", "uses", "lineage", "reproductions", "about":
+		return true
+	}
+	return false
+}
+
+// hashLocalFile turns a path into the hash of what is in it, or returns "" when ref is not a path
+// this can resolve — `about` legitimately takes URIs, so not-a-file is not always an error.
+//
+// Repo-relative first, then as given. That order matters: inside a participant repo the paths
+// people say out loud are repo-relative, and they are also what the records name.
+func hashLocalFile(ctx context.Context, cfg *config.Config, r *binaries.Runner, ref string) (hash, resolved string, err error) {
+	rel := filepath.Clean(ref)
+	candidates := []struct{ abs, report string }{
+		{filepath.Join(cfg.RepoRoot, filepath.FromSlash(rel)), filepath.ToSlash(rel)},
+		{rel, rel},
+	}
+	for _, c := range candidates {
+		info, serr := os.Stat(c.abs)
+		if serr != nil {
+			continue
+		}
+		if info.IsDir() {
+			return "", "", fmt.Errorf(
+				"%s is a directory. Ask about one file, or about the hash of the bytes you mean", ref)
+		}
+		h, herr := r.HashFile(ctx, c.abs)
+		if herr != nil {
+			return "", "", fmt.Errorf("reading %s: %w", ref, herr)
+		}
+		return h, c.report, nil
+	}
+	// Not a file. For `about` that is fine — a subject may be a URI. For the lineage queries it is
+	// the mistake this whole function exists to stop being silent.
+	if strings.Contains(ref, "://") {
+		return "", "", nil
+	}
+	return "", "", fmt.Errorf(
+		"%q is neither a sha256:… hash nor a file that exists here.\n"+
+			"Lineage queries are answered from the CONTENT of a file, so give either the hash or a "+
+			"path to the bytes and this will hash them for you.", ref)
 }

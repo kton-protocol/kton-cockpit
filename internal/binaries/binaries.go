@@ -1030,3 +1030,13 @@ func (r *Runner) FotonByID(ctx context.Context, id string) (*FotonDetail, error)
 	}
 	return rec, nil
 }
+
+// HashFile is Hash for a path that is already absolute, or relative to the process rather than to
+// the repo. Same hash, same kernel function — what differs is only how the caller got there.
+func (r *Runner) HashFile(ctx context.Context, absPath string) (string, error) {
+	b, err := os.ReadFile(absPath)
+	if err != nil {
+		return "", err
+	}
+	return core.HashBytes(b), nil
+}
