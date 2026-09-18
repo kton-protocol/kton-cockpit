@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -24,8 +25,18 @@ import (
 // commit, and signature.
 type PublishInput struct {
 	Inputs  []string `json:"inputs" jsonschema:"repo-relative paths this computation consumed"`
-	Outputs []string `json:"outputs" jsonschema:"repo-relative paths this computation produced"`
-	Cmd     string   `json:"cmd" jsonschema:"the exact command that was run to produce the outputs"`
+	Outputs []string `json:"outputs,omitempty" jsonschema:"repo-relative paths this computation produced"`
+	// OutputDir names a directory whose contents after the run ARE the outputs, instead of naming
+	// them. It is only meaningful when this repo executes the command, because only then does the
+	// cockpit know what the run produced rather than what the caller believed it would.
+	//
+	// The directory MUST be empty or absent beforehand, and publish refuses otherwise. That is what
+	// makes the result deterministic, and it is the whole reason this is safe where "take everything
+	// that changed" is not: output paths and hashes are COVERED, so a stale file left from an
+	// earlier run would enter this record's identity and two identical runs would stop producing
+	// the same foton. An empty dedicated directory has no such file in it.
+	OutputDir string `json:"outputDir,omitempty" jsonschema:"a directory whose contents after the run are the outputs; requires execution, and must be empty beforehand"`
+	Cmd       string `json:"cmd" jsonschema:"the exact command that was run to produce the outputs"`
 	// Corpus lists nekton claim or plankton foton refs (sha256:...) that this result's own
 	// reasoning drew on as its basis. When set, the cockpit records a small corpus manifest file
 	// as an extra foton input, so the reasoning-as-basis is itself a registered foton whose
@@ -99,8 +110,15 @@ func Publish(ctx context.Context, _ *mcp.CallToolRequest, in PublishInput) (*mcp
 	if !cfg.Raw.Verbs.Publish {
 		return errResult[PublishOutput]("publish is disabled by this repo's cockpit.config.json")
 	}
-	if len(in.Outputs) == 0 {
-		return errResult[PublishOutput]("publish requires at least one output path")
+	switch {
+	case in.OutputDir != "" && len(in.Outputs) > 0:
+		return errResult[PublishOutput]("publish takes either outputs or outputDir, not both")
+	case in.OutputDir != "" && !cfg.Raw.Execution.Enabled():
+		return errResult[PublishOutput](
+			"outputDir needs this repo to run the command (execution.image is not configured) — " +
+				"without that the cockpit never sees the run and cannot know what it produced")
+	case in.OutputDir == "" && len(in.Outputs) == 0:
+		return errResult[PublishOutput]("publish requires at least one output path, or outputDir")
 	}
 	if in.Cmd == "" {
 		return errResult[PublishOutput]("publish requires cmd (the command that produced the outputs)")
@@ -138,6 +156,20 @@ func Publish(ctx context.Context, _ *mcp.CallToolRequest, in PublishInput) (*mcp
 	// whatever a failed run left behind would assert work that never completed.
 	var ran *container.Result
 	var undeclared []string
+	if in.OutputDir != "" {
+		existing, derr := filesUnder(cfg.RepoRoot, in.OutputDir)
+		if derr != nil {
+			return errResult[PublishOutput]("outputDir %s: %v", in.OutputDir, derr)
+		}
+		if len(existing) > 0 {
+			return errResult[PublishOutput](
+				"outputDir %s is not empty (%d file(s), e.g. %s) — empty it first.\n"+
+					"A file left there by an earlier run would become an output of THIS record, and "+
+					"output paths and hashes are part of a foton's identity, so the same work would "+
+					"stop producing the same record.", in.OutputDir, len(existing), existing[0])
+		}
+	}
+
 	if cfg.Raw.Execution.Enabled() {
 		// Snapshotted around the run so the declaration can be held against what actually happened.
 		// This is the only point where that is possible: when the cockpit does not run the command,
@@ -150,6 +182,19 @@ func Publish(ctx context.Context, _ *mcp.CallToolRequest, in PublishInput) (*mcp
 		ran, err = container.Run(ctx, cfg, in.Cmd)
 		if err != nil {
 			return errResult[PublishOutput]("%v", err)
+		}
+		if in.OutputDir != "" {
+			produced, derr := filesUnder(cfg.RepoRoot, in.OutputDir)
+			if derr != nil {
+				return errResult[PublishOutput]("reading outputDir %s after the run: %v", in.OutputDir, derr)
+			}
+			if len(produced) == 0 {
+				return errResult[PublishOutput](
+					"the command succeeded in %s but wrote nothing to %s — a record of a run that "+
+						"produced no output asserts work with no result",
+					cfg.Raw.Execution.Image, in.OutputDir)
+			}
+			in.Outputs = produced
 		}
 		for _, o := range in.Outputs {
 			if _, statErr := os.Stat(filepath.Join(cfg.RepoRoot, o)); statErr != nil {
@@ -466,4 +511,41 @@ func pathIsUnderOrEqual(path, dir string) bool {
 	pathLower := strings.ToLower(path)
 	dirLower := strings.ToLower(filepath.ToSlash(filepath.Clean(dir)))
 	return pathLower == dirLower || strings.HasPrefix(pathLower, dirLower+"/")
+}
+
+// filesUnder lists the repo-relative paths of every file below dir, sorted, or an empty slice if
+// dir does not exist. Sorted because output order is COVERED: the same run must produce the same
+// foton, and a directory walk is not obliged to return the same order twice.
+func filesUnder(repoRoot, dir string) ([]string, error) {
+	root := filepath.Join(repoRoot, filepath.FromSlash(dir))
+	info, err := os.Stat(root)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if !info.IsDir() {
+		return nil, fmt.Errorf("%s is a file, not a directory", dir)
+	}
+	var out []string
+	werr := filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		rel, rerr := filepath.Rel(repoRoot, p)
+		if rerr != nil {
+			return rerr
+		}
+		out = append(out, filepath.ToSlash(rel))
+		return nil
+	})
+	if werr != nil {
+		return nil, werr
+	}
+	sort.Strings(out)
+	return out, nil
 }

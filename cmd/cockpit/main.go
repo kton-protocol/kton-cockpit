@@ -48,6 +48,10 @@ func main() {
 		err = runVerb(ctx, os.Args[1], os.Args[2:])
 	case "version":
 		err = runVersion()
+	case "run":
+		err = runRun(ctx, os.Args[2:])
+	case "keygen":
+		err = runKeygen(ctx, os.Args[2:])
 	default:
 		usage()
 		os.Exit(2)
@@ -66,6 +70,8 @@ usage:
   cockpit say     '<json>' [--field NAME]   bind a claim from an allowed template
   cockpit ask     '<json>' [--field NAME]   query the graph, re-verified against configured trust
 
+  cockpit run      run folders: new / <slug> / list — clone inputs, execute, record
+  cockpit keygen   make a signing identity (keys/<name>.key + .pub, and the claims pair)
   cockpit version  what this binary is, and which kernel is compiled into it
   cockpit mcp      start the MCP stdio server (cockpit_publish/cockpit_say/cockpit_ask)
   cockpit init     scaffold cockpit.config.json in the current git repo
