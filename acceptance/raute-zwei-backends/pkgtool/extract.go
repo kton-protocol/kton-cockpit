@@ -19,6 +19,11 @@ import (
 //   - Kommandodatei: das erste Wort der Befehlszeile, das genau ein Eingabeslot ist — das Programm
 //     steht vor seinen Argumenten.
 //   - Step-Name: der letzte Teil des Arbeitsorts. Nur ein Name, keine Bedeutung.
+//   - Mit --entrypoint <prog>: die Befehlszeile in der Paketform. Ein Paket trägt, wie improve,
+//     das Image als erste Zeile und nicht den Interpreter — den stellt das Werkzeug (jam-r:
+//     `--entrypoint Rscript` in seiner tool.json). Also: das erste Wort muss <prog> sein, es fällt
+//     weg, und das Image aus dem envRef des Fotons kommt davor. Beginnt eine Befehlszeile nicht mit
+//     <prog>, lehnt der Adapter ab, statt etwas anderes daraus zu machen.
 //
 // Grenze des Prototyps: die Befehlszeile wird an Leerzeichen geteilt, Anführungszeichen kennt er
 // nicht.
@@ -40,7 +45,14 @@ type record struct {
 	} `json:"record"`
 }
 
-func loadExecutions(file string) ([]ktonpkg.Execution, map[string]string) {
+// imageOf macht aus einem envRef die Image-Angabe, wie improve sie in der ersten Zeile trägt:
+// oci://docker.io/scinteco/jam-r@sha256:… → scinteco/jam-r@sha256:…
+func imageOf(envRef string) string {
+	s := strings.TrimPrefix(envRef, "oci://")
+	return strings.TrimPrefix(s, "docker.io/")
+}
+
+func loadExecutions(file, entrypoint string) ([]ktonpkg.Execution, map[string]string) {
 	raw, err := os.ReadFile(file)
 	if err != nil {
 		fail(1, "%v", err)
@@ -86,14 +98,39 @@ func loadExecutions(file string) ([]ktonpkg.Execution, map[string]string) {
 				break
 			}
 		}
+		if entrypoint != "" {
+			if len(e.Command) == 0 || e.Command[0] != entrypoint {
+				fail(2, "%s: die Befehlszeile %q beginnt nicht mit %s", r.ID, rest, entrypoint)
+			}
+			if r.EnvRef == "" {
+				fail(2, "%s: ohne envRef gibt es kein Image für die erste Zeile", r.ID)
+			}
+			e.Command = append([]string{imageOf(r.EnvRef)}, e.Command[1:]...)
+		}
 		out = append(out, e)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out, where
 }
 
-func propose(file string) {
-	execs, _ := loadExecutions(file)
+// entrypointFlag liest `--entrypoint <prog>` aus args und gibt den Rest zurück.
+func entrypointFlag(args []string) (string, []string) {
+	var rest []string
+	ep := ""
+	for i := 0; i < len(args); i++ {
+		if args[i] == "--entrypoint" && i+1 < len(args) {
+			ep = args[i+1]
+			i++
+			continue
+		}
+		rest = append(rest, args[i])
+	}
+	return ep, rest
+}
+
+func propose(file string, args []string) {
+	ep, _ := entrypointFlag(args)
+	execs, _ := loadExecutions(file, ep)
 	p, err := ktonpkg.Propose(execs)
 	if err != nil {
 		fail(1, "%v", err)
@@ -102,7 +139,8 @@ func propose(file string) {
 }
 
 func extract(recFile, choiceFile, dest string, args []string) {
-	execs, where := loadExecutions(recFile)
+	ep, args := entrypointFlag(args)
+	execs, where := loadExecutions(recFile, ep)
 	p, err := ktonpkg.Propose(execs)
 	if err != nil {
 		fail(1, "%v", err)

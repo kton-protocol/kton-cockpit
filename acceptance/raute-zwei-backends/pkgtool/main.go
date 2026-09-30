@@ -13,8 +13,10 @@
 //	pkgtool foton <paket> <step> [--bind loch=sha256:… ...] [--output datei=pfad ...]
 //	                                                     der Step als Foton-Spec für `plankton author`: ohne Bindungen
 //	                                                     das Potential, mit Bindungen und Ausgaben eine Realisierung
-//	pkgtool propose <records.json>                       Vorschlag: Läufe, Steps, Kandidaten (ADR-006)
-//	pkgtool extract <records.json> <choice.json> <ziel> [--sign schlüssel]
+//	pkgtool potentials <paket> [--bind loch=wert ...] [--upstream ausgaben.json]
+//	                                                     je Step Potential-Id, Protokoll-Ref und — gebunden — Aktionsschlüssel
+//	pkgtool propose <records.json> [--entrypoint prog]   Vorschlag: Läufe, Steps, Kandidaten (ADR-006)
+//	pkgtool extract <records.json> <choice.json> <ziel> [--entrypoint prog] [--sign schlüssel]
 //	                                                     das gewählte Potential als Ray-Paket, mit prov:wasDerivedFrom
 //
 // records.json ist eine Liste von Antworten auf `cockpit ask {query: record}` — nur verifizierte
@@ -38,7 +40,7 @@ func main() {
 	}
 	switch os.Args[1] {
 	case "propose":
-		propose(os.Args[2])
+		propose(os.Args[2], os.Args[3:])
 		return
 	case "extract":
 		if len(os.Args) < 5 {
@@ -59,6 +61,8 @@ func main() {
 			fail(1, "plan braucht den Arbeitsordner (repo-relativ)")
 		}
 		plan(b, os.Args[3], os.Args[4:])
+	case "potentials":
+		potentials(b, os.Args[3:])
 	case "foton":
 		if len(os.Args) < 4 {
 			fail(1, "foton braucht den Step")
@@ -67,6 +71,60 @@ func main() {
 	default:
 		fail(1, "unbekannt: %s", os.Args[1])
 	}
+}
+
+// potentials nennt je Step die Identität des Potentials: die Foton-Id mit offenen Löchern und die
+// Protokoll-Ref. Mit Bindungen (Datei-Löcher als Inhaltshash) und den Ausgaben der Vorgänger
+// (ausgaben.json: "<step>/<datei>" → Hash, wie results/*.json sie führt) dazu den Aktionsschlüssel —
+// der rechnet über Eingaben und Protokoll, nicht über Ausgaben, und entscheidet über Reuse.
+func potentials(b *ktonpkg.Bundle, args []string) {
+	bindings := ktonpkg.Bindings{}
+	var upstream map[string]string
+	for i := 0; i+1 < len(args); i += 2 {
+		switch args[i] {
+		case "--bind":
+			k, v, _ := strings.Cut(args[i+1], "=")
+			bindings[k] = v
+		case "--upstream":
+			raw, err := os.ReadFile(args[i+1])
+			if err != nil {
+				fail(1, "%v", err)
+			}
+			var outs map[string]string
+			if err := json.Unmarshal(raw, &outs); err != nil {
+				fail(1, "%v", err)
+			}
+			upstream = map[string]string{}
+			for k, v := range outs {
+				step, file, _ := strings.Cut(k, "/")
+				upstream[step+":"+file] = v
+			}
+		default:
+			fail(1, "unbekannt: %s", args[i])
+		}
+	}
+	out := map[string]any{}
+	for _, s := range b.Ray.Steps {
+		f, err := b.Ray.Foton(s.ID, nil, nil)
+		if err != nil {
+			fail(1, "%v", err)
+		}
+		id, err := f.FotonID()
+		if err != nil {
+			fail(1, "%v", err)
+		}
+		e := map[string]string{"potential": id, "protocolRef": f.Protocol.Ref}
+		if upstream != nil {
+			ak, err := b.Ray.ActionKey(s.ID, bindings, upstream)
+			if err != nil {
+				e["actionKeyError"] = err.Error()
+			} else {
+				e["actionKey"] = ak
+			}
+		}
+		out[s.ID] = e
+	}
+	emit(out)
 }
 
 // fotonSpec gibt den Step als foton-Spec aus, wie `plankton author <spec.json>` sie liest. Die

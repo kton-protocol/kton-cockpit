@@ -1,0 +1,7 @@
+{
+  "formatVersion": "kton-package/1",
+  "kind": "ray",
+  "name": "raute-extrahiert",
+  "entry": "kton/ray.json",
+  "created": "2026-09-30T15:44:04Z"
+}

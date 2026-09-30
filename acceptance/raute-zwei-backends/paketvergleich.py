@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Hält zwei Ray-Pakete nebeneinander: das Original und das aus Ausführungen extrahierte.
 
-Verglichen wird, was ein Potential ausmacht — Steps, Verdrahtung, Code, Löcher, Bedingung —, nicht,
-was sich erwartbar unterscheidet: Testdaten und Spectrum (sie stammen aus einem anderen Lauf) und
-die Form der Befehlszeile (improve trägt die Image-Zeile, das Cockpit den Interpreter)."""
+Verglichen wird, was ein Potential ausmacht — Steps, Verdrahtung, Code, Löcher, Befehlszeile,
+Bedingung und, mit den Ausgaben von `pkgtool potentials`, die Potential-Id je Step —, nicht, was sich
+erwartbar unterscheidet: Testdaten und Spectrum stammen aus einem anderen Lauf.
+
+    paketvergleich.py <original> <extrahiert> [<potentials original> <potentials extrahiert>]"""
 import json
 import sys
 
@@ -69,12 +71,20 @@ def args(r):
     return sorted(f"{s['id']}: `{s['protocol']['command']['args'].replace(chr(10), ' ⏎ ')}`" for s in r["steps"])
 
 
-rows.append(zeile("Befehlszeile", "<br>".join(args(o)), "<br>".join(args(x)),
-                  "erwartet: improve trägt das Image, die Cockpit-Ausführung den Interpreter"))
+rows.append(zeile("Befehlszeile", "<br>".join(args(o)), "<br>".join(args(x))))
 rows.append(zeile("Vorgaben der Löcher",
                   "<br>".join(sorted(f"{h['name']}={h['default']}" for h in o.get("holes", []))),
                   "<br>".join(sorted(f"{h['name']}={h['default']}" for h in x.get("holes", []))),
                   "erwartet: die Vorgaben kommen aus dem gewählten Referenzlauf"))
-struktur = all(r["same"] for r in rows[:6])
+if len(sys.argv) > 4:
+    po, px = json.load(open(sys.argv[3])), json.load(open(sys.argv[4]))
+    feld = lambda p, k: "<br>".join(f"{s}: `{v.get(k, '—')[:19]}…`" for s, v in sorted(p.items()))
+    rows.append(zeile("Protokoll je Step (ktonpkg)", feld(po, "protocolRef"), feld(px, "protocolRef")))
+    if any("actionKey" in v for v in po.values()):
+        rows.append(zeile("Aktionsschlüssel je Step, gleich gebunden", feld(po, "actionKey"), feld(px, "actionKey")))
+    rows.append(zeile("Potential-Id je Step", feld(po, "potential"), feld(px, "potential"),
+                      "erwartet: das extrahierte Paket erklärt seine Ausgaben (virtuelle Ausgaben, "
+                      "kton §6.4), das Original nicht — der Aktionsschlüssel rechnet ohne Ausgaben"))
+struktur = all(r["same"] for r in rows if "erwartet" not in r.get("why", ""))
 print(json.dumps({"structureSame": struktur, "rows": rows}, ensure_ascii=False, indent=1))
 sys.exit(0 if struktur else 1)

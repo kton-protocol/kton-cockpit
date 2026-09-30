@@ -56,7 +56,7 @@ schritt select select:records cockpit "" \
 echo; echo "=== vorschlagen, wählen, extrahieren"
 schritt propose propose ktonpkg "S5/S6: im Zielbild cockpit ask {query: ray}" \
   "Vorschlag: Läufe, Steps, Verdrahtung und die Kandidaten — beobachtet, nicht entschieden" \
-  "$PKG propose $WORK/records.json"
+  "$PKG propose $WORK/records.json --entrypoint Rscript"
 cp "$WORK/last.out" "$WORK/proposal.json"
 
 # Die Auswahl ist ausdrücklich und steht hier im Skript, wo man sie lesen kann. Referenz ist der
@@ -82,7 +82,10 @@ schritt choose choose script "S5/S6: im Zielbild die Auswahl in cockpit publish 
 
 schritt extract extract ktonpkg "S5/S6: im Zielbild cockpit publish {kind: ray}" \
   "Extrahieren: Ray-Paket mit Testdaten und Spectrum aus dem Referenzlauf, prov:wasDerivedFrom signiert" \
-  "$PKG extract $WORK/records.json $WORK/choice.json packages/raute-extrahiert --sign $WORK/extraktion.key"
+  "$PKG extract $WORK/records.json $WORK/choice.json packages/raute-extrahiert --entrypoint Rscript --sign $WORK/extraktion.key"
+
+# Das Paket verlässt dieses Repo: Schritt 3 spielt es in improve ein.
+rm -rf "$HIER/pakete/raute-aus-git" && mkdir -p "$HIER/pakete" && cp -r "$REPO_DIR/packages/raute-extrahiert" "$HIER/pakete/raute-aus-git"
 
 schritt extract extract:inspect ktonpkg "" \
   "Das extrahierte Paket öffnen und prüfen" \
@@ -90,9 +93,17 @@ schritt extract extract:inspect ktonpkg "" \
 
 # ---------------------------------------------------------------------------------------------------
 echo; echo "=== mit dem Original vergleichen"
+# Gleich gebunden wie der Referenzlauf: eigene Daten, anzahl=3, die Ausgaben der Vorgänger aus
+# results/git.json. Unter denselben Bindungen müssen beide Pakete dieselben Aktionsschlüssel haben.
+python3 -c 'import json,sys; json.dump(json.load(open(sys.argv[1]))["outputs"], open(sys.argv[2],"w"))' results/git.json "$WORK/upstream.json"
+BIND="--bind dataset=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["bindings"]["dataset"])' results/git.json) --bind anzahl=3 --upstream $WORK/upstream.json"
+(cd "$REPO_DIR" && $PKG potentials packages/raute $BIND) > "$WORK/pot-original.json"
+schritt compare compare:potentials ktonpkg "" \
+  "Je Step Potential, Protokoll und Aktionsschlüssel des extrahierten Pakets — gebunden wie der Referenzlauf" \
+  "$PKG potentials packages/raute-extrahiert $BIND | tee $WORK/pot-extrahiert.json"
 schritt compare compare script "" \
-  "Struktur neben das Original-Paket halten: Steps, Verdrahtung, Code, Löcher, Bedingung" \
-  "python3 $HIER/paketvergleich.py packages/raute packages/raute-extrahiert"
+  "Neben das Original-Paket halten: Steps, Verdrahtung, Code, Löcher, Befehlszeile, Bedingung, Potential je Step" \
+  "python3 $HIER/paketvergleich.py packages/raute packages/raute-extrahiert $WORK/pot-original.json $WORK/pot-extrahiert.json"
 
 # ---------------------------------------------------------------------------------------------------
 echo; echo "=== das Extrahierte laufen lassen"
@@ -144,6 +155,7 @@ res = {
     "steps": steps,
     "proposal": {"runs": len(proposal.get("runs", [])), "steps": [s["id"] for s in proposal.get("steps", [])],
                  "files": proposal.get("files", []), "params": proposal.get("params", []),
+                 "reproductions": proposal.get("reproductions", {}),
                  "conflicts": proposal.get("conflicts", [])},
     "compare": compare,
     "roundtrip": {"outputs": x, "sameAsReference": x == git["outputs"], "spectrumCheck": check["ok"]},
@@ -157,7 +169,9 @@ z = ["# Extraktion — aus Ausführungen das Potential\n",
      "Erzeugt von `extraktion.sh`.\n",
      "## Vorschlag\n",
      f"{res['proposal']['runs']} Läufe, Steps: {', '.join(res['proposal']['steps'])}. "
-     f"Konflikte: {len(res['proposal']['conflicts'])}.\n",
+     f"Konflikte: {len(res['proposal']['conflicts'])}. "
+     f"Als Reproduktion zusammengefasst: {sum(len(v) for v in res['proposal']['reproductions'].values())} "
+     "Ausführungen (gleiche Berechnung, gleiche Bytes — kein eigener Step).\n",
      "| Kandidat | Art | Werte je Lauf | gewählt |", "|---|---|---|---|"]
 for f in res["proposal"]["files"]:
     chosen = "Loch `dataset`" if (f["step"], f["slot"]) == ("aufbereitung", "dataset.csv") else "fest"

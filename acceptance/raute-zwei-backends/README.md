@@ -25,6 +25,13 @@ die schon liefen, das Potential zurückgewinnen. Ein zweiter Lauf auf den Vorgab
 Vorschlag → ausdrückliche Wahl → Ray-Paket, neben das Original gehalten und selbst laufen gelassen.
 Ergebnis in `EXTRAKTION.md`.
 
+## Über Kreuz (ADR-006, Schritt 3)
+
+Auf einer Seite extrahieren, auf der anderen laufen lassen. `pakete/raute-aus-git` spielt improvego
+`cmd/kreuz` in improve ein. Außerdem lässt es die Raute dort zweimal laufen und extrahiert daraus
+`pakete/raute-aus-improve`. `kreuz.sh` lässt dieses Paket im git-Repo laufen und hält beide Pakete
+nebeneinander, bis zum Aktionsschlüssel. Das Ergebnis steht in `KREUZ.md`.
+
 ## Ausführen
 
 ```bash
@@ -32,7 +39,10 @@ Ergebnis in `EXTRAKTION.md`.
 (cd /home/hacklm/improvego && IMPROVE_URL=http://<improve-server>/repository/api \
   IMPROVE_TEST_PATH=/dst go run ./cmd/rautevergleich)   # improve: <improve-server>, ~5 min
 python3 vergleich.py                             # → VERGLEICH.md
-./extraktion.sh                                  # nach git-seite.sh → EXTRAKTION.md
+./extraktion.sh                                  # nach git-seite.sh → EXTRAKTION.md, pakete/raute-aus-git
+(cd /home/hacklm/improvego && IMPROVE_URL=http://<improve-server>/repository/api \
+  IMPROVE_TEST_PATH=/dst go run ./cmd/kreuz)       # improve: A und B, ~6 min
+./kreuz.sh                                       # → KREUZ.md
 ```
 
 Beide Seiten brauchen die Pakete aus dem improveGo-Workstream (`tools/jam-r/paket`,
@@ -44,6 +54,8 @@ Beide Seiten brauchen die Pakete aus dem improveGo-Workstream (`tools/jam-r/pake
 |---|---|
 | `git-seite.sh` | die git-Seite; schreibt `results/git.json` |
 | `extraktion.sh` | aus den Ausführungen der git-Seite das Potential; schreibt `results/extraktion.json` und `EXTRAKTION.md` |
+| `kreuz.sh` | die git-Hälfte von Schritt 3; schreibt `results/kreuz-git.json` und `KREUZ.md` |
+| `pakete/` | die extrahierten Pakete, die zwischen den Seiten wandern |
 | `schritt.sh` | gemeinsam: jeden Schritt wörtlich ausführen und protokollieren, einen Plan mit dem Cockpit laufen lassen |
 | `records.py`, `paketvergleich.py` | Ausführungen über `cockpit ask record` holen; zwei Ray-Pakete nebeneinander |
 | `pkgtool/` | der Teil, den das Cockpit noch nicht kann: Pakete öffnen, Löcher binden, Steps als Fotons, Vorschlag und Extraktion — alles über ktonpkg |

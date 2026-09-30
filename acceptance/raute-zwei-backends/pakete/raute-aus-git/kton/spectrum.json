@@ -1,0 +1,22 @@
+{
+  "spectrum": "raute-extrahiert",
+  "of": "extrahiert aus dem Lauf mit den Endpunkten sha256:44d419866f5a847c591f1c4a3f9e46ff6416985c1b57840413d986ba60ba01e1",
+  "members": [
+    {
+      "name": "aufbereitung",
+      "output": "sha256:ab0a3a6253897602cb84d4592293e905714a017ec4333254ca80b836780df12b"
+    },
+    {
+      "name": "zusammenführung",
+      "output": "sha256:44d419866f5a847c591f1c4a3f9e46ff6416985c1b57840413d986ba60ba01e1"
+    },
+    {
+      "name": "zweig-b",
+      "output": "sha256:e908d8332bb7d78ee94deadbcda35d4525de0e85d1fe4c508a5668d5520e7a31"
+    },
+    {
+      "name": "zweig-c",
+      "output": "sha256:fb76c5fd07819ff96996d189cd08fe52c64894e55d3dba89eebbebb495f60739"
+    }
+  ]
+}

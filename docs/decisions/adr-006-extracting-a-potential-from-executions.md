@@ -11,8 +11,10 @@ tags: [potentials, rays, packages, extraction, federation]
 
 ## Status
 
-Proposed (2026-09-30), on `jam-beta`. Steps 1 and 2 below are being built; the cockpit surface
-(step 5) waits for ADR-005's S5 and S6.
+Proposed (2026-09-30), on `jam-beta`. Steps 1 to 3 are built and pass in
+`acceptance/raute-zwei-backends` (`EXTRAKTION.md`, `KREUZ.md`). Step 4 is partly done: improvego has
+the adapter, but not yet in place of `ParameterizeStep`. The cockpit surface (step 5) waits for
+ADR-005's S5 and S6.
 
 ## Context
 
@@ -86,24 +88,63 @@ value becomes a parameter, because a rule guessed it.
   - `publish {kind: "ray", from: <proposal>, choose: {…}}` writes the package, records the
     potential, and signs a `prov:wasDerivedFrom` claim from the package to the source fotons.
 
+### One form for the command line
+
+A package step's `protocol.command.args` has the form existing packages already use: the image as
+the first line, then `<command-file>`, then arguments and `<param>` placeholders. The interpreter
+does not appear; the tool supplies it, and jam-r's `tool.json` states `--entrypoint Rscript`.
+
+The command line is part of the protocol, and the protocol is part of identity. So both adapters
+write this form:
+
+- The improve adapter reads it from the recorded descriptor.
+- The cockpit adapter translates the shell line it recorded. The leading word must be the tool's
+  named entrypoint, otherwise the adapter refuses; the image comes from the foton's `envRef`.
+
+With one form, the same executions give the same package on either backend.
+
 ### Round trip, and where it depends on ADR-005
 
 The acceptance criterion is behavioural: realise the extracted package on its defaults, and the
 outputs meet its spectrum.
 
-A stronger criterion would be that a realisation of the extracted step has the **same action key**
-as the original execution, because reuse would then find the original. That holds only when both
-sides compute identity the same way. improvego and `ktonpkg` already do. The cockpit does not yet:
-`publish` records its command line and image in the protocol, which the Raute acceptance test
-already showed for the normaliser. When S5 realises through `ktonpkg`'s step identity, extraction
-becomes lossless on the git side too.
+A stronger criterion is that a realisation of the extracted step has the **same action key** as
+the original execution, because reuse would then find the original.
+
+- **Between packages, this holds.** Extracted on either backend, the potentials have the same
+  action keys as the original package under the same bindings.
+- **Between a package and the executions as recorded, it does not yet hold on either backend.**
+  The cockpit's `publish` records its shell line and image in the protocol; the Raute acceptance
+  test already showed this for the normaliser. improve's `FotonOfStep` records `improve/step`
+  without variables or params.
+
+The fix is the same on both sides and belongs to ADR-005 S5: executors record through `ktonpkg`'s
+step identity.
+
+## What the steps found
+
+- **Reproductions must be merged before anything is counted.** A second producer of the same bytes
+  otherwise joins two runs into one, and every step appears twice. `Propose` merges executions with
+  the same code, command line, and input and output bytes, and lists the ones it merged.
+- **A step that passes its input through unchanged** has the same bytes as input and output. It must
+  not be wired from itself. The Raute's first step does exactly this.
+- **Labels that exist only inside a proposal must not reach identity.** The spectrum once named the
+  reference run `run-2`, which depends on how foton ids sort. It now names the run's endpoints.
+- **The same executions give the same computations on either backend.** A package extracted on git
+  and one extracted on improve have the same ray id, the same potential per step, and the same
+  action keys under the same bindings. A package extracted on one side produces the same bytes on
+  the other.
+- **improve's recorded fotons are not found by the potential's action key.** `FotonOfStep` writes
+  the protocol kind `improve/step` without `variables` or `params`. A reuse lookup keyed on the
+  potential's action key therefore misses runs that improve recorded itself. This belongs with
+  ADR-005 S5: executors should record through the step identity of `ktonpkg`.
 
 ## Steps
 
 | step | content |
 |---|---|
-| 1 | `ktonpkg.Propose` / `ktonpkg.Extract`, unit tests on synthetic executions shaped like the Raute |
-| 2 | prototype in `acceptance/raute-zwei-backends`: run the Raute twice on the git side, extract with explicit choices, compare with the original package, realise the extracted package and hold it against its spectrum |
-| 3 | across backends: extract on one side, install and run on the other |
+| 1 | `ktonpkg.Propose` / `ktonpkg.Extract`, unit tests on synthetic executions shaped like the Raute — **done** |
+| 2 | prototype in `acceptance/raute-zwei-backends`: run the Raute twice on the git side, extract with explicit choices, compare with the original package, realise the extracted package and hold it against its spectrum — **done** |
+| 3 | across backends: extract on one side, install and run on the other — **done** |
 | 4 | improvego on `Propose`/`Extract` instead of hand-written `ParameterizeStep` |
 | 5 | cockpit `ask ray` and `publish kind:ray`, with ADR-005 S5/S6 |
