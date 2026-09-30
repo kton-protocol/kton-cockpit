@@ -1,0 +1,2041 @@
+{
+  "ranAt": "2026-09-30T16:51:13Z",
+  "subject": "sha256:135701e7d917ae4aedbef8f973e22d59038840d5605b360a208217aabb3c9173",
+  "steps": [
+    {
+      "phase": "pruefer",
+      "id": "pruefer:doctor",
+      "title": "Das Repo des Prüfers: eigene Konfiguration, eigene Schlüssel, eigene Bindung",
+      "actor": "cockpit",
+      "command": "./bin/cockpit doctor",
+      "gap": "",
+      "ok": true,
+      "exit": 0,
+      "result": {
+        "text": "repo root:      /mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/.work/review/pruefer/repo\nbound to:       cockpit-examples/raute-pruefer (verified against origin remote)\nplankton_dir:   /mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/.work/review/pruefer/repo/registry/plankton  [ok]\nnekton_dir:     /mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/.work/review/pruefer/repo/registry/nekton  [ok]\ntemplates_dir:  /mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/.work/review/pruefer/repo/templates  [ok]\nplankton key:   /mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/.work/review/pruefer/repo/keys/session-1.key  [READABLE BY OTHERS: mode -rwxrwxrwx]\n                this is a PRIVATE signing key. Either the filesystem does not enforce\n                modes (a Windows drive mounted into WSL, FAT/exFAT, some network mounts)\n                or the mode was widened. Anyone who can read it can sign as this repo.\nnekton key:     /mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/.work/review/pruefer/repo/keys/session-1-claims.key  [READABLE BY OTHERS: mode -rwxrwxrwx]\n                this is a PRIVATE signing key. Either the filesystem does not enforce\n                modes (a Windows drive mounted into WSL, FAT/exFAT, some network mounts)\n                or the mode was widened. Anyone who can read it can sign as this repo.\nallowed templates: [reviewed]\nclaim scopes:   none configured — every claim stands on its own\ntrust tiers:    map[self:[registry/keys/session-1.pub registry/keys/session-1-claims.pub]]\nkernel:         linked, not invoked — no plankton/nekton process is ever started\n                kton.dev/kton        v0.2.1\n                kton.dev/nekton      v0.2.1\n                kton.dev/plankton    v0.2.1\ngit:            commit + push\nanchor:         off — records are signed, but nothing independent attests WHEN they existed\nmaterial:       none configured — records carry the signature and nothing about whose key it is\nunion:          not published — the graph is reachable via `cockpit show` only\nexecution:      not configured — cockpit_publish RECORDS the command, does not run it"
+      }
+    },
+    {
+      "phase": "pruefer",
+      "id": "pruefer:inspect",
+      "title": "Der Prüfer öffnet das Paket und stellt fest, worüber er urteilt: seine Bundle-Id",
+      "actor": "ktonpkg",
+      "command": "/mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/.work/review/pkgtool inspect packages/raute",
+      "gap": "S6: cockpit kennt kton-Pakete noch nicht",
+      "ok": true,
+      "exit": 0,
+      "result": {
+        "bundleId": "sha256:135701e7d917ae4aedbef8f973e22d59038840d5605b360a208217aabb3c9173",
+        "format": "kton-package/1",
+        "holes": [
+          {
+            "name": "anzahl",
+            "step": "zweig-b",
+            "param": "anzahl",
+            "type": "param",
+            "required": true,
+            "default": "3"
+          },
+          {
+            "name": "dataset",
+            "step": "aufbereitung",
+            "slot": "dataset.csv",
+            "type": "file",
+            "required": true,
+            "default": "testdaten/dataset/dataset.csv"
+          }
+        ],
+        "kind": "ray",
+        "name": "raute-extrahiert",
+        "problems": null,
+        "rayId": "sha256:1152ddff61fbfe83d9c948f92fb1abe7adb9a9e97f5bc80ea3255cadca855ab1",
+        "requires": [
+          {
+            "kind": "tool",
+            "spectrum": "sha256:e0669ff3f8f756868721fe603e72ee1243e93805b3cf422affd261dc311a8bee",
+            "name": "jam-r"
+          }
+        ],
+        "spectrum": {
+          "spectrum": "raute-extrahiert",
+          "of": "extrahiert aus dem Lauf mit den Endpunkten sha256:44d419866f5a847c591f1c4a3f9e46ff6416985c1b57840413d986ba60ba01e1",
+          "members": [
+            {
+              "name": "aufbereitung",
+              "output": "sha256:ab0a3a6253897602cb84d4592293e905714a017ec4333254ca80b836780df12b"
+            },
+            {
+              "name": "zusammenführung",
+              "output": "sha256:44d419866f5a847c591f1c4a3f9e46ff6416985c1b57840413d986ba60ba01e1"
+            },
+            {
+              "name": "zweig-b",
+              "output": "sha256:e908d8332bb7d78ee94deadbcda35d4525de0e85d1fe4c508a5668d5520e7a31"
+            },
+            {
+              "name": "zweig-c",
+              "output": "sha256:fb76c5fd07819ff96996d189cd08fe52c64894e55d3dba89eebbebb495f60739"
+            }
+          ]
+        },
+        "spectrumId": "sha256:797e3490217d5cc8a837c2bb2ac355654c0d917af2227db3c918cbf18ad0ed43",
+        "steps": 4,
+        "verified": true
+      }
+    },
+    {
+      "phase": "pruefer",
+      "id": "pruefer:say",
+      "title": "Der Prüfer sagt reviewed über die Bundle-Id — mit seinem Cockpit, seinem Schlüssel",
+      "actor": "cockpit",
+      "command": "./bin/cockpit say '{\"subject\":\"sha256:135701e7d917ae4aedbef8f973e22d59038840d5605b360a208217aabb3c9173\",\"template\":\"reviewed\",\"fields\":{\"outcome\":\"accepted\",\"befund\":\"Struktur, Verdrahtung, Code und Löcher gegen das Original geprüft; Spectrum und Testdaten vorhanden\"}}'",
+      "gap": "",
+      "ok": true,
+      "exit": 0,
+      "result": {
+        "claimId": "sha256:983e11ba78e372c92f1970425d68cfd4dbf5d25f8eea60baa9f2574e91b45f1d",
+        "confirmation": "registered: nekton reports sha256:983e11ba78e372c92f1970425d68cfd4dbf5d25f8eea60baa9f2574e91b45f1d among the 1 claim(s) about sha256:135701e7d917ae4aedbef8f973e22d59038840d5605b360a208217aabb3c9173"
+      }
+    },
+    {
+      "phase": "pruefer",
+      "id": "pruefer:export",
+      "title": "Den signierten Umschlag seines Claims herausnehmen, um ihn weiterzugeben",
+      "actor": "kernel-cli",
+      "command": "NEKTON_DIR=registry/nekton ./bin/nekton records --json",
+      "gap": "Föderation: den Umschlag zu tragen ist nicht Sache des Cockpits (kton-web, fetch)",
+      "ok": true,
+      "exit": 0,
+      "result": {
+        "epoch": "6582b396fec8894d03fb7703c0707f35",
+        "max": 1,
+        "records": [
+          {
+            "seq": 1,
+            "claimId": "sha256:983e11ba78e372c92f1970425d68cfd4dbf5d25f8eea60baa9f2574e91b45f1d",
+            "envelope": {
+              "payloadType": "application/vnd.in-toto+json",
+              "payload": "eyJfdHlwZSI6Imh0dHBzOi8vaW4tdG90by5pby9TdGF0ZW1lbnQvdjEiLCJwcmVkaWNhdGUiOnsiYnkiOiJrZXk6YWFmMDUyNjU3OTNlMWQ2NyIsIm9iamVjdCI6eyJiZWZ1bmQiOiJTdHJ1a3R1ciwgVmVyZHJhaHR1bmcsIENvZGUgdW5kIEzDtmNoZXIgZ2VnZW4gZGFzIE9yaWdpbmFsIGdlcHLDvGZ0OyBTcGVjdHJ1bSB1bmQgVGVzdGRhdGVuIHZvcmhhbmRlbiIsIm91dGNvbWUiOiJhY2NlcHRlZCJ9LCJwcmVkaWNhdGUiOnsidXJpIjoiaHR0cHM6Ly9zY2ludGVjby5jb20vbnMvcXVhbGlmaWNhdGlvbi92MSNyZXZpZXdlZCJ9LCJ3aGVuIjoiMjAyNi0wOS0zMFQxNjo1MDozOVoifSwicHJlZGljYXRlVHlwZSI6Imh0dHBzOi8va3Rvbi5kZXYvY2xhaW0vdjAiLCJzdWJqZWN0IjpbeyJkaWdlc3QiOnsic2hhMjU2IjoiMTM1NzAxZTdkOTE3YWU0YWVkYmVmOGY5NzNlMjJkNTkwMzg4NDBkNTYwNWIzNjBhMjA4MjE3YWFiYjNjOTE3MyJ9fV19",
+              "signatures": [
+                {
+                  "keyid": "aaf05265793e1d67",
+                  "sig": "yDH1pfxjiJ2dTMzU7i2DmryhJJCu0gUFudKbKDpE5E1jNy3V5yXQa/UI7OuxiYeg03yuqR8H2rDycvwHc1CwAg=="
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "phase": "federation",
+      "id": "federation:add",
+      "title": "Der Umschlag des Prüfers kommt ins Register der Autorin — die Unterschrift reist mit, sonst nichts",
+      "actor": "kernel-cli",
+      "command": "NEKTON_DIR=registry/nekton ./bin/nekton add /mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/.work/review/pruefer-claim.dsse.json",
+      "gap": "Föderation: den Umschlag zu tragen ist nicht Sache des Cockpits (kton-web, fetch)",
+      "ok": true,
+      "exit": 0,
+      "result": {
+        "text": "indexed claim sha256:983e11ba78e372c92f1970425d68cfd4dbf5d25f8eea60baa9f2574e91b45f1d  (registry now holds 3 claims)"
+      }
+    },
+    {
+      "phase": "federation",
+      "id": "federation:add-improve:096dec8f52b7ddfb",
+      "title": "Die Projektion des improve-Reviews kommt ins Register der Autorin",
+      "actor": "kernel-cli",
+      "command": "NEKTON_DIR=registry/nekton ./bin/nekton add /mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/results/review-improve-claims/096dec8f52b7ddfb.json",
+      "gap": "Föderation: den Umschlag zu tragen ist nicht Sache des Cockpits (kton-web, fetch)",
+      "ok": true,
+      "exit": 0,
+      "result": {
+        "text": "indexed claim sha256:096dec8f52b7ddfb0666c98c0907cfe6084a3eb59a8e508cbb27df192e78f8f9  (registry now holds 4 claims)"
+      }
+    },
+    {
+      "phase": "federation",
+      "id": "federation:add-improve:386216da38d3da1f",
+      "title": "Die Projektion des improve-Reviews kommt ins Register der Autorin",
+      "actor": "kernel-cli",
+      "command": "NEKTON_DIR=registry/nekton ./bin/nekton add /mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/results/review-improve-claims/386216da38d3da1f.json",
+      "gap": "Föderation: den Umschlag zu tragen ist nicht Sache des Cockpits (kton-web, fetch)",
+      "ok": true,
+      "exit": 0,
+      "result": {
+        "text": "indexed claim sha256:386216da38d3da1f72b9e93960712b5bee00cbfb31701eb4b4b10900f5b09536  (registry now holds 5 claims)"
+      }
+    },
+    {
+      "phase": "federation",
+      "id": "federation:add-improve:5e1aad2ee36fb7e6",
+      "title": "Die Projektion des improve-Reviews kommt ins Register der Autorin",
+      "actor": "kernel-cli",
+      "command": "NEKTON_DIR=registry/nekton ./bin/nekton add /mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/results/review-improve-claims/5e1aad2ee36fb7e6.json",
+      "gap": "Föderation: den Umschlag zu tragen ist nicht Sache des Cockpits (kton-web, fetch)",
+      "ok": true,
+      "exit": 0,
+      "result": {
+        "text": "indexed claim sha256:5e1aad2ee36fb7e62cf212996e1ae6ef5689da9517c1f52447a7a5810351a115  (registry now holds 6 claims)"
+      }
+    },
+    {
+      "phase": "federation",
+      "id": "federation:add-improve:6052647208a3272d",
+      "title": "Die Projektion des improve-Reviews kommt ins Register der Autorin",
+      "actor": "kernel-cli",
+      "command": "NEKTON_DIR=registry/nekton ./bin/nekton add /mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/results/review-improve-claims/6052647208a3272d.json",
+      "gap": "Föderation: den Umschlag zu tragen ist nicht Sache des Cockpits (kton-web, fetch)",
+      "ok": true,
+      "exit": 0,
+      "result": {
+        "text": "indexed claim sha256:6052647208a3272d9ddd78e157169aaf55554e96b2ee6df2d912927a410a0a43  (registry now holds 7 claims)"
+      }
+    },
+    {
+      "phase": "federation",
+      "id": "federation:add-improve:6eef53b47a24f152",
+      "title": "Die Projektion des improve-Reviews kommt ins Register der Autorin",
+      "actor": "kernel-cli",
+      "command": "NEKTON_DIR=registry/nekton ./bin/nekton add /mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/results/review-improve-claims/6eef53b47a24f152.json",
+      "gap": "Föderation: den Umschlag zu tragen ist nicht Sache des Cockpits (kton-web, fetch)",
+      "ok": true,
+      "exit": 0,
+      "result": {
+        "text": "indexed claim sha256:6eef53b47a24f152f26f136de1264d30f86e87e87acfc1062715a928ef499d1f  (registry now holds 8 claims)"
+      }
+    },
+    {
+      "phase": "federation",
+      "id": "federation:add-improve:8b8a73f5b978681d",
+      "title": "Die Projektion des improve-Reviews kommt ins Register der Autorin",
+      "actor": "kernel-cli",
+      "command": "NEKTON_DIR=registry/nekton ./bin/nekton add /mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/results/review-improve-claims/8b8a73f5b978681d.json",
+      "gap": "Föderation: den Umschlag zu tragen ist nicht Sache des Cockpits (kton-web, fetch)",
+      "ok": true,
+      "exit": 0,
+      "result": {
+        "text": "indexed claim sha256:8b8a73f5b978681d5b78a85fdbe02aa6514497934dca6ba0c7d2c2cc3c55b9dd  (registry now holds 9 claims)"
+      }
+    },
+    {
+      "phase": "federation",
+      "id": "federation:add-improve:951d9d9ea9ca3a0d",
+      "title": "Die Projektion des improve-Reviews kommt ins Register der Autorin",
+      "actor": "kernel-cli",
+      "command": "NEKTON_DIR=registry/nekton ./bin/nekton add /mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/results/review-improve-claims/951d9d9ea9ca3a0d.json",
+      "gap": "Föderation: den Umschlag zu tragen ist nicht Sache des Cockpits (kton-web, fetch)",
+      "ok": true,
+      "exit": 0,
+      "result": {
+        "text": "indexed claim sha256:951d9d9ea9ca3a0ded4d3e15a3a0977de487b9080341120c14e47c32aaf53c3a  (registry now holds 10 claims)"
+      }
+    },
+    {
+      "phase": "federation",
+      "id": "federation:add-improve:9a1116ac9f1b5632",
+      "title": "Die Projektion des improve-Reviews kommt ins Register der Autorin",
+      "actor": "kernel-cli",
+      "command": "NEKTON_DIR=registry/nekton ./bin/nekton add /mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/results/review-improve-claims/9a1116ac9f1b5632.json",
+      "gap": "Föderation: den Umschlag zu tragen ist nicht Sache des Cockpits (kton-web, fetch)",
+      "ok": true,
+      "exit": 0,
+      "result": {
+        "text": "indexed claim sha256:9a1116ac9f1b56325ddbe48dbd108f33de1890baa3e506c6b90c8027e5cc53bc  (registry now holds 11 claims)"
+      }
+    },
+    {
+      "phase": "federation",
+      "id": "federation:add-improve:a90c3b970a283f0c",
+      "title": "Die Projektion des improve-Reviews kommt ins Register der Autorin",
+      "actor": "kernel-cli",
+      "command": "NEKTON_DIR=registry/nekton ./bin/nekton add /mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/results/review-improve-claims/a90c3b970a283f0c.json",
+      "gap": "Föderation: den Umschlag zu tragen ist nicht Sache des Cockpits (kton-web, fetch)",
+      "ok": true,
+      "exit": 0,
+      "result": {
+        "text": "indexed claim sha256:a90c3b970a283f0ca8c7823fd157e47457ef4cce27752cb67e3568dda5d7ca58  (registry now holds 12 claims)"
+      }
+    },
+    {
+      "phase": "federation",
+      "id": "federation:add-improve:b372d44cfa4d404a",
+      "title": "Die Projektion des improve-Reviews kommt ins Register der Autorin",
+      "actor": "kernel-cli",
+      "command": "NEKTON_DIR=registry/nekton ./bin/nekton add /mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/results/review-improve-claims/b372d44cfa4d404a.json",
+      "gap": "Föderation: den Umschlag zu tragen ist nicht Sache des Cockpits (kton-web, fetch)",
+      "ok": true,
+      "exit": 0,
+      "result": {
+        "text": "indexed claim sha256:b372d44cfa4d404aac13c0e9157de10eb1597b1ab2b7105cf824fabc634b1da5  (registry now holds 13 claims)"
+      }
+    },
+    {
+      "phase": "federation",
+      "id": "federation:add-improve:cbc9e8b4821f778b",
+      "title": "Die Projektion des improve-Reviews kommt ins Register der Autorin",
+      "actor": "kernel-cli",
+      "command": "NEKTON_DIR=registry/nekton ./bin/nekton add /mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/results/review-improve-claims/cbc9e8b4821f778b.json",
+      "gap": "Föderation: den Umschlag zu tragen ist nicht Sache des Cockpits (kton-web, fetch)",
+      "ok": true,
+      "exit": 0,
+      "result": {
+        "text": "indexed claim sha256:cbc9e8b4821f778b27f28cb87cc091b97670793cf9d5fc71303fffa4174d4f0d  (registry now holds 14 claims)"
+      }
+    },
+    {
+      "phase": "federation",
+      "id": "federation:add-improve:e0ea086ca3d27405",
+      "title": "Die Projektion des improve-Reviews kommt ins Register der Autorin",
+      "actor": "kernel-cli",
+      "command": "NEKTON_DIR=registry/nekton ./bin/nekton add /mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/results/review-improve-claims/e0ea086ca3d27405.json",
+      "gap": "Föderation: den Umschlag zu tragen ist nicht Sache des Cockpits (kton-web, fetch)",
+      "ok": true,
+      "exit": 0,
+      "result": {
+        "text": "indexed claim sha256:e0ea086ca3d27405bb6852b0ebd09dc60518866f60eabf67eda6288e3b5d3f9b  (registry now holds 15 claims)"
+      }
+    },
+    {
+      "phase": "federation",
+      "id": "federation:add-improve:e433ffea93a85269",
+      "title": "Die Projektion des improve-Reviews kommt ins Register der Autorin",
+      "actor": "kernel-cli",
+      "command": "NEKTON_DIR=registry/nekton ./bin/nekton add /mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/results/review-improve-claims/e433ffea93a85269.json",
+      "gap": "Föderation: den Umschlag zu tragen ist nicht Sache des Cockpits (kton-web, fetch)",
+      "ok": true,
+      "exit": 0,
+      "result": {
+        "text": "indexed claim sha256:e433ffea93a8526982d4dea09e51ef4b7900e5f27b132df8b1d0a32a460fe9bf  (registry now holds 16 claims)"
+      }
+    },
+    {
+      "phase": "federation",
+      "id": "federation:tiers",
+      "title": "Die Konfiguration der Autorin nimmt die Schlüssel auf: Prüfer in „pruefer“, improves Systemschlüssel in „improve“",
+      "actor": "script",
+      "command": "python3 -c 'import json,shutil,os; c=json.load(open(\"cockpit.config.json\")); shutil.copy(\"/mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/.work/review/pruefer.pub\",\"registry/keys/pruefer-claims.pub\"); c[\"trust\"][\"tiers\"][\"pruefer\"]=[\"registry/keys/pruefer-claims.pub\"]; p=\"/mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/results/review-improve-claims/improve-system.pub\"\nif os.path.exists(p): shutil.copy(p,\"registry/keys/improve-system.pub\"); c[\"trust\"][\"tiers\"][\"improve\"]=[\"registry/keys/improve-system.pub\"]\njson.dump(c,open(\"cockpit.config.json\",\"w\"),indent=2); print(json.dumps(c[\"trust\"][\"tiers\"]))'",
+      "gap": "",
+      "ok": true,
+      "exit": 0,
+      "result": {
+        "self": [
+          "registry/keys/session-1.pub",
+          "registry/keys/session-1-claims.pub"
+        ],
+        "pruefer": [
+          "registry/keys/pruefer-claims.pub"
+        ],
+        "improve": [
+          "registry/keys/improve-system.pub"
+        ]
+      }
+    },
+    {
+      "phase": "review",
+      "id": "review:self",
+      "title": "Die Autorin sagt selbst reviewed über ihr Paket — möglich, aber es verifiziert nur in ihre eigene Stufe",
+      "actor": "cockpit",
+      "command": "./bin/cockpit say '{\"subject\":\"sha256:135701e7d917ae4aedbef8f973e22d59038840d5605b360a208217aabb3c9173\",\"template\":\"reviewed\",\"fields\":{\"outcome\":\"accepted\",\"befund\":\"selbst angesehen\"}}'",
+      "gap": "",
+      "ok": true,
+      "exit": 0,
+      "result": {
+        "claimId": "sha256:bda24cae2c18e692c915836bfdf83440ac7ac952f0d55e1139a1e784c2413040",
+        "confirmation": "registered: nekton reports sha256:bda24cae2c18e692c915836bfdf83440ac7ac952f0d55e1139a1e784c2413040 among the 15 claim(s) about sha256:135701e7d917ae4aedbef8f973e22d59038840d5605b360a208217aabb3c9173"
+      }
+    },
+    {
+      "phase": "review",
+      "id": "review:about",
+      "title": "Alle Urteile über dieselben Bytes (Bundle-Id), jedes mit der Stufe, in die es verifiziert",
+      "actor": "cockpit",
+      "command": "./bin/cockpit ask '{\"query\":\"about\",\"ref\":\"sha256:135701e7d917ae4aedbef8f973e22d59038840d5605b360a208217aabb3c9173\"}'",
+      "gap": "",
+      "ok": true,
+      "exit": 0,
+      "result": {
+        "query": "about",
+        "ref": "sha256:135701e7d917ae4aedbef8f973e22d59038840d5605b360a208217aabb3c9173",
+        "raw": "sha256:983e11ba78e372c92f1970425d68cfd4dbf5d25f8eea60baa9f2574e91b45f1d  predicate=https://scinteco.com/ns/qualification/v1#reviewed  object={\"befund\":\"Struktur, Verdrahtung, Code und Löcher gegen das Original geprüft; Spectrum und Testdaten vorhanden\",\"outcome\":\"accepted\"}  when=2026-09-30T16:50:39Z  declared-by=key:aaf05265793e1d67\nsha256:096dec8f52b7ddfb0666c98c0907cfe6084a3eb59a8e508cbb27df192e78f8f9  predicate=https://scinteco.com/ns/qualification/v1#reviewed  object={\"id\":\"https://scinteco.com/ns/qualification/v1#accepted\",\"value\":{\"befund\":\"Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden\",\"entry\":\"<improve-id>\",\"outcome\":\"https://scinteco.com/ns/qualification/v1#accepted\",\"requestor\":\"<anfragender>\",\"resource\":\"steps/zweig-b/zweigB.R\",\"review\":\"<improve-server>:RV-182199\",\"reviewName\":\"Raute-Paket 135701e7d917 ADR-007\",\"reviewPath\":\"/dst/review-20260930T184844/Raute-Paket 135701e7d917 ADR-007\",\"reviewer\":\"<pruefer-konto>\",\"reviewerId\":\"<improve-id>\",\"reviewerName\":\"<pruefer-konto>\"}}  when=2026-09-30T16:49:14Z  declared-by=improve:<pruefer-konto>\nsha256:386216da38d3da1f72b9e93960712b5bee00cbfb31701eb4b4b10900f5b09536  predicate=https://scinteco.com/ns/qualification/v1#reviewed  object={\"id\":\"https://scinteco.com/ns/qualification/v1#accepted\",\"value\":{\"befund\":\"Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden\",\"entry\":\"<improve-id>\",\"outcome\":\"https://scinteco.com/ns/qualification/v1#accepted\",\"requestor\":\"<anfragender>\",\"resource\":\"reference/aufbereitung-daten.txt\",\"review\":\"<improve-server>:RV-182199\",\"reviewName\":\"Raute-Paket 135701e7d917 ADR-007\",\"reviewPath\":\"/dst/review-20260930T184844/Raute-Paket 135701e7d917 ADR-007\",\"reviewer\":\"<pruefer-konto>\",\"reviewerId\":\"<improve-id>\",\"reviewerName\":\"<pruefer-konto>\"}}  when=2026-09-30T16:49:23Z  declared-by=improve:<pruefer-konto>\nsha256:5e1aad2ee36fb7e62cf212996e1ae6ef5689da9517c1f52447a7a5810351a115  predicate=https://scinteco.com/ns/qualification/v1#reviewed  object={\"id\":\"https://scinteco.com/ns/qualification/v1#accepted\",\"value\":{\"befund\":\"Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden\",\"entry\":\"<improve-id>\",\"outcome\":\"https://scinteco.com/ns/qualification/v1#accepted\",\"requestor\":\"<anfragender>\",\"resource\":\"kton/package.json\",\"review\":\"<improve-server>:RV-182199\",\"reviewName\":\"Raute-Paket 135701e7d917 ADR-007\",\"reviewPath\":\"/dst/review-20260930T184844/Raute-Paket 135701e7d917 ADR-007\",\"reviewer\":\"<pruefer-konto>\",\"reviewerId\":\"<improve-id>\",\"reviewerName\":\"<pruefer-konto>\"}}  when=2026-09-30T16:49:06Z  declared-by=improve:<pruefer-konto>\nsha256:6052647208a3272d9ddd78e157169aaf55554e96b2ee6df2d912927a410a0a43  predicate=https://scinteco.com/ns/qualification/v1#reviewed  object={\"id\":\"https://scinteco.com/ns/qualification/v1#accepted\",\"value\":{\"befund\":\"Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden\",\"entry\":\"<improve-id>\",\"outcome\":\"https://scinteco.com/ns/qualification/v1#accepted\",\"requestor\":\"<anfragender>\",\"resource\":\"kton/requires.json\",\"review\":\"<improve-server>:RV-182199\",\"reviewName\":\"Raute-Paket 135701e7d917 ADR-007\",\"reviewPath\":\"/dst/review-20260930T184844/Raute-Paket 135701e7d917 ADR-007\",\"reviewer\":\"<pruefer-konto>\",\"reviewerId\":\"<improve-id>\",\"reviewerName\":\"<pruefer-konto>\"}}  when=2026-09-30T16:49:17Z  declared-by=improve:<pruefer-konto>\nsha256:6eef53b47a24f152f26f136de1264d30f86e87e87acfc1062715a928ef499d1f  predicate=https://scinteco.com/ns/qualification/v1#reviewed  object={\"id\":\"https://scinteco.com/ns/qualification/v1#accepted\",\"value\":{\"befund\":\"Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden\",\"entry\":\"<improve-id>\",\"outcome\":\"https://scinteco.com/ns/qualification/v1#accepted\",\"requestor\":\"<anfragender>\",\"resource\":\"steps/zusammenführung/zusammen.R\",\"review\":\"<improve-server>:RV-182199\",\"reviewName\":\"Raute-Paket 135701e7d917 ADR-007\",\"reviewPath\":\"/dst/review-20260930T184844/Raute-Paket 135701e7d917 ADR-007\",\"reviewer\":\"<pruefer-konto>\",\"reviewerId\":\"<improve-id>\",\"reviewerName\":\"<pruefer-konto>\"}}  when=2026-09-30T16:49:22Z  declared-by=improve:<pruefer-konto>\nsha256:8b8a73f5b978681d5b78a85fdbe02aa6514497934dca6ba0c7d2c2cc3c55b9dd  predicate=https://scinteco.com/ns/qualification/v1#reviewed  object={\"id\":\"https://scinteco.com/ns/qualification/v1#accepted\",\"value\":{\"befund\":\"Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden\",\"entry\":\"<improve-id>\",\"outcome\":\"https://scinteco.com/ns/qualification/v1#accepted\",\"requestor\":\"<anfragender>\",\"resource\":\"kton/ray.json\",\"review\":\"<improve-server>:RV-182199\",\"reviewName\":\"Raute-Paket 135701e7d917 ADR-007\",\"reviewPath\":\"/dst/review-20260930T184844/Raute-Paket 135701e7d917 ADR-007\",\"reviewer\":\"<pruefer-konto>\",\"reviewerId\":\"<improve-id>\",\"reviewerName\":\"<pruefer-konto>\"}}  when=2026-09-30T16:49:11Z  declared-by=improve:<pruefer-konto>\nsha256:951d9d9ea9ca3a0ded4d3e15a3a0977de487b9080341120c14e47c32aaf53c3a  predicate=https://scinteco.com/ns/qualification/v1#reviewed  object={\"id\":\"https://scinteco.com/ns/qualification/v1#accepted\",\"value\":{\"befund\":\"Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden\",\"entry\":\"<improve-id>\",\"outcome\":\"https://scinteco.com/ns/qualification/v1#accepted\",\"requestor\":\"<anfragender>\",\"resource\":\"testdaten/dataset/dataset.csv\",\"review\":\"<improve-server>:RV-182199\",\"reviewName\":\"Raute-Paket 135701e7d917 ADR-007\",\"reviewPath\":\"/dst/review-20260930T184844/Raute-Paket 135701e7d917 ADR-007\",\"reviewer\":\"<pruefer-konto>\",\"reviewerId\":\"<improve-id>\",\"reviewerName\":\"<pruefer-konto>\"}}  when=2026-09-30T16:49:19Z  declared-by=improve:<pruefer-konto>\nsha256:9a1116ac9f1b56325ddbe48dbd108f33de1890baa3e506c6b90c8027e5cc53bc  predicate=https://scinteco.com/ns/qualification/v1#reviewed  object={\"id\":\"https://scinteco.com/ns/qualification/v1#accepted\",\"value\":{\"befund\":\"Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden\",\"entry\":\"<improve-id>\",\"outcome\":\"https://scinteco.com/ns/qualification/v1#accepted\",\"requestor\":\"<anfragender>\",\"resource\":\"reference/zweig-b-b.txt\",\"review\":\"<improve-server>:RV-182199\",\"reviewName\":\"Raute-Paket 135701e7d917 ADR-007\",\"reviewPath\":\"/dst/review-20260930T184844/Raute-Paket 135701e7d917 ADR-007\",\"reviewer\":\"<pruefer-konto>\",\"reviewerId\":\"<improve-id>\",\"reviewerName\":\"<pruefer-konto>\"}}  when=2026-09-30T16:49:12Z  declared-by=improve:<pruefer-konto>\nsha256:a90c3b970a283f0ca8c7823fd157e47457ef4cce27752cb67e3568dda5d7ca58  predicate=https://scinteco.com/ns/qualification/v1#reviewed  object={\"id\":\"https://scinteco.com/ns/qualification/v1#accepted\",\"value\":{\"befund\":\"Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden\",\"entry\":\"<improve-id>\",\"outcome\":\"https://scinteco.com/ns/qualification/v1#accepted\",\"requestor\":\"<anfragender>\",\"resource\":\"kton/spectrum.json\",\"review\":\"<improve-server>:RV-182199\",\"reviewName\":\"Raute-Paket 135701e7d917 ADR-007\",\"reviewPath\":\"/dst/review-20260930T184844/Raute-Paket 135701e7d917 ADR-007\",\"reviewer\":\"<pruefer-konto>\",\"reviewerId\":\"<improve-id>\",\"reviewerName\":\"<pruefer-konto>\"}}  when=2026-09-30T16:49:25Z  declared-by=improve:<pruefer-konto>\nsha256:b372d44cfa4d404aac13c0e9157de10eb1597b1ab2b7105cf824fabc634b1da5  predicate=https://scinteco.com/ns/qualification/v1#reviewed  object={\"id\":\"https://scinteco.com/ns/qualification/v1#accepted\",\"value\":{\"befund\":\"Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden\",\"entry\":\"<improve-id>\",\"outcome\":\"https://scinteco.com/ns/qualification/v1#accepted\",\"requestor\":\"<anfragender>\",\"resource\":\"steps/aufbereitung/aufbereiten.R\",\"review\":\"<improve-server>:RV-182199\",\"reviewName\":\"Raute-Paket 135701e7d917 ADR-007\",\"reviewPath\":\"/dst/review-20260930T184844/Raute-Paket 135701e7d917 ADR-007\",\"reviewer\":\"<pruefer-konto>\",\"reviewerId\":\"<improve-id>\",\"reviewerName\":\"<pruefer-konto>\"}}  when=2026-09-30T16:49:20Z  declared-by=improve:<pruefer-konto>\nsha256:cbc9e8b4821f778b27f28cb87cc091b97670793cf9d5fc71303fffa4174d4f0d  predicate=https://scinteco.com/ns/qualification/v1#reviewed  object={\"id\":\"https://scinteco.com/ns/qualification/v1#accepted\",\"value\":{\"befund\":\"Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden\",\"entry\":\"<improve-id>\",\"outcome\":\"https://scinteco.com/ns/qualification/v1#accepted\",\"requestor\":\"<anfragender>\",\"resource\":\"reference/zusammenführung-ergebnis.txt\",\"review\":\"<improve-server>:RV-182199\",\"reviewName\":\"Raute-Paket 135701e7d917 ADR-007\",\"reviewPath\":\"/dst/review-20260930T184844/Raute-Paket 135701e7d917 ADR-007\",\"reviewer\":\"<pruefer-konto>\",\"reviewerId\":\"<improve-id>\",\"reviewerName\":\"<pruefer-konto>\"}}  when=2026-09-30T16:49:26Z  declared-by=improve:<pruefer-konto>\nsha256:e0ea086ca3d27405bb6852b0ebd09dc60518866f60eabf67eda6288e3b5d3f9b  predicate=https://scinteco.com/ns/qualification/v1#reviewed  object={\"id\":\"https://scinteco.com/ns/qualification/v1#accepted\",\"value\":{\"befund\":\"Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden\",\"entry\":\"<improve-id>\",\"outcome\":\"https://scinteco.com/ns/qualification/v1#accepted\",\"requestor\":\"<anfragender>\",\"resource\":\"reference/zweig-c-c.txt\",\"review\":\"<improve-server>:RV-182199\",\"reviewName\":\"Raute-Paket 135701e7d917 ADR-007\",\"reviewPath\":\"/dst/review-20260930T184844/Raute-Paket 135701e7d917 ADR-007\",\"reviewer\":\"<pruefer-konto>\",\"reviewerId\":\"<improve-id>\",\"reviewerName\":\"<pruefer-konto>\"}}  when=2026-09-30T16:49:15Z  declared-by=improve:<pruefer-konto>\nsha256:e433ffea93a8526982d4dea09e51ef4b7900e5f27b132df8b1d0a32a460fe9bf  predicate=https://scinteco.com/ns/qualification/v1#reviewed  object={\"id\":\"https://scinteco.com/ns/qualification/v1#accepted\",\"value\":{\"befund\":\"Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden\",\"entry\":\"<improve-id>\",\"outcome\":\"https://scinteco.com/ns/qualification/v1#accepted\",\"requestor\":\"<anfragender>\",\"resource\":\"steps/zweig-c/zweigC.R\",\"review\":\"<improve-server>:RV-182199\",\"reviewName\":\"Raute-Paket 135701e7d917 ADR-007\",\"reviewPath\":\"/dst/review-20260930T184844/Raute-Paket 135701e7d917 ADR-007\",\"reviewer\":\"<pruefer-konto>\",\"reviewerId\":\"<improve-id>\",\"reviewerName\":\"<pruefer-konto>\"}}  when=2026-09-30T16:49:09Z  declared-by=improve:<pruefer-konto>\nsha256:bda24cae2c18e692c915836bfdf83440ac7ac952f0d55e1139a1e784c2413040  predicate=https://scinteco.com/ns/qualification/v1#reviewed  object={\"befund\":\"selbst angesehen\",\"outcome\":\"accepted\"}  when=2026-09-30T16:50:43Z  declared-by=key:fe06b3ad0522f241",
+        "records": [
+          {
+            "id": "sha256:983e11ba78e372c92f1970425d68cfd4dbf5d25f8eea60baa9f2574e91b45f1d",
+            "tier": "pruefer",
+            "verified": true
+          },
+          {
+            "id": "sha256:096dec8f52b7ddfb0666c98c0907cfe6084a3eb59a8e508cbb27df192e78f8f9",
+            "tier": "improve",
+            "verified": true
+          },
+          {
+            "id": "sha256:386216da38d3da1f72b9e93960712b5bee00cbfb31701eb4b4b10900f5b09536",
+            "tier": "improve",
+            "verified": true
+          },
+          {
+            "id": "sha256:5e1aad2ee36fb7e62cf212996e1ae6ef5689da9517c1f52447a7a5810351a115",
+            "tier": "improve",
+            "verified": true
+          },
+          {
+            "id": "sha256:6052647208a3272d9ddd78e157169aaf55554e96b2ee6df2d912927a410a0a43",
+            "tier": "improve",
+            "verified": true
+          },
+          {
+            "id": "sha256:6eef53b47a24f152f26f136de1264d30f86e87e87acfc1062715a928ef499d1f",
+            "tier": "improve",
+            "verified": true
+          },
+          {
+            "id": "sha256:8b8a73f5b978681d5b78a85fdbe02aa6514497934dca6ba0c7d2c2cc3c55b9dd",
+            "tier": "improve",
+            "verified": true
+          },
+          {
+            "id": "sha256:951d9d9ea9ca3a0ded4d3e15a3a0977de487b9080341120c14e47c32aaf53c3a",
+            "tier": "improve",
+            "verified": true
+          },
+          {
+            "id": "sha256:9a1116ac9f1b56325ddbe48dbd108f33de1890baa3e506c6b90c8027e5cc53bc",
+            "tier": "improve",
+            "verified": true
+          },
+          {
+            "id": "sha256:a90c3b970a283f0ca8c7823fd157e47457ef4cce27752cb67e3568dda5d7ca58",
+            "tier": "improve",
+            "verified": true
+          },
+          {
+            "id": "sha256:b372d44cfa4d404aac13c0e9157de10eb1597b1ab2b7105cf824fabc634b1da5",
+            "tier": "improve",
+            "verified": true
+          },
+          {
+            "id": "sha256:cbc9e8b4821f778b27f28cb87cc091b97670793cf9d5fc71303fffa4174d4f0d",
+            "tier": "improve",
+            "verified": true
+          },
+          {
+            "id": "sha256:e0ea086ca3d27405bb6852b0ebd09dc60518866f60eabf67eda6288e3b5d3f9b",
+            "tier": "improve",
+            "verified": true
+          },
+          {
+            "id": "sha256:e433ffea93a8526982d4dea09e51ef4b7900e5f27b132df8b1d0a32a460fe9bf",
+            "tier": "improve",
+            "verified": true
+          },
+          {
+            "id": "sha256:bda24cae2c18e692c915836bfdf83440ac7ac952f0d55e1139a1e784c2413040",
+            "tier": "self",
+            "verified": true
+          }
+        ],
+        "included": [
+          "sha256:983e11ba78e372c92f1970425d68cfd4dbf5d25f8eea60baa9f2574e91b45f1d",
+          "sha256:096dec8f52b7ddfb0666c98c0907cfe6084a3eb59a8e508cbb27df192e78f8f9",
+          "sha256:386216da38d3da1f72b9e93960712b5bee00cbfb31701eb4b4b10900f5b09536",
+          "sha256:5e1aad2ee36fb7e62cf212996e1ae6ef5689da9517c1f52447a7a5810351a115",
+          "sha256:6052647208a3272d9ddd78e157169aaf55554e96b2ee6df2d912927a410a0a43",
+          "sha256:6eef53b47a24f152f26f136de1264d30f86e87e87acfc1062715a928ef499d1f",
+          "sha256:8b8a73f5b978681d5b78a85fdbe02aa6514497934dca6ba0c7d2c2cc3c55b9dd",
+          "sha256:951d9d9ea9ca3a0ded4d3e15a3a0977de487b9080341120c14e47c32aaf53c3a",
+          "sha256:9a1116ac9f1b56325ddbe48dbd108f33de1890baa3e506c6b90c8027e5cc53bc",
+          "sha256:a90c3b970a283f0ca8c7823fd157e47457ef4cce27752cb67e3568dda5d7ca58",
+          "sha256:b372d44cfa4d404aac13c0e9157de10eb1597b1ab2b7105cf824fabc634b1da5",
+          "sha256:cbc9e8b4821f778b27f28cb87cc091b97670793cf9d5fc71303fffa4174d4f0d",
+          "sha256:e0ea086ca3d27405bb6852b0ebd09dc60518866f60eabf67eda6288e3b5d3f9b",
+          "sha256:e433ffea93a8526982d4dea09e51ef4b7900e5f27b132df8b1d0a32a460fe9bf",
+          "sha256:bda24cae2c18e692c915836bfdf83440ac7ac952f0d55e1139a1e784c2413040"
+        ],
+        "claims": [
+          {
+            "id": "sha256:983e11ba78e372c92f1970425d68cfd4dbf5d25f8eea60baa9f2574e91b45f1d",
+            "subject": "sha256:135701e7d917ae4aedbef8f973e22d59038840d5605b360a208217aabb3c9173",
+            "predicateType": "https://kton.dev/claim/v0",
+            "predicate": "https://scinteco.com/ns/qualification/v1#reviewed",
+            "object": {
+              "befund": "Struktur, Verdrahtung, Code und Löcher gegen das Original geprüft; Spectrum und Testdaten vorhanden",
+              "outcome": "accepted"
+            },
+            "declaredBy": "key:aaf05265793e1d67",
+            "when": "2026-09-30T16:50:39Z",
+            "signatureKeyIds": [
+              "aaf05265793e1d67"
+            ]
+          },
+          {
+            "id": "sha256:096dec8f52b7ddfb0666c98c0907cfe6084a3eb59a8e508cbb27df192e78f8f9",
+            "subject": "sha256:135701e7d917ae4aedbef8f973e22d59038840d5605b360a208217aabb3c9173",
+            "predicateType": "https://kton.dev/claim/v0",
+            "predicate": "https://scinteco.com/ns/qualification/v1#reviewed",
+            "object": {
+              "id": "https://scinteco.com/ns/qualification/v1#accepted",
+              "value": {
+                "befund": "Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden",
+                "entry": "<improve-id>",
+                "outcome": "https://scinteco.com/ns/qualification/v1#accepted",
+                "requestor": "<anfragender>",
+                "resource": "steps/zweig-b/zweigB.R",
+                "review": "<improve-server>:RV-182199",
+                "reviewName": "Raute-Paket 135701e7d917 ADR-007",
+                "reviewPath": "/dst/review-20260930T184844/Raute-Paket 135701e7d917 ADR-007",
+                "reviewer": "<pruefer-konto>",
+                "reviewerId": "<improve-id>",
+                "reviewerName": "<pruefer-konto>"
+              }
+            },
+            "declaredBy": "improve:<pruefer-konto>",
+            "when": "2026-09-30T16:49:14Z",
+            "why": "in improve geprüft (Vier-Augen, Audit-Trail); der Systemschlüssel bezeugt den Eintrag, nicht die Unterschrift der Person",
+            "signatureKeyIds": [
+              "e0ea0c6e1bfc0090"
+            ]
+          },
+          {
+            "id": "sha256:386216da38d3da1f72b9e93960712b5bee00cbfb31701eb4b4b10900f5b09536",
+            "subject": "sha256:135701e7d917ae4aedbef8f973e22d59038840d5605b360a208217aabb3c9173",
+            "predicateType": "https://kton.dev/claim/v0",
+            "predicate": "https://scinteco.com/ns/qualification/v1#reviewed",
+            "object": {
+              "id": "https://scinteco.com/ns/qualification/v1#accepted",
+              "value": {
+                "befund": "Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden",
+                "entry": "<improve-id>",
+                "outcome": "https://scinteco.com/ns/qualification/v1#accepted",
+                "requestor": "<anfragender>",
+                "resource": "reference/aufbereitung-daten.txt",
+                "review": "<improve-server>:RV-182199",
+                "reviewName": "Raute-Paket 135701e7d917 ADR-007",
+                "reviewPath": "/dst/review-20260930T184844/Raute-Paket 135701e7d917 ADR-007",
+                "reviewer": "<pruefer-konto>",
+                "reviewerId": "<improve-id>",
+                "reviewerName": "<pruefer-konto>"
+              }
+            },
+            "declaredBy": "improve:<pruefer-konto>",
+            "when": "2026-09-30T16:49:23Z",
+            "why": "in improve geprüft (Vier-Augen, Audit-Trail); der Systemschlüssel bezeugt den Eintrag, nicht die Unterschrift der Person",
+            "signatureKeyIds": [
+              "e0ea0c6e1bfc0090"
+            ]
+          },
+          {
+            "id": "sha256:5e1aad2ee36fb7e62cf212996e1ae6ef5689da9517c1f52447a7a5810351a115",
+            "subject": "sha256:135701e7d917ae4aedbef8f973e22d59038840d5605b360a208217aabb3c9173",
+            "predicateType": "https://kton.dev/claim/v0",
+            "predicate": "https://scinteco.com/ns/qualification/v1#reviewed",
+            "object": {
+              "id": "https://scinteco.com/ns/qualification/v1#accepted",
+              "value": {
+                "befund": "Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden",
+                "entry": "<improve-id>",
+                "outcome": "https://scinteco.com/ns/qualification/v1#accepted",
+                "requestor": "<anfragender>",
+                "resource": "kton/package.json",
+                "review": "<improve-server>:RV-182199",
+                "reviewName": "Raute-Paket 135701e7d917 ADR-007",
+                "reviewPath": "/dst/review-20260930T184844/Raute-Paket 135701e7d917 ADR-007",
+                "reviewer": "<pruefer-konto>",
+                "reviewerId": "<improve-id>",
+                "reviewerName": "<pruefer-konto>"
+              }
+            },
+            "declaredBy": "improve:<pruefer-konto>",
+            "when": "2026-09-30T16:49:06Z",
+            "why": "in improve geprüft (Vier-Augen, Audit-Trail); der Systemschlüssel bezeugt den Eintrag, nicht die Unterschrift der Person",
+            "signatureKeyIds": [
+              "e0ea0c6e1bfc0090"
+            ]
+          },
+          {
+            "id": "sha256:6052647208a3272d9ddd78e157169aaf55554e96b2ee6df2d912927a410a0a43",
+            "subject": "sha256:135701e7d917ae4aedbef8f973e22d59038840d5605b360a208217aabb3c9173",
+            "predicateType": "https://kton.dev/claim/v0",
+            "predicate": "https://scinteco.com/ns/qualification/v1#reviewed",
+            "object": {
+              "id": "https://scinteco.com/ns/qualification/v1#accepted",
+              "value": {
+                "befund": "Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden",
+                "entry": "<improve-id>",
+                "outcome": "https://scinteco.com/ns/qualification/v1#accepted",
+                "requestor": "<anfragender>",
+                "resource": "kton/requires.json",
+                "review": "<improve-server>:RV-182199",
+                "reviewName": "Raute-Paket 135701e7d917 ADR-007",
+                "reviewPath": "/dst/review-20260930T184844/Raute-Paket 135701e7d917 ADR-007",
+                "reviewer": "<pruefer-konto>",
+                "reviewerId": "<improve-id>",
+                "reviewerName": "<pruefer-konto>"
+              }
+            },
+            "declaredBy": "improve:<pruefer-konto>",
+            "when": "2026-09-30T16:49:17Z",
+            "why": "in improve geprüft (Vier-Augen, Audit-Trail); der Systemschlüssel bezeugt den Eintrag, nicht die Unterschrift der Person",
+            "signatureKeyIds": [
+              "e0ea0c6e1bfc0090"
+            ]
+          },
+          {
+            "id": "sha256:6eef53b47a24f152f26f136de1264d30f86e87e87acfc1062715a928ef499d1f",
+            "subject": "sha256:135701e7d917ae4aedbef8f973e22d59038840d5605b360a208217aabb3c9173",
+            "predicateType": "https://kton.dev/claim/v0",
+            "predicate": "https://scinteco.com/ns/qualification/v1#reviewed",
+            "object": {
+              "id": "https://scinteco.com/ns/qualification/v1#accepted",
+              "value": {
+                "befund": "Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden",
+                "entry": "<improve-id>",
+                "outcome": "https://scinteco.com/ns/qualification/v1#accepted",
+                "requestor": "<anfragender>",
+                "resource": "steps/zusammenführung/zusammen.R",
+                "review": "<improve-server>:RV-182199",
+                "reviewName": "Raute-Paket 135701e7d917 ADR-007",
+                "reviewPath": "/dst/review-20260930T184844/Raute-Paket 135701e7d917 ADR-007",
+                "reviewer": "<pruefer-konto>",
+                "reviewerId": "<improve-id>",
+                "reviewerName": "<pruefer-konto>"
+              }
+            },
+            "declaredBy": "improve:<pruefer-konto>",
+            "when": "2026-09-30T16:49:22Z",
+            "why": "in improve geprüft (Vier-Augen, Audit-Trail); der Systemschlüssel bezeugt den Eintrag, nicht die Unterschrift der Person",
+            "signatureKeyIds": [
+              "e0ea0c6e1bfc0090"
+            ]
+          },
+          {
+            "id": "sha256:8b8a73f5b978681d5b78a85fdbe02aa6514497934dca6ba0c7d2c2cc3c55b9dd",
+            "subject": "sha256:135701e7d917ae4aedbef8f973e22d59038840d5605b360a208217aabb3c9173",
+            "predicateType": "https://kton.dev/claim/v0",
+            "predicate": "https://scinteco.com/ns/qualification/v1#reviewed",
+            "object": {
+              "id": "https://scinteco.com/ns/qualification/v1#accepted",
+              "value": {
+                "befund": "Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden",
+                "entry": "<improve-id>",
+                "outcome": "https://scinteco.com/ns/qualification/v1#accepted",
+                "requestor": "<anfragender>",
+                "resource": "kton/ray.json",
+                "review": "<improve-server>:RV-182199",
+                "reviewName": "Raute-Paket 135701e7d917 ADR-007",
+                "reviewPath": "/dst/review-20260930T184844/Raute-Paket 135701e7d917 ADR-007",
+                "reviewer": "<pruefer-konto>",
+                "reviewerId": "<improve-id>",
+                "reviewerName": "<pruefer-konto>"
+              }
+            },
+            "declaredBy": "improve:<pruefer-konto>",
+            "when": "2026-09-30T16:49:11Z",
+            "why": "in improve geprüft (Vier-Augen, Audit-Trail); der Systemschlüssel bezeugt den Eintrag, nicht die Unterschrift der Person",
+            "signatureKeyIds": [
+              "e0ea0c6e1bfc0090"
+            ]
+          },
+          {
+            "id": "sha256:951d9d9ea9ca3a0ded4d3e15a3a0977de487b9080341120c14e47c32aaf53c3a",
+            "subject": "sha256:135701e7d917ae4aedbef8f973e22d59038840d5605b360a208217aabb3c9173",
+            "predicateType": "https://kton.dev/claim/v0",
+            "predicate": "https://scinteco.com/ns/qualification/v1#reviewed",
+            "object": {
+              "id": "https://scinteco.com/ns/qualification/v1#accepted",
+              "value": {
+                "befund": "Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden",
+                "entry": "<improve-id>",
+                "outcome": "https://scinteco.com/ns/qualification/v1#accepted",
+                "requestor": "<anfragender>",
+                "resource": "testdaten/dataset/dataset.csv",
+                "review": "<improve-server>:RV-182199",
+                "reviewName": "Raute-Paket 135701e7d917 ADR-007",
+                "reviewPath": "/dst/review-20260930T184844/Raute-Paket 135701e7d917 ADR-007",
+                "reviewer": "<pruefer-konto>",
+                "reviewerId": "<improve-id>",
+                "reviewerName": "<pruefer-konto>"
+              }
+            },
+            "declaredBy": "improve:<pruefer-konto>",
+            "when": "2026-09-30T16:49:19Z",
+            "why": "in improve geprüft (Vier-Augen, Audit-Trail); der Systemschlüssel bezeugt den Eintrag, nicht die Unterschrift der Person",
+            "signatureKeyIds": [
+              "e0ea0c6e1bfc0090"
+            ]
+          },
+          {
+            "id": "sha256:9a1116ac9f1b56325ddbe48dbd108f33de1890baa3e506c6b90c8027e5cc53bc",
+            "subject": "sha256:135701e7d917ae4aedbef8f973e22d59038840d5605b360a208217aabb3c9173",
+            "predicateType": "https://kton.dev/claim/v0",
+            "predicate": "https://scinteco.com/ns/qualification/v1#reviewed",
+            "object": {
+              "id": "https://scinteco.com/ns/qualification/v1#accepted",
+              "value": {
+                "befund": "Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden",
+                "entry": "<improve-id>",
+                "outcome": "https://scinteco.com/ns/qualification/v1#accepted",
+                "requestor": "<anfragender>",
+                "resource": "reference/zweig-b-b.txt",
+                "review": "<improve-server>:RV-182199",
+                "reviewName": "Raute-Paket 135701e7d917 ADR-007",
+                "reviewPath": "/dst/review-20260930T184844/Raute-Paket 135701e7d917 ADR-007",
+                "reviewer": "<pruefer-konto>",
+                "reviewerId": "<improve-id>",
+                "reviewerName": "<pruefer-konto>"
+              }
+            },
+            "declaredBy": "improve:<pruefer-konto>",
+            "when": "2026-09-30T16:49:12Z",
+            "why": "in improve geprüft (Vier-Augen, Audit-Trail); der Systemschlüssel bezeugt den Eintrag, nicht die Unterschrift der Person",
+            "signatureKeyIds": [
+              "e0ea0c6e1bfc0090"
+            ]
+          },
+          {
+            "id": "sha256:a90c3b970a283f0ca8c7823fd157e47457ef4cce27752cb67e3568dda5d7ca58",
+            "subject": "sha256:135701e7d917ae4aedbef8f973e22d59038840d5605b360a208217aabb3c9173",
+            "predicateType": "https://kton.dev/claim/v0",
+            "predicate": "https://scinteco.com/ns/qualification/v1#reviewed",
+            "object": {
+              "id": "https://scinteco.com/ns/qualification/v1#accepted",
+              "value": {
+                "befund": "Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden",
+                "entry": "<improve-id>",
+                "outcome": "https://scinteco.com/ns/qualification/v1#accepted",
+                "requestor": "<anfragender>",
+                "resource": "kton/spectrum.json",
+                "review": "<improve-server>:RV-182199",
+                "reviewName": "Raute-Paket 135701e7d917 ADR-007",
+                "reviewPath": "/dst/review-20260930T184844/Raute-Paket 135701e7d917 ADR-007",
+                "reviewer": "<pruefer-konto>",
+                "reviewerId": "<improve-id>",
+                "reviewerName": "<pruefer-konto>"
+              }
+            },
+            "declaredBy": "improve:<pruefer-konto>",
+            "when": "2026-09-30T16:49:25Z",
+            "why": "in improve geprüft (Vier-Augen, Audit-Trail); der Systemschlüssel bezeugt den Eintrag, nicht die Unterschrift der Person",
+            "signatureKeyIds": [
+              "e0ea0c6e1bfc0090"
+            ]
+          },
+          {
+            "id": "sha256:b372d44cfa4d404aac13c0e9157de10eb1597b1ab2b7105cf824fabc634b1da5",
+            "subject": "sha256:135701e7d917ae4aedbef8f973e22d59038840d5605b360a208217aabb3c9173",
+            "predicateType": "https://kton.dev/claim/v0",
+            "predicate": "https://scinteco.com/ns/qualification/v1#reviewed",
+            "object": {
+              "id": "https://scinteco.com/ns/qualification/v1#accepted",
+              "value": {
+                "befund": "Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden",
+                "entry": "<improve-id>",
+                "outcome": "https://scinteco.com/ns/qualification/v1#accepted",
+                "requestor": "<anfragender>",
+                "resource": "steps/aufbereitung/aufbereiten.R",
+                "review": "<improve-server>:RV-182199",
+                "reviewName": "Raute-Paket 135701e7d917 ADR-007",
+                "reviewPath": "/dst/review-20260930T184844/Raute-Paket 135701e7d917 ADR-007",
+                "reviewer": "<pruefer-konto>",
+                "reviewerId": "<improve-id>",
+                "reviewerName": "<pruefer-konto>"
+              }
+            },
+            "declaredBy": "improve:<pruefer-konto>",
+            "when": "2026-09-30T16:49:20Z",
+            "why": "in improve geprüft (Vier-Augen, Audit-Trail); der Systemschlüssel bezeugt den Eintrag, nicht die Unterschrift der Person",
+            "signatureKeyIds": [
+              "e0ea0c6e1bfc0090"
+            ]
+          },
+          {
+            "id": "sha256:cbc9e8b4821f778b27f28cb87cc091b97670793cf9d5fc71303fffa4174d4f0d",
+            "subject": "sha256:135701e7d917ae4aedbef8f973e22d59038840d5605b360a208217aabb3c9173",
+            "predicateType": "https://kton.dev/claim/v0",
+            "predicate": "https://scinteco.com/ns/qualification/v1#reviewed",
+            "object": {
+              "id": "https://scinteco.com/ns/qualification/v1#accepted",
+              "value": {
+                "befund": "Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden",
+                "entry": "<improve-id>",
+                "outcome": "https://scinteco.com/ns/qualification/v1#accepted",
+                "requestor": "<anfragender>",
+                "resource": "reference/zusammenführung-ergebnis.txt",
+                "review": "<improve-server>:RV-182199",
+                "reviewName": "Raute-Paket 135701e7d917 ADR-007",
+                "reviewPath": "/dst/review-20260930T184844/Raute-Paket 135701e7d917 ADR-007",
+                "reviewer": "<pruefer-konto>",
+                "reviewerId": "<improve-id>",
+                "reviewerName": "<pruefer-konto>"
+              }
+            },
+            "declaredBy": "improve:<pruefer-konto>",
+            "when": "2026-09-30T16:49:26Z",
+            "why": "in improve geprüft (Vier-Augen, Audit-Trail); der Systemschlüssel bezeugt den Eintrag, nicht die Unterschrift der Person",
+            "signatureKeyIds": [
+              "e0ea0c6e1bfc0090"
+            ]
+          },
+          {
+            "id": "sha256:e0ea086ca3d27405bb6852b0ebd09dc60518866f60eabf67eda6288e3b5d3f9b",
+            "subject": "sha256:135701e7d917ae4aedbef8f973e22d59038840d5605b360a208217aabb3c9173",
+            "predicateType": "https://kton.dev/claim/v0",
+            "predicate": "https://scinteco.com/ns/qualification/v1#reviewed",
+            "object": {
+              "id": "https://scinteco.com/ns/qualification/v1#accepted",
+              "value": {
+                "befund": "Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden",
+                "entry": "<improve-id>",
+                "outcome": "https://scinteco.com/ns/qualification/v1#accepted",
+                "requestor": "<anfragender>",
+                "resource": "reference/zweig-c-c.txt",
+                "review": "<improve-server>:RV-182199",
+                "reviewName": "Raute-Paket 135701e7d917 ADR-007",
+                "reviewPath": "/dst/review-20260930T184844/Raute-Paket 135701e7d917 ADR-007",
+                "reviewer": "<pruefer-konto>",
+                "reviewerId": "<improve-id>",
+                "reviewerName": "<pruefer-konto>"
+              }
+            },
+            "declaredBy": "improve:<pruefer-konto>",
+            "when": "2026-09-30T16:49:15Z",
+            "why": "in improve geprüft (Vier-Augen, Audit-Trail); der Systemschlüssel bezeugt den Eintrag, nicht die Unterschrift der Person",
+            "signatureKeyIds": [
+              "e0ea0c6e1bfc0090"
+            ]
+          },
+          {
+            "id": "sha256:e433ffea93a8526982d4dea09e51ef4b7900e5f27b132df8b1d0a32a460fe9bf",
+            "subject": "sha256:135701e7d917ae4aedbef8f973e22d59038840d5605b360a208217aabb3c9173",
+            "predicateType": "https://kton.dev/claim/v0",
+            "predicate": "https://scinteco.com/ns/qualification/v1#reviewed",
+            "object": {
+              "id": "https://scinteco.com/ns/qualification/v1#accepted",
+              "value": {
+                "befund": "Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden",
+                "entry": "<improve-id>",
+                "outcome": "https://scinteco.com/ns/qualification/v1#accepted",
+                "requestor": "<anfragender>",
+                "resource": "steps/zweig-c/zweigC.R",
+                "review": "<improve-server>:RV-182199",
+                "reviewName": "Raute-Paket 135701e7d917 ADR-007",
+                "reviewPath": "/dst/review-20260930T184844/Raute-Paket 135701e7d917 ADR-007",
+                "reviewer": "<pruefer-konto>",
+                "reviewerId": "<improve-id>",
+                "reviewerName": "<pruefer-konto>"
+              }
+            },
+            "declaredBy": "improve:<pruefer-konto>",
+            "when": "2026-09-30T16:49:09Z",
+            "why": "in improve geprüft (Vier-Augen, Audit-Trail); der Systemschlüssel bezeugt den Eintrag, nicht die Unterschrift der Person",
+            "signatureKeyIds": [
+              "e0ea0c6e1bfc0090"
+            ]
+          },
+          {
+            "id": "sha256:bda24cae2c18e692c915836bfdf83440ac7ac952f0d55e1139a1e784c2413040",
+            "subject": "sha256:135701e7d917ae4aedbef8f973e22d59038840d5605b360a208217aabb3c9173",
+            "predicateType": "https://kton.dev/claim/v0",
+            "predicate": "https://scinteco.com/ns/qualification/v1#reviewed",
+            "object": {
+              "befund": "selbst angesehen",
+              "outcome": "accepted"
+            },
+            "declaredBy": "key:fe06b3ad0522f241",
+            "when": "2026-09-30T16:50:43Z",
+            "signatureKeyIds": [
+              "fe06b3ad0522f241"
+            ]
+          }
+        ],
+        "filterApplied": "none — every record verified against a configured trust tier is included; unverified records are always excluded"
+      }
+    },
+    {
+      "phase": "review",
+      "id": "review:about-pruefer",
+      "title": "Nur die Urteile der Prüfer — der Filter engt ein, er weitet nichts",
+      "actor": "cockpit",
+      "command": "./bin/cockpit ask '{\"query\":\"about\",\"ref\":\"sha256:135701e7d917ae4aedbef8f973e22d59038840d5605b360a208217aabb3c9173\",\"filter\":{\"trustTier\":\"pruefer\"}}'",
+      "gap": "",
+      "ok": true,
+      "exit": 0,
+      "result": {
+        "query": "about",
+        "ref": "sha256:135701e7d917ae4aedbef8f973e22d59038840d5605b360a208217aabb3c9173",
+        "raw": "sha256:983e11ba78e372c92f1970425d68cfd4dbf5d25f8eea60baa9f2574e91b45f1d  predicate=https://scinteco.com/ns/qualification/v1#reviewed  object={\"befund\":\"Struktur, Verdrahtung, Code und Löcher gegen das Original geprüft; Spectrum und Testdaten vorhanden\",\"outcome\":\"accepted\"}  when=2026-09-30T16:50:39Z  declared-by=key:aaf05265793e1d67",
+        "records": [
+          {
+            "id": "sha256:983e11ba78e372c92f1970425d68cfd4dbf5d25f8eea60baa9f2574e91b45f1d",
+            "tier": "pruefer",
+            "verified": true
+          },
+          {
+            "id": "sha256:096dec8f52b7ddfb0666c98c0907cfe6084a3eb59a8e508cbb27df192e78f8f9",
+            "tier": "improve",
+            "verified": true
+          },
+          {
+            "id": "sha256:386216da38d3da1f72b9e93960712b5bee00cbfb31701eb4b4b10900f5b09536",
+            "tier": "improve",
+            "verified": true
+          },
+          {
+            "id": "sha256:5e1aad2ee36fb7e62cf212996e1ae6ef5689da9517c1f52447a7a5810351a115",
+            "tier": "improve",
+            "verified": true
+          },
+          {
+            "id": "sha256:6052647208a3272d9ddd78e157169aaf55554e96b2ee6df2d912927a410a0a43",
+            "tier": "improve",
+            "verified": true
+          },
+          {
+            "id": "sha256:6eef53b47a24f152f26f136de1264d30f86e87e87acfc1062715a928ef499d1f",
+            "tier": "improve",
+            "verified": true
+          },
+          {
+            "id": "sha256:8b8a73f5b978681d5b78a85fdbe02aa6514497934dca6ba0c7d2c2cc3c55b9dd",
+            "tier": "improve",
+            "verified": true
+          },
+          {
+            "id": "sha256:951d9d9ea9ca3a0ded4d3e15a3a0977de487b9080341120c14e47c32aaf53c3a",
+            "tier": "improve",
+            "verified": true
+          },
+          {
+            "id": "sha256:9a1116ac9f1b56325ddbe48dbd108f33de1890baa3e506c6b90c8027e5cc53bc",
+            "tier": "improve",
+            "verified": true
+          },
+          {
+            "id": "sha256:a90c3b970a283f0ca8c7823fd157e47457ef4cce27752cb67e3568dda5d7ca58",
+            "tier": "improve",
+            "verified": true
+          },
+          {
+            "id": "sha256:b372d44cfa4d404aac13c0e9157de10eb1597b1ab2b7105cf824fabc634b1da5",
+            "tier": "improve",
+            "verified": true
+          },
+          {
+            "id": "sha256:cbc9e8b4821f778b27f28cb87cc091b97670793cf9d5fc71303fffa4174d4f0d",
+            "tier": "improve",
+            "verified": true
+          },
+          {
+            "id": "sha256:e0ea086ca3d27405bb6852b0ebd09dc60518866f60eabf67eda6288e3b5d3f9b",
+            "tier": "improve",
+            "verified": true
+          },
+          {
+            "id": "sha256:e433ffea93a8526982d4dea09e51ef4b7900e5f27b132df8b1d0a32a460fe9bf",
+            "tier": "improve",
+            "verified": true
+          },
+          {
+            "id": "sha256:bda24cae2c18e692c915836bfdf83440ac7ac952f0d55e1139a1e784c2413040",
+            "tier": "self",
+            "verified": true
+          }
+        ],
+        "included": [
+          "sha256:983e11ba78e372c92f1970425d68cfd4dbf5d25f8eea60baa9f2574e91b45f1d"
+        ],
+        "excluded": [
+          "sha256:096dec8f52b7ddfb0666c98c0907cfe6084a3eb59a8e508cbb27df192e78f8f9",
+          "sha256:386216da38d3da1f72b9e93960712b5bee00cbfb31701eb4b4b10900f5b09536",
+          "sha256:5e1aad2ee36fb7e62cf212996e1ae6ef5689da9517c1f52447a7a5810351a115",
+          "sha256:6052647208a3272d9ddd78e157169aaf55554e96b2ee6df2d912927a410a0a43",
+          "sha256:6eef53b47a24f152f26f136de1264d30f86e87e87acfc1062715a928ef499d1f",
+          "sha256:8b8a73f5b978681d5b78a85fdbe02aa6514497934dca6ba0c7d2c2cc3c55b9dd",
+          "sha256:951d9d9ea9ca3a0ded4d3e15a3a0977de487b9080341120c14e47c32aaf53c3a",
+          "sha256:9a1116ac9f1b56325ddbe48dbd108f33de1890baa3e506c6b90c8027e5cc53bc",
+          "sha256:a90c3b970a283f0ca8c7823fd157e47457ef4cce27752cb67e3568dda5d7ca58",
+          "sha256:b372d44cfa4d404aac13c0e9157de10eb1597b1ab2b7105cf824fabc634b1da5",
+          "sha256:cbc9e8b4821f778b27f28cb87cc091b97670793cf9d5fc71303fffa4174d4f0d",
+          "sha256:e0ea086ca3d27405bb6852b0ebd09dc60518866f60eabf67eda6288e3b5d3f9b",
+          "sha256:e433ffea93a8526982d4dea09e51ef4b7900e5f27b132df8b1d0a32a460fe9bf",
+          "sha256:bda24cae2c18e692c915836bfdf83440ac7ac952f0d55e1139a1e784c2413040"
+        ],
+        "claims": [
+          {
+            "id": "sha256:983e11ba78e372c92f1970425d68cfd4dbf5d25f8eea60baa9f2574e91b45f1d",
+            "subject": "sha256:135701e7d917ae4aedbef8f973e22d59038840d5605b360a208217aabb3c9173",
+            "predicateType": "https://kton.dev/claim/v0",
+            "predicate": "https://scinteco.com/ns/qualification/v1#reviewed",
+            "object": {
+              "befund": "Struktur, Verdrahtung, Code und Löcher gegen das Original geprüft; Spectrum und Testdaten vorhanden",
+              "outcome": "accepted"
+            },
+            "declaredBy": "key:aaf05265793e1d67",
+            "when": "2026-09-30T16:50:39Z",
+            "signatureKeyIds": [
+              "aaf05265793e1d67"
+            ]
+          }
+        ],
+        "filterApplied": "trustTier=pruefer"
+      }
+    },
+    {
+      "phase": "review",
+      "id": "review:about-improve",
+      "title": "Nur die Projektion aus improve — verifiziert gegen improves Systemschlüssel",
+      "actor": "cockpit",
+      "command": "./bin/cockpit ask '{\"query\":\"about\",\"ref\":\"sha256:135701e7d917ae4aedbef8f973e22d59038840d5605b360a208217aabb3c9173\",\"filter\":{\"trustTier\":\"improve\"}}'",
+      "gap": "",
+      "ok": true,
+      "exit": 0,
+      "result": {
+        "query": "about",
+        "ref": "sha256:135701e7d917ae4aedbef8f973e22d59038840d5605b360a208217aabb3c9173",
+        "raw": "sha256:096dec8f52b7ddfb0666c98c0907cfe6084a3eb59a8e508cbb27df192e78f8f9  predicate=https://scinteco.com/ns/qualification/v1#reviewed  object={\"id\":\"https://scinteco.com/ns/qualification/v1#accepted\",\"value\":{\"befund\":\"Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden\",\"entry\":\"<improve-id>\",\"outcome\":\"https://scinteco.com/ns/qualification/v1#accepted\",\"requestor\":\"<anfragender>\",\"resource\":\"steps/zweig-b/zweigB.R\",\"review\":\"<improve-server>:RV-182199\",\"reviewName\":\"Raute-Paket 135701e7d917 ADR-007\",\"reviewPath\":\"/dst/review-20260930T184844/Raute-Paket 135701e7d917 ADR-007\",\"reviewer\":\"<pruefer-konto>\",\"reviewerId\":\"<improve-id>\",\"reviewerName\":\"<pruefer-konto>\"}}  when=2026-09-30T16:49:14Z  declared-by=improve:<pruefer-konto>\nsha256:386216da38d3da1f72b9e93960712b5bee00cbfb31701eb4b4b10900f5b09536  predicate=https://scinteco.com/ns/qualification/v1#reviewed  object={\"id\":\"https://scinteco.com/ns/qualification/v1#accepted\",\"value\":{\"befund\":\"Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden\",\"entry\":\"<improve-id>\",\"outcome\":\"https://scinteco.com/ns/qualification/v1#accepted\",\"requestor\":\"<anfragender>\",\"resource\":\"reference/aufbereitung-daten.txt\",\"review\":\"<improve-server>:RV-182199\",\"reviewName\":\"Raute-Paket 135701e7d917 ADR-007\",\"reviewPath\":\"/dst/review-20260930T184844/Raute-Paket 135701e7d917 ADR-007\",\"reviewer\":\"<pruefer-konto>\",\"reviewerId\":\"<improve-id>\",\"reviewerName\":\"<pruefer-konto>\"}}  when=2026-09-30T16:49:23Z  declared-by=improve:<pruefer-konto>\nsha256:5e1aad2ee36fb7e62cf212996e1ae6ef5689da9517c1f52447a7a5810351a115  predicate=https://scinteco.com/ns/qualification/v1#reviewed  object={\"id\":\"https://scinteco.com/ns/qualification/v1#accepted\",\"value\":{\"befund\":\"Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden\",\"entry\":\"<improve-id>\",\"outcome\":\"https://scinteco.com/ns/qualification/v1#accepted\",\"requestor\":\"<anfragender>\",\"resource\":\"kton/package.json\",\"review\":\"<improve-server>:RV-182199\",\"reviewName\":\"Raute-Paket 135701e7d917 ADR-007\",\"reviewPath\":\"/dst/review-20260930T184844/Raute-Paket 135701e7d917 ADR-007\",\"reviewer\":\"<pruefer-konto>\",\"reviewerId\":\"<improve-id>\",\"reviewerName\":\"<pruefer-konto>\"}}  when=2026-09-30T16:49:06Z  declared-by=improve:<pruefer-konto>\nsha256:6052647208a3272d9ddd78e157169aaf55554e96b2ee6df2d912927a410a0a43  predicate=https://scinteco.com/ns/qualification/v1#reviewed  object={\"id\":\"https://scinteco.com/ns/qualification/v1#accepted\",\"value\":{\"befund\":\"Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden\",\"entry\":\"<improve-id>\",\"outcome\":\"https://scinteco.com/ns/qualification/v1#accepted\",\"requestor\":\"<anfragender>\",\"resource\":\"kton/requires.json\",\"review\":\"<improve-server>:RV-182199\",\"reviewName\":\"Raute-Paket 135701e7d917 ADR-007\",\"reviewPath\":\"/dst/review-20260930T184844/Raute-Paket 135701e7d917 ADR-007\",\"reviewer\":\"<pruefer-konto>\",\"reviewerId\":\"<improve-id>\",\"reviewerName\":\"<pruefer-konto>\"}}  when=2026-09-30T16:49:17Z  declared-by=improve:<pruefer-konto>\nsha256:6eef53b47a24f152f26f136de1264d30f86e87e87acfc1062715a928ef499d1f  predicate=https://scinteco.com/ns/qualification/v1#reviewed  object={\"id\":\"https://scinteco.com/ns/qualification/v1#accepted\",\"value\":{\"befund\":\"Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden\",\"entry\":\"<improve-id>\",\"outcome\":\"https://scinteco.com/ns/qualification/v1#accepted\",\"requestor\":\"<anfragender>\",\"resource\":\"steps/zusammenführung/zusammen.R\",\"review\":\"<improve-server>:RV-182199\",\"reviewName\":\"Raute-Paket 135701e7d917 ADR-007\",\"reviewPath\":\"/dst/review-20260930T184844/Raute-Paket 135701e7d917 ADR-007\",\"reviewer\":\"<pruefer-konto>\",\"reviewerId\":\"<improve-id>\",\"reviewerName\":\"<pruefer-konto>\"}}  when=2026-09-30T16:49:22Z  declared-by=improve:<pruefer-konto>\nsha256:8b8a73f5b978681d5b78a85fdbe02aa6514497934dca6ba0c7d2c2cc3c55b9dd  predicate=https://scinteco.com/ns/qualification/v1#reviewed  object={\"id\":\"https://scinteco.com/ns/qualification/v1#accepted\",\"value\":{\"befund\":\"Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden\",\"entry\":\"<improve-id>\",\"outcome\":\"https://scinteco.com/ns/qualification/v1#accepted\",\"requestor\":\"<anfragender>\",\"resource\":\"kton/ray.json\",\"review\":\"<improve-server>:RV-182199\",\"reviewName\":\"Raute-Paket 135701e7d917 ADR-007\",\"reviewPath\":\"/dst/review-20260930T184844/Raute-Paket 135701e7d917 ADR-007\",\"reviewer\":\"<pruefer-konto>\",\"reviewerId\":\"<improve-id>\",\"reviewerName\":\"<pruefer-konto>\"}}  when=2026-09-30T16:49:11Z  declared-by=improve:<pruefer-konto>\nsha256:951d9d9ea9ca3a0ded4d3e15a3a0977de487b9080341120c14e47c32aaf53c3a  predicate=https://scinteco.com/ns/qualification/v1#reviewed  object={\"id\":\"https://scinteco.com/ns/qualification/v1#accepted\",\"value\":{\"befund\":\"Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden\",\"entry\":\"<improve-id>\",\"outcome\":\"https://scinteco.com/ns/qualification/v1#accepted\",\"requestor\":\"<anfragender>\",\"resource\":\"testdaten/dataset/dataset.csv\",\"review\":\"<improve-server>:RV-182199\",\"reviewName\":\"Raute-Paket 135701e7d917 ADR-007\",\"reviewPath\":\"/dst/review-20260930T184844/Raute-Paket 135701e7d917 ADR-007\",\"reviewer\":\"<pruefer-konto>\",\"reviewerId\":\"<improve-id>\",\"reviewerName\":\"<pruefer-konto>\"}}  when=2026-09-30T16:49:19Z  declared-by=improve:<pruefer-konto>\nsha256:9a1116ac9f1b56325ddbe48dbd108f33de1890baa3e506c6b90c8027e5cc53bc  predicate=https://scinteco.com/ns/qualification/v1#reviewed  object={\"id\":\"https://scinteco.com/ns/qualification/v1#accepted\",\"value\":{\"befund\":\"Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden\",\"entry\":\"<improve-id>\",\"outcome\":\"https://scinteco.com/ns/qualification/v1#accepted\",\"requestor\":\"<anfragender>\",\"resource\":\"reference/zweig-b-b.txt\",\"review\":\"<improve-server>:RV-182199\",\"reviewName\":\"Raute-Paket 135701e7d917 ADR-007\",\"reviewPath\":\"/dst/review-20260930T184844/Raute-Paket 135701e7d917 ADR-007\",\"reviewer\":\"<pruefer-konto>\",\"reviewerId\":\"<improve-id>\",\"reviewerName\":\"<pruefer-konto>\"}}  when=2026-09-30T16:49:12Z  declared-by=improve:<pruefer-konto>\nsha256:a90c3b970a283f0ca8c7823fd157e47457ef4cce27752cb67e3568dda5d7ca58  predicate=https://scinteco.com/ns/qualification/v1#reviewed  object={\"id\":\"https://scinteco.com/ns/qualification/v1#accepted\",\"value\":{\"befund\":\"Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden\",\"entry\":\"<improve-id>\",\"outcome\":\"https://scinteco.com/ns/qualification/v1#accepted\",\"requestor\":\"<anfragender>\",\"resource\":\"kton/spectrum.json\",\"review\":\"<improve-server>:RV-182199\",\"reviewName\":\"Raute-Paket 135701e7d917 ADR-007\",\"reviewPath\":\"/dst/review-20260930T184844/Raute-Paket 135701e7d917 ADR-007\",\"reviewer\":\"<pruefer-konto>\",\"reviewerId\":\"<improve-id>\",\"reviewerName\":\"<pruefer-konto>\"}}  when=2026-09-30T16:49:25Z  declared-by=improve:<pruefer-konto>\nsha256:b372d44cfa4d404aac13c0e9157de10eb1597b1ab2b7105cf824fabc634b1da5  predicate=https://scinteco.com/ns/qualification/v1#reviewed  object={\"id\":\"https://scinteco.com/ns/qualification/v1#accepted\",\"value\":{\"befund\":\"Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden\",\"entry\":\"<improve-id>\",\"outcome\":\"https://scinteco.com/ns/qualification/v1#accepted\",\"requestor\":\"<anfragender>\",\"resource\":\"steps/aufbereitung/aufbereiten.R\",\"review\":\"<improve-server>:RV-182199\",\"reviewName\":\"Raute-Paket 135701e7d917 ADR-007\",\"reviewPath\":\"/dst/review-20260930T184844/Raute-Paket 135701e7d917 ADR-007\",\"reviewer\":\"<pruefer-konto>\",\"reviewerId\":\"<improve-id>\",\"reviewerName\":\"<pruefer-konto>\"}}  when=2026-09-30T16:49:20Z  declared-by=improve:<pruefer-konto>\nsha256:cbc9e8b4821f778b27f28cb87cc091b97670793cf9d5fc71303fffa4174d4f0d  predicate=https://scinteco.com/ns/qualification/v1#reviewed  object={\"id\":\"https://scinteco.com/ns/qualification/v1#accepted\",\"value\":{\"befund\":\"Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden\",\"entry\":\"<improve-id>\",\"outcome\":\"https://scinteco.com/ns/qualification/v1#accepted\",\"requestor\":\"<anfragender>\",\"resource\":\"reference/zusammenführung-ergebnis.txt\",\"review\":\"<improve-server>:RV-182199\",\"reviewName\":\"Raute-Paket 135701e7d917 ADR-007\",\"reviewPath\":\"/dst/review-20260930T184844/Raute-Paket 135701e7d917 ADR-007\",\"reviewer\":\"<pruefer-konto>\",\"reviewerId\":\"<improve-id>\",\"reviewerName\":\"<pruefer-konto>\"}}  when=2026-09-30T16:49:26Z  declared-by=improve:<pruefer-konto>\nsha256:e0ea086ca3d27405bb6852b0ebd09dc60518866f60eabf67eda6288e3b5d3f9b  predicate=https://scinteco.com/ns/qualification/v1#reviewed  object={\"id\":\"https://scinteco.com/ns/qualification/v1#accepted\",\"value\":{\"befund\":\"Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden\",\"entry\":\"<improve-id>\",\"outcome\":\"https://scinteco.com/ns/qualification/v1#accepted\",\"requestor\":\"<anfragender>\",\"resource\":\"reference/zweig-c-c.txt\",\"review\":\"<improve-server>:RV-182199\",\"reviewName\":\"Raute-Paket 135701e7d917 ADR-007\",\"reviewPath\":\"/dst/review-20260930T184844/Raute-Paket 135701e7d917 ADR-007\",\"reviewer\":\"<pruefer-konto>\",\"reviewerId\":\"<improve-id>\",\"reviewerName\":\"<pruefer-konto>\"}}  when=2026-09-30T16:49:15Z  declared-by=improve:<pruefer-konto>\nsha256:e433ffea93a8526982d4dea09e51ef4b7900e5f27b132df8b1d0a32a460fe9bf  predicate=https://scinteco.com/ns/qualification/v1#reviewed  object={\"id\":\"https://scinteco.com/ns/qualification/v1#accepted\",\"value\":{\"befund\":\"Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden\",\"entry\":\"<improve-id>\",\"outcome\":\"https://scinteco.com/ns/qualification/v1#accepted\",\"requestor\":\"<anfragender>\",\"resource\":\"steps/zweig-c/zweigC.R\",\"review\":\"<improve-server>:RV-182199\",\"reviewName\":\"Raute-Paket 135701e7d917 ADR-007\",\"reviewPath\":\"/dst/review-20260930T184844/Raute-Paket 135701e7d917 ADR-007\",\"reviewer\":\"<pruefer-konto>\",\"reviewerId\":\"<improve-id>\",\"reviewerName\":\"<pruefer-konto>\"}}  when=2026-09-30T16:49:09Z  declared-by=improve:<pruefer-konto>",
+        "records": [
+          {
+            "id": "sha256:983e11ba78e372c92f1970425d68cfd4dbf5d25f8eea60baa9f2574e91b45f1d",
+            "tier": "pruefer",
+            "verified": true
+          },
+          {
+            "id": "sha256:096dec8f52b7ddfb0666c98c0907cfe6084a3eb59a8e508cbb27df192e78f8f9",
+            "tier": "improve",
+            "verified": true
+          },
+          {
+            "id": "sha256:386216da38d3da1f72b9e93960712b5bee00cbfb31701eb4b4b10900f5b09536",
+            "tier": "improve",
+            "verified": true
+          },
+          {
+            "id": "sha256:5e1aad2ee36fb7e62cf212996e1ae6ef5689da9517c1f52447a7a5810351a115",
+            "tier": "improve",
+            "verified": true
+          },
+          {
+            "id": "sha256:6052647208a3272d9ddd78e157169aaf55554e96b2ee6df2d912927a410a0a43",
+            "tier": "improve",
+            "verified": true
+          },
+          {
+            "id": "sha256:6eef53b47a24f152f26f136de1264d30f86e87e87acfc1062715a928ef499d1f",
+            "tier": "improve",
+            "verified": true
+          },
+          {
+            "id": "sha256:8b8a73f5b978681d5b78a85fdbe02aa6514497934dca6ba0c7d2c2cc3c55b9dd",
+            "tier": "improve",
+            "verified": true
+          },
+          {
+            "id": "sha256:951d9d9ea9ca3a0ded4d3e15a3a0977de487b9080341120c14e47c32aaf53c3a",
+            "tier": "improve",
+            "verified": true
+          },
+          {
+            "id": "sha256:9a1116ac9f1b56325ddbe48dbd108f33de1890baa3e506c6b90c8027e5cc53bc",
+            "tier": "improve",
+            "verified": true
+          },
+          {
+            "id": "sha256:a90c3b970a283f0ca8c7823fd157e47457ef4cce27752cb67e3568dda5d7ca58",
+            "tier": "improve",
+            "verified": true
+          },
+          {
+            "id": "sha256:b372d44cfa4d404aac13c0e9157de10eb1597b1ab2b7105cf824fabc634b1da5",
+            "tier": "improve",
+            "verified": true
+          },
+          {
+            "id": "sha256:cbc9e8b4821f778b27f28cb87cc091b97670793cf9d5fc71303fffa4174d4f0d",
+            "tier": "improve",
+            "verified": true
+          },
+          {
+            "id": "sha256:e0ea086ca3d27405bb6852b0ebd09dc60518866f60eabf67eda6288e3b5d3f9b",
+            "tier": "improve",
+            "verified": true
+          },
+          {
+            "id": "sha256:e433ffea93a8526982d4dea09e51ef4b7900e5f27b132df8b1d0a32a460fe9bf",
+            "tier": "improve",
+            "verified": true
+          },
+          {
+            "id": "sha256:bda24cae2c18e692c915836bfdf83440ac7ac952f0d55e1139a1e784c2413040",
+            "tier": "self",
+            "verified": true
+          }
+        ],
+        "included": [
+          "sha256:096dec8f52b7ddfb0666c98c0907cfe6084a3eb59a8e508cbb27df192e78f8f9",
+          "sha256:386216da38d3da1f72b9e93960712b5bee00cbfb31701eb4b4b10900f5b09536",
+          "sha256:5e1aad2ee36fb7e62cf212996e1ae6ef5689da9517c1f52447a7a5810351a115",
+          "sha256:6052647208a3272d9ddd78e157169aaf55554e96b2ee6df2d912927a410a0a43",
+          "sha256:6eef53b47a24f152f26f136de1264d30f86e87e87acfc1062715a928ef499d1f",
+          "sha256:8b8a73f5b978681d5b78a85fdbe02aa6514497934dca6ba0c7d2c2cc3c55b9dd",
+          "sha256:951d9d9ea9ca3a0ded4d3e15a3a0977de487b9080341120c14e47c32aaf53c3a",
+          "sha256:9a1116ac9f1b56325ddbe48dbd108f33de1890baa3e506c6b90c8027e5cc53bc",
+          "sha256:a90c3b970a283f0ca8c7823fd157e47457ef4cce27752cb67e3568dda5d7ca58",
+          "sha256:b372d44cfa4d404aac13c0e9157de10eb1597b1ab2b7105cf824fabc634b1da5",
+          "sha256:cbc9e8b4821f778b27f28cb87cc091b97670793cf9d5fc71303fffa4174d4f0d",
+          "sha256:e0ea086ca3d27405bb6852b0ebd09dc60518866f60eabf67eda6288e3b5d3f9b",
+          "sha256:e433ffea93a8526982d4dea09e51ef4b7900e5f27b132df8b1d0a32a460fe9bf"
+        ],
+        "excluded": [
+          "sha256:983e11ba78e372c92f1970425d68cfd4dbf5d25f8eea60baa9f2574e91b45f1d",
+          "sha256:bda24cae2c18e692c915836bfdf83440ac7ac952f0d55e1139a1e784c2413040"
+        ],
+        "claims": [
+          {
+            "id": "sha256:096dec8f52b7ddfb0666c98c0907cfe6084a3eb59a8e508cbb27df192e78f8f9",
+            "subject": "sha256:135701e7d917ae4aedbef8f973e22d59038840d5605b360a208217aabb3c9173",
+            "predicateType": "https://kton.dev/claim/v0",
+            "predicate": "https://scinteco.com/ns/qualification/v1#reviewed",
+            "object": {
+              "id": "https://scinteco.com/ns/qualification/v1#accepted",
+              "value": {
+                "befund": "Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden",
+                "entry": "<improve-id>",
+                "outcome": "https://scinteco.com/ns/qualification/v1#accepted",
+                "requestor": "<anfragender>",
+                "resource": "steps/zweig-b/zweigB.R",
+                "review": "<improve-server>:RV-182199",
+                "reviewName": "Raute-Paket 135701e7d917 ADR-007",
+                "reviewPath": "/dst/review-20260930T184844/Raute-Paket 135701e7d917 ADR-007",
+                "reviewer": "<pruefer-konto>",
+                "reviewerId": "<improve-id>",
+                "reviewerName": "<pruefer-konto>"
+              }
+            },
+            "declaredBy": "improve:<pruefer-konto>",
+            "when": "2026-09-30T16:49:14Z",
+            "why": "in improve geprüft (Vier-Augen, Audit-Trail); der Systemschlüssel bezeugt den Eintrag, nicht die Unterschrift der Person",
+            "signatureKeyIds": [
+              "e0ea0c6e1bfc0090"
+            ]
+          },
+          {
+            "id": "sha256:386216da38d3da1f72b9e93960712b5bee00cbfb31701eb4b4b10900f5b09536",
+            "subject": "sha256:135701e7d917ae4aedbef8f973e22d59038840d5605b360a208217aabb3c9173",
+            "predicateType": "https://kton.dev/claim/v0",
+            "predicate": "https://scinteco.com/ns/qualification/v1#reviewed",
+            "object": {
+              "id": "https://scinteco.com/ns/qualification/v1#accepted",
+              "value": {
+                "befund": "Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden",
+                "entry": "<improve-id>",
+                "outcome": "https://scinteco.com/ns/qualification/v1#accepted",
+                "requestor": "<anfragender>",
+                "resource": "reference/aufbereitung-daten.txt",
+                "review": "<improve-server>:RV-182199",
+                "reviewName": "Raute-Paket 135701e7d917 ADR-007",
+                "reviewPath": "/dst/review-20260930T184844/Raute-Paket 135701e7d917 ADR-007",
+                "reviewer": "<pruefer-konto>",
+                "reviewerId": "<improve-id>",
+                "reviewerName": "<pruefer-konto>"
+              }
+            },
+            "declaredBy": "improve:<pruefer-konto>",
+            "when": "2026-09-30T16:49:23Z",
+            "why": "in improve geprüft (Vier-Augen, Audit-Trail); der Systemschlüssel bezeugt den Eintrag, nicht die Unterschrift der Person",
+            "signatureKeyIds": [
+              "e0ea0c6e1bfc0090"
+            ]
+          },
+          {
+            "id": "sha256:5e1aad2ee36fb7e62cf212996e1ae6ef5689da9517c1f52447a7a5810351a115",
+            "subject": "sha256:135701e7d917ae4aedbef8f973e22d59038840d5605b360a208217aabb3c9173",
+            "predicateType": "https://kton.dev/claim/v0",
+            "predicate": "https://scinteco.com/ns/qualification/v1#reviewed",
+            "object": {
+              "id": "https://scinteco.com/ns/qualification/v1#accepted",
+              "value": {
+                "befund": "Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden",
+                "entry": "<improve-id>",
+                "outcome": "https://scinteco.com/ns/qualification/v1#accepted",
+                "requestor": "<anfragender>",
+                "resource": "kton/package.json",
+                "review": "<improve-server>:RV-182199",
+                "reviewName": "Raute-Paket 135701e7d917 ADR-007",
+                "reviewPath": "/dst/review-20260930T184844/Raute-Paket 135701e7d917 ADR-007",
+                "reviewer": "<pruefer-konto>",
+                "reviewerId": "<improve-id>",
+                "reviewerName": "<pruefer-konto>"
+              }
+            },
+            "declaredBy": "improve:<pruefer-konto>",
+            "when": "2026-09-30T16:49:06Z",
+            "why": "in improve geprüft (Vier-Augen, Audit-Trail); der Systemschlüssel bezeugt den Eintrag, nicht die Unterschrift der Person",
+            "signatureKeyIds": [
+              "e0ea0c6e1bfc0090"
+            ]
+          },
+          {
+            "id": "sha256:6052647208a3272d9ddd78e157169aaf55554e96b2ee6df2d912927a410a0a43",
+            "subject": "sha256:135701e7d917ae4aedbef8f973e22d59038840d5605b360a208217aabb3c9173",
+            "predicateType": "https://kton.dev/claim/v0",
+            "predicate": "https://scinteco.com/ns/qualification/v1#reviewed",
+            "object": {
+              "id": "https://scinteco.com/ns/qualification/v1#accepted",
+              "value": {
+                "befund": "Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden",
+                "entry": "<improve-id>",
+                "outcome": "https://scinteco.com/ns/qualification/v1#accepted",
+                "requestor": "<anfragender>",
+                "resource": "kton/requires.json",
+                "review": "<improve-server>:RV-182199",
+                "reviewName": "Raute-Paket 135701e7d917 ADR-007",
+                "reviewPath": "/dst/review-20260930T184844/Raute-Paket 135701e7d917 ADR-007",
+                "reviewer": "<pruefer-konto>",
+                "reviewerId": "<improve-id>",
+                "reviewerName": "<pruefer-konto>"
+              }
+            },
+            "declaredBy": "improve:<pruefer-konto>",
+            "when": "2026-09-30T16:49:17Z",
+            "why": "in improve geprüft (Vier-Augen, Audit-Trail); der Systemschlüssel bezeugt den Eintrag, nicht die Unterschrift der Person",
+            "signatureKeyIds": [
+              "e0ea0c6e1bfc0090"
+            ]
+          },
+          {
+            "id": "sha256:6eef53b47a24f152f26f136de1264d30f86e87e87acfc1062715a928ef499d1f",
+            "subject": "sha256:135701e7d917ae4aedbef8f973e22d59038840d5605b360a208217aabb3c9173",
+            "predicateType": "https://kton.dev/claim/v0",
+            "predicate": "https://scinteco.com/ns/qualification/v1#reviewed",
+            "object": {
+              "id": "https://scinteco.com/ns/qualification/v1#accepted",
+              "value": {
+                "befund": "Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden",
+                "entry": "<improve-id>",
+                "outcome": "https://scinteco.com/ns/qualification/v1#accepted",
+                "requestor": "<anfragender>",
+                "resource": "steps/zusammenführung/zusammen.R",
+                "review": "<improve-server>:RV-182199",
+                "reviewName": "Raute-Paket 135701e7d917 ADR-007",
+                "reviewPath": "/dst/review-20260930T184844/Raute-Paket 135701e7d917 ADR-007",
+                "reviewer": "<pruefer-konto>",
+                "reviewerId": "<improve-id>",
+                "reviewerName": "<pruefer-konto>"
+              }
+            },
+            "declaredBy": "improve:<pruefer-konto>",
+            "when": "2026-09-30T16:49:22Z",
+            "why": "in improve geprüft (Vier-Augen, Audit-Trail); der Systemschlüssel bezeugt den Eintrag, nicht die Unterschrift der Person",
+            "signatureKeyIds": [
+              "e0ea0c6e1bfc0090"
+            ]
+          },
+          {
+            "id": "sha256:8b8a73f5b978681d5b78a85fdbe02aa6514497934dca6ba0c7d2c2cc3c55b9dd",
+            "subject": "sha256:135701e7d917ae4aedbef8f973e22d59038840d5605b360a208217aabb3c9173",
+            "predicateType": "https://kton.dev/claim/v0",
+            "predicate": "https://scinteco.com/ns/qualification/v1#reviewed",
+            "object": {
+              "id": "https://scinteco.com/ns/qualification/v1#accepted",
+              "value": {
+                "befund": "Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden",
+                "entry": "<improve-id>",
+                "outcome": "https://scinteco.com/ns/qualification/v1#accepted",
+                "requestor": "<anfragender>",
+                "resource": "kton/ray.json",
+                "review": "<improve-server>:RV-182199",
+                "reviewName": "Raute-Paket 135701e7d917 ADR-007",
+                "reviewPath": "/dst/review-20260930T184844/Raute-Paket 135701e7d917 ADR-007",
+                "reviewer": "<pruefer-konto>",
+                "reviewerId": "<improve-id>",
+                "reviewerName": "<pruefer-konto>"
+              }
+            },
+            "declaredBy": "improve:<pruefer-konto>",
+            "when": "2026-09-30T16:49:11Z",
+            "why": "in improve geprüft (Vier-Augen, Audit-Trail); der Systemschlüssel bezeugt den Eintrag, nicht die Unterschrift der Person",
+            "signatureKeyIds": [
+              "e0ea0c6e1bfc0090"
+            ]
+          },
+          {
+            "id": "sha256:951d9d9ea9ca3a0ded4d3e15a3a0977de487b9080341120c14e47c32aaf53c3a",
+            "subject": "sha256:135701e7d917ae4aedbef8f973e22d59038840d5605b360a208217aabb3c9173",
+            "predicateType": "https://kton.dev/claim/v0",
+            "predicate": "https://scinteco.com/ns/qualification/v1#reviewed",
+            "object": {
+              "id": "https://scinteco.com/ns/qualification/v1#accepted",
+              "value": {
+                "befund": "Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden",
+                "entry": "<improve-id>",
+                "outcome": "https://scinteco.com/ns/qualification/v1#accepted",
+                "requestor": "<anfragender>",
+                "resource": "testdaten/dataset/dataset.csv",
+                "review": "<improve-server>:RV-182199",
+                "reviewName": "Raute-Paket 135701e7d917 ADR-007",
+                "reviewPath": "/dst/review-20260930T184844/Raute-Paket 135701e7d917 ADR-007",
+                "reviewer": "<pruefer-konto>",
+                "reviewerId": "<improve-id>",
+                "reviewerName": "<pruefer-konto>"
+              }
+            },
+            "declaredBy": "improve:<pruefer-konto>",
+            "when": "2026-09-30T16:49:19Z",
+            "why": "in improve geprüft (Vier-Augen, Audit-Trail); der Systemschlüssel bezeugt den Eintrag, nicht die Unterschrift der Person",
+            "signatureKeyIds": [
+              "e0ea0c6e1bfc0090"
+            ]
+          },
+          {
+            "id": "sha256:9a1116ac9f1b56325ddbe48dbd108f33de1890baa3e506c6b90c8027e5cc53bc",
+            "subject": "sha256:135701e7d917ae4aedbef8f973e22d59038840d5605b360a208217aabb3c9173",
+            "predicateType": "https://kton.dev/claim/v0",
+            "predicate": "https://scinteco.com/ns/qualification/v1#reviewed",
+            "object": {
+              "id": "https://scinteco.com/ns/qualification/v1#accepted",
+              "value": {
+                "befund": "Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden",
+                "entry": "<improve-id>",
+                "outcome": "https://scinteco.com/ns/qualification/v1#accepted",
+                "requestor": "<anfragender>",
+                "resource": "reference/zweig-b-b.txt",
+                "review": "<improve-server>:RV-182199",
+                "reviewName": "Raute-Paket 135701e7d917 ADR-007",
+                "reviewPath": "/dst/review-20260930T184844/Raute-Paket 135701e7d917 ADR-007",
+                "reviewer": "<pruefer-konto>",
+                "reviewerId": "<improve-id>",
+                "reviewerName": "<pruefer-konto>"
+              }
+            },
+            "declaredBy": "improve:<pruefer-konto>",
+            "when": "2026-09-30T16:49:12Z",
+            "why": "in improve geprüft (Vier-Augen, Audit-Trail); der Systemschlüssel bezeugt den Eintrag, nicht die Unterschrift der Person",
+            "signatureKeyIds": [
+              "e0ea0c6e1bfc0090"
+            ]
+          },
+          {
+            "id": "sha256:a90c3b970a283f0ca8c7823fd157e47457ef4cce27752cb67e3568dda5d7ca58",
+            "subject": "sha256:135701e7d917ae4aedbef8f973e22d59038840d5605b360a208217aabb3c9173",
+            "predicateType": "https://kton.dev/claim/v0",
+            "predicate": "https://scinteco.com/ns/qualification/v1#reviewed",
+            "object": {
+              "id": "https://scinteco.com/ns/qualification/v1#accepted",
+              "value": {
+                "befund": "Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden",
+                "entry": "<improve-id>",
+                "outcome": "https://scinteco.com/ns/qualification/v1#accepted",
+                "requestor": "<anfragender>",
+                "resource": "kton/spectrum.json",
+                "review": "<improve-server>:RV-182199",
+                "reviewName": "Raute-Paket 135701e7d917 ADR-007",
+                "reviewPath": "/dst/review-20260930T184844/Raute-Paket 135701e7d917 ADR-007",
+                "reviewer": "<pruefer-konto>",
+                "reviewerId": "<improve-id>",
+                "reviewerName": "<pruefer-konto>"
+              }
+            },
+            "declaredBy": "improve:<pruefer-konto>",
+            "when": "2026-09-30T16:49:25Z",
+            "why": "in improve geprüft (Vier-Augen, Audit-Trail); der Systemschlüssel bezeugt den Eintrag, nicht die Unterschrift der Person",
+            "signatureKeyIds": [
+              "e0ea0c6e1bfc0090"
+            ]
+          },
+          {
+            "id": "sha256:b372d44cfa4d404aac13c0e9157de10eb1597b1ab2b7105cf824fabc634b1da5",
+            "subject": "sha256:135701e7d917ae4aedbef8f973e22d59038840d5605b360a208217aabb3c9173",
+            "predicateType": "https://kton.dev/claim/v0",
+            "predicate": "https://scinteco.com/ns/qualification/v1#reviewed",
+            "object": {
+              "id": "https://scinteco.com/ns/qualification/v1#accepted",
+              "value": {
+                "befund": "Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden",
+                "entry": "<improve-id>",
+                "outcome": "https://scinteco.com/ns/qualification/v1#accepted",
+                "requestor": "<anfragender>",
+                "resource": "steps/aufbereitung/aufbereiten.R",
+                "review": "<improve-server>:RV-182199",
+                "reviewName": "Raute-Paket 135701e7d917 ADR-007",
+                "reviewPath": "/dst/review-20260930T184844/Raute-Paket 135701e7d917 ADR-007",
+                "reviewer": "<pruefer-konto>",
+                "reviewerId": "<improve-id>",
+                "reviewerName": "<pruefer-konto>"
+              }
+            },
+            "declaredBy": "improve:<pruefer-konto>",
+            "when": "2026-09-30T16:49:20Z",
+            "why": "in improve geprüft (Vier-Augen, Audit-Trail); der Systemschlüssel bezeugt den Eintrag, nicht die Unterschrift der Person",
+            "signatureKeyIds": [
+              "e0ea0c6e1bfc0090"
+            ]
+          },
+          {
+            "id": "sha256:cbc9e8b4821f778b27f28cb87cc091b97670793cf9d5fc71303fffa4174d4f0d",
+            "subject": "sha256:135701e7d917ae4aedbef8f973e22d59038840d5605b360a208217aabb3c9173",
+            "predicateType": "https://kton.dev/claim/v0",
+            "predicate": "https://scinteco.com/ns/qualification/v1#reviewed",
+            "object": {
+              "id": "https://scinteco.com/ns/qualification/v1#accepted",
+              "value": {
+                "befund": "Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden",
+                "entry": "<improve-id>",
+                "outcome": "https://scinteco.com/ns/qualification/v1#accepted",
+                "requestor": "<anfragender>",
+                "resource": "reference/zusammenführung-ergebnis.txt",
+                "review": "<improve-server>:RV-182199",
+                "reviewName": "Raute-Paket 135701e7d917 ADR-007",
+                "reviewPath": "/dst/review-20260930T184844/Raute-Paket 135701e7d917 ADR-007",
+                "reviewer": "<pruefer-konto>",
+                "reviewerId": "<improve-id>",
+                "reviewerName": "<pruefer-konto>"
+              }
+            },
+            "declaredBy": "improve:<pruefer-konto>",
+            "when": "2026-09-30T16:49:26Z",
+            "why": "in improve geprüft (Vier-Augen, Audit-Trail); der Systemschlüssel bezeugt den Eintrag, nicht die Unterschrift der Person",
+            "signatureKeyIds": [
+              "e0ea0c6e1bfc0090"
+            ]
+          },
+          {
+            "id": "sha256:e0ea086ca3d27405bb6852b0ebd09dc60518866f60eabf67eda6288e3b5d3f9b",
+            "subject": "sha256:135701e7d917ae4aedbef8f973e22d59038840d5605b360a208217aabb3c9173",
+            "predicateType": "https://kton.dev/claim/v0",
+            "predicate": "https://scinteco.com/ns/qualification/v1#reviewed",
+            "object": {
+              "id": "https://scinteco.com/ns/qualification/v1#accepted",
+              "value": {
+                "befund": "Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden",
+                "entry": "<improve-id>",
+                "outcome": "https://scinteco.com/ns/qualification/v1#accepted",
+                "requestor": "<anfragender>",
+                "resource": "reference/zweig-c-c.txt",
+                "review": "<improve-server>:RV-182199",
+                "reviewName": "Raute-Paket 135701e7d917 ADR-007",
+                "reviewPath": "/dst/review-20260930T184844/Raute-Paket 135701e7d917 ADR-007",
+                "reviewer": "<pruefer-konto>",
+                "reviewerId": "<improve-id>",
+                "reviewerName": "<pruefer-konto>"
+              }
+            },
+            "declaredBy": "improve:<pruefer-konto>",
+            "when": "2026-09-30T16:49:15Z",
+            "why": "in improve geprüft (Vier-Augen, Audit-Trail); der Systemschlüssel bezeugt den Eintrag, nicht die Unterschrift der Person",
+            "signatureKeyIds": [
+              "e0ea0c6e1bfc0090"
+            ]
+          },
+          {
+            "id": "sha256:e433ffea93a8526982d4dea09e51ef4b7900e5f27b132df8b1d0a32a460fe9bf",
+            "subject": "sha256:135701e7d917ae4aedbef8f973e22d59038840d5605b360a208217aabb3c9173",
+            "predicateType": "https://kton.dev/claim/v0",
+            "predicate": "https://scinteco.com/ns/qualification/v1#reviewed",
+            "object": {
+              "id": "https://scinteco.com/ns/qualification/v1#accepted",
+              "value": {
+                "befund": "Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden",
+                "entry": "<improve-id>",
+                "outcome": "https://scinteco.com/ns/qualification/v1#accepted",
+                "requestor": "<anfragender>",
+                "resource": "steps/zweig-c/zweigC.R",
+                "review": "<improve-server>:RV-182199",
+                "reviewName": "Raute-Paket 135701e7d917 ADR-007",
+                "reviewPath": "/dst/review-20260930T184844/Raute-Paket 135701e7d917 ADR-007",
+                "reviewer": "<pruefer-konto>",
+                "reviewerId": "<improve-id>",
+                "reviewerName": "<pruefer-konto>"
+              }
+            },
+            "declaredBy": "improve:<pruefer-konto>",
+            "when": "2026-09-30T16:49:09Z",
+            "why": "in improve geprüft (Vier-Augen, Audit-Trail); der Systemschlüssel bezeugt den Eintrag, nicht die Unterschrift der Person",
+            "signatureKeyIds": [
+              "e0ea0c6e1bfc0090"
+            ]
+          }
+        ],
+        "filterApplied": "trustTier=improve"
+      }
+    }
+  ],
+  "claims": [
+    {
+      "id": "sha256:983e11ba78e372c92f1970425d68cfd4dbf5d25f8eea60baa9f2574e91b45f1d",
+      "tier": "pruefer",
+      "fields": {
+        "befund": "Struktur, Verdrahtung, Code und Löcher gegen das Original geprüft; Spectrum und Testdaten vorhanden",
+        "outcome": "accepted"
+      },
+      "predicate": "https://scinteco.com/ns/qualification/v1#reviewed"
+    },
+    {
+      "id": "sha256:096dec8f52b7ddfb0666c98c0907cfe6084a3eb59a8e508cbb27df192e78f8f9",
+      "tier": "improve",
+      "fields": {
+        "id": "https://scinteco.com/ns/qualification/v1#accepted",
+        "value": {
+          "befund": "Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden",
+          "entry": "<improve-id>",
+          "outcome": "https://scinteco.com/ns/qualification/v1#accepted",
+          "requestor": "<anfragender>",
+          "resource": "steps/zweig-b/zweigB.R",
+          "review": "<improve-server>:RV-182199",
+          "reviewName": "Raute-Paket 135701e7d917 ADR-007",
+          "reviewPath": "/dst/review-20260930T184844/Raute-Paket 135701e7d917 ADR-007",
+          "reviewer": "<pruefer-konto>",
+          "reviewerId": "<improve-id>",
+          "reviewerName": "<pruefer-konto>"
+        }
+      },
+      "predicate": "https://scinteco.com/ns/qualification/v1#reviewed"
+    },
+    {
+      "id": "sha256:386216da38d3da1f72b9e93960712b5bee00cbfb31701eb4b4b10900f5b09536",
+      "tier": "improve",
+      "fields": {
+        "id": "https://scinteco.com/ns/qualification/v1#accepted",
+        "value": {
+          "befund": "Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden",
+          "entry": "<improve-id>",
+          "outcome": "https://scinteco.com/ns/qualification/v1#accepted",
+          "requestor": "<anfragender>",
+          "resource": "reference/aufbereitung-daten.txt",
+          "review": "<improve-server>:RV-182199",
+          "reviewName": "Raute-Paket 135701e7d917 ADR-007",
+          "reviewPath": "/dst/review-20260930T184844/Raute-Paket 135701e7d917 ADR-007",
+          "reviewer": "<pruefer-konto>",
+          "reviewerId": "<improve-id>",
+          "reviewerName": "<pruefer-konto>"
+        }
+      },
+      "predicate": "https://scinteco.com/ns/qualification/v1#reviewed"
+    },
+    {
+      "id": "sha256:5e1aad2ee36fb7e62cf212996e1ae6ef5689da9517c1f52447a7a5810351a115",
+      "tier": "improve",
+      "fields": {
+        "id": "https://scinteco.com/ns/qualification/v1#accepted",
+        "value": {
+          "befund": "Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden",
+          "entry": "<improve-id>",
+          "outcome": "https://scinteco.com/ns/qualification/v1#accepted",
+          "requestor": "<anfragender>",
+          "resource": "kton/package.json",
+          "review": "<improve-server>:RV-182199",
+          "reviewName": "Raute-Paket 135701e7d917 ADR-007",
+          "reviewPath": "/dst/review-20260930T184844/Raute-Paket 135701e7d917 ADR-007",
+          "reviewer": "<pruefer-konto>",
+          "reviewerId": "<improve-id>",
+          "reviewerName": "<pruefer-konto>"
+        }
+      },
+      "predicate": "https://scinteco.com/ns/qualification/v1#reviewed"
+    },
+    {
+      "id": "sha256:6052647208a3272d9ddd78e157169aaf55554e96b2ee6df2d912927a410a0a43",
+      "tier": "improve",
+      "fields": {
+        "id": "https://scinteco.com/ns/qualification/v1#accepted",
+        "value": {
+          "befund": "Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden",
+          "entry": "<improve-id>",
+          "outcome": "https://scinteco.com/ns/qualification/v1#accepted",
+          "requestor": "<anfragender>",
+          "resource": "kton/requires.json",
+          "review": "<improve-server>:RV-182199",
+          "reviewName": "Raute-Paket 135701e7d917 ADR-007",
+          "reviewPath": "/dst/review-20260930T184844/Raute-Paket 135701e7d917 ADR-007",
+          "reviewer": "<pruefer-konto>",
+          "reviewerId": "<improve-id>",
+          "reviewerName": "<pruefer-konto>"
+        }
+      },
+      "predicate": "https://scinteco.com/ns/qualification/v1#reviewed"
+    },
+    {
+      "id": "sha256:6eef53b47a24f152f26f136de1264d30f86e87e87acfc1062715a928ef499d1f",
+      "tier": "improve",
+      "fields": {
+        "id": "https://scinteco.com/ns/qualification/v1#accepted",
+        "value": {
+          "befund": "Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden",
+          "entry": "<improve-id>",
+          "outcome": "https://scinteco.com/ns/qualification/v1#accepted",
+          "requestor": "<anfragender>",
+          "resource": "steps/zusammenführung/zusammen.R",
+          "review": "<improve-server>:RV-182199",
+          "reviewName": "Raute-Paket 135701e7d917 ADR-007",
+          "reviewPath": "/dst/review-20260930T184844/Raute-Paket 135701e7d917 ADR-007",
+          "reviewer": "<pruefer-konto>",
+          "reviewerId": "<improve-id>",
+          "reviewerName": "<pruefer-konto>"
+        }
+      },
+      "predicate": "https://scinteco.com/ns/qualification/v1#reviewed"
+    },
+    {
+      "id": "sha256:8b8a73f5b978681d5b78a85fdbe02aa6514497934dca6ba0c7d2c2cc3c55b9dd",
+      "tier": "improve",
+      "fields": {
+        "id": "https://scinteco.com/ns/qualification/v1#accepted",
+        "value": {
+          "befund": "Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden",
+          "entry": "<improve-id>",
+          "outcome": "https://scinteco.com/ns/qualification/v1#accepted",
+          "requestor": "<anfragender>",
+          "resource": "kton/ray.json",
+          "review": "<improve-server>:RV-182199",
+          "reviewName": "Raute-Paket 135701e7d917 ADR-007",
+          "reviewPath": "/dst/review-20260930T184844/Raute-Paket 135701e7d917 ADR-007",
+          "reviewer": "<pruefer-konto>",
+          "reviewerId": "<improve-id>",
+          "reviewerName": "<pruefer-konto>"
+        }
+      },
+      "predicate": "https://scinteco.com/ns/qualification/v1#reviewed"
+    },
+    {
+      "id": "sha256:951d9d9ea9ca3a0ded4d3e15a3a0977de487b9080341120c14e47c32aaf53c3a",
+      "tier": "improve",
+      "fields": {
+        "id": "https://scinteco.com/ns/qualification/v1#accepted",
+        "value": {
+          "befund": "Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden",
+          "entry": "<improve-id>",
+          "outcome": "https://scinteco.com/ns/qualification/v1#accepted",
+          "requestor": "<anfragender>",
+          "resource": "testdaten/dataset/dataset.csv",
+          "review": "<improve-server>:RV-182199",
+          "reviewName": "Raute-Paket 135701e7d917 ADR-007",
+          "reviewPath": "/dst/review-20260930T184844/Raute-Paket 135701e7d917 ADR-007",
+          "reviewer": "<pruefer-konto>",
+          "reviewerId": "<improve-id>",
+          "reviewerName": "<pruefer-konto>"
+        }
+      },
+      "predicate": "https://scinteco.com/ns/qualification/v1#reviewed"
+    },
+    {
+      "id": "sha256:9a1116ac9f1b56325ddbe48dbd108f33de1890baa3e506c6b90c8027e5cc53bc",
+      "tier": "improve",
+      "fields": {
+        "id": "https://scinteco.com/ns/qualification/v1#accepted",
+        "value": {
+          "befund": "Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden",
+          "entry": "<improve-id>",
+          "outcome": "https://scinteco.com/ns/qualification/v1#accepted",
+          "requestor": "<anfragender>",
+          "resource": "reference/zweig-b-b.txt",
+          "review": "<improve-server>:RV-182199",
+          "reviewName": "Raute-Paket 135701e7d917 ADR-007",
+          "reviewPath": "/dst/review-20260930T184844/Raute-Paket 135701e7d917 ADR-007",
+          "reviewer": "<pruefer-konto>",
+          "reviewerId": "<improve-id>",
+          "reviewerName": "<pruefer-konto>"
+        }
+      },
+      "predicate": "https://scinteco.com/ns/qualification/v1#reviewed"
+    },
+    {
+      "id": "sha256:a90c3b970a283f0ca8c7823fd157e47457ef4cce27752cb67e3568dda5d7ca58",
+      "tier": "improve",
+      "fields": {
+        "id": "https://scinteco.com/ns/qualification/v1#accepted",
+        "value": {
+          "befund": "Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden",
+          "entry": "<improve-id>",
+          "outcome": "https://scinteco.com/ns/qualification/v1#accepted",
+          "requestor": "<anfragender>",
+          "resource": "kton/spectrum.json",
+          "review": "<improve-server>:RV-182199",
+          "reviewName": "Raute-Paket 135701e7d917 ADR-007",
+          "reviewPath": "/dst/review-20260930T184844/Raute-Paket 135701e7d917 ADR-007",
+          "reviewer": "<pruefer-konto>",
+          "reviewerId": "<improve-id>",
+          "reviewerName": "<pruefer-konto>"
+        }
+      },
+      "predicate": "https://scinteco.com/ns/qualification/v1#reviewed"
+    },
+    {
+      "id": "sha256:b372d44cfa4d404aac13c0e9157de10eb1597b1ab2b7105cf824fabc634b1da5",
+      "tier": "improve",
+      "fields": {
+        "id": "https://scinteco.com/ns/qualification/v1#accepted",
+        "value": {
+          "befund": "Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden",
+          "entry": "<improve-id>",
+          "outcome": "https://scinteco.com/ns/qualification/v1#accepted",
+          "requestor": "<anfragender>",
+          "resource": "steps/aufbereitung/aufbereiten.R",
+          "review": "<improve-server>:RV-182199",
+          "reviewName": "Raute-Paket 135701e7d917 ADR-007",
+          "reviewPath": "/dst/review-20260930T184844/Raute-Paket 135701e7d917 ADR-007",
+          "reviewer": "<pruefer-konto>",
+          "reviewerId": "<improve-id>",
+          "reviewerName": "<pruefer-konto>"
+        }
+      },
+      "predicate": "https://scinteco.com/ns/qualification/v1#reviewed"
+    },
+    {
+      "id": "sha256:cbc9e8b4821f778b27f28cb87cc091b97670793cf9d5fc71303fffa4174d4f0d",
+      "tier": "improve",
+      "fields": {
+        "id": "https://scinteco.com/ns/qualification/v1#accepted",
+        "value": {
+          "befund": "Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden",
+          "entry": "<improve-id>",
+          "outcome": "https://scinteco.com/ns/qualification/v1#accepted",
+          "requestor": "<anfragender>",
+          "resource": "reference/zusammenführung-ergebnis.txt",
+          "review": "<improve-server>:RV-182199",
+          "reviewName": "Raute-Paket 135701e7d917 ADR-007",
+          "reviewPath": "/dst/review-20260930T184844/Raute-Paket 135701e7d917 ADR-007",
+          "reviewer": "<pruefer-konto>",
+          "reviewerId": "<improve-id>",
+          "reviewerName": "<pruefer-konto>"
+        }
+      },
+      "predicate": "https://scinteco.com/ns/qualification/v1#reviewed"
+    },
+    {
+      "id": "sha256:e0ea086ca3d27405bb6852b0ebd09dc60518866f60eabf67eda6288e3b5d3f9b",
+      "tier": "improve",
+      "fields": {
+        "id": "https://scinteco.com/ns/qualification/v1#accepted",
+        "value": {
+          "befund": "Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden",
+          "entry": "<improve-id>",
+          "outcome": "https://scinteco.com/ns/qualification/v1#accepted",
+          "requestor": "<anfragender>",
+          "resource": "reference/zweig-c-c.txt",
+          "review": "<improve-server>:RV-182199",
+          "reviewName": "Raute-Paket 135701e7d917 ADR-007",
+          "reviewPath": "/dst/review-20260930T184844/Raute-Paket 135701e7d917 ADR-007",
+          "reviewer": "<pruefer-konto>",
+          "reviewerId": "<improve-id>",
+          "reviewerName": "<pruefer-konto>"
+        }
+      },
+      "predicate": "https://scinteco.com/ns/qualification/v1#reviewed"
+    },
+    {
+      "id": "sha256:e433ffea93a8526982d4dea09e51ef4b7900e5f27b132df8b1d0a32a460fe9bf",
+      "tier": "improve",
+      "fields": {
+        "id": "https://scinteco.com/ns/qualification/v1#accepted",
+        "value": {
+          "befund": "Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden",
+          "entry": "<improve-id>",
+          "outcome": "https://scinteco.com/ns/qualification/v1#accepted",
+          "requestor": "<anfragender>",
+          "resource": "steps/zweig-c/zweigC.R",
+          "review": "<improve-server>:RV-182199",
+          "reviewName": "Raute-Paket 135701e7d917 ADR-007",
+          "reviewPath": "/dst/review-20260930T184844/Raute-Paket 135701e7d917 ADR-007",
+          "reviewer": "<pruefer-konto>",
+          "reviewerId": "<improve-id>",
+          "reviewerName": "<pruefer-konto>"
+        }
+      },
+      "predicate": "https://scinteco.com/ns/qualification/v1#reviewed"
+    },
+    {
+      "id": "sha256:bda24cae2c18e692c915836bfdf83440ac7ac952f0d55e1139a1e784c2413040",
+      "tier": "self",
+      "fields": {
+        "befund": "selbst angesehen",
+        "outcome": "accepted"
+      },
+      "predicate": "https://scinteco.com/ns/qualification/v1#reviewed"
+    }
+  ],
+  "pruefer": [
+    {
+      "id": "sha256:983e11ba78e372c92f1970425d68cfd4dbf5d25f8eea60baa9f2574e91b45f1d",
+      "tier": "pruefer",
+      "fields": {
+        "befund": "Struktur, Verdrahtung, Code und Löcher gegen das Original geprüft; Spectrum und Testdaten vorhanden",
+        "outcome": "accepted"
+      },
+      "predicate": "https://scinteco.com/ns/qualification/v1#reviewed"
+    }
+  ],
+  "improve": [
+    {
+      "id": "sha256:096dec8f52b7ddfb0666c98c0907cfe6084a3eb59a8e508cbb27df192e78f8f9",
+      "tier": "improve",
+      "fields": {
+        "id": "https://scinteco.com/ns/qualification/v1#accepted",
+        "value": {
+          "befund": "Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden",
+          "entry": "<improve-id>",
+          "outcome": "https://scinteco.com/ns/qualification/v1#accepted",
+          "requestor": "<anfragender>",
+          "resource": "steps/zweig-b/zweigB.R",
+          "review": "<improve-server>:RV-182199",
+          "reviewName": "Raute-Paket 135701e7d917 ADR-007",
+          "reviewPath": "/dst/review-20260930T184844/Raute-Paket 135701e7d917 ADR-007",
+          "reviewer": "<pruefer-konto>",
+          "reviewerId": "<improve-id>",
+          "reviewerName": "<pruefer-konto>"
+        }
+      },
+      "predicate": "https://scinteco.com/ns/qualification/v1#reviewed"
+    },
+    {
+      "id": "sha256:386216da38d3da1f72b9e93960712b5bee00cbfb31701eb4b4b10900f5b09536",
+      "tier": "improve",
+      "fields": {
+        "id": "https://scinteco.com/ns/qualification/v1#accepted",
+        "value": {
+          "befund": "Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden",
+          "entry": "<improve-id>",
+          "outcome": "https://scinteco.com/ns/qualification/v1#accepted",
+          "requestor": "<anfragender>",
+          "resource": "reference/aufbereitung-daten.txt",
+          "review": "<improve-server>:RV-182199",
+          "reviewName": "Raute-Paket 135701e7d917 ADR-007",
+          "reviewPath": "/dst/review-20260930T184844/Raute-Paket 135701e7d917 ADR-007",
+          "reviewer": "<pruefer-konto>",
+          "reviewerId": "<improve-id>",
+          "reviewerName": "<pruefer-konto>"
+        }
+      },
+      "predicate": "https://scinteco.com/ns/qualification/v1#reviewed"
+    },
+    {
+      "id": "sha256:5e1aad2ee36fb7e62cf212996e1ae6ef5689da9517c1f52447a7a5810351a115",
+      "tier": "improve",
+      "fields": {
+        "id": "https://scinteco.com/ns/qualification/v1#accepted",
+        "value": {
+          "befund": "Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden",
+          "entry": "<improve-id>",
+          "outcome": "https://scinteco.com/ns/qualification/v1#accepted",
+          "requestor": "<anfragender>",
+          "resource": "kton/package.json",
+          "review": "<improve-server>:RV-182199",
+          "reviewName": "Raute-Paket 135701e7d917 ADR-007",
+          "reviewPath": "/dst/review-20260930T184844/Raute-Paket 135701e7d917 ADR-007",
+          "reviewer": "<pruefer-konto>",
+          "reviewerId": "<improve-id>",
+          "reviewerName": "<pruefer-konto>"
+        }
+      },
+      "predicate": "https://scinteco.com/ns/qualification/v1#reviewed"
+    },
+    {
+      "id": "sha256:6052647208a3272d9ddd78e157169aaf55554e96b2ee6df2d912927a410a0a43",
+      "tier": "improve",
+      "fields": {
+        "id": "https://scinteco.com/ns/qualification/v1#accepted",
+        "value": {
+          "befund": "Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden",
+          "entry": "<improve-id>",
+          "outcome": "https://scinteco.com/ns/qualification/v1#accepted",
+          "requestor": "<anfragender>",
+          "resource": "kton/requires.json",
+          "review": "<improve-server>:RV-182199",
+          "reviewName": "Raute-Paket 135701e7d917 ADR-007",
+          "reviewPath": "/dst/review-20260930T184844/Raute-Paket 135701e7d917 ADR-007",
+          "reviewer": "<pruefer-konto>",
+          "reviewerId": "<improve-id>",
+          "reviewerName": "<pruefer-konto>"
+        }
+      },
+      "predicate": "https://scinteco.com/ns/qualification/v1#reviewed"
+    },
+    {
+      "id": "sha256:6eef53b47a24f152f26f136de1264d30f86e87e87acfc1062715a928ef499d1f",
+      "tier": "improve",
+      "fields": {
+        "id": "https://scinteco.com/ns/qualification/v1#accepted",
+        "value": {
+          "befund": "Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden",
+          "entry": "<improve-id>",
+          "outcome": "https://scinteco.com/ns/qualification/v1#accepted",
+          "requestor": "<anfragender>",
+          "resource": "steps/zusammenführung/zusammen.R",
+          "review": "<improve-server>:RV-182199",
+          "reviewName": "Raute-Paket 135701e7d917 ADR-007",
+          "reviewPath": "/dst/review-20260930T184844/Raute-Paket 135701e7d917 ADR-007",
+          "reviewer": "<pruefer-konto>",
+          "reviewerId": "<improve-id>",
+          "reviewerName": "<pruefer-konto>"
+        }
+      },
+      "predicate": "https://scinteco.com/ns/qualification/v1#reviewed"
+    },
+    {
+      "id": "sha256:8b8a73f5b978681d5b78a85fdbe02aa6514497934dca6ba0c7d2c2cc3c55b9dd",
+      "tier": "improve",
+      "fields": {
+        "id": "https://scinteco.com/ns/qualification/v1#accepted",
+        "value": {
+          "befund": "Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden",
+          "entry": "<improve-id>",
+          "outcome": "https://scinteco.com/ns/qualification/v1#accepted",
+          "requestor": "<anfragender>",
+          "resource": "kton/ray.json",
+          "review": "<improve-server>:RV-182199",
+          "reviewName": "Raute-Paket 135701e7d917 ADR-007",
+          "reviewPath": "/dst/review-20260930T184844/Raute-Paket 135701e7d917 ADR-007",
+          "reviewer": "<pruefer-konto>",
+          "reviewerId": "<improve-id>",
+          "reviewerName": "<pruefer-konto>"
+        }
+      },
+      "predicate": "https://scinteco.com/ns/qualification/v1#reviewed"
+    },
+    {
+      "id": "sha256:951d9d9ea9ca3a0ded4d3e15a3a0977de487b9080341120c14e47c32aaf53c3a",
+      "tier": "improve",
+      "fields": {
+        "id": "https://scinteco.com/ns/qualification/v1#accepted",
+        "value": {
+          "befund": "Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden",
+          "entry": "<improve-id>",
+          "outcome": "https://scinteco.com/ns/qualification/v1#accepted",
+          "requestor": "<anfragender>",
+          "resource": "testdaten/dataset/dataset.csv",
+          "review": "<improve-server>:RV-182199",
+          "reviewName": "Raute-Paket 135701e7d917 ADR-007",
+          "reviewPath": "/dst/review-20260930T184844/Raute-Paket 135701e7d917 ADR-007",
+          "reviewer": "<pruefer-konto>",
+          "reviewerId": "<improve-id>",
+          "reviewerName": "<pruefer-konto>"
+        }
+      },
+      "predicate": "https://scinteco.com/ns/qualification/v1#reviewed"
+    },
+    {
+      "id": "sha256:9a1116ac9f1b56325ddbe48dbd108f33de1890baa3e506c6b90c8027e5cc53bc",
+      "tier": "improve",
+      "fields": {
+        "id": "https://scinteco.com/ns/qualification/v1#accepted",
+        "value": {
+          "befund": "Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden",
+          "entry": "<improve-id>",
+          "outcome": "https://scinteco.com/ns/qualification/v1#accepted",
+          "requestor": "<anfragender>",
+          "resource": "reference/zweig-b-b.txt",
+          "review": "<improve-server>:RV-182199",
+          "reviewName": "Raute-Paket 135701e7d917 ADR-007",
+          "reviewPath": "/dst/review-20260930T184844/Raute-Paket 135701e7d917 ADR-007",
+          "reviewer": "<pruefer-konto>",
+          "reviewerId": "<improve-id>",
+          "reviewerName": "<pruefer-konto>"
+        }
+      },
+      "predicate": "https://scinteco.com/ns/qualification/v1#reviewed"
+    },
+    {
+      "id": "sha256:a90c3b970a283f0ca8c7823fd157e47457ef4cce27752cb67e3568dda5d7ca58",
+      "tier": "improve",
+      "fields": {
+        "id": "https://scinteco.com/ns/qualification/v1#accepted",
+        "value": {
+          "befund": "Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden",
+          "entry": "<improve-id>",
+          "outcome": "https://scinteco.com/ns/qualification/v1#accepted",
+          "requestor": "<anfragender>",
+          "resource": "kton/spectrum.json",
+          "review": "<improve-server>:RV-182199",
+          "reviewName": "Raute-Paket 135701e7d917 ADR-007",
+          "reviewPath": "/dst/review-20260930T184844/Raute-Paket 135701e7d917 ADR-007",
+          "reviewer": "<pruefer-konto>",
+          "reviewerId": "<improve-id>",
+          "reviewerName": "<pruefer-konto>"
+        }
+      },
+      "predicate": "https://scinteco.com/ns/qualification/v1#reviewed"
+    },
+    {
+      "id": "sha256:b372d44cfa4d404aac13c0e9157de10eb1597b1ab2b7105cf824fabc634b1da5",
+      "tier": "improve",
+      "fields": {
+        "id": "https://scinteco.com/ns/qualification/v1#accepted",
+        "value": {
+          "befund": "Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden",
+          "entry": "<improve-id>",
+          "outcome": "https://scinteco.com/ns/qualification/v1#accepted",
+          "requestor": "<anfragender>",
+          "resource": "steps/aufbereitung/aufbereiten.R",
+          "review": "<improve-server>:RV-182199",
+          "reviewName": "Raute-Paket 135701e7d917 ADR-007",
+          "reviewPath": "/dst/review-20260930T184844/Raute-Paket 135701e7d917 ADR-007",
+          "reviewer": "<pruefer-konto>",
+          "reviewerId": "<improve-id>",
+          "reviewerName": "<pruefer-konto>"
+        }
+      },
+      "predicate": "https://scinteco.com/ns/qualification/v1#reviewed"
+    },
+    {
+      "id": "sha256:cbc9e8b4821f778b27f28cb87cc091b97670793cf9d5fc71303fffa4174d4f0d",
+      "tier": "improve",
+      "fields": {
+        "id": "https://scinteco.com/ns/qualification/v1#accepted",
+        "value": {
+          "befund": "Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden",
+          "entry": "<improve-id>",
+          "outcome": "https://scinteco.com/ns/qualification/v1#accepted",
+          "requestor": "<anfragender>",
+          "resource": "reference/zusammenführung-ergebnis.txt",
+          "review": "<improve-server>:RV-182199",
+          "reviewName": "Raute-Paket 135701e7d917 ADR-007",
+          "reviewPath": "/dst/review-20260930T184844/Raute-Paket 135701e7d917 ADR-007",
+          "reviewer": "<pruefer-konto>",
+          "reviewerId": "<improve-id>",
+          "reviewerName": "<pruefer-konto>"
+        }
+      },
+      "predicate": "https://scinteco.com/ns/qualification/v1#reviewed"
+    },
+    {
+      "id": "sha256:e0ea086ca3d27405bb6852b0ebd09dc60518866f60eabf67eda6288e3b5d3f9b",
+      "tier": "improve",
+      "fields": {
+        "id": "https://scinteco.com/ns/qualification/v1#accepted",
+        "value": {
+          "befund": "Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden",
+          "entry": "<improve-id>",
+          "outcome": "https://scinteco.com/ns/qualification/v1#accepted",
+          "requestor": "<anfragender>",
+          "resource": "reference/zweig-c-c.txt",
+          "review": "<improve-server>:RV-182199",
+          "reviewName": "Raute-Paket 135701e7d917 ADR-007",
+          "reviewPath": "/dst/review-20260930T184844/Raute-Paket 135701e7d917 ADR-007",
+          "reviewer": "<pruefer-konto>",
+          "reviewerId": "<improve-id>",
+          "reviewerName": "<pruefer-konto>"
+        }
+      },
+      "predicate": "https://scinteco.com/ns/qualification/v1#reviewed"
+    },
+    {
+      "id": "sha256:e433ffea93a8526982d4dea09e51ef4b7900e5f27b132df8b1d0a32a460fe9bf",
+      "tier": "improve",
+      "fields": {
+        "id": "https://scinteco.com/ns/qualification/v1#accepted",
+        "value": {
+          "befund": "Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden",
+          "entry": "<improve-id>",
+          "outcome": "https://scinteco.com/ns/qualification/v1#accepted",
+          "requestor": "<anfragender>",
+          "resource": "steps/zweig-c/zweigC.R",
+          "review": "<improve-server>:RV-182199",
+          "reviewName": "Raute-Paket 135701e7d917 ADR-007",
+          "reviewPath": "/dst/review-20260930T184844/Raute-Paket 135701e7d917 ADR-007",
+          "reviewer": "<pruefer-konto>",
+          "reviewerId": "<improve-id>",
+          "reviewerName": "<pruefer-konto>"
+        }
+      },
+      "predicate": "https://scinteco.com/ns/qualification/v1#reviewed"
+    }
+  ]
+}

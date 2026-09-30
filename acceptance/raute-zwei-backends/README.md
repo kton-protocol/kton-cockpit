@@ -22,8 +22,8 @@ K3 Spectrum-Prüfung als Kernel-Bibliothek). Mit jedem dieser Schritte wird ein 
 
 `extraktion.sh` baut auf dem Repo der git-Seite auf und geht die andere Richtung: aus Ausführungen,
 die schon liefen, das Potential zurückgewinnen. Ein zweiter Lauf auf den Vorgaben des Pakets, dann
-Vorschlag → ausdrückliche Wahl → Ray-Paket, neben das Original gehalten und selbst laufen gelassen.
-Ergebnis in `EXTRAKTION.md`.
+Vorschlag (`cockpit ask {query: ray}`) → ausdrückliche Wahl → Ray-Paket (`cockpit publish {kind:
+ray}`), neben das Original gehalten und selbst laufen gelassen. Ergebnis in `EXTRAKTION.md`.
 
 ## Über Kreuz (ADR-006, Schritt 3)
 
@@ -31,6 +31,15 @@ Auf einer Seite extrahieren, auf der anderen laufen lassen. `pakete/raute-aus-gi
 `cmd/kreuz` in improve ein. Außerdem lässt es die Raute dort zweimal laufen und extrahiert daraus
 `pakete/raute-aus-improve`. `kreuz.sh` lässt dieses Paket im git-Repo laufen und hält beide Pakete
 nebeneinander, bis zum Aktionsschlüssel. Das Ergebnis steht in `KREUZ.md`.
+
+## Review (ADR-007)
+
+Dasselbe Paket, in beiden Backends geprüft. In improve entscheidet der improve-Review mit
+Vier-Augen-Prinzip und Audit-Trail, der nekton-Claim ist nur seine Projektion (improvego
+`cmd/review`). In git **ist** der Review ein nekton-Claim: `review.sh` legt einen zweiten
+Teilnehmer an, den Prüfer, der mit eigenem Schlüssel urteilt. Sein Claim und die Projektion aus
+improve kommen über die Föderation ins Register der Autorin. `ask about <bundle>` zeigt jedes
+Urteil mit der Stufe, in die es verifiziert. Ergebnis in `REVIEW.md`.
 
 ## Ausführen
 
@@ -43,6 +52,9 @@ python3 vergleich.py                             # → VERGLEICH.md
 (cd /home/hacklm/improvego && IMPROVE_URL=http://<improve-server>/repository/api \
   IMPROVE_TEST_PATH=/dst go run ./cmd/kreuz)       # improve: A und B, ~6 min
 ./kreuz.sh                                       # → KREUZ.md
+(cd /home/hacklm/improvego && IMPROVE_URL=http://<improve-server>/repository/api \
+  IMPROVE_TEST_PATH=/dst go run ./cmd/review)      # improve: Review mit zweitem Benutzer, Projektion
+./review.sh                                      # → REVIEW.md
 ```
 
 Beide Seiten brauchen die Pakete aus dem improveGo-Workstream (`tools/jam-r/paket`,
@@ -54,6 +66,7 @@ Beide Seiten brauchen die Pakete aus dem improveGo-Workstream (`tools/jam-r/pake
 |---|---|
 | `git-seite.sh` | die git-Seite; schreibt `results/git.json` |
 | `extraktion.sh` | aus den Ausführungen der git-Seite das Potential; schreibt `results/extraktion.json` und `EXTRAKTION.md` |
+| `review.sh` | der Review im git-Backend, dazu die Projektion aus improve; schreibt `results/review-git.json` und `REVIEW.md` |
 | `kreuz.sh` | die git-Hälfte von Schritt 3; schreibt `results/kreuz-git.json` und `KREUZ.md` |
 | `pakete/` | die extrahierten Pakete, die zwischen den Seiten wandern |
 | `schritt.sh` | gemeinsam: jeden Schritt wörtlich ausführen und protokollieren, einen Plan mit dem Cockpit laufen lassen |

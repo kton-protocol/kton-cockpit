@@ -25,29 +25,6 @@
       ]
     },
     {
-      "id": "zweig-c",
-      "protocol": {
-        "command": {
-          "args": "scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a\n\u003ccommand-file\u003e"
-        }
-      },
-      "inputs": [
-        {
-          "slot": "daten.txt",
-          "from": "upstream:aufbereitung:daten.txt"
-        },
-        {
-          "slot": "zweigC.R",
-          "path": "steps/zweig-c/zweigC.R",
-          "hash": "sha256:f182205e0308596bdf69f0dcfd1c20f1df535165362144ba13e9103320fd0293",
-          "variable": "command-file"
-        }
-      ],
-      "outputs": [
-        "c.txt"
-      ]
-    },
-    {
       "id": "zweig-b",
       "protocol": {
         "command": {
@@ -71,6 +48,29 @@
       ],
       "outputs": [
         "b.txt"
+      ]
+    },
+    {
+      "id": "zweig-c",
+      "protocol": {
+        "command": {
+          "args": "scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a\n\u003ccommand-file\u003e"
+        }
+      },
+      "inputs": [
+        {
+          "slot": "daten.txt",
+          "from": "upstream:aufbereitung:daten.txt"
+        },
+        {
+          "slot": "zweigC.R",
+          "path": "steps/zweig-c/zweigC.R",
+          "hash": "sha256:f182205e0308596bdf69f0dcfd1c20f1df535165362144ba13e9103320fd0293",
+          "variable": "command-file"
+        }
+      ],
+      "outputs": [
+        "c.txt"
       ]
     },
     {

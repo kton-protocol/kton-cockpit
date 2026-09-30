@@ -1,0 +1,363 @@
+{
+  "side": "improve",
+  "ranAt": "2026-09-30T16:48:44Z",
+  "subject": {
+    "bundleId": "sha256:135701e7d917ae4aedbef8f973e22d59038840d5605b360a208217aabb3c9173",
+    "package": "/mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/pakete/raute-aus-improve"
+  },
+  "steps": [
+    {
+      "phase": "setup",
+      "id": "setup",
+      "title": "eigenen Testordner und ein Register darin anlegen; Systemschlüssel laden",
+      "actor": "improvego",
+      "command": "c.CreateFolder(ctx, \"/dst\", \"review-20260930T184844\"); c.EnsureRegister(ctx, \u003cordner\u003e/kton); improve.Signer()",
+      "gap": "S4: das Cockpit kennt den improve-Modus noch nicht — die Schritte laufen über improvego",
+      "ok": true,
+      "result": {
+        "antragsteller": "<anfragender>",
+        "ordner": "/dst/review-20260930T184844",
+        "register": "/dst/review-20260930T184844/kton",
+        "systemschluessel": "e0ea0c6e1bfc0090"
+      }
+    },
+    {
+      "phase": "install",
+      "id": "install",
+      "title": "das Paket kopieren, prüfen, gegen die erwartete Bundle-Id halten und einspielen",
+      "actor": "improvego",
+      "command": "ktonpkg.Open(\u003cKopie von /mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/pakete/raute-aus-improve\u003e).Verify(); c.InstallPackage(ctx, b, InstallOptions{TargetFolder: \u003cordner\u003e/paket, Tool: \u003cjam-r 1.0.0\u003e}); fehlende Paketdateien (kton/*) daneben ablegen",
+      "gap": "S6: Pakete einspielen gehört ins Cockpit (backend/improve) — heute improvego",
+      "ok": true,
+      "result": {
+        "bundleId": "sha256:135701e7d917ae4aedbef8f973e22d59038840d5605b360a208217aabb3c9173",
+        "dateien": 13,
+        "kopie": "/tmp/review-paket-517078137/raute-aus-improve",
+        "nachgelegt": [
+          "kton/package.json",
+          "kton/ray.json",
+          "kton/requires.json",
+          "kton/spectrum.json",
+          "reference/aufbereitung-daten.txt",
+          "reference/zusammenführung-ergebnis.txt",
+          "reference/zweig-b-b.txt",
+          "reference/zweig-c-c.txt"
+        ],
+        "templateSteps": 4,
+        "verify": null,
+        "ziel": "/dst/review-20260930T184844/paket"
+      }
+    },
+    {
+      "phase": "reviewer",
+      "id": "reviewer",
+      "title": "ein vorhandenes zweites Konto als Prüfer: nachschlagen und sich als es anmelden",
+      "actor": "improve-server",
+      "command": "GET /v1/users/username/<pruefer-konto>; Basic, sonst Passwort-Grant am Identitätsdienst (client improve-test-client, Geheimnis aus IMPROVE_TEST_CLIENT_SECRET); GET /v1/users/whoami",
+      "gap": "keine Cockpit-Lücke: Prüfer sind Personen mit eigenem Konto — der Test leiht sich eines aus dem Testaufbau",
+      "ok": true,
+      "result": {
+        "angemeldet": "<pruefer-konto>",
+        "anmeldung": "Bearer (Identitätsdienst, improve-test-client)",
+        "basic": "HTTP 401: (HTML-Fehlerseite)",
+        "benutzer": "<pruefer-konto>",
+        "id": "<improve-id>",
+        "rolle": "user"
+      }
+    },
+    {
+      "phase": "request",
+      "id": "request",
+      "title": "als <anfragender> den Vorgang über die Dateien des Pakets beantragen, Prüfer einladen, auf Reviewing stellen",
+      "actor": "improvego",
+      "command": "c.CreateReview(ctx, NewReview{Name, ParentPath: \u003cordner\u003e, ResourceIDs: \u003cPaketdateien\u003e, ReviewerIDs: [\u003cPrüfer\u003e]}); c.SetReviewStatus(ctx, id, \"Reviewing\")",
+      "gap": "S4: im Zielbild `cockpit say {template: reviewed}` im improve-Modus — dort legt es den Vorgang an, statt den Claim zu schreiben (ADR-007)",
+      "ok": true,
+      "result": {
+        "eingeladen": [
+          "<pruefer-konto> (INVITED)"
+        ],
+        "eintraege": [
+          "kton/package.json",
+          "steps/zweig-c/zweigC.R",
+          "kton/ray.json",
+          "reference/zweig-b-b.txt",
+          "steps/zweig-b/zweigB.R",
+          "reference/zweig-c-c.txt",
+          "kton/requires.json",
+          "testdaten/dataset/dataset.csv",
+          "steps/aufbereitung/aufbereiten.R",
+          "steps/zusammenführung/zusammen.R",
+          "reference/aufbereitung-daten.txt",
+          "kton/spectrum.json",
+          "reference/zusammenführung-ergebnis.txt"
+        ],
+        "entityId": "<improve-server>:RV-182199",
+        "review": "<improve-id>",
+        "status": "Planning",
+        "statusDanach": "Reviewing"
+      }
+    },
+    {
+      "phase": "self-review-refused",
+      "id": "self-review-refused",
+      "title": "als <anfragender> selbst entscheiden und sich selbst einladen — improve muss beides ablehnen",
+      "actor": "improve-server",
+      "command": "<anfragender>: c.ApproveEntries(ctx, id, {reviewEntryIds: [\u003cerster Eintrag\u003e]}); POST /v1/reviews/{id}/reviewers {userId: \u003cadmin\u003e, username: <anfragender>}",
+      "gap": "",
+      "ok": true,
+      "result": {
+        "eintragDanach": "Reviewing",
+        "selbstEingeladen": {
+          "abgelehnt": true,
+          "meldung": "HTTP 400: Requestor cannot assign himself as reviewer (peer review / dual control)"
+        },
+        "selbstGenehmigt": {
+          "abgelehnt": true,
+          "meldung": "HTTP 400: You haven't been invited to this review."
+        }
+      }
+    },
+    {
+      "phase": "decide",
+      "id": "decide",
+      "title": "als Prüfer die Einladung annehmen und jeden Eintrag mit Befund annehmen",
+      "actor": "improve-server",
+      "command": "Prüfer: c.AcceptReview(ctx, id); POST /v1/reviews/{id}/entries/{eid}/comments \"Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden\"; c.ApproveEntries(ctx, id, {reviewEntryIds: \u003calle\u003e, comment})",
+      "gap": "S4: im Zielbild `cockpit say {template: reviewed}` im improve-Modus — dort legt es den Vorgang an, statt den Claim zu schreiben (ADR-007)",
+      "ok": true,
+      "result": {
+        "angenommen": 13,
+        "annehmen": "ok",
+        "einträge": 13
+      }
+    },
+    {
+      "phase": "project",
+      "id": "project",
+      "title": "erst jetzt projizieren: je entschiedenem Eintrag ein Claim über die Bundle-Id, mit improves Systemschlüssel",
+      "actor": "improvego",
+      "command": "improve.ReviewClaim(review, eintrag, \"sha256:135701e7d917ae4aedbef8f973e22d59038840d5605b360a208217aabb3c9173\") je Eintrag; reg.Sign(ctx, improve.Signer(), claim); Umschlag → /mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/results/review-improve-claims/\u003cclaimid16\u003e.json; Schlüssel → improve-system.pub",
+      "gap": "S4: im Zielbild projiziert das Cockpit im improve-Modus selbst, aus dem entschiedenen Eintrag (ADR-007) — heute improvego ReviewClaim",
+      "ok": true,
+      "result": {
+        "claims": 13,
+        "keyid": "e0ea0c6e1bfc0090",
+        "schluessel": "/mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/results/review-improve-claims/improve-system.pub"
+      }
+    },
+    {
+      "phase": "verify",
+      "id": "verify",
+      "title": "die Projektion aus dem Register zurücklesen und prüfen; ein offener Eintrag ergibt keine",
+      "actor": "improvego",
+      "command": "reg.About(ctx, \"sha256:135701e7d917ae4aedbef8f973e22d59038840d5605b360a208217aabb3c9173\"); ktonpkg.ClaimFromEnvelope(\u003cDatei\u003e, [improve-system.pub]); zweiter Vorgang in Planning → improve.ReviewClaim muss ablehnen",
+      "gap": "S4: im Zielbild `cockpit ask {query: about}` gegen das improve-Register",
+      "ok": true,
+      "result": {
+        "dateienGeprueft": 13,
+        "imRegister": 13,
+        "offen": {
+          "abgelehnt": true,
+          "meldung": "der Eintrag <improve-id> ist noch nicht entschieden (\"Reviewing\")",
+          "review": "<improve-id>",
+          "status": "Reviewing"
+        }
+      }
+    },
+    {
+      "phase": "cleanup",
+      "id": "cleanup",
+      "title": "den Testordner entfernen; das Prüferkonto bleibt, wie es war",
+      "actor": "improve-server",
+      "command": "c.Delete(ctx, \u003cordner\u003e)",
+      "gap": "",
+      "ok": true,
+      "result": {
+        "ordner": "/dst/review-20260930T184844 entfernt",
+        "pruefer": "<pruefer-konto> unverändert",
+        "vorgaengeGeleert": [
+          "Raute-Paket 135701e7d917 ADR-007: 13 Einträge entfernt",
+          "Raute-Paket offen ADR-007: 1 Einträge entfernt"
+        ]
+      }
+    }
+  ],
+  "review": {
+    "id": "<improve-id>",
+    "entityId": "<improve-server>:RV-182199",
+    "requestor": "<anfragender>",
+    "reviewer": "<pruefer-konto>",
+    "entries": [
+      {
+        "resource": "kton/package.json",
+        "status": "Approved",
+        "befund": "Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden"
+      },
+      {
+        "resource": "steps/zweig-c/zweigC.R",
+        "status": "Approved",
+        "befund": "Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden"
+      },
+      {
+        "resource": "kton/ray.json",
+        "status": "Approved",
+        "befund": "Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden"
+      },
+      {
+        "resource": "reference/zweig-b-b.txt",
+        "status": "Approved",
+        "befund": "Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden"
+      },
+      {
+        "resource": "steps/zweig-b/zweigB.R",
+        "status": "Approved",
+        "befund": "Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden"
+      },
+      {
+        "resource": "reference/zweig-c-c.txt",
+        "status": "Approved",
+        "befund": "Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden"
+      },
+      {
+        "resource": "kton/requires.json",
+        "status": "Approved",
+        "befund": "Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden"
+      },
+      {
+        "resource": "testdaten/dataset/dataset.csv",
+        "status": "Approved",
+        "befund": "Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden"
+      },
+      {
+        "resource": "steps/aufbereitung/aufbereiten.R",
+        "status": "Approved",
+        "befund": "Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden"
+      },
+      {
+        "resource": "steps/zusammenführung/zusammen.R",
+        "status": "Approved",
+        "befund": "Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden"
+      },
+      {
+        "resource": "reference/aufbereitung-daten.txt",
+        "status": "Approved",
+        "befund": "Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden"
+      },
+      {
+        "resource": "kton/spectrum.json",
+        "status": "Approved",
+        "befund": "Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden"
+      },
+      {
+        "resource": "reference/zusammenführung-ergebnis.txt",
+        "status": "Approved",
+        "befund": "Struktur, Verdrahtung und Löcher geprüft; Spectrum und Testdaten vorhanden"
+      }
+    ]
+  },
+  "fourEyes": {
+    "selfApprovalRefused": true,
+    "message": "HTTP 400: You haven't been invited to this review.",
+    "selfAssignRefused": true,
+    "selfAssignMessage": "HTTP 400: Requestor cannot assign himself as reviewer (peer review / dual control)"
+  },
+  "projection": {
+    "claims": [
+      {
+        "id": "sha256:5e1aad2ee36fb7e62cf212996e1ae6ef5689da9517c1f52447a7a5810351a115",
+        "objectId": "https://scinteco.com/ns/qualification/v1#accepted",
+        "by": "improve:<pruefer-konto>",
+        "signer": "e0ea0c6e1bfc0090"
+      },
+      {
+        "id": "sha256:e433ffea93a8526982d4dea09e51ef4b7900e5f27b132df8b1d0a32a460fe9bf",
+        "objectId": "https://scinteco.com/ns/qualification/v1#accepted",
+        "by": "improve:<pruefer-konto>",
+        "signer": "e0ea0c6e1bfc0090"
+      },
+      {
+        "id": "sha256:8b8a73f5b978681d5b78a85fdbe02aa6514497934dca6ba0c7d2c2cc3c55b9dd",
+        "objectId": "https://scinteco.com/ns/qualification/v1#accepted",
+        "by": "improve:<pruefer-konto>",
+        "signer": "e0ea0c6e1bfc0090"
+      },
+      {
+        "id": "sha256:9a1116ac9f1b56325ddbe48dbd108f33de1890baa3e506c6b90c8027e5cc53bc",
+        "objectId": "https://scinteco.com/ns/qualification/v1#accepted",
+        "by": "improve:<pruefer-konto>",
+        "signer": "e0ea0c6e1bfc0090"
+      },
+      {
+        "id": "sha256:096dec8f52b7ddfb0666c98c0907cfe6084a3eb59a8e508cbb27df192e78f8f9",
+        "objectId": "https://scinteco.com/ns/qualification/v1#accepted",
+        "by": "improve:<pruefer-konto>",
+        "signer": "e0ea0c6e1bfc0090"
+      },
+      {
+        "id": "sha256:e0ea086ca3d27405bb6852b0ebd09dc60518866f60eabf67eda6288e3b5d3f9b",
+        "objectId": "https://scinteco.com/ns/qualification/v1#accepted",
+        "by": "improve:<pruefer-konto>",
+        "signer": "e0ea0c6e1bfc0090"
+      },
+      {
+        "id": "sha256:6052647208a3272d9ddd78e157169aaf55554e96b2ee6df2d912927a410a0a43",
+        "objectId": "https://scinteco.com/ns/qualification/v1#accepted",
+        "by": "improve:<pruefer-konto>",
+        "signer": "e0ea0c6e1bfc0090"
+      },
+      {
+        "id": "sha256:951d9d9ea9ca3a0ded4d3e15a3a0977de487b9080341120c14e47c32aaf53c3a",
+        "objectId": "https://scinteco.com/ns/qualification/v1#accepted",
+        "by": "improve:<pruefer-konto>",
+        "signer": "e0ea0c6e1bfc0090"
+      },
+      {
+        "id": "sha256:b372d44cfa4d404aac13c0e9157de10eb1597b1ab2b7105cf824fabc634b1da5",
+        "objectId": "https://scinteco.com/ns/qualification/v1#accepted",
+        "by": "improve:<pruefer-konto>",
+        "signer": "e0ea0c6e1bfc0090"
+      },
+      {
+        "id": "sha256:6eef53b47a24f152f26f136de1264d30f86e87e87acfc1062715a928ef499d1f",
+        "objectId": "https://scinteco.com/ns/qualification/v1#accepted",
+        "by": "improve:<pruefer-konto>",
+        "signer": "e0ea0c6e1bfc0090"
+      },
+      {
+        "id": "sha256:386216da38d3da1f72b9e93960712b5bee00cbfb31701eb4b4b10900f5b09536",
+        "objectId": "https://scinteco.com/ns/qualification/v1#accepted",
+        "by": "improve:<pruefer-konto>",
+        "signer": "e0ea0c6e1bfc0090"
+      },
+      {
+        "id": "sha256:a90c3b970a283f0ca8c7823fd157e47457ef4cce27752cb67e3568dda5d7ca58",
+        "objectId": "https://scinteco.com/ns/qualification/v1#accepted",
+        "by": "improve:<pruefer-konto>",
+        "signer": "e0ea0c6e1bfc0090"
+      },
+      {
+        "id": "sha256:cbc9e8b4821f778b27f28cb87cc091b97670793cf9d5fc71303fffa4174d4f0d",
+        "objectId": "https://scinteco.com/ns/qualification/v1#accepted",
+        "by": "improve:<pruefer-konto>",
+        "signer": "e0ea0c6e1bfc0090"
+      }
+    ],
+    "files": [
+      "/mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/results/review-improve-claims/5e1aad2ee36fb7e6.json",
+      "/mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/results/review-improve-claims/e433ffea93a85269.json",
+      "/mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/results/review-improve-claims/8b8a73f5b978681d.json",
+      "/mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/results/review-improve-claims/9a1116ac9f1b5632.json",
+      "/mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/results/review-improve-claims/096dec8f52b7ddfb.json",
+      "/mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/results/review-improve-claims/e0ea086ca3d27405.json",
+      "/mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/results/review-improve-claims/6052647208a3272d.json",
+      "/mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/results/review-improve-claims/951d9d9ea9ca3a0d.json",
+      "/mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/results/review-improve-claims/b372d44cfa4d404a.json",
+      "/mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/results/review-improve-claims/6eef53b47a24f152.json",
+      "/mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/results/review-improve-claims/386216da38d3da1f.json",
+      "/mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/results/review-improve-claims/a90c3b970a283f0c.json",
+      "/mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/results/review-improve-claims/cbc9e8b4821f778b.json"
+    ],
+    "systemKey": "/mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/results/review-improve-claims/improve-system.pub"
+  }
+}

@@ -48,16 +48,13 @@ w = sys.argv[1]
 ids = sorted(set(json.load(open(f"{w}/ids-raute.json")) + json.load(open(f"{w}/ids-raute-2.json"))))
 open(f"{w}/ids.txt", "w").write("\n".join(ids) + "\n")
 PY
-schritt select select:records cockpit "" \
-  "Jede ausgewählte Ausführung im Einzelnen: Befehl, Umgebung, Ein- und Ausgaben (je ein cockpit ask record)" \
-  "python3 $HIER/records.py $WORK/ids.txt $WORK/records.json"
-
 # ---------------------------------------------------------------------------------------------------
 echo; echo "=== vorschlagen, wählen, extrahieren"
-schritt propose propose ktonpkg "S5/S6: im Zielbild cockpit ask {query: ray}" \
-  "Vorschlag: Läufe, Steps, Verdrahtung und die Kandidaten — beobachtet, nicht entschieden" \
-  "$PKG propose $WORK/records.json --entrypoint Rscript"
-cp "$WORK/last.out" "$WORK/proposal.json"
+REFS=$(python3 -c 'import json,sys; print(json.dumps(["work/raute/zusammenführung/ergebnis.txt","work/raute-2/zusammenführung/ergebnis.txt"], ensure_ascii=False))')
+schritt propose propose cockpit "" \
+  "Vorschlag: Läufe, Steps, Verdrahtung und die Kandidaten — beobachtet, nicht entschieden (nur verifizierte Fotons)" \
+  "./bin/cockpit ask '{\"query\":\"ray\",\"refs\":$REFS}'"
+python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); json.dump(d["proposal"], open(sys.argv[2],"w"), ensure_ascii=False)' "$WORK/last.out" "$WORK/proposal.json"
 
 # Die Auswahl ist ausdrücklich und steht hier im Skript, wo man sie lesen kann. Referenz ist der
 # Lauf mit eigene-daten.csv: sein Ergebnis ist der Endpunkt, von dem aus gewählt wird.
@@ -76,13 +73,17 @@ choice = {
 json.dump(choice, open(dest, "w"), indent=2, ensure_ascii=False)
 print(json.dumps(choice, ensure_ascii=False))
 PY
-schritt choose choose script "S5/S6: im Zielbild die Auswahl in cockpit publish {kind: ray, choose}" \
+schritt choose choose script "" \
   "Ausdrücklich gewählt: dataset als Loch, anzahl als Parameter, Referenz der Lauf mit eigene-daten.csv" \
   "cat $WORK/choice.json"
 
-schritt extract extract ktonpkg "S5/S6: im Zielbild cockpit publish {kind: ray}" \
-  "Extrahieren: Ray-Paket mit Testdaten und Spectrum aus dem Referenzlauf, prov:wasDerivedFrom signiert" \
-  "$PKG extract $WORK/records.json $WORK/choice.json packages/raute-extrahiert --entrypoint Rscript --sign $WORK/extraktion.key"
+RAY_REQ=$(python3 -c 'import json,sys; print(json.dumps({"kind":"ray","ray":{"refs":json.loads(sys.argv[1]),"choice":json.load(open(sys.argv[2])),"dir":"packages/raute-extrahiert"}}, ensure_ascii=False))' "$REFS" "$WORK/choice.json")
+rm -rf "$REPO_DIR/packages/raute-extrahiert"
+git -C "$REPO_DIR" rm -rq --ignore-unmatch packages/raute-extrahiert >/dev/null 2>&1 || true
+schritt extract extract cockpit "" \
+  "Extrahieren: das Cockpit rechnet den Vorschlag neu, schreibt das Ray-Paket, committet es und signiert prov:wasDerivedFrom" \
+  "./bin/cockpit publish '$RAY_REQ'"
+cp "$WORK/last.out" "$WORK/publish-ray.json"
 
 # Das Paket verlässt dieses Repo: Schritt 3 spielt es in improve ein.
 rm -rf "$HIER/pakete/raute-aus-git" && mkdir -p "$HIER/pakete" && cp -r "$REPO_DIR/packages/raute-extrahiert" "$HIER/pakete/raute-aus-git"
@@ -147,7 +148,8 @@ def outs(phase):
     return o
 git = json.load(open(f"{hier}/results/git.json"))
 second, x, y = outs("second-run"), outs("roundtrip"), outs("rebind")
-proposal = next(s for s in steps if s["id"] == "propose")["result"]
+_p = next(s for s in steps if s["id"] == "propose")["result"]
+proposal = _p.get("proposal", _p)
 compare = next(s for s in steps if s["id"] == "compare")["result"]
 check = next(s for s in steps if s["id"] == "roundtrip:check")
 res = {

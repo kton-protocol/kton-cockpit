@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/kton-protocol/ktonpkg"
+	"github.com/gitmick/ktonpkg"
 )
 
 // Der Adapter vom Cockpit-Foton zur backendneutralen Ausführung (ADR-006). Er liest nur, was im

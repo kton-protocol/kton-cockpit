@@ -1,2 +1,4 @@
+github.com/gitmick/ktonpkg v0.1.1 h1:w8Mk32TFCBjcDYCKgsxiKboYo+FpCXGcG+bT4qFy3+U=
+github.com/gitmick/ktonpkg v0.1.1/go.mod h1:eQBdPI1cnodEDR0A7ja5Ryv98+RYMyRIrhPcYukuMd4=
 kton.dev/plankton v0.2.1 h1:MXaYM89kyZmFvrUO9Rt66eIG0n+D9EmG/10vpUWjIfo=
 kton.dev/plankton v0.2.1/go.mod h1:Cn564opIXVuuNOVSn31sudCg09PWwCHYbQC/0Q0NpmM=

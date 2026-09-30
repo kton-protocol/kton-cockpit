@@ -1,5 +1,5 @@
 {
-  "ranAt": "2026-09-30T15:49:54Z",
+  "ranAt": "2026-09-30T16:50:25Z",
   "steps": [
     {
       "phase": "compare",
@@ -11,7 +11,7 @@
       "ok": true,
       "exit": 0,
       "result": {
-        "bundleId": "sha256:de34bed0b523d28f1d273319a3993336fd5eb2f5381a6551ca9672a33639d6e5",
+        "bundleId": "sha256:135701e7d917ae4aedbef8f973e22d59038840d5605b360a208217aabb3c9173",
         "format": "kton-package/1",
         "holes": [
           {
@@ -34,7 +34,7 @@
         "kind": "ray",
         "name": "raute-extrahiert",
         "problems": null,
-        "rayId": "sha256:06fc464449e22e137b9426e3da67928f7ad963935af889e10de3c3c865544b11",
+        "rayId": "sha256:1152ddff61fbfe83d9c948f92fb1abe7adb9a9e97f5bc80ea3255cadca855ab1",
         "requires": [
           {
             "kind": "tool",
@@ -79,7 +79,7 @@
       "ok": true,
       "exit": 0,
       "result": {
-        "bundleId": "sha256:de34bed0b523d28f1d273319a3993336fd5eb2f5381a6551ca9672a33639d6e5",
+        "bundleId": "sha256:135701e7d917ae4aedbef8f973e22d59038840d5605b360a208217aabb3c9173",
         "format": "kton-package/1",
         "holes": [
           {
@@ -102,7 +102,7 @@
         "kind": "ray",
         "name": "raute-extrahiert",
         "problems": null,
-        "rayId": "sha256:06fc464449e22e137b9426e3da67928f7ad963935af889e10de3c3c865544b11",
+        "rayId": "sha256:1152ddff61fbfe83d9c948f92fb1abe7adb9a9e97f5bc80ea3255cadca855ab1",
         "requires": [
           {
             "kind": "tool",
@@ -175,28 +175,6 @@
             ]
           },
           {
-            "id": "zweig-c",
-            "dir": "work/raute-aus-improve/zweig-c",
-            "stage": [
-              {
-                "from": "work/raute-aus-improve/aufbereitung/daten.txt",
-                "to": "work/raute-aus-improve/zweig-c/daten.txt"
-              },
-              {
-                "from": "packages/raute-aus-improve/steps/zweig-c/zweigC.R",
-                "to": "work/raute-aus-improve/zweig-c/zweigC.R"
-              }
-            ],
-            "cmd": "cd work/raute-aus-improve/zweig-c && Rscript zweigC.R",
-            "inputs": [
-              "work/raute-aus-improve/zweig-c/daten.txt",
-              "work/raute-aus-improve/zweig-c/zweigC.R"
-            ],
-            "outputs": [
-              "work/raute-aus-improve/zweig-c/c.txt"
-            ]
-          },
-          {
             "id": "zweig-b",
             "dir": "work/raute-aus-improve/zweig-b",
             "stage": [
@@ -219,6 +197,28 @@
             ],
             "outputs": [
               "work/raute-aus-improve/zweig-b/b.txt"
+            ]
+          },
+          {
+            "id": "zweig-c",
+            "dir": "work/raute-aus-improve/zweig-c",
+            "stage": [
+              {
+                "from": "work/raute-aus-improve/aufbereitung/daten.txt",
+                "to": "work/raute-aus-improve/zweig-c/daten.txt"
+              },
+              {
+                "from": "packages/raute-aus-improve/steps/zweig-c/zweigC.R",
+                "to": "work/raute-aus-improve/zweig-c/zweigC.R"
+              }
+            ],
+            "cmd": "cd work/raute-aus-improve/zweig-c && Rscript zweigC.R",
+            "inputs": [
+              "work/raute-aus-improve/zweig-c/daten.txt",
+              "work/raute-aus-improve/zweig-c/zweigC.R"
+            ],
+            "outputs": [
+              "work/raute-aus-improve/zweig-c/c.txt"
             ]
           },
           {
@@ -265,37 +265,11 @@
         "outputHashes": {
           "work/raute-aus-improve/aufbereitung/daten.txt": "sha256:ab0a3a6253897602cb84d4592293e905714a017ec4333254ca80b836780df12b"
         },
-        "commitSha": "cefe51b2de4e2d395dbcd53bebdca4b2ffa88f44",
+        "commitSha": "acf69cbae6f9c875d5226f89a7072333a3bf0477",
         "permalinks": {
-          "work/raute-aus-improve/aufbereitung/aufbereiten.R": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/cefe51b2de4e2d395dbcd53bebdca4b2ffa88f44/work/raute-aus-improve/aufbereitung/aufbereiten.R",
-          "work/raute-aus-improve/aufbereitung/dataset.csv": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/cefe51b2de4e2d395dbcd53bebdca4b2ffa88f44/work/raute-aus-improve/aufbereitung/dataset.csv",
-          "work/raute-aus-improve/aufbereitung/daten.txt": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/cefe51b2de4e2d395dbcd53bebdca4b2ffa88f44/work/raute-aus-improve/aufbereitung/daten.txt"
-        },
-        "envRef": "oci://docker.io/scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a",
-        "executedIn": "oci://docker.io/scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a",
-        "committed": true,
-        "pushed": true
-      }
-    },
-    {
-      "phase": "b:run",
-      "id": "b:run:zweig-c",
-      "title": "Step zweig-c im gepinnten jam-r-Image ausführen und als Foton veröffentlichen",
-      "actor": "cockpit",
-      "command": "./bin/cockpit publish '{\"cmd\": \"cd work/raute-aus-improve/zweig-c && Rscript zweigC.R\", \"inputs\": [\"work/raute-aus-improve/zweig-c/daten.txt\", \"work/raute-aus-improve/zweig-c/zweigC.R\"], \"outputs\": [\"work/raute-aus-improve/zweig-c/c.txt\"]}'",
-      "gap": "S5: heute ein publish je Step mit ausgeschriebenem Befehl; im Zielbild realisiert das Cockpit das Potential selbst",
-      "ok": true,
-      "exit": 0,
-      "result": {
-        "fotonId": "sha256:07455b63b1d3e109c37e021332b5895e1af0803b8209817559c2096c31a58ff1",
-        "outputHashes": {
-          "work/raute-aus-improve/zweig-c/c.txt": "sha256:fb76c5fd07819ff96996d189cd08fe52c64894e55d3dba89eebbebb495f60739"
-        },
-        "commitSha": "cefe51b2de4e2d395dbcd53bebdca4b2ffa88f44",
-        "permalinks": {
-          "work/raute-aus-improve/zweig-c/c.txt": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/cefe51b2de4e2d395dbcd53bebdca4b2ffa88f44/work/raute-aus-improve/zweig-c/c.txt",
-          "work/raute-aus-improve/zweig-c/daten.txt": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/cefe51b2de4e2d395dbcd53bebdca4b2ffa88f44/work/raute-aus-improve/zweig-c/daten.txt",
-          "work/raute-aus-improve/zweig-c/zweigC.R": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/cefe51b2de4e2d395dbcd53bebdca4b2ffa88f44/work/raute-aus-improve/zweig-c/zweigC.R"
+          "work/raute-aus-improve/aufbereitung/aufbereiten.R": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/acf69cbae6f9c875d5226f89a7072333a3bf0477/work/raute-aus-improve/aufbereitung/aufbereiten.R",
+          "work/raute-aus-improve/aufbereitung/dataset.csv": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/acf69cbae6f9c875d5226f89a7072333a3bf0477/work/raute-aus-improve/aufbereitung/dataset.csv",
+          "work/raute-aus-improve/aufbereitung/daten.txt": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/acf69cbae6f9c875d5226f89a7072333a3bf0477/work/raute-aus-improve/aufbereitung/daten.txt"
         },
         "envRef": "oci://docker.io/scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a",
         "executedIn": "oci://docker.io/scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a",
@@ -317,11 +291,37 @@
         "outputHashes": {
           "work/raute-aus-improve/zweig-b/b.txt": "sha256:e908d8332bb7d78ee94deadbcda35d4525de0e85d1fe4c508a5668d5520e7a31"
         },
-        "commitSha": "cefe51b2de4e2d395dbcd53bebdca4b2ffa88f44",
+        "commitSha": "c7f714477fa5fcb5f219cf575892fc69bc76f26f",
         "permalinks": {
-          "work/raute-aus-improve/zweig-b/b.txt": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/cefe51b2de4e2d395dbcd53bebdca4b2ffa88f44/work/raute-aus-improve/zweig-b/b.txt",
-          "work/raute-aus-improve/zweig-b/daten.txt": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/cefe51b2de4e2d395dbcd53bebdca4b2ffa88f44/work/raute-aus-improve/zweig-b/daten.txt",
-          "work/raute-aus-improve/zweig-b/zweigB.R": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/cefe51b2de4e2d395dbcd53bebdca4b2ffa88f44/work/raute-aus-improve/zweig-b/zweigB.R"
+          "work/raute-aus-improve/zweig-b/b.txt": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/c7f714477fa5fcb5f219cf575892fc69bc76f26f/work/raute-aus-improve/zweig-b/b.txt",
+          "work/raute-aus-improve/zweig-b/daten.txt": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/c7f714477fa5fcb5f219cf575892fc69bc76f26f/work/raute-aus-improve/zweig-b/daten.txt",
+          "work/raute-aus-improve/zweig-b/zweigB.R": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/c7f714477fa5fcb5f219cf575892fc69bc76f26f/work/raute-aus-improve/zweig-b/zweigB.R"
+        },
+        "envRef": "oci://docker.io/scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a",
+        "executedIn": "oci://docker.io/scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a",
+        "committed": true,
+        "pushed": true
+      }
+    },
+    {
+      "phase": "b:run",
+      "id": "b:run:zweig-c",
+      "title": "Step zweig-c im gepinnten jam-r-Image ausführen und als Foton veröffentlichen",
+      "actor": "cockpit",
+      "command": "./bin/cockpit publish '{\"cmd\": \"cd work/raute-aus-improve/zweig-c && Rscript zweigC.R\", \"inputs\": [\"work/raute-aus-improve/zweig-c/daten.txt\", \"work/raute-aus-improve/zweig-c/zweigC.R\"], \"outputs\": [\"work/raute-aus-improve/zweig-c/c.txt\"]}'",
+      "gap": "S5: heute ein publish je Step mit ausgeschriebenem Befehl; im Zielbild realisiert das Cockpit das Potential selbst",
+      "ok": true,
+      "exit": 0,
+      "result": {
+        "fotonId": "sha256:07455b63b1d3e109c37e021332b5895e1af0803b8209817559c2096c31a58ff1",
+        "outputHashes": {
+          "work/raute-aus-improve/zweig-c/c.txt": "sha256:fb76c5fd07819ff96996d189cd08fe52c64894e55d3dba89eebbebb495f60739"
+        },
+        "commitSha": "3c7f0f4e52373f51176593ac46ee4088f053c7e7",
+        "permalinks": {
+          "work/raute-aus-improve/zweig-c/c.txt": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/3c7f0f4e52373f51176593ac46ee4088f053c7e7/work/raute-aus-improve/zweig-c/c.txt",
+          "work/raute-aus-improve/zweig-c/daten.txt": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/3c7f0f4e52373f51176593ac46ee4088f053c7e7/work/raute-aus-improve/zweig-c/daten.txt",
+          "work/raute-aus-improve/zweig-c/zweigC.R": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/3c7f0f4e52373f51176593ac46ee4088f053c7e7/work/raute-aus-improve/zweig-c/zweigC.R"
         },
         "envRef": "oci://docker.io/scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a",
         "executedIn": "oci://docker.io/scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a",
@@ -343,12 +343,12 @@
         "outputHashes": {
           "work/raute-aus-improve/zusammenführung/ergebnis.txt": "sha256:44d419866f5a847c591f1c4a3f9e46ff6416985c1b57840413d986ba60ba01e1"
         },
-        "commitSha": "cefe51b2de4e2d395dbcd53bebdca4b2ffa88f44",
+        "commitSha": "e7d5bf15452f7eee96afda7fb842e3f818ca6f64",
         "permalinks": {
-          "work/raute-aus-improve/zusammenführung/b.txt": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/cefe51b2de4e2d395dbcd53bebdca4b2ffa88f44/work/raute-aus-improve/zusammenführung/b.txt",
-          "work/raute-aus-improve/zusammenführung/c.txt": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/cefe51b2de4e2d395dbcd53bebdca4b2ffa88f44/work/raute-aus-improve/zusammenführung/c.txt",
-          "work/raute-aus-improve/zusammenführung/ergebnis.txt": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/cefe51b2de4e2d395dbcd53bebdca4b2ffa88f44/work/raute-aus-improve/zusammenführung/ergebnis.txt",
-          "work/raute-aus-improve/zusammenführung/zusammen.R": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/cefe51b2de4e2d395dbcd53bebdca4b2ffa88f44/work/raute-aus-improve/zusammenführung/zusammen.R"
+          "work/raute-aus-improve/zusammenführung/b.txt": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/e7d5bf15452f7eee96afda7fb842e3f818ca6f64/work/raute-aus-improve/zusammenführung/b.txt",
+          "work/raute-aus-improve/zusammenführung/c.txt": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/e7d5bf15452f7eee96afda7fb842e3f818ca6f64/work/raute-aus-improve/zusammenführung/c.txt",
+          "work/raute-aus-improve/zusammenführung/ergebnis.txt": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/e7d5bf15452f7eee96afda7fb842e3f818ca6f64/work/raute-aus-improve/zusammenführung/ergebnis.txt",
+          "work/raute-aus-improve/zusammenführung/zusammen.R": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/e7d5bf15452f7eee96afda7fb842e3f818ca6f64/work/raute-aus-improve/zusammenführung/zusammen.R"
         },
         "envRef": "oci://docker.io/scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a",
         "executedIn": "oci://docker.io/scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a",
@@ -640,8 +640,8 @@
   "b": {
     "outputs": {
       "aufbereitung/daten.txt": "sha256:ab0a3a6253897602cb84d4592293e905714a017ec4333254ca80b836780df12b",
-      "zweig-c/c.txt": "sha256:fb76c5fd07819ff96996d189cd08fe52c64894e55d3dba89eebbebb495f60739",
       "zweig-b/b.txt": "sha256:e908d8332bb7d78ee94deadbcda35d4525de0e85d1fe4c508a5668d5520e7a31",
+      "zweig-c/c.txt": "sha256:fb76c5fd07819ff96996d189cd08fe52c64894e55d3dba89eebbebb495f60739",
       "zusammenführung/ergebnis.txt": "sha256:44d419866f5a847c591f1c4a3f9e46ff6416985c1b57840413d986ba60ba01e1"
     },
     "sameAsImproveRun1": true,
@@ -812,8 +812,8 @@
     ]
   },
   "bundleIds": {
-    "git": "sha256:de34bed0b523d28f1d273319a3993336fd5eb2f5381a6551ca9672a33639d6e5",
-    "improve": "sha256:de34bed0b523d28f1d273319a3993336fd5eb2f5381a6551ca9672a33639d6e5",
+    "git": "sha256:135701e7d917ae4aedbef8f973e22d59038840d5605b360a208217aabb3c9173",
+    "improve": "sha256:135701e7d917ae4aedbef8f973e22d59038840d5605b360a208217aabb3c9173",
     "same": true
   }
 }

@@ -33,8 +33,8 @@ echo "=== setup"
 CFG=$(python3 - "$REPO/examples/lib/cockpit.config.json" "docker.io/$IMAGE" <<'PY'
 import json, sys
 c = json.load(open(sys.argv[1]))
-c["execution"] = {"image": "oci://" + sys.argv[2], "network": False}
-c["claims"]["allowedTemplates"] = ["reproduces", "working-on", "oq-executed"]
+c["execution"] = {"image": "oci://" + sys.argv[2], "network": False, "entrypoint": "Rscript"}
+c["claims"]["allowedTemplates"] = ["reproduces", "working-on", "oq-executed", "derived-from", "reviewed"]
 c["reproduction"] = {"requiredLevel": "L1"}
 print(json.dumps(c, indent=2))
 PY

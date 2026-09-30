@@ -31,7 +31,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/kton-protocol/ktonpkg"
+	"github.com/gitmick/ktonpkg"
 )
 
 func main() {

@@ -3,6 +3,8 @@
   "steps": [
     {
       "id": "aufbereitung",
+      "label": "aufbereitung",
+      "rationale": "Datensatz übernehmen",
       "protocol": {
         "command": {
           "args": "scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a\n\u003ccommand-file\u003e"
@@ -25,30 +27,9 @@
       ]
     },
     {
-      "id": "zweig-c",
-      "protocol": {
-        "command": {
-          "args": "scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a\n\u003ccommand-file\u003e"
-        }
-      },
-      "inputs": [
-        {
-          "slot": "daten.txt",
-          "from": "upstream:aufbereitung:daten.txt"
-        },
-        {
-          "slot": "zweigC.R",
-          "path": "steps/zweig-c/zweigC.R",
-          "hash": "sha256:f182205e0308596bdf69f0dcfd1c20f1df535165362144ba13e9103320fd0293",
-          "variable": "command-file"
-        }
-      ],
-      "outputs": [
-        "c.txt"
-      ]
-    },
-    {
       "id": "zweig-b",
+      "label": "zweig-b",
+      "rationale": "erste Umformung",
       "protocol": {
         "command": {
           "args": "scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a\n\u003ccommand-file\u003e\n\u003canzahl\u003e"
@@ -74,7 +55,34 @@
       ]
     },
     {
+      "id": "zweig-c",
+      "label": "zweig-c",
+      "rationale": "zweite Umformung",
+      "protocol": {
+        "command": {
+          "args": "scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a\n\u003ccommand-file\u003e"
+        }
+      },
+      "inputs": [
+        {
+          "slot": "daten.txt",
+          "from": "upstream:aufbereitung:daten.txt"
+        },
+        {
+          "slot": "zweigC.R",
+          "path": "steps/zweig-c/zweigC.R",
+          "hash": "sha256:f182205e0308596bdf69f0dcfd1c20f1df535165362144ba13e9103320fd0293",
+          "variable": "command-file"
+        }
+      ],
+      "outputs": [
+        "c.txt"
+      ]
+    },
+    {
       "id": "zusammenführung",
+      "label": "zusammenführung",
+      "rationale": "beide Zweige",
       "protocol": {
         "command": {
           "args": "scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a\n\u003ccommand-file\u003e"
