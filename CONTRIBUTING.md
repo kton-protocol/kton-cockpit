@@ -24,17 +24,14 @@ negative control — three refusals prove nothing if the same call also fails wh
 
 ## The kernel
 
-`bin/plankton` and `bin/nekton` are built from [kton](https://github.com/kton-protocol/kton), never
-taken from `$PATH` or a package manager: an older binary reads the current store layout as empty
-and exits 0, so the wrong kernel looks like an empty registry rather than an error.
+`bin/plankton` and `bin/nekton` are built from the kton modules `go.mod` requires, never taken
+from `$PATH` or a package manager: an older binary reads the current store layout as empty and
+exits 0, so the wrong kernel looks like an empty registry rather than an error.
 
-AGENTS.md's `**Verified against:**` line names the kton commit the suite ran against, and
-`TestVerifiedAgainst` compares it to the `vcs.revision` Go stamped into the binary. CI reads the
-same line. When upstream has moved, rebuild, re-run, and update that line in the same commit.
-
-After rebuilding the kernel, run that check with `-count=1`. Go's test cache does not track
-`bin/plankton` or `AGENTS.md` as inputs, so it can serve a stale pass for exactly the claim the
-test exists to keep honest. CI runs on a fresh runner with no cache.
+`go.mod` is the one place that names the kernel. The cockpit links that version, and the fixture
+builds the reference binaries from the same module, rebuilding `bin/` when it was built from
+another. `TestKernel_TheBinariesAreTheKernelGoModRequires` asserts the pairing. Moving the kernel is
+`go get kton.dev/plankton@vX kton.dev/nekton@vX kton.dev/kton@vX` and a green suite, in one commit.
 
 ## What not to add
 

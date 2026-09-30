@@ -624,14 +624,6 @@ func runVerb(ctx context.Context, verb string, args []string) error {
 // and an invented answer is worse than none.
 var Version = "(devel)"
 
-// KernelPin is the kton commit this binary's kernels were built from, stamped at release time with
-// `-X main.KernelPin=<sha>`. The vendored kernel source carries no vcs stamp of its own, so without
-// this a released binary can only report "(devel), replaced by a directory" — true, and useless to
-// whoever has the binary. AGENTS.md names the same commit, and `TestVerifiedAgainst_...` checks
-// that line against a kernel actually built from that checkout, so the number has been verified
-// somewhere even though nothing can verify it here.
-var KernelPin = ""
-
 // runVersion reports this binary and the kernel inside it.
 //
 // Both, always, and on one screen: the cockpit's own version says nothing about which kton wrote a
@@ -648,9 +640,6 @@ func runVersion() error {
 			fmt.Printf("  built from %s%s\n", rev, dirty)
 		}
 		fmt.Printf("  %s\n", info.GoVersion)
-	}
-	if KernelPin != "" {
-		fmt.Printf("  kton kernels     %s (kton-protocol/kton)\n", KernelPin)
 	}
 	for _, mod := range linkedKernels() {
 		where := mod.Version

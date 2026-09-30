@@ -193,8 +193,8 @@ version cannot exist at run time. That is one way of meeting the clause, not the
 that invokes binaries meets it by refusing anything but the build its configuration names, never one
 from `$PATH`, and by checking the version on the path a session actually takes.
 
-> **Checked by:** `TestVerifiedAgainst_NamesTheKernelTheBinariesWereBuiltFrom` (the pinned kernel
-> commit is compared against the build the fixture runs), `TestAuthor_MatchesTheReferenceCLI` (the
+> **Checked by:** `TestKernel_TheBinariesAreTheKernelGoModRequires` (the reference binaries the
+> fixture runs are built from the module version go.mod requires), `TestAuthor_MatchesTheReferenceCLI` (the
 > linked write path produces the same foton id as the reference binary does).
 
 ## 7 publish

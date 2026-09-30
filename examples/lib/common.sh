@@ -9,18 +9,6 @@ set -euo pipefail
 
 EXROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"   # examples/
 REPO="$(cd "$EXROOT/.." && pwd)"                            # the cockpit checkout
-# A sibling `kton-pinned` before `kton`, for the reason internal/testrepo prefers it: the second is
-# somebody's WORKING TREE, so every intermediate state of their work becomes a build input here —
-# and an example then runs against a kernel the pin in AGENTS.md does not name. That is how three
-# examples came to fail on a wire form nothing in this repository had been tested against.
-_kton_src() {
-  local root; root="$(dirname "$REPO")"
-  for c in "${KTON_SRC:-}" "$root/kton-pinned" "$root/kton"; do
-    [ -n "$c" ] && [ -d "$c/reference/cmd/plankton" ] && { echo "$c"; return; }
-  done
-  echo "${KTON_SRC:-$root/kton}"
-}
-KTON_SRC="$(_kton_src)"
 EXNAME="$(basename "$PWD")"
 
 # cockpit - the binary in the participant repo, called the way anyone would call it.
@@ -83,11 +71,11 @@ demoseed() { printf 'cockpit-examples/%s/%s' "$EXNAME" "$1" | sha256sum | cut -d
 build_binaries() {
   local bin="$1"
   mkdir -p "$bin"
-  [ -d "$KTON_SRC/reference/cmd/plankton" ] || { echo "no kton checkout at $KTON_SRC (set KTON_SRC)" >&2; exit 1; }
-  (cd "$KTON_SRC" && go build -o "$bin/plankton" ./reference/cmd/plankton)
-  (cd "$KTON_SRC" && go build -o "$bin/nekton"   ./nekton/reference/cmd/nekton)
-  (cd "$KTON_SRC" && go build -o "$bin/kton"     ./kton/reference/cmd/kton)
-  (cd "$REPO"     && go build -o "$bin/cockpit"  ./cmd/cockpit)
+  # The kernel CLIs come from the module go.mod requires — the same kernel the cockpit links.
+  (cd "$REPO" && go build -o "$bin/plankton" kton.dev/plankton/cmd/plankton)
+  (cd "$REPO" && go build -o "$bin/nekton"   kton.dev/nekton/cmd/nekton)
+  (cd "$REPO" && go build -o "$bin/kton"     kton.dev/kton/cmd/kton)
+  (cd "$REPO" && go build -o "$bin/cockpit"  ./cmd/cockpit)
 }
 
 # participant <dir> [config-json] [name] - a working participant repo, from nothing.
