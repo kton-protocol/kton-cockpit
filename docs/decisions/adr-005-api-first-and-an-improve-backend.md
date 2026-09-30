@@ -55,8 +55,7 @@ package cockpit
 type Cockpit struct{ start Start }
 
 type Start struct {
-    Dir string              // the starting directory; COCKPIT_REPO_DIR replaces it
-    Env func(string) string // injectable for tests and for embedders
+    Dir string // the starting directory; COCKPIT_REPO_DIR replaces it
 }
 
 func New(s Start) *Cockpit
@@ -73,14 +72,17 @@ type Refusal struct {
 }
 ```
 
-- Request and result types carry **no** `jsonschema` tags and no `omitempty` added only to satisfy
-  the SDK's output-schema check. They are plain, JSON-serialisable Go values, because every other
-  binding (below) crosses a boundary as JSON.
+- Request and result types end up carrying **no** `jsonschema` tags and no `omitempty` added only
+  to satisfy the SDK's output-schema check (S7). They are plain, JSON-serialisable Go values,
+  because every other binding (below) crosses a boundary as JSON.
 - Operator commands (`init`, `doctor`, `scope`, `run`, `keygen`, `show`) stay outside the three
   verbs, in their own package, and are never reachable over MCP (SPEC §6).
-- **MCP comes last.** Between extracting the API and re-attaching MCP, SPEC §6 ("every transport
-  reaches the same implementation") holds for the command line only. That is a deliberate interim
-  deviation on `jam-beta`; the MCP tests are marked with the reason, not deleted.
+- **MCP comes last.** No MCP-specific work happens before the API and the command line are
+  settled. MCP is not detached in the meantime, though: keeping it is a thirty-line adapter
+  (`internal/mcpsurface`) that turns each cockpit method into a tool handler, which costs less than
+  detaching it would, and keeps SPEC §6 ("every transport reaches the same implementation") true
+  throughout. Its tool schemas are still inferred from the request and result types, so those keep
+  their `jsonschema` tags until S7 moves the schema into the adapter.
 
 #### Use from R, Go and TypeScript
 
@@ -287,13 +289,13 @@ same claim. A trust tier can then require either one or both.
 | step | content | behaviour changes? |
 |---|---|---|
 | S0 | kernel v0.2.1 by `require`, re-vendor, CI green | no |
-| S1 | extract the `cockpit` API and `Refusal`; the command line on top; MCP detached; fix the citation in `main.go` of a test that does not exist | command line no; MCP off for now |
+| S1 | extract the `cockpit` API and `Refusal`; the command line and MCP on top; fix the citation in `main.go` of a test that does not exist | no |
 | S2 | `backend` interface; git and local behind it; `PushFailed` becomes `Revision.Stored` | no |
 | S3 | `ktonpkg` as its own repository; improvego on Go 1.25 with a real module path, no `replace`, same kernel | — |
 | S4 | `backend/improve`: bind, persist, locate, realise; SPEC §5 gets an improve clause | new |
 | S5 | potentials and realisation; templates `describes`, `rationale`, `reviewed` | new |
 | S6 | rays and spectra on `ktonpkg` (spectra after K3); R importer | new |
-| S7 | `libcockpit` (C ABI) for R and TypeScript; re-attach MCP as a thin transport | — |
+| S7 | `libcockpit` (C ABI) for R and TypeScript; the MCP schema moves into the adapter | — |
 
 ## Settled on the way
 
@@ -313,4 +315,7 @@ same claim. A trust tier can then require either one or both.
   new importable package.
 - The cockpit gains a dependency on improvego (S3). That is acceptable only if improvego builds
   against the same kernel version, which is checked in CI.
-- Between S1 and S7 the MCP surface is off on `jam-beta`. `main` is unaffected.
+- Every refusal the cockpit had before S1 is still a refusal (exit 2), including failures underneath
+  it — a kernel call, a commit — which carry codes such as `kernel` and `store` and no clause.
+  Whether those should become plain errors (exit 1) is a behaviour change, left for when a caller
+  needs the distinction.

@@ -1,4 +1,4 @@
-package tools
+package cockpit
 
 import (
 	"context"
@@ -118,7 +118,7 @@ func TestPublish_ReturnsTheActualFinalCommitSHA(t *testing.T) {
 
 	chdir(t, repoDir)
 
-	result, out, err := Publish(context.Background(), nil, PublishInput{
+	result, out, err := Publish(context.Background(), nil, PublishRequest{
 		Inputs:  []string{"data.csv"},
 		Outputs: []string{"data.csv"},
 		Cmd:     "noop",

@@ -5,11 +5,11 @@
 // spent months verifying nothing. Asking for them and not having an engine is a failure, not a
 // skip, because you asked:
 //
-//	go test -tags docker ./internal/tools/
+//	go test -tags docker ./cockpit/
 //
 // Run them before merging anything that touches internal/container or publish's execution path.
 
-package tools
+package cockpit
 
 import (
 	"context"
@@ -44,7 +44,7 @@ func TestContainer_PublishRunsTheCommandAndPinsWhatItRanIn(t *testing.T) {
 	r := executingRepo(t, false)
 	r.Write(t, "data/in.csv", "id,value\n1,42\n2,\n")
 
-	result, out, err := Publish(context.Background(), nil, PublishInput{
+	result, out, err := Publish(context.Background(), nil, PublishRequest{
 		Inputs:  []string{"data/in.csv"},
 		Outputs: []string{"data/out.csv"},
 		Cmd:     "grep -v ',$' data/in.csv > data/out.csv",
@@ -82,7 +82,7 @@ func TestContainer_AFailedRunPublishesNothing(t *testing.T) {
 	r.Write(t, "data/in.csv", "x\n")
 	before := r.HeadSHA(t)
 
-	result, _, err := Publish(context.Background(), nil, PublishInput{
+	result, _, err := Publish(context.Background(), nil, PublishRequest{
 		Inputs:  []string{"data/in.csv"},
 		Outputs: []string{"data/out.csv"},
 		Cmd:     "echo nope >&2; exit 3",
@@ -107,7 +107,7 @@ func TestContainer_ARunThatProducesNoDeclaredOutputFails(t *testing.T) {
 	r := executingRepo(t, false)
 	r.Write(t, "data/in.csv", "x\n")
 
-	result, _, err := Publish(context.Background(), nil, PublishInput{
+	result, _, err := Publish(context.Background(), nil, PublishRequest{
 		Inputs:  []string{"data/in.csv"},
 		Outputs: []string{"data/never.csv"},
 		Cmd:     "true",
@@ -130,7 +130,7 @@ func TestContainer_TheDefaultRunHasNoNetwork(t *testing.T) {
 	r := executingRepo(t, false)
 	r.Write(t, "data/in.csv", "x\n")
 
-	result, _, err := Publish(context.Background(), nil, PublishInput{
+	result, _, err := Publish(context.Background(), nil, PublishRequest{
 		Inputs:  []string{"data/in.csv"},
 		Outputs: []string{"data/out.csv"},
 		Cmd:     "if getent hosts example.com >/dev/null 2>&1; then echo REACHED > data/out.csv; else echo ISOLATED > data/out.csv; fi",
@@ -157,7 +157,7 @@ func TestContainer_WithNetworkAllowedTheSameCommandReachesOut(t *testing.T) {
 	r := executingRepo(t, true)
 	r.Write(t, "data/in.csv", "x\n")
 
-	result, out, err := Publish(context.Background(), nil, PublishInput{
+	result, out, err := Publish(context.Background(), nil, PublishRequest{
 		Inputs:  []string{"data/in.csv"},
 		Outputs: []string{"data/out.csv"},
 		Cmd:     "if getent hosts example.com >/dev/null 2>&1; then echo REACHED > data/out.csv; else echo ISOLATED > data/out.csv; fi",
@@ -188,7 +188,7 @@ func TestContainer_OutputsAreOwnedByTheInvokingUser(t *testing.T) {
 	r := executingRepo(t, false)
 	r.Write(t, "data/in.csv", "x\n")
 
-	result, _, err := Publish(context.Background(), nil, PublishInput{
+	result, _, err := Publish(context.Background(), nil, PublishRequest{
 		Inputs:  []string{"data/in.csv"},
 		Outputs: []string{"data/out.csv"},
 		Cmd:     "cp data/in.csv data/out.csv",
@@ -212,7 +212,7 @@ func TestContainer_ReportsAFileTheRunWroteButThePublishDidNotDeclare(t *testing.
 	r := executingRepo(t, false)
 	r.Write(t, "data/in.csv", "x\n")
 
-	result, out, err := Publish(context.Background(), nil, PublishInput{
+	result, out, err := Publish(context.Background(), nil, PublishRequest{
 		Inputs:  []string{"data/in.csv"},
 		Outputs: []string{"data/out.csv"},
 		// Two files written, one declared.
@@ -246,7 +246,7 @@ func TestContainer_AnUndeclaredChangeDoesNotFailThePublish(t *testing.T) {
 	r := executingRepo(t, false)
 	r.Write(t, "data/in.csv", "x\n")
 
-	result, out, err := Publish(context.Background(), nil, PublishInput{
+	result, out, err := Publish(context.Background(), nil, PublishRequest{
 		Inputs:  []string{"data/in.csv"},
 		Outputs: []string{"data/out.csv"},
 		Cmd:     "echo scratch > data/scratch.tmp; cp data/in.csv data/out.csv",
@@ -264,7 +264,7 @@ func TestContainer_NothingIsReportedWhenTheDeclarationIsComplete(t *testing.T) {
 	r := executingRepo(t, false)
 	r.Write(t, "data/in.csv", "x\n")
 
-	_, out, err := Publish(context.Background(), nil, PublishInput{
+	_, out, err := Publish(context.Background(), nil, PublishRequest{
 		Inputs:  []string{"data/in.csv"},
 		Outputs: []string{"data/out.csv"},
 		Cmd:     "cp data/in.csv data/out.csv",
@@ -291,7 +291,7 @@ func TestContainer_TheTrustBaseIsNotInTheRoom(t *testing.T) {
 	keyBefore := readFile(t, filepath.Join(r.Root, "keys", testrepo.SessionID+".key"))
 
 	// One command, reporting what it can see and trying to overwrite each of them.
-	result, out, err := Publish(context.Background(), nil, PublishInput{
+	result, out, err := Publish(context.Background(), nil, PublishRequest{
 		Inputs:  []string{"data/in.csv"},
 		Outputs: []string{"data/out.csv"},
 		Cmd: `{

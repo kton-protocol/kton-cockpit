@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -16,12 +17,13 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/kton-protocol/kton-cockpit/cockpit"
 	"github.com/kton-protocol/kton-cockpit/internal/binaries"
 	"github.com/kton-protocol/kton-cockpit/internal/config"
 	"github.com/kton-protocol/kton-cockpit/internal/container"
 	"github.com/kton-protocol/kton-cockpit/internal/material"
+	"github.com/kton-protocol/kton-cockpit/internal/mcpsurface"
 	"github.com/kton-protocol/kton-cockpit/internal/show"
-	"github.com/kton-protocol/kton-cockpit/internal/tools"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -86,28 +88,29 @@ it exposes exactly three verbs.
 }
 
 func runMCP(ctx context.Context) error {
-	server := mcp.NewServer(&mcp.Implementation{Name: "kton-cockpit", Version: "0.1.0"}, nil)
+	server := mcp.NewServer(&mcp.Implementation{Name: "kton-cockpit", Version: Version}, nil)
+	c := cockpit.New(cockpit.Start{})
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "cockpit_publish",
 		Description: "veröffentlichen: register a work result as a signed foton. Commits the given " +
 			"input/output paths, builds commit-pinned permalinks, and records the computation via " +
 			"`plankton author`. This is the only way to make git commits or plankton records in this repo.",
-	}, tools.Publish)
+	}, mcpsurface.Handler(c.Publish))
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "cockpit_say",
 		Description: "sagen: bind a claim, from an allowed template, to a foton or file via " +
 			"`nekton annotate`. For the reproduces template, the cockpit itself determines the " +
 			"achieved level by running the reproduction precondition — it is never self-declared.",
-	}, tools.Say)
+	}, mcpsurface.Handler(c.Say))
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "cockpit_ask",
 		Description: "fragen: query the registry graph (producer/uses/lineage/reproductions/about/by). " +
 			"Every returned record is independently re-verified against this repo's configured trust " +
 			"tiers before being included — never trusted from its declared keyid.",
-	}, tools.Ask)
+	}, mcpsurface.Handler(c.Ask))
 
 	return server.Run(ctx, &mcp.StdioTransport{})
 }
@@ -491,9 +494,9 @@ func linkedKernels() []*debug.Module {
 
 // --- the three verbs, at a command line ---
 //
-// The same three handlers the MCP server registers above, reached a second way. That is the whole
-// of it: no CLI-only path through publish, no flag that loosens a guard, no answer a session would
-// not also get. `TestVerbs_TheCommandLineAndTheToolSurfaceRunTheSameHandler` holds that.
+// The same three cockpit methods the MCP server registers above, reached a second way. That is the
+// whole of it: no CLI-only path through publish, no flag that loosens a guard, no answer a session
+// would not also get. `TestVerbs_TheGuardsApplyAtTheCommandLineToo` holds the guards to that.
 //
 // They exist because this is a command-line tool and its three verbs could not be typed. The
 // examples stood in for them with an MCP client written in Python, so every example demonstrated
@@ -511,28 +514,30 @@ func linkedKernels() []*debug.Module {
 // naming no outputs at all — signed, valid, and wrong, which is the failure this repository exists
 // to prevent one level down.
 func callVerb[In, Out any](ctx context.Context, raw, field string,
-	fn func(context.Context, *mcp.CallToolRequest, In) (*mcp.CallToolResult, Out, error)) error {
+	fn func(context.Context, In) (*Out, error)) error {
 	var in In
 	dec := json.NewDecoder(strings.NewReader(raw))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&in); err != nil {
 		return fmt.Errorf("the argument is not valid JSON for this verb: %w", err)
 	}
-	res, out, err := fn(ctx, nil, in)
+	out, err := fn(ctx, in)
+	exitIfRefused(err)
 	if err != nil {
 		return err
 	}
-	// A refusal is not a crash. It is the cockpit declining, with a reason, and it leaves by a
-	// different exit code so a script can tell "you may not" from "something broke".
-	if res != nil && res.IsError {
-		for _, c := range res.Content {
-			if tc, ok := c.(*mcp.TextContent); ok {
-				fmt.Fprintln(os.Stderr, tc.Text)
-			}
-		}
+	return printResult(out, field)
+}
+
+// exitIfRefused ends the process with exit 2 when err is the cockpit declining. A refusal is not a
+// crash: it is the cockpit saying no, with a reason, and it leaves by a different exit code so a
+// script can tell "you may not" from "something broke".
+func exitIfRefused(err error) {
+	var r *cockpit.Refusal
+	if errors.As(err, &r) {
+		fmt.Fprintln(os.Stderr, r.Reason)
 		os.Exit(2)
 	}
-	return printResult(out, field)
 }
 
 // printResult prints the whole answer, or one field of it. `--field` exists because the answers are
@@ -607,13 +612,14 @@ func runVerb(ctx context.Context, verb string, args []string) error {
 	if err != nil {
 		return err
 	}
+	c := cockpit.New(cockpit.Start{})
 	switch verb {
 	case "publish":
-		return callVerb(ctx, raw, field, tools.Publish)
+		return callVerb(ctx, raw, field, c.Publish)
 	case "say":
-		return callVerb(ctx, raw, field, tools.Say)
+		return callVerb(ctx, raw, field, c.Say)
 	case "ask":
-		return callVerb(ctx, raw, field, tools.Ask)
+		return callVerb(ctx, raw, field, c.Ask)
 	}
 	return fmt.Errorf("no verb %q", verb)
 }

@@ -186,7 +186,7 @@ material and committed with it.
 The other side has its own test, gated the same way:
 
 ```bash
-go test -tags live -run TestAnchorLive ./internal/tools/
+go test -tags live -run TestAnchorLive ./cockpit/
 ```
 
 It anchors a throwaway record in the public log and then asks Rekor — not the cockpit — whether the
@@ -241,8 +241,11 @@ a browser until the verbs became subcommands — including at the step it called
 ## Repo layout
 
 ```
-cmd/cockpit/main.go     entry point: mcp / init / doctor subcommands
+cockpit/                the library: Publish / Say / Ask on a Cockpit value, refusals as *Refusal
+                          with a stable code (ADR-005). The one implementation every transport uses
+cmd/cockpit/main.go     entry point: the three verbs at a command line, plus mcp / init / doctor
 internal/
+├── mcpsurface/           the MCP transport: each tool is one cockpit method, adapted, nothing more
 ├── config/              cockpit.config.json schema, loader, and the anti-wrong-folder guard
 │                          (git mode: the origin remote must match; local mode: the config must be
 │                           where it declares itself to be — ADR-004)
@@ -258,7 +261,6 @@ internal/
 ├── binaries/             the kernels, called as libraries: one place where every plankton and
 │                          nekton call lives, so the rest of the cockpit sees one surface
 ├── verify/               trust-tier resolution from the actual verifying key, never a declared keyid
-├── tools/                the three MCP tool handlers (publish.go, say.go, ask.go)
 cockpit.config.schema.json   JSON Schema for cockpit.config.json (documentation + tooling)
 ```
 

@@ -1,4 +1,4 @@
-package tools
+package cockpit
 
 import (
 	"context"
@@ -17,7 +17,7 @@ import (
 )
 
 // showServer starts the data server over a fixture that already holds a foton and a claim.
-func showServer(t *testing.T) (*httptest.Server, PublishOutput, string) {
+func showServer(t *testing.T) (*httptest.Server, PublishResult, string) {
 	t.Helper()
 	r := testrepo.New(t)
 	r.Use(t)
@@ -226,7 +226,7 @@ func TestUnion_RefusedWhenTheRepoDoesNotCommit(t *testing.T) {
 	r.WriteConfig(t, raw)
 	r.Use(t)
 
-	result, _, err := Ask(context.Background(), nil, AskInput{Query: "producer", Ref: unknownHash})
+	result, _, err := Ask(context.Background(), nil, AskRequest{Query: "producer", Ref: unknownHash})
 	if err != nil {
 		t.Fatalf("expected a tool-level error, not a Go error: %v", err)
 	}

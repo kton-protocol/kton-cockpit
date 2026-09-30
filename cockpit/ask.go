@@ -1,4 +1,4 @@
-package tools
+package cockpit
 
 import (
 	"context"
@@ -14,13 +14,12 @@ import (
 	"kton.dev/plankton/core"
 
 	"github.com/kton-protocol/kton-cockpit/internal/verify"
-	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// AskInput is cockpit_ask's argument shape — the "fragen" verb: query the graph. Filter can only
+// AskRequest is cockpit_ask's argument shape — the "fragen" verb: query the graph. Filter can only
 // narrow within the trust tiers configured for this repo; it can never surface a tier or signer
 // absent from cockpit.config.json.
-type AskInput struct {
+type AskRequest struct {
 	Query string `json:"query" jsonschema:"one of: producer, uses, lineage, reproductions, about, by, scope"`
 	Ref   string `json:"ref" jsonschema:"the hash, subject, or value to query"`
 	// Axis is required for query "by" and ignored otherwise: nekton indexes claims under three
@@ -102,7 +101,7 @@ type RecordVerification struct {
 	Material []material.Report `json:"material,omitempty"`
 }
 
-type AskOutput struct {
+type AskResult struct {
 	Query string `json:"query"`
 	Ref   string `json:"ref"`
 	// Raw is human/debugging context, ASSEMBLED FROM INCLUDED RECORDS ONLY. A record excluded for
@@ -149,16 +148,16 @@ type AskOutput struct {
 	FilterApplied string `json:"filterApplied"`
 }
 
-func Ask(ctx context.Context, _ *mcp.CallToolRequest, in AskInput) (*mcp.CallToolResult, AskOutput, error) {
-	cfg, err := config.Load(ctx, ".")
+func (c *Cockpit) Ask(ctx context.Context, in AskRequest) (*AskResult, error) {
+	cfg, err := config.Load(ctx, c.dir())
 	if err != nil {
-		return errResult[AskOutput]("%v", err)
+		return nil, refuse("binding", "SPEC §5", "%v", err)
 	}
 	if !cfg.Raw.Verbs.Ask {
-		return errResult[AskOutput]("ask is disabled by this repo's cockpit.config.json")
+		return nil, refuse("verb.disabled", "SPEC §6", "ask is disabled by this repo's cockpit.config.json")
 	}
 	if in.Ref == "" {
-		return errResult[AskOutput]("ask requires ref (the hash, subject, or value to query)")
+		return nil, refuse("argument", "", "ask requires ref (the hash, subject, or value to query)")
 	}
 
 	r := binaries.New(cfg)
@@ -174,14 +173,14 @@ func Ask(ctx context.Context, _ *mcp.CallToolRequest, in AskInput) (*mcp.CallToo
 		hash, path, herr := hashLocalFile(ctx, cfg, r, in.Ref)
 		switch {
 		case herr != nil:
-			return errResult[AskOutput]("%v", herr)
+			return nil, refuse("argument", "", "%v", herr)
 		case hash != "":
 			resolvedFrom, in.Ref = path, hash
 		}
 	}
 
 	if msg := validateFilter(ctx, cfg, r, in.Filter); msg != "" {
-		return errResult[AskOutput]("%s", msg)
+		return nil, refuse("filter.invalid", "SPEC §9.2", "%s", msg)
 	}
 	filter := in.Filter
 	if filter == nil {
@@ -192,12 +191,15 @@ func Ask(ctx context.Context, _ *mcp.CallToolRequest, in AskInput) (*mcp.CallToo
 	// forced through one path. nekton's about/by have a --json mode, so their claims are parsed and
 	// filtered structurally. plankton's lineage queries have no --json mode at all, so those stay
 	// on scraped text with the line-anchored redaction below.
-	result, out, aerr := dispatchAsk(ctx, cfg, r, in, filter)
+	out, err := dispatchAsk(ctx, cfg, r, in, filter)
+	if err != nil {
+		return nil, err
+	}
 	out.ResolvedFrom = resolvedFrom
-	return result, out, aerr
+	return out, nil
 }
 
-func dispatchAsk(ctx context.Context, cfg *config.Config, r *binaries.Runner, in AskInput, filter *AskFilter) (*mcp.CallToolResult, AskOutput, error) {
+func dispatchAsk(ctx context.Context, cfg *config.Config, r *binaries.Runner, in AskRequest, filter *AskFilter) (*AskResult, error) {
 	switch in.Query {
 	case "about", "by":
 		return askClaims(ctx, cfg, r, in, filter)
@@ -209,16 +211,16 @@ func dispatchAsk(ctx context.Context, cfg *config.Config, r *binaries.Runner, in
 		// The one query that asks about a STRUCTURE rather than about a record, and the only place
 		// this cockpit reaches a verdict about completeness — which kton §7.4 assigns to a consumer
 		// and evaluates "when the seal is relied upon". Relying on it is a read.
-		out := AskOutput{Query: in.Query, Ref: in.Ref, FilterApplied: filter.describe()}
+		out := AskResult{Query: in.Query, Ref: in.Ref, FilterApplied: filter.describe()}
 		verdict, msg := askScope(ctx, cfg, r, in.Ref, &out)
 		if msg != "" {
-			return errResult[AskOutput]("%s", msg)
+			return nil, refuse("scope", "SPEC §9.6", "%s", msg)
 		}
 		out.Seal = verdict
 		out.Raw = verdict.Line()
-		return &mcp.CallToolResult{}, out, nil
+		return &out, nil
 	default:
-		return errResult[AskOutput]("unknown query %q (must be one of: record, producer, uses, lineage, reproductions, about, by, scope)", in.Query)
+		return nil, refuse("argument", "", "unknown query %q (must be one of: record, producer, uses, lineage, reproductions, about, by, scope)", in.Query)
 	}
 }
 
@@ -226,7 +228,7 @@ func dispatchAsk(ctx context.Context, cfg *config.Config, r *binaries.Runner, in
 // into a configured trust tier (and, if a filter was given, into that tier) are assembled into the
 // answer at all — the excluded ones are accounted for in Records/Excluded but their content is
 // never rendered anywhere.
-func askClaims(ctx context.Context, cfg *config.Config, r *binaries.Runner, in AskInput, filter *AskFilter) (*mcp.CallToolResult, AskOutput, error) {
+func askClaims(ctx context.Context, cfg *config.Config, r *binaries.Runner, in AskRequest, filter *AskFilter) (*AskResult, error) {
 	var claims []binaries.ClaimAxis
 	var err error
 
@@ -235,15 +237,15 @@ func askClaims(ctx context.Context, cfg *config.Config, r *binaries.Runner, in A
 		claims, err = r.About(ctx, in.Ref)
 	case "by":
 		if in.Axis == "" {
-			return errResult[AskOutput]("query \"by\" requires axis (signer, predicate, or object) — nekton indexes claims under three separate axes and has no combined search")
+			return nil, refuse("argument", "", "query \"by\" requires axis (signer, predicate, or object) — nekton indexes claims under three separate axes and has no combined search")
 		}
 		if !binaries.ValidByAxis(in.Axis) {
-			return errResult[AskOutput]("unknown axis %q for query \"by\" (must be one of: signer, predicate, object)", in.Axis)
+			return nil, refuse("argument", "", "unknown axis %q for query \"by\" (must be one of: signer, predicate, object)", in.Axis)
 		}
 		claims, err = r.By(ctx, binaries.ByAxis(in.Axis), in.Ref)
 	}
 	if err != nil {
-		return errResult[AskOutput]("query failed: %v", err)
+		return nil, refuse("kernel", "", "query failed: %v", err)
 	}
 
 	records := make([]RecordVerification, 0, len(claims))
@@ -255,7 +257,7 @@ func askClaims(ctx context.Context, cfg *config.Config, r *binaries.Runner, in A
 	for _, c := range claims {
 		tier, verifyingKey, verr := verify.ResolveTier(ctx, r, cfg, c.ID, verify.Claim)
 		if verr != nil {
-			return errResult[AskOutput]("verifying %s failed: %v", c.ID, verr)
+			return nil, refuse("kernel", "", "verifying %s failed: %v", c.ID, verr)
 		}
 		verified := tier != verify.Untrusted
 		records = append(records, RecordVerification{ID: c.ID, Tier: tier, Verified: verified})
@@ -266,7 +268,7 @@ func askClaims(ctx context.Context, cfg *config.Config, r *binaries.Runner, in A
 		}
 		mats, merr := material.Describe(ctx, cfg, r, c.ID, material.Claim, verifyingKey)
 		if merr != nil {
-			return errResult[AskOutput]("reading the verification material on %s failed: %v", c.ID, merr)
+			return nil, refuse("kernel", "", "reading the verification material on %s failed: %v", c.ID, merr)
 		}
 		records[len(records)-1].Material = mats
 		included = append(included, c.ID)
@@ -274,7 +276,7 @@ func askClaims(ctx context.Context, cfg *config.Config, r *binaries.Runner, in A
 		lines = append(lines, c.Line())
 	}
 
-	return &mcp.CallToolResult{}, AskOutput{
+	return &AskResult{
 		Query:         in.Query,
 		Ref:           in.Ref,
 		Raw:           strings.Join(lines, "\n"),
@@ -294,7 +296,7 @@ func askClaims(ctx context.Context, cfg *config.Config, r *binaries.Runner, in A
 // That worked only while a record's own id happened to be the first hash on its line — an
 // assumption no doc guaranteed and no test upstream protected. kton #57 gave these four queries a
 // --json mode where the id is a named field, so the assumption is gone rather than defended.
-func askLineage(ctx context.Context, cfg *config.Config, r *binaries.Runner, in AskInput, filter *AskFilter) (*mcp.CallToolResult, AskOutput, error) {
+func askLineage(ctx context.Context, cfg *config.Config, r *binaries.Runner, in AskRequest, filter *AskFilter) (*AskResult, error) {
 	if in.Query == "reproductions" {
 		return askReproductions(ctx, cfg, r, in, filter)
 	}
@@ -310,20 +312,20 @@ func askLineage(ctx context.Context, cfg *config.Config, r *binaries.Runner, in 
 		res, err = r.Lineage(ctx, in.Ref)
 	}
 	if err != nil {
-		return errResult[AskOutput]("query failed: %v", err)
+		return nil, refuse("kernel", "", "query failed: %v", err)
 	}
 
 	keyidOf, kerr := keyidsByPath(ctx, cfg, r)
 	if kerr != nil {
-		return errResult[AskOutput]("resolving this repo's configured keys failed: %v", kerr)
+		return nil, refuse("kernel", "", "resolving this repo's configured keys failed: %v", kerr)
 	}
 
-	out := AskOutput{Query: in.Query, Ref: in.Ref, FilterApplied: filter.describe()}
+	out := AskResult{Query: in.Query, Ref: in.Ref, FilterApplied: filter.describe()}
 	var lines []string
 	for _, rec := range res.Records {
 		included, verr := siftFoton(ctx, cfg, r, rec.ID, filter, keyidOf, &out)
 		if verr != "" {
-			return errResult[AskOutput]("%s", verr)
+			return nil, refuse("kernel", "", "%s", verr)
 		}
 		if included {
 			out.Fotons = append(out.Fotons, rec)
@@ -331,30 +333,30 @@ func askLineage(ctx context.Context, cfg *config.Config, r *binaries.Runner, in 
 		}
 	}
 	out.Raw = joinWithWarning(lines, res.Warning)
-	return &mcp.CallToolResult{}, out, nil
+	return &out, nil
 }
 
 // askReproductions answers ↻N. The count is plankton's own, computed over exactly the keys the
 // cockpit hands it — which is why the tier filter is passed down rather than applied afterwards: a
 // count taken over every tier and then labelled as one tier's would be a filtered answer that is
 // not filtered.
-func askReproductions(ctx context.Context, cfg *config.Config, r *binaries.Runner, in AskInput, filter *AskFilter) (*mcp.CallToolResult, AskOutput, error) {
+func askReproductions(ctx context.Context, cfg *config.Config, r *binaries.Runner, in AskRequest, filter *AskFilter) (*AskResult, error) {
 	res, err := r.Reproductions(ctx, in.Ref, filter.TrustTier)
 	if err != nil {
-		return errResult[AskOutput]("query failed: %v", err)
+		return nil, refuse("kernel", "", "query failed: %v", err)
 	}
 
 	keyidOf, kerr := keyidsByPath(ctx, cfg, r)
 	if kerr != nil {
-		return errResult[AskOutput]("resolving this repo's configured keys failed: %v", kerr)
+		return nil, refuse("kernel", "", "resolving this repo's configured keys failed: %v", kerr)
 	}
 
-	out := AskOutput{Query: in.Query, Ref: in.Ref, FilterApplied: filter.describe()}
+	out := AskResult{Query: in.Query, Ref: in.Ref, FilterApplied: filter.describe()}
 	var lines []string
 	for _, p := range res.Producers {
 		included, verr := siftFoton(ctx, cfg, r, p.ID, filter, keyidOf, &out)
 		if verr != "" {
-			return errResult[AskOutput]("%s", verr)
+			return nil, refuse("kernel", "", "%s", verr)
 		}
 		if included {
 			out.Fotons = append(out.Fotons, binaries.FotonRecord{ID: p.ID})
@@ -372,7 +374,7 @@ func askReproductions(ctx context.Context, cfg *config.Config, r *binaries.Runne
 			res.DistinctSigners, filter.MinReproductions)
 		out.Raw = summaryPrefix
 		out.FilterApplied = filter.describe()
-		return &mcp.CallToolResult{}, out, nil
+		return &out, nil
 	}
 	summary := fmt.Sprintf("reproductions: %d distinct verified signer(s) produced %s (%d producer foton(s))",
 		res.DistinctSigners, res.Output, res.ProducerFotons)
@@ -381,12 +383,12 @@ func askReproductions(ctx context.Context, cfg *config.Config, r *binaries.Runne
 			res.ExcludedUntrusted)
 	}
 	out.Raw = joinWithWarning(append([]string{summary}, lines...), res.Warning)
-	return &mcp.CallToolResult{}, out, nil
+	return &out, nil
 }
 
 // siftFoton verifies one foton id and records the verdict on out, reporting whether it belongs in
 // the answer. The second return value is a non-empty error message.
-func siftFoton(ctx context.Context, cfg *config.Config, r *binaries.Runner, id string, filter *AskFilter, keyidOf map[string]string, out *AskOutput) (bool, string) {
+func siftFoton(ctx context.Context, cfg *config.Config, r *binaries.Runner, id string, filter *AskFilter, keyidOf map[string]string, out *AskResult) (bool, string) {
 	tier, verifyingKey, err := verify.ResolveTier(ctx, r, cfg, id, verify.Foton)
 	if err != nil {
 		return false, fmt.Sprintf("verifying %s failed: %v", id, err)
@@ -553,21 +555,21 @@ func carriesSignature(c binaries.ClaimAxis, keyid string) bool {
 // The signer is reported as the key that actually verified, and named when this repo's
 // configuration names it — a keyid is not a person, and the trust tiers are the only place that
 // says whose key is whose.
-func askRecord(ctx context.Context, cfg *config.Config, r *binaries.Runner, in AskInput, filter *AskFilter) (*mcp.CallToolResult, AskOutput, error) {
-	out := AskOutput{Query: in.Query, Ref: in.Ref, FilterApplied: filter.describe()}
+func askRecord(ctx context.Context, cfg *config.Config, r *binaries.Runner, in AskRequest, filter *AskFilter) (*AskResult, error) {
+	out := AskResult{Query: in.Query, Ref: in.Ref, FilterApplied: filter.describe()}
 	rec, err := r.FotonByID(ctx, in.Ref)
 	if err != nil {
 		if !strings.HasPrefix(in.Ref, "sha256:") {
-			return errResult[AskOutput](
+			return nil, refuse("argument", "",
 				"%v\n\nThis query takes the foton id a publish returned (sha256:…), not a path. "+
 					"To go the other way — from bytes to the run that made them — use producer.", err)
 		}
-		return errResult[AskOutput]("%v", err)
+		return nil, refuse("kernel", "", "%v", err)
 	}
 
 	tier, _, verr := verify.ResolveTier(ctx, r, cfg, rec.ID, verify.Foton)
 	if verr != nil {
-		return errResult[AskOutput]("verifying %s: %v", rec.ID, verr)
+		return nil, refuse("kernel", "", "verifying %s: %v", rec.ID, verr)
 	}
 	verified := tier != verify.Untrusted
 	out.Records = []RecordVerification{{ID: rec.ID, Tier: string(tier), Verified: verified}}
@@ -579,7 +581,7 @@ func askRecord(ctx context.Context, cfg *config.Config, r *binaries.Runner, in A
 	out.Record = rec
 	out.SignerName = signerName(cfg, rec.SignerKeyID)
 	out.Raw = recordLines(rec, out.SignerName)
-	return &mcp.CallToolResult{}, out, nil
+	return &out, nil
 }
 
 // signerName turns a keyid into whatever this repo's configuration calls that key, or "" when it

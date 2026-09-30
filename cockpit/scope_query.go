@@ -1,4 +1,4 @@
-package tools
+package cockpit
 
 // scope_query.go is ask's adapter onto internal/scope: the seal verdict is computed there because
 // `cockpit scope read` needs the same answer about a file somebody sent, and two implementations of
@@ -19,7 +19,7 @@ type SealVerdict = scope.Verdict
 
 // askScope verifies a scope's seal and files its claims into the answer under the usual rule: a
 // claim that no configured key verifies is reported as found-and-excluded, never assembled in.
-func askScope(ctx context.Context, cfg *config.Config, r *binaries.Runner, scopeID string, out *AskOutput) (*SealVerdict, string) {
+func askScope(ctx context.Context, cfg *config.Config, r *binaries.Runner, scopeID string, out *AskResult) (*SealVerdict, string) {
 	verdict, claims, err := scope.Describe(ctx, cfg, r, scopeID)
 	if err != nil {
 		return nil, err.Error()

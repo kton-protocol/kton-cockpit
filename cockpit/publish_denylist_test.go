@@ -1,4 +1,4 @@
-package tools
+package cockpit
 
 import (
 	"path/filepath"

@@ -2,7 +2,7 @@
 
 // A real anchor in the PUBLIC Sigstore Rekor transparency log.
 //
-//	go test -tags live -run TestAnchorLive ./internal/tools/
+//	go test -tags live -run TestAnchorLive ./cockpit/
 //
 // Behind a build tag, and the tag is not a formality: every run writes an entry to a public,
 // append-only log that cannot be withdrawn. The kernel gates its own live Rekor test the same way.
@@ -14,7 +14,7 @@
 // Rekor accepts what the cockpit submits, and whether what comes back is a real entry, only a real
 // log can answer.
 
-package tools
+package cockpit
 
 import (
 	"context"
@@ -39,7 +39,7 @@ func TestAnchorLive_TheEntryTheCockpitReportsIsInThePublicLog(t *testing.T) {
 	r.Write(t, "data/in.csv", "this file exists only to be anchored by a test\n")
 	r.Write(t, "data/out.csv", "kton-cockpit live anchor test\n")
 
-	result, pub, err := Publish(context.Background(), nil, PublishInput{
+	result, pub, err := Publish(context.Background(), nil, PublishRequest{
 		Inputs:  []string{"data/in.csv"},
 		Outputs: []string{"data/out.csv"},
 		Cmd:     "cockpit live anchor test — throwaway key, throwaway data",
@@ -84,7 +84,7 @@ func TestAnchorLive_TheEntryTheCockpitReportsIsInThePublicLog(t *testing.T) {
 	}
 
 	// And the proof is beside the record, not merely reported back.
-	_, ask, err := Ask(context.Background(), nil, AskInput{Query: "producer", Ref: pub.OutputHashes["data/out.csv"]})
+	_, ask, err := Ask(context.Background(), nil, AskRequest{Query: "producer", Ref: pub.OutputHashes["data/out.csv"]})
 	if err != nil {
 		t.Fatal(err)
 	}

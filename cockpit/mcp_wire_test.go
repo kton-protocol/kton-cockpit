@@ -1,4 +1,4 @@
-package tools
+package cockpit
 
 import (
 	"context"
@@ -18,11 +18,11 @@ import (
 // `omitempty`/`omitzero` as required; validating a null value against a required object/array
 // field fails with exactly: `type: <invalid reflect.Value> has type "null", want "object"`. This
 // masked the tool's actual, useful error message behind a confusing schema-validation failure.
-// Fixed by adding `omitempty` to every map/slice field in PublishOutput and AskOutput.
+// Fixed by adding `omitempty` to every map/slice field in PublishResult and AskResult.
 //
 // Confirmed directly against the schema library (TestOutputSchema_PublishOutputZeroValueValidates
 // below): with the omitempty tags removed, it reproduces the exact production error text
-// (`type: <invalid reflect.Value> has type "null", want "object"`) for PublishOutput's zero
+// (`type: <invalid reflect.Value> has type "null", want "object"`) for PublishResult's zero
 // value. TestOutputSchema_AskOutputZeroValueValidates passed even without the fix — an
 // unexplained asymmetry in the validator between map- and slice-typed fields here, not further
 // investigated — but omitempty is the correct, safe choice for both regardless. A wire-level
@@ -31,11 +31,11 @@ import (
 // schema tests above, not the wire tests below, are what actually guard against a regression here.
 
 func TestOutputSchema_PublishOutputZeroValueValidates(t *testing.T) {
-	assertZeroValueValidatesAgainstOwnSchema(t, PublishOutput{})
+	assertZeroValueValidatesAgainstOwnSchema(t, PublishResult{})
 }
 
 func TestOutputSchema_AskOutputZeroValueValidates(t *testing.T) {
-	assertZeroValueValidatesAgainstOwnSchema(t, AskOutput{})
+	assertZeroValueValidatesAgainstOwnSchema(t, AskResult{})
 }
 
 func assertZeroValueValidatesAgainstOwnSchema[T any](t *testing.T, zero T) {

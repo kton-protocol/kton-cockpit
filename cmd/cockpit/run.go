@@ -22,10 +22,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/modelcontextprotocol/go-sdk/mcp"
-
+	"github.com/kton-protocol/kton-cockpit/cockpit"
 	"github.com/kton-protocol/kton-cockpit/internal/config"
-	"github.com/kton-protocol/kton-cockpit/internal/tools"
 )
 
 // runsDir is where run folders live, relative to the repo root.
@@ -193,21 +191,14 @@ func runExecute(ctx context.Context, slug string) error {
 	}
 
 	fmt.Printf("running %s in %s\n", rel+"/"+entry, cfg.Raw.Execution.Image)
-	result, out, perr := tools.Publish(ctx, nil, tools.PublishInput{
+	out, perr := cockpit.New(cockpit.Start{}).Publish(ctx, cockpit.PublishRequest{
 		Cmd:       cmdOf(rel + "/" + entry),
 		Inputs:    inputs,
 		OutputDir: rel + "/out",
 	})
+	exitIfRefused(perr)
 	if perr != nil {
 		return perr
-	}
-	if result != nil && result.IsError {
-		for _, c := range result.Content {
-			if tc, ok := c.(*mcp.TextContent); ok {
-				fmt.Fprintln(os.Stderr, tc.Text)
-			}
-		}
-		os.Exit(2)
 	}
 
 	if out.Stdout != "" {

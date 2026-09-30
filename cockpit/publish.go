@@ -1,4 +1,4 @@
-package tools
+package cockpit
 
 import (
 	"context"
@@ -18,13 +18,12 @@ import (
 	"github.com/kton-protocol/kton-cockpit/internal/gitops"
 	"github.com/kton-protocol/kton-cockpit/internal/material"
 	"github.com/kton-protocol/kton-cockpit/internal/show"
-	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// PublishInput is cockpit_publish's argument shape — the "veröffentlichen" verb. The caller supplies
+// PublishRequest is cockpit_publish's argument shape — the "veröffentlichen" verb. The caller supplies
 // plain repo-relative paths and the command that was run; the cockpit owns every permalink,
 // commit, and signature.
-type PublishInput struct {
+type PublishRequest struct {
 	Inputs  []string `json:"inputs" jsonschema:"repo-relative paths this computation consumed"`
 	Outputs []string `json:"outputs,omitempty" jsonschema:"repo-relative paths this computation produced"`
 	// OutputDir names a directory whose contents after the run ARE the outputs, instead of naming
@@ -55,7 +54,7 @@ type PublishInput struct {
 	EnvRef string `json:"envRef,omitempty" jsonschema:"the execution environment this ran in, digest-pinned: oci://<image>@sha256:<digest>, a nix store path, or a run-server id"`
 }
 
-type PublishOutput struct {
+type PublishResult struct {
 	FotonID string `json:"fotonId"`
 	// omitempty matters here, not just for tidiness: without it, jsonschema-go marks this field
 	// required, and a nil map (the zero value returned on any error path) marshals to JSON null —
@@ -108,31 +107,31 @@ type PublishOutput struct {
 	Pushed    bool `json:"pushed"`
 }
 
-func Publish(ctx context.Context, _ *mcp.CallToolRequest, in PublishInput) (*mcp.CallToolResult, PublishOutput, error) {
-	cfg, err := config.Load(ctx, ".")
+func (c *Cockpit) Publish(ctx context.Context, in PublishRequest) (*PublishResult, error) {
+	cfg, err := config.Load(ctx, c.dir())
 	if err != nil {
-		return errResult[PublishOutput]("%v", err)
+		return nil, refuse("binding", "SPEC §5", "%v", err)
 	}
 	if !cfg.Raw.Verbs.Publish {
-		return errResult[PublishOutput]("publish is disabled by this repo's cockpit.config.json")
+		return nil, refuse("verb.disabled", "SPEC §6", "publish is disabled by this repo's cockpit.config.json")
 	}
 	switch {
 	case in.OutputDir != "" && len(in.Outputs) > 0:
-		return errResult[PublishOutput]("publish takes either outputs or outputDir, not both")
+		return nil, refuse("argument", "", "publish takes either outputs or outputDir, not both")
 	case in.OutputDir != "" && !cfg.Raw.Execution.Enabled():
-		return errResult[PublishOutput](
-			"outputDir needs this repo to run the command (execution.image is not configured) — " +
+		return nil, refuse("execution.not-configured", "SPEC §10",
+			"outputDir needs this repo to run the command (execution.image is not configured) — "+
 				"without that the cockpit never sees the run and cannot know what it produced")
 	case in.OutputDir == "" && len(in.Outputs) == 0:
-		return errResult[PublishOutput]("publish requires at least one output path, or outputDir")
+		return nil, refuse("argument", "", "publish requires at least one output path, or outputDir")
 	}
 	if in.Cmd == "" {
-		return errResult[PublishOutput]("publish requires cmd (the command that produced the outputs)")
+		return nil, refuse("argument", "", "publish requires cmd (the command that produced the outputs)")
 	}
 
 	envRef, envErr := resolveEnvRef(cfg, in.EnvRef)
 	if envErr != "" {
-		return errResult[PublishOutput]("%s", envErr)
+		return nil, refuse("env-ref", "SPEC §7.5", "%s", envErr)
 	}
 
 	r := binaries.New(cfg)
@@ -154,7 +153,7 @@ func Publish(ctx context.Context, _ *mcp.CallToolRequest, in PublishInput) (*mcp
 		}
 	}
 	if len(denied) > 0 {
-		return errResult[PublishOutput]("publish refused %d path(s):\n%s", len(denied), strings.Join(denied, "\n"))
+		return nil, refuse("path.denied", "SPEC §7.3", "publish refused %d path(s):\n%s", len(denied), strings.Join(denied, "\n"))
 	}
 
 	// When this repo runs rather than records, the command executes BEFORE anything is committed:
@@ -165,10 +164,10 @@ func Publish(ctx context.Context, _ *mcp.CallToolRequest, in PublishInput) (*mcp
 	if in.OutputDir != "" {
 		existing, derr := filesUnder(cfg.RepoRoot, in.OutputDir)
 		if derr != nil {
-			return errResult[PublishOutput]("outputDir %s: %v", in.OutputDir, derr)
+			return nil, refuse("io", "", "outputDir %s: %v", in.OutputDir, derr)
 		}
 		if len(existing) > 0 {
-			return errResult[PublishOutput](
+			return nil, refuse("output-dir.not-empty", "SPEC §10",
 				"outputDir %s is not empty (%d file(s), e.g. %s) — empty it first.\n"+
 					"A file left there by an earlier run would become an output of THIS record, and "+
 					"output paths and hashes are part of a foton's identity, so the same work would "+
@@ -182,20 +181,20 @@ func Publish(ctx context.Context, _ *mcp.CallToolRequest, in PublishInput) (*mcp
 		// it has no idea what the command touched.
 		before, serr := container.TakeSnapshot(cfg.RepoRoot)
 		if serr != nil {
-			return errResult[PublishOutput]("could not read the working tree before the run: %v", serr)
+			return nil, refuse("io", "", "could not read the working tree before the run: %v", serr)
 		}
 
 		ran, err = container.Run(ctx, cfg, in.Cmd)
 		if err != nil {
-			return errResult[PublishOutput]("%v", err)
+			return nil, refuse("execution.failed", "SPEC §10", "%v", err)
 		}
 		if in.OutputDir != "" {
 			produced, derr := filesUnder(cfg.RepoRoot, in.OutputDir)
 			if derr != nil {
-				return errResult[PublishOutput]("reading outputDir %s after the run: %v", in.OutputDir, derr)
+				return nil, refuse("io", "", "reading outputDir %s after the run: %v", in.OutputDir, derr)
 			}
 			if len(produced) == 0 {
-				return errResult[PublishOutput](
+				return nil, refuse("execution.no-output", "SPEC §10",
 					"the command succeeded in %s but wrote nothing to %s — a record of a run that "+
 						"produced no output asserts work with no result",
 					cfg.Raw.Execution.Image, in.OutputDir)
@@ -204,7 +203,7 @@ func Publish(ctx context.Context, _ *mcp.CallToolRequest, in PublishInput) (*mcp
 		}
 		for _, o := range in.Outputs {
 			if _, statErr := os.Stat(filepath.Join(cfg.RepoRoot, o)); statErr != nil {
-				return errResult[PublishOutput](
+				return nil, refuse("execution.no-output", "SPEC §10",
 					"the command succeeded in %s but produced no %s — publish declares outputs that must exist afterwards",
 					cfg.Raw.Execution.Image, o)
 			}
@@ -212,7 +211,7 @@ func Publish(ctx context.Context, _ *mcp.CallToolRequest, in PublishInput) (*mcp
 
 		after, serr := container.TakeSnapshot(cfg.RepoRoot)
 		if serr != nil {
-			return errResult[PublishOutput]("could not read the working tree after the run: %v", serr)
+			return nil, refuse("io", "", "could not read the working tree after the run: %v", serr)
 		}
 		undeclared = before.ChangedSince(after, append(append([]string{}, in.Inputs...), in.Outputs...))
 	}
@@ -222,7 +221,7 @@ func Publish(ctx context.Context, _ *mcp.CallToolRequest, in PublishInput) (*mcp
 	// failed this after committing would leave the basis recorded and the conclusion refused.
 	if len(in.Corpus) > 0 && cfg.Raw.Reproduction.MinReproductions > 0 {
 		if msg := checkCorpusCorroboration(ctx, cfg, r, in.Corpus); msg != "" {
-			return errResult[PublishOutput]("%s", msg)
+			return nil, refuse("corpus.uncorroborated", "SPEC §8.4", "%s", msg)
 		}
 	}
 
@@ -231,11 +230,11 @@ func Publish(ctx context.Context, _ *mcp.CallToolRequest, in PublishInput) (*mcp
 		corpusPath = filepath.Join("corpus", fmt.Sprintf("%s-%d.json", cfg.Raw.Identity.SessionID, time.Now().UnixNano()))
 		abs := filepath.Join(cfg.RepoRoot, corpusPath)
 		if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
-			return errResult[PublishOutput]("could not create corpus manifest dir: %v", err)
+			return nil, refuse("io", "", "could not create corpus manifest dir: %v", err)
 		}
 		b, _ := json.MarshalIndent(map[string]any{"corpus": in.Corpus}, "", "  ")
 		if err := os.WriteFile(abs, b, 0o644); err != nil {
-			return errResult[PublishOutput]("could not write corpus manifest: %v", err)
+			return nil, refuse("io", "", "could not write corpus manifest: %v", err)
 		}
 		allPaths = append(allPaths, corpusPath)
 	}
@@ -248,7 +247,7 @@ func Publish(ctx context.Context, _ *mcp.CallToolRequest, in PublishInput) (*mcp
 	if err != nil {
 		var pf *gitops.PushFailed
 		if !errors.As(err, &pf) {
-			return errResult[PublishOutput]("git commit of inputs+outputs failed: %v", err)
+			return nil, refuse("store", "", "git commit of inputs+outputs failed: %v", err)
 		}
 		pushRejected, sha = true, pf.SHA
 	}
@@ -272,14 +271,14 @@ func Publish(ctx context.Context, _ *mcp.CallToolRequest, in PublishInput) (*mcp
 		EnvRef:      envRef,
 	})
 	if err != nil {
-		return errResult[PublishOutput]("plankton author failed: %v", err)
+		return nil, refuse("kernel", "", "plankton author failed: %v", err)
 	}
 
 	outputHashes := map[string]string{}
 	for _, o := range in.Outputs {
 		h, err := r.Hash(ctx, o)
 		if err != nil {
-			return errResult[PublishOutput]("plankton hash %s failed: %v", o, err)
+			return nil, refuse("kernel", "", "plankton hash %s failed: %v", o, err)
 		}
 		outputHashes[o] = h
 	}
@@ -289,7 +288,7 @@ func Publish(ctx context.Context, _ *mcp.CallToolRequest, in PublishInput) (*mcp
 	// the evidence about it belong in one commit. A later commit could be missing from a partial
 	// share, and the record would then arrive stripped of what was meant to travel with it.
 	if err := material.Attach(ctx, cfg, r, fotonID, material.Foton); err != nil {
-		return errResult[PublishOutput]("%v", err)
+		return nil, refuse("material", "SPEC §11", "%v", err)
 	}
 
 	// Anchored before the registry commit, so the proof travels with the record it witnesses rather
@@ -298,7 +297,7 @@ func Publish(ctx context.Context, _ *mcp.CallToolRequest, in PublishInput) (*mcp
 	if cfg.Raw.Anchor.Enabled {
 		anchored, err = anchor.Record(ctx, cfg, fotonID, anchor.Foton)
 		if err != nil {
-			return errResult[PublishOutput]("the foton was registered but anchoring it failed: %v", err)
+			return nil, refuse("anchor", "", "the foton was registered but anchoring it failed: %v", err)
 		}
 	}
 
@@ -308,7 +307,7 @@ func Publish(ctx context.Context, _ *mcp.CallToolRequest, in PublishInput) (*mcp
 	if cfg.Raw.Union.Publish {
 		written, uerr := show.WriteUnion(ctx, cfg)
 		if uerr != nil {
-			return errResult[PublishOutput]("the foton was registered but publishing the union failed: %v", uerr)
+			return nil, refuse("union", "", "the foton was registered but publishing the union failed: %v", uerr)
 		}
 		registryPaths = append(registryPaths, written...)
 	}
@@ -328,7 +327,7 @@ func Publish(ctx context.Context, _ *mcp.CallToolRequest, in PublishInput) (*mcp
 		}
 	}
 	if err != nil {
-		return errResult[PublishOutput]("git commit/push of the registry failed: %v", err)
+		return nil, refuse("store", "", "git commit/push of the registry failed: %v", err)
 	}
 
 	// finalSHA is empty when this repo does not commit: there is then no commit for a permalink to
@@ -342,7 +341,7 @@ func Publish(ctx context.Context, _ *mcp.CallToolRequest, in PublishInput) (*mcp
 		}
 	}
 
-	out := PublishOutput{
+	out := PublishResult{
 		FotonID:        fotonID,
 		OutputHashes:   outputHashes,
 		CommitSHA:      finalSHA,
@@ -363,7 +362,7 @@ func Publish(ctx context.Context, _ *mcp.CallToolRequest, in PublishInput) (*mcp
 		out.NetworkAllowed = cfg.Raw.Execution.Network
 		out.Stdout = ran.Stdout
 	}
-	return &mcp.CallToolResult{}, out, nil
+	return &out, nil
 }
 
 // resolveEnvRef decides which execution environment this publish records.
@@ -434,14 +433,6 @@ func checkCorpusCorroboration(ctx context.Context, cfg *config.Config, r *binari
 		}
 	}
 	return ""
-}
-
-func errResult[T any](format string, args ...any) (*mcp.CallToolResult, T, error) {
-	var zero T
-	return &mcp.CallToolResult{
-		IsError: true,
-		Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf(format, args...)}},
-	}, zero, nil
 }
 
 // validatePublishPath rejects a repo-relative path publish must never commit/push: an absolute or

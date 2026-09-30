@@ -1,4 +1,4 @@
-package tools
+package cockpit
 
 import (
 	"context"
@@ -12,14 +12,13 @@ import (
 	"github.com/kton-protocol/kton-cockpit/internal/gitops"
 	"github.com/kton-protocol/kton-cockpit/internal/material"
 	"github.com/kton-protocol/kton-cockpit/internal/show"
-	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// SayInput is cockpit_say's argument shape — the "sagen" verb: bind a claim, from an allowed
+// SayRequest is cockpit_say's argument shape — the "sagen" verb: bind a claim, from an allowed
 // template, to a foton or file. The caller names a template and supplies field values; for the
 // "reproduces" template specifically, the cockpit — not the caller — determines the resulting
 // level/reproducedBy fields by actually running the reproduction precondition.
-type SayInput struct {
+type SayRequest struct {
 	Subject  string            `json:"subject" jsonschema:"the sha256 foton id or hash the claim is about"`
 	Template string            `json:"template" jsonschema:"the claim template name (must be in this repo's allowed-templates config)"`
 	Fields   map[string]string `json:"fields,omitempty" jsonschema:"template field values, for templates other than reproduces"`
@@ -36,11 +35,11 @@ type SayInput struct {
 	Scope string `json:"scope,omitempty" jsonschema:"optional: the name of a configured claim scope to chain this claim into"`
 }
 
-type SayOutput struct {
+type SayResult struct {
 	ClaimID      string `json:"claimId"`
 	Level        string `json:"level,omitempty"`
 	Confirmation string `json:"confirmation"`
-	// RekorLogIndex and RekorUUID are set when this repo anchors its records — see PublishOutput.
+	// RekorLogIndex and RekorUUID are set when this repo anchors its records — see PublishResult.
 	RekorLogIndex int64  `json:"rekorLogIndex,omitempty"`
 	RekorUUID     string `json:"rekorUuid,omitempty"`
 	// Chain is where this claim joined its scope, present only when one is configured. It reports
@@ -65,19 +64,19 @@ type ChainPosition struct {
 	Unresolved int `json:"unresolved,omitempty"`
 }
 
-func Say(ctx context.Context, _ *mcp.CallToolRequest, in SayInput) (*mcp.CallToolResult, SayOutput, error) {
-	cfg, err := config.Load(ctx, ".")
+func (c *Cockpit) Say(ctx context.Context, in SayRequest) (*SayResult, error) {
+	cfg, err := config.Load(ctx, c.dir())
 	if err != nil {
-		return errResult[SayOutput]("%v", err)
+		return nil, refuse("binding", "SPEC §5", "%v", err)
 	}
 	if !cfg.Raw.Verbs.Say {
-		return errResult[SayOutput]("say is disabled by this repo's cockpit.config.json")
+		return nil, refuse("verb.disabled", "SPEC §6", "say is disabled by this repo's cockpit.config.json")
 	}
 	if !cfg.AllowsTemplate(in.Template) {
-		return errResult[SayOutput]("template %q is not in this repo's allowed claim templates", in.Template)
+		return nil, refuse("template.not-allowed", "SPEC §8.1", "template %q is not in this repo's allowed claim templates", in.Template)
 	}
 	if in.Subject == "" {
-		return errResult[SayOutput]("say requires subject (the foton id or hash the claim is about)")
+		return nil, refuse("argument", "", "say requires subject (the foton id or hash the claim is about)")
 	}
 
 	r := binaries.New(cfg)
@@ -89,33 +88,33 @@ func Say(ctx context.Context, _ *mcp.CallToolRequest, in SayInput) (*mcp.CallToo
 	if in.Template == "reproduces" {
 		level, err := determineReproductionLevel(ctx, cfg, r, in)
 		if err != "" {
-			return errResult[SayOutput]("%s", err)
+			return nil, refuse("reproduction.not-met", "SPEC §8.2", "%s", err)
 		}
 		sets = map[string]string{"level": level, "reproducedBy": in.ReproducedFotonID}
 	}
 
 	chain, head, cerr := resolveChain(ctx, r, cfg, in.Scope)
 	if cerr != "" {
-		return errResult[SayOutput]("%s", cerr)
+		return nil, refuse("scope.unknown", "", "%s", cerr)
 	}
 
 	claimID, err := r.Annotate(ctx, in.Subject, in.Template, sets, cfg.NektonKey, chain)
 	if err != nil {
-		return errResult[SayOutput]("nekton annotate failed: %v", err)
+		return nil, refuse("kernel", "", "nekton annotate failed: %v", err)
 	}
 
 	// A claim carries the same configured evidence a foton does. A cockpit whose certificate rode
 	// only on its fotons would say who produced a result and leave who VOUCHED for it unattributed —
 	// and a claim is exactly the record where that question is being asked.
 	if err := material.Attach(ctx, cfg, r, claimID, material.Claim); err != nil {
-		return errResult[SayOutput]("%v", err)
+		return nil, refuse("material", "SPEC §11", "%v", err)
 	}
 
 	var anchored *anchor.Entry
 	if cfg.Raw.Anchor.Enabled {
 		anchored, err = anchor.Record(ctx, cfg, claimID, anchor.Claim)
 		if err != nil {
-			return errResult[SayOutput]("the claim was registered but anchoring it failed: %v", err)
+			return nil, refuse("anchor", "", "the claim was registered but anchoring it failed: %v", err)
 		}
 	}
 
@@ -123,17 +122,17 @@ func Say(ctx context.Context, _ *mcp.CallToolRequest, in SayInput) (*mcp.CallToo
 	if cfg.Raw.Union.Publish {
 		written, uerr := show.WriteUnion(ctx, cfg)
 		if uerr != nil {
-			return errResult[SayOutput]("the claim was registered but publishing the union failed: %v", uerr)
+			return nil, refuse("union", "", "the claim was registered but publishing the union failed: %v", uerr)
 		}
 		registryPaths = append(registryPaths, written...)
 	}
 	if _, err := gitops.CommitAndPush(ctx, cfg, registryPaths, "claim: "+in.Template+" on "+in.Subject); err != nil {
-		return errResult[SayOutput]("git commit/push of the claim registry failed: %v", err)
+		return nil, refuse("store", "", "git commit/push of the claim registry failed: %v", err)
 	}
 
 	claims, err := r.About(ctx, in.Subject)
 	if err != nil {
-		return errResult[SayOutput]("claim was recorded but confirmation query (nekton about) failed: %v", err)
+		return nil, refuse("kernel", "", "claim was recorded but confirmation query (nekton about) failed: %v", err)
 	}
 	// The manual workflow confirms a claim by querying it back rather than trusting the write; the
 	// cockpit does the same. Until about returned structured claims this could only hand back a
@@ -147,13 +146,13 @@ func Say(ctx context.Context, _ *mcp.CallToolRequest, in SayInput) (*mcp.CallToo
 		}
 	}
 	if !registered {
-		return errResult[SayOutput](
+		return nil, refuse("claim.not-registered", "",
 			"claim %s was signed but is not among the %d claim(s) nekton reports about %s — it did not register",
 			claimID, len(claims), in.Subject)
 	}
 
 	level := sets["level"]
-	out := SayOutput{
+	out := SayResult{
 		ClaimID:      claimID,
 		Level:        level,
 		Confirmation: fmt.Sprintf("registered: nekton reports %s among the %d claim(s) about %s", claimID, len(claims), in.Subject),
@@ -167,13 +166,13 @@ func Say(ctx context.Context, _ *mcp.CallToolRequest, in SayInput) (*mcp.CallToo
 			Length: head.ChainLength, Heads: head.Heads, Unresolved: head.Unresolved,
 		}
 	}
-	return &mcp.CallToolResult{}, out, nil
+	return &out, nil
 }
 
 // determineReproductionLevel runs the reproduction precondition itself (never trusting a
 // self-declared level from the caller) and returns either the achieved level ("L0"/"L1") or, as
 // its second return value, a non-empty error message.
-func determineReproductionLevel(ctx context.Context, cfg *config.Config, r *binaries.Runner, in SayInput) (level string, errMsg string) {
+func determineReproductionLevel(ctx context.Context, cfg *config.Config, r *binaries.Runner, in SayRequest) (level string, errMsg string) {
 	if in.SubjectOutputHash == "" || in.ReproducedOutput == "" || in.ReproducedFotonID == "" {
 		return "", "reproduces requires subjectOutputHash, reproducedOutput, and reproducedFotonId"
 	}

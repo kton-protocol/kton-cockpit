@@ -1,6 +1,6 @@
 //go:build docker && unix
 
-package tools
+package cockpit
 
 import (
 	"io/fs"

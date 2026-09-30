@@ -1,4 +1,4 @@
-package tools
+package cockpit
 
 import (
 	"bytes"
@@ -88,7 +88,7 @@ func TestAnchor_ClaimsAreAnchoredToo(t *testing.T) {
 	r := anchoringRepo(t)
 	pub := publishOne(t, r)
 
-	result, out, err := Say(context.Background(), nil, SayInput{
+	result, out, err := Say(context.Background(), nil, SayRequest{
 		Subject:  pub.FotonID,
 		Template: "working-on",
 		Fields:   map[string]string{"step": "analysis", "by-session": testrepo.SessionID},
@@ -114,7 +114,7 @@ func TestAnchor_AFailedAnchorFailsThePublish(t *testing.T) {
 	r.Use(t)
 	r.Write(t, "data/out.csv", "x\n")
 
-	result, _, err := Publish(context.Background(), nil, PublishInput{
+	result, _, err := Publish(context.Background(), nil, PublishRequest{
 		Outputs: []string{"data/out.csv"}, Cmd: "true",
 	})
 	if err != nil {
@@ -134,7 +134,7 @@ func TestAnchor_RefusesACustomLogWithNoPinnedKey(t *testing.T) {
 	r.WriteConfig(t, raw)
 	r.Use(t)
 
-	result, _, err := Ask(context.Background(), nil, AskInput{Query: "producer", Ref: unknownHash})
+	result, _, err := Ask(context.Background(), nil, AskRequest{Query: "producer", Ref: unknownHash})
 	if err != nil {
 		t.Fatalf("expected a tool-level error, not a Go error: %v", err)
 	}

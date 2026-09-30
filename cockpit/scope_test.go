@@ -1,4 +1,4 @@
-package tools
+package cockpit
 
 import (
 	"context"
@@ -62,7 +62,7 @@ func TestScope_UnconfiguredLeavesClaimsUnchained(t *testing.T) {
 	pub := publishOne(t, r)
 	claimID := sayWorkingOn(t, pub.FotonID)
 
-	result, out, err := Ask(context.Background(), nil, AskInput{Query: "about", Ref: pub.FotonID})
+	result, out, err := Ask(context.Background(), nil, AskRequest{Query: "about", Ref: pub.FotonID})
 	if err != nil || result.IsError {
 		t.Fatalf("ask failed: err=%v %s", err, errText(result))
 	}
@@ -80,7 +80,7 @@ func TestScope_TheAskFilterFindsWhatSayChained(t *testing.T) {
 	pub := publishOne(t, r)
 	claimID := sayInScope(t, pub.FotonID, "review")
 
-	result, out, err := Ask(context.Background(), nil, AskInput{
+	result, out, err := Ask(context.Background(), nil, AskRequest{
 		Query: "about", Ref: pub.FotonID,
 		Filter: &AskFilter{Scope: scope},
 	})
@@ -94,7 +94,7 @@ func TestScope_TheAskFilterFindsWhatSayChained(t *testing.T) {
 	// And the negative control: a different, valid-looking scope id must exclude it rather than
 	// match everything.
 	other := r.SeedScope(t, "some-other-review")
-	result, out, err = Ask(context.Background(), nil, AskInput{
+	result, out, err = Ask(context.Background(), nil, AskRequest{
 		Query: "about", Ref: pub.FotonID,
 		Filter: &AskFilter{Scope: other},
 	})
@@ -116,7 +116,7 @@ func TestScope_RefusesAScopeThisRegistryDoesNotHold(t *testing.T) {
 	r.Use(t)
 	pub := publishOne(t, r)
 
-	result, _, err := Say(context.Background(), nil, SayInput{
+	result, _, err := Say(context.Background(), nil, SayRequest{
 		Subject: pub.FotonID, Template: "working-on", Scope: "review",
 		Fields: map[string]string{"step": "analysis", "by-session": testrepo.SessionID},
 	})
@@ -152,7 +152,7 @@ func TestScope_NeitherABranchNorAGapStopsAClaimBeingRecorded(t *testing.T) {
 			sayInScope(t, pub.FotonID, "review")
 			damage(t, r, scope, pub.FotonID)
 
-			result, out, err := Say(context.Background(), nil, SayInput{
+			result, out, err := Say(context.Background(), nil, SayRequest{
 				Subject: pub.FotonID, Template: "working-on", Scope: "review",
 				Fields: map[string]string{"step": "analysis", "by-session": testrepo.SessionID},
 			})
@@ -244,7 +244,7 @@ func TestScope_AnUntrustedWriterIsReportedButExcluded(t *testing.T) {
 	tip, _, _ := r.ScopeHead(t, scope)
 	theirs := r.ChainClaimAsStranger(t, pub.FotonID, scope, tip, "outsider")
 
-	result, out, err := Ask(context.Background(), nil, AskInput{Query: "scope", Ref: scope})
+	result, out, err := Ask(context.Background(), nil, AskRequest{Query: "scope", Ref: scope})
 	if err != nil || result.IsError {
 		t.Fatalf("ask scope failed: err=%v %s", err, errText(result))
 	}
@@ -267,7 +267,7 @@ func TestScope_AnUntrustedWriterIsReportedButExcluded(t *testing.T) {
 
 func askSeal(t *testing.T, scope string) *SealVerdict {
 	t.Helper()
-	result, out, err := Ask(context.Background(), nil, AskInput{Query: "scope", Ref: scope})
+	result, out, err := Ask(context.Background(), nil, AskRequest{Query: "scope", Ref: scope})
 	if err != nil || result.IsError {
 		t.Fatalf("ask scope failed: err=%v %s", err, errText(result))
 	}
@@ -285,7 +285,7 @@ func TestScope_RefusesANameTheConfigDoesNotHave(t *testing.T) {
 	r, _ := scopedRepo(t)
 	pub := publishOne(t, r)
 
-	result, _, err := Say(context.Background(), nil, SayInput{
+	result, _, err := Say(context.Background(), nil, SayRequest{
 		Subject: pub.FotonID, Template: "working-on", Scope: "reveiw",
 		Fields: map[string]string{"step": "analysis", "by-session": testrepo.SessionID},
 	})
@@ -363,7 +363,7 @@ func TestScope_SealRecordsTheHeadInTheParent(t *testing.T) {
 		t.Fatalf("the seal did not land in the parent chain: tip=%s len=%d want %s len=1", parentTip, parentLen, sealID)
 	}
 
-	result, out, err := Ask(context.Background(), nil, AskInput{Query: "scope", Ref: parent})
+	result, out, err := Ask(context.Background(), nil, AskRequest{Query: "scope", Ref: parent})
 	if err != nil || result.IsError {
 		t.Fatalf("ask scope on the parent failed: err=%v %s", err, errText(result))
 	}
@@ -436,7 +436,7 @@ func TestAsk_LineageReturnsStructuredFotonRecords(t *testing.T) {
 	second := publish(t, []string{"data/mid.csv"}, []string{"data/out.csv"}, "step two")
 
 	ask := func() []string {
-		result, out, err := Ask(context.Background(), nil, AskInput{
+		result, out, err := Ask(context.Background(), nil, AskRequest{
 			Query: "lineage", Ref: second.OutputHashes["data/out.csv"],
 		})
 		if err != nil || result.IsError {
@@ -475,9 +475,9 @@ func TestAsk_LineageReturnsStructuredFotonRecords(t *testing.T) {
 }
 
 // publish is publishOne with explicit inputs and outputs, for tests that need a chain.
-func publish(t *testing.T, inputs, outputs []string, cmd string) PublishOutput {
+func publish(t *testing.T, inputs, outputs []string, cmd string) PublishResult {
 	t.Helper()
-	result, out, err := Publish(context.Background(), nil, PublishInput{Inputs: inputs, Outputs: outputs, Cmd: cmd})
+	result, out, err := Publish(context.Background(), nil, PublishRequest{Inputs: inputs, Outputs: outputs, Cmd: cmd})
 	if err != nil {
 		t.Fatalf("Publish returned a Go error: %v", err)
 	}

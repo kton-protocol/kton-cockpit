@@ -114,7 +114,7 @@ func TestVerbs_TheGuardsApplyAtTheCommandLineToo(t *testing.T) {
 }
 
 // ask and say are reachable the same way. Checked together because what is being held here is the
-// dispatch, not each verb's behaviour — those have their own tests in internal/tools.
+// dispatch, not each verb's behaviour — those have their own tests in the cockpit package.
 func TestVerbs_AskAndSayAreReachableFromAShell(t *testing.T) {
 	r := testrepo.New(t)
 	out, code := publishOne(t, r)

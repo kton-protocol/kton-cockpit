@@ -85,7 +85,7 @@ func CommitAndPush(ctx context.Context, cfg *config.Config, paths []string, mess
 	// The "--" separator is load-bearing, not cosmetic: without it, a path that happens to start
 	// with "-" (e.g. "-f") is parsed by git as a FLAG, not a literal path — "git add -f ." force-
 	// adds every gitignored file in the repo, keys included, without the string "keys/..." ever
-	// appearing in the request. internal/tools/publish.go's validatePublishPath also rejects
+	// appearing in the request. cockpit/publish.go's validatePublishPath also rejects
 	// leading-dash paths as defense in depth, but this is the actual, root-cause fix: with "--",
 	// everything after it is unconditionally a pathspec, regardless of what it starts with.
 	args := append([]string{"add", "--"}, paths...)

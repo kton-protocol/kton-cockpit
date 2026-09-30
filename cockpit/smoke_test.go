@@ -1,4 +1,4 @@
-package tools
+package cockpit
 
 import (
 	"context"
@@ -53,13 +53,13 @@ func errText(result *mcp.CallToolResult) string {
 
 // publishOne runs a real publish of one input and one output through the real handler, and
 // returns its result. It fails the test if the publish itself failed.
-func publishOne(t *testing.T, r *testrepo.Repo) PublishOutput {
+func publishOne(t *testing.T, r *testrepo.Repo) PublishResult {
 	t.Helper()
 	r.Write(t, "data/in.csv", "id,value\n1,42\n")
 	r.Write(t, "data/analyse.py", "print('deterministic')\n")
 	r.Write(t, "data/out.csv", "id,result\n1,84\n")
 
-	result, out, err := Publish(context.Background(), nil, PublishInput{
+	result, out, err := Publish(context.Background(), nil, PublishRequest{
 		Inputs:  []string{"data/in.csv", "data/analyse.py"},
 		Outputs: []string{"data/out.csv"},
 		Cmd:     "python data/analyse.py data/in.csv > data/out.csv",
@@ -129,7 +129,7 @@ func TestAsk_ProducerFindsTheJustPublishedFotonAndVerifiesIt(t *testing.T) {
 	r.Use(t)
 	pub := publishOne(t, r)
 
-	result, out, err := Ask(context.Background(), nil, AskInput{Query: "producer", Ref: pub.OutputHashes["data/out.csv"]})
+	result, out, err := Ask(context.Background(), nil, AskRequest{Query: "producer", Ref: pub.OutputHashes["data/out.csv"]})
 	if err != nil {
 		t.Fatalf("Ask returned a Go error: %v", err)
 	}
@@ -157,7 +157,7 @@ func TestAsk_ProducerOnUnknownHashIncludesNothing(t *testing.T) {
 	r := testrepo.New(t)
 	r.Use(t)
 
-	result, out, err := Ask(context.Background(), nil, AskInput{Query: "producer", Ref: unknownHash})
+	result, out, err := Ask(context.Background(), nil, AskRequest{Query: "producer", Ref: unknownHash})
 	if err != nil {
 		t.Fatalf("Ask returned a Go error: %v", err)
 	}
@@ -178,7 +178,7 @@ func TestAsk_ReproductionsCountsTheVerifiedProducer(t *testing.T) {
 	r.Use(t)
 	pub := publishOne(t, r)
 
-	result, out, err := Ask(context.Background(), nil, AskInput{Query: "reproductions", Ref: pub.OutputHashes["data/out.csv"]})
+	result, out, err := Ask(context.Background(), nil, AskRequest{Query: "reproductions", Ref: pub.OutputHashes["data/out.csv"]})
 	if err != nil {
 		t.Fatalf("Ask returned a Go error: %v", err)
 	}
@@ -201,7 +201,7 @@ func TestAsk_UnknownQueryIsRejected(t *testing.T) {
 	r := testrepo.New(t)
 	r.Use(t)
 
-	result, _, err := Ask(context.Background(), nil, AskInput{Query: "delete-everything", Ref: unknownHash})
+	result, _, err := Ask(context.Background(), nil, AskRequest{Query: "delete-everything", Ref: unknownHash})
 	if err != nil {
 		t.Fatalf("expected a tool-level error, not a Go error: %v", err)
 	}
@@ -215,7 +215,7 @@ func TestSay_RecordsAClaimAndConfirmsItIsQueryable(t *testing.T) {
 	r.Use(t)
 	pub := publishOne(t, r)
 
-	result, out, err := Say(context.Background(), nil, SayInput{
+	result, out, err := Say(context.Background(), nil, SayRequest{
 		Subject:  pub.FotonID,
 		Template: "working-on",
 		Fields:   map[string]string{"step": "analysis", "by-session": testrepo.SessionID},
@@ -234,7 +234,7 @@ func TestSay_RecordsAClaimAndConfirmsItIsQueryable(t *testing.T) {
 	// registration check that matters happens inside say (it refuses when the registry does not
 	// report the claim), and independently below, by querying it back.
 
-	ask, askOut, err := Ask(context.Background(), nil, AskInput{Query: "about", Ref: pub.FotonID})
+	ask, askOut, err := Ask(context.Background(), nil, AskRequest{Query: "about", Ref: pub.FotonID})
 	if err != nil || ask.IsError {
 		t.Fatalf("about query failed: err=%v result=%+v", err, errText(ask))
 	}
@@ -253,7 +253,7 @@ func TestSay_RefusesATemplateOutsideTheConfiguredCeiling(t *testing.T) {
 	r := testrepo.New(t)
 	r.Use(t)
 
-	result, _, err := Say(context.Background(), nil, SayInput{Subject: unknownHash, Template: "gxp/review"})
+	result, _, err := Say(context.Background(), nil, SayRequest{Subject: unknownHash, Template: "gxp/review"})
 	if err != nil {
 		t.Fatalf("expected a tool-level error, not a Go error: %v", err)
 	}
@@ -270,7 +270,7 @@ func TestSay_ReproducesRefusesWhenTheOutputsDoNotMatch(t *testing.T) {
 	pub := publishOne(t, r)
 	r.Write(t, "data/different.csv", "id,result\n1,999\n")
 
-	result, _, err := Say(context.Background(), nil, SayInput{
+	result, _, err := Say(context.Background(), nil, SayRequest{
 		Subject:           pub.FotonID,
 		Template:          "reproduces",
 		SubjectOutputHash: pub.OutputHashes["data/out.csv"],
@@ -291,7 +291,7 @@ func TestSay_ReproducesRecordsL0ForIdenticalBytes(t *testing.T) {
 	pub := publishOne(t, r)
 	r.Write(t, "data/rerun.csv", "id,result\n1,84\n") // byte-identical to data/out.csv
 
-	result, out, err := Say(context.Background(), nil, SayInput{
+	result, out, err := Say(context.Background(), nil, SayRequest{
 		Subject:           pub.FotonID,
 		Template:          "reproduces",
 		SubjectOutputHash: pub.OutputHashes["data/out.csv"],
@@ -312,7 +312,7 @@ func TestSay_ReproducesRecordsL0ForIdenticalBytes(t *testing.T) {
 func TestConfigGuard_RefusesOutsideAnyGitRepo(t *testing.T) {
 	chdir(t, os.TempDir())
 
-	result, _, err := Ask(context.Background(), nil, AskInput{Query: "producer", Ref: unknownHash})
+	result, _, err := Ask(context.Background(), nil, AskRequest{Query: "producer", Ref: unknownHash})
 	if err != nil {
 		t.Fatalf("expected a tool-level error, not a Go error: %v", err)
 	}
@@ -331,7 +331,7 @@ func TestConfigGuard_RefusesWhenTheConfigNamesADifferentRepo(t *testing.T) {
 	raw.Repo.Owner = "someone-else"
 	r.WriteConfig(t, raw)
 
-	result, _, err := Ask(context.Background(), nil, AskInput{Query: "producer", Ref: unknownHash})
+	result, _, err := Ask(context.Background(), nil, AskRequest{Query: "producer", Ref: unknownHash})
 	if err != nil {
 		t.Fatalf("expected a tool-level error, not a Go error: %v", err)
 	}
@@ -345,7 +345,7 @@ func TestConfigGuard_CockpitRepoDirEnvOverridesCwd(t *testing.T) {
 	chdir(t, os.TempDir()) // cwd is deliberately NOT the participant repo
 	r.Use(t)
 
-	result, _, err := Ask(context.Background(), nil, AskInput{Query: "producer", Ref: unknownHash})
+	result, _, err := Ask(context.Background(), nil, AskRequest{Query: "producer", Ref: unknownHash})
 	if err != nil {
 		t.Fatalf("Ask returned a Go error: %v", err)
 	}
@@ -360,7 +360,7 @@ func TestConfigGuard_CockpitRepoDirEnvOverridesCwd(t *testing.T) {
 // what most tests are about.
 func sayInScope(t *testing.T, subject, scope string) string {
 	t.Helper()
-	result, out, err := Say(context.Background(), nil, SayInput{
+	result, out, err := Say(context.Background(), nil, SayRequest{
 		Subject:  subject,
 		Template: "working-on",
 		Scope:    scope,
@@ -377,7 +377,7 @@ func sayInScope(t *testing.T, subject, scope string) string {
 
 func sayWorkingOn(t *testing.T, subject string) string {
 	t.Helper()
-	result, out, err := Say(context.Background(), nil, SayInput{
+	result, out, err := Say(context.Background(), nil, SayRequest{
 		Subject:  subject,
 		Template: "working-on",
 		Fields:   map[string]string{"step": "analysis", "by-session": testrepo.SessionID},
@@ -400,7 +400,7 @@ func TestAsk_AboutReturnsWhatTheClaimSaysNotJustThatItExists(t *testing.T) {
 	pub := publishOne(t, r)
 	claimID := sayWorkingOn(t, pub.FotonID)
 
-	result, out, err := Ask(context.Background(), nil, AskInput{Query: "about", Ref: pub.FotonID})
+	result, out, err := Ask(context.Background(), nil, AskRequest{Query: "about", Ref: pub.FotonID})
 	if err != nil {
 		t.Fatalf("Ask returned a Go error: %v", err)
 	}
@@ -441,7 +441,7 @@ func TestAsk_ByPredicateFindsTheClaim(t *testing.T) {
 	pub := publishOne(t, r)
 	claimID := sayWorkingOn(t, pub.FotonID)
 
-	result, out, err := Ask(context.Background(), nil, AskInput{
+	result, out, err := Ask(context.Background(), nil, AskRequest{
 		Query: "by",
 		Axis:  "predicate",
 		Ref:   "https://kton.dev/v/working-on",
@@ -464,13 +464,13 @@ func TestAsk_BySignerFindsTheClaim(t *testing.T) {
 	claimID := sayWorkingOn(t, pub.FotonID)
 
 	// The signing keyid, taken from the claim's own envelope rather than recomputed.
-	_, about, err := Ask(context.Background(), nil, AskInput{Query: "about", Ref: pub.FotonID})
+	_, about, err := Ask(context.Background(), nil, AskRequest{Query: "about", Ref: pub.FotonID})
 	if err != nil || len(about.Claims) == 0 {
 		t.Fatalf("could not read back the claim to learn its keyid: err=%v claims=%+v", err, about.Claims)
 	}
 	keyid := about.Claims[0].SignatureKeyIDs[0]
 
-	result, out, err := Ask(context.Background(), nil, AskInput{Query: "by", Axis: "signer", Ref: keyid})
+	result, out, err := Ask(context.Background(), nil, AskRequest{Query: "by", Axis: "signer", Ref: keyid})
 	if err != nil {
 		t.Fatalf("Ask returned a Go error: %v", err)
 	}
@@ -486,7 +486,7 @@ func TestAsk_ByWithoutAnAxisIsRejected(t *testing.T) {
 	r := testrepo.New(t)
 	r.Use(t)
 
-	result, _, err := Ask(context.Background(), nil, AskInput{Query: "by", Ref: "https://kton.dev/v/working-on"})
+	result, _, err := Ask(context.Background(), nil, AskRequest{Query: "by", Ref: "https://kton.dev/v/working-on"})
 	if err != nil {
 		t.Fatalf("expected a tool-level error, not a Go error: %v", err)
 	}
@@ -499,7 +499,7 @@ func TestAsk_ByWithAnUnknownAxisIsRejected(t *testing.T) {
 	r := testrepo.New(t)
 	r.Use(t)
 
-	result, _, err := Ask(context.Background(), nil, AskInput{Query: "by", Axis: "everything", Ref: "x"})
+	result, _, err := Ask(context.Background(), nil, AskRequest{Query: "by", Axis: "everything", Ref: "x"})
 	if err != nil {
 		t.Fatalf("expected a tool-level error, not a Go error: %v", err)
 	}
@@ -524,7 +524,7 @@ func TestAsk_AboutExcludesAClaimThatVerifiesAgainstNoConfiguredTier(t *testing.T
 	raw.Trust.Tiers = map[string][]string{"self": {}}
 	r.WriteConfig(t, raw)
 
-	result, out, err := Ask(context.Background(), nil, AskInput{Query: "about", Ref: pub.FotonID})
+	result, out, err := Ask(context.Background(), nil, AskRequest{Query: "about", Ref: pub.FotonID})
 	if err != nil {
 		t.Fatalf("Ask returned a Go error: %v", err)
 	}
@@ -603,7 +603,7 @@ func TestConfig_RefusesAnOciEnvRefWithoutADigest(t *testing.T) {
 	r.WriteConfig(t, raw)
 	r.Use(t)
 
-	result, _, err := Ask(context.Background(), nil, AskInput{Query: "producer", Ref: unknownHash})
+	result, _, err := Ask(context.Background(), nil, AskRequest{Query: "producer", Ref: unknownHash})
 	if err != nil {
 		t.Fatalf("expected a tool-level error, not a Go error: %v", err)
 	}
@@ -622,7 +622,7 @@ func TestConfig_RefusesASpectrumThatIsNotAContentHash(t *testing.T) {
 	r.WriteConfig(t, raw)
 	r.Use(t)
 
-	result, _, err := Ask(context.Background(), nil, AskInput{Query: "producer", Ref: unknownHash})
+	result, _, err := Ask(context.Background(), nil, AskRequest{Query: "producer", Ref: unknownHash})
 	if err != nil {
 		t.Fatalf("expected a tool-level error, not a Go error: %v", err)
 	}
@@ -650,9 +650,9 @@ func TestAsk_ReproductionsCountIsScopedToTheRequestedTier(t *testing.T) {
 	pub := publishOne(t, r)
 	hash := pub.OutputHashes["data/out.csv"]
 
-	ask := func(tier string) AskOutput {
+	ask := func(tier string) AskResult {
 		t.Helper()
-		in := AskInput{Query: "reproductions", Ref: hash}
+		in := AskRequest{Query: "reproductions", Ref: hash}
 		if tier != "" {
 			in.Filter = &AskFilter{TrustTier: tier}
 		}
@@ -684,7 +684,7 @@ func TestAsk_ProducerReturnsAStructuredFotonRecord(t *testing.T) {
 	r.Use(t)
 	pub := publishOne(t, r)
 
-	result, out, err := Ask(context.Background(), nil, AskInput{
+	result, out, err := Ask(context.Background(), nil, AskRequest{
 		Query: "producer", Ref: pub.OutputHashes["data/out.csv"],
 	})
 	if err != nil {
@@ -747,7 +747,7 @@ func TestConfig_RefusesExecutionSettingsThatCannotMeanWhatTheySay(t *testing.T) 
 			r.WriteConfig(t, raw)
 			r.Use(t)
 
-			result, _, err := Ask(context.Background(), nil, AskInput{Query: "producer", Ref: unknownHash})
+			result, _, err := Ask(context.Background(), nil, AskRequest{Query: "producer", Ref: unknownHash})
 			if err != nil {
 				t.Fatalf("expected a tool-level error, not a Go error: %v", err)
 			}
@@ -842,7 +842,7 @@ func TestConfigGuard_StillRefusesTheWrongRepoWithCommitsOff(t *testing.T) {
 	r.WriteConfig(t, raw)
 	r.Use(t)
 
-	result, _, err := Ask(context.Background(), nil, AskInput{Query: "producer", Ref: unknownHash})
+	result, _, err := Ask(context.Background(), nil, AskRequest{Query: "producer", Ref: unknownHash})
 	if err != nil {
 		t.Fatalf("expected a tool-level error, not a Go error: %v", err)
 	}
@@ -860,7 +860,7 @@ func TestConfig_RefusesPushTrueWithCommitFalse(t *testing.T) {
 	r.WriteConfig(t, raw)
 	r.Use(t)
 
-	result, _, err := Ask(context.Background(), nil, AskInput{Query: "producer", Ref: unknownHash})
+	result, _, err := Ask(context.Background(), nil, AskRequest{Query: "producer", Ref: unknownHash})
 	if err != nil {
 		t.Fatalf("expected a tool-level error, not a Go error: %v", err)
 	}
@@ -886,7 +886,7 @@ func TestPublish_TheCallerNamesTheEnvironmentAndItReachesTheFoton(t *testing.T) 
 	named.Write(t, "data/in.csv", "id,value\n1,42\n")
 	named.Write(t, "data/analyse.py", "print('deterministic')\n")
 	named.Write(t, "data/out.csv", "id,result\n1,84\n")
-	result, b, err := Publish(context.Background(), nil, PublishInput{
+	result, b, err := Publish(context.Background(), nil, PublishRequest{
 		Inputs:  []string{"data/in.csv", "data/analyse.py"},
 		Outputs: []string{"data/out.csv"},
 		Cmd:     "python data/analyse.py data/in.csv > data/out.csv",
@@ -911,7 +911,7 @@ func TestPublish_RefusesASuppliedEnvRefWithoutADigest(t *testing.T) {
 	r.Use(t)
 	r.Write(t, "data/out.csv", "x\n")
 
-	result, _, err := Publish(context.Background(), nil, PublishInput{
+	result, _, err := Publish(context.Background(), nil, PublishRequest{
 		Outputs: []string{"data/out.csv"},
 		Cmd:     "true",
 		EnvRef:  "oci://ghcr.io/example/analysis:latest",
@@ -932,7 +932,7 @@ func TestPublish_AcceptsANonOciEnvironmentReference(t *testing.T) {
 	r.Write(t, "data/out.csv", "x\n")
 
 	const nixPath = "/nix/store/abc123-analysis-1.0"
-	result, out, err := Publish(context.Background(), nil, PublishInput{
+	result, out, err := Publish(context.Background(), nil, PublishRequest{
 		Outputs: []string{"data/out.csv"},
 		Cmd:     "true",
 		EnvRef:  nixPath,
@@ -956,7 +956,7 @@ func TestPublish_WillNotRecordAnEnvironmentOtherThanTheOneItRanIn(t *testing.T) 
 	r.Use(t)
 	r.Write(t, "data/out.csv", "x\n")
 
-	result, _, err := Publish(context.Background(), nil, PublishInput{
+	result, _, err := Publish(context.Background(), nil, PublishRequest{
 		Outputs: []string{"data/out.csv"},
 		Cmd:     "true",
 		EnvRef:  "oci://ghcr.io/example/other@sha256:5555555555555555555555555555555555555555555555555555555555555555",
@@ -995,7 +995,7 @@ func TestLocalMode_PublishAndSayWorkWithNoGitRepositoryAtAll(t *testing.T) {
 
 	// And the record is queryable and verifies into a configured tier, which is the whole point:
 	// none of signing, the registry or trust ever involved git.
-	result, out, err := Ask(context.Background(), nil, AskInput{Query: "about", Ref: pub.FotonID})
+	result, out, err := Ask(context.Background(), nil, AskRequest{Query: "about", Ref: pub.FotonID})
 	if err != nil || result.IsError {
 		t.Fatalf("about query failed: err=%v %s", err, errText(result))
 	}
@@ -1016,7 +1016,7 @@ func TestLocalMode_GuardRefusesAConfigThatWasCopiedElsewhere(t *testing.T) {
 	}
 	t.Setenv("COCKPIT_REPO_DIR", elsewhere)
 
-	result, _, err := Ask(context.Background(), nil, AskInput{Query: "producer", Ref: unknownHash})
+	result, _, err := Ask(context.Background(), nil, AskRequest{Query: "producer", Ref: unknownHash})
 	if err != nil {
 		t.Fatalf("expected a tool-level error, not a Go error: %v", err)
 	}
@@ -1038,7 +1038,7 @@ func TestLocalMode_RefusesGitCommitTrue(t *testing.T) {
 	r.WriteConfig(t, raw)
 	r.Use(t)
 
-	result, _, err := Ask(context.Background(), nil, AskInput{Query: "producer", Ref: unknownHash})
+	result, _, err := Ask(context.Background(), nil, AskRequest{Query: "producer", Ref: unknownHash})
 	if err != nil {
 		t.Fatalf("expected a tool-level error, not a Go error: %v", err)
 	}
@@ -1056,7 +1056,7 @@ func TestLocalMode_RefusesAConfigWithNoDeclaredRoot(t *testing.T) {
 	r.WriteConfig(t, raw)
 	r.Use(t)
 
-	result, _, err := Ask(context.Background(), nil, AskInput{Query: "producer", Ref: unknownHash})
+	result, _, err := Ask(context.Background(), nil, AskRequest{Query: "producer", Ref: unknownHash})
 	if err != nil {
 		t.Fatalf("expected a tool-level error, not a Go error: %v", err)
 	}
@@ -1084,7 +1084,7 @@ func TestGitMode_RefusesAConfigBelowTheRepositoryRoot(t *testing.T) {
 	}
 	t.Setenv("COCKPIT_REPO_DIR", sub)
 
-	result, _, err := Ask(context.Background(), nil, AskInput{Query: "producer", Ref: unknownHash})
+	result, _, err := Ask(context.Background(), nil, AskRequest{Query: "producer", Ref: unknownHash})
 	if err != nil {
 		t.Fatalf("expected a tool-level error, not a Go error: %v", err)
 	}
@@ -1102,7 +1102,7 @@ func TestPublish_RefusesToCommitSigningKey(t *testing.T) {
 	r.Use(t)
 	before := r.HeadSHA(t)
 
-	result, out, err := Publish(context.Background(), nil, PublishInput{
+	result, out, err := Publish(context.Background(), nil, PublishRequest{
 		Outputs: []string{"keys/session-1.key"},
 		Cmd:     "cat keys/session-1.key",
 	})
@@ -1128,7 +1128,7 @@ func TestPublish_RefusesLeadingDashOutput(t *testing.T) {
 	r.Use(t)
 	before := r.HeadSHA(t)
 
-	result, out, err := Publish(context.Background(), nil, PublishInput{
+	result, out, err := Publish(context.Background(), nil, PublishRequest{
 		Outputs: []string{"-f", "."},
 		Cmd:     "echo pwned",
 	})
@@ -1177,7 +1177,7 @@ func TestConfigGuard_DoesNotBindToAnAncestorsConfig(t *testing.T) {
 	}
 	t.Setenv("COCKPIT_REPO_DIR", stray)
 
-	result, _, err := Ask(context.Background(), nil, AskInput{Query: "producer", Ref: unknownHash})
+	result, _, err := Ask(context.Background(), nil, AskRequest{Query: "producer", Ref: unknownHash})
 	if err != nil {
 		t.Fatalf("expected a tool-level error, not a Go error: %v", err)
 	}
@@ -1199,7 +1199,7 @@ func TestConfigGuard_ResolvesFromASubdirectoryOfTheRepo(t *testing.T) {
 	}
 	t.Setenv("COCKPIT_REPO_DIR", sub)
 
-	result, _, err := Ask(context.Background(), nil, AskInput{Query: "producer", Ref: unknownHash})
+	result, _, err := Ask(context.Background(), nil, AskRequest{Query: "producer", Ref: unknownHash})
 	if err != nil {
 		t.Fatalf("Ask returned a Go error: %v", err)
 	}
@@ -1218,7 +1218,7 @@ func TestLocalMode_RefusedInsideAGitRepoWithARemote(t *testing.T) {
 	r.WriteConfig(t, raw)
 	r.Use(t)
 
-	result, _, err := Ask(context.Background(), nil, AskInput{Query: "producer", Ref: unknownHash})
+	result, _, err := Ask(context.Background(), nil, AskRequest{Query: "producer", Ref: unknownHash})
 	if err != nil {
 		t.Fatalf("expected a tool-level error, not a Go error: %v", err)
 	}
@@ -1271,7 +1271,7 @@ func TestConfig_RefusesSettingsThatWouldDiscloseOrOverwrite(t *testing.T) {
 			r.WriteConfig(t, raw)
 			r.Use(t)
 
-			result, _, err := Ask(context.Background(), nil, AskInput{Query: "producer", Ref: unknownHash})
+			result, _, err := Ask(context.Background(), nil, AskRequest{Query: "producer", Ref: unknownHash})
 			if err != nil {
 				t.Fatalf("expected a tool-level error, not a Go error: %v", err)
 			}
@@ -1297,7 +1297,7 @@ func TestAsk_RefusesASelfDeclaredReproductionCount(t *testing.T) {
 	raw.Trust.Tiers = map[string][]string{"self": {}}
 	r.WriteConfig(t, raw)
 
-	result, _, err := Ask(context.Background(), nil, AskInput{
+	result, _, err := Ask(context.Background(), nil, AskRequest{
 		Query: "reproductions", Ref: pub.OutputHashes["data/out.csv"],
 	})
 	if err != nil {
@@ -1317,7 +1317,7 @@ func TestAsk_RefusesAnUnknownTrustTierName(t *testing.T) {
 	r := testrepo.New(t)
 	r.Use(t)
 
-	result, _, err := Ask(context.Background(), nil, AskInput{
+	result, _, err := Ask(context.Background(), nil, AskRequest{
 		Query: "producer", Ref: unknownHash, Filter: &AskFilter{TrustTier: "sef"},
 	})
 	if err != nil {
@@ -1341,15 +1341,15 @@ func TestAsk_FilterDimensionsNarrowAndAreValidated(t *testing.T) {
 	claimID := sayWorkingOn(t, pub.FotonID)
 
 	// The keyid that actually signed the claim, taken from the record rather than recomputed.
-	_, about, err := Ask(context.Background(), nil, AskInput{Query: "about", Ref: pub.FotonID})
+	_, about, err := Ask(context.Background(), nil, AskRequest{Query: "about", Ref: pub.FotonID})
 	if err != nil || len(about.Claims) == 0 {
 		t.Fatalf("could not read the claim back: err=%v claims=%+v", err, about.Claims)
 	}
 	signer := about.Claims[0].SignatureKeyIDs[0]
 
-	ask := func(f *AskFilter) (AskOutput, string) {
+	ask := func(f *AskFilter) (AskResult, string) {
 		t.Helper()
-		result, out, err := Ask(context.Background(), nil, AskInput{Query: "about", Ref: pub.FotonID, Filter: f})
+		result, out, err := Ask(context.Background(), nil, AskRequest{Query: "about", Ref: pub.FotonID, Filter: f})
 		if err != nil {
 			t.Fatalf("Ask returned a Go error: %v", err)
 		}
@@ -1419,7 +1419,7 @@ func TestAsk_MinReproductionsSaysTheThresholdWasNotMet(t *testing.T) {
 	pub := publishOne(t, r)
 	hash := pub.OutputHashes["data/out.csv"]
 
-	_, met, err := Ask(context.Background(), nil, AskInput{
+	_, met, err := Ask(context.Background(), nil, AskRequest{
 		Query: "reproductions", Ref: hash, Filter: &AskFilter{MinReproductions: 1}})
 	if err != nil {
 		t.Fatal(err)
@@ -1428,7 +1428,7 @@ func TestAsk_MinReproductionsSaysTheThresholdWasNotMet(t *testing.T) {
 		t.Fatalf("one producer meets a threshold of one: %+v", met)
 	}
 
-	_, unmet, err := Ask(context.Background(), nil, AskInput{
+	_, unmet, err := Ask(context.Background(), nil, AskRequest{
 		Query: "reproductions", Ref: hash, Filter: &AskFilter{MinReproductions: 2}})
 	if err != nil {
 		t.Fatal(err)
@@ -1457,7 +1457,7 @@ func TestPublish_RefusesACorpusRecordNobodyElseHasReproduced(t *testing.T) {
 	basis := publishOne(t, r) // one producer: this repo
 	r.Write(t, "data/derived.csv", "built on the above\n")
 
-	result, _, err := Publish(context.Background(), nil, PublishInput{
+	result, _, err := Publish(context.Background(), nil, PublishRequest{
 		Inputs:  []string{"data/out.csv"},
 		Outputs: []string{"data/derived.csv"},
 		Cmd:     "derive from data/out.csv",
@@ -1477,7 +1477,7 @@ func TestPublish_RefusesACorpusRecordNobodyElseHasReproduced(t *testing.T) {
 	// something the cockpit imposes.
 	raw.Reproduction.MinReproductions = 0
 	r.WriteConfig(t, raw)
-	ok, _, err := Publish(context.Background(), nil, PublishInput{
+	ok, _, err := Publish(context.Background(), nil, PublishRequest{
 		Inputs:  []string{"data/out.csv"},
 		Outputs: []string{"data/derived.csv"},
 		Cmd:     "derive from data/out.csv",

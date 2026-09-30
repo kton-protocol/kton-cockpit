@@ -1,4 +1,4 @@
-package tools
+package cockpit
 
 import (
 	"bytes"
@@ -208,7 +208,7 @@ func TestMaterial_ClaimsCarryItToo(t *testing.T) {
 	r.Use(t)
 
 	pub := publishOne(t, r)
-	sayResult, sayOut, err := Say(context.Background(), nil, SayInput{
+	sayResult, sayOut, err := Say(context.Background(), nil, SayRequest{
 		Subject:  pub.FotonID,
 		Template: "working-on",
 		Fields:   map[string]string{"step": "analysis", "by-session": testrepo.SessionID},
@@ -220,7 +220,7 @@ func TestMaterial_ClaimsCarryItToo(t *testing.T) {
 		t.Fatalf("say failed: %+v", errText(sayResult))
 	}
 
-	askResult, askOut, err := Ask(context.Background(), nil, AskInput{Query: "about", Ref: pub.FotonID})
+	askResult, askOut, err := Ask(context.Background(), nil, AskRequest{Query: "about", Ref: pub.FotonID})
 	if err != nil {
 		t.Fatalf("Ask returned a Go error: %v", err)
 	}
@@ -246,7 +246,7 @@ func askFotonRecord(t *testing.T, outputHash, fotonID string) RecordVerification
 	if outputHash == "" {
 		t.Fatal("publish reported no hash for the output; there is nothing to ask about")
 	}
-	result, out, err := Ask(context.Background(), nil, AskInput{Query: "producer", Ref: outputHash})
+	result, out, err := Ask(context.Background(), nil, AskRequest{Query: "producer", Ref: outputHash})
 	if err != nil {
 		t.Fatalf("Ask returned a Go error: %v", err)
 	}
@@ -297,7 +297,7 @@ func TestMaterial_EvidenceOnAnExcludedRecordIsNotReported(t *testing.T) {
 		t.Fatalf("control: the record should carry its certificate unfiltered, got %+v", got.Material)
 	}
 
-	result, out, err := Ask(context.Background(), nil, AskInput{
+	result, out, err := Ask(context.Background(), nil, AskRequest{
 		Query:  "producer",
 		Ref:    pub.OutputHashes["data/out.csv"],
 		Filter: &AskFilter{TrustTier: "partners"},
@@ -471,7 +471,7 @@ func TestAsk_RawCarriesOnlyIncludedRecords(t *testing.T) {
 	// Two claims about the same subject, signed by the same key, both verifying. They differ only in
 	// whether they carry a reproduction level, which is what the filter below selects on.
 	r.Write(t, "data/rerun.csv", "id,result\n1,84\n") // byte-identical to data/out.csv
-	repResult, repOut, err := Say(context.Background(), nil, SayInput{
+	repResult, repOut, err := Say(context.Background(), nil, SayRequest{
 		Subject:           pub.FotonID,
 		Template:          "reproduces",
 		SubjectOutputHash: pub.OutputHashes["data/out.csv"],
@@ -483,7 +483,7 @@ func TestAsk_RawCarriesOnlyIncludedRecords(t *testing.T) {
 	}
 	workingID := sayWorkingOn(t, pub.FotonID)
 
-	result, out, err := Ask(context.Background(), nil, AskInput{
+	result, out, err := Ask(context.Background(), nil, AskRequest{
 		Query: "about", Ref: pub.FotonID,
 		Filter: &AskFilter{Level: "L0"},
 	})
