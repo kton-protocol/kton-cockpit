@@ -11,10 +11,14 @@ tags: [potentials, rays, packages, extraction, federation]
 
 ## Status
 
-Proposed (2026-09-30), on `jam-beta`. Steps 1 to 3 are built and pass in
-`acceptance/raute-zwei-backends` (`EXTRAKTION.md`, `KREUZ.md`). Step 4 is partly done: improvego has
-the adapter, but not yet in place of `ParameterizeStep`. The cockpit surface (step 5) waits for
-ADR-005's S5 and S6.
+Proposed (2026-09-30), on `jam-beta`. Steps 1 to 5 are built and pass in
+`acceptance/raute-zwei-backends` (`EXTRAKTION.md`, `KREUZ.md`, `REVIEW.md`):
+
+- improvego has `ProposeRay`/`ExtractRay` and the commands `ray.propose`/`ray.extract` in two new
+  sealed groups.
+- The cockpit has `ask {query: "ray"}` and `publish {kind: "ray"}` (SPEC §7.6, SPEC §9.7).
+
+What still waits for ADR-005 S5 is recording executions through `ktonpkg`'s step identity.
 
 ## Context
 
@@ -130,6 +134,12 @@ step identity.
   not be wired from itself. The Raute's first step does exactly this.
 - **Labels that exist only inside a proposal must not reach identity.** The spectrum once named the
   reference run `run-2`, which depends on how foton ids sort. It now names the run's endpoints.
+- **The order of independent steps must not depend on foton ids.** `Ray.ID` breaks ties by position
+  in the array. `Propose` once ordered independent steps by foton id, and foton ids differ between
+  backends, so the same computations gave two packages once the cockpit did the extracting. This
+  surfaced when both reviews had to name the same package. `Propose` now orders topologically and
+  breaks ties by step name. `Ray.Order` stays as it is, because changing it would move the identity
+  of every existing package.
 - **The same executions give the same computations on either backend.** A package extracted on git
   and one extracted on improve have the same ray id, the same potential per step, and the same
   action keys under the same bindings. A package extracted on one side produces the same bytes on
@@ -146,5 +156,5 @@ step identity.
 | 1 | `ktonpkg.Propose` / `ktonpkg.Extract`, unit tests on synthetic executions shaped like the Raute — **done** |
 | 2 | prototype in `acceptance/raute-zwei-backends`: run the Raute twice on the git side, extract with explicit choices, compare with the original package, realise the extracted package and hold it against its spectrum — **done** |
 | 3 | across backends: extract on one side, install and run on the other — **done** |
-| 4 | improvego on `Propose`/`Extract` instead of hand-written `ParameterizeStep` |
-| 5 | cockpit `ask ray` and `publish kind:ray`, with ADR-005 S5/S6 |
+| 4 | improvego on `Propose`/`Extract` instead of hand-written `ParameterizeStep` — **done** (`ProposeRay`/`ExtractRay`, starting from improve steps) |
+| 5 | cockpit `ask ray` and `publish kind:ray` — **done**; recording through step identity still waits for ADR-005 S5 |

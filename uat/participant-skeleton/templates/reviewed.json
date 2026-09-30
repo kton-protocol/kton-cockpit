@@ -1,0 +1,9 @@
+{
+  "name": "reviewed",
+  "target": "either",
+  "predicate": "https://scinteco.com/ns/qualification/v1#reviewed",
+  "fields": {
+    "outcome": {"type": "enum", "required": true, "values": ["accepted", "rejected"]},
+    "befund":  {"type": "string", "required": true}
+  }
+}
