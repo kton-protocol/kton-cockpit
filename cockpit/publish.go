@@ -24,8 +24,12 @@ import (
 // plain repo-relative paths and the command that was run; the cockpit owns every permalink,
 // commit, and signature.
 type PublishRequest struct {
-	Inputs  []string `json:"inputs" jsonschema:"repo-relative paths this computation consumed"`
-	Outputs []string `json:"outputs,omitempty" jsonschema:"repo-relative paths this computation produced"`
+	// Kind is what is published: a foton (the default) or, with "ray", a potential extracted from
+	// executions that already ran (ADR-006), described in Ray.
+	Kind    string      `json:"kind,omitempty" jsonschema:"empty or foton for a result; ray for a potential extracted from executions that already ran"`
+	Ray     *RayPublish `json:"ray,omitempty"`
+	Inputs  []string    `json:"inputs,omitempty" jsonschema:"repo-relative paths this computation consumed"`
+	Outputs []string    `json:"outputs,omitempty" jsonschema:"repo-relative paths this computation produced"`
 	// OutputDir names a directory whose contents after the run ARE the outputs, instead of naming
 	// them. It is only meaningful when this repo executes the command, because only then does the
 	// cockpit know what the run produced rather than what the caller believed it would.
@@ -36,7 +40,7 @@ type PublishRequest struct {
 	// earlier run would enter this record's identity and two identical runs would stop producing
 	// the same foton. An empty dedicated directory has no such file in it.
 	OutputDir string `json:"outputDir,omitempty" jsonschema:"a directory whose contents after the run are the outputs; requires execution, and must be empty beforehand"`
-	Cmd       string `json:"cmd" jsonschema:"the exact command that was run to produce the outputs"`
+	Cmd       string `json:"cmd,omitempty" jsonschema:"the exact command that was run to produce the outputs"`
 	// Corpus lists nekton claim or plankton foton refs (sha256:...) that this result's own
 	// reasoning drew on as its basis. When set, the cockpit records a small corpus manifest file
 	// as an extra foton input, so the reasoning-as-basis is itself a registered foton whose
@@ -55,7 +59,9 @@ type PublishRequest struct {
 }
 
 type PublishResult struct {
-	FotonID string `json:"fotonId"`
+	FotonID string `json:"fotonId,omitempty"`
+	// Ray reports a published ray; set only for kind "ray".
+	Ray *RayResult `json:"ray,omitempty"`
 	// omitempty matters here, not just for tidiness: without it, jsonschema-go marks this field
 	// required, and a nil map (the zero value returned on any error path) marshals to JSON null —
 	// which then fails the SDK's own output-schema validation with a confusing "type: null, want
@@ -114,6 +120,13 @@ func (c *Cockpit) Publish(ctx context.Context, in PublishRequest) (*PublishResul
 	}
 	if !cfg.Raw.Verbs.Publish {
 		return nil, refuse("verb.disabled", "SPEC §6", "publish is disabled by this repo's cockpit.config.json")
+	}
+	switch in.Kind {
+	case "", "foton":
+	case "ray":
+		return c.publishRay(ctx, cfg, in)
+	default:
+		return nil, refuse("argument", "", "unknown kind %q (must be foton or ray)", in.Kind)
 	}
 	switch {
 	case in.OutputDir != "" && len(in.Outputs) > 0:

@@ -156,7 +156,8 @@
       "properties": {
         "engine": { "type": "string", "description": "The container runtime executable. Defaults to \"docker\"." },
         "image": { "type": "string", "description": "The digest-pinned OCI reference to run in, e.g. oci://ghcr.io/org/x@sha256:<digest>. Setting it is what enables execution. A reference without a digest is refused: a tag names whatever it points at today, so running \"in that image\" would pin nothing. If environment.envRef is also set it must be this same value, since the cockpit would otherwise run in one environment and record another." },
-        "network": { "type": "boolean", "description": "Allow the container to reach the network. Default false. A run that reaches the internet depended on something the foton does not pin, so its environment claim is weaker — and inside a sandboxed agent host, where the cockpit is the session's entire surface, it is also the cheapest way out of it. cockpit_publish reports when a run was not isolated." }
+        "network": { "type": "boolean", "description": "Allow the container to reach the network. Default false. A run that reaches the internet depended on something the foton does not pin, so its environment claim is weaker — and inside a sandboxed agent host, where the cockpit is the session's entire surface, it is also the cheapest way out of it. cockpit_publish reports when a run was not isolated." },
+        "entrypoint": { "type": "string", "description": "What the image runs a command with, as the tool definition states (e.g. Rscript). Needed only to extract a ray (ADR-006): a package carries the image as its first line and leaves the interpreter to the tool, so a recorded command line must start with this word, which is dropped." }
       }
     },
     "reproduction": {

@@ -75,6 +75,22 @@ suite, and one commit. For work against an unreleased kernel, a local `replace` 
 checkout is fine on a branch; `cockpit version` and the fixture both report it as a replacement
 rather than as a version, so it cannot pass for a release.
 
+### The package format: ktonpkg, private
+
+Rays and packages (`kton-package/1`, ADR-005/ADR-006) come from `github.com/gitmick/ktonpkg`, which
+is a **private** repository. On `jam-beta` the cockpit requires it like any module, which has a
+consequence worth stating: a clean clone builds only for someone with access to gitmick.
+
+```bash
+export GOPRIVATE='github.com/gitmick/*'
+gh auth switch -u gitmick     # git fetches through `gh auth git-credential`; once, then it is cached
+go build ./...
+gh auth switch -u <your usual account>
+```
+
+CI has no such access, so a `jam-beta` build in CI would fail at the download. That is accepted
+until ktonpkg's home is decided for a release.
+
 ### The binaries that are still binaries
 
 `bin/plankton` and `bin/nekton` are still built (`bin/` is gitignored), and two things use them —

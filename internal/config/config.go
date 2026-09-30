@@ -249,6 +249,11 @@ type Execution struct {
 	// and inside a sandboxed agent host, where the cockpit is the session's entire surface, it is also
 	// the cheapest way out of it. Publishing records when this was on.
 	Network bool `json:"network,omitempty"`
+	// Entrypoint is what the image runs a command with, as its tool definition states (jam-r:
+	// `--entrypoint Rscript`). It is needed only to extract a ray (ADR-006): a package carries the
+	// image as its first line and leaves the interpreter to the tool, so the recorded shell line's
+	// leading word must be this and is dropped.
+	Entrypoint string `json:"entrypoint,omitempty"`
 }
 
 // CommitEnabled and PushEnabled answer for the whole configuration, not just the git block: with no

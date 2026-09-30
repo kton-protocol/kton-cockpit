@@ -119,7 +119,7 @@ func buildRepo(t *testing.T, local bool) *Repo {
 	// and the UAT scaffold participants from one definition rather than two that can drift.
 	skeleton := filepath.Join(cockpitRoot(t), "uat", "participant-skeleton")
 	copyFile(t, filepath.Join(skeleton, "gitignore"), filepath.Join(r.Root, ".gitignore"))
-	for _, tmpl := range []string{"reproduces.json", "working-on.json"} {
+	for _, tmpl := range []string{"reproduces.json", "working-on.json", "derived-from.json", "reviewed.json"} {
 		copyFile(t, filepath.Join(skeleton, "templates", tmpl), filepath.Join(r.Root, "templates", tmpl))
 	}
 

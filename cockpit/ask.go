@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/gitmick/ktonpkg"
 	"github.com/kton-protocol/kton-cockpit/internal/binaries"
 	"github.com/kton-protocol/kton-cockpit/internal/config"
 	"github.com/kton-protocol/kton-cockpit/internal/material"
@@ -20,8 +21,11 @@ import (
 // narrow within the trust tiers configured for this repo; it can never surface a tier or signer
 // absent from cockpit.config.json.
 type AskRequest struct {
-	Query string `json:"query" jsonschema:"one of: producer, uses, lineage, reproductions, about, by, scope"`
+	Query string `json:"query" jsonschema:"one of: record, producer, uses, lineage, reproductions, about, by, scope, ray"`
 	Ref   string `json:"ref" jsonschema:"the hash, subject, or value to query"`
+	// Refs are several endpoints at once, for query "ray": the results of the runs to extract a
+	// potential from. Only several runs show which values varied.
+	Refs []string `json:"refs,omitempty" jsonschema:"for query ray: the endpoints of several runs (hashes or files)"`
 	// Axis is required for query "by" and ignored otherwise: nekton indexes claims under three
 	// separate axes and has no combined search, so there is no defensible default to pick here.
 	Axis   string     `json:"axis,omitempty" jsonschema:"for query \"by\" only: which index to search — signer, predicate, or object"`
@@ -144,8 +148,13 @@ type AskResult struct {
 	SignerName string `json:"signerName,omitempty"`
 	// ResolvedFrom is set when ref was a file on disk and the answer is about its CONTENTS. The
 	// hash is the question the substrate actually answers; the path is how you asked it.
-	ResolvedFrom  string `json:"resolvedFrom,omitempty"`
-	FilterApplied string `json:"filterApplied"`
+	ResolvedFrom string `json:"resolvedFrom,omitempty"`
+	// Proposal is the answer to query "ray": runs, steps, and the candidates to choose from — what
+	// ktonpkg.Propose observed, with nothing decided (ADR-006).
+	Proposal *ktonpkg.Proposal `json:"proposal,omitempty"`
+	// Executions are the verified records the proposal was made from, as the adapter read them.
+	Executions    []ktonpkg.Execution `json:"executions,omitempty"`
+	FilterApplied string              `json:"filterApplied"`
 }
 
 func (c *Cockpit) Ask(ctx context.Context, in AskRequest) (*AskResult, error) {
@@ -156,7 +165,7 @@ func (c *Cockpit) Ask(ctx context.Context, in AskRequest) (*AskResult, error) {
 	if !cfg.Raw.Verbs.Ask {
 		return nil, refuse("verb.disabled", "SPEC §6", "ask is disabled by this repo's cockpit.config.json")
 	}
-	if in.Ref == "" {
+	if in.Ref == "" && len(in.Refs) == 0 {
 		return nil, refuse("argument", "", "ask requires ref (the hash, subject, or value to query)")
 	}
 
@@ -207,6 +216,8 @@ func dispatchAsk(ctx context.Context, cfg *config.Config, r *binaries.Runner, in
 		return askLineage(ctx, cfg, r, in, filter)
 	case "record":
 		return askRecord(ctx, cfg, r, in, filter)
+	case "ray":
+		return askRay(ctx, cfg, r, in, filter)
 	case "scope":
 		// The one query that asks about a STRUCTURE rather than about a record, and the only place
 		// this cockpit reaches a verdict about completeness — which kton §7.4 assigns to a consumer
@@ -220,7 +231,7 @@ func dispatchAsk(ctx context.Context, cfg *config.Config, r *binaries.Runner, in
 		out.Raw = verdict.Line()
 		return &out, nil
 	default:
-		return nil, refuse("argument", "", "unknown query %q (must be one of: record, producer, uses, lineage, reproductions, about, by, scope)", in.Query)
+		return nil, refuse("argument", "", "unknown query %q (must be one of: record, producer, uses, lineage, reproductions, about, by, scope, ray)", in.Query)
 	}
 }
 

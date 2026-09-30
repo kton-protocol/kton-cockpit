@@ -280,6 +280,22 @@ refuse a supplied value naming a different one.
 
 > **Checked by:** `TestPublish_WillNotRecordAnEnvironmentOtherThanTheOneItRanIn`.
 
+### 7.6 Publishing a ray *(optional)*
+
+`publish` with `kind: "ray"` writes a potential extracted from executions that already ran as a
+`kton-package/1` ray, and records where it came from (ADR-006).
+
+- The cockpit MUST compute the proposal again from the endpoints it is given, and MUST NOT take one
+  from the caller. A proposal passed in could name candidates that do not exist.
+- A hole or a parameter MUST be one the proposal offers; anything else is refused, and nothing is
+  written. Whatever is not chosen stays fixed.
+- The target directory MUST NOT exist. An extracted package is written new, never over an old one.
+- The package MUST be recorded by a signed claim from the ray to the executions of the reference
+  run (`prov:wasDerivedFrom`), under a template the configuration admits (SPEC §8.1).
+
+> **Checked by:** `TestRay_PublishWritesThePackageAndRecordsWhereItCameFrom`,
+> `TestRay_PublishRefusesWhatWasNotOffered`, `TestRay_PublishNeedsTheTemplateAdmitted`.
+
 ## 8 say
 
 Binds a claim to a record.
@@ -548,6 +564,22 @@ before a test caught it. Both were readings of a projection rather than of the t
 > **Known exception (0.1):** the reproduction level in §8.2 was read from a printed line until the
 > substrate gained a verdict for it. Any such exception MUST be named here and raised upstream, not
 > left implied.
+
+### 9.7 Proposing a ray
+
+`ask` with `query: "ray"` returns what `ktonpkg.Propose` observes in the executions behind one or
+more endpoints: runs, steps, wiring, file candidates and parameter candidates. It decides nothing.
+
+- Executions MUST be selected by the same path as `lineage`. Only records that verify against a
+  configured trust tier, and pass the filter, reach the proposal; that includes federated records.
+- A parameter candidate MUST come only from runs of the same step that differ at the same position
+  of the command line, never from a rule about what looks like a parameter.
+- With `execution.entrypoint` configured, a recorded command line MUST start with that word, which
+  is dropped, and the image from the record's `envRef` comes first. This is the form a package
+  carries. A command line that does not start with it is refused, not rewritten.
+
+> **Checked by:** `TestRay_TheProposalOffersWhatTheRunsShowAndDecidesNothing`,
+> `TestRay_TheAdapterTranslatesOnlyTheNamedEntrypoint`.
 
 ## 10 Execution *(optional)*
 
