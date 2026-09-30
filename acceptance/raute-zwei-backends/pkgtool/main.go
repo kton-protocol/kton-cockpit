@@ -13,6 +13,12 @@
 //	pkgtool foton <paket> <step> [--bind loch=sha256:… ...] [--output datei=pfad ...]
 //	                                                     der Step als Foton-Spec für `plankton author`: ohne Bindungen
 //	                                                     das Potential, mit Bindungen und Ausgaben eine Realisierung
+//	pkgtool propose <records.json>                       Vorschlag: Läufe, Steps, Kandidaten (ADR-006)
+//	pkgtool extract <records.json> <choice.json> <ziel> [--sign schlüssel]
+//	                                                     das gewählte Potential als Ray-Paket, mit prov:wasDerivedFrom
+//
+// records.json ist eine Liste von Antworten auf `cockpit ask {query: record}` — nur verifizierte
+// Ausführungen, weil nur die dort herauskommen.
 package main
 
 import (
@@ -28,7 +34,18 @@ import (
 
 func main() {
 	if len(os.Args) < 3 {
-		fail(1, "usage: pkgtool inspect <paket> | plan <paket> <arbeitsordner> [--no-defaults] [--bind name=wert ...]")
+		fail(1, "usage: pkgtool inspect|plan|foton|propose|extract … (siehe Kopf von main.go)")
+	}
+	switch os.Args[1] {
+	case "propose":
+		propose(os.Args[2])
+		return
+	case "extract":
+		if len(os.Args) < 5 {
+			fail(1, "extract <records.json> <choice.json> <ziel> [--sign schlüssel]")
+		}
+		extract(os.Args[2], os.Args[3], os.Args[4], os.Args[5:])
+		return
 	}
 	b, err := ktonpkg.Open(os.Args[2])
 	if err != nil {
@@ -255,9 +272,13 @@ func plan(b *ktonpkg.Bundle, work string, args []string) {
 // commandLine macht aus der improve-Befehlszeile eine Shell-Zeile. In improve ist die erste Zeile das
 // Image (die Toolinstanz) und `<command-file>` setzt der Server; hier läuft der Befehl im Image, das
 // die Cockpit-Konfiguration pinnt, und das Skript heißt wie sein Slot.
+//
+// Ein Paket, das aus Ausführungen extrahiert wurde, trägt die Befehlszeile so, wie sie lief — ohne
+// Image-Zeile und mit dem Interpreter vorne. Die läuft, wie sie dasteht.
 func commandLine(s *ktonpkg.Step, params map[string]string) string {
 	lines := strings.Split(ktonpkg.ResolvedArgs(s, params), "\n")
-	if len(lines) > 0 && strings.Contains(lines[0], "@sha256:") {
+	improve := len(lines) > 0 && strings.Contains(lines[0], "@sha256:")
+	if improve {
 		lines = lines[1:]
 	}
 	for i, l := range lines {
@@ -265,7 +286,10 @@ func commandLine(s *ktonpkg.Step, params map[string]string) string {
 			lines[i] = ktonpkg.CommandSlot(s)
 		}
 	}
-	return "Rscript " + strings.Join(lines, " ")
+	if improve {
+		return "Rscript " + strings.Join(lines, " ")
+	}
+	return strings.Join(lines, " ")
 }
 
 // declaredOutputs liest, was jeder Step erzeugt, aus dem Spectrum des Pakets: ein Member je Step, die

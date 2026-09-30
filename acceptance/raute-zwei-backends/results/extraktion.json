@@ -1,0 +1,1252 @@
+{
+  "ranAt": "2026-09-30T15:21:43Z",
+  "steps": [
+    {
+      "phase": "second-run",
+      "id": "second-run:plan",
+      "title": "Die Raute mit ihren Vorgaben binden: Testdatensatz des Pakets, anzahl=1",
+      "actor": "ktonpkg",
+      "command": "/mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/.work/extraktion/pkgtool plan packages/raute work/raute-2",
+      "gap": "",
+      "ok": true,
+      "exit": 0,
+      "result": {
+        "bindings": {
+          "anzahl": "1",
+          "dataset": "testdaten/dataset.csv"
+        },
+        "steps": [
+          {
+            "id": "aufbereitung",
+            "dir": "work/raute-2/aufbereitung",
+            "stage": [
+              {
+                "from": "packages/raute/testdaten/dataset.csv",
+                "to": "work/raute-2/aufbereitung/dataset.csv"
+              },
+              {
+                "from": "packages/raute/steps/aufbereitung/aufbereiten.R",
+                "to": "work/raute-2/aufbereitung/aufbereiten.R"
+              }
+            ],
+            "cmd": "cd work/raute-2/aufbereitung && Rscript aufbereiten.R",
+            "inputs": [
+              "work/raute-2/aufbereitung/dataset.csv",
+              "work/raute-2/aufbereitung/aufbereiten.R"
+            ],
+            "outputs": [
+              "work/raute-2/aufbereitung/daten.txt"
+            ]
+          },
+          {
+            "id": "zweig-c",
+            "dir": "work/raute-2/zweig-c",
+            "stage": [
+              {
+                "from": "work/raute-2/aufbereitung/daten.txt",
+                "to": "work/raute-2/zweig-c/daten.txt"
+              },
+              {
+                "from": "packages/raute/steps/zweig-c/zweigC.R",
+                "to": "work/raute-2/zweig-c/zweigC.R"
+              }
+            ],
+            "cmd": "cd work/raute-2/zweig-c && Rscript zweigC.R",
+            "inputs": [
+              "work/raute-2/zweig-c/daten.txt",
+              "work/raute-2/zweig-c/zweigC.R"
+            ],
+            "outputs": [
+              "work/raute-2/zweig-c/c.txt"
+            ]
+          },
+          {
+            "id": "zweig-b",
+            "dir": "work/raute-2/zweig-b",
+            "stage": [
+              {
+                "from": "packages/raute/steps/zweig-b/zweigB.R",
+                "to": "work/raute-2/zweig-b/zweigB.R"
+              },
+              {
+                "from": "work/raute-2/aufbereitung/daten.txt",
+                "to": "work/raute-2/zweig-b/daten.txt"
+              }
+            ],
+            "params": {
+              "anzahl": "1"
+            },
+            "cmd": "cd work/raute-2/zweig-b && Rscript zweigB.R 1",
+            "inputs": [
+              "work/raute-2/zweig-b/zweigB.R",
+              "work/raute-2/zweig-b/daten.txt"
+            ],
+            "outputs": [
+              "work/raute-2/zweig-b/b.txt"
+            ]
+          },
+          {
+            "id": "zusammenführung",
+            "dir": "work/raute-2/zusammenführung",
+            "stage": [
+              {
+                "from": "packages/raute/steps/zusammenführung/zusammen.R",
+                "to": "work/raute-2/zusammenführung/zusammen.R"
+              },
+              {
+                "from": "work/raute-2/zweig-b/b.txt",
+                "to": "work/raute-2/zusammenführung/b.txt"
+              },
+              {
+                "from": "work/raute-2/zweig-c/c.txt",
+                "to": "work/raute-2/zusammenführung/c.txt"
+              }
+            ],
+            "cmd": "cd work/raute-2/zusammenführung && Rscript zusammen.R",
+            "inputs": [
+              "work/raute-2/zusammenführung/zusammen.R",
+              "work/raute-2/zusammenführung/b.txt",
+              "work/raute-2/zusammenführung/c.txt"
+            ],
+            "outputs": [
+              "work/raute-2/zusammenführung/ergebnis.txt"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "phase": "second-run",
+      "id": "second-run:aufbereitung",
+      "title": "Step aufbereitung im gepinnten jam-r-Image ausführen und als Foton veröffentlichen",
+      "actor": "cockpit",
+      "command": "./bin/cockpit publish '{\"cmd\": \"cd work/raute-2/aufbereitung && Rscript aufbereiten.R\", \"inputs\": [\"work/raute-2/aufbereitung/dataset.csv\", \"work/raute-2/aufbereitung/aufbereiten.R\"], \"outputs\": [\"work/raute-2/aufbereitung/daten.txt\"]}'",
+      "gap": "S5: heute ein publish je Step mit ausgeschriebenem Befehl; im Zielbild realisiert das Cockpit das Potential selbst",
+      "ok": true,
+      "exit": 0,
+      "result": {
+        "fotonId": "sha256:658fa62dacbfc541bf68a76137c0a3e2ffa65866356680eff5ff4559710673f2",
+        "outputHashes": {
+          "work/raute-2/aufbereitung/daten.txt": "sha256:e80079e56ed5e01f9def48b233c4cdfc9893f30720659c8d4a662025a82eb6f5"
+        },
+        "commitSha": "e8223869c3c29e040628064abe9821b8e6961364",
+        "permalinks": {
+          "work/raute-2/aufbereitung/aufbereiten.R": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/e8223869c3c29e040628064abe9821b8e6961364/work/raute-2/aufbereitung/aufbereiten.R",
+          "work/raute-2/aufbereitung/dataset.csv": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/e8223869c3c29e040628064abe9821b8e6961364/work/raute-2/aufbereitung/dataset.csv",
+          "work/raute-2/aufbereitung/daten.txt": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/e8223869c3c29e040628064abe9821b8e6961364/work/raute-2/aufbereitung/daten.txt"
+        },
+        "envRef": "oci://docker.io/scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a",
+        "executedIn": "oci://docker.io/scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a",
+        "committed": true,
+        "pushed": true
+      }
+    },
+    {
+      "phase": "second-run",
+      "id": "second-run:zweig-c",
+      "title": "Step zweig-c im gepinnten jam-r-Image ausführen und als Foton veröffentlichen",
+      "actor": "cockpit",
+      "command": "./bin/cockpit publish '{\"cmd\": \"cd work/raute-2/zweig-c && Rscript zweigC.R\", \"inputs\": [\"work/raute-2/zweig-c/daten.txt\", \"work/raute-2/zweig-c/zweigC.R\"], \"outputs\": [\"work/raute-2/zweig-c/c.txt\"]}'",
+      "gap": "S5: heute ein publish je Step mit ausgeschriebenem Befehl; im Zielbild realisiert das Cockpit das Potential selbst",
+      "ok": true,
+      "exit": 0,
+      "result": {
+        "fotonId": "sha256:5ea67ad6655d99632dd4053517d423b7a92b6de4dc1902ae6a98b9ab71fd3075",
+        "outputHashes": {
+          "work/raute-2/zweig-c/c.txt": "sha256:a227b01a340204694bb2e1b98dee5aecab5c224990528a81763abba9fd85fbb9"
+        },
+        "commitSha": "01949555e96cb570ec92308daa5e858aff5e198c",
+        "permalinks": {
+          "work/raute-2/zweig-c/c.txt": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/01949555e96cb570ec92308daa5e858aff5e198c/work/raute-2/zweig-c/c.txt",
+          "work/raute-2/zweig-c/daten.txt": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/01949555e96cb570ec92308daa5e858aff5e198c/work/raute-2/zweig-c/daten.txt",
+          "work/raute-2/zweig-c/zweigC.R": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/01949555e96cb570ec92308daa5e858aff5e198c/work/raute-2/zweig-c/zweigC.R"
+        },
+        "envRef": "oci://docker.io/scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a",
+        "executedIn": "oci://docker.io/scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a",
+        "committed": true,
+        "pushed": true
+      }
+    },
+    {
+      "phase": "second-run",
+      "id": "second-run:zweig-b",
+      "title": "Step zweig-b im gepinnten jam-r-Image ausführen und als Foton veröffentlichen",
+      "actor": "cockpit",
+      "command": "./bin/cockpit publish '{\"cmd\": \"cd work/raute-2/zweig-b && Rscript zweigB.R 1\", \"inputs\": [\"work/raute-2/zweig-b/zweigB.R\", \"work/raute-2/zweig-b/daten.txt\"], \"outputs\": [\"work/raute-2/zweig-b/b.txt\"]}'",
+      "gap": "S5: heute ein publish je Step mit ausgeschriebenem Befehl; im Zielbild realisiert das Cockpit das Potential selbst",
+      "ok": true,
+      "exit": 0,
+      "result": {
+        "fotonId": "sha256:3d517825234113f0bed5d5f9251693b4ae1a8ffe5a2e20d6cba6bfa1755a2d62",
+        "outputHashes": {
+          "work/raute-2/zweig-b/b.txt": "sha256:50c88b03c160027d51d2049c66606ba55ac58f117432cc928c59fa6a240b9346"
+        },
+        "commitSha": "fd325669f1d0046efe13cf39c8217ca2cb377e96",
+        "permalinks": {
+          "work/raute-2/zweig-b/b.txt": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/fd325669f1d0046efe13cf39c8217ca2cb377e96/work/raute-2/zweig-b/b.txt",
+          "work/raute-2/zweig-b/daten.txt": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/fd325669f1d0046efe13cf39c8217ca2cb377e96/work/raute-2/zweig-b/daten.txt",
+          "work/raute-2/zweig-b/zweigB.R": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/fd325669f1d0046efe13cf39c8217ca2cb377e96/work/raute-2/zweig-b/zweigB.R"
+        },
+        "envRef": "oci://docker.io/scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a",
+        "executedIn": "oci://docker.io/scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a",
+        "committed": true,
+        "pushed": true
+      }
+    },
+    {
+      "phase": "second-run",
+      "id": "second-run:zusammenführung",
+      "title": "Step zusammenführung im gepinnten jam-r-Image ausführen und als Foton veröffentlichen",
+      "actor": "cockpit",
+      "command": "./bin/cockpit publish '{\"cmd\": \"cd work/raute-2/zusammenführung && Rscript zusammen.R\", \"inputs\": [\"work/raute-2/zusammenführung/zusammen.R\", \"work/raute-2/zusammenführung/b.txt\", \"work/raute-2/zusammenführung/c.txt\"], \"outputs\": [\"work/raute-2/zusammenführung/ergebnis.txt\"]}'",
+      "gap": "S5: heute ein publish je Step mit ausgeschriebenem Befehl; im Zielbild realisiert das Cockpit das Potential selbst",
+      "ok": true,
+      "exit": 0,
+      "result": {
+        "fotonId": "sha256:dce6358c9f52cf68fcb656038379124f0568fdb93cfb73f8d08ab3bc47bea4e5",
+        "outputHashes": {
+          "work/raute-2/zusammenführung/ergebnis.txt": "sha256:7271b8778cd92fb7b3767e9a9f093124629d786f8f7cb418a2217efec2a65019"
+        },
+        "commitSha": "e481a759111a09b7c7b5ef5e5604da89952ce762",
+        "permalinks": {
+          "work/raute-2/zusammenführung/b.txt": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/e481a759111a09b7c7b5ef5e5604da89952ce762/work/raute-2/zusammenführung/b.txt",
+          "work/raute-2/zusammenführung/c.txt": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/e481a759111a09b7c7b5ef5e5604da89952ce762/work/raute-2/zusammenführung/c.txt",
+          "work/raute-2/zusammenführung/ergebnis.txt": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/e481a759111a09b7c7b5ef5e5604da89952ce762/work/raute-2/zusammenführung/ergebnis.txt",
+          "work/raute-2/zusammenführung/zusammen.R": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/e481a759111a09b7c7b5ef5e5604da89952ce762/work/raute-2/zusammenführung/zusammen.R"
+        },
+        "envRef": "oci://docker.io/scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a",
+        "executedIn": "oci://docker.io/scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a",
+        "committed": true,
+        "pushed": true
+      }
+    },
+    {
+      "phase": "select",
+      "id": "select:raute",
+      "title": "Vom Ergebnis des Laufs raute rückwärts: die Linie, nur gegen die Vertrauensstufen verifizierte Fotons",
+      "actor": "cockpit",
+      "command": "./bin/cockpit ask '{\"query\":\"lineage\",\"ref\":\"work/raute/zusammenführung/ergebnis.txt\"}' --field included",
+      "gap": "",
+      "ok": true,
+      "exit": 0,
+      "result": [
+        "sha256:b45494f6cbcbcb405c7417f1e9b9c589b6af14dfca262a1db1850774b6e3d262",
+        "sha256:8aade9fc2f7c7913a30e075c9df99713fe03f76f6a3c15e5b2262790b5ba28cb",
+        "sha256:4afc54a1d6f2b61bd58c33a93ef22b2dd5283a80378378602398a4249bc4c99c",
+        "sha256:bc72f4dbdaa329516bcbc9821781dc493422bf069d66b7a9dd23404e19860437"
+      ]
+    },
+    {
+      "phase": "select",
+      "id": "select:raute-2",
+      "title": "Vom Ergebnis des Laufs raute-2 rückwärts: die Linie, nur gegen die Vertrauensstufen verifizierte Fotons",
+      "actor": "cockpit",
+      "command": "./bin/cockpit ask '{\"query\":\"lineage\",\"ref\":\"work/raute-2/zusammenführung/ergebnis.txt\"}' --field included",
+      "gap": "",
+      "ok": true,
+      "exit": 0,
+      "result": [
+        "sha256:dce6358c9f52cf68fcb656038379124f0568fdb93cfb73f8d08ab3bc47bea4e5",
+        "sha256:3d517825234113f0bed5d5f9251693b4ae1a8ffe5a2e20d6cba6bfa1755a2d62",
+        "sha256:658fa62dacbfc541bf68a76137c0a3e2ffa65866356680eff5ff4559710673f2",
+        "sha256:5ea67ad6655d99632dd4053517d423b7a92b6de4dc1902ae6a98b9ab71fd3075"
+      ]
+    },
+    {
+      "phase": "select",
+      "id": "select:records",
+      "title": "Jede ausgewählte Ausführung im Einzelnen: Befehl, Umgebung, Ein- und Ausgaben (je ein cockpit ask record)",
+      "actor": "cockpit",
+      "command": "python3 /mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/records.py /mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/.work/extraktion/ids.txt /mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/.work/extraktion/records.json",
+      "gap": "",
+      "ok": true,
+      "exit": 0,
+      "result": {
+        "records": 8,
+        "ids": [
+          "sha256:3d517825234113f0bed5d5f9251693b4ae1a8ffe5a2e20d6cba6bfa1755a2d62",
+          "sha256:4afc54a1d6f2b61bd58c33a93ef22b2dd5283a80378378602398a4249bc4c99c",
+          "sha256:5ea67ad6655d99632dd4053517d423b7a92b6de4dc1902ae6a98b9ab71fd3075",
+          "sha256:658fa62dacbfc541bf68a76137c0a3e2ffa65866356680eff5ff4559710673f2",
+          "sha256:8aade9fc2f7c7913a30e075c9df99713fe03f76f6a3c15e5b2262790b5ba28cb",
+          "sha256:b45494f6cbcbcb405c7417f1e9b9c589b6af14dfca262a1db1850774b6e3d262",
+          "sha256:bc72f4dbdaa329516bcbc9821781dc493422bf069d66b7a9dd23404e19860437",
+          "sha256:dce6358c9f52cf68fcb656038379124f0568fdb93cfb73f8d08ab3bc47bea4e5"
+        ],
+        "stderr": "./bin/cockpit ask '{\"query\": \"record\", \"ref\": \"sha256:3d517825234113f0bed5d5f9251693b4ae1a8ffe5a2e20d6cba6bfa1755a2d62\"}'\n./bin/cockpit ask '{\"query\": \"record\", \"ref\": \"sha256:4afc54a1d6f2b61bd58c33a93ef22b2dd5283a80378378602398a4249bc4c99c\"}'\n./bin/cockpit ask '{\"query\": \"record\", \"ref\": \"sha256:5ea67ad6655d99632dd4053517d423b7a92b6de4dc1902ae6a98b9ab71fd3075\"}'\n./bin/cockpit ask '{\"query\": \"record\", \"ref\": \"sha256:658fa62dacbfc541bf68a76137c0a3e2ffa65866356680eff5ff4559710673f2\"}'\n./bin/cockpit ask '{\"query\": \"record\", \"ref\": \"sha256:8aade9fc2f7c7913a30e075c9df99713fe03f76f6a3c15e5b2262790b5ba28cb\"}'\n./bin/cockpit ask '{\"query\": \"record\", \"ref\": \"sha256:b45494f6cbcbcb405c7417f1e9b9c589b6af14dfca262a1db1850774b6e3d262\"}'\n./bin/cockpit ask '{\"query\": \"record\", \"ref\": \"sha256:bc72f4dbdaa329516bcbc9821781dc493422bf069d66b7a9dd23404e19860437\"}'\n./bin/cockpit ask '{\"query\": \"record\", \"ref\": \"sha256:dce6358c9f52cf68fcb656038379124f0568fdb93cfb73f8d08ab3bc47bea4e5\"}'"
+      }
+    },
+    {
+      "phase": "propose",
+      "id": "propose",
+      "title": "Vorschlag: Läufe, Steps, Verdrahtung und die Kandidaten — beobachtet, nicht entschieden",
+      "actor": "ktonpkg",
+      "command": "/mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/.work/extraktion/pkgtool propose /mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/.work/extraktion/records.json",
+      "gap": "S5/S6: im Zielbild cockpit ask {query: ray}",
+      "ok": true,
+      "exit": 0,
+      "result": {
+        "runs": [
+          {
+            "id": "run-1",
+            "executions": [
+              "sha256:3d517825234113f0bed5d5f9251693b4ae1a8ffe5a2e20d6cba6bfa1755a2d62",
+              "sha256:5ea67ad6655d99632dd4053517d423b7a92b6de4dc1902ae6a98b9ab71fd3075",
+              "sha256:658fa62dacbfc541bf68a76137c0a3e2ffa65866356680eff5ff4559710673f2",
+              "sha256:dce6358c9f52cf68fcb656038379124f0568fdb93cfb73f8d08ab3bc47bea4e5"
+            ],
+            "endpoints": [
+              "sha256:7271b8778cd92fb7b3767e9a9f093124629d786f8f7cb418a2217efec2a65019"
+            ]
+          },
+          {
+            "id": "run-2",
+            "executions": [
+              "sha256:4afc54a1d6f2b61bd58c33a93ef22b2dd5283a80378378602398a4249bc4c99c",
+              "sha256:8aade9fc2f7c7913a30e075c9df99713fe03f76f6a3c15e5b2262790b5ba28cb",
+              "sha256:b45494f6cbcbcb405c7417f1e9b9c589b6af14dfca262a1db1850774b6e3d262",
+              "sha256:bc72f4dbdaa329516bcbc9821781dc493422bf069d66b7a9dd23404e19860437"
+            ],
+            "endpoints": [
+              "sha256:44d419866f5a847c591f1c4a3f9e46ff6416985c1b57840413d986ba60ba01e1"
+            ]
+          }
+        ],
+        "steps": [
+          {
+            "id": "aufbereitung",
+            "executions": {
+              "run-1": "sha256:658fa62dacbfc541bf68a76137c0a3e2ffa65866356680eff5ff4559710673f2",
+              "run-2": "sha256:4afc54a1d6f2b61bd58c33a93ef22b2dd5283a80378378602398a4249bc4c99c"
+            },
+            "commandFile": "aufbereiten.R",
+            "inputs": [
+              {
+                "slot": "aufbereiten.R"
+              },
+              {
+                "slot": "dataset.csv"
+              }
+            ],
+            "outputs": [
+              "daten.txt"
+            ]
+          },
+          {
+            "id": "zweig-b",
+            "executions": {
+              "run-1": "sha256:3d517825234113f0bed5d5f9251693b4ae1a8ffe5a2e20d6cba6bfa1755a2d62",
+              "run-2": "sha256:8aade9fc2f7c7913a30e075c9df99713fe03f76f6a3c15e5b2262790b5ba28cb"
+            },
+            "commandFile": "zweigB.R",
+            "inputs": [
+              {
+                "slot": "daten.txt",
+                "upstream": "aufbereitung:daten.txt"
+              },
+              {
+                "slot": "zweigB.R"
+              }
+            ],
+            "outputs": [
+              "b.txt"
+            ]
+          },
+          {
+            "id": "zweig-c",
+            "executions": {
+              "run-1": "sha256:5ea67ad6655d99632dd4053517d423b7a92b6de4dc1902ae6a98b9ab71fd3075",
+              "run-2": "sha256:bc72f4dbdaa329516bcbc9821781dc493422bf069d66b7a9dd23404e19860437"
+            },
+            "commandFile": "zweigC.R",
+            "inputs": [
+              {
+                "slot": "daten.txt",
+                "upstream": "aufbereitung:daten.txt"
+              },
+              {
+                "slot": "zweigC.R"
+              }
+            ],
+            "outputs": [
+              "c.txt"
+            ]
+          },
+          {
+            "id": "zusammenführung",
+            "executions": {
+              "run-1": "sha256:dce6358c9f52cf68fcb656038379124f0568fdb93cfb73f8d08ab3bc47bea4e5",
+              "run-2": "sha256:b45494f6cbcbcb405c7417f1e9b9c589b6af14dfca262a1db1850774b6e3d262"
+            },
+            "commandFile": "zusammen.R",
+            "inputs": [
+              {
+                "slot": "b.txt",
+                "upstream": "zweig-b:b.txt"
+              },
+              {
+                "slot": "c.txt",
+                "upstream": "zweig-c:c.txt"
+              },
+              {
+                "slot": "zusammen.R"
+              }
+            ],
+            "outputs": [
+              "ergebnis.txt"
+            ]
+          }
+        ],
+        "files": [
+          {
+            "step": "aufbereitung",
+            "slot": "aufbereiten.R",
+            "commandFile": true,
+            "hashes": {
+              "run-1": "sha256:7a667219a89e0f5d4ecfbedfb206082e3b1693fefee9a9e7f09b4a3492ae90d0",
+              "run-2": "sha256:7a667219a89e0f5d4ecfbedfb206082e3b1693fefee9a9e7f09b4a3492ae90d0"
+            }
+          },
+          {
+            "step": "aufbereitung",
+            "slot": "dataset.csv",
+            "hashes": {
+              "run-1": "sha256:e80079e56ed5e01f9def48b233c4cdfc9893f30720659c8d4a662025a82eb6f5",
+              "run-2": "sha256:ab0a3a6253897602cb84d4592293e905714a017ec4333254ca80b836780df12b"
+            }
+          },
+          {
+            "step": "zweig-b",
+            "slot": "zweigB.R",
+            "commandFile": true,
+            "hashes": {
+              "run-1": "sha256:c8643db6360a8e1e4f0a2f7e643ff1da5163c088b690e9c1a5621a7f0ac9ed62",
+              "run-2": "sha256:c8643db6360a8e1e4f0a2f7e643ff1da5163c088b690e9c1a5621a7f0ac9ed62"
+            }
+          },
+          {
+            "step": "zweig-c",
+            "slot": "zweigC.R",
+            "commandFile": true,
+            "hashes": {
+              "run-1": "sha256:f182205e0308596bdf69f0dcfd1c20f1df535165362144ba13e9103320fd0293",
+              "run-2": "sha256:f182205e0308596bdf69f0dcfd1c20f1df535165362144ba13e9103320fd0293"
+            }
+          },
+          {
+            "step": "zusammenführung",
+            "slot": "zusammen.R",
+            "commandFile": true,
+            "hashes": {
+              "run-1": "sha256:86368fd1efca1fdbee0296735346f74462ef4e459a9335f60440a1eb8dd82ea0",
+              "run-2": "sha256:86368fd1efca1fdbee0296735346f74462ef4e459a9335f60440a1eb8dd82ea0"
+            }
+          }
+        ],
+        "params": [
+          {
+            "step": "zweig-b",
+            "position": 2,
+            "values": {
+              "run-1": "1",
+              "run-2": "3"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "phase": "choose",
+      "id": "choose",
+      "title": "Ausdrücklich gewählt: dataset als Loch, anzahl als Parameter, Referenz der Lauf mit eigene-daten.csv",
+      "actor": "script",
+      "command": "cat /mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/.work/extraktion/choice.json",
+      "gap": "S5/S6: im Zielbild die Auswahl in cockpit publish {kind: ray, choose}",
+      "ok": true,
+      "exit": 0,
+      "result": {
+        "name": "raute-extrahiert",
+        "reference": "run-2",
+        "holes": [
+          {
+            "name": "dataset",
+            "step": "aufbereitung",
+            "slot": "dataset.csv"
+          }
+        ],
+        "params": [
+          {
+            "name": "anzahl",
+            "step": "zweig-b",
+            "position": 2
+          }
+        ],
+        "requires": [
+          {
+            "kind": "tool",
+            "spectrum": "sha256:e0669ff3f8f756868721fe603e72ee1243e93805b3cf422affd261dc311a8bee",
+            "name": "jam-r"
+          }
+        ]
+      }
+    },
+    {
+      "phase": "extract",
+      "id": "extract",
+      "title": "Extrahieren: Ray-Paket mit Testdaten und Spectrum aus dem Referenzlauf, prov:wasDerivedFrom signiert",
+      "actor": "ktonpkg",
+      "command": "/mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/.work/extraktion/pkgtool extract /mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/.work/extraktion/records.json /mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/.work/extraktion/choice.json packages/raute-extrahiert --sign /mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/.work/extraktion/extraktion.key",
+      "gap": "S5/S6: im Zielbild cockpit publish {kind: ray}",
+      "ok": true,
+      "exit": 0,
+      "result": {
+        "bundleId": "sha256:c73eae946925306b8eaa169e0f352031e7c53ec9dff00d63e8ad2be4e65b0df5",
+        "derivedFrom": [
+          "sha256:4afc54a1d6f2b61bd58c33a93ef22b2dd5283a80378378602398a4249bc4c99c",
+          "sha256:8aade9fc2f7c7913a30e075c9df99713fe03f76f6a3c15e5b2262790b5ba28cb",
+          "sha256:b45494f6cbcbcb405c7417f1e9b9c589b6af14dfca262a1db1850774b6e3d262",
+          "sha256:bc72f4dbdaa329516bcbc9821781dc493422bf069d66b7a9dd23404e19860437"
+        ],
+        "package": "packages/raute-extrahiert",
+        "problems": null,
+        "rayId": "sha256:4f3864cdd87063f191af4d6c4ccb1899ad17c2b882ab231ede8f40654d4f6797"
+      }
+    },
+    {
+      "phase": "extract",
+      "id": "extract:inspect",
+      "title": "Das extrahierte Paket öffnen und prüfen",
+      "actor": "ktonpkg",
+      "command": "/mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/.work/extraktion/pkgtool inspect packages/raute-extrahiert",
+      "gap": "",
+      "ok": true,
+      "exit": 0,
+      "result": {
+        "bundleId": "sha256:c73eae946925306b8eaa169e0f352031e7c53ec9dff00d63e8ad2be4e65b0df5",
+        "format": "kton-package/1",
+        "holes": [
+          {
+            "name": "anzahl",
+            "step": "zweig-b",
+            "param": "anzahl",
+            "type": "param",
+            "required": true,
+            "default": "3"
+          },
+          {
+            "name": "dataset",
+            "step": "aufbereitung",
+            "slot": "dataset.csv",
+            "type": "file",
+            "required": true,
+            "default": "testdaten/dataset/dataset.csv"
+          }
+        ],
+        "kind": "ray",
+        "name": "raute-extrahiert",
+        "problems": null,
+        "rayId": "sha256:4f3864cdd87063f191af4d6c4ccb1899ad17c2b882ab231ede8f40654d4f6797",
+        "requires": [
+          {
+            "kind": "tool",
+            "spectrum": "sha256:e0669ff3f8f756868721fe603e72ee1243e93805b3cf422affd261dc311a8bee",
+            "name": "jam-r"
+          }
+        ],
+        "spectrum": {
+          "spectrum": "raute-extrahiert",
+          "of": "extrahiert aus run-2",
+          "members": [
+            {
+              "name": "aufbereitung",
+              "output": "sha256:ab0a3a6253897602cb84d4592293e905714a017ec4333254ca80b836780df12b"
+            },
+            {
+              "name": "zusammenführung",
+              "output": "sha256:44d419866f5a847c591f1c4a3f9e46ff6416985c1b57840413d986ba60ba01e1"
+            },
+            {
+              "name": "zweig-b",
+              "output": "sha256:e908d8332bb7d78ee94deadbcda35d4525de0e85d1fe4c508a5668d5520e7a31"
+            },
+            {
+              "name": "zweig-c",
+              "output": "sha256:fb76c5fd07819ff96996d189cd08fe52c64894e55d3dba89eebbebb495f60739"
+            }
+          ]
+        },
+        "spectrumId": "sha256:a9d34db6e7e7e5fb6d834dbd9bae505d8d3b66d7453647263d537eb3c408a35a",
+        "steps": 4,
+        "verified": true
+      }
+    },
+    {
+      "phase": "compare",
+      "id": "compare",
+      "title": "Struktur neben das Original-Paket halten: Steps, Verdrahtung, Code, Löcher, Bedingung",
+      "actor": "script",
+      "command": "python3 /mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/paketvergleich.py packages/raute packages/raute-extrahiert",
+      "gap": "",
+      "ok": true,
+      "exit": 0,
+      "result": {
+        "structureSame": true,
+        "rows": [
+          {
+            "what": "Steps",
+            "original": "aufbereitung, zusammenführung, zweig-b, zweig-c",
+            "extracted": "aufbereitung, zusammenführung, zweig-b, zweig-c",
+            "same": true,
+            "why": ""
+          },
+          {
+            "what": "Verdrahtung",
+            "original": "zusammenführung/b.txt ← zweig-b:b.txt<br>zusammenführung/c.txt ← zweig-c:c.txt<br>zweig-b/daten.txt ← aufbereitung:daten.txt<br>zweig-c/daten.txt ← aufbereitung:daten.txt",
+            "extracted": "zusammenführung/b.txt ← zweig-b:b.txt<br>zusammenführung/c.txt ← zweig-c:c.txt<br>zweig-b/daten.txt ← aufbereitung:daten.txt<br>zweig-c/daten.txt ← aufbereitung:daten.txt",
+            "same": true,
+            "why": ""
+          },
+          {
+            "what": "Code (Kommandodateien)",
+            "original": "aufbereitung: `sha256:7a667219a89e…`<br>zusammenführung: `sha256:86368fd1efca…`<br>zweig-b: `sha256:c8643db6360a…`<br>zweig-c: `sha256:f182205e0308…`",
+            "extracted": "aufbereitung: `sha256:7a667219a89e…`<br>zusammenführung: `sha256:86368fd1efca…`<br>zweig-b: `sha256:c8643db6360a…`<br>zweig-c: `sha256:f182205e0308…`",
+            "same": true,
+            "why": ""
+          },
+          {
+            "what": "Löcher",
+            "original": "anzahl: param an zweig-b/anzahl<br>dataset: file an aufbereitung/dataset.csv",
+            "extracted": "anzahl: param an zweig-b/anzahl<br>dataset: file an aufbereitung/dataset.csv",
+            "same": true,
+            "why": ""
+          },
+          {
+            "what": "Parameter am Step",
+            "original": "zweig-b: anzahl=hole:anzahl",
+            "extracted": "zweig-b: anzahl=hole:anzahl",
+            "same": true,
+            "why": ""
+          },
+          {
+            "what": "Bedingung",
+            "original": "sha256:e0669ff3f8f7…",
+            "extracted": "sha256:e0669ff3f8f7…",
+            "same": true,
+            "why": ""
+          },
+          {
+            "what": "Befehlszeile",
+            "original": "aufbereitung: `scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a ⏎ <command-file>`<br>zusammenführung: `scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a ⏎ <command-file>`<br>zweig-b: `scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a ⏎ <command-file> ⏎ <anzahl>`<br>zweig-c: `scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a ⏎ <command-file>`",
+            "extracted": "aufbereitung: `Rscript ⏎ <command-file>`<br>zusammenführung: `Rscript ⏎ <command-file>`<br>zweig-b: `Rscript ⏎ <command-file> ⏎ <anzahl>`<br>zweig-c: `Rscript ⏎ <command-file>`",
+            "same": false,
+            "why": "erwartet: improve trägt das Image, die Cockpit-Ausführung den Interpreter"
+          },
+          {
+            "what": "Vorgaben der Löcher",
+            "original": "anzahl=1<br>dataset=testdaten/dataset.csv",
+            "extracted": "anzahl=3<br>dataset=testdaten/dataset/dataset.csv",
+            "same": false,
+            "why": "erwartet: die Vorgaben kommen aus dem gewählten Referenzlauf"
+          }
+        ]
+      }
+    },
+    {
+      "phase": "roundtrip",
+      "id": "roundtrip:plan",
+      "title": "Auf seinen Vorgaben binden — das sind die Daten des Referenzlaufs",
+      "actor": "ktonpkg",
+      "command": "/mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/.work/extraktion/pkgtool plan packages/raute-extrahiert work/raute-x",
+      "gap": "",
+      "ok": true,
+      "exit": 0,
+      "result": {
+        "bindings": {
+          "anzahl": "3",
+          "dataset": "testdaten/dataset/dataset.csv"
+        },
+        "steps": [
+          {
+            "id": "aufbereitung",
+            "dir": "work/raute-x/aufbereitung",
+            "stage": [
+              {
+                "from": "packages/raute-extrahiert/steps/aufbereitung/aufbereiten.R",
+                "to": "work/raute-x/aufbereitung/aufbereiten.R"
+              },
+              {
+                "from": "packages/raute-extrahiert/testdaten/dataset/dataset.csv",
+                "to": "work/raute-x/aufbereitung/dataset.csv"
+              }
+            ],
+            "cmd": "cd work/raute-x/aufbereitung && Rscript aufbereiten.R",
+            "inputs": [
+              "work/raute-x/aufbereitung/aufbereiten.R",
+              "work/raute-x/aufbereitung/dataset.csv"
+            ],
+            "outputs": [
+              "work/raute-x/aufbereitung/daten.txt"
+            ]
+          },
+          {
+            "id": "zweig-b",
+            "dir": "work/raute-x/zweig-b",
+            "stage": [
+              {
+                "from": "work/raute-x/aufbereitung/daten.txt",
+                "to": "work/raute-x/zweig-b/daten.txt"
+              },
+              {
+                "from": "packages/raute-extrahiert/steps/zweig-b/zweigB.R",
+                "to": "work/raute-x/zweig-b/zweigB.R"
+              }
+            ],
+            "params": {
+              "anzahl": "3"
+            },
+            "cmd": "cd work/raute-x/zweig-b && Rscript zweigB.R 3",
+            "inputs": [
+              "work/raute-x/zweig-b/daten.txt",
+              "work/raute-x/zweig-b/zweigB.R"
+            ],
+            "outputs": [
+              "work/raute-x/zweig-b/b.txt"
+            ]
+          },
+          {
+            "id": "zweig-c",
+            "dir": "work/raute-x/zweig-c",
+            "stage": [
+              {
+                "from": "work/raute-x/aufbereitung/daten.txt",
+                "to": "work/raute-x/zweig-c/daten.txt"
+              },
+              {
+                "from": "packages/raute-extrahiert/steps/zweig-c/zweigC.R",
+                "to": "work/raute-x/zweig-c/zweigC.R"
+              }
+            ],
+            "cmd": "cd work/raute-x/zweig-c && Rscript zweigC.R",
+            "inputs": [
+              "work/raute-x/zweig-c/daten.txt",
+              "work/raute-x/zweig-c/zweigC.R"
+            ],
+            "outputs": [
+              "work/raute-x/zweig-c/c.txt"
+            ]
+          },
+          {
+            "id": "zusammenführung",
+            "dir": "work/raute-x/zusammenführung",
+            "stage": [
+              {
+                "from": "work/raute-x/zweig-b/b.txt",
+                "to": "work/raute-x/zusammenführung/b.txt"
+              },
+              {
+                "from": "work/raute-x/zweig-c/c.txt",
+                "to": "work/raute-x/zusammenführung/c.txt"
+              },
+              {
+                "from": "packages/raute-extrahiert/steps/zusammenführung/zusammen.R",
+                "to": "work/raute-x/zusammenführung/zusammen.R"
+              }
+            ],
+            "cmd": "cd work/raute-x/zusammenführung && Rscript zusammen.R",
+            "inputs": [
+              "work/raute-x/zusammenführung/b.txt",
+              "work/raute-x/zusammenführung/c.txt",
+              "work/raute-x/zusammenführung/zusammen.R"
+            ],
+            "outputs": [
+              "work/raute-x/zusammenführung/ergebnis.txt"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "phase": "roundtrip",
+      "id": "roundtrip:aufbereitung",
+      "title": "Step aufbereitung im gepinnten jam-r-Image ausführen und als Foton veröffentlichen",
+      "actor": "cockpit",
+      "command": "./bin/cockpit publish '{\"cmd\": \"cd work/raute-x/aufbereitung && Rscript aufbereiten.R\", \"inputs\": [\"work/raute-x/aufbereitung/aufbereiten.R\", \"work/raute-x/aufbereitung/dataset.csv\"], \"outputs\": [\"work/raute-x/aufbereitung/daten.txt\"]}'",
+      "gap": "S5: heute ein publish je Step mit ausgeschriebenem Befehl; im Zielbild realisiert das Cockpit das Potential selbst",
+      "ok": true,
+      "exit": 0,
+      "result": {
+        "fotonId": "sha256:92194802811afcc5cfc34422cbe63bec15067a5087ff15a598d661fabe8c9b9e",
+        "outputHashes": {
+          "work/raute-x/aufbereitung/daten.txt": "sha256:ab0a3a6253897602cb84d4592293e905714a017ec4333254ca80b836780df12b"
+        },
+        "commitSha": "a11021aa70da1bd8d97067425a7a65ad9d1c7c4a",
+        "permalinks": {
+          "work/raute-x/aufbereitung/aufbereiten.R": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/a11021aa70da1bd8d97067425a7a65ad9d1c7c4a/work/raute-x/aufbereitung/aufbereiten.R",
+          "work/raute-x/aufbereitung/dataset.csv": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/a11021aa70da1bd8d97067425a7a65ad9d1c7c4a/work/raute-x/aufbereitung/dataset.csv",
+          "work/raute-x/aufbereitung/daten.txt": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/a11021aa70da1bd8d97067425a7a65ad9d1c7c4a/work/raute-x/aufbereitung/daten.txt"
+        },
+        "envRef": "oci://docker.io/scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a",
+        "executedIn": "oci://docker.io/scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a",
+        "committed": true,
+        "pushed": true
+      }
+    },
+    {
+      "phase": "roundtrip",
+      "id": "roundtrip:zweig-b",
+      "title": "Step zweig-b im gepinnten jam-r-Image ausführen und als Foton veröffentlichen",
+      "actor": "cockpit",
+      "command": "./bin/cockpit publish '{\"cmd\": \"cd work/raute-x/zweig-b && Rscript zweigB.R 3\", \"inputs\": [\"work/raute-x/zweig-b/daten.txt\", \"work/raute-x/zweig-b/zweigB.R\"], \"outputs\": [\"work/raute-x/zweig-b/b.txt\"]}'",
+      "gap": "S5: heute ein publish je Step mit ausgeschriebenem Befehl; im Zielbild realisiert das Cockpit das Potential selbst",
+      "ok": true,
+      "exit": 0,
+      "result": {
+        "fotonId": "sha256:2c025866d8e13a2a43023e0b9e45459589a7a882ed79b3ebaa2786e9b5dd2e11",
+        "outputHashes": {
+          "work/raute-x/zweig-b/b.txt": "sha256:e908d8332bb7d78ee94deadbcda35d4525de0e85d1fe4c508a5668d5520e7a31"
+        },
+        "commitSha": "bf84c7e8776c68599b945cefc0b1693f4b68dfcb",
+        "permalinks": {
+          "work/raute-x/zweig-b/b.txt": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/bf84c7e8776c68599b945cefc0b1693f4b68dfcb/work/raute-x/zweig-b/b.txt",
+          "work/raute-x/zweig-b/daten.txt": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/bf84c7e8776c68599b945cefc0b1693f4b68dfcb/work/raute-x/zweig-b/daten.txt",
+          "work/raute-x/zweig-b/zweigB.R": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/bf84c7e8776c68599b945cefc0b1693f4b68dfcb/work/raute-x/zweig-b/zweigB.R"
+        },
+        "envRef": "oci://docker.io/scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a",
+        "executedIn": "oci://docker.io/scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a",
+        "committed": true,
+        "pushed": true
+      }
+    },
+    {
+      "phase": "roundtrip",
+      "id": "roundtrip:zweig-c",
+      "title": "Step zweig-c im gepinnten jam-r-Image ausführen und als Foton veröffentlichen",
+      "actor": "cockpit",
+      "command": "./bin/cockpit publish '{\"cmd\": \"cd work/raute-x/zweig-c && Rscript zweigC.R\", \"inputs\": [\"work/raute-x/zweig-c/daten.txt\", \"work/raute-x/zweig-c/zweigC.R\"], \"outputs\": [\"work/raute-x/zweig-c/c.txt\"]}'",
+      "gap": "S5: heute ein publish je Step mit ausgeschriebenem Befehl; im Zielbild realisiert das Cockpit das Potential selbst",
+      "ok": true,
+      "exit": 0,
+      "result": {
+        "fotonId": "sha256:d8accf9cede027e03ab824512ba7e300b8588441438884471483f93e5d83822c",
+        "outputHashes": {
+          "work/raute-x/zweig-c/c.txt": "sha256:fb76c5fd07819ff96996d189cd08fe52c64894e55d3dba89eebbebb495f60739"
+        },
+        "commitSha": "7c49044ced2c84c71ca338fa2fd2c67c79f9f789",
+        "permalinks": {
+          "work/raute-x/zweig-c/c.txt": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/7c49044ced2c84c71ca338fa2fd2c67c79f9f789/work/raute-x/zweig-c/c.txt",
+          "work/raute-x/zweig-c/daten.txt": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/7c49044ced2c84c71ca338fa2fd2c67c79f9f789/work/raute-x/zweig-c/daten.txt",
+          "work/raute-x/zweig-c/zweigC.R": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/7c49044ced2c84c71ca338fa2fd2c67c79f9f789/work/raute-x/zweig-c/zweigC.R"
+        },
+        "envRef": "oci://docker.io/scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a",
+        "executedIn": "oci://docker.io/scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a",
+        "committed": true,
+        "pushed": true
+      }
+    },
+    {
+      "phase": "roundtrip",
+      "id": "roundtrip:zusammenführung",
+      "title": "Step zusammenführung im gepinnten jam-r-Image ausführen und als Foton veröffentlichen",
+      "actor": "cockpit",
+      "command": "./bin/cockpit publish '{\"cmd\": \"cd work/raute-x/zusammenführung && Rscript zusammen.R\", \"inputs\": [\"work/raute-x/zusammenführung/b.txt\", \"work/raute-x/zusammenführung/c.txt\", \"work/raute-x/zusammenführung/zusammen.R\"], \"outputs\": [\"work/raute-x/zusammenführung/ergebnis.txt\"]}'",
+      "gap": "S5: heute ein publish je Step mit ausgeschriebenem Befehl; im Zielbild realisiert das Cockpit das Potential selbst",
+      "ok": true,
+      "exit": 0,
+      "result": {
+        "fotonId": "sha256:54085f14caf47facf5e9b0e9276fe815b757e8a0844544b36e7c7c789887800a",
+        "outputHashes": {
+          "work/raute-x/zusammenführung/ergebnis.txt": "sha256:44d419866f5a847c591f1c4a3f9e46ff6416985c1b57840413d986ba60ba01e1"
+        },
+        "commitSha": "0e276e753d5f5732ba92460cc6d1d82b8cc5e155",
+        "permalinks": {
+          "work/raute-x/zusammenführung/b.txt": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/0e276e753d5f5732ba92460cc6d1d82b8cc5e155/work/raute-x/zusammenführung/b.txt",
+          "work/raute-x/zusammenführung/c.txt": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/0e276e753d5f5732ba92460cc6d1d82b8cc5e155/work/raute-x/zusammenführung/c.txt",
+          "work/raute-x/zusammenführung/ergebnis.txt": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/0e276e753d5f5732ba92460cc6d1d82b8cc5e155/work/raute-x/zusammenführung/ergebnis.txt",
+          "work/raute-x/zusammenführung/zusammen.R": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/0e276e753d5f5732ba92460cc6d1d82b8cc5e155/work/raute-x/zusammenführung/zusammen.R"
+        },
+        "envRef": "oci://docker.io/scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a",
+        "executedIn": "oci://docker.io/scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a",
+        "committed": true,
+        "pushed": true
+      }
+    },
+    {
+      "phase": "roundtrip",
+      "id": "roundtrip:check",
+      "title": "Die Ausgaben gegen das Spectrum des extrahierten Pakets halten",
+      "actor": "kernel-cli",
+      "command": "PLANKTON_DIR=registry/plankton ./bin/plankton spectrum check packages/raute-extrahiert/kton/spectrum.json --candidate aufbereitung=sha256:ab0a3a6253897602cb84d4592293e905714a017ec4333254ca80b836780df12b --candidate zweig-b=sha256:e908d8332bb7d78ee94deadbcda35d4525de0e85d1fe4c508a5668d5520e7a31 --candidate zweig-c=sha256:fb76c5fd07819ff96996d189cd08fe52c64894e55d3dba89eebbebb495f60739 --candidate zusammenführung=sha256:44d419866f5a847c591f1c4a3f9e46ff6416985c1b57840413d986ba60ba01e1 ",
+      "gap": "K3: Spectrum-Prüfung nur als Kernel-CLI",
+      "ok": true,
+      "exit": 0,
+      "result": {
+        "text": "aufbereitung             fulfilled (identical)\n  zusammenführung          fulfilled (identical)\n  zweig-b                  fulfilled (identical)\n  zweig-c                  fulfilled (identical)\nspectrum \"raute-extrahiert\": 4/4 member(s) fulfilled (reproducible fact).\nthe \"validated at L0/L1\" judgment is semantics on top - record it as a claim in nekton."
+      }
+    },
+    {
+      "phase": "rebind",
+      "id": "rebind:plan",
+      "title": "Anders binden: die Daten des zweiten Laufs (Testdatensatz des Originals, anzahl=1)",
+      "actor": "ktonpkg",
+      "command": "/mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/.work/extraktion/pkgtool plan packages/raute-extrahiert work/raute-y --bind dataset=packages/raute/testdaten/dataset.csv --bind anzahl=1",
+      "gap": "",
+      "ok": true,
+      "exit": 0,
+      "result": {
+        "bindings": {
+          "anzahl": "1",
+          "dataset": "packages/raute/testdaten/dataset.csv"
+        },
+        "steps": [
+          {
+            "id": "aufbereitung",
+            "dir": "work/raute-y/aufbereitung",
+            "stage": [
+              {
+                "from": "packages/raute-extrahiert/steps/aufbereitung/aufbereiten.R",
+                "to": "work/raute-y/aufbereitung/aufbereiten.R"
+              },
+              {
+                "from": "packages/raute/testdaten/dataset.csv",
+                "to": "work/raute-y/aufbereitung/dataset.csv"
+              }
+            ],
+            "cmd": "cd work/raute-y/aufbereitung && Rscript aufbereiten.R",
+            "inputs": [
+              "work/raute-y/aufbereitung/aufbereiten.R",
+              "work/raute-y/aufbereitung/dataset.csv"
+            ],
+            "outputs": [
+              "work/raute-y/aufbereitung/daten.txt"
+            ]
+          },
+          {
+            "id": "zweig-b",
+            "dir": "work/raute-y/zweig-b",
+            "stage": [
+              {
+                "from": "work/raute-y/aufbereitung/daten.txt",
+                "to": "work/raute-y/zweig-b/daten.txt"
+              },
+              {
+                "from": "packages/raute-extrahiert/steps/zweig-b/zweigB.R",
+                "to": "work/raute-y/zweig-b/zweigB.R"
+              }
+            ],
+            "params": {
+              "anzahl": "1"
+            },
+            "cmd": "cd work/raute-y/zweig-b && Rscript zweigB.R 1",
+            "inputs": [
+              "work/raute-y/zweig-b/daten.txt",
+              "work/raute-y/zweig-b/zweigB.R"
+            ],
+            "outputs": [
+              "work/raute-y/zweig-b/b.txt"
+            ]
+          },
+          {
+            "id": "zweig-c",
+            "dir": "work/raute-y/zweig-c",
+            "stage": [
+              {
+                "from": "work/raute-y/aufbereitung/daten.txt",
+                "to": "work/raute-y/zweig-c/daten.txt"
+              },
+              {
+                "from": "packages/raute-extrahiert/steps/zweig-c/zweigC.R",
+                "to": "work/raute-y/zweig-c/zweigC.R"
+              }
+            ],
+            "cmd": "cd work/raute-y/zweig-c && Rscript zweigC.R",
+            "inputs": [
+              "work/raute-y/zweig-c/daten.txt",
+              "work/raute-y/zweig-c/zweigC.R"
+            ],
+            "outputs": [
+              "work/raute-y/zweig-c/c.txt"
+            ]
+          },
+          {
+            "id": "zusammenführung",
+            "dir": "work/raute-y/zusammenführung",
+            "stage": [
+              {
+                "from": "work/raute-y/zweig-b/b.txt",
+                "to": "work/raute-y/zusammenführung/b.txt"
+              },
+              {
+                "from": "work/raute-y/zweig-c/c.txt",
+                "to": "work/raute-y/zusammenführung/c.txt"
+              },
+              {
+                "from": "packages/raute-extrahiert/steps/zusammenführung/zusammen.R",
+                "to": "work/raute-y/zusammenführung/zusammen.R"
+              }
+            ],
+            "cmd": "cd work/raute-y/zusammenführung && Rscript zusammen.R",
+            "inputs": [
+              "work/raute-y/zusammenführung/b.txt",
+              "work/raute-y/zusammenführung/c.txt",
+              "work/raute-y/zusammenführung/zusammen.R"
+            ],
+            "outputs": [
+              "work/raute-y/zusammenführung/ergebnis.txt"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "phase": "rebind",
+      "id": "rebind:aufbereitung",
+      "title": "Step aufbereitung im gepinnten jam-r-Image ausführen und als Foton veröffentlichen",
+      "actor": "cockpit",
+      "command": "./bin/cockpit publish '{\"cmd\": \"cd work/raute-y/aufbereitung && Rscript aufbereiten.R\", \"inputs\": [\"work/raute-y/aufbereitung/aufbereiten.R\", \"work/raute-y/aufbereitung/dataset.csv\"], \"outputs\": [\"work/raute-y/aufbereitung/daten.txt\"]}'",
+      "gap": "S5: heute ein publish je Step mit ausgeschriebenem Befehl; im Zielbild realisiert das Cockpit das Potential selbst",
+      "ok": true,
+      "exit": 0,
+      "result": {
+        "fotonId": "sha256:938b1b44401d838a8b24651a5e1cd9c5f383de7c42e93621645e78e768a8d9ad",
+        "outputHashes": {
+          "work/raute-y/aufbereitung/daten.txt": "sha256:e80079e56ed5e01f9def48b233c4cdfc9893f30720659c8d4a662025a82eb6f5"
+        },
+        "commitSha": "d54a0051b6fa89b28a096966cfd08ceca9ca4843",
+        "permalinks": {
+          "work/raute-y/aufbereitung/aufbereiten.R": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/d54a0051b6fa89b28a096966cfd08ceca9ca4843/work/raute-y/aufbereitung/aufbereiten.R",
+          "work/raute-y/aufbereitung/dataset.csv": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/d54a0051b6fa89b28a096966cfd08ceca9ca4843/work/raute-y/aufbereitung/dataset.csv",
+          "work/raute-y/aufbereitung/daten.txt": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/d54a0051b6fa89b28a096966cfd08ceca9ca4843/work/raute-y/aufbereitung/daten.txt"
+        },
+        "envRef": "oci://docker.io/scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a",
+        "executedIn": "oci://docker.io/scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a",
+        "committed": true,
+        "pushed": true
+      }
+    },
+    {
+      "phase": "rebind",
+      "id": "rebind:zweig-b",
+      "title": "Step zweig-b im gepinnten jam-r-Image ausführen und als Foton veröffentlichen",
+      "actor": "cockpit",
+      "command": "./bin/cockpit publish '{\"cmd\": \"cd work/raute-y/zweig-b && Rscript zweigB.R 1\", \"inputs\": [\"work/raute-y/zweig-b/daten.txt\", \"work/raute-y/zweig-b/zweigB.R\"], \"outputs\": [\"work/raute-y/zweig-b/b.txt\"]}'",
+      "gap": "S5: heute ein publish je Step mit ausgeschriebenem Befehl; im Zielbild realisiert das Cockpit das Potential selbst",
+      "ok": true,
+      "exit": 0,
+      "result": {
+        "fotonId": "sha256:a5fdfe2afe70fba0cff1fe9d98ea9344d1835bfbdfaa67e2c053501d227584aa",
+        "outputHashes": {
+          "work/raute-y/zweig-b/b.txt": "sha256:50c88b03c160027d51d2049c66606ba55ac58f117432cc928c59fa6a240b9346"
+        },
+        "commitSha": "9c61f4cd42e2c92e283fb32787246c035eb95ff4",
+        "permalinks": {
+          "work/raute-y/zweig-b/b.txt": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/9c61f4cd42e2c92e283fb32787246c035eb95ff4/work/raute-y/zweig-b/b.txt",
+          "work/raute-y/zweig-b/daten.txt": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/9c61f4cd42e2c92e283fb32787246c035eb95ff4/work/raute-y/zweig-b/daten.txt",
+          "work/raute-y/zweig-b/zweigB.R": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/9c61f4cd42e2c92e283fb32787246c035eb95ff4/work/raute-y/zweig-b/zweigB.R"
+        },
+        "envRef": "oci://docker.io/scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a",
+        "executedIn": "oci://docker.io/scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a",
+        "committed": true,
+        "pushed": true
+      }
+    },
+    {
+      "phase": "rebind",
+      "id": "rebind:zweig-c",
+      "title": "Step zweig-c im gepinnten jam-r-Image ausführen und als Foton veröffentlichen",
+      "actor": "cockpit",
+      "command": "./bin/cockpit publish '{\"cmd\": \"cd work/raute-y/zweig-c && Rscript zweigC.R\", \"inputs\": [\"work/raute-y/zweig-c/daten.txt\", \"work/raute-y/zweig-c/zweigC.R\"], \"outputs\": [\"work/raute-y/zweig-c/c.txt\"]}'",
+      "gap": "S5: heute ein publish je Step mit ausgeschriebenem Befehl; im Zielbild realisiert das Cockpit das Potential selbst",
+      "ok": true,
+      "exit": 0,
+      "result": {
+        "fotonId": "sha256:1289f3c86f90200ecc69e3adc0fc580da498efb35b2570c0b543ff8e8e97e813",
+        "outputHashes": {
+          "work/raute-y/zweig-c/c.txt": "sha256:a227b01a340204694bb2e1b98dee5aecab5c224990528a81763abba9fd85fbb9"
+        },
+        "commitSha": "f7bfb914c6be1b7ba1a588929da139d26e757342",
+        "permalinks": {
+          "work/raute-y/zweig-c/c.txt": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/f7bfb914c6be1b7ba1a588929da139d26e757342/work/raute-y/zweig-c/c.txt",
+          "work/raute-y/zweig-c/daten.txt": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/f7bfb914c6be1b7ba1a588929da139d26e757342/work/raute-y/zweig-c/daten.txt",
+          "work/raute-y/zweig-c/zweigC.R": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/f7bfb914c6be1b7ba1a588929da139d26e757342/work/raute-y/zweig-c/zweigC.R"
+        },
+        "envRef": "oci://docker.io/scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a",
+        "executedIn": "oci://docker.io/scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a",
+        "committed": true,
+        "pushed": true
+      }
+    },
+    {
+      "phase": "rebind",
+      "id": "rebind:zusammenführung",
+      "title": "Step zusammenführung im gepinnten jam-r-Image ausführen und als Foton veröffentlichen",
+      "actor": "cockpit",
+      "command": "./bin/cockpit publish '{\"cmd\": \"cd work/raute-y/zusammenführung && Rscript zusammen.R\", \"inputs\": [\"work/raute-y/zusammenführung/b.txt\", \"work/raute-y/zusammenführung/c.txt\", \"work/raute-y/zusammenführung/zusammen.R\"], \"outputs\": [\"work/raute-y/zusammenführung/ergebnis.txt\"]}'",
+      "gap": "S5: heute ein publish je Step mit ausgeschriebenem Befehl; im Zielbild realisiert das Cockpit das Potential selbst",
+      "ok": true,
+      "exit": 0,
+      "result": {
+        "fotonId": "sha256:81f0e34c25223825e273fe013fe73982a132952db2c2e803aa9dc0c6d40d4315",
+        "outputHashes": {
+          "work/raute-y/zusammenführung/ergebnis.txt": "sha256:7271b8778cd92fb7b3767e9a9f093124629d786f8f7cb418a2217efec2a65019"
+        },
+        "commitSha": "78c5776a0863b50b21e18d2c9e43da3aa95500dc",
+        "permalinks": {
+          "work/raute-y/zusammenführung/b.txt": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/78c5776a0863b50b21e18d2c9e43da3aa95500dc/work/raute-y/zusammenführung/b.txt",
+          "work/raute-y/zusammenführung/c.txt": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/78c5776a0863b50b21e18d2c9e43da3aa95500dc/work/raute-y/zusammenführung/c.txt",
+          "work/raute-y/zusammenführung/ergebnis.txt": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/78c5776a0863b50b21e18d2c9e43da3aa95500dc/work/raute-y/zusammenführung/ergebnis.txt",
+          "work/raute-y/zusammenführung/zusammen.R": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/78c5776a0863b50b21e18d2c9e43da3aa95500dc/work/raute-y/zusammenführung/zusammen.R"
+        },
+        "envRef": "oci://docker.io/scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a",
+        "executedIn": "oci://docker.io/scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a",
+        "committed": true,
+        "pushed": true
+      }
+    }
+  ],
+  "proposal": {
+    "runs": 2,
+    "steps": [
+      "aufbereitung",
+      "zweig-b",
+      "zweig-c",
+      "zusammenführung"
+    ],
+    "files": [
+      {
+        "step": "aufbereitung",
+        "slot": "aufbereiten.R",
+        "commandFile": true,
+        "hashes": {
+          "run-1": "sha256:7a667219a89e0f5d4ecfbedfb206082e3b1693fefee9a9e7f09b4a3492ae90d0",
+          "run-2": "sha256:7a667219a89e0f5d4ecfbedfb206082e3b1693fefee9a9e7f09b4a3492ae90d0"
+        }
+      },
+      {
+        "step": "aufbereitung",
+        "slot": "dataset.csv",
+        "hashes": {
+          "run-1": "sha256:e80079e56ed5e01f9def48b233c4cdfc9893f30720659c8d4a662025a82eb6f5",
+          "run-2": "sha256:ab0a3a6253897602cb84d4592293e905714a017ec4333254ca80b836780df12b"
+        }
+      },
+      {
+        "step": "zweig-b",
+        "slot": "zweigB.R",
+        "commandFile": true,
+        "hashes": {
+          "run-1": "sha256:c8643db6360a8e1e4f0a2f7e643ff1da5163c088b690e9c1a5621a7f0ac9ed62",
+          "run-2": "sha256:c8643db6360a8e1e4f0a2f7e643ff1da5163c088b690e9c1a5621a7f0ac9ed62"
+        }
+      },
+      {
+        "step": "zweig-c",
+        "slot": "zweigC.R",
+        "commandFile": true,
+        "hashes": {
+          "run-1": "sha256:f182205e0308596bdf69f0dcfd1c20f1df535165362144ba13e9103320fd0293",
+          "run-2": "sha256:f182205e0308596bdf69f0dcfd1c20f1df535165362144ba13e9103320fd0293"
+        }
+      },
+      {
+        "step": "zusammenführung",
+        "slot": "zusammen.R",
+        "commandFile": true,
+        "hashes": {
+          "run-1": "sha256:86368fd1efca1fdbee0296735346f74462ef4e459a9335f60440a1eb8dd82ea0",
+          "run-2": "sha256:86368fd1efca1fdbee0296735346f74462ef4e459a9335f60440a1eb8dd82ea0"
+        }
+      }
+    ],
+    "params": [
+      {
+        "step": "zweig-b",
+        "position": 2,
+        "values": {
+          "run-1": "1",
+          "run-2": "3"
+        }
+      }
+    ],
+    "conflicts": []
+  },
+  "compare": {
+    "structureSame": true,
+    "rows": [
+      {
+        "what": "Steps",
+        "original": "aufbereitung, zusammenführung, zweig-b, zweig-c",
+        "extracted": "aufbereitung, zusammenführung, zweig-b, zweig-c",
+        "same": true,
+        "why": ""
+      },
+      {
+        "what": "Verdrahtung",
+        "original": "zusammenführung/b.txt ← zweig-b:b.txt<br>zusammenführung/c.txt ← zweig-c:c.txt<br>zweig-b/daten.txt ← aufbereitung:daten.txt<br>zweig-c/daten.txt ← aufbereitung:daten.txt",
+        "extracted": "zusammenführung/b.txt ← zweig-b:b.txt<br>zusammenführung/c.txt ← zweig-c:c.txt<br>zweig-b/daten.txt ← aufbereitung:daten.txt<br>zweig-c/daten.txt ← aufbereitung:daten.txt",
+        "same": true,
+        "why": ""
+      },
+      {
+        "what": "Code (Kommandodateien)",
+        "original": "aufbereitung: `sha256:7a667219a89e…`<br>zusammenführung: `sha256:86368fd1efca…`<br>zweig-b: `sha256:c8643db6360a…`<br>zweig-c: `sha256:f182205e0308…`",
+        "extracted": "aufbereitung: `sha256:7a667219a89e…`<br>zusammenführung: `sha256:86368fd1efca…`<br>zweig-b: `sha256:c8643db6360a…`<br>zweig-c: `sha256:f182205e0308…`",
+        "same": true,
+        "why": ""
+      },
+      {
+        "what": "Löcher",
+        "original": "anzahl: param an zweig-b/anzahl<br>dataset: file an aufbereitung/dataset.csv",
+        "extracted": "anzahl: param an zweig-b/anzahl<br>dataset: file an aufbereitung/dataset.csv",
+        "same": true,
+        "why": ""
+      },
+      {
+        "what": "Parameter am Step",
+        "original": "zweig-b: anzahl=hole:anzahl",
+        "extracted": "zweig-b: anzahl=hole:anzahl",
+        "same": true,
+        "why": ""
+      },
+      {
+        "what": "Bedingung",
+        "original": "sha256:e0669ff3f8f7…",
+        "extracted": "sha256:e0669ff3f8f7…",
+        "same": true,
+        "why": ""
+      },
+      {
+        "what": "Befehlszeile",
+        "original": "aufbereitung: `scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a ⏎ <command-file>`<br>zusammenführung: `scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a ⏎ <command-file>`<br>zweig-b: `scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a ⏎ <command-file> ⏎ <anzahl>`<br>zweig-c: `scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a ⏎ <command-file>`",
+        "extracted": "aufbereitung: `Rscript ⏎ <command-file>`<br>zusammenführung: `Rscript ⏎ <command-file>`<br>zweig-b: `Rscript ⏎ <command-file> ⏎ <anzahl>`<br>zweig-c: `Rscript ⏎ <command-file>`",
+        "same": false,
+        "why": "erwartet: improve trägt das Image, die Cockpit-Ausführung den Interpreter"
+      },
+      {
+        "what": "Vorgaben der Löcher",
+        "original": "anzahl=1<br>dataset=testdaten/dataset.csv",
+        "extracted": "anzahl=3<br>dataset=testdaten/dataset/dataset.csv",
+        "same": false,
+        "why": "erwartet: die Vorgaben kommen aus dem gewählten Referenzlauf"
+      }
+    ]
+  },
+  "roundtrip": {
+    "outputs": {
+      "aufbereitung/daten.txt": "sha256:ab0a3a6253897602cb84d4592293e905714a017ec4333254ca80b836780df12b",
+      "zweig-b/b.txt": "sha256:e908d8332bb7d78ee94deadbcda35d4525de0e85d1fe4c508a5668d5520e7a31",
+      "zweig-c/c.txt": "sha256:fb76c5fd07819ff96996d189cd08fe52c64894e55d3dba89eebbebb495f60739",
+      "zusammenführung/ergebnis.txt": "sha256:44d419866f5a847c591f1c4a3f9e46ff6416985c1b57840413d986ba60ba01e1"
+    },
+    "sameAsReference": true,
+    "spectrumCheck": true
+  },
+  "rebind": {
+    "outputs": {
+      "aufbereitung/daten.txt": "sha256:e80079e56ed5e01f9def48b233c4cdfc9893f30720659c8d4a662025a82eb6f5",
+      "zweig-b/b.txt": "sha256:50c88b03c160027d51d2049c66606ba55ac58f117432cc928c59fa6a240b9346",
+      "zweig-c/c.txt": "sha256:a227b01a340204694bb2e1b98dee5aecab5c224990528a81763abba9fd85fbb9",
+      "zusammenführung/ergebnis.txt": "sha256:7271b8778cd92fb7b3767e9a9f093124629d786f8f7cb418a2217efec2a65019"
+    },
+    "sameAsSecondRun": true
+  }
+}
