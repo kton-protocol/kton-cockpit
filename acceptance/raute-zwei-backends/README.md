@@ -73,9 +73,14 @@ Beide Seiten brauchen die Pakete aus dem improveGo-Workstream (`tools/jam-r/pake
 | `records.py`, `paketvergleich.py` | Ausführungen über `cockpit ask record` holen; zwei Ray-Pakete nebeneinander |
 | `pkgtool/` | der Teil, den das Cockpit noch nicht kann: Pakete öffnen, Löcher binden, Steps als Fotons, Vorschlag und Extraktion — alles über ktonpkg |
 | `eigene-daten.csv` | der Datensatz für das Loch `dataset`, auf beiden Seiten derselbe |
+| `anonymisieren.py` | nimmt Host, Konten und interne Ids aus Ergebnissen und Berichten — vor jedem Commit |
 | `results/SCHEMA.md` | das gemeinsame Ergebnisformat |
 | `results/*.json` | die Ergebnisse des letzten Laufs je Seite |
 | `vergleich.py` → `VERGLEICH.md` | beide nebeneinander: Ausgaben, Qualifizierung, jeder Schritt mit exaktem Aufruf, die Lücken |
+
+**Vor jedem Commit `python3 anonymisieren.py`.** Das Repository ist öffentlich, und die Ergebnisse
+nennen sonst den improve-Host, Konten und interne Ids. Die Skripte lesen den Host aus `IMPROVE_URL`,
+die Beispielaufrufe oben verwenden `<improve-server>` als Platzhalter.
 
 Nicht Teil von `examples/run-all.sh` und nicht in CI: die improve-Seite braucht einen erreichbaren
 improve-Server.
