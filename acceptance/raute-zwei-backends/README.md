@@ -78,9 +78,9 @@ Beide Seiten brauchen die Pakete aus dem improveGo-Workstream (`tools/jam-r/pake
 | `results/*.json` | die Ergebnisse des letzten Laufs je Seite |
 | `vergleich.py` → `VERGLEICH.md` | beide nebeneinander: Ausgaben, Qualifizierung, jeder Schritt mit exaktem Aufruf, die Lücken |
 
-**Vor jedem Commit `python3 anonymisieren.py`.** Das Repository ist öffentlich, und die Ergebnisse
+**Vor jedem Commit `IMPROVE_URL=… python3 anonymisieren.py`.** Das Repository ist öffentlich, und die Ergebnisse
 nennen sonst den improve-Host, Konten und interne Ids. Die Skripte lesen den Host aus `IMPROVE_URL`,
-die Beispielaufrufe oben verwenden `<improve-server>` als Platzhalter.
+die Beispielaufrufe oben verwenden `<improve-server>` als Platzhalter. Konten und weitere Wörter stehen je Zeile als `wort=ersatz` in `.anonymisieren.lokal`, die nicht versioniert wird — das Skript selbst nennt nichts.
 
 Nicht Teil von `examples/run-all.sh` und nicht in CI: die improve-Seite braucht einen erreichbaren
 improve-Server.
