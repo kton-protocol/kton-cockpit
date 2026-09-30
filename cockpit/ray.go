@@ -2,7 +2,6 @@ package cockpit
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"path"
@@ -13,7 +12,6 @@ import (
 	"github.com/gitmick/ktonpkg"
 	"github.com/kton-protocol/kton-cockpit/internal/binaries"
 	"github.com/kton-protocol/kton-cockpit/internal/config"
-	"github.com/kton-protocol/kton-cockpit/internal/gitops"
 )
 
 // A potential from executions that already ran (ADR-006).
@@ -241,15 +239,11 @@ func (c *Cockpit) publishRay(ctx context.Context, cfg *config.Config, in Publish
 	}
 	derived := ktonpkg.DerivedFrom(p, rp.Choice.Reference)
 
-	pushRejected := false
-	sha, err := gitops.CommitAndPush(ctx, cfg, []string{rp.Dir}, "ray: "+rp.Choice.Name)
+	rev, err := persist(ctx, cfg, []string{rp.Dir}, "ray: "+rp.Choice.Name)
 	if err != nil {
-		var pf *gitops.PushFailed
-		if !asPushFailed(err, &pf) {
-			return nil, refuse("store", "", "committing the package failed: %v", err)
-		}
-		pushRejected, sha = true, pf.SHA
+		return nil, refuse("store", "", "committing the package failed: %v", err)
 	}
+	pushRejected, sha := rev.Rejected, rev.ID
 
 	claimID, err := r.Annotate(ctx, rayID, rayTemplate, map[string]string{
 		"bundle":    bundleID,
@@ -260,14 +254,12 @@ func (c *Cockpit) publishRay(ctx context.Context, cfg *config.Config, in Publish
 	if err != nil {
 		return nil, refuse("kernel", "", "the package is written but recording where it came from failed: %v", err)
 	}
-	finalSHA, err := gitops.CommitAndPush(ctx, cfg, []string{cfg.Raw.Paths.NektonDir}, "claim: "+rayTemplate+" on "+rayID)
+	finalRev, err := persist(ctx, cfg, []string{cfg.Raw.Paths.NektonDir}, "claim: "+rayTemplate+" on "+rayID)
 	if err != nil {
-		var pf *gitops.PushFailed
-		if !asPushFailed(err, &pf) {
-			return nil, refuse("store", "", "committing the claim failed: %v", err)
-		}
-		pushRejected, finalSHA = true, pf.SHA
+		return nil, refuse("store", "", "committing the claim failed: %v", err)
 	}
+	pushRejected = pushRejected || finalRev.Rejected
+	finalSHA := finalRev.ID
 	if finalSHA == "" {
 		finalSHA = sha
 	}
@@ -280,5 +272,3 @@ func (c *Cockpit) publishRay(ctx context.Context, cfg *config.Config, in Publish
 			ClaimID: claimID},
 	}, nil
 }
-
-func asPushFailed(err error, pf **gitops.PushFailed) bool { return errors.As(err, pf) }

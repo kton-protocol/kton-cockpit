@@ -162,6 +162,18 @@ Neither is complete, and a cockpit MUST NOT present either as if it were. Local 
 shape for the original incident, which was sibling directories under one parent rather than a
 different remote.
 
+### 5.5 Modes from extensions
+
+The binding is done by the backend `repo.mode` names (ADR-008). The reference backends, git and
+local, are the ones §5.2 and §5.3 describe; an extension may add a mode, and its binding MUST meet
+the same bar — a second source the configuration did not write, checked on every call.
+
+A cockpit MUST refuse a mode it has no backend for, naming it. Treating an unknown mode as git would
+act as one backend against a repository configured for another.
+
+> **Checked by:** `TestAPI_AModeNoBackendProvidesIsRefusedByName`, and the conformance suite every
+> backend runs (`cockpit/backend/backendtest`): `TestConformance` in the git and local backends.
+
 ## 6 The surface
 
 A cockpit MUST expose exactly three verbs: `publish`, `say`, `ask`. It MUST NOT expose a fourth, and

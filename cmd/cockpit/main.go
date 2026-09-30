@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime/debug"
 	"sort"
@@ -21,6 +20,7 @@ import (
 	"github.com/kton-protocol/kton-cockpit/internal/binaries"
 	"github.com/kton-protocol/kton-cockpit/internal/config"
 	"github.com/kton-protocol/kton-cockpit/internal/container"
+	"github.com/kton-protocol/kton-cockpit/internal/gitrepo"
 	"github.com/kton-protocol/kton-cockpit/internal/material"
 	"github.com/kton-protocol/kton-cockpit/internal/mcpsurface"
 	"github.com/kton-protocol/kton-cockpit/internal/show"
@@ -122,7 +122,7 @@ func runInit(ctx context.Context) error {
 	}
 	// Outside a git repository, scaffold a local-mode config rather than refusing: running without
 	// git is a supported mode, and the current directory is what it binds to. See ADR-004.
-	root, err := gitRoot(ctx, cwd)
+	root, err := gitrepo.Root(ctx, cwd)
 	local := err != nil
 	if local {
 		root = cwd
@@ -133,7 +133,7 @@ func runInit(ctx context.Context) error {
 	}
 
 	owner, name := "", ""
-	if url, err := gitOriginURL(ctx, root); err == nil {
+	if url, err := gitrepo.OriginURL(ctx, root); err == nil {
 		owner, name = parseOwnerRepo(url)
 	}
 
@@ -442,26 +442,6 @@ func checkKeyPath(p string) string {
 			"                or the mode was widened. Anyone who can read it can sign as this repo.", p, perm)
 	}
 	return p + "  [ok]"
-}
-
-func gitRoot(ctx context.Context, dir string) (string, error) {
-	cmd := exec.CommandContext(ctx, "git", "rev-parse", "--show-toplevel")
-	cmd.Dir = dir
-	out, err := cmd.Output()
-	if err != nil {
-		return "", err
-	}
-	return strings.TrimSpace(string(out)), nil
-}
-
-func gitOriginURL(ctx context.Context, dir string) (string, error) {
-	cmd := exec.CommandContext(ctx, "git", "remote", "get-url", "origin")
-	cmd.Dir = dir
-	out, err := cmd.Output()
-	if err != nil {
-		return "", err
-	}
-	return strings.TrimSpace(string(out)), nil
 }
 
 func parseOwnerRepo(url string) (owner, name string) {

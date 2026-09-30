@@ -3,7 +3,6 @@ package cockpit
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -15,7 +14,6 @@ import (
 	"github.com/kton-protocol/kton-cockpit/internal/binaries"
 	"github.com/kton-protocol/kton-cockpit/internal/config"
 	"github.com/kton-protocol/kton-cockpit/internal/container"
-	"github.com/kton-protocol/kton-cockpit/internal/gitops"
 	"github.com/kton-protocol/kton-cockpit/internal/material"
 	"github.com/kton-protocol/kton-cockpit/internal/show"
 )
@@ -255,17 +253,13 @@ func (c *Cockpit) Publish(ctx context.Context, in PublishRequest) (*PublishResul
 	// A rejected push is NOT a failed publish. The commit is made, its sha is real, and the
 	// permalinks built from it will resolve the moment somebody pushes — so the record is still
 	// worth writing, and throwing it away also throws away the container run that produced it.
-	pushRejected := false
-	sha, err := gitops.CommitAndPush(ctx, cfg, allPaths, "publish: "+in.Cmd)
+	rev, err := persist(ctx, cfg, allPaths, "publish: "+in.Cmd)
 	if err != nil {
-		var pf *gitops.PushFailed
-		if !errors.As(err, &pf) {
-			return nil, refuse("store", "", "git commit of inputs+outputs failed: %v", err)
-		}
-		pushRejected, sha = true, pf.SHA
+		return nil, refuse("store", "", "git commit of inputs+outputs failed: %v", err)
 	}
+	pushRejected := rev.Rejected
 
-	located := gitops.LocatedFlags(cfg, sha, allPaths)
+	located := locators(cfg, rev, allPaths)
 	fotonInputs := in.Inputs
 	if corpusPath != "" {
 		fotonInputs = append(append([]string{}, in.Inputs...), corpusPath)
@@ -332,25 +326,20 @@ func (c *Cockpit) Publish(ctx context.Context, in PublishRequest) (*PublishResul
 	// disagreed with it. The foton's OWN embedded --located permalinks stay anchored to the first
 	// commit — unavoidable, since authoring happens between the two — but the bytes are identical
 	// in both, so they resolve either way.
-	finalSHA, err := gitops.CommitAndPush(ctx, cfg, registryPaths, "foton: "+in.Cmd)
-	if err != nil {
-		var pf *gitops.PushFailed
-		if errors.As(err, &pf) {
-			pushRejected, finalSHA, err = true, pf.SHA, nil
-		}
-	}
+	finalRev, err := persist(ctx, cfg, registryPaths, "foton: "+in.Cmd)
 	if err != nil {
 		return nil, refuse("store", "", "git commit/push of the registry failed: %v", err)
 	}
+	pushRejected = pushRejected || finalRev.Rejected
+	finalSHA := finalRev.ID
 
 	// finalSHA is empty when this repo does not commit: there is then no commit for a permalink to
 	// pin, and returning HEAD instead would be worse than returning nothing — a locator pinned to a
 	// commit that does not contain the bytes resolves to the wrong thing or to nothing.
 	permalinks := map[string]string{}
-	if finalSHA != "" {
-		base := gitops.PermalinkBase(cfg, finalSHA)
-		for _, p := range allPaths {
-			permalinks[p] = base + "/" + p
+	for _, p := range allPaths {
+		if uri, ok := cfg.Backend.Locate(cfg.Repo, finalRev, p); ok {
+			permalinks[p] = uri
 		}
 	}
 

@@ -9,7 +9,6 @@ import (
 	"github.com/kton-protocol/kton-cockpit/internal/anchor"
 	"github.com/kton-protocol/kton-cockpit/internal/binaries"
 	"github.com/kton-protocol/kton-cockpit/internal/config"
-	"github.com/kton-protocol/kton-cockpit/internal/gitops"
 	"github.com/kton-protocol/kton-cockpit/internal/material"
 	"github.com/kton-protocol/kton-cockpit/internal/show"
 )
@@ -126,7 +125,7 @@ func (c *Cockpit) Say(ctx context.Context, in SayRequest) (*SayResult, error) {
 		}
 		registryPaths = append(registryPaths, written...)
 	}
-	if _, err := gitops.CommitAndPush(ctx, cfg, registryPaths, "claim: "+in.Template+" on "+in.Subject); err != nil {
+	if _, err := persistStrict(ctx, cfg, registryPaths, "claim: "+in.Template+" on "+in.Subject); err != nil {
 		return nil, refuse("store", "", "git commit/push of the claim registry failed: %v", err)
 	}
 

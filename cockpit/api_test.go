@@ -75,3 +75,18 @@ func TestAPI_ADeniedPathIsRefusedByCode(t *testing.T) {
 		t.Fatalf("got code %q clause %q, want path.denied / SPEC §7.3", ref.Code, ref.Clause)
 	}
 }
+
+// A repository configured for a mode this binary does not have is refused by name. Acting as git —
+// the old default for anything unrecognised — would be acting as another backend against a
+// repository configured for this one (ADR-008).
+func TestAPI_AModeNoBackendProvidesIsRefusedByName(t *testing.T) {
+	r := testrepo.New(t)
+	raw := r.Config(t).Raw
+	raw.Repo.Mode, raw.Repo.Block = "improve", nil
+	r.WriteConfig(t, raw)
+	_, err := New(Start{Dir: r.Root}).Ask(context.Background(), AskRequest{Query: "producer", Ref: unknownHash})
+	ref := refusalOf(t, err)
+	if ref.Code != "binding" || !strings.Contains(ref.Reason, `repo.mode "improve" is not a mode this cockpit knows`) {
+		t.Fatalf("an unknown mode must be refused by name, got %q: %s", ref.Code, ref.Reason)
+	}
+}

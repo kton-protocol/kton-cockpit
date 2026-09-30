@@ -259,6 +259,10 @@ a browser until the verbs became subcommands — including at the step it called
 ```
 cockpit/                the library: Publish / Say / Ask on a Cockpit value, refusals as *Refusal
                           with a stable code (ADR-005). The one implementation every transport uses
+├── backend/              the extension API (ADR-008): Backend, Register, Lookup — public types only
+│   ├── github/           reference backend, mode "git": origin remote, commit + push, permalinks
+│   ├── local/            reference backend, mode "local": the declared path (ADR-004)
+│   └── backendtest/      the conformance suite every backend runs against itself
 cmd/cockpit/main.go     entry point: the three verbs at a command line, plus mcp / init / doctor
 internal/
 ├── mcpsurface/           the MCP transport: each tool is one cockpit method, adapted, nothing more
@@ -272,7 +276,8 @@ internal/
 │                          carried rather than silently counted or dropped
 ├── anchor/               witnesses a record in Rekor via `kton.dev/kton/sigstore` and attaches
 │                          the verified entry as kton §8.1 material
-├── gitops/               commit/push wrappers, commit-pinned permalink construction
+├── gitops/               commit/push wrappers, commit-pinned permalink construction (used by backend/github)
+├── gitrepo/              git's answers: repository root, origin, same-path — shared, one copy
 ├── show/                 serves the union/keys/names a kton-web viewer fetches
 ├── binaries/             the kernels, called as libraries: one place where every plankton and
 │                          nekton call lives, so the rest of the cockpit sees one surface

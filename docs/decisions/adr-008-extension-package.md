@@ -12,7 +12,9 @@ tags: [architecture, api, extension, backend, github, docker, improve]
 ## Status
 
 Proposed (2026-09-30), on `jam-beta`. This is ADR-005's backend interface (S2) turned into the
-cockpit's public shape.
+cockpit's public shape. E1 to E3 are built: `cockpit/backend` with its registry and conformance
+suite, and git and local behind it as `cockpit/backend/github` and `cockpit/backend/local`. The
+container stays `internal/container` until E4 needs an executor interface.
 
 ## Context
 
@@ -49,15 +51,15 @@ func Register(mode string, f Factory) // called from an extension's init()
   a binary that lacks the extension says so, instead of acting as another backend.
 - A backend adds no fourth verb and holds no trust logic. It answers *where* and *how*, never
   *whether to believe* (SPEC §13). Verification against trust tiers stays in the core.
-- The core carries its own conformance test suite (`backend/backendtest`). Every backend, including
+- The core carries its own conformance test suite (`cockpit/backend/backendtest`). Every backend, including
   one outside this repository, runs it against itself: the guard refuses a wrong folder, a written
   record is durable, a locator's bytes match their hash.
 
 ### 2 The reference implementation: GitHub and Docker (public, in kton-cockpit)
 
-- **`backend/github`**: git mode as it is today. The binding is the `origin` remote, persisting is
+- **`cockpit/backend/github`**: git mode as it is today. The binding is the `origin` remote, persisting is
   commit and push, locating is the commit-pinned `raw.githubusercontent.com` permalink.
-- **`backend/local`**: local mode (ADR-004).
+- **`cockpit/backend/local`**: local mode (ADR-004).
 - **`executor/docker`**: the pinned container (ADR-003).
 - The `cockpit` binary links these. Its behaviour does not change; the tests stay as they are and
   also run the conformance suite.
@@ -81,9 +83,9 @@ func Register(mode string, f Factory) // called from an extension's init()
 
 | step | content | behaviour changes? |
 |---|---|---|
-| E1 | `cockpit/backend`: interfaces, registry, conformance suite | no |
-| E2 | today's git, local and container code moves behind them as `backend/github`, `backend/local`, `executor/docker` | no |
-| E3 | the core selects by `repo.mode`; an unknown mode refuses | no, except a clearer refusal |
+| E1 | `cockpit/backend`: interfaces, registry, conformance suite — **done** | no |
+| E2 | today's git and local code moves behind them as `cockpit/backend/github` and `cockpit/backend/local` — **done**; the container follows in E4 as `executor/docker`, when the improve run server needs the same interface | no |
+| E3 | the core selects by `repo.mode`; an unknown mode refuses (SPEC §5.5) — **done** | no, except a clearer refusal |
 | E4 | improve extension module and `cockpit-improve` binary; SPEC §5 gains an improve clause | new |
 | E5 | the acceptance scenario runs its improve side through `cockpit-improve` instead of improvego commands, which closes the S4 gaps there | — |
 

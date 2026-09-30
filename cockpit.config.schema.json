@@ -9,10 +9,9 @@
   "properties": {
     "repo": {
       "type": "object",
-      "description": "What this config is bound to, and therefore what the anti-wrong-folder guard checks on every call. In \"git\" mode (the default) the repo's actual `git remote get-url origin` must name the configured owner/repo, and the config must sit at the repository root. In \"local\" mode there is no git repository and no remote to disagree with, so the anchor is the config's own declared absolute path, which must equal where the config actually is — that catches a directory copied or moved away from the one it was written for. Neither check catches everything: git mode passes a duplicated clone, local mode passes two directories whose paths both look right. See ADR-004.",
-      "additionalProperties": false,
+      "description": "What this config is bound to, and therefore what the anti-wrong-folder guard checks on every call. In \"git\" mode (the default) the repo's actual `git remote get-url origin` must name the configured owner/repo, and the config must sit at the repository root. In \"local\" mode there is no git repository and no remote to disagree with, so the anchor is the config's own declared absolute path, which must equal where the config actually is — that catches a directory copied or moved away from the one it was written for. Neither check catches everything: git mode passes a duplicated clone, local mode passes two directories whose paths both look right. See ADR-004. A mode an extension provides (ADR-008) defines further fields of this object itself, so this schema does not close it.",
       "properties": {
-        "mode": { "enum": ["git", "local"], "description": "Defaults to \"git\" when absent." },
+        "mode": { "type": "string", "description": "Defaults to \"git\" when absent. \"git\" and \"local\" ship with the cockpit; an extension registers further modes (ADR-008, e.g. \"improve\" in cockpit-improve). A mode the running binary has no backend for is refused by name." },
         "owner": { "type": "string", "minLength": 1, "description": "Required in git mode." },
         "name": { "type": "string", "minLength": 1, "description": "Required in git mode." },
         "root": { "type": "string", "minLength": 1, "description": "Required in local mode: the absolute path this config belongs to. In local mode there are no commits, no pushes, and fotons carry no locators, because a permalink needs an owner/repo and a commit." }

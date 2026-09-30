@@ -17,13 +17,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/kton-protocol/kton-cockpit/cockpit"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/kton-protocol/kton-cockpit/internal/binaries"
 	"github.com/kton-protocol/kton-cockpit/internal/config"
-	"github.com/kton-protocol/kton-cockpit/internal/gitops"
 	"github.com/kton-protocol/kton-cockpit/internal/scope"
 )
 
@@ -79,7 +79,7 @@ func scopeSeed(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	if _, err := gitops.CommitAndPush(ctx, cfg, []string{cfg.Raw.Paths.NektonDir}, "scope: seed "+name); err != nil {
+	if _, err := cockpit.PersistStrict(ctx, cfg, []string{cfg.Raw.Paths.NektonDir}, "scope: seed "+name); err != nil {
 		return fmt.Errorf("the scope was opened but committing it failed: %w", err)
 	}
 
@@ -148,7 +148,7 @@ func scopeSeal(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	if _, err := gitops.CommitAndPush(ctx, cfg, []string{cfg.Raw.Paths.NektonDir}, "scope: seal "+args[0]); err != nil {
+	if _, err := cockpit.PersistStrict(ctx, cfg, []string{cfg.Raw.Paths.NektonDir}, "scope: seal "+args[0]); err != nil {
 		return fmt.Errorf("the seal was recorded but committing it failed: %w", err)
 	}
 
