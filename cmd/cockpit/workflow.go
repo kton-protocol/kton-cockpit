@@ -3,12 +3,13 @@ package main
 // workflow.go is the command line for installing packages and working with workflows. Each command
 // prints for a person by default and the full answer with --json.
 //
-//	cockpit install <package-dir>
+//	cockpit install <package-dir> [--allow]
 //	cockpit workflow propose <result>...
-//	cockpit workflow extract <result>... --name N --reference RUN [--hole NAME=STEP/SLOT]... [--param NAME=STEP/POS]...
+//	cockpit workflow extract <result>... --name NAME --reference RESULT [--hole NAME=N]... [--param NAME=N]...
 //	cockpit workflow list
 //	cockpit workflow show <name>
 //	cockpit workflow run <name> [--check] [--bind NAME=VALUE]... [--dir DIR]
+//	cockpit workflow trace <result>
 
 import (
 	"context"
@@ -81,11 +82,11 @@ func short(id string) string {
 // ---- install ---------------------------------------------------------------------------------------
 
 func runInstall(ctx context.Context, args []string) error {
-	a, err := parseArgs(args)
+	a, err := parseArgs(args, "--allow")
 	if err != nil || len(a.pos) != 1 {
-		return fmt.Errorf("usage: cockpit install <package-dir> [--json]")
+		return fmt.Errorf("usage: cockpit install <package-dir> [--allow] [--json]")
 	}
-	out, err := cockpit.New(cockpit.Start{}).Install(ctx, cockpit.InstallRequest{Path: a.pos[0]})
+	out, err := cockpit.New(cockpit.Start{}).Install(ctx, cockpit.InstallRequest{Path: a.pos[0], Allow: a.flags["--allow"]})
 	exitIfRefused(err)
 	if err != nil {
 		return err
@@ -110,7 +111,9 @@ func runInstall(ctx context.Context, args []string) error {
 	}
 	if strings.HasSuffix(out.Profile, "/templates") {
 		allowed := "no — its templates and queries are not in use"
-		if out.Allowed {
+		if out.AllowedNow {
+			allowed = "yes, added to claims.allowedPackages — its templates and queries are in use"
+		} else if out.Allowed {
 			allowed = "yes — its templates and queries are in use"
 		}
 		fmt.Printf("  allowed   %s\n", allowed)
@@ -125,7 +128,7 @@ func runInstall(ctx context.Context, args []string) error {
 
 func runWorkflow(ctx context.Context, args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: cockpit workflow propose|extract|list|show|run …")
+		return fmt.Errorf("usage: cockpit workflow propose|extract|list|show|run|trace …")
 	}
 	c := cockpit.New(cockpit.Start{})
 	switch args[0] {
@@ -139,8 +142,10 @@ func runWorkflow(ctx context.Context, args []string) error {
 		return workflowShow(ctx, c, args[1:])
 	case "run":
 		return workflowRun(ctx, c, args[1:])
+	case "trace":
+		return workflowTrace(ctx, c, args[1:])
 	}
-	return fmt.Errorf("unknown workflow command %q (propose, extract, list, show, run)", args[0])
+	return fmt.Errorf("unknown workflow command %q (propose, extract, list, show, run, trace)", args[0])
 }
 
 func workflowPropose(ctx context.Context, c *cockpit.Cockpit, args []string) error {
@@ -172,27 +177,25 @@ func workflowPropose(ctx context.Context, c *cockpit.Cockpit, args []string) err
 	for _, s := range p.Steps {
 		fmt.Printf("  %-18s %s\n", s.ID, s.CommandFile)
 	}
-	fmt.Printf("\ncould be holes (--hole NAME=STEP/SLOT)\n")
-	for _, f := range p.Files {
-		if f.CommandFile {
-			continue
-		}
-		vary := "same in every run"
-		if distinct(f.Hashes) > 1 {
-			vary = "differs between runs"
-		}
-		fmt.Printf("  %s/%s  — %s\n", f.Step, f.Slot, vary)
-	}
-	if len(p.Params) > 0 {
-		fmt.Printf("\ncould be parameters (--param NAME=STEP/POSITION)\n")
-		for _, pc := range p.Params {
-			var vals []string
-			for run, v := range pc.Values {
-				vals = append(vals, run+": "+v)
+	fmt.Printf("\ncandidates — choose with --hole NAME=N (files) and --param NAME=N (command-line places)\n")
+	for _, c := range cockpit.Candidates(p) {
+		var vals []string
+		for run, v := range c.Values {
+			if c.Kind == "file" {
+				v = short(v)
 			}
-			sort.Strings(vals)
-			fmt.Printf("  %s/%d  — %s\n", pc.Step, pc.Position, strings.Join(vals, ", "))
+			vals = append(vals, run+": "+v)
 		}
+		sort.Strings(vals)
+		vary := ""
+		if c.Kind == "file" && distinct(c.Values) == 1 {
+			vary = "  (same in every run)"
+		}
+		where := c.Step + "/" + c.Slot
+		if c.Kind == "param" {
+			where = fmt.Sprintf("%s, argument %d", c.Step, c.Position)
+		}
+		fmt.Printf("  [%d] %-5s %-28s %s%s\n", c.N, c.Kind, where, strings.Join(vals, ", "), vary)
 	}
 	if len(p.Conflicts) > 0 {
 		fmt.Printf("\nconflicts (extract will refuse)\n")
@@ -213,30 +216,39 @@ func distinct(m map[string]string) int {
 
 func workflowExtract(ctx context.Context, c *cockpit.Cockpit, args []string) error {
 	a, err := parseArgs(args)
-	usage := fmt.Errorf("usage: cockpit workflow extract <result>... --name NAME --reference RUN " +
-		"[--hole NAME=STEP/SLOT]... [--param NAME=STEP/POSITION]... [--json]")
+	usage := fmt.Errorf("usage: cockpit workflow extract <result>... --name NAME --reference RESULT " +
+		"[--hole NAME=N]... [--param NAME=N]... [--json]   (N: the numbers propose prints)")
 	if err != nil || len(a.pos) == 0 || a.one("--name") == "" || a.one("--reference") == "" {
 		return usage
 	}
 	ch := ktonpkg.Choice{Name: a.one("--name"), Reference: a.one("--reference")}
-	for _, h := range a.multi["--hole"] {
-		name, where, ok := strings.Cut(h, "=")
-		step, slot, ok2 := strings.Cut(where, "/")
-		if !ok || !ok2 {
-			return fmt.Errorf("--hole wants NAME=STEP/SLOT, got %q", h)
+	var picks []cockpit.Pick
+	for kind, flag := range map[string]string{"hole": "--hole", "param": "--param"} {
+		for _, v := range a.multi[flag] {
+			name, where, ok := strings.Cut(v, "=")
+			if !ok {
+				return fmt.Errorf("%s wants NAME=N (a number from propose), got %q", flag, v)
+			}
+			if n, err := strconv.Atoi(where); err == nil {
+				picks = append(picks, cockpit.Pick{Name: name, Kind: kind, Number: n})
+				continue
+			}
+			step, rest, ok := strings.Cut(where, "/")
+			if !ok {
+				return fmt.Errorf("%s wants NAME=N, or NAME=STEP/%s, got %q", flag, map[string]string{"hole": "SLOT", "param": "POSITION"}[kind], v)
+			}
+			if kind == "hole" {
+				ch.Holes = append(ch.Holes, ktonpkg.HoleChoice{Name: name, Step: step, Slot: rest})
+			} else {
+				n, err := strconv.Atoi(rest)
+				if err != nil {
+					return fmt.Errorf("--param wants NAME=N or NAME=STEP/POSITION, got %q", v)
+				}
+				ch.Params = append(ch.Params, ktonpkg.ParamChoice{Name: name, Step: step, Position: n})
+			}
 		}
-		ch.Holes = append(ch.Holes, ktonpkg.HoleChoice{Name: name, Step: step, Slot: slot})
 	}
-	for _, p := range a.multi["--param"] {
-		name, where, ok := strings.Cut(p, "=")
-		step, pos, ok2 := strings.Cut(where, "/")
-		n, perr := strconv.Atoi(pos)
-		if !ok || !ok2 || perr != nil {
-			return fmt.Errorf("--param wants NAME=STEP/POSITION, got %q", p)
-		}
-		ch.Params = append(ch.Params, ktonpkg.ParamChoice{Name: name, Step: step, Position: n})
-	}
-	out, err := c.WorkflowExtract(ctx, cockpit.WorkflowExtractRequest{Refs: a.pos, Choice: ch})
+	out, err := c.WorkflowExtract(ctx, cockpit.WorkflowExtractRequest{Refs: a.pos, Choice: ch, Picks: picks})
 	exitIfRefused(err)
 	if err != nil {
 		return err
@@ -350,6 +362,10 @@ func workflowRun(ctx context.Context, c *cockpit.Cockpit, args []string) error {
 	}
 	sort.Strings(bs)
 	fmt.Printf("ran %s in %s  (%s)\n", out.Name, out.Dir, strings.Join(bs, ", "))
+	if out.InReferenceDir {
+		fmt.Printf("  %s is where the reference ran: paths are part of a record's identity, so only there\n"+
+			"  is the same work the same record — and your run signs the reference instead of standing beside it\n", out.Dir)
+	}
 	for _, s := range out.Steps {
 		line := fmt.Sprintf("  %-16s foton %s", s.ID, short(s.FotonID))
 		if req.Check {
@@ -363,6 +379,31 @@ func workflowRun(ctx context.Context, c *cockpit.Cockpit, args []string) error {
 			}
 		}
 		fmt.Println(line)
+	}
+	return nil
+}
+
+func workflowTrace(ctx context.Context, c *cockpit.Cockpit, args []string) error {
+	a, err := parseArgs(args)
+	if err != nil || len(a.pos) != 1 {
+		return fmt.Errorf("usage: cockpit workflow trace <result> [--json]")
+	}
+	out, err := c.WorkflowTrace(ctx, a.pos[0])
+	exitIfRefused(err)
+	if err != nil {
+		return err
+	}
+	if a.flags["--json"] {
+		return emitJSON(out)
+	}
+	fmt.Printf("%s comes from %d step(s), each verified against this repo's trust tiers:\n", out.Ref, len(out.Steps))
+	for i, s := range out.Steps {
+		fmt.Printf("\n  %d. %-16s %s   (foton %s, signed by %s)\n", i+1, s.Step, s.Cmd, short(s.FotonID), strings.Join(s.Tiers, " + "))
+		fmt.Printf("     in:  %s\n", strings.Join(s.Inputs, ", "))
+		fmt.Printf("     out: %s\n", strings.Join(s.Outputs, ", "))
+		if s.Reference != "" {
+			fmt.Printf("     this is the reference run of %s\n", s.Reference)
+		}
 	}
 	return nil
 }

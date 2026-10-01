@@ -19,6 +19,7 @@ import (
 	"github.com/kton-protocol/kton-cockpit/internal/binaries"
 	"github.com/kton-protocol/kton-cockpit/internal/config"
 	"github.com/kton-protocol/kton-cockpit/internal/packages"
+	"github.com/kton-protocol/kton-cockpit/internal/verify"
 )
 
 // Workflows: from runs that already happened to a package, and from an installed package to runs.
@@ -45,6 +46,8 @@ func (c *Cockpit) WorkflowPropose(ctx context.Context, refs []string) (*AskResul
 type WorkflowExtractRequest struct {
 	Refs   []string       `json:"refs"`
 	Choice ktonpkg.Choice `json:"choice"`
+	// Picks choose holes and parameters by the numbers propose printed; they add to Choice.
+	Picks []Pick `json:"picks,omitempty"`
 	// Label is the revision; "1" when empty.
 	Label string `json:"label,omitempty"`
 }
@@ -116,6 +119,9 @@ func (c *Cockpit) WorkflowExtract(ctx context.Context, in WorkflowExtractRequest
 			"the reference %q is neither a run of the proposal nor one of the results given", in.Choice.Reference)
 	}
 	in.Choice.Reference = run
+	if err := resolvePicks(prop, in.Picks, &in.Choice); err != nil {
+		return nil, refuse("ray.choice", "SPEC §7.6", "%v", err)
+	}
 	fetch := func(hash string) ([]byte, error) {
 		p, ok := where[hash]
 		if !ok {
@@ -303,10 +309,13 @@ type WorkflowRunRequest struct {
 
 // WorkflowRunResult reports a run, step by step.
 type WorkflowRunResult struct {
-	Name     string            `json:"name"`
-	Dir      string            `json:"dir"`
-	Bindings map[string]string `json:"bindings"`
-	Steps    []WorkflowRunStep `json:"steps"`
+	Name string `json:"name"`
+	Dir  string `json:"dir"`
+	// InReferenceDir means a check ran where the reference ran — paths are part of a record's
+	// identity, so only there is the same work the same record.
+	InReferenceDir bool              `json:"inReferenceDir,omitempty"`
+	Bindings       map[string]string `json:"bindings"`
+	Steps          []WorkflowRunStep `json:"steps"`
 }
 
 // WorkflowRunStep is one step of a run.
@@ -359,11 +368,13 @@ func (c *Cockpit) WorkflowRun(ctx context.Context, in WorkflowRunRequest) (*Work
 	plan, err := b.Plan(work, ktonpkg.Bindings(in.Bindings), ktonpkg.PlanOptions{NoDefaults: !in.Check})
 	if err != nil {
 		if m, ok := err.(*ktonpkg.MissingError); ok {
-			return nil, refuse("workflow.unbound", "", "%v — bind them with --bind NAME=VALUE, or run --check to run on the package's test data", m)
+			return nil, refuse("workflow.unbound", "", "required holes not bound: %s — bind them with --bind NAME=VALUE, "+
+				"or run --check to run on the package's test data", strings.Join(m.Holes, ", "))
 		}
 		return nil, refuse("workflow.plan", "", "%v", err)
 	}
-	out := &WorkflowRunResult{Name: inst.Package.Name, Dir: work, Bindings: plan.Bindings}
+	out := &WorkflowRunResult{Name: inst.Package.Name, Dir: work, Bindings: plan.Bindings,
+		InReferenceDir: in.Check && in.Dir == "" && work == referenceDir(cfg, refs)}
 	for _, st := range plan.Steps {
 		for _, sg := range st.Stage {
 			if err := copyRepoFile(cfg.RepoRoot, sg.From, sg.To); err != nil {
@@ -531,3 +542,195 @@ func loadPublic(path string) (ed25519.PublicKey, error) {
 }
 
 var _ = sort.Strings
+
+// ---- trace -----------------------------------------------------------------------------------------
+
+// TraceStep is one step behind a result, as a person reads it.
+type TraceStep struct {
+	Step    string   `json:"step"`
+	Cmd     string   `json:"cmd"`
+	FotonID string   `json:"fotonId"`
+	Tiers   []string `json:"tiers"` // every trust tier whose key signed it — two for a co-signed record
+	Inputs  []string `json:"inputs"`
+	Outputs []string `json:"outputs"`
+	// Reference names the installed workflow whose reference run this record is, if any.
+	Reference string `json:"reference,omitempty"`
+}
+
+// WorkflowTraceResult is the lineage of a result, from the data to the result.
+type WorkflowTraceResult struct {
+	Ref   string      `json:"ref"`
+	Steps []TraceStep `json:"steps"`
+}
+
+// WorkflowTrace walks back from a result through the records that verify against this repository's
+// trust tiers (ask lineage's own path) and lists them in the order they ran, with step names, paths
+// and — where a record is the reference run of an installed workflow — which one.
+func (c *Cockpit) WorkflowTrace(ctx context.Context, ref string) (*WorkflowTraceResult, error) {
+	cfg, err := config.Load(ctx, c.dir())
+	if err != nil {
+		return nil, refuse("binding", "SPEC §5", "%v", err)
+	}
+	r := binaries.New(cfg)
+	hash := ref
+	if !strings.HasPrefix(ref, "sha256:") {
+		h, _, herr := hashLocalFile(ctx, cfg, r, ref)
+		if herr != nil || h == "" {
+			return nil, refuse("argument", "", "%s is neither a hash nor a file in this repo", ref)
+		}
+		hash = h
+	}
+	lin, err := askLineage(ctx, cfg, r, AskRequest{Query: "lineage", Ref: hash}, &AskFilter{})
+	if err != nil {
+		return nil, err
+	}
+	tier := map[string]string{}
+	for _, rv := range lin.Records {
+		tier[rv.ID] = rv.Tier
+	}
+	refOf := map[string]string{}
+	if all, err := packages.List(cfg.RepoRoot); err == nil {
+		for _, in := range all {
+			if runs, err := referenceRuns(in.Revision); err == nil {
+				for step, id := range runs {
+					refOf[id] = fmt.Sprintf("%s@%s, step %s", in.Package.Name, in.Revision.Label, step)
+				}
+			}
+		}
+	}
+	var steps []TraceStep
+	var inHashes, outHashes [][]string
+	for _, id := range lin.Included {
+		rec, err := r.FotonByID(ctx, id)
+		if err != nil {
+			return nil, refuse("kernel", "", "%v", err)
+		}
+		ts := TraceStep{Cmd: rec.Cmd, FotonID: id, Tiers: []string{tier[id]}, Reference: refOf[id]}
+		if all, err := verify.Tiers(ctx, r, cfg, id, verify.Foton); err == nil && len(all) > 0 {
+			ts.Tiers = all
+		}
+		dir, rest := "", rec.Cmd
+		if d, after, ok := strings.Cut(strings.TrimPrefix(rec.Cmd, "cd "), " && "); ok && strings.HasPrefix(rec.Cmd, "cd ") {
+			dir, rest = d, after
+		}
+		ts.Step, ts.Cmd = path.Base(dir), rest
+		var ih, oh []string
+		for _, f := range rec.Inputs {
+			ts.Inputs = append(ts.Inputs, f.Path)
+			ih = append(ih, f.Hash)
+		}
+		for _, f := range rec.Outputs {
+			ts.Outputs = append(ts.Outputs, f.Path)
+			oh = append(oh, f.Hash)
+		}
+		steps = append(steps, ts)
+		inHashes, outHashes = append(inHashes, ih), append(outHashes, oh)
+	}
+	return &WorkflowTraceResult{Ref: ref, Steps: inRunOrder(steps, inHashes, outHashes)}, nil
+}
+
+// inRunOrder orders steps so that each comes after the steps whose outputs it reads — by hash, since
+// a step reads a copy of an upstream output under its own path; ties by step name, so the order is
+// the same every time.
+func inRunOrder(steps []TraceStep, ins, outs [][]string) []TraceStep {
+	idx := make([]int, len(steps))
+	for i := range idx {
+		idx[i] = i
+	}
+	sort.SliceStable(idx, func(a, b int) bool { return steps[idx[a]].Step < steps[idx[b]].Step })
+	producedBy := map[string]int{}
+	for i, hs := range outs {
+		for _, h := range hs {
+			producedBy[h] = i
+		}
+	}
+	done := map[int]bool{}
+	var out []TraceStep
+	for len(out) < len(steps) {
+		progressed := false
+		for _, i := range idx {
+			if done[i] {
+				continue
+			}
+			ready := true
+			for _, h := range ins[i] {
+				if p, ok := producedBy[h]; ok && p != i && !done[p] {
+					ready = false
+				}
+			}
+			if ready {
+				done[i], progressed = true, true
+				out = append(out, steps[i])
+			}
+		}
+		if !progressed { // a lineage has no cycle; should one appear, keep the rest in name order
+			for _, i := range idx {
+				if !done[i] {
+					done[i] = true
+					out = append(out, steps[i])
+				}
+			}
+		}
+	}
+	return out
+}
+
+// ---- numbered candidates ---------------------------------------------------------------------------
+
+// Candidate is one numbered choice a proposal offers: a file that could become a hole, or a place
+// on a command line that could become a parameter. propose prints the numbers, extract takes them
+// (--hole NAME=N, --param NAME=N); both number from this one function over the same proposal,
+// which is recomputed from the same results and so comes out the same.
+type Candidate struct {
+	N        int               `json:"n"`
+	Kind     string            `json:"kind"` // "file" or "param"
+	Step     string            `json:"step"`
+	Slot     string            `json:"slot,omitempty"`
+	Position int               `json:"position,omitempty"`
+	Values   map[string]string `json:"values"` // run -> hash or value
+}
+
+// Candidates numbers what a proposal offers: files first (the command files excluded — code is not a
+// hole), then parameters, each in the proposal's order.
+func Candidates(p *ktonpkg.Proposal) []Candidate {
+	var out []Candidate
+	for _, f := range p.Files {
+		if f.CommandFile {
+			continue
+		}
+		out = append(out, Candidate{N: len(out) + 1, Kind: "file", Step: f.Step, Slot: f.Slot, Values: f.Hashes})
+	}
+	for _, pc := range p.Params {
+		out = append(out, Candidate{N: len(out) + 1, Kind: "param", Step: pc.Step, Position: pc.Position, Values: pc.Values})
+	}
+	return out
+}
+
+// Pick names a numbered candidate: --hole NAME=N or --param NAME=N.
+type Pick struct {
+	Name   string `json:"name"`
+	Kind   string `json:"kind"` // "hole" or "param"
+	Number int    `json:"number"`
+}
+
+// resolvePicks turns numbered picks into the choice's holes and parameters.
+func resolvePicks(p *ktonpkg.Proposal, picks []Pick, ch *ktonpkg.Choice) error {
+	cands := Candidates(p)
+	for _, pk := range picks {
+		if pk.Number < 1 || pk.Number > len(cands) {
+			return fmt.Errorf("%s=%d: the proposal has candidates 1 to %d", pk.Name, pk.Number, len(cands))
+		}
+		c := cands[pk.Number-1]
+		switch {
+		case pk.Kind == "hole" && c.Kind == "file":
+			ch.Holes = append(ch.Holes, ktonpkg.HoleChoice{Name: pk.Name, Step: c.Step, Slot: c.Slot})
+		case pk.Kind == "param" && c.Kind == "param":
+			ch.Params = append(ch.Params, ktonpkg.ParamChoice{Name: pk.Name, Step: c.Step, Position: c.Position})
+		case pk.Kind == "hole":
+			return fmt.Errorf("--hole %s=%d: candidate %d is a place on a command line — use --param", pk.Name, pk.Number, pk.Number)
+		default:
+			return fmt.Errorf("--param %s=%d: candidate %d is a file — use --hole", pk.Name, pk.Number, pk.Number)
+		}
+	}
+	return nil
+}

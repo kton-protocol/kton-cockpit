@@ -24,6 +24,9 @@ import (
 // InstallRequest names the package to install: a directory in the scope format.
 type InstallRequest struct {
 	Path string `json:"path" jsonschema:"the package directory to install (scope format), absolute or relative to the repository"`
+	// Allow also admits the package in this repository's configuration (claims.allowedPackages), so
+	// its templates and queries are in use. The operator's decision, made explicitly.
+	Allow bool `json:"allow,omitempty" jsonschema:"also add the package to claims.allowedPackages, so its templates and queries are used"`
 }
 
 // InstallResult reports an installation.
@@ -45,8 +48,10 @@ type InstallResult struct {
 	AlreadyInstalled bool `json:"alreadyInstalled,omitempty"`
 	// Allowed reports whether claims.allowedPackages names this package, so its templates and
 	// queries are in use here.
-	Allowed bool   `json:"allowed"`
-	Note    string `json:"note,omitempty"`
+	Allowed bool `json:"allowed"`
+	// AllowedNow means this call added the package to claims.allowedPackages (--allow).
+	AllowedNow bool   `json:"allowedNow,omitempty"`
+	Note       string `json:"note,omitempty"`
 }
 
 const installedTemplate = "installed"
@@ -97,6 +102,14 @@ func (c *Cockpit) Install(ctx context.Context, in InstallRequest) (*InstallResul
 		return nil, refuse("io", "", "copying the package: %v", err)
 	}
 
+	if in.Allow && !out.Allowed {
+		if _, err := config.AllowPackage(cfg.RepoRoot, p.ID); err != nil {
+			return nil, refuse("config", "", "adding %s to claims.allowedPackages: %v", p.ID, err)
+		}
+		cfg.Raw.Claims.AllowedPackages = append(cfg.Raw.Claims.AllowedPackages, p.ID)
+		out.Allowed, out.AllowedNow = true, true
+	}
+
 	// The records go into this repository's registries from the copy, which is what stays here.
 	kept, err := scope.Open(dst)
 	if err != nil {
@@ -139,15 +152,19 @@ func (c *Cockpit) Install(ctx context.Context, in InstallRequest) (*InstallResul
 		}
 		out.ClaimID = said
 	} else {
-		out.Note = fmt.Sprintf("installed, but not recorded as installed: no allowed package brings the %q template. "+
-			"To use this package's templates and queries, add %s to claims.allowedPackages.", installedTemplate, out.Package)
+		out.Note = fmt.Sprintf("installed, but not recorded as installed: no allowed package brings the %q template — "+
+			"install a vocabulary package with --allow first", installedTemplate)
 	}
 	if !out.Allowed && out.Profile == scope.ProfileTemplates {
-		out.Note = fmt.Sprintf("a vocabulary package: its templates and queries are used only once %s is in claims.allowedPackages",
-			out.Package)
+		out.Note = fmt.Sprintf("a vocabulary package: its templates and queries are used only once it is allowed — "+
+			"run install again with --allow, or add %s to claims.allowedPackages", out.Package)
 	}
 
-	if _, err := persist(ctx, cfg, []string{out.Dir, cfg.Raw.Paths.PlanktonDir, cfg.Raw.Paths.NektonDir},
+	paths := []string{out.Dir, cfg.Raw.Paths.PlanktonDir, cfg.Raw.Paths.NektonDir}
+	if out.AllowedNow {
+		paths = append(paths, "cockpit.config.json")
+	}
+	if _, err := persist(ctx, cfg, paths,
 		"install: "+scopeName); err != nil {
 		return nil, refuse("store", "", "committing the installation failed: %v", err)
 	}

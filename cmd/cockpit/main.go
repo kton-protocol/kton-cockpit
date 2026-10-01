@@ -76,14 +76,18 @@ usage:
   cockpit say     '<json>' [--field NAME]   bind a claim from an allowed template
   cockpit ask     '<json>' [--field NAME]   query the graph, re-verified against configured trust
 
-  cockpit install  <package-dir>         take a package in: keep it, its records, say installed
-  cockpit workflow propose <result>...   what the runs behind results offer as a workflow
-  cockpit workflow extract <result>... --name N --reference RUN [--hole …] [--param …]
+  cockpit run --dir DIR --in [NAME=]FILE... -- COMMAND...
+                   run one step in DIR (inputs copied in), record what it wrote there
+  cockpit install <package-dir> [--allow]
+                   take a package in and say so; --allow also admits its templates and queries
+  cockpit workflow propose <result>...   what the runs behind results offer, numbered
+  cockpit workflow extract <result>... --name NAME --reference RESULT [--hole NAME=N]... [--param NAME=N]...
   cockpit workflow list                  the installed workflows
   cockpit workflow show <name>           steps, holes, parameters, reference
   cockpit workflow run <name> [--check] [--bind NAME=VALUE]...
+  cockpit workflow trace <result>        the steps behind a result, in the order they ran
 
-  cockpit run      run folders: new / <slug> / list — clone inputs, execute, record
+  cockpit run      also run folders: new / <slug> / list — clone inputs, execute, record
   cockpit keygen   make a signing identity (keys/<name>.key + .pub, and the claims pair)
   cockpit version  what this binary is, and which kernel is compiled into it
   cockpit mcp      start the MCP stdio server (cockpit_publish/cockpit_say/cockpit_ask)

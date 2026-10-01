@@ -78,11 +78,11 @@ abschnitt "0 Vorbedingung: das Workflow-Vokabular"
   --templates "$HIER/vokabular/templates" --queries "$HIER/vokabular/queries" --key "$WORK/kton-projekt.key" > "$WORK/vokabular.json"
 VOK=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["package"])' "$WORK/vokabular.json")
 echo "   Vokabularpaket kton-workflow: $VOK"
-printf 'Das Vokabularpaket `kton-workflow` (Templates: installed, reproduces, derived-from; Abfrage: workflows)\nhat die Id `%s`. Der Operator trägt sie in beiden Repos unter `claims.allowedPackages` ein.\n\n' "$VOK" >> "$AUFRUFE"
+printf 'Das Vokabularpaket `kton-workflow` (Templates: installed, reproduces, derived-from; Abfrage: workflows)\nhat die Id `%s`. Der Operator installiert es mit `--allow`; das trägt die Id in `claims.allowedPackages` ein.\n\n' "$VOK" >> "$AUFRUFE"
 
-participant "$WORK/a/repo" "$(config "c['claims']['allowedPackages'] = ['$VOK']")" raute-autorin >/dev/null
+participant "$WORK/a/repo" "$(config "")" raute-autorin >/dev/null
 REPO_DIR="$WORK/a/repo"; A="$REPO_DIR"; nur_vokabular; commit "nur das Vokabularpaket"
-aufruf A "Vokabular installieren" "./bin/cockpit install ../../kton-workflow"
+aufruf A "Vokabular installieren und zulassen" "./bin/cockpit install ../../kton-workflow --allow"
 
 # ===================================================================================================
 abschnitt "1 A: die Raute Schritt für Schritt ausführen, zweimal"
@@ -94,17 +94,20 @@ commit "die Skripte der Raute und ein zweiter Datensatz"
 for lauf in 1 2; do
   n=$(python3 -c 'import json,sys; print(len(json.load(open(sys.argv[1]))["steps"]))' "$WORK/plan-$lauf.json")
   for ((i = 0; i < n; i++)); do
-    python3 - "$WORK/plan-$lauf.json" "$i" "$REPO_DIR" <<'PY'
-import json, os, shutil, sys
-s = json.load(open(sys.argv[1]))["steps"][int(sys.argv[2])]
-os.chdir(sys.argv[3])
-for st in s["stage"]:
-    os.makedirs(os.path.dirname(st["to"]), exist_ok=True)
-    shutil.copyfile(st["from"], st["to"])
-PY
     STEP=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["steps"][int(sys.argv[2])]["id"])' "$WORK/plan-$lauf.json" "$i")
-    REQ=$(python3 -c 'import json,sys; s=json.load(open(sys.argv[1]))["steps"][int(sys.argv[2])]; print(json.dumps({"cmd":s["cmd"],"inputs":s["inputs"],"outputs":s["outputs"]}, ensure_ascii=False))' "$WORK/plan-$lauf.json" "$i")
-    aufruf A "Lauf $lauf, Step $STEP" "./bin/cockpit publish '$REQ' --field fotonId"
+    ARGS=$(python3 - "$WORK/plan-$lauf.json" "$i" <<'PY'
+import json, os, shlex, sys
+s = json.load(open(sys.argv[1]))["steps"][int(sys.argv[2])]
+ins = []
+for st in s["stage"]:
+    name = os.path.basename(st["to"])
+    src = st["from"]
+    ins.append("--in " + shlex.quote(src if os.path.basename(src) == name else name + "=" + src))
+cmd = s["cmd"].split(" && ", 1)[1]
+print("--dir " + shlex.quote(s["dir"]) + " " + " ".join(ins) + " -- " + cmd)
+PY
+)
+    aufruf A "Lauf $lauf, Step $STEP" "./bin/cockpit run $ARGS"
   done
 done
 
@@ -113,17 +116,17 @@ abschnitt "2 A: den Workflow herausziehen, die Raute als Referenz mitpacken"
 E1=work/lauf-1/zusammenführung/ergebnis.txt; E2=work/lauf-2/zusammenführung/ergebnis.txt
 aufruf A "Was bieten die Läufe an?" "./bin/cockpit workflow propose $E1 $E2"
 aufruf A "Herausziehen: Lauf 1 als Referenz, dataset als Loch, anzahl als Parameter" \
-  "./bin/cockpit workflow extract $E1 $E2 --name raute --reference $E1 --hole dataset=aufbereitung/dataset.csv --param anzahl=zweig-b/2"
+  "./bin/cockpit workflow extract $E1 $E2 --name raute --reference $E1 --hole dataset=1 --param anzahl=2"
 
 # ===================================================================================================
 abschnitt "3 B: installieren"
 AUTOR_PUBS="registry/keys/autorin-plankton.pub registry/keys/autorin-nekton.pub"
-participant "$WORK/b/repo" "$(config "c['claims']['allowedPackages'] = ['$VOK']; c['trust']['tiers']['autorin'] = '$AUTOR_PUBS'.split()")" raute-anwender >/dev/null
+participant "$WORK/b/repo" "$(config "c['trust']['tiers']['autorin'] = '$AUTOR_PUBS'.split()")" raute-anwender >/dev/null
 REPO_DIR="$WORK/b/repo"; B="$REPO_DIR"; nur_vokabular
 cp "$A/keys/session-1.pub" "$B/registry/keys/autorin-plankton.pub"
 cp "$A/keys/session-1-claims.pub" "$B/registry/keys/autorin-nekton.pub"
 commit "der Autorin vertrauen; nur das Vokabularpaket"
-aufruf B "Vokabular installieren" "./bin/cockpit install ../../kton-workflow"
+aufruf B "Vokabular installieren und zulassen" "./bin/cockpit install ../../kton-workflow --allow"
 aufruf B "Den Workflow installieren" "./bin/cockpit install ../../a/repo/packages/raute"
 
 # ===================================================================================================
@@ -137,7 +140,8 @@ aufruf B "Ohne Bindung (soll ablehnen)" "./bin/cockpit workflow run raute" expec
 aufruf B "Nachprüfen mit den Testdaten" "./bin/cockpit workflow run raute --check"
 cp "$HIER/../raute-zwei-backends/eigene-daten.csv" "$B/data/eigene-daten.csv"; commit "eigener Datensatz"
 aufruf B "Mit eigenen Daten" "./bin/cockpit workflow run raute --bind dataset=data/eigene-daten.csv --bind anzahl=3 --dir work/eigen"
-aufruf B "Woher kommt mein Ergebnis?" "./bin/cockpit ask '{\"query\":\"lineage\",\"ref\":\"work/eigen/zusammenführung/ergebnis.txt\"}' --field raw"
+aufruf B "Woher kommt mein Ergebnis?" "./bin/cockpit workflow trace work/eigen/zusammenführung/ergebnis.txt"
+aufruf B "Und das Ergebnis der Nachprüfung?" "./bin/cockpit workflow trace work/lauf-1/zusammenführung/ergebnis.txt"
 
 echo
 echo "$FEHLER Aufruf(e) anders als erwartet — Protokoll: $AUFRUFE"

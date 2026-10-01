@@ -7,19 +7,19 @@ der genannten Seite, mit der Ausgabe, die ein Mensch sieht. Lange Ausgaben sind 
 ## 0 Vorbedingung: das Workflow-Vokabular
 
 Das Vokabularpaket `kton-workflow` (Templates: installed, reproduces, derived-from; Abfrage: workflows)
-hat die Id `sha256:08ca7978225776cfca25be5d82d522e07a54a905ede4c99a28adb3e84b344861`. Der Operator trägt sie in beiden Repos unter `claims.allowedPackages` ein.
+hat die Id `sha256:52ec08ba6a86acbe1cf396ac486d9e64196de64479fafb3b12bd160807e4eb2c`. Der Operator installiert es mit `--allow`; das trägt die Id in `claims.allowedPackages` ein.
 
-### A — Vokabular installieren
+### A — Vokabular installieren und zulassen
 
 ```
-$ ./bin/cockpit install ../../kton-workflow
+$ ./bin/cockpit install ../../kton-workflow --allow
 installed kton-workflow, revision 1  →  packages/kton-workflow@1
-  package   sha256:08ca7978225776cfca25be5d82d522e07a54a905ede4c99a28adb3e84b344861
+  package   sha256:52ec08ba6a86acbe1cf396ac486d9e64196de64479fafb3b12bd160807e4eb2c
   profile   templates
-  sealed    a0d38c5539de (head 0713ca0c8a9a)
-  scope     kton-workflow@1 (db54ac10562a)
-  recorded  installed, claim 2110488cbb2b
-  allowed   yes — its templates and queries are in use
+  sealed    377944ebff2c (head 8777708d5a1f)
+  scope     kton-workflow@1 (d5ce83a4ab69)
+  recorded  installed, claim ea47f0690f8f
+  allowed   yes, added to claims.allowedPackages — its templates and queries are in use
 ```
 
 
@@ -28,57 +28,73 @@ installed kton-workflow, revision 1  →  packages/kton-workflow@1
 ### A — Lauf 1, Step aufbereitung
 
 ```
-$ ./bin/cockpit publish '{"cmd": "cd work/lauf-1/aufbereitung && Rscript aufbereiten.R", "inputs": ["work/lauf-1/aufbereitung/aufbereiten.R", "work/lauf-1/aufbereitung/dataset.csv"], "outputs": ["work/lauf-1/aufbereitung/daten.txt"]}' --field fotonId
-sha256:f4831849971895ff121bc0f7092af2b2e78773e39a1a27bc1219fb0892702a93
+$ ./bin/cockpit run --dir work/lauf-1/aufbereitung --in quelle/testdaten/dataset.csv --in quelle/steps/aufbereitung/aufbereiten.R -- Rscript aufbereiten.R
+ran  Rscript aufbereiten.R  in work/lauf-1/aufbereitung
+  foton    sha256:f4831849971895ff121bc0f7092af2b2e78773e39a1a27bc1219fb0892702a93
+  output   work/lauf-1/aufbereitung/daten.txt
 ```
 
 ### A — Lauf 1, Step zweig-c
 
 ```
-$ ./bin/cockpit publish '{"cmd": "cd work/lauf-1/zweig-c && Rscript zweigC.R", "inputs": ["work/lauf-1/zweig-c/daten.txt", "work/lauf-1/zweig-c/zweigC.R"], "outputs": ["work/lauf-1/zweig-c/c.txt"]}' --field fotonId
-sha256:5ecdf7a4e046d0d7e836f59ee46bd6c0e6da53c9f41df4de5b2b2e2276297642
+$ ./bin/cockpit run --dir work/lauf-1/zweig-c --in work/lauf-1/aufbereitung/daten.txt --in quelle/steps/zweig-c/zweigC.R -- Rscript zweigC.R
+ran  Rscript zweigC.R  in work/lauf-1/zweig-c
+  foton    sha256:5ecdf7a4e046d0d7e836f59ee46bd6c0e6da53c9f41df4de5b2b2e2276297642
+  output   work/lauf-1/zweig-c/c.txt
 ```
 
 ### A — Lauf 1, Step zweig-b
 
 ```
-$ ./bin/cockpit publish '{"cmd": "cd work/lauf-1/zweig-b && Rscript zweigB.R 1", "inputs": ["work/lauf-1/zweig-b/daten.txt", "work/lauf-1/zweig-b/zweigB.R"], "outputs": ["work/lauf-1/zweig-b/b.txt"]}' --field fotonId
-sha256:3ba45bd420142a1f84540087df3d9273a698a46a0429a753119c3502f1b08be2
+$ ./bin/cockpit run --dir work/lauf-1/zweig-b --in quelle/steps/zweig-b/zweigB.R --in work/lauf-1/aufbereitung/daten.txt -- Rscript zweigB.R 1
+ran  Rscript zweigB.R 1  in work/lauf-1/zweig-b
+  foton    sha256:3ba45bd420142a1f84540087df3d9273a698a46a0429a753119c3502f1b08be2
+  output   work/lauf-1/zweig-b/b.txt
 ```
 
 ### A — Lauf 1, Step zusammenführung
 
 ```
-$ ./bin/cockpit publish '{"cmd": "cd work/lauf-1/zusammenführung && Rscript zusammen.R", "inputs": ["work/lauf-1/zusammenführung/b.txt", "work/lauf-1/zusammenführung/c.txt", "work/lauf-1/zusammenführung/zusammen.R"], "outputs": ["work/lauf-1/zusammenführung/ergebnis.txt"]}' --field fotonId
-sha256:5a91c47260fa01a787a835e16abb16cfe81f770658004e5e669a39ba817d2e3b
+$ ./bin/cockpit run --dir 'work/lauf-1/zusammenführung' --in 'quelle/steps/zusammenführung/zusammen.R' --in work/lauf-1/zweig-b/b.txt --in work/lauf-1/zweig-c/c.txt -- Rscript zusammen.R
+ran  Rscript zusammen.R  in work/lauf-1/zusammenführung
+  foton    sha256:5a91c47260fa01a787a835e16abb16cfe81f770658004e5e669a39ba817d2e3b
+  output   work/lauf-1/zusammenführung/ergebnis.txt
 ```
 
 ### A — Lauf 2, Step aufbereitung
 
 ```
-$ ./bin/cockpit publish '{"cmd": "cd work/lauf-2/aufbereitung && Rscript aufbereiten.R", "inputs": ["work/lauf-2/aufbereitung/aufbereiten.R", "work/lauf-2/aufbereitung/dataset.csv"], "outputs": ["work/lauf-2/aufbereitung/daten.txt"]}' --field fotonId
-sha256:57e0a40531f9c49e5a4ceb228dd7d7fb156eb2b8e28d284d74dbb8bc500b8d5d
+$ ./bin/cockpit run --dir work/lauf-2/aufbereitung --in dataset.csv=data/eigene-daten.csv --in quelle/steps/aufbereitung/aufbereiten.R -- Rscript aufbereiten.R
+ran  Rscript aufbereiten.R  in work/lauf-2/aufbereitung
+  foton    sha256:57e0a40531f9c49e5a4ceb228dd7d7fb156eb2b8e28d284d74dbb8bc500b8d5d
+  output   work/lauf-2/aufbereitung/daten.txt
 ```
 
 ### A — Lauf 2, Step zweig-c
 
 ```
-$ ./bin/cockpit publish '{"cmd": "cd work/lauf-2/zweig-c && Rscript zweigC.R", "inputs": ["work/lauf-2/zweig-c/daten.txt", "work/lauf-2/zweig-c/zweigC.R"], "outputs": ["work/lauf-2/zweig-c/c.txt"]}' --field fotonId
-sha256:a71eb29da75c3672fd62348fe5e0dd63c305594bd46aa7747f40e4b536acd5ac
+$ ./bin/cockpit run --dir work/lauf-2/zweig-c --in work/lauf-2/aufbereitung/daten.txt --in quelle/steps/zweig-c/zweigC.R -- Rscript zweigC.R
+ran  Rscript zweigC.R  in work/lauf-2/zweig-c
+  foton    sha256:a71eb29da75c3672fd62348fe5e0dd63c305594bd46aa7747f40e4b536acd5ac
+  output   work/lauf-2/zweig-c/c.txt
 ```
 
 ### A — Lauf 2, Step zweig-b
 
 ```
-$ ./bin/cockpit publish '{"cmd": "cd work/lauf-2/zweig-b && Rscript zweigB.R 3", "inputs": ["work/lauf-2/zweig-b/daten.txt", "work/lauf-2/zweig-b/zweigB.R"], "outputs": ["work/lauf-2/zweig-b/b.txt"]}' --field fotonId
-sha256:0273016c3c462a0cab0bdb6165496eee4030cb3ef57034978fc70dae3138a51f
+$ ./bin/cockpit run --dir work/lauf-2/zweig-b --in quelle/steps/zweig-b/zweigB.R --in work/lauf-2/aufbereitung/daten.txt -- Rscript zweigB.R 3
+ran  Rscript zweigB.R 3  in work/lauf-2/zweig-b
+  foton    sha256:0273016c3c462a0cab0bdb6165496eee4030cb3ef57034978fc70dae3138a51f
+  output   work/lauf-2/zweig-b/b.txt
 ```
 
 ### A — Lauf 2, Step zusammenführung
 
 ```
-$ ./bin/cockpit publish '{"cmd": "cd work/lauf-2/zusammenführung && Rscript zusammen.R", "inputs": ["work/lauf-2/zusammenführung/b.txt", "work/lauf-2/zusammenführung/c.txt", "work/lauf-2/zusammenführung/zusammen.R"], "outputs": ["work/lauf-2/zusammenführung/ergebnis.txt"]}' --field fotonId
-sha256:5aac583ce211280c518140d8c855868d3a9d32765a20a6f335b7bbd985ff1172
+$ ./bin/cockpit run --dir 'work/lauf-2/zusammenführung' --in 'quelle/steps/zusammenführung/zusammen.R' --in work/lauf-2/zweig-b/b.txt --in work/lauf-2/zweig-c/c.txt -- Rscript zusammen.R
+ran  Rscript zusammen.R  in work/lauf-2/zusammenführung
+  foton    sha256:5aac583ce211280c518140d8c855868d3a9d32765a20a6f335b7bbd985ff1172
+  output   work/lauf-2/zusammenführung/ergebnis.txt
 ```
 
 
@@ -99,40 +115,38 @@ steps
   zweig-c            zweigC.R
   zusammenführung    zusammen.R
 
-could be holes (--hole NAME=STEP/SLOT)
-  aufbereitung/dataset.csv  — differs between runs
-
-could be parameters (--param NAME=STEP/POSITION)
-  zweig-b/2  — run-1: 3, run-2: 1
+candidates — choose with --hole NAME=N (files) and --param NAME=N (command-line places)
+  [1] file  aufbereitung/dataset.csv     run-1: ab0a3a625389, run-2: e80079e56ed5
+  [2] param zweig-b, argument 2          run-1: 3, run-2: 1
 ```
 
 ### A — Herausziehen: Lauf 1 als Referenz, dataset als Loch, anzahl als Parameter
 
 ```
-$ ./bin/cockpit workflow extract work/lauf-1/zusammenführung/ergebnis.txt work/lauf-2/zusammenführung/ergebnis.txt --name raute --reference work/lauf-1/zusammenführung/ergebnis.txt --hole dataset=aufbereitung/dataset.csv --param anzahl=zweig-b/2
+$ ./bin/cockpit workflow extract work/lauf-1/zusammenführung/ergebnis.txt work/lauf-2/zusammenführung/ergebnis.txt --name raute --reference work/lauf-1/zusammenführung/ergebnis.txt --hole dataset=1 --param anzahl=2
 extracted raute  →  packages/raute
-  package     sha256:f1cced11d13c7240d62563c84ba58ae447f4c150301589d8e8c94f14aabeec75
+  package     sha256:d92c9eb3ddcd32ec0f64a2c2b3a1509d36d5eadd0c6143b5a92ee2aa10076b5e
   ray         sha256:764913c16c1382aa071c1e1ba424f0b613933e185b6a64295d08e9d4590a2a28
   holes       dataset
   parameters  anzahl
   reference   4 run(s) of work/lauf-1/zusammenführung/ergebnis.txt packed with it
-  sealed      f43ee7f857c6
+  sealed      3ce46066370e
 ```
 
 
 ## 3 B: installieren
 
-### B — Vokabular installieren
+### B — Vokabular installieren und zulassen
 
 ```
-$ ./bin/cockpit install ../../kton-workflow
+$ ./bin/cockpit install ../../kton-workflow --allow
 installed kton-workflow, revision 1  →  packages/kton-workflow@1
-  package   sha256:08ca7978225776cfca25be5d82d522e07a54a905ede4c99a28adb3e84b344861
+  package   sha256:52ec08ba6a86acbe1cf396ac486d9e64196de64479fafb3b12bd160807e4eb2c
   profile   templates
-  sealed    a0d38c5539de (head 0713ca0c8a9a)
-  scope     kton-workflow@1 (30fb3b3ea8c5)
-  recorded  installed, claim c51bbb049f47
-  allowed   yes — its templates and queries are in use
+  sealed    377944ebff2c (head 8777708d5a1f)
+  scope     kton-workflow@1 (11f1df2c1004)
+  recorded  installed, claim 400411c1d9e7
+  allowed   yes, added to claims.allowedPackages — its templates and queries are in use
 ```
 
 ### B — Den Workflow installieren
@@ -140,12 +154,12 @@ installed kton-workflow, revision 1  →  packages/kton-workflow@1
 ```
 $ ./bin/cockpit install ../../a/repo/packages/raute
 installed raute, revision 1  →  packages/raute@1
-  package   sha256:f1cced11d13c7240d62563c84ba58ae447f4c150301589d8e8c94f14aabeec75
+  package   sha256:d92c9eb3ddcd32ec0f64a2c2b3a1509d36d5eadd0c6143b5a92ee2aa10076b5e
   profile   workflow
-  sealed    f43ee7f857c6 (head a62b5420b2c7)
+  sealed    3ce46066370e (head 66bafb82ad79)
   ray       sha256:764913c16c1382aa071c1e1ba424f0b613933e185b6a64295d08e9d4590a2a28
-  scope     raute@1 (39ce68833ed9)
-  recorded  installed, claim 59916c8f2fbe
+  scope     raute@1 (6ce36b36e34d)
+  recorded  installed, claim a11829327de8
 ```
 
 
@@ -157,7 +171,7 @@ installed raute, revision 1  →  packages/raute@1
 $ ./bin/cockpit workflow list
 1 workflow(s) installed  (query from kton-workflow (packages/kton-workflow@1))
 
-  raute            revision 1    ray 764913c16c13  sealed f43ee7f857c6
+  raute            revision 1    ray 764913c16c13  sealed 3ce46066370e
 ```
 
 ### B — Die Raute ansehen
@@ -166,7 +180,7 @@ $ ./bin/cockpit workflow list
 $ ./bin/cockpit workflow show raute
 raute, revision 1  (packages/raute@1)
   ray     sha256:764913c16c1382aa071c1e1ba424f0b613933e185b6a64295d08e9d4590a2a28
-  sealed  f43ee7f857c6
+  sealed  3ce46066370e
 
 steps
   1. aufbereitung     Rscript aufbereiten.R
@@ -194,7 +208,7 @@ holes (--bind NAME=VALUE)
 
 ```
 $ ./bin/cockpit workflow run raute
-offene Pflichtlöcher: anzahl, dataset — bind them with --bind NAME=VALUE, or run --check to run on the package's test data
+required holes not bound: anzahl, dataset — bind them with --bind NAME=VALUE, or run --check to run on the package's test data
 [exit 2]
 ```
 
@@ -203,6 +217,8 @@ offene Pflichtlöcher: anzahl, dataset — bind them with --bind NAME=VALUE, or 
 ```
 $ ./bin/cockpit workflow run raute --check
 ran raute in work/lauf-1  (anzahl=1, dataset=testdaten/dataset/dataset.csv)
+  work/lauf-1 is where the reference ran: paths are part of a record's identity, so only there
+  is the same work the same record — and your run signs the reference instead of standing beside it
   aufbereitung     foton f48318499718  reproduces the reference (L0, same record, co-signed)
   zweig-b          foton 3ba45bd42014  reproduces the reference (L0, same record, co-signed)
   zweig-c          foton 5ecdf7a4e046  reproduces the reference (L0, same record, co-signed)
@@ -223,10 +239,50 @@ ran raute in work/eigen  (anzahl=3, dataset=data/eigene-daten.csv)
 ### B — Woher kommt mein Ergebnis?
 
 ```
-$ ./bin/cockpit ask '{"query":"lineage","ref":"work/eigen/zusammenführung/ergebnis.txt"}' --field raw
-sha256:c05bb202fead574a6683feacb1a43ca182eaa35223b12f8d2e8e1137a0aed573  kind=script  in=3 out=1
-sha256:afb7134698ca15b89ef86159ffa280c40fe2df2ffb2f1db1bd147a615d75db09  kind=script  in=2 out=1
-sha256:9ccba9526d990e9ee7c323ae0020dbf0c65939bd91d996b3a865766646e5c87b  kind=script  in=2 out=1
-sha256:41ab74a2bc158767581ee27f74b13d0ee84261ac55603458af5edbd813d1a3d1  kind=script  in=2 out=1
+$ ./bin/cockpit workflow trace work/eigen/zusammenführung/ergebnis.txt
+work/eigen/zusammenführung/ergebnis.txt comes from 4 step(s), each verified against this repo's trust tiers:
+
+  1. aufbereitung     Rscript aufbereiten.R   (foton 9ccba9526d99, signed by self)
+     in:  work/eigen/aufbereitung/aufbereiten.R, work/eigen/aufbereitung/dataset.csv
+     out: work/eigen/aufbereitung/daten.txt
+
+  2. zweig-b          Rscript zweigB.R 3   (foton afb7134698ca, signed by self)
+     in:  work/eigen/zweig-b/daten.txt, work/eigen/zweig-b/zweigB.R
+     out: work/eigen/zweig-b/b.txt
+
+  3. zweig-c          Rscript zweigC.R   (foton 41ab74a2bc15, signed by self)
+     in:  work/eigen/zweig-c/daten.txt, work/eigen/zweig-c/zweigC.R
+     out: work/eigen/zweig-c/c.txt
+
+  4. zusammenführung  Rscript zusammen.R   (foton c05bb202fead, signed by self)
+     in:  work/eigen/zusammenführung/b.txt, work/eigen/zusammenführung/c.txt, work/eigen/zusammenführung/zusammen.R
+     out: work/eigen/zusammenführung/ergebnis.txt
+```
+
+### B — Und das Ergebnis der Nachprüfung?
+
+```
+$ ./bin/cockpit workflow trace work/lauf-1/zusammenführung/ergebnis.txt
+work/lauf-1/zusammenführung/ergebnis.txt comes from 4 step(s), each verified against this repo's trust tiers:
+
+  1. aufbereitung     Rscript aufbereiten.R   (foton f48318499718, signed by autorin + self)
+     in:  work/lauf-1/aufbereitung/aufbereiten.R, work/lauf-1/aufbereitung/dataset.csv
+     out: work/lauf-1/aufbereitung/daten.txt
+     this is the reference run of raute@1, step aufbereitung
+
+  2. zweig-b          Rscript zweigB.R 1   (foton 3ba45bd42014, signed by autorin + self)
+     in:  work/lauf-1/zweig-b/daten.txt, work/lauf-1/zweig-b/zweigB.R
+     out: work/lauf-1/zweig-b/b.txt
+     this is the reference run of raute@1, step zweig-b
+
+  3. zweig-c          Rscript zweigC.R   (foton 5ecdf7a4e046, signed by autorin + self)
+     in:  work/lauf-1/zweig-c/daten.txt, work/lauf-1/zweig-c/zweigC.R
+     out: work/lauf-1/zweig-c/c.txt
+     this is the reference run of raute@1, step zweig-c
+
+  4. zusammenführung  Rscript zusammen.R   (foton 5a91c47260fa, signed by autorin + self)
+     in:  work/lauf-1/zusammenführung/b.txt, work/lauf-1/zusammenführung/c.txt, work/lauf-1/zusammenführung/zusammen.R
+     out: work/lauf-1/zusammenführung/ergebnis.txt
+     this is the reference run of raute@1, step zusammenführung
 ```
 

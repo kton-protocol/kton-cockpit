@@ -38,6 +38,10 @@ type PublishRequest struct {
 	// earlier run would enter this record's identity and two identical runs would stop producing
 	// the same foton. An empty dedicated directory has no such file in it.
 	OutputDir string `json:"outputDir,omitempty" jsonschema:"a directory whose contents after the run are the outputs; requires execution, and must be empty beforehand"`
+	// OutputsIn names a directory in which the run's outputs are whatever it created or changed,
+	// except the inputs. It is the form for a step that reads and writes in one working directory
+	// (cockpit run --dir): only the cockpit, which runs the command, can see what it produced.
+	OutputsIn string `json:"outputsIn,omitempty" jsonschema:"a directory whose files the run created or changed (except the inputs) are the outputs; requires execution"`
 	Cmd       string `json:"cmd,omitempty" jsonschema:"the exact command that was run to produce the outputs"`
 	// Corpus lists nekton claim or plankton foton refs (sha256:...) that this result's own
 	// reasoning drew on as its basis. When set, the cockpit records a small corpus manifest file
@@ -139,8 +143,8 @@ func (c *Cockpit) Publish(ctx context.Context, in PublishRequest) (*PublishResul
 		return nil, refuse("execution.not-configured", "SPEC §10",
 			"outputDir needs this repo to run the command (execution.image is not configured) — "+
 				"without that the cockpit never sees the run and cannot know what it produced")
-	case in.OutputDir == "" && len(in.Outputs) == 0:
-		return nil, refuse("argument", "", "publish requires at least one output path, or outputDir")
+	case in.OutputDir == "" && in.OutputsIn == "" && len(in.Outputs) == 0:
+		return nil, refuse("argument", "", "publish requires at least one output path, or outputDir, or outputsIn")
 	}
 	if in.Cmd == "" {
 		return nil, refuse("argument", "", "publish requires cmd (the command that produced the outputs)")
@@ -178,6 +182,13 @@ func (c *Cockpit) Publish(ctx context.Context, in PublishRequest) (*PublishResul
 	// whatever a failed run left behind would assert work that never completed.
 	var ran *container.Result
 	var undeclared []string
+	if in.OutputsIn != "" && (in.OutputDir != "" || len(in.Outputs) > 0) {
+		return nil, refuse("argument", "", "publish takes outputs, outputDir or outputsIn — one of them")
+	}
+	if in.OutputsIn != "" && !cfg.Raw.Execution.Enabled() {
+		return nil, refuse("execution.not-configured", "SPEC §10",
+			"outputsIn needs the cockpit to run the command (execution.image): only the party that runs it sees what it wrote")
+	}
 	if in.OutputDir != "" {
 		existing, derr := filesUnder(cfg.RepoRoot, in.OutputDir)
 		if derr != nil {
@@ -217,6 +228,23 @@ func (c *Cockpit) Publish(ctx context.Context, in PublishRequest) (*PublishResul
 					cfg.Raw.Execution.Image, in.OutputDir)
 			}
 			in.Outputs = produced
+		}
+		if in.OutputsIn != "" {
+			after, serr := container.TakeSnapshot(cfg.RepoRoot)
+			if serr != nil {
+				return nil, refuse("io", "", "could not read the working tree after the run: %v", serr)
+			}
+			prefix := strings.TrimSuffix(filepath.ToSlash(in.OutputsIn), "/") + "/"
+			for _, p := range before.ChangedSince(after, in.Inputs) {
+				if strings.HasPrefix(p, prefix) && !strings.HasSuffix(p, " (removed)") {
+					in.Outputs = append(in.Outputs, p)
+				}
+			}
+			if len(in.Outputs) == 0 {
+				return nil, refuse("execution.no-output", "SPEC §10",
+					"the command succeeded in %s but created or changed nothing in %s besides its inputs",
+					cfg.Raw.Execution.Image, in.OutputsIn)
+			}
 		}
 		for _, o := range in.Outputs {
 			if _, statErr := os.Stat(filepath.Join(cfg.RepoRoot, o)); statErr != nil {

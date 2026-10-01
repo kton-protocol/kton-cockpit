@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 
 	"github.com/kton-protocol/kton-cockpit/internal/binaries"
@@ -162,5 +163,31 @@ func Locators(ctx context.Context, r *binaries.Runner, cfg *config.Config, foton
 			out = append(out, Locator{Path: l.Path, Hash: l.Hash, URI: l.URI, Signer: l.Signer, Tier: byKeyID[l.Signer].tier})
 		}
 	}
+	return out, nil
+}
+
+// Tiers reports every trust tier with a key that signed the record — all of them, not the first.
+// A record two producers did (the same work, co-signed) carries both signatures, and saying only
+// one of them would hide that it was reproduced. Sorted, without duplicates.
+func Tiers(ctx context.Context, r *binaries.Runner, cfg *config.Config, id string, kind Kind) ([]string, error) {
+	env, err := envelopeOf(ctx, r, id, kind)
+	if err != nil {
+		return nil, err
+	}
+	keys, byKeyID, err := tierKeys(cfg)
+	if err != nil {
+		return nil, err
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, k := range keys {
+		if kid := core.VerifiedSignerKeyID(env, []ed25519.PublicKey{k}); kid != "" {
+			if t := byKeyID[kid].tier; !seen[t] {
+				seen[t] = true
+				out = append(out, t)
+			}
+		}
+	}
+	sort.Strings(out)
 	return out, nil
 }

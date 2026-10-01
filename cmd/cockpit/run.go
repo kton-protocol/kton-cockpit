@@ -12,6 +12,9 @@ package main
 //	cockpit run new <slug> --from <dir>   a run folder, inputs copied in, out/ empty
 //	cockpit run <slug>                    execute it in the pinned image, record what came out
 //	cockpit run list                      the run folders, and which of them are recorded
+//	cockpit run --dir DIR --in [NAME=]FILE... -- COMMAND...
+//	                                      one step: inputs copied into DIR, COMMAND run there in the
+//	                                      pinned image, whatever it wrote in DIR recorded as outputs
 
 import (
 	"context"
@@ -46,7 +49,11 @@ var entrypoints = []struct {
 
 func runRun(ctx context.Context, args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage:\n  cockpit run new <slug> --from <dir>\n  cockpit run <slug>\n  cockpit run list")
+		return fmt.Errorf("usage:\n  cockpit run --dir DIR --in [NAME=]FILE... -- COMMAND...\n" +
+			"  cockpit run new <slug> --from <dir>\n  cockpit run <slug>\n  cockpit run list")
+	}
+	if strings.HasPrefix(args[0], "--") {
+		return runStep(ctx, args)
 	}
 	switch args[0] {
 	case "new":
@@ -352,4 +359,86 @@ func sortedKeys(m map[string]string) []string {
 
 func indent(s, p string) string {
 	return p + strings.ReplaceAll(s, "\n", "\n"+p)
+}
+
+// runStep runs one step in a working directory. The inputs are handed over by file: each is copied
+// into DIR under its own name (or NAME=FILE under NAME) unless it is already there, and recorded as
+// an input. The outputs are not named — the cockpit runs the command and records what it created or
+// changed in DIR (publish outputsIn). The recorded command is `cd DIR && COMMAND`, the form a
+// workflow is later extracted from.
+func runStep(ctx context.Context, args []string) error {
+	var dir string
+	var ins []string
+	var cmd []string
+	jsonOut := false
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--dir":
+			if i+1 >= len(args) {
+				return fmt.Errorf("--dir needs a directory")
+			}
+			dir = args[i+1]
+			i++
+		case "--in":
+			if i+1 >= len(args) {
+				return fmt.Errorf("--in needs a file")
+			}
+			ins = append(ins, args[i+1])
+			i++
+		case "--json":
+			jsonOut = true
+		case "--":
+			cmd = args[i+1:]
+			i = len(args)
+		default:
+			return fmt.Errorf("unexpected %q — the command goes after --", args[i])
+		}
+	}
+	if dir == "" || len(cmd) == 0 {
+		return fmt.Errorf("usage: cockpit run --dir DIR --in [NAME=]FILE... -- COMMAND...")
+	}
+	cfg, err := config.Load(ctx, ".")
+	if err != nil {
+		return err
+	}
+	dir = strings.TrimSuffix(filepath.ToSlash(filepath.Clean(dir)), "/")
+	if err := os.MkdirAll(filepath.Join(cfg.RepoRoot, filepath.FromSlash(dir)), 0o755); err != nil {
+		return err
+	}
+	var inputs []string
+	for _, in := range ins {
+		name, src, renamed := strings.Cut(in, "=")
+		if !renamed {
+			src, name = in, filepath.Base(in)
+		}
+		dst := dir + "/" + name
+		if filepath.Clean(src) != filepath.Clean(dst) {
+			if err := copyFile(filepath.Join(cfg.RepoRoot, filepath.FromSlash(src)), filepath.Join(cfg.RepoRoot, filepath.FromSlash(dst))); err != nil {
+				return fmt.Errorf("input %s: %w", src, err)
+			}
+		}
+		inputs = append(inputs, dst)
+	}
+	sort.Strings(inputs)
+	out, perr := cockpit.New(cockpit.Start{}).Publish(ctx, cockpit.PublishRequest{
+		Cmd:       "cd " + dir + " && " + strings.Join(cmd, " "),
+		Inputs:    inputs,
+		OutputsIn: dir,
+	})
+	exitIfRefused(perr)
+	if perr != nil {
+		return perr
+	}
+	if jsonOut {
+		return emitJSON(out)
+	}
+	fmt.Printf("ran  %s  in %s\n", strings.Join(cmd, " "), dir)
+	fmt.Printf("  foton    %s\n", out.FotonID)
+	for _, p := range sortedKeys(out.OutputHashes) {
+		fmt.Printf("  output   %s\n", p)
+	}
+	if out.CoSigned {
+		fmt.Printf("  note     this work was already a record here; your signature was added to it\n")
+	}
+	return nil
 }
