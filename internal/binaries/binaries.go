@@ -67,12 +67,21 @@ type AuthorInput struct {
 // descriptor as {cmd, environment?, envRef?}, and no automatic file:// locator — a logical path is
 // the repo-relative one the caller gave. TestAuthor_MatchesTheReferenceCLI holds that equivalence
 // against the binary, because "the same id" is not something to take on reading.
-func (r *Runner) Author(ctx context.Context, in AuthorInput) (fotonID string, err error) {
+// Authored is what Author recorded.
+type Authored struct {
+	ID string
+	// CoSigned means the registry already held this foton and the call added this repo's signature
+	// to the stored record instead of a record of its own (its locators are kept, ours are not).
+	CoSigned bool
+}
+
+func (r *Runner) Author(ctx context.Context, in AuthorInput) (Authored, error) {
+	coSigned := false
 	located := map[string][]string{}
 	for _, l := range in.Located {
 		path, uri, ok := strings.Cut(l, "=")
 		if !ok {
-			return "", fmt.Errorf("located %q is not path=uri", l)
+			return Authored{}, fmt.Errorf("located %q is not path=uri", l)
 		}
 		located[path] = append(located[path], uri)
 	}
@@ -90,11 +99,11 @@ func (r *Runner) Author(ctx context.Context, in AuthorInput) (fotonID string, er
 	}
 	inputs, err := hashFiles(in.Inputs)
 	if err != nil {
-		return "", err
+		return Authored{}, err
 	}
 	outputs, err := hashFiles(in.Outputs)
 	if err != nil {
-		return "", err
+		return Authored{}, err
 	}
 
 	desc := map[string]any{"cmd": in.Cmd}
@@ -111,20 +120,49 @@ func (r *Runner) Author(ctx context.Context, in AuthorInput) (fotonID string, er
 
 	priv, err := loadSigningKey(in.SignKey)
 	if err != nil {
-		return "", err
+		return Authored{}, err
 	}
 	env, id, err := ffoton.SignWith(spec, priv)
 	if err != nil {
-		return "", fmt.Errorf("signing the foton: %w", err)
+		return Authored{}, fmt.Errorf("signing the foton: %w", err)
 	}
 	reg, err := pregistry.Open(r.cfg.PlanktonDir)
 	if err != nil {
-		return "", fmt.Errorf("opening the plankton registry: %w", err)
+		return Authored{}, fmt.Errorf("opening the plankton registry: %w", err)
+	}
+	pub := []ed25519.PublicKey{priv.Public().(ed25519.PublicKey)}
+	// The registry may already hold this foton — the same work, recorded by somebody else (an
+	// installed package's reference run) or by this repo at an earlier commit. Its identity is the
+	// same, but its carried locators are not: they pin THAT repo's commit. The kernel never merges
+	// signatures across differing payloads (a signature must stand over the bytes it signed), so
+	// adding our own envelope would be answered "already there" and our signature silently dropped.
+	// Instead we sign the STORED payload. That is a true statement — its covered projection is the
+	// work we just did, which is why the ids agree — and it is the only form a co-signature can take.
+	// The stored record's locators are kept; ours are not recorded.
+	if stored, ok := reg.Envelope(id); ok && core.VerifiedSignerKeyID(stored, pub) == "" {
+		payload, perr := stored.PayloadBytes()
+		if perr != nil {
+			return Authored{}, fmt.Errorf("the registry holds %s but its payload is unreadable: %w", id, perr)
+		}
+		cosigned, cid, serr := ffoton.Seal(payload, ed25519.Sign(priv, core.PAE(stored.PayloadType, payload)), pub[0])
+		if serr != nil {
+			return Authored{}, fmt.Errorf("co-signing the stored %s: %w", id, serr)
+		}
+		if cid != id {
+			return Authored{}, fmt.Errorf("the registry files a record under %s whose signed bytes derive %s; refusing to co-sign it", id, cid)
+		}
+		env = cosigned
+		coSigned = true
 	}
 	if _, _, err := reg.Add(env); err != nil {
-		return "", fmt.Errorf("the foton was signed but the registry refused it: %w", err)
+		return Authored{}, fmt.Errorf("the foton was signed but the registry refused it: %w", err)
 	}
-	return id, nil
+	// Never report a publish whose signature is not on the record. The check is on what the store
+	// now holds, not on what Add answered — "already there" is a success to Add.
+	if stored, ok := reg.Envelope(id); !ok || core.VerifiedSignerKeyID(stored, pub) == "" {
+		return Authored{}, fmt.Errorf("the registry holds %s but not with this repo's signature on it", id)
+	}
+	return Authored{ID: id, CoSigned: coSigned}, nil
 }
 
 // KeyID returns the keyid a signature carries for this public key, as the substrate derives it —

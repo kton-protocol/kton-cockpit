@@ -308,6 +308,24 @@ refuse a supplied value naming a different one.
 > **Checked by:** `TestRay_PublishWritesThePackageAndRecordsWhereItCameFrom`,
 > `TestRay_PublishRefusesWhatWasNotOffered`, `TestRay_PublishNeedsTheTemplateAdmitted`.
 
+### 7.7 Work that is already a record
+
+The registry may already hold the foton a publish computes: the same inputs, outputs and protocol,
+recorded by somebody else (the reference run of an installed package, re-run by its user) or by
+this repository at an earlier commit. The id is the same; the carried locators are not, because
+each pins its own repository's commit (kton §6.1). The kernel never merges signatures across
+differing signed bytes.
+
+- If the stored record does not yet carry this repository's signature, the cockpit MUST sign the
+  **stored** payload and add that signature to the record, and MUST report `coSigned: true`. The
+  stored record's locators are kept; this repository's are not recorded in it.
+- The cockpit MUST NOT report a publish as done when the record it names does not carry its
+  signature afterwards. "Already there" is a success to the registry, not to the caller.
+- Publishing one's own work again is not a co-signature.
+
+> **Checked by:** `TestAuthor_CoSignsWorkTheRegistryAlreadyHolds`,
+> `TestAuthor_RepublishingOwnWorkIsNotACoSignature`, `acceptance/raute-scope`.
+
 ## 8 say
 
 Binds a claim to a record.

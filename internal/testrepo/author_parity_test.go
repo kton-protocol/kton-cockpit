@@ -72,9 +72,9 @@ func TestAuthor_MatchesTheReferenceCLI(t *testing.T) {
 		t.Fatalf("linked author: %v", err)
 	}
 
-	if fromLib != fromCLI {
+	if fromLib.ID != fromCLI {
 		t.Fatalf("the two authoring paths disagree on identity:\n  cli %s\n  lib %s\n"+
 			"A descriptor default differs — kind, the descriptor's shape, a carried locator, or what "+
-			"counts as a logical path.", fromCLI, fromLib)
+			"counts as a logical path.", fromCLI, fromLib.ID)
 	}
 }

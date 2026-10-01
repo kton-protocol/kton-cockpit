@@ -147,6 +147,17 @@ schritt pruefen pruefen:plan ktonpkg "" \
   "$WORK/pkgtool plan packages/raute@1 work/raute"
 cp "$WORK/last.out" "$WORK/plan-pruefen.json"
 laufen "$WORK/plan-pruefen.json" pruefen
+python3 - "$LOG" <<'PY'
+import json, sys
+steps = [json.loads(l) for l in open(sys.argv[1])]
+ref = {s["id"].split(":", 1)[1]: s["result"]["fotonId"] for s in steps if s["id"].startswith("referenz:") and s["id"] != "referenz:plan"}
+for s in steps:
+    if s["id"].startswith("pruefen:") and s["id"] != "pruefen:plan":
+        step = s["id"].split(":", 1)[1]
+        assert s["result"]["fotonId"] == ref[step], f"{step}: ein zweiter Record statt des Referenzlaufs"
+        assert s["result"].get("coSigned"), f"{step}: der Lauf des Users steht nicht am Referenzlauf"
+        print(f"   {step}: derselbe Record wie bei der Autorin, vom User mitsigniert")
+PY
 python3 - "$LOG" > "$WORK/reproduktionen.tsv" <<'PY'
 import json, sys
 steps = [json.loads(l) for l in open(sys.argv[1])]

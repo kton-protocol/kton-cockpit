@@ -83,6 +83,12 @@ type PublishResult struct {
 	// UnionPublished reports that this repo's aggregate was regenerated and committed alongside the
 	// record, so the graph is reachable online without running `cockpit show`.
 	UnionPublished bool `json:"unionPublished,omitempty"`
+	// CoSigned means this work was already a record here — somebody else's run of the same thing,
+	// for instance the reference run of an installed package — and this publish added its signature
+	// to that record rather than writing one of its own. The stored record's locators are kept; the
+	// permalinks above are where this repo's copies live, but the record does not carry them
+	// (SPEC §7.7: a signature stands over the bytes it signed, and the kernel merges no others).
+	CoSigned bool `json:"coSigned,omitempty"`
 	// UndeclaredChanges lists files the run changed that this publish did not name as an input or an
 	// output — reported only when the cockpit ran the command, since otherwise it has no way to know.
 	//
@@ -265,7 +271,7 @@ func (c *Cockpit) Publish(ctx context.Context, in PublishRequest) (*PublishResul
 		fotonInputs = append(append([]string{}, in.Inputs...), corpusPath)
 	}
 
-	fotonID, err := r.Author(ctx, binaries.AuthorInput{
+	authored, err := r.Author(ctx, binaries.AuthorInput{
 		Inputs:  fotonInputs,
 		Outputs: in.Outputs,
 		Cmd:     in.Cmd,
@@ -280,6 +286,7 @@ func (c *Cockpit) Publish(ctx context.Context, in PublishRequest) (*PublishResul
 	if err != nil {
 		return nil, refuse("kernel", "", "plankton author failed: %v", err)
 	}
+	fotonID := authored.ID
 
 	outputHashes := map[string]string{}
 	for _, o := range in.Outputs {
@@ -354,6 +361,7 @@ func (c *Cockpit) Publish(ctx context.Context, in PublishRequest) (*PublishResul
 		Pushed:         cfg.Raw.PushEnabled() && !pushRejected,
 		PushRejected:   pushRejected,
 		UnionPublished: cfg.Raw.Union.Publish,
+		CoSigned:       authored.CoSigned,
 	}
 	out.UndeclaredChanges = undeclared
 	if anchored != nil {
