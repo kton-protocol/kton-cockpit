@@ -52,6 +52,14 @@
         "ask": { "type": "boolean" }
       }
     },
+    "query": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "How search and profile rules are evaluated: SPARQL over the registries' RDF projection, in a pinned engine image.",
+      "properties": {
+        "image": { "type": "string", "pattern": "^oci://.+@sha256:[0-9a-f]{64}$", "description": "The SPARQL engine image (Oxigraph CLI), pinned by digest." }
+      }
+    },
     "claims": {
       "type": "object",
       "description": "The claim-template ceiling for cockpit_say. a session can request one of these; it can never invent a new claim shape.",
@@ -62,6 +70,11 @@
           "type": "array",
           "items": { "type": "string" },
           "minItems": 0
+        },
+        "allowedPackages": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+          "description": "Installed packages whose templates and SPARQL queries this cockpit uses, by package id (the hash of the package seed, as `cockpit install` reports it). The operator admits packages, not single templates: a vocabulary package brings its templates, and only its latest sealed revision counts."
         },
         "scopes": {
           "type": "object",

@@ -173,7 +173,7 @@ func askRay(ctx context.Context, cfg *config.Config, r *binaries.Runner, in AskR
 	if len(refs) == 0 && in.Ref != "" {
 		refs = []string{in.Ref}
 	}
-	execs, _, ids, err := rayExecutions(ctx, cfg, r, refs, filter)
+	execs, where, ids, err := rayExecutions(ctx, cfg, r, refs, filter)
 	if err != nil {
 		return nil, err
 	}
@@ -181,8 +181,14 @@ func askRay(ctx context.Context, cfg *config.Config, r *binaries.Runner, in AskR
 	if err != nil {
 		return nil, refuse("ray.propose", "SPEC §9.7", "%v", err)
 	}
+	endpoints := map[string]string{}
+	for _, ru := range p.Runs {
+		for _, e := range ru.Endpoints {
+			endpoints[e] = where[e]
+		}
+	}
 	return &AskResult{Query: in.Query, Ref: strings.Join(refs, ", "), FilterApplied: filter.describe(),
-		Included: ids, Proposal: p, Executions: execs,
+		Included: ids, Proposal: p, Executions: execs, Endpoints: endpoints,
 		Raw: fmt.Sprintf("%d run(s), %d step(s), %d file candidate(s), %d parameter candidate(s), %d conflict(s)",
 			len(p.Runs), len(p.Steps), len(p.Files), len(p.Params), len(p.Conflicts))}, nil
 }
@@ -196,7 +202,7 @@ func (c *Cockpit) publishRay(ctx context.Context, cfg *config.Config, in Publish
 	if rp == nil {
 		return nil, refuse("argument", "", `publish {kind: "ray"} needs ray: {refs, choice, dir}`)
 	}
-	if !cfg.AllowsTemplate(rayTemplate) {
+	if !allowsTemplate(cfg, rayTemplate) {
 		return nil, refuse("template.not-allowed", "SPEC §8.1",
 			"a published ray is recorded as a %q claim, and this repo does not allow that template", rayTemplate)
 	}

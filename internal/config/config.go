@@ -117,6 +117,18 @@ type Claims struct {
 	// session does. Empty is the default, and a claim written without naming a scope stands on
 	// its own — which stays the common case.
 	Scopes map[string]string `json:"scopes,omitempty"`
+
+	// AllowedPackages are the installed packages whose templates and queries this cockpit uses, by
+	// package id (the hash of the package's seed). The operator names packages, not every template:
+	// a vocabulary package brings its templates with it, and admitting the package admits them.
+	// Templates are read from the package's latest SEALED revision only.
+	AllowedPackages []string `json:"allowedPackages,omitempty"`
+}
+
+// Query is how search and profile rules are evaluated: SPARQL in a pinned image (Oxigraph).
+type Query struct {
+	// Image is the SPARQL engine, pinned by digest like execution.image.
+	Image string `json:"image,omitempty"`
 }
 
 type Trust struct {
@@ -356,6 +368,7 @@ type Raw struct {
 	Union        Union        `json:"union,omitempty"`
 	Anchor       Anchor       `json:"anchor,omitempty"`
 	Material     Material     `json:"material,omitempty"`
+	Query        Query        `json:"query,omitempty"`
 }
 
 // Config is the loaded, validated, path-resolved configuration for one cockpit invocation. Every

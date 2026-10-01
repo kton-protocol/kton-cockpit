@@ -1,0 +1,11 @@
+{
+  "name": "derived-from",
+  "target": "either",
+  "predicate": "http://www.w3.org/ns/prov#wasDerivedFrom",
+  "fields": {
+    "bundle":    {"type": "string", "required": true},
+    "sources":   {"type": "string", "required": true},
+    "reference": {"type": "string", "required": true},
+    "dir":       {"type": "string", "required": true}
+  }
+}

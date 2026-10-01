@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/kton-protocol/kton-cockpit/internal/config"
+	"github.com/kton-protocol/kton-cockpit/internal/packages"
 	nclaim "kton.dev/nekton/claim"
 	nregistry "kton.dev/nekton/registry"
 	ntemplate "kton.dev/nekton/template"
@@ -510,7 +511,7 @@ func (r *Runner) Annotate(ctx context.Context, subject, tmplName string, sets ma
 	}
 	t, ok := set.Get(tmplName)
 	if !ok {
-		return "", fmt.Errorf("no template %q in %s", tmplName, r.cfg.TemplatesDir)
+		return "", fmt.Errorf("no template %q in %s or in an allowed package", tmplName, r.cfg.TemplatesDir)
 	}
 
 	// A `file` field carries BYTES, not a path: the package never touches a filesystem, so that it
@@ -575,7 +576,40 @@ func (r *Runner) Annotate(ctx context.Context, subject, tmplName string, sets ma
 // templates loads this repo's template set. An alias file is optional and this cockpit ships none:
 // its templates name predicates by full IRI, so there is no prefix to resolve (SPEC §8.1).
 func (r *Runner) templates() (ntemplate.Set, error) {
-	set, err := ntemplate.Load(r.cfg.TemplatesDir, filepath.Join(r.cfg.RepoRoot, "aliases.json"))
+	aliasPath := filepath.Join(r.cfg.RepoRoot, "aliases.json")
+	var aliases []byte
+	if b, err := os.ReadFile(aliasPath); err == nil {
+		aliases = b
+	} else if !os.IsNotExist(err) {
+		return ntemplate.Set{}, fmt.Errorf("alias file %s: %w", aliasPath, err)
+	}
+	// Two sources, one set: the repository's own template directory, and the templates the allowed
+	// installed packages bring (claims.allowedPackages). A name declared by both is refused by the
+	// kernel's set constructor rather than resolved by which was read first.
+	raw := map[string][]byte{}
+	if ents, err := os.ReadDir(r.cfg.TemplatesDir); err == nil {
+		for _, e := range ents {
+			n := e.Name()
+			if e.IsDir() || !strings.HasSuffix(n, ".json") || n == filepath.Base(aliasPath) {
+				continue
+			}
+			b, err := os.ReadFile(filepath.Join(r.cfg.TemplatesDir, n))
+			if err != nil {
+				return ntemplate.Set{}, err
+			}
+			raw[strings.TrimSuffix(n, ".json")] = b
+		}
+	} else if !os.IsNotExist(err) {
+		return ntemplate.Set{}, fmt.Errorf("template directory %s: %w", r.cfg.TemplatesDir, err)
+	}
+	voc, err := packages.Allowed(r.cfg.RepoRoot, r.cfg.Raw.Claims.AllowedPackages)
+	if err != nil {
+		return ntemplate.Set{}, err
+	}
+	for name, b := range voc.Templates {
+		raw["package:"+name] = b
+	}
+	set, err := ntemplate.New(raw, aliases)
 	if err != nil {
 		return ntemplate.Set{}, err
 	}
@@ -1103,4 +1137,59 @@ func (r *Runner) HashFile(ctx context.Context, absPath string) (string, error) {
 		return "", err
 	}
 	return core.HashBytes(b), nil
+}
+
+// TemplateNames lists the templates this repository can use: its own directory and the allowed
+// installed packages.
+func (r *Runner) TemplateNames() ([]string, error) {
+	set, err := r.templates()
+	if err != nil {
+		return nil, err
+	}
+	return set.Names(), nil
+}
+
+// OwnScope finds a scope this repository opened itself, by name: a seed with that name, signed by
+// the key at signKey (verified, not declared). It is how the scope `cockpit install` opens for an
+// installation is found again without the operator copying its id into the configuration. "" when
+// there is none; an error when there are several, because a name that means two scopes is not a
+// name to write under.
+func (r *Runner) OwnScope(ctx context.Context, name, signKey string) (string, error) {
+	pubRaw, err := os.ReadFile(pubHalfOf(signKey))
+	if err != nil {
+		return "", err
+	}
+	pub, err := core.ParsePublicKeyHex(strings.TrimSpace(string(pubRaw)))
+	if err != nil {
+		return "", err
+	}
+	reg, err := nregistry.Open(r.cfg.NektonDir)
+	if err != nil {
+		return "", err
+	}
+	var found []string
+	for _, rec := range reg.Records(0) {
+		st, _, err := nclaim.ParseEnvelope(rec.Envelope)
+		if err != nil || st.PredicateType != nclaim.ScopePredicateType {
+			continue
+		}
+		var body struct {
+			Scope   string `json:"scope"`
+			Genesis bool   `json:"genesis"`
+		}
+		if json.Unmarshal(st.Predicate, &body) != nil || !body.Genesis || body.Scope != name {
+			continue
+		}
+		if core.VerifiedSignerKeyID(rec.Envelope, []ed25519.PublicKey{pub}) == "" {
+			continue
+		}
+		found = append(found, rec.ClaimID)
+	}
+	switch len(found) {
+	case 0:
+		return "", nil
+	case 1:
+		return found[0], nil
+	}
+	return "", fmt.Errorf("this repository opened %d scopes named %q: %s", len(found), name, strings.Join(found, ", "))
 }

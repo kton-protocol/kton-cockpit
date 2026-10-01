@@ -71,7 +71,7 @@ func (c *Cockpit) Say(ctx context.Context, in SayRequest) (*SayResult, error) {
 	if !cfg.Raw.Verbs.Say {
 		return nil, refuse("verb.disabled", "SPEC §6", "say is disabled by this repo's cockpit.config.json")
 	}
-	if !cfg.AllowsTemplate(in.Template) {
+	if !allowsTemplate(cfg, in.Template) {
 		return nil, refuse("template.not-allowed", "SPEC §8.1", "template %q is not in this repo's allowed claim templates", in.Template)
 	}
 	if in.Subject == "" {
@@ -234,6 +234,15 @@ func resolveChain(ctx context.Context, r *binaries.Runner, cfg *config.Config, n
 		return nil, nil, ""
 	}
 	scope, configured, ok := cfg.ScopeID(name)
+	if !ok {
+		// A scope this repository opened for an installation (`cockpit install`) is named by its
+		// seed and needs no configuration entry: install is the operator's act that opened it.
+		if own, err := r.OwnScope(ctx, name, cfg.NektonKey); err != nil {
+			return nil, nil, err.Error()
+		} else if own != "" {
+			scope, ok = own, true
+		}
+	}
 	if !ok {
 		if len(configured) == 0 {
 			return nil, nil, fmt.Sprintf(

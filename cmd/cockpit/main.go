@@ -54,6 +54,10 @@ func main() {
 		err = runRun(ctx, os.Args[2:])
 	case "keygen":
 		err = runKeygen(ctx, os.Args[2:])
+	case "install":
+		err = runInstall(ctx, os.Args[2:])
+	case "workflow":
+		err = runWorkflow(ctx, os.Args[2:])
 	default:
 		usage()
 		os.Exit(2)
@@ -71,6 +75,13 @@ usage:
   cockpit publish '<json>' [--field NAME]   record a result as a signed foton
   cockpit say     '<json>' [--field NAME]   bind a claim from an allowed template
   cockpit ask     '<json>' [--field NAME]   query the graph, re-verified against configured trust
+
+  cockpit install  <package-dir>         take a package in: keep it, its records, say installed
+  cockpit workflow propose <result>...   what the runs behind results offer as a workflow
+  cockpit workflow extract <result>... --name N --reference RUN [--hole …] [--param …]
+  cockpit workflow list                  the installed workflows
+  cockpit workflow show <name>           steps, holes, parameters, reference
+  cockpit workflow run <name> [--check] [--bind NAME=VALUE]...
 
   cockpit run      run folders: new / <slug> / list — clone inputs, execute, record
   cockpit keygen   make a signing identity (keys/<name>.key + .pub, and the claims pair)

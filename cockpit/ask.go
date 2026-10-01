@@ -155,6 +155,9 @@ type AskResult struct {
 	// Proposal is the answer to query "ray": runs, steps, and the candidates to choose from — what
 	// ktonpkg.Propose observed, with nothing decided (ADR-006).
 	Proposal *ktonpkg.Proposal `json:"proposal,omitempty"`
+	// Endpoints names the files behind the proposal's run endpoints (hash -> repo-relative path),
+	// so a person can tell the runs apart by what they produced rather than by run-1, run-2.
+	Endpoints map[string]string `json:"endpoints,omitempty"`
 	// Executions are the verified records the proposal was made from, as the adapter read them.
 	Executions    []ktonpkg.Execution `json:"executions,omitempty"`
 	FilterApplied string              `json:"filterApplied"`
