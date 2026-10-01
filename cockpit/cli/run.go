@@ -1,4 +1,4 @@
-package main
+package cli
 
 // run.go is the run folder: the unit of experimenting.
 //

@@ -1,4 +1,4 @@
-package main
+package cli
 
 // workflow.go is the command line for installing packages and working with workflows. Each command
 // prints for a person by default and the full answer with --json.

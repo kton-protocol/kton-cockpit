@@ -432,18 +432,21 @@ func Load(ctx context.Context, startDir string) (*Config, error) {
 		return nil, fmt.Errorf("cockpit: cockpit.config.json at %s is invalid: %w", cfgPath, err)
 	}
 
+	be, _ := backend.Lookup(raw.Repo.Mode) // validate has already refused an unknown mode
+	repo := repoOf(cfgDir, raw)
+	if err := be.Bind(ctx, repo); err != nil {
+		return nil, fmt.Errorf("cockpit: refusing to act — %w", err)
+	}
+
+	// Checked after Bind, not before: a backend whose state lives elsewhere (improve, ADR-008)
+	// brings the working directory up to date as part of binding, and the files these checks read
+	// — trust-tier keys, material — are among what it brings.
 	if err := checkTrustTierContents(cfgDir, &raw); err != nil {
 		return nil, fmt.Errorf("cockpit: cockpit.config.json at %s is invalid: %w", cfgPath, err)
 	}
 
 	if err := checkMaterialFiles(cfgDir, raw.Material); err != nil {
 		return nil, fmt.Errorf("cockpit: cockpit.config.json at %s is invalid: %w", cfgPath, err)
-	}
-
-	be, _ := backend.Lookup(raw.Repo.Mode) // validate has already refused an unknown mode
-	repo := repoOf(cfgDir, raw)
-	if err := be.Bind(ctx, repo); err != nil {
-		return nil, fmt.Errorf("cockpit: refusing to act — %w", err)
 	}
 
 	repoRoot := cfgDir

@@ -1,4 +1,4 @@
-package main
+package cli
 
 // scope.go is the operator's side of scopes: opening one, sealing it into its parent, and checking
 // one somebody sent you.

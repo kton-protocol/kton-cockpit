@@ -1,4 +1,4 @@
-package main
+package cli
 
 // keygen.go makes a signing identity.
 //
