@@ -59,6 +59,15 @@ func TestAnchor_TheProofIsAttachedToTheRecordAndCommittedWithIt(t *testing.T) {
 	if err := json.Unmarshal(out, &read); err != nil {
 		t.Fatalf("could not read the attached material: %v\n%s", err, out)
 	}
+	// The record's own locators ride the same channel since foton/v1 (kton §6.6.1); they are not
+	// the evidence this test is about.
+	kept := read.Material[:0]
+	for _, m := range read.Material {
+		if m.Scheme != "kton-locator/v1" {
+			kept = append(kept, m)
+		}
+	}
+	read.Material = kept
 	if len(read.Material) != 1 {
 		t.Fatalf("expected exactly the one attached proof, got %d: %s", len(read.Material), out)
 	}

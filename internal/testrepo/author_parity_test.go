@@ -51,7 +51,7 @@ func TestAuthor_MatchesTheReferenceCLI(t *testing.T) {
 	for _, l := range located {
 		args = append(args, "--located", l)
 	}
-	args = append(args, "--env-ref", envRef, "--cmd", cmd,
+	args = append(args, "--statement", "v1", "--env-ref", envRef, "--cmd", cmd,
 		"--sign", "keys/"+SessionID+".key", "--add", "--registry", cliDir, "--print-id")
 	cli := exec.Command(filepath.Join(r.Root, "bin", "plankton"), args...)
 	cli.Dir = r.Root

@@ -25,6 +25,8 @@ import (
 	"github.com/kton-protocol/kton-cockpit/internal/binaries"
 	"github.com/kton-protocol/kton-cockpit/internal/config"
 	"kton.dev/plankton/core"
+	ffoton "kton.dev/plankton/foton"
+	pregistry "kton.dev/plankton/registry"
 )
 
 // Kind distinguishes which substrate holds the record.
@@ -114,4 +116,51 @@ func envelopeOf(ctx context.Context, r *binaries.Runner, idOrFile string, kind K
 		return core.Envelope{}, fmt.Errorf("the stored envelope for %s is not readable: %w", idOrFile, jerr)
 	}
 	return env, nil
+}
+
+// Locator is where a file of a foton can be fetched, said by a key this repo trusts.
+type Locator struct {
+	Path   string   `json:"path"`
+	Hash   string   `json:"hash"`
+	URI    []string `json:"uri"`
+	Signer string   `json:"signer"` // keyid
+	Tier   string   `json:"tier"`
+}
+
+// Locators reads the kton-locator/v1 material on a foton (kton §6.6.1 and kton §8.1) and returns what a key
+// in this repo's trust tiers signed about this record's own files. Each producer of a foton/v1
+// record says where ITS copies live; the record itself carries no locator. A statement by a key no
+// tier names, or about bytes the record does not contain, is not returned — it is not this repo's
+// to pass on as a location.
+func Locators(ctx context.Context, r *binaries.Runner, cfg *config.Config, fotonID string) ([]Locator, error) {
+	stored, err := r.MaterialForFoton(ctx, fotonID)
+	if err != nil {
+		return nil, err
+	}
+	reg, err := pregistry.Open(cfg.PlanktonDir)
+	if err != nil {
+		return nil, err
+	}
+	f, ok := reg.Foton(fotonID)
+	if !ok {
+		return nil, fmt.Errorf("no foton %s in this registry", fotonID)
+	}
+	keys, byKeyID, err := tierKeys(cfg)
+	if err != nil {
+		return nil, err
+	}
+	var out []Locator
+	for _, s := range stored {
+		if s.Scheme != ffoton.LocatorScheme {
+			continue
+		}
+		ls, err := ffoton.ReadLocators(s.Scheme, s.Material, *f, keys)
+		if err != nil {
+			continue
+		}
+		for _, l := range ls {
+			out = append(out, Locator{Path: l.Path, Hash: l.Hash, URI: l.URI, Signer: l.Signer, Tier: byKeyID[l.Signer].tier})
+		}
+	}
+	return out, nil
 }

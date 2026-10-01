@@ -103,6 +103,9 @@ type RecordVerification struct {
 	// It is a read per record, so it is gathered only where it can be reported. Empty means nothing
 	// is attached — which is the normal case and says nothing bad about the record.
 	Material []material.Report `json:"material,omitempty"`
+	// Locators are where this record's files can be fetched, each signed by a producer this repo
+	// trusts (kton §6.6.1: a foton/v1 record carries none itself). Same redaction as Material.
+	Locators []verify.Locator `json:"locators,omitempty"`
 }
 
 type AskResult struct {
@@ -419,6 +422,11 @@ func siftFoton(ctx context.Context, cfg *config.Config, r *binaries.Runner, id s
 		return false, fmt.Sprintf("reading the verification material on %s failed: %v", id, merr)
 	}
 	out.Records[len(out.Records)-1].Material = mats
+	locs, lerr := verify.Locators(ctx, r, cfg, id)
+	if lerr != nil {
+		return false, fmt.Sprintf("reading the locators on %s failed: %v", id, lerr)
+	}
+	out.Records[len(out.Records)-1].Locators = locs
 	out.Included = append(out.Included, id)
 	return true, ""
 }

@@ -137,6 +137,10 @@ func Attach(ctx context.Context, cfg *config.Config, r *binaries.Runner, recordI
 	return nil
 }
 
+// locatorScheme is kton-locator/v1 (ffoton.LocatorScheme); spelled here so material stays free of
+// the authoring package.
+const locatorScheme = "kton-locator/v1"
+
 // Describe reads back everything attached to a record and evaluates what it can.
 //
 // verifyingKeyPath is the pubkey that ACTUALLY verified this record (verify.ResolveTier's second
@@ -166,7 +170,15 @@ func Describe(ctx context.Context, cfg *config.Config, r *binaries.Runner, recor
 
 	out := make([]Report, 0, len(stored))
 	for _, s := range stored {
+		// Locators ride the material channel (kton §8.1) but are not evidence about who signed or
+		// when; ask reports them on their own, verified against the tiers (verify.Locators).
+		if s.Scheme == locatorScheme {
+			continue
+		}
 		out = append(out, evaluate(s, signer, roots))
+	}
+	if len(out) == 0 {
+		return nil, nil
 	}
 	return out, nil
 }
