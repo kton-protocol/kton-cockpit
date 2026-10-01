@@ -310,6 +310,11 @@ func plan(b *ktonpkg.Bundle, work string, args []string) {
 			p.Stage = append(p.Stage, stage{From: from, To: to})
 			p.Inputs = append(p.Inputs, to)
 		}
+		// Nach Pfad, nicht nach Slot-Reihenfolge des Pakets: plankton deckt die Reihenfolge der
+		// Eingaben mit der Foton-Id ab, und dieselbe Berechnung aus zwei Formen desselben Pakets
+		// (ray.json, Scope) soll derselbe Record sein — sonst signiert der User nicht den Lauf der
+		// Autorin mit, sondern legt einen zweiten an.
+		sort.Strings(p.Inputs)
 		params, unbound := ktonpkg.ResolveParams(s, bindings)
 		if len(unbound) > 0 {
 			fail(2, "%s: ungebundene Parameter %v", id, unbound)
