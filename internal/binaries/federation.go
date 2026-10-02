@@ -77,12 +77,14 @@ func ReadDirs(ctx context.Context, cfg *config.Config) (planktonDir, nektonDir s
 		if err := os.MkdirAll(cache, 0o755); err != nil {
 			return "", "", err
 		}
-		reg, err := k.Fetch(ctx, s, cfg.RepoRoot, cache)
+		regs, err := k.Fetch(ctx, s, cfg.RepoRoot, cache)
 		if err != nil {
 			return "", "", fmt.Errorf("federation source %s (%s): %w", s.Name, s.Kind, err)
 		}
-		if err := add(s.Name, reg); err != nil {
-			return "", "", err
+		for _, reg := range regs {
+			if err := add(s.Name, reg); err != nil {
+				return "", "", err
+			}
 		}
 	}
 	return pdir, ndir, nil

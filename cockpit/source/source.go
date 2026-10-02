@@ -56,9 +56,11 @@ type Registry struct {
 type Kind interface {
 	// Validate checks the spec alone, at load.
 	Validate(s Spec) error
-	// Fetch makes the source's registries readable locally. base is the repository root (for
-	// relative paths); cache is a directory this source may keep a copy in between calls.
-	Fetch(ctx context.Context, s Spec, base, cache string) (Registry, error)
+	// Fetch makes the source's registries readable locally — one or more: a place may hold several
+	// participants side by side (a site and the packages installed in it), each with its own
+	// records, none copied into another. base is the repository root (for relative paths); cache is
+	// a directory this source may keep a copy in between calls.
+	Fetch(ctx context.Context, s Spec, base, cache string) ([]Registry, error)
 }
 
 var (
@@ -137,16 +139,16 @@ func (dir) Validate(s Spec) error {
 	return nil
 }
 
-func (dir) Fetch(_ context.Context, s Spec, base, _ string) (Registry, error) {
+func (dir) Fetch(_ context.Context, s Spec, base, _ string) ([]Registry, error) {
 	var b dirBlock
 	if err := s.Decode(&b); err != nil {
-		return Registry{}, err
+		return nil, err
 	}
 	p := b.Path
 	if !filepath.IsAbs(p) {
 		p = filepath.Join(base, p)
 	}
-	return Registry{PlanktonDir: filepath.Join(p, "registry", "plankton"), NektonDir: filepath.Join(p, "registry", "nekton")}, nil
+	return []Registry{{PlanktonDir: filepath.Join(p, "registry", "plankton"), NektonDir: filepath.Join(p, "registry", "nekton")}}, nil
 }
 
 func init() { Register("dir", dir{}) }

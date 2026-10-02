@@ -625,6 +625,9 @@ way a repo backend is registered (§5.5).
 - Every record entering the union MUST pass the registry's own checks. A source holding a record that
   does not, or one whose registry reports skipped records, MUST be named in the failure; a partial
   union MUST NOT pass for a whole one.
+- A source MAY yield more than one registry — a place holding several participants side by side
+  (a site and the packages installed in it, each with its own records). Each is read as it is; none
+  is copied into another.
 - A source adds records, never signers: the configured trust tiers remain the ceiling (§9.1).
 - A kind that is not available in the build MUST be refused when the configuration is loaded.
 
