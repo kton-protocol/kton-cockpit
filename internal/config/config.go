@@ -26,6 +26,7 @@ import (
 	_ "github.com/kton-protocol/kton-cockpit/cockpit/backend/github"
 	_ "github.com/kton-protocol/kton-cockpit/cockpit/backend/local"
 	"github.com/kton-protocol/kton-cockpit/internal/gitrepo"
+	"github.com/kton-protocol/kton-cockpit/cockpit/source"
 )
 
 // Mode names how this cockpit is bound to a location, and therefore what the anti-wrong-folder
@@ -369,6 +370,14 @@ type Raw struct {
 	Anchor       Anchor       `json:"anchor,omitempty"`
 	Material     Material     `json:"material,omitempty"`
 	Query        Query        `json:"query,omitempty"`
+	Federation   Federation   `json:"federation,omitempty"`
+}
+
+// Federation names the other registries this cockpit reads together with its own. Which places
+// those are is the cockpit's to say — the kernels know no location — and how a kind of place is
+// read is a source kind (cockpit/source): `dir` here, others from extensions.
+type Federation struct {
+	Sources []source.Spec `json:"sources,omitempty"`
 }
 
 // Config is the loaded, validated, path-resolved configuration for one cockpit invocation. Every
@@ -505,6 +514,9 @@ func hasConfig(dir string) bool {
 }
 
 func validate(raw *Raw) error {
+	if err := source.Validate(raw.Federation.Sources); err != nil {
+		return err
+	}
 	var missing []string
 	be, ok := backend.Lookup(raw.Repo.Mode)
 	if !ok {

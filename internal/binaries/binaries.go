@@ -219,11 +219,16 @@ func (r *Runner) KeyID(ctx context.Context, pubkeyPath string) (string, error) {
 // and skipped 44 files "without a word", and the viewer drew a convincing lineage-only picture from
 // it. Nothing errored.
 func (r *Runner) Records(ctx context.Context) ([]Record, error) {
-	preg, err := pregistry.Open(r.cfg.PlanktonDir)
+	pdir, ndir, derr := r.readDirs(ctx)
+	if derr != nil {
+		return nil, derr
+	}
+	_, _ = pdir, ndir
+	preg, err := pregistry.Open(pdir)
 	if err != nil {
 		return nil, fmt.Errorf("opening the plankton registry: %w", err)
 	}
-	nreg, err := nregistry.Open(r.cfg.NektonDir)
+	nreg, err := nregistry.Open(ndir)
 	if err != nil {
 		return nil, fmt.Errorf("opening the nekton registry: %w", err)
 	}
@@ -260,12 +265,17 @@ func (r *Runner) Records(ctx context.Context) ([]Record, error) {
 // from before the write that just happened. Opening reads the whole store, which is exactly what
 // each CLI invocation did too; the saving is the process, not the read.
 func (r *Runner) EnvelopeFor(ctx context.Context, recordID string) (json.RawMessage, error) {
-	if preg, err := pregistry.Open(r.cfg.PlanktonDir); err == nil {
+	pdir, ndir, derr := r.readDirs(ctx)
+	if derr != nil {
+		return nil, derr
+	}
+	_, _ = pdir, ndir
+	if preg, err := pregistry.Open(pdir); err == nil {
 		if env, ok := preg.Envelope(recordID); ok {
 			return json.Marshal(env)
 		}
 	}
-	nreg, err := nregistry.Open(r.cfg.NektonDir)
+	nreg, err := nregistry.Open(ndir)
 	if err != nil {
 		return nil, fmt.Errorf("opening the nekton registry: %w", err)
 	}
@@ -302,7 +312,12 @@ func (r *Runner) Lineage(ctx context.Context, hash string) (*LineageResult, erro
 }
 
 func (r *Runner) lineage(ctx context.Context, relation, hash string) (*LineageResult, error) {
-	reg, err := pregistry.Open(r.cfg.PlanktonDir)
+	pdir, ndir, derr := r.readDirs(ctx)
+	if derr != nil {
+		return nil, derr
+	}
+	_, _ = pdir, ndir
+	reg, err := pregistry.Open(pdir)
 	if err != nil {
 		return nil, fmt.Errorf("opening the plankton registry: %w", err)
 	}
@@ -358,6 +373,11 @@ func (r *Runner) lineage(ctx context.Context, relation, hash string) (*LineageRe
 // was empty; the library returns the count, so the distinction is structural and there is nothing
 // left to misread.
 func (r *Runner) Reproductions(ctx context.Context, outputHash, tier string) (*ReproductionsResult, error) {
+	pdir, ndir, derr := r.readDirs(ctx)
+	if derr != nil {
+		return nil, derr
+	}
+	_, _ = pdir, ndir
 	keys, err := TrustKeys(r.cfg, tier)
 	if err != nil {
 		return nil, err
@@ -373,7 +393,7 @@ func (r *Runner) Reproductions(ctx context.Context, outputHash, tier string) (*R
 				"which their authors wrote. Configure trust.tiers", tierNote(tier))
 	}
 
-	reg, err := pregistry.Open(r.cfg.PlanktonDir)
+	reg, err := pregistry.Open(pdir)
 	if err != nil {
 		return nil, fmt.Errorf("opening the plankton registry: %w", err)
 	}
@@ -476,7 +496,12 @@ type ReproducesResult struct {
 // as unclosable: `reproduces` exits 1 both for a genuine non-match and for a usage error, so a
 // broken invocation would have been reported to the caller as "these outputs differ".
 func (r *Runner) Reproduces(ctx context.Context, refHash, candHash, via string) (*ReproducesResult, error) {
-	reg, err := pregistry.Open(r.cfg.PlanktonDir)
+	pdir, ndir, derr := r.readDirs(ctx)
+	if derr != nil {
+		return nil, derr
+	}
+	_, _ = pdir, ndir
+	reg, err := pregistry.Open(pdir)
 	if err != nil {
 		return nil, fmt.Errorf("opening the plankton registry: %w", err)
 	}
@@ -660,7 +685,12 @@ func loadSigningKey(path string) (ed25519.PrivateKey, error) {
 // reachable; nekton's prose form carried only the id, predicate and declared signer (upstream #39),
 // and a claim you cannot read the content of is a claim you cannot serve.
 func (r *Runner) About(ctx context.Context, subject string) ([]ClaimAxis, error) {
-	reg, err := nregistry.Open(r.cfg.NektonDir)
+	pdir, ndir, derr := r.readDirs(ctx)
+	if derr != nil {
+		return nil, derr
+	}
+	_, _ = pdir, ndir
+	reg, err := nregistry.Open(ndir)
 	if err != nil {
 		return nil, fmt.Errorf("opening the nekton registry: %w", err)
 	}
@@ -691,7 +721,12 @@ func ValidByAxis(s string) bool {
 // nekton back to 0.1 rejects outright with its usage line — so `ask` with query "by" could never
 // have returned an answer, despite being advertised in the tool's own schema.
 func (r *Runner) By(ctx context.Context, axis ByAxis, value string) ([]ClaimAxis, error) {
-	reg, err := nregistry.Open(r.cfg.NektonDir)
+	pdir, ndir, derr := r.readDirs(ctx)
+	if derr != nil {
+		return nil, derr
+	}
+	_, _ = pdir, ndir
+	reg, err := nregistry.Open(ndir)
 	if err != nil {
 		return nil, fmt.Errorf("opening the nekton registry: %w", err)
 	}
@@ -1094,7 +1129,12 @@ type FotonDetail struct {
 
 // FotonByID reads one record out of this repo's registry, by the id a publish returned.
 func (r *Runner) FotonByID(ctx context.Context, id string) (*FotonDetail, error) {
-	reg, err := pregistry.Open(r.cfg.PlanktonDir)
+	pdir, ndir, derr := r.readDirs(ctx)
+	if derr != nil {
+		return nil, derr
+	}
+	_, _ = pdir, ndir
+	reg, err := pregistry.Open(pdir)
 	if err != nil {
 		return nil, fmt.Errorf("opening the plankton registry: %w", err)
 	}

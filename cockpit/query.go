@@ -17,6 +17,7 @@ import (
 	"kton.dev/plankton/rdf"
 	pregistry "kton.dev/plankton/registry"
 
+	"github.com/kton-protocol/kton-cockpit/internal/binaries"
 	"github.com/kton-protocol/kton-cockpit/internal/config"
 	"github.com/kton-protocol/kton-cockpit/internal/container"
 	"github.com/kton-protocol/kton-cockpit/internal/packages"
@@ -51,7 +52,7 @@ func runQuery(ctx context.Context, cfg *config.Config, name string) ([]map[strin
 		return nil, "", refuse("io", "", "%v", err)
 	}
 	defer os.RemoveAll(dir)
-	if err := projectRegistries(cfg, keys, dir); err != nil {
+	if err := projectRegistries(ctx, cfg, keys, dir); err != nil {
 		return nil, "", refuse("kernel", "", "projecting the registries: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "query.rq"), q, 0o644); err != nil {
@@ -90,8 +91,12 @@ func runQuery(ctx context.Context, cfg *config.Config, name string) ([]map[strin
 }
 
 // projectRegistries writes nekton.trig and plankton.ttl for the records a trusted key signed.
-func projectRegistries(cfg *config.Config, keys []ed25519.PublicKey, dir string) error {
-	nreg, err := nregistry.Open(cfg.NektonDir)
+func projectRegistries(rctx context.Context, cfg *config.Config, keys []ed25519.PublicKey, dir string) error {
+	pdir, ndir, err := binaries.ReadDirs(rctx, cfg)
+	if err != nil {
+		return err
+	}
+	nreg, err := nregistry.Open(ndir)
 	if err != nil {
 		return err
 	}
@@ -116,7 +121,7 @@ func projectRegistries(cfg *config.Config, keys []ed25519.PublicKey, dir string)
 	if err := os.WriteFile(filepath.Join(dir, "nekton.trig"), []byte(b.String()), 0o644); err != nil {
 		return err
 	}
-	preg, err := pregistry.Open(cfg.PlanktonDir)
+	preg, err := pregistry.Open(pdir)
 	if err != nil {
 		return err
 	}

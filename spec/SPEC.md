@@ -611,6 +611,25 @@ more endpoints: runs, steps, wiring, file candidates and parameter candidates. I
 > **Checked by:** `TestRay_TheProposalOffersWhatTheRunsShowAndDecidesNothing`,
 > `TestRay_TheAdapterTranslatesOnlyTheNamedEntrypoint`.
 
+### 9.8 Federated sources *(optional)*
+
+Where a record lives is not something the kernels know, so which other registries are read together
+with the own one is said in `cockpit.config.json`, under `federation.sources`. Each source has a
+`name` and a `kind`; a kind says how one kind of place is read. The core provides `dir` (a directory
+holding `registry/plankton` and `registry/nekton`); an extension MAY register further kinds the same
+way a repo backend is registered (§5.5).
+
+- `ask`, the served and published union (§12.2) and search MUST read the union of the own registry
+  and every source, joined by record id. Writes MUST go to the own registry only; a source is never
+  written to, and nothing is copied from a source into the own registry.
+- Every record entering the union MUST pass the registry's own checks. A source holding a record that
+  does not, or one whose registry reports skipped records, MUST be named in the failure; a partial
+  union MUST NOT pass for a whole one.
+- A source adds records, never signers: the configured trust tiers remain the ceiling (§9.1).
+- A kind that is not available in the build MUST be refused when the configuration is loaded.
+
+> **Checked by:** `TestFederation_ReadsTheUnionOfOwnAndSources`, `TestFederation_UnknownKindIsRefusedAtLoad`.
+
 ## 10 Execution *(optional)*
 
 A repository MAY configure the cockpit to run the published command rather than record one.

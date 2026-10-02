@@ -60,6 +60,25 @@
         "image": { "type": "string", "pattern": "^oci://.+@sha256:[0-9a-f]{64}$", "description": "The SPARQL engine image (Oxigraph CLI), pinned by digest." }
       }
     },
+    "federation": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Other registries this cockpit reads together with its own (ask, show, search). Read-only: nothing is written back to a source, and trust does not widen — every record still verifies against the configured tiers.",
+      "properties": {
+        "sources": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "kind"],
+            "description": "One source. `kind` selects how it is read: `dir` (built in; `path` holds registry/plankton and registry/nekton) or a kind an extension registers (e.g. `improve`). The kind's own fields sit beside name and kind.",
+            "properties": {
+              "name": { "type": "string", "minLength": 1 },
+              "kind": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      }
+    },
     "claims": {
       "type": "object",
       "description": "The claim-template ceiling for cockpit_say. a session can request one of these; it can never invent a new claim shape.",
