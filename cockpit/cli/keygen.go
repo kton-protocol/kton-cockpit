@@ -91,13 +91,16 @@ func runKeygen(ctx context.Context, args []string) error {
 func identityHint(cfg *config.Config, name string) {
 	key := path.Join(filepath.ToSlash(rel(cfg.RepoRoot, cfg.KeysDir)), name+".key")
 	claims := path.Join(filepath.ToSlash(rel(cfg.RepoRoot, cfg.KeysDir)), name+"-claims.key")
+	// Both halves: a foton is verified against the first, a claim against the second.
 	pub := strings.TrimSuffix(key, ".key") + ".pub"
-	trusted := false
+	claimsPub := strings.TrimSuffix(claims, ".key") + ".pub"
+	has := map[string]bool{}
 	for _, keys := range cfg.Raw.Trust.Tiers {
 		for _, k := range keys {
-			trusted = trusted || path.Clean(filepath.ToSlash(k)) == pub
+			has[path.Clean(filepath.ToSlash(k))] = true
 		}
 	}
+	trusted := has[pub] && has[claimsPub]
 	signs := cfg.Raw.Identity.PlanktonKey == key && cfg.Raw.Identity.NektonKey == claims
 	if signs && trusted {
 		return
@@ -108,7 +111,7 @@ func identityHint(cfg *config.Config, name string) {
 		fmt.Printf("    \"identity\": { \"session_id\": %q, \"plankton_key\": %q, \"nekton_key\": %q }\n", name, key, claims)
 	}
 	if !trusted {
-		fmt.Printf("    \"trust\": { \"tiers\": { \"self\": [%q] } }   (or a tier of your own)\n", pub)
+		fmt.Printf("    \"trust\": { \"tiers\": { \"self\": [%q, %q] } }   (or a tier of your own)\n", pub, claimsPub)
 	}
 }
 

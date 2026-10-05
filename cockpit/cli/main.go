@@ -180,6 +180,10 @@ func runInit(ctx context.Context) error {
 		Reproduction: config.Reproduction{RequiredLevel: "L0"},
 	}
 
+	notes, err := scaffold(root, &raw)
+	if err != nil {
+		return err
+	}
 	b, err := json.MarshalIndent(raw, "", "  ")
 	if err != nil {
 		return err
@@ -187,10 +191,17 @@ func runInit(ctx context.Context) error {
 	if err := os.WriteFile(cfgPath, b, 0o644); err != nil {
 		return err
 	}
+	todo := " — fill in trust.tiers before use"
+	if len(raw.Trust.Tiers["self"]) > 0 {
+		todo = ""
+	}
 	if local {
-		fmt.Printf("wrote %s (local mode, bound to %s — no git repository here; fill in trust.tiers before use)\n", cfgPath, root)
+		fmt.Printf("wrote %s (local mode, bound to %s — no git repository here%s)\n", cfgPath, root, strings.Replace(todo, " — ", "; ", 1))
 	} else {
-		fmt.Printf("wrote %s (owner=%q name=%q — fill in trust.tiers before use)\n", cfgPath, owner, name)
+		fmt.Printf("wrote %s (owner=%q name=%q%s)\n", cfgPath, owner, name, todo)
+	}
+	for _, n := range notes {
+		fmt.Println("  " + n)
 	}
 	return nil
 }

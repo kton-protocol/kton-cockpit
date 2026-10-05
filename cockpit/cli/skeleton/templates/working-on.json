@@ -1,0 +1,9 @@
+{
+  "name": "working-on",
+  "target": "either",
+  "predicate": "https://kton.dev/v/working-on",
+  "fields": {
+    "step":       {"type": "string", "required": true},
+    "by-session": {"type": "string", "required": true}
+  }
+}
