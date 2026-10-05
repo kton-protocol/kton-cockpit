@@ -1,6 +1,23 @@
 # uat
 
-Two participants and a federation, driven end to end by the three verbs.
+Two acceptance runs. `e2e.sh` shows the protocol; `cli.sh` shows the tool.
+
+## `uat/cli.sh` — the same story, typed
+
+```bash
+uat/cli.sh
+```
+
+Needs `git`, `go` and `docker`. Two participants on GitHub-shaped origins (pushes and fetches go to
+local bare repos), each set up with nothing but `cockpit`: `init`, `keygen`, `pin`, `doctor` until it
+says *ready*. Alice works in a run folder in the pinned image. Bob takes her keys in with
+`trust add` (shown first, written with `--yes`), fetches her run by its record with
+`run new --from sha256:…` — every input checked against its hash — reruns it, and is handed the
+`say reproduces` that ends at ↻2.
+
+One step is still hand work and says so: naming alice's registry in `federation.sources`.
+
+## `uat/e2e.sh` — two participants and a federation, driven end to end by the three verbs
 
 ```bash
 uat/e2e.sh

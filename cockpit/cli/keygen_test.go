@@ -59,3 +59,16 @@ func TestKeygen_BindsAPlaceholderIdentityOnly(t *testing.T) {
 		t.Errorf("an existing identity was replaced by bob:\n%s", b)
 	}
 }
+
+// A configuration that is there and does not load is said, not taken for "none yet": the keys would
+// otherwise land unbound and the reason unsaid.
+func TestKeygen_ABrokenConfigIsSaid(t *testing.T) {
+	t.Chdir(t.TempDir())
+	must(t, os.WriteFile("cockpit.config.json", []byte("{not json"), 0o644))
+	if err := runKeygen(context.Background(), []string{"alice"}); err == nil {
+		t.Fatal("keygen went ahead past a configuration that does not load")
+	}
+	if _, err := os.Stat("keys"); !os.IsNotExist(err) {
+		t.Error("keys were written anyway")
+	}
+}

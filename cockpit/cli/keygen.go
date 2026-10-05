@@ -40,6 +40,11 @@ func runKeygen(ctx context.Context, args []string) error {
 	}
 
 	cfg, err := config.Load(ctx, ".")
+	if _, serr := os.Stat("cockpit.config.json"); err != nil && serr == nil {
+		// A configuration that is there and does not load is not "no configuration yet": the keys
+		// would land unbound, and the reason would go unsaid.
+		return err
+	}
 	keysDir := "keys"
 	root := "."
 	if err == nil {
