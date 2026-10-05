@@ -96,9 +96,13 @@ func runNew(ctx context.Context, args []string) error {
 	if slug != "" && from == "" && len(ins) > 0 {
 		return runNewBlank(ctx, slug, ins, script)
 	}
+	if slug != "" && strings.HasPrefix(from, "sha256:") {
+		return runNewFromFoton(ctx, slug, from)
+	}
 	if slug == "" || from == "" {
 		return fmt.Errorf("usage: cockpit run new <slug> --from <dir>\n" +
 			"       cockpit run new <slug> --in FILE... [--script run.py|run.R|run.sh]\n" +
+			"       cockpit run new <slug> --from sha256:<foton>   (a record's inputs, fetched and checked)\n" +
 			"  <dir> is an example, or another run folder — yours or a teammate's")
 	}
 	cfg, err := config.Load(ctx, ".")
@@ -257,6 +261,7 @@ func runExecute(ctx context.Context, slug string) error {
 			fmt.Printf("  %s\n", p)
 		}
 	}
+	reproductionReport(ctx, cfg, rel, out)
 	if out.PushRejected {
 		fmt.Printf("\nThe record is made and committed here. The push was rejected because somebody\n")
 		fmt.Printf("pushed while this was running:  git pull --rebase && git push\n")
