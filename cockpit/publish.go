@@ -261,6 +261,19 @@ func (c *Cockpit) Publish(ctx context.Context, in PublishRequest) (*PublishResul
 		undeclared = before.ChangedSince(after, append(append([]string{}, in.Inputs...), in.Outputs...))
 	}
 
+	// Outputs found by running (outputDir, outputsIn) were not known when allPaths was built above,
+	// so they were neither committed nor located: a run's result was recorded by hash only, and a
+	// peer could get its bytes by nothing but re-running it. They join allPaths here, after the same
+	// path check every named path passed.
+	if in.OutputDir != "" || in.OutputsIn != "" {
+		for _, o := range in.Outputs {
+			if verr := validatePublishPath(cfg, o); verr != nil {
+				return nil, refuse("path.denied", "SPEC §7.3", "the run wrote %v", verr)
+			}
+			allPaths = append(allPaths, o)
+		}
+	}
+
 	// A corpus entry is a record this result STANDS ON, so this repo's bar for standing on someone
 	// else's work applies here and nowhere else. Checked before anything is written: a publish that
 	// failed this after committing would leave the basis recorded and the conclusion refused.

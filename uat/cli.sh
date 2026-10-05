@@ -111,11 +111,23 @@ step "C4 — bob reruns it and is handed the claim"
 cockpit run check | tee "$WORK/bob-run.txt"
 cd "$WORK/bob"
 require "same bytes"                           grep -q "^same bytes as" "$WORK/bob-run.txt"
-SAY=$(grep -m1 "^  cockpit say " "$WORK/bob-run.txt" | sed 's/^  //')
-show eval "$SAY"
+show cockpit say reproduces runs/check
 OUT_HASH="sha256:$(sha256sum "$WORK/alice/runs/means/out/means.csv" | awk '{print $1}')"
 N=$(cockpit ask '{"query":"reproductions","ref":"'"$OUT_HASH"'"}' --field verifiedSigners)
 require "two parties, two keys, one result: ↻$N" test "$N" = "2"
+
+step "E — bob works with words: claims about a run and a file, questions, his runs"
+show cockpit say working-on runs/check step="checking alice's means" by-session=bob
+show cockpit say working-on runs/check/out/means.csv step="reading the means" by-session=bob
+show cockpit ask about runs/check
+show cockpit ask reproductions runs/check/out/means.csv
+show cockpit ask by signer me
+show cockpit run list
+require "his claims are his"                   bash -c 'cockpit ask by signer me | grep -c "self" | grep -qx 3'
+refused "a claim missing a field"              cockpit say working-on runs/check step=x
+printf 'a,b\n1,2\n' > notes.csv
+show cockpit publish --in runs/check/out/means.csv --out notes.csv -- cp runs/check/out/means.csv notes.csv
+require "a reported result answers producer"   bash -c 'cockpit ask producer notes.csv | grep -q "cp runs/check"'
 
 printf '\nalice set up, worked and published; bob took her keys in, fetched her run by its record,\n'
 printf 'reran it in the same image and claimed it — all with cockpit, except naming her registry as a source.\n'
