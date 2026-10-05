@@ -1,4 +1,4 @@
-//go:build unreleased
+//go:build !unreleased
 
 package testrepo
 
@@ -13,14 +13,15 @@ import (
 	"testing"
 
 	"github.com/kton-protocol/kton-cockpit/internal/binaries"
-	"github.com/kton-protocol/kton-cockpit/internal/verify"
 	"kton.dev/plankton/core"
 	pregistry "kton.dev/plankton/registry"
 )
 
 // The same work, already a record here under somebody else's signature — an installed package's
-// reference run, re-run by its user. With foton/v1 (kton §6.6.1) both producers sign the same bytes,
-// the signatures union, and each keeps its own locators as material beside the record.
+// reference run, re-run by its user. The ids agree, the carried locators do not (they pin each
+// repo's own commit), and the kernel merges no signatures across differing bytes. Adding our own
+// envelope would be answered "already there" with our signature gone, and publish used to report
+// that as success. The cockpit must sign the STORED payload instead, and say that it did.
 func TestAuthor_CoSignsWorkTheRegistryAlreadyHolds(t *testing.T) {
 	r := New(t)
 	r.Write(t, "data/in.csv", "id,value\n1,42\n")
@@ -61,21 +62,8 @@ func TestAuthor_CoSignsWorkTheRegistryAlreadyHolds(t *testing.T) {
 		}
 	}
 	payload, _ := env.PayloadBytes()
-	if strings.Contains(string(payload), "example.test") || strings.Contains(string(payload), "elsewhere.test") {
-		t.Errorf("a foton/v1 record carries no locator in its signed bytes (kton §6.6.1)")
-	}
-	// Each producer's locators are its own statement beside the record.
-	cfg.Raw.Trust.Tiers["fremd"] = []string{writePub(t, foreignPub)}
-	locs, err := verify.Locators(context.Background(), run, cfg, a.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	where := map[string]string{}
-	for _, l := range locs {
-		where[l.Tier] = l.URI[0]
-	}
-	if where["fremd"] != "https://elsewhere.test/autorin/out.csv" || where["self"] != "https://example.test/anwender/out.csv" {
-		t.Errorf("each producer keeps its own locators, got %v", where)
+	if !strings.Contains(string(payload), "elsewhere.test/autorin") || strings.Contains(string(payload), "anwender") {
+		t.Errorf("the stored record's own locators must be kept and ours not slipped under its signatures")
 	}
 }
 
@@ -94,15 +82,6 @@ func TestAuthor_RepublishingOwnWorkIsNotACoSignature(t *testing.T) {
 			t.Fatalf("publish %d: %+v %v", i+1, got, err)
 		}
 	}
-}
-
-func writePub(t *testing.T, pub ed25519.PublicKey) string {
-	t.Helper()
-	path := filepath.Join(t.TempDir(), "fremd.pub")
-	if err := os.WriteFile(path, []byte(hex.EncodeToString(pub)), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	return path
 }
 
 func keyFile(t *testing.T) (string, ed25519.PublicKey) {

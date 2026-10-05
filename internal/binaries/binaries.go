@@ -94,9 +94,7 @@ func (r *Runner) Author(ctx context.Context, in AuthorInput) (Authored, error) {
 			if rerr != nil {
 				return nil, rerr
 			}
-			// No uri in the record: foton/v1 keeps nothing carried in the signed bytes (kton §6.6.1).
-			// The locators are signed separately below and attached as material.
-			fs = append(fs, ffoton.FileSpec{Path: p, Hash: core.HashBytes(b)})
+			fs = append(fs, recordFile(p, core.HashBytes(b), located[p]))
 		}
 		return fs, nil
 	}
@@ -117,9 +115,10 @@ func (r *Runner) Author(ctx context.Context, in AuthorInput) (Authored, error) {
 		desc["envRef"] = in.EnvRef
 	}
 	spec := ffoton.Spec{
-		Predicate: "foton", Statement: "v1", Inputs: inputs, Outputs: outputs,
+		Predicate: "foton", Inputs: inputs, Outputs: outputs,
 		Protocol: &ffoton.ProtocolSpec{Kind: "script", Descriptor: desc},
 	}
+	withStatement(&spec)
 
 	priv, err := loadSigningKey(in.SignKey)
 	if err != nil {
@@ -165,29 +164,8 @@ func (r *Runner) Author(ctx context.Context, in AuthorInput) (Authored, error) {
 	if stored, ok := reg.Envelope(id); !ok || core.VerifiedSignerKeyID(stored, pub) == "" {
 		return Authored{}, fmt.Errorf("the registry holds %s but not with this repo's signature on it", id)
 	}
-	// This repo's locators, as its own signed statement beside the record (kton §8.1,
-	// kton-locator/v1). Another producer's locators stay theirs; ours do not replace them.
-	var locFiles []ffoton.FileSpec
-	for _, f := range append(append([]ffoton.FileSpec{}, inputs...), outputs...) {
-		if uris := located[f.Path]; len(uris) > 0 {
-			locFiles = append(locFiles, ffoton.FileSpec{Path: f.Path, Hash: f.Hash, URI: uris})
-		}
-	}
-	if len(locFiles) > 0 {
-		m, err := ffoton.SignLocators(id, locFiles, priv)
-		if err != nil {
-			return Authored{}, fmt.Errorf("signing the locators: %w", err)
-		}
-		known := false
-		for _, have := range reg.Material(id) {
-			known = known || have.Material == m.Material // Ed25519 is deterministic: same statement, same bytes
-		}
-		if !known {
-			if err := reg.AttachMaterial(pregistry.VerificationMaterial{Subject: m.Subject, Scheme: m.Scheme,
-				MediaType: m.MediaType, Material: m.Material}); err != nil {
-				return Authored{}, fmt.Errorf("attaching the locators: %w", err)
-			}
-		}
+	if err := attachLocators(reg, id, inputs, outputs, located, priv); err != nil {
+		return Authored{}, err
 	}
 	return Authored{ID: id, CoSigned: coSigned}, nil
 }

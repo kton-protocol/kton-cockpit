@@ -1,3 +1,5 @@
+//go:build unreleased
+
 package cli
 
 // workflow.go is the command line for installing packages and working with workflows. Each command

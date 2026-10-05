@@ -26,7 +26,6 @@ import (
 	"github.com/kton-protocol/kton-cockpit/internal/binaries"
 	"github.com/kton-protocol/kton-cockpit/internal/config"
 	"kton.dev/plankton/core"
-	ffoton "kton.dev/plankton/foton"
 	pregistry "kton.dev/plankton/registry"
 )
 
@@ -152,10 +151,7 @@ func Locators(ctx context.Context, r *binaries.Runner, cfg *config.Config, foton
 	}
 	var out []Locator
 	for _, s := range stored {
-		if s.Scheme != ffoton.LocatorScheme {
-			continue
-		}
-		ls, err := ffoton.ReadLocators(s.Scheme, s.Material, *f, keys)
+		ls, err := readLocators(s.Scheme, s.Material, *f, keys)
 		if err != nil {
 			continue
 		}
