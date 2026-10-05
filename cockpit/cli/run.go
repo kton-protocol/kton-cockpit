@@ -91,6 +91,9 @@ func runNew(ctx context.Context, args []string) error {
 		return err
 	}
 	src := filepath.Join(cfg.RepoRoot, filepath.FromSlash(from))
+	if filepath.IsAbs(from) {
+		src = from // a starting point need not live in this repository
+	}
 	if fi, serr := os.Stat(src); serr != nil || !fi.IsDir() {
 		return fmt.Errorf("%s is not a directory", from)
 	}
@@ -98,6 +101,14 @@ func runNew(ctx context.Context, args []string) error {
 	if _, serr := os.Stat(dst); serr == nil {
 		return fmt.Errorf("%s/%s already exists", runsDir, slug)
 	}
+	// dst did not exist a moment ago, so a refusal below takes all of it back: a half-made run
+	// folder would otherwise be taken for a run by `cockpit run <slug>` and `run list`.
+	made := false
+	defer func() {
+		if !made {
+			os.RemoveAll(dst)
+		}
+	}()
 
 	// What travels: the inputs and the script. What does not: the previous run's outputs, and its
 	// record of having been published. Cloning somebody's run means starting where they started,
@@ -147,6 +158,7 @@ func runNew(ctx context.Context, args []string) error {
 		return werr
 	}
 
+	made = true
 	fmt.Printf("%s/%s\n", runsDir, slug)
 	fmt.Printf("  inputs/     %d file(s), copied from %s\n", copied, from)
 	fmt.Printf("  %-11s yours to change\n", entry)
@@ -199,7 +211,9 @@ func runExecute(ctx context.Context, slug string) error {
 
 	fmt.Printf("running %s in %s\n", rel+"/"+entry, cfg.Raw.Execution.Image)
 	out, perr := cockpit.New(cockpit.Start{}).Publish(ctx, cockpit.PublishRequest{
-		Cmd:       cmdOf(rel + "/" + entry),
+		// Run in the folder, as `run --dir` does: a script reads inputs/ and writes out/ relative
+		// to itself, so the same script works in a clone under another slug.
+		Cmd:       "cd " + rel + " && " + cmdOf(entry),
 		Inputs:    inputs,
 		OutputDir: rel + "/out",
 	})

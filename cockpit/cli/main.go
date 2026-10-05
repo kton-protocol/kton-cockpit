@@ -71,7 +71,8 @@ func Main() {
 		os.Exit(2)
 	}
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "cockpit:", err)
+		// Configuration errors carry the prefix themselves, for the MCP surface; once is enough.
+		fmt.Fprintln(os.Stderr, "cockpit:", strings.TrimPrefix(err.Error(), "cockpit: "))
 		os.Exit(1)
 	}
 }
