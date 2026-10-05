@@ -59,7 +59,7 @@ func runRun(ctx context.Context, args []string) error {
 	case "new":
 		return runNew(ctx, args[1:])
 	case "list":
-		return runList(ctx)
+		return runStatus(ctx)
 	default:
 		return runExecute(ctx, args[0])
 	}
@@ -267,29 +267,6 @@ func runExecute(ctx context.Context, slug string) error {
 		fmt.Printf("pushed while this was running:  git pull --rebase && git push\n")
 	} else if !out.Pushed {
 		fmt.Printf("\nnot pushed (this repo has push off)\n")
-	}
-	return nil
-}
-
-func runList(ctx context.Context) error {
-	cfg, err := config.Load(ctx, ".")
-	if err != nil {
-		return err
-	}
-	entries, err := os.ReadDir(filepath.Join(cfg.RepoRoot, runsDir))
-	if os.IsNotExist(err) {
-		fmt.Println("no runs yet — cockpit run new <slug> --from <dir>")
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	for _, e := range entries {
-		if !e.IsDir() {
-			continue
-		}
-		outs, _ := filesUnderDir(cfg.RepoRoot, runsDir+"/"+e.Name()+"/out")
-		fmt.Printf("  %-28s %d output(s)\n", e.Name(), len(outs))
 	}
 	return nil
 }

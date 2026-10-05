@@ -245,8 +245,7 @@ func reproductionReport(ctx context.Context, cfg *config.Config, rel string, out
 	var same, differ []string
 	for _, o := range rec.Outputs {
 		if p, ok := mine[o.Hash]; ok {
-			same = append(same, fmt.Sprintf(`cockpit say '{"template": "reproduces", "subject": %q, "subjectOutputHash": %q, "reproducedOutput": %q, "reproducedFotonId": %q}'`,
-				theirID, o.Hash, p, out.FotonID))
+			same = append(same, p)
 		} else {
 			differ = append(differ, o.Path)
 		}
@@ -254,9 +253,7 @@ func reproductionReport(ctx context.Context, cfg *config.Config, rel string, out
 	sort.Strings(differ)
 	if len(differ) == 0 && len(same) > 0 {
 		fmt.Printf("\nsame bytes as %s — every output it records. To claim it (the cockpit measures the level):\n", short16(theirID))
-		for _, s := range same {
-			fmt.Printf("  %s\n", s)
-		}
+		fmt.Printf("  cockpit say reproduces %s\n", rel)
 		return
 	}
 	fmt.Printf("\nnot the same bytes as %s: %d of its %d output(s) differ (%s)\n",

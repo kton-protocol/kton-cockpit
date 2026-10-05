@@ -85,9 +85,11 @@ func usage() {
 	fmt.Fprintf(os.Stderr, `cockpit - kton-cockpit
 
 usage:
-  cockpit publish '<json>' [--field NAME]   record a result as a signed foton
-  cockpit say     '<json>' [--field NAME]   bind a claim from an allowed template
-  cockpit ask     '<json>' [--field NAME]   query the graph, re-verified against configured trust
+  cockpit publish --in FILE... --out FILE... -- COMMAND   record a result as a signed foton
+  cockpit say     <template> <run|file|sha256:id> [field=value]...   claim something about it
+  cockpit ask     <question> <run|file|sha256:id>          ask, re-verified against your trust tiers
+                  say and ask with no arguments list the templates and the questions; --json prints
+                  the full answer. A JSON argument ('{...}' [--field NAME]) works as before.
 
   cockpit run --dir DIR --in [NAME=]FILE... -- COMMAND...
                    run one step in DIR (inputs copied in), record what it wrote there
@@ -627,6 +629,18 @@ func runVerb(ctx context.Context, verb string, args []string) error {
 			return verbHelp[cockpit.SayRequest](os.Stdout, verb)
 		case "ask":
 			return verbHelp[cockpit.AskRequest](os.Stdout, verb)
+		}
+	}
+	// A JSON argument is the form scripts and the MCP surface share, unchanged. Anything else is
+	// the same verb typed at a shell (shellask.go, shellsay.go, shellpublish.go).
+	if len(args) == 0 || !strings.HasPrefix(strings.TrimSpace(args[0]), "{") {
+		switch verb {
+		case "publish":
+			return shellPublish(ctx, args)
+		case "say":
+			return shellSay(ctx, args)
+		case "ask":
+			return shellAsk(ctx, args)
 		}
 	}
 	raw, field, err := verbArgs(verb, args)

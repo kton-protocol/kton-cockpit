@@ -18,7 +18,8 @@ func verbHelp[In any](w io.Writer, verb string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(w, "usage: cockpit %s '<json>' [--field NAME]\n\nfields:\n", verb)
+	fmt.Fprintf(w, "usage: cockpit %s '<json>' [--field NAME]\n", verb)
+	fmt.Fprintf(w, "   or: cockpit %s with words — %s\n\nfields of the JSON form:\n", verb, typedForm[verb])
 	writeFields(w, s, "  ")
 	if ex, ok := verbExamples[verb]; ok {
 		fmt.Fprintf(w, "\nexample:\n%s", ex)
@@ -92,4 +93,10 @@ var verbExamples = map[string]string{
   cockpit ask '{"query": "producer", "ref": "out/clean.csv"}'
   cockpit ask '{"query": "reproductions", "ref": "sha256:<output hash>"}'
 `,
+}
+
+var typedForm = map[string]string{
+	"publish": "cockpit publish --in FILE... --out FILE... -- COMMAND",
+	"say":     "`cockpit say` lists the templates and their fields",
+	"ask":     "`cockpit ask` lists the questions",
 }
