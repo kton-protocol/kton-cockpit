@@ -137,7 +137,12 @@ func Locators(ctx context.Context, r *binaries.Runner, cfg *config.Config, foton
 	if err != nil {
 		return nil, err
 	}
-	reg, err := pregistry.Open(cfg.PlanktonDir)
+	// The union, as everywhere ask reads: a federated record's locators are asked about too.
+	pdir, _, err := binaries.ReadDirs(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+	reg, err := pregistry.Open(pdir)
 	if err != nil {
 		return nil, err
 	}
