@@ -66,9 +66,20 @@ func runRun(ctx context.Context, args []string) error {
 }
 
 func runNew(ctx context.Context, args []string) error {
-	var slug, from string
+	var slug, from, script string
+	var ins []string
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
+		case "--in", "--script":
+			if i+1 >= len(args) {
+				return fmt.Errorf("%s needs a value", args[i])
+			}
+			if args[i] == "--in" {
+				ins = append(ins, args[i+1])
+			} else {
+				script = args[i+1]
+			}
+			i++
 		case "--from":
 			if i+1 >= len(args) {
 				return fmt.Errorf("--from needs a directory")
@@ -82,8 +93,12 @@ func runNew(ctx context.Context, args []string) error {
 			slug = args[i]
 		}
 	}
+	if slug != "" && from == "" && len(ins) > 0 {
+		return runNewBlank(ctx, slug, ins, script)
+	}
 	if slug == "" || from == "" {
 		return fmt.Errorf("usage: cockpit run new <slug> --from <dir>\n" +
+			"       cockpit run new <slug> --in FILE... [--script run.py|run.R|run.sh]\n" +
 			"  <dir> is an example, or another run folder — yours or a teammate's")
 	}
 	cfg, err := config.Load(ctx, ".")
@@ -176,6 +191,10 @@ func runExecute(ctx context.Context, slug string) error {
 	dir := filepath.Join(cfg.RepoRoot, filepath.FromSlash(rel))
 	if fi, serr := os.Stat(dir); serr != nil || !fi.IsDir() {
 		return fmt.Errorf("no %s — make one with: cockpit run new %s --from <dir>", rel, slug)
+	}
+	// Said before anything starts: only a run the cockpit executes shows what it wrote.
+	if !cfg.Raw.Execution.Enabled() {
+		return fmt.Errorf("a run executes in a pinned image, and none is configured — pin one with: cockpit pin <image>")
 	}
 
 	entry, cmdOf := "", func(string) string { return "" }

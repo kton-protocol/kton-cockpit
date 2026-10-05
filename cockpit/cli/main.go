@@ -59,6 +59,8 @@ func Main() {
 		err = runRun(ctx, os.Args[2:])
 	case "keygen":
 		err = runKeygen(ctx, os.Args[2:])
+	case "pin":
+		err = runPin(ctx, os.Args[2:])
 	case "install":
 		err = runInstall(ctx, os.Args[2:])
 	case "workflow":
@@ -89,6 +91,7 @@ usage:
                    run one step in DIR (inputs copied in), record what it wrote there
 %s  cockpit run      also run folders: new / <slug> / list — clone inputs, execute, record
   cockpit scope    seed / seal / read a nekton scope
+  cockpit pin      pin the image publish and run execute in, by digest (pin <image>)
   cockpit keygen   make a signing identity (keys/<name>.key + .pub, and the claims pair)
   cockpit version  what this binary is, and which kernel is compiled into it
   cockpit mcp      start the MCP stdio server (cockpit_publish/cockpit_say/cockpit_ask)
@@ -192,10 +195,7 @@ func runInit(ctx context.Context) error {
 	if err := os.WriteFile(cfgPath, b, 0o644); err != nil {
 		return err
 	}
-	todo := " — fill in trust.tiers before use"
-	if len(raw.Trust.Tiers["self"]) > 0 {
-		todo = ""
-	}
+	todo := "" // what is left is said in the notes below, and `doctor` lists it
 	if local {
 		fmt.Printf("wrote %s (local mode, bound to %s — no git repository here%s)\n", cfgPath, root, strings.Replace(todo, " — ", "; ", 1))
 	} else {
@@ -278,6 +278,7 @@ func runDoctor(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	defer printReadiness(ctx, cfg)
 
 	fmt.Printf("repo root:      %s\n", cfg.RepoRoot)
 	if cfg.Raw.Repo.IsLocal() {
@@ -285,8 +286,8 @@ func runDoctor(ctx context.Context) error {
 	} else {
 		fmt.Printf("bound to:       %s/%s (verified against origin remote)\n", cfg.Raw.Repo.Owner, cfg.Raw.Repo.Name)
 	}
-	fmt.Printf("plankton_dir:   %s\n", checkPath(cfg.PlanktonDir))
-	fmt.Printf("nekton_dir:     %s\n", checkPath(cfg.NektonDir))
+	fmt.Printf("plankton_dir:   %s\n", checkMadePath(cfg.PlanktonDir))
+	fmt.Printf("nekton_dir:     %s\n", checkMadePath(cfg.NektonDir))
 	fmt.Printf("templates_dir:  %s\n", checkPath(cfg.TemplatesDir))
 	fmt.Printf("plankton key:   %s\n", checkKeyPath(cfg.PlanktonKey))
 	fmt.Printf("nekton key:     %s\n", checkKeyPath(cfg.NektonKey))

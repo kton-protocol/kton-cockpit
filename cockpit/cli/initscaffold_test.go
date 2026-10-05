@@ -16,6 +16,10 @@ func TestInitTemplates_MatchTheSkeleton(t *testing.T) {
 	if err != nil || len(ents) == 0 {
 		t.Fatalf("no embedded templates: %v", err)
 	}
+	gi, _ := skeletonTemplates.ReadFile("skeleton/gitignore")
+	if want, _ := os.ReadFile(filepath.Join("..", "..", "uat", "participant-skeleton", "gitignore")); !bytes.Equal(gi, want) {
+		t.Errorf("gitignore differs from uat/participant-skeleton/gitignore")
+	}
 	for _, e := range ents {
 		got, _ := skeletonTemplates.ReadFile("skeleton/templates/" + e.Name())
 		want, err := os.ReadFile(filepath.Join("..", "..", "uat", "participant-skeleton", "templates", e.Name()))
@@ -30,7 +34,7 @@ func TestInitTemplates_MatchTheSkeleton(t *testing.T) {
 
 func scaffoldRaw() config.Raw {
 	return config.Raw{
-		Paths:    config.Paths{TemplatesDir: "templates", KeysDir: "keys"},
+		Paths:    config.Paths{PlanktonDir: "registry/plankton", TemplatesDir: "templates", KeysDir: "keys"},
 		Identity: config.Identity{SessionID: "session-1", PlanktonKey: "keys/session-1.key", NektonKey: "keys/session-1-claims.key"},
 		Claims:   config.Claims{AllowedTemplates: []string{"reproduces", "working-on", "not-carried"}},
 		Trust:    config.Trust{Tiers: map[string][]string{"self": {}}},
@@ -61,11 +65,17 @@ func TestInitScaffold_TemplatesAndTheOneIdentity(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(root, "templates", "not-carried.json")); !os.IsNotExist(err) {
 		t.Errorf("a template this binary does not carry was invented")
 	}
+	if _, err := os.Stat(filepath.Join(root, "registry", "keys", "alice-claims.pub")); err != nil {
+		t.Errorf("public key not published: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, ".gitignore")); err != nil {
+		t.Errorf(".gitignore not written: %v", err)
+	}
 	if raw.Identity.PlanktonKey != "keys/alice.key" || raw.Identity.NektonKey != "keys/alice-claims.key" {
 		t.Errorf("identity not bound: %+v", raw.Identity)
 	}
 	// Both halves, or the repository's own claims do not verify here.
-	if got := raw.Trust.Tiers["self"]; len(got) != 2 || got[0] != "keys/alice.pub" || got[1] != "keys/alice-claims.pub" {
+	if got := raw.Trust.Tiers["self"]; len(got) != 2 || got[0] != "registry/keys/alice.pub" || got[1] != "registry/keys/alice-claims.pub" {
 		t.Errorf("tier self: %v", got)
 	}
 }

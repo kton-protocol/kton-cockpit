@@ -20,6 +20,9 @@ func verbHelp[In any](w io.Writer, verb string) error {
 	}
 	fmt.Fprintf(w, "usage: cockpit %s '<json>' [--field NAME]\n\nfields:\n", verb)
 	writeFields(w, s, "  ")
+	if ex, ok := verbExamples[verb]; ok {
+		fmt.Fprintf(w, "\nexample:\n%s", ex)
+	}
 	fmt.Fprintf(w, "\nunknown fields are refused. --field NAME prints one value of the answer.\n")
 	return nil
 }
@@ -76,4 +79,17 @@ func schemaType(p *jsonschema.Schema) string {
 		return "any"
 	}
 	return t
+}
+
+var verbExamples = map[string]string{
+	"publish": `  cockpit publish '{"cmd": "python3 clean.py", "inputs": ["data/runs.csv", "clean.py"], "outputs": ["out/clean.csv"]}'
+`,
+	"say": `  cockpit say '{"template": "working-on", "subject": "sha256:<fotonId>", "fields": {"step": "cleaning", "by-session": "alice"}}'
+  cockpit say '{"template": "reproduces", "subject": "sha256:<their fotonId>", "subjectOutputHash": "sha256:<their output>",
+                "reproducedOutput": "runs/check/out/clean.csv", "reproducedFotonId": "sha256:<your fotonId>"}'
+`,
+	"ask": `  cockpit ask '{"query": "record", "ref": "sha256:<fotonId>"}'
+  cockpit ask '{"query": "producer", "ref": "out/clean.csv"}'
+  cockpit ask '{"query": "reproductions", "ref": "sha256:<output hash>"}'
+`,
 }

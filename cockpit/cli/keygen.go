@@ -22,6 +22,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/kton-protocol/kton-cockpit/internal/config"
@@ -80,7 +81,17 @@ func runKeygen(ctx context.Context, args []string) error {
 		}
 	}
 	if err == nil {
-		identityHint(cfg, name)
+		pubs, perr := publishPublicKeys(cfg.RepoRoot, &cfg.Raw, name)
+		if perr != nil {
+			return perr
+		}
+		for _, p := range pubs {
+			fmt.Printf("  %s  (published copy — commit it)\n", p)
+		}
+		if placeholderIdentity(cfg) {
+			return bindIdentity(cfg, name, pubs)
+		}
+		identityHint(cfg, name, pubs)
 	}
 	return nil
 }
@@ -88,12 +99,11 @@ func runKeygen(ctx context.Context, args []string) error {
 // identityHint says what is left to do when the configuration does not sign with the identity just
 // made — the usual case right after `init`, which names a placeholder. The configuration is the
 // operator's to write, so it is said, not edited.
-func identityHint(cfg *config.Config, name string) {
+func identityHint(cfg *config.Config, name string, pubs []string) {
 	key := path.Join(filepath.ToSlash(rel(cfg.RepoRoot, cfg.KeysDir)), name+".key")
 	claims := path.Join(filepath.ToSlash(rel(cfg.RepoRoot, cfg.KeysDir)), name+"-claims.key")
-	// Both halves: a foton is verified against the first, a claim against the second.
-	pub := strings.TrimSuffix(key, ".key") + ".pub"
-	claimsPub := strings.TrimSuffix(claims, ".key") + ".pub"
+	// Both halves, as published: a foton is verified against the first, a claim against the second.
+	pub, claimsPub := pubs[0], pubs[1]
 	has := map[string]bool{}
 	for _, keys := range cfg.Raw.Trust.Tiers {
 		for _, k := range keys {
@@ -120,4 +130,34 @@ func rel(root, p string) string {
 		return filepath.ToSlash(r)
 	}
 	return p
+}
+
+// placeholderIdentity reports a configured identity with neither key present — what `init` writes
+// before any key exists. Replacing it loses nothing; replacing an identity that exists would change
+// who this repository signs as, which stays the operator's edit.
+func placeholderIdentity(cfg *config.Config) bool {
+	_, e1 := os.Stat(cfg.PlanktonKey)
+	_, e2 := os.Stat(cfg.NektonKey)
+	return os.IsNotExist(e1) && os.IsNotExist(e2)
+}
+
+// bindIdentity makes the configuration sign as name and trust both its published public halves in
+// tier self, beside whatever the tier already holds.
+func bindIdentity(cfg *config.Config, name string, pubs []string) error {
+	keys := filepath.ToSlash(rel(cfg.RepoRoot, cfg.KeysDir))
+	self := append([]string{}, cfg.Raw.Trust.Tiers["self"]...)
+	for _, p := range pubs {
+		if !slices.Contains(self, p) {
+			self = append(self, p)
+		}
+	}
+	err := editConfig(filepath.Join(cfg.RepoRoot, "cockpit.config.json"),
+		set([]string{"identity"}, map[string]string{"session_id": name,
+			"plankton_key": path.Join(keys, name+".key"), "nekton_key": path.Join(keys, name+"-claims.key")}),
+		set([]string{"trust", "tiers", "self"}, self))
+	if err != nil {
+		return err
+	}
+	fmt.Printf("\n  cockpit.config.json now signs as %s and trusts it in tier self (it named no key that exists)\n", name)
+	return nil
 }

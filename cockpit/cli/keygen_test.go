@@ -4,7 +4,10 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/kton-protocol/kton-cockpit/internal/testrepo"
 )
 
 // A flag where the name goes is a flag someone tried, not a name. `keygen --help` used to write
@@ -32,5 +35,27 @@ func TestKeygen_MakesBothHalves(t *testing.T) {
 		if _, err := os.Stat(filepath.Join("keys", f)); err != nil {
 			t.Errorf("keys/%s: %v", f, err)
 		}
+	}
+}
+
+// After init named a placeholder, keygen binds the identity it made: init → keygen needs no edit.
+// The negative control is the second keygen: an identity that exists is not replaced.
+func TestKeygen_BindsAPlaceholderIdentityOnly(t *testing.T) {
+	r := testrepo.New(t)
+	t.Chdir(r.Root)
+	cfgPath := filepath.Join(r.Root, "cockpit.config.json")
+	b, _ := os.ReadFile(cfgPath)
+	must(t, os.WriteFile(cfgPath, []byte(strings.ReplaceAll(string(b), testrepo.SessionID, "placeholder")), 0o644))
+
+	must(t, runKeygen(context.Background(), []string{"alice"}))
+	b, _ = os.ReadFile(cfgPath)
+	if !strings.Contains(string(b), `"plankton_key": "keys/alice.key"`) || !strings.Contains(string(b), `"registry/keys/alice-claims.pub"`) {
+		t.Fatalf("placeholder not replaced:\n%s", b)
+	}
+
+	must(t, runKeygen(context.Background(), []string{"bob"}))
+	b, _ = os.ReadFile(cfgPath)
+	if strings.Contains(string(b), "keys/bob.key") {
+		t.Errorf("an existing identity was replaced by bob:\n%s", b)
 	}
 }
