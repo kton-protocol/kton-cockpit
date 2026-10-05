@@ -63,6 +63,9 @@ func Main() {
 		err = runInstall(ctx, os.Args[2:])
 	case "workflow":
 		err = runWorkflow(ctx, os.Args[2:])
+	case "help", "-h", "--help":
+		usage()
+		return
 	default:
 		usage()
 		os.Exit(2)
@@ -74,7 +77,7 @@ func Main() {
 }
 
 func usage() {
-	fmt.Fprint(os.Stderr, `cockpit - kton-cockpit
+	fmt.Fprintf(os.Stderr, `cockpit - kton-cockpit
 
 usage:
   cockpit publish '<json>' [--field NAME]   record a result as a signed foton
@@ -83,16 +86,8 @@ usage:
 
   cockpit run --dir DIR --in [NAME=]FILE... -- COMMAND...
                    run one step in DIR (inputs copied in), record what it wrote there
-  cockpit install <package-dir> [--allow]
-                   take a package in and say so; --allow also admits its templates and queries
-  cockpit workflow propose <result>...   what the runs behind results offer, numbered
-  cockpit workflow extract <result>... --name NAME --reference RESULT [--hole NAME=N]... [--param NAME=N]...
-  cockpit workflow list                  the installed workflows
-  cockpit workflow show <name>           steps, holes, parameters, reference
-  cockpit workflow run <name> [--check] [--bind NAME=VALUE]...
-  cockpit workflow trace <result>        the steps behind a result, in the order they ran
-
-  cockpit run      also run folders: new / <slug> / list — clone inputs, execute, record
+%s  cockpit run      also run folders: new / <slug> / list — clone inputs, execute, record
+  cockpit scope    seed / seal / read a nekton scope
   cockpit keygen   make a signing identity (keys/<name>.key + .pub, and the claims pair)
   cockpit version  what this binary is, and which kernel is compiled into it
   cockpit mcp      start the MCP stdio server (cockpit_publish/cockpit_say/cockpit_ask)
@@ -104,7 +99,7 @@ usage:
 a session never invokes 'init'/'doctor'/'show' — they are for the human operator setting up or
 inspecting a participant repo. Only 'mcp' is registered as the tool surface (via .mcp.json), and
 it exposes exactly three verbs.
-`)
+`, packageUsage)
 }
 
 func runMCP(ctx context.Context) error {
