@@ -125,6 +125,9 @@ func Run(ctx context.Context, cfg *config.Config, cmd string) (*Result, error) {
 		return nil, fmt.Errorf("container.Run called with execution disabled (no execution.image configured)")
 	}
 
+	if err := ensureMountPoints(cfg); err != nil {
+		return nil, err
+	}
 	args := []string{"run", "--rm"}
 	if !ex.Network {
 		args = append(args, "--network", "none")
