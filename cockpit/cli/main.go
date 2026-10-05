@@ -603,6 +603,16 @@ func verbArgs(verb string, args []string) (raw, field string, err error) {
 }
 
 func runVerb(ctx context.Context, verb string, args []string) error {
+	if len(args) == 1 && (args[0] == "--help" || args[0] == "-h") {
+		switch verb {
+		case "publish":
+			return verbHelp[cockpit.PublishRequest](os.Stdout, verb)
+		case "say":
+			return verbHelp[cockpit.SayRequest](os.Stdout, verb)
+		case "ask":
+			return verbHelp[cockpit.AskRequest](os.Stdout, verb)
+		}
+	}
 	raw, field, err := verbArgs(verb, args)
 	if err != nil {
 		return err
