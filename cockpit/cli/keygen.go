@@ -20,13 +20,17 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
+	"strings"
 
 	"github.com/kton-protocol/kton-cockpit/internal/config"
 )
 
 func runKeygen(ctx context.Context, args []string) error {
-	if len(args) != 1 || args[0] == "" {
+	if len(args) != 1 || args[0] == "" || strings.HasPrefix(args[0], "-") {
+		// A leading dash is a flag someone tried, not a name: `keygen --help` used to write
+		// keys/--help.key.
 		return fmt.Errorf("usage: cockpit keygen <name>      (e.g. cockpit keygen alice)")
 	}
 	name := args[0]
@@ -75,7 +79,37 @@ func runKeygen(ctx context.Context, args []string) error {
 			fmt.Printf("      readable by others (mode %v) — this filesystem does not enforce modes\n", fi.Mode().Perm())
 		}
 	}
+	if err == nil {
+		identityHint(cfg, name)
+	}
 	return nil
+}
+
+// identityHint says what is left to do when the configuration does not sign with the identity just
+// made — the usual case right after `init`, which names a placeholder. The configuration is the
+// operator's to write, so it is said, not edited.
+func identityHint(cfg *config.Config, name string) {
+	key := path.Join(filepath.ToSlash(rel(cfg.RepoRoot, cfg.KeysDir)), name+".key")
+	claims := path.Join(filepath.ToSlash(rel(cfg.RepoRoot, cfg.KeysDir)), name+"-claims.key")
+	pub := strings.TrimSuffix(key, ".key") + ".pub"
+	trusted := false
+	for _, keys := range cfg.Raw.Trust.Tiers {
+		for _, k := range keys {
+			trusted = trusted || path.Clean(filepath.ToSlash(k)) == pub
+		}
+	}
+	signs := cfg.Raw.Identity.PlanktonKey == key && cfg.Raw.Identity.NektonKey == claims
+	if signs && trusted {
+		return
+	}
+	fmt.Println()
+	fmt.Println("  cockpit.config.json does not use this identity yet. To sign as", name+":")
+	if !signs {
+		fmt.Printf("    \"identity\": { \"session_id\": %q, \"plankton_key\": %q, \"nekton_key\": %q }\n", name, key, claims)
+	}
+	if !trusted {
+		fmt.Printf("    \"trust\": { \"tiers\": { \"self\": [%q] } }   (or a tier of your own)\n", pub)
+	}
 }
 
 func rel(root, p string) string {
