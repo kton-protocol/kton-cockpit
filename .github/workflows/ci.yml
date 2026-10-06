@@ -102,6 +102,26 @@ jobs:
         working-directory: cockpit
         run: go test -tags docker ./...
 
+  cli:
+    name: the command line, end to end
+    # uat/cli.sh: two participants set up, work, take each other in and reproduce with nothing but
+    # `cockpit` — the walkthrough a person at a shell follows. It pins and pulls a public image.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: cockpit
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: cockpit/go.mod
+      - name: uat/cli.sh
+        working-directory: cockpit
+        timeout-minutes: 20
+        run: |
+          git config --global user.name ci
+          git config --global user.email ci@cockpit.local
+          uat/cli.sh
+
   kernel-main:
     name: against kton main (advisory)
     runs-on: ubuntu-latest

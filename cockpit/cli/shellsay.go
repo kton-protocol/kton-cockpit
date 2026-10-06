@@ -225,7 +225,6 @@ func orDefault(s, d string) string {
 	return s
 }
 
-
 var targetWords = map[string]string{
 	"foton":  "a record (a run)",
 	"either": "a run or a file",

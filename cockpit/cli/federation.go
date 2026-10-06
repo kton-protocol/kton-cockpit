@@ -23,8 +23,8 @@ import (
 	"github.com/kton-protocol/kton-cockpit/cockpit/source"
 	"github.com/kton-protocol/kton-cockpit/internal/binaries"
 	"github.com/kton-protocol/kton-cockpit/internal/config"
-	"kton.dev/plankton/core"
 	nregistry "kton.dev/nekton/registry"
+	"kton.dev/plankton/core"
 	pregistry "kton.dev/plankton/registry"
 )
 

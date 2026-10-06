@@ -25,8 +25,8 @@ import (
 	// configuration knows git and local mode. Extensions register further modes the same way.
 	_ "github.com/kton-protocol/kton-cockpit/cockpit/backend/github"
 	_ "github.com/kton-protocol/kton-cockpit/cockpit/backend/local"
-	"github.com/kton-protocol/kton-cockpit/internal/gitrepo"
 	"github.com/kton-protocol/kton-cockpit/cockpit/source"
+	"github.com/kton-protocol/kton-cockpit/internal/gitrepo"
 )
 
 // Mode names how this cockpit is bound to a location, and therefore what the anti-wrong-folder
