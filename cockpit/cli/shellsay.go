@@ -21,7 +21,7 @@ import (
 	"github.com/kton-protocol/kton-cockpit/internal/config"
 )
 
-func sayOverview(cfg *config.Config) {
+func sayOverview(ctx context.Context, cfg *config.Config) {
 	fmt.Println("cockpit say <template> <run|file|sha256:id> [field=value]... [--scope NAME] [--json]")
 	fmt.Println()
 	ts := readTemplates(cfg)
@@ -41,11 +41,18 @@ func sayOverview(cfg *config.Config) {
 			if f.Required {
 				req = " (required)"
 			}
+			if name == identityField {
+				fmt.Printf("                 %s=<%s>  filled in: %s (your identity)\n", name, f.Type, cfg.Raw.Identity.SessionID)
+				continue
+			}
 			vals := ""
 			if len(f.Values) > 0 {
 				vals = " one of " + strings.Join(f.Values, "|")
 			}
 			fmt.Printf("                 %s=<%s>%s%s\n", name, f.Type, vals, req)
+			if used := usedValues(ctx, cfg, t.Name, name); len(used) > 0 {
+				fmt.Printf("                   used so far: %s\n", strings.Join(used, " · "))
+			}
 		}
 	}
 	fmt.Println()
@@ -58,7 +65,7 @@ func shellSay(ctx context.Context, args []string) error {
 		return err
 	}
 	if len(args) == 0 {
-		sayOverview(cfg)
+		sayOverview(ctx, cfg)
 		return nil
 	}
 	in := cockpit.SayRequest{Template: args[0], Fields: map[string]string{}}
@@ -102,7 +109,11 @@ func shellSay(ctx context.Context, args []string) error {
 			fmt.Printf("(%s)\n", note)
 		}
 		in.Subject = id
+		fillFromIdentity(cfg, in.Template, in.Fields)
 		if err := checkFields(cfg, in.Template, in.Fields); err != nil {
+			if used := usedValues(ctx, cfg, in.Template, "step"); len(used) > 0 && in.Fields["step"] == "" {
+				return fmt.Errorf("%v\n  steps used here so far: %s", err, strings.Join(used, " · "))
+			}
 			return err
 		}
 		if len(in.Fields) == 0 {
@@ -220,4 +231,42 @@ var targetWords = map[string]string{
 	"either": "a run or a file",
 	"claim":  "a claim",
 	"":       "anything",
+}
+
+// identityField names who is speaking. A claim is signed, so the signature already says it; with
+// the one identity this repository signs as, asking the person to type it again only invites a
+// value that disagrees with the signature. Given explicitly, it is kept.
+const identityField = "by-session"
+
+func fillFromIdentity(cfg *config.Config, template string, fields map[string]string) {
+	for _, t := range readTemplates(cfg) {
+		if _, has := t.Fields[identityField]; t.Name == template && has && fields[identityField] == "" {
+			fields[identityField] = cfg.Raw.Identity.SessionID
+		}
+	}
+}
+
+// usedValues are the values a template's field has had in verified claims here — the step names
+// already in use, so the next claim can say the same step the same way.
+func usedValues(ctx context.Context, cfg *config.Config, template, field string) []string {
+	pred := predicateOf(cfg, template)
+	if pred == template {
+		return nil
+	}
+	ans, err := cockpit.New(cockpit.Start{}).Ask(ctx, cockpit.AskRequest{Query: "by", Axis: "predicate", Ref: pred})
+	if err != nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, c := range ans.Claims {
+		if m, ok := c.Object.(map[string]any); ok {
+			if v, ok := m[field].(string); ok && v != "" && !seen[v] {
+				seen[v] = true
+				out = append(out, v)
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
 }

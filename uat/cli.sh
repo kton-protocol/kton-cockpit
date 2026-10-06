@@ -117,14 +117,14 @@ N=$(cockpit ask '{"query":"reproductions","ref":"'"$OUT_HASH"'"}' --field verifi
 require "two parties, two keys, one result: ↻$N" test "$N" = "2"
 
 step "E — bob works with words: claims about a run and a file, questions, his runs"
-show cockpit say working-on runs/check step="checking alice's means" by-session=bob
-show cockpit say working-on runs/check/out/means.csv step="reading the means" by-session=bob
+show cockpit say working-on runs/check step="checking alice's means"
+show cockpit say working-on runs/check/out/means.csv step="reading the means"
 show cockpit ask about runs/check
 show cockpit ask reproductions runs/check/out/means.csv
 show cockpit ask by signer me
 show cockpit run list
 require "his claims are his"                   bash -c 'cockpit ask by signer me | grep -c "self" | grep -qx 3'
-refused "a claim missing a field"              cockpit say working-on runs/check step=x
+refused "a claim missing a field"              cockpit say working-on runs/check
 printf 'a,b\n1,2\n' > notes.csv
 show cockpit publish --in runs/check/out/means.csv --out notes.csv -- cp runs/check/out/means.csv notes.csv
 require "a reported result answers producer"   bash -c 'cockpit ask producer notes.csv | grep -q "cp runs/check"'

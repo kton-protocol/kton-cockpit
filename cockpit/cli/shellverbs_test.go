@@ -33,7 +33,7 @@ func TestShellVerbs_ReportClaimAskWithoutJSON(t *testing.T) {
 	expect(code, out, "→ its bytes", "claim    sha256:")
 
 	out, code = r.Cockpit(t, "ask", "about", "work/out.csv")
-	expect(code, out, "working-on", `"step":"checking it"`)
+	expect(code, out, "working-on", `step="checking it"`)
 	out, code = r.Cockpit(t, "ask", "producer", "work/out.csv")
 	expect(code, out, "double data/in.csv")
 	out, code = r.Cockpit(t, "ask", "by", "signer", "me")
@@ -54,8 +54,8 @@ func TestShellVerbs_ReportClaimAskWithoutJSON(t *testing.T) {
 func TestShellSay_NamesWhatIsMissingOrWrong(t *testing.T) {
 	r := testrepo.New(t)
 	r.Write(t, "work/out.csv", "a\n2\n")
-	out, code := r.Cockpit(t, "say", "working-on", "work/out.csv", "step=x")
-	if code == 0 || !strings.Contains(out, "by-session") {
+	out, code := r.Cockpit(t, "say", "working-on", "work/out.csv")
+	if code == 0 || !strings.Contains(out, "step=") {
 		t.Errorf("a missing field was not named (exit %d):\n%s", code, out)
 	}
 	out, code = r.Cockpit(t, "say", "working-on", "work/out.csv", "step=x", "bysession=s1")
@@ -71,5 +71,29 @@ func TestShellSay_NamesWhatIsMissingOrWrong(t *testing.T) {
 func TestShellJoin(t *testing.T) {
 	if got := shellJoin([]string{"python3", "a b.py", "it's"}); got != `python3 'a b.py' 'it'\''s'` {
 		t.Errorf("got %s", got)
+	}
+}
+
+// Who speaks is the identity that signs: by-session is filled from it, so the person does not type
+// it — and the steps already said are offered when a step is missing.
+func TestShellSay_SpeakerFromIdentityAndStepsOffered(t *testing.T) {
+	r := testrepo.New(t)
+	r.Write(t, "work/out.csv", "a\n2\n")
+	out, code := r.Cockpit(t, "say", "working-on", "work/out.csv", "step=cleaning")
+	if code != 0 {
+		t.Fatalf("exit %d:\n%s", code, out)
+	}
+	out, _ = r.Cockpit(t, "ask", "about", "work/out.csv")
+	if !strings.Contains(out, "by-session="+testrepo.SessionID) || !strings.Contains(out, "step=cleaning") {
+		t.Errorf("the claim does not carry the signing identity:\n%s", out)
+	}
+	out, code = r.Cockpit(t, "say", "working-on", "work/out.csv")
+	if code == 0 || !strings.Contains(out, "steps used here so far: cleaning") {
+		t.Errorf("the steps already used were not offered (exit %d):\n%s", code, out)
+	}
+	// The negative control: a by-session given explicitly is kept as given.
+	r.Cockpit(t, "say", "working-on", "work/out.csv", "step=x", "by-session=other")
+	if out, _ = r.Cockpit(t, "ask", "about", "work/out.csv"); !strings.Contains(out, "by-session=other") {
+		t.Errorf("an explicit by-session was replaced:\n%s", out)
 	}
 }

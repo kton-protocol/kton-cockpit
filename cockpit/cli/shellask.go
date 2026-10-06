@@ -235,8 +235,7 @@ func printAnswer(ctx context.Context, cfg *config.Config, out *cockpit.AskResult
 			if what == "" {
 				what = c.Predicate
 			}
-			obj, _ := json.Marshal(c.Object)
-			fmt.Printf("%s  %-8s %-12s about %s  %s", short16(c.ID), tier[c.ID], what, short16(c.Subject), string(obj))
+			fmt.Printf("%s  %-8s %-12s about %s  %s", short16(c.ID), tier[c.ID], what, short16(c.Subject), fieldsLine(c.Object))
 			if c.When != "" {
 				fmt.Printf("  (%s)", c.When)
 			}
@@ -282,4 +281,30 @@ func readTemplates(cfg *config.Config) []templateInfo {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
+}
+
+// fieldsLine renders a claim's fields as name=value, the way they are typed; reference ids short.
+func fieldsLine(obj any) string {
+	m, ok := obj.(map[string]any)
+	if !ok {
+		b, _ := json.Marshal(obj)
+		return string(b)
+	}
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, k := range keys {
+		v := fmt.Sprint(m[k])
+		if strings.HasPrefix(v, "sha256:") {
+			v = short16(v)
+		}
+		if strings.ContainsAny(v, " \t") {
+			v = strconv.Quote(v)
+		}
+		parts = append(parts, k+"="+v)
+	}
+	return strings.Join(parts, " ")
 }
