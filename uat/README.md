@@ -15,7 +15,7 @@ says *ready*. Alice works in a run folder in the pinned image. Bob takes her key
 `run new --from sha256:…` — every input checked against its hash — reruns it, and is handed the
 `say reproduces` that ends at ↻2.
 
-One step is still hand work and says so: naming alice's registry in `federation.sources`.
+Bob reads alice's repository with `federation add` and sees her later records after `federation pull`.
 
 ## `uat/e2e.sh` — two participants and a federation, driven end to end by the three verbs
 

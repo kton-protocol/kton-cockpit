@@ -3,8 +3,7 @@
 #
 # e2e.sh shows the protocol; this shows the tool. Where e2e.sh reaches for Python, the kernel
 # binaries and `git show` — writing configs, copying keys under safe names, following a locator —
-# this types `cockpit`. Each step is a user story from setting up to a claimed reproduction; a step
-# that still needs hand work says so and is the next thing to build.
+# this types `cockpit`. Each step is a user story from setting up to a claimed reproduction.
 #
 # Needs git, go and docker (the image is pulled once). No GitHub account: origins are real
 # github.com URLs so the binding guard runs unmodified, pushes go to local bare repos, and fetches of
@@ -87,11 +86,9 @@ cd "$WORK/bob"
 cockpit init >/dev/null && cockpit keygen bob >/dev/null && cockpit pin "$IMAGE" >/dev/null
 git add -A && git commit -qm "cockpit init" && git push -q origin main
 
-# Hand work, C2 not built yet: bob reads alice's registry from a clone of her repository, named in
-# federation.sources. `cockpit federation add` is the next step on the list.
-from_github git clone -q "https://github.com/kton-uat/alice.git" "$WORK/alice-mirror"
-sed -i 's#"federation": {}#"federation": {"sources": [{"name": "alice", "kind": "dir", "path": "'"$WORK/alice-mirror"'"}]}#' cockpit.config.json
-require "(hand work) alice's registry is a source" grep -q '"kind": "dir"' cockpit.config.json
+step "C2 — bob reads alice's registry: her repository as a federation source"
+show from_github cockpit federation add alice "https://github.com/kton-uat/alice.git"
+require "it is configured"                     grep -q '"kind": "git"' cockpit.config.json
 
 refused "fetching a record nobody bob trusts signed" from_github cockpit run new early --from "$ALICE_FOTON"
 require "and the refusal leaves no folder"     test ! -e runs/early
@@ -129,5 +126,16 @@ printf 'a,b\n1,2\n' > notes.csv
 show cockpit publish --in runs/check/out/means.csv --out notes.csv -- cp runs/check/out/means.csv notes.csv
 require "a reported result answers producer"   bash -c 'cockpit ask producer notes.csv | grep -q "cp runs/check"'
 
-printf '\nalice set up, worked and published; bob took her keys in, fetched her run by its record,\n'
-printf 'reran it in the same image and claimed it — all with cockpit, except naming her registry as a source.\n'
+step "F — alice publishes again; bob reads it once he pulls"
+cd "$WORK/alice"
+printf 'n\n3\n' > count.txt
+cockpit publish --in data/runs.csv --out count.txt -- sh -c 'echo n > count.txt; tail -n +2 data/runs.csv | wc -l >> count.txt' >/dev/null
+cd "$WORK"
+cd "$WORK/bob"
+refused "bob does not see it before pulling"   bash -c 'cockpit ask producer "$0" | grep -q "^sha256"' "$WORK/alice/count.txt"
+show from_github cockpit federation pull
+require "and does after"                       bash -c 'cockpit ask producer "$0" | grep -q "alice"' "$WORK/alice/count.txt"
+show cockpit federation list
+
+printf '\nalice set up, worked and published; bob took her keys in, read her repository, fetched her run\n'
+printf 'by its record, reran it in the same image and claimed it — all with cockpit.\n'
