@@ -116,6 +116,10 @@ func (s *Server) Handler(webDir string) (http.Handler, error) {
 	mux.HandleFunc("/data/union.json", s.serveUnion)
 	mux.HandleFunc("/data/keys.json", s.serveKeys)
 	mux.HandleFunc("/data/names.json", s.serveNames)
+	// attested.json lists the keyids whose names a trusted authority has bound (sec:controller).
+	// This cockpit binds none, so it says so: an empty list, not a 404 the viewer has to swallow.
+	// Every name it serves stays a bare key label, which is what it is.
+	mux.HandleFunc("/data/attested.json", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, []string{}) })
 	if webDir != "" {
 		if _, err := os.Stat(filepath.Join(webDir, "runtime", "kton.js")); err != nil {
 			return nil, fmt.Errorf(

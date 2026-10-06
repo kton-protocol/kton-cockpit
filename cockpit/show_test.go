@@ -234,3 +234,14 @@ func TestUnion_RefusedWhenTheRepoDoesNotCommit(t *testing.T) {
 		t.Fatal("a union was accepted in a repo that does not commit")
 	}
 }
+
+// The viewer asks which names a trusted authority has bound. This cockpit binds none and says so —
+// an empty list — so every name it serves is shown as the bare key label it is, without a 404.
+func TestShow_NoNameIsAttested(t *testing.T) {
+	ts, _, _ := showServer(t)
+	var attested []string
+	getJSON(t, ts.URL+"/data/attested.json", &attested)
+	if attested == nil || len(attested) != 0 {
+		t.Errorf("attested.json: got %v, want an empty list", attested)
+	}
+}
