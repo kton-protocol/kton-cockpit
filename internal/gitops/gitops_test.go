@@ -7,8 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/kton-protocol/kton-cockpit/internal/config"
 )
 
 func TestRunRedacted_ScrubsSecretFromErrorOnFailure(t *testing.T) {
@@ -89,10 +87,7 @@ exit 0
 	}
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
-	cfg := &config.Config{
-		RepoRoot: repoDir,
-		Raw:      config.Raw{Identity: config.Identity{SessionID: "session-1"}},
-	}
+	cfg := Git{Root: repoDir, Commit: true, Push: true, SessionID: "session-1"}
 
 	if _, err := CommitAndPush(context.Background(), cfg, []string{"-f", "."}, "test"); err != nil {
 		t.Fatalf("CommitAndPush: %v", err)
@@ -151,10 +146,7 @@ exit 0
 	}
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
-	cfg := &config.Config{
-		RepoRoot: repoDir,
-		Raw:      config.Raw{Identity: config.Identity{SessionID: "session-1"}},
-	}
+	cfg := Git{Root: repoDir, Commit: true, Push: true, SessionID: "session-1"}
 
 	if _, err := CommitAndPush(context.Background(), cfg, []string{"already-committed.csv"}, "test"); err != nil {
 		t.Fatalf("CommitAndPush: %v", err)
@@ -206,10 +198,7 @@ exit 0
 	}
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
-	cfg := &config.Config{
-		RepoRoot: repoDir,
-		Raw:      config.Raw{Identity: config.Identity{SessionID: "session-1"}},
-	}
+	cfg := Git{Root: repoDir, Commit: true, Push: true, SessionID: "session-1"}
 
 	if _, err := CommitAndPush(context.Background(), cfg, []string{"already-committed.csv"}, "test"); err != nil {
 		t.Fatalf("CommitAndPush: %v", err)
@@ -245,7 +234,7 @@ exit 0
 	}
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
-	cfg := &config.Config{RepoRoot: repoDir}
+	cfg := Git{Root: repoDir}
 	if err := push(context.Background(), cfg); err != nil {
 		t.Fatalf("push: %v", err)
 	}
@@ -295,7 +284,7 @@ exit 0
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv("GITHUB_TOKEN", token)
 
-	cfg := &config.Config{RepoRoot: repoDir}
+	cfg := Git{Root: repoDir}
 	err := push(context.Background(), cfg)
 	if err == nil {
 		t.Fatal("expected push to fail (fake git exits 1 on push)")

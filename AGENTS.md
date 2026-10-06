@@ -38,12 +38,12 @@ checks it.
 go build -o bin/cockpit ./cmd/cockpit
 ```
 
-For a release build, stamp the version and the kernel commit — a binary that cannot say which build
-it is, or which kton is inside it, cannot answer the first question anyone asks of it:
+For a release build, stamp the version — a binary that cannot say which build it is cannot answer
+the first question anyone asks of it. Which kton is inside it needs no stamp: Go records the
+required kernel modules' versions in the build info, and `cockpit version` prints them.
 
 ```bash
-go build -ldflags "-X main.Version=v0.2.0 -X main.KernelPin=$(sed -n 's/.*kton `dev` at `\([0-9a-f]*\)`.*/\1/p' AGENTS.md)" \
-  -o bin/cockpit ./cmd/cockpit
+go build -ldflags "-X main.Version=v0.2.0" -o bin/cockpit ./cmd/cockpit
 cockpit version
 ```
 
@@ -60,38 +60,36 @@ trip. Nothing spawns a process, nothing parses another program's prose, and a su
 depends on that upstream removed is a build failure rather than a usage error a session meets at
 run time.
 
-The kernel source is **vendored** (`vendor/`), so a clean clone builds with nothing beside it. That
-is not a preference: until kton.dev serves the modules, `go.mod` resolves them through `replace`
-directives naming a sibling directory, and a clone without that sibling could not build at all —
-which is not a thing to ship. `vendor/` comes out when the modules are fetchable.
-
-The `replace` directives are still what a rebuild of `vendor/` reads:
+**`go.mod` is the one place that names the kernel.** Since kton 0.2.1 the three modules are tagged
+separately and served from `kton.dev`, so they are required like any other dependency — no
+`replace`, no sibling checkout, no vendored copy:
 
 ```
-replace kton.dev/plankton => ../kton-pinned/reference
-replace kton.dev/nekton   => ../kton-pinned/nekton/reference
-replace kton.dev/kton     => ../kton-pinned/kton/reference
+require kton.dev/plankton v0.2.1
+require kton.dev/nekton   v0.2.1
+require kton.dev/kton     v0.2.1
 ```
 
-`kton-pinned` is a clone of [`kton-protocol/kton`](https://github.com/kton-protocol/kton) that this
-repo controls, checked out at the commit below. It is deliberately not a sibling working tree
-someone is editing: building against one mid-refactor is how three examples once broke on a wire
-form nothing had been tested against.
+Moving the kernel is `go get kton.dev/plankton@vX kton.dev/nekton@vX kton.dev/kton@vX`, a green
+suite, and one commit. For work against an unreleased kernel, a local `replace` pointing at a kton
+checkout is fine on a branch; `cockpit version` and the fixture both report it as a replacement
+rather than as a version, so it cannot pass for a release.
 
-**Verified against:** kton `dev` at `52b49f0` (0.2).
+### The package format: ktonpkg, private
 
-`dev` moves, and this line is checked rather than remembered:
-`TestVerifiedAgainst_NamesTheKernelTheBinariesWereBuiltFrom` compares it against the `vcs.revision`
-Go stamped into the `bin/plankton` the fixture builds. When upstream has
-moved, the fixture rebuilds to the newer kernel — so the suite really did run against a different
-one than this claims, and the test says so. Re-run and update the line in the same commit.
+Rays and packages (`kton-package/1`, ADR-005/ADR-006) come from `github.com/gitmick/ktonpkg`, which
+is a **private** repository. On `jam-beta` the cockpit requires it like any module, which has a
+consequence worth stating: a clean clone builds only for someone with access to gitmick.
 
-One limit worth knowing, because it looks like a pass: **Go can serve that test from its cache.**
-The inputs it actually reads — `AGENTS.md` and `bin/plankton` — are not inputs Go tracks, and on a
-clean tree `bin/plankton` does not exist when the cache decision is made, so a plain `go test ./...`
-right after upstream moved reports `(cached) ok` for a claim that is no longer true. Use
-`go test -count=1 ./internal/testrepo/` when you have just rebuilt the kernel. CI is unaffected: a
-fresh runner has no cache, and the workflow runs `-count=1` besides.
+```bash
+export GOPRIVATE='github.com/gitmick/*'
+gh auth switch -u gitmick     # git fetches through `gh auth git-credential`; once, then it is cached
+go build ./...
+gh auth switch -u <your usual account>
+```
+
+CI has no such access, so a `jam-beta` build in CI would fail at the download. That is accepted
+until ktonpkg's home is decided for a release.
 
 ### The binaries that are still binaries
 
@@ -104,10 +102,12 @@ neither of them the cockpit at run time:
   **same foton id** comes out. Linking is only safe while it agrees with the reference, so that
   agreement is a test rather than an assumption.
 
+They are built from the same module the cockpit links, from this checkout:
+
 ```bash
-cd /path/to/kton-pinned
-go build -o /path/to/cockpit/bin/plankton ./reference/cmd/plankton
-go build -o /path/to/cockpit/bin/nekton   ./nekton/reference/cmd/nekton
+go build -o bin/plankton kton.dev/plankton/cmd/plankton
+go build -o bin/nekton   kton.dev/nekton/cmd/nekton
+go build -o bin/kton     kton.dev/kton/cmd/kton
 ```
 
 **Which kernel a store was written with decides whether it reads as populated or as empty with exit
@@ -171,12 +171,12 @@ from the real `keygen`, the claim templates, and a `cockpit.config.json`. Record
 signed; assertions are about what actually happened. `testrepo.NewLocal` builds the same thing with
 no git repository at all, for the local-mode guard (ADR-004).
 
-If `bin/` is empty the tests build those binaries themselves from `$KTON_SRC`, else a sibling
-`../kton-pinned`, else `../kton` — and they rebuild when what is in `bin/` was built from a
-different commit than that checkout now holds. Go stamps `vcs.revision` into a binary, so "were these built from what is
-checked out now" has an answer rather than depending on someone remembering. That check exists
-because the alternative kept happening: a moving `dev`, binaries left behind, and a symptom that
-looks like a missing subcommand rather than a stale build.
+If `bin/` is empty the tests build those binaries themselves from the kton modules `go.mod`
+requires — and they rebuild when what is in `bin/` was built from a different version. Go records a
+dependency's version in a binary, so "were these built from the kernel we link" has an answer
+rather than depending on someone remembering; `TestKernel_TheBinariesAreTheKernelGoModRequires`
+asserts it. That check exists because the alternative kept happening: a moving kernel, binaries
+left behind, and a symptom that looks like a missing subcommand rather than a stale build.
 
 `COCKPIT_TEST_PLANKTON`/`COCKPIT_TEST_NEKTON` override both and are never second-guessed. Nothing
 ever falls back to `$PATH` — see the warning under "The binaries that are still binaries" for why.
@@ -202,7 +202,7 @@ material and committed with it.
 The other side has its own test, gated the same way:
 
 ```bash
-go test -tags live -run TestAnchorLive ./internal/tools/
+go test -tags live -run TestAnchorLive ./cockpit/
 ```
 
 It anchors a throwaway record in the public log and then asks Rekor — not the cockpit — whether the
@@ -257,8 +257,15 @@ a browser until the verbs became subcommands — including at the step it called
 ## Repo layout
 
 ```
-cmd/cockpit/main.go     entry point: mcp / init / doctor subcommands
+cockpit/                the library: Publish / Say / Ask on a Cockpit value, refusals as *Refusal
+                          with a stable code (ADR-005). The one implementation every transport uses
+├── backend/              the extension API (ADR-008): Backend, Register, Lookup — public types only
+│   ├── github/           reference backend, mode "git": origin remote, commit + push, permalinks
+│   ├── local/            reference backend, mode "local": the declared path (ADR-004)
+│   └── backendtest/      the conformance suite every backend runs against itself
+cmd/cockpit/main.go     entry point: the three verbs at a command line, plus mcp / init / doctor
 internal/
+├── mcpsurface/           the MCP transport: each tool is one cockpit method, adapted, nothing more
 ├── config/              cockpit.config.json schema, loader, and the anti-wrong-folder guard
 │                          (git mode: the origin remote must match; local mode: the config must be
 │                           where it declares itself to be — ADR-004)
@@ -269,12 +276,12 @@ internal/
 │                          carried rather than silently counted or dropped
 ├── anchor/               witnesses a record in Rekor via `kton.dev/kton/sigstore` and attaches
 │                          the verified entry as kton §8.1 material
-├── gitops/               commit/push wrappers, commit-pinned permalink construction
+├── gitops/               commit/push wrappers, commit-pinned permalink construction (used by backend/github)
+├── gitrepo/              git's answers: repository root, origin, same-path — shared, one copy
 ├── show/                 serves the union/keys/names a kton-web viewer fetches
 ├── binaries/             the kernels, called as libraries: one place where every plankton and
 │                          nekton call lives, so the rest of the cockpit sees one surface
 ├── verify/               trust-tier resolution from the actual verifying key, never a declared keyid
-├── tools/                the three MCP tool handlers (publish.go, say.go, ask.go)
 cockpit.config.schema.json   JSON Schema for cockpit.config.json (documentation + tooling)
 ```
 

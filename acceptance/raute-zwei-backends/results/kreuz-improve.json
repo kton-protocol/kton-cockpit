@@ -1,0 +1,864 @@
+{
+  "side": "improve",
+  "ranAt": "2026-09-30T16:43:55Z",
+  "steps": [
+    {
+      "phase": "setup",
+      "id": "setup",
+      "title": "eigenen Testordner und zwei Register anlegen (A und B getrennt)",
+      "actor": "improvego",
+      "command": "c.CreateFolder(ctx, \"/dst\", \"kreuz-20260930T184355\"); c.EnsureRegister(ctx, \u003cordner\u003e/kton-a); c.EnsureRegister(ctx, \u003cordner\u003e/kton-b)",
+      "gap": "S4: das Cockpit kennt den improve-Modus noch nicht — die Schritte laufen über improvego",
+      "ok": true,
+      "result": {
+        "ordner": "/dst/kreuz-20260930T184355",
+        "registerA": "/dst/kreuz-20260930T184355/kton-a",
+        "registerB": "/dst/kreuz-20260930T184355/kton-b",
+        "signierschluessel": "e0ea0c6e1bfc0090"
+      }
+    },
+    {
+      "phase": "setup",
+      "id": "setup:tool",
+      "title": "die Toolinstanz jam-r finden oder aus dem Paket einrichten",
+      "actor": "improve-server",
+      "command": "c.ResolveTool(ctx, \"\", \"jam-r 1.0.0\"); sonst c.InstallTool(ctx, \u003crunserver \"default\"\u003e, improve/tool-instance.json)",
+      "gap": "S4: das Cockpit kennt den improve-Modus noch nicht — die Schritte laufen über improvego",
+      "ok": true,
+      "result": {
+        "args": "scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a\n\u003ccommand-file\u003e",
+        "instanz": "jam-r 1.0.0",
+        "toolId": "<improve-id>",
+        "vorgefunden": true
+      }
+    },
+    {
+      "phase": "setup",
+      "id": "setup:dataset",
+      "title": "eigene-daten.csv hochladen — Bindung für A und B run 1",
+      "actor": "improvego",
+      "command": "c.CreateFile(ctx, \"/dst/kreuz-20260930T184355\", \"/mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/eigene-daten.csv\")",
+      "gap": "S5: Potentiale und Realisierung gehören ins Cockpit (backend/improve: bind, realise) — heute improvego",
+      "ok": true,
+      "result": {
+        "hash": "sha256:ab0a3a6253897602cb84d4592293e905714a017ec4333254ca80b836780df12b",
+        "resourceId": "<improve-id>"
+      }
+    },
+    {
+      "phase": "a:install",
+      "id": "a:install",
+      "title": "das auf der git-Seite extrahierte Paket öffnen, prüfen und einspielen",
+      "actor": "ktonpkg",
+      "command": "ktonpkg.Open(\"/mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/pakete/raute-aus-git\").Verify(); c.InstallPackage(ctx, b, InstallOptions{TargetFolder: \u003cordner\u003e/a, Tool: \u003cjam-r\u003e})",
+      "gap": "S6: Rays und Spectren über ktonpkg im Cockpit (Spectrum-Erfüllung als Kernel-Funktion erst mit K3) — heute improvego",
+      "ok": true,
+      "result": {
+        "claims": null,
+        "paket": "sha256:135701e7d917ae4aedbef8f973e22d59038840d5605b360a208217aabb3c9173",
+        "potential": "sha256:1152ddff61fbfe83d9c948f92fb1abe7adb9a9e97f5bc80ea3255cadca855ab1",
+        "requires": [
+          "sha256:e0669ff3f8f756868721fe603e72ee1243e93805b3cf422affd261dc311a8bee"
+        ],
+        "templateSteps": 4,
+        "verify": null,
+        "ziel": "/dst/kreuz-20260930T184355/a"
+      }
+    },
+    {
+      "phase": "a:run",
+      "id": "a:run:aufbereitung",
+      "title": "Step aufbereitung des git-Pakets realisieren und als signiertes Foton ins Register",
+      "actor": "improve-server",
+      "command": "c.Realize(ctx, tplA, RealizeOptions{Bindings: {dataset: \u003ceigene-daten.csv\u003e, anzahl: \"3\"}, Run: true, Register: \u003cordner\u003e/kton-a}) — Step aufbereitung",
+      "gap": "S5: Potentiale und Realisierung gehören ins Cockpit (backend/improve: bind, realise) — heute improvego",
+      "ok": true,
+      "result": {
+        "ausgabe": "daten.txt",
+        "foton": "sha256:5e72c51daef04200976243ea979b528591af7a738289705e9c49da1a61bc0bc6",
+        "hash": "sha256:ab0a3a6253897602cb84d4592293e905714a017ec4333254ca80b836780df12b",
+        "runResult": "COMPLETED",
+        "stepId": "<improve-id>"
+      }
+    },
+    {
+      "phase": "a:run",
+      "id": "a:run:zweig-b",
+      "title": "Step zweig-b des git-Pakets realisieren und als signiertes Foton ins Register",
+      "actor": "improve-server",
+      "command": "c.Realize(ctx, tplA, RealizeOptions{Bindings: {dataset: \u003ceigene-daten.csv\u003e, anzahl: \"3\"}, Run: true, Register: \u003cordner\u003e/kton-a}) — Step zweig-b",
+      "gap": "S5: Potentiale und Realisierung gehören ins Cockpit (backend/improve: bind, realise) — heute improvego",
+      "ok": true,
+      "result": {
+        "ausgabe": "b.txt",
+        "foton": "sha256:142298e492946eed7d57eeca5295933f0df60f1e1438c77297caa2806f96219b",
+        "hash": "sha256:e908d8332bb7d78ee94deadbcda35d4525de0e85d1fe4c508a5668d5520e7a31",
+        "runResult": "COMPLETED",
+        "stepId": "<improve-id>"
+      }
+    },
+    {
+      "phase": "a:run",
+      "id": "a:run:zweig-c",
+      "title": "Step zweig-c des git-Pakets realisieren und als signiertes Foton ins Register",
+      "actor": "improve-server",
+      "command": "c.Realize(ctx, tplA, RealizeOptions{Bindings: {dataset: \u003ceigene-daten.csv\u003e, anzahl: \"3\"}, Run: true, Register: \u003cordner\u003e/kton-a}) — Step zweig-c",
+      "gap": "S5: Potentiale und Realisierung gehören ins Cockpit (backend/improve: bind, realise) — heute improvego",
+      "ok": true,
+      "result": {
+        "ausgabe": "c.txt",
+        "foton": "sha256:fa5cd0add6216a9c5f5af602656cbde7c6bfe6370b86e752a6cd5cba29f1cc21",
+        "hash": "sha256:fb76c5fd07819ff96996d189cd08fe52c64894e55d3dba89eebbebb495f60739",
+        "runResult": "COMPLETED",
+        "stepId": "<improve-id>"
+      }
+    },
+    {
+      "phase": "a:run",
+      "id": "a:run:zusammenführung",
+      "title": "Step zusammenführung des git-Pakets realisieren und als signiertes Foton ins Register",
+      "actor": "improve-server",
+      "command": "c.Realize(ctx, tplA, RealizeOptions{Bindings: {dataset: \u003ceigene-daten.csv\u003e, anzahl: \"3\"}, Run: true, Register: \u003cordner\u003e/kton-a}) — Step zusammenführung",
+      "gap": "S5: Potentiale und Realisierung gehören ins Cockpit (backend/improve: bind, realise) — heute improvego",
+      "ok": true,
+      "result": {
+        "ausgabe": "ergebnis.txt",
+        "foton": "sha256:172d20fbeff48789b7d345d9b5ae7088680fea5033ea6a318730a3f5f626cbf8",
+        "hash": "sha256:44d419866f5a847c591f1c4a3f9e46ff6416985c1b57840413d986ba60ba01e1",
+        "runResult": "COMPLETED",
+        "stepId": "<improve-id>"
+      }
+    },
+    {
+      "phase": "a:compare",
+      "id": "a:compare",
+      "title": "Ausgaben und Aktionsschlüssel neben die git-Seite halten",
+      "actor": "improvego",
+      "command": "c.ActionKey(ctx, tplA, \u003cstep\u003e, bindings, \u003crealisiert\u003e); ktonpkg.Open(\"/mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/pakete/raute-aus-git\").Ray.ActionKey(\u003cstep\u003e, bindings, \u003cAusgaben\u003e) für improve und für results/git.json",
+      "gap": "S5: Potentiale und Realisierung gehören ins Cockpit (backend/improve: bind, realise) — heute improvego",
+      "ok": true,
+      "result": {
+        "abweichungen": null,
+        "aufgezeichnetGleichPotential": false,
+        "improvegoGleichKtonpkg": true,
+        "sameActionKeysAsGit": true,
+        "sameOutputsAsGit": true
+      }
+    },
+    {
+      "phase": "b:run1",
+      "id": "b:install",
+      "title": "die Original-Raute öffnen, prüfen und einspielen",
+      "actor": "ktonpkg",
+      "command": "ktonpkg.Open(\"/mnt/c/dev/workstreams/active/improveGo/examples/raute/paket\").Verify(); c.InstallPackage(ctx, b, InstallOptions{TargetFolder: \u003cordner\u003e/b, Tool: \u003cjam-r\u003e})",
+      "gap": "S6: Rays und Spectren über ktonpkg im Cockpit (Spectrum-Erfüllung als Kernel-Funktion erst mit K3) — heute improvego",
+      "ok": true,
+      "result": {
+        "claims": [
+          "https://improve.scinteco.com/terms/runs-on"
+        ],
+        "paket": "sha256:0cb0d874284a939f9ef9c9d425232f8a613bb36c1cd62cb6bbeb67540940c06a",
+        "potential": "sha256:0d6a28044aa6d22dbec51efdbc70e42289e7397f88439561e6c84d8bdeb5d036",
+        "requires": [
+          "sha256:e0669ff3f8f756868721fe603e72ee1243e93805b3cf422affd261dc311a8bee"
+        ],
+        "templateSteps": 4,
+        "verify": null,
+        "ziel": "/dst/kreuz-20260930T184355/b"
+      }
+    },
+    {
+      "phase": "b:run1",
+      "id": "b:run1",
+      "title": "run 1: dataset = eigene-daten.csv, anzahl = 3; jeder Step ein signiertes Foton",
+      "actor": "improve-server",
+      "command": "c.Realize(ctx, tplB, RealizeOptions{Bindings: {dataset: \u003ceigene-daten.csv\u003e, anzahl: \"3\"}, Run: true, Register: \u003cordner\u003e/kton-b})",
+      "gap": "S5: Potentiale und Realisierung gehören ins Cockpit (backend/improve: bind, realise) — heute improvego",
+      "ok": true,
+      "result": {
+        "aufbereitung": {
+          "ausgabe": "daten.txt",
+          "foton": "sha256:5e72c51daef04200976243ea979b528591af7a738289705e9c49da1a61bc0bc6",
+          "hash": "sha256:ab0a3a6253897602cb84d4592293e905714a017ec4333254ca80b836780df12b",
+          "runResult": "COMPLETED",
+          "stepId": "<improve-id>"
+        },
+        "zusammenführung": {
+          "ausgabe": "ergebnis.txt",
+          "foton": "sha256:172d20fbeff48789b7d345d9b5ae7088680fea5033ea6a318730a3f5f626cbf8",
+          "hash": "sha256:44d419866f5a847c591f1c4a3f9e46ff6416985c1b57840413d986ba60ba01e1",
+          "runResult": "COMPLETED",
+          "stepId": "<improve-id>"
+        },
+        "zweig-b": {
+          "ausgabe": "b.txt",
+          "foton": "sha256:142298e492946eed7d57eeca5295933f0df60f1e1438c77297caa2806f96219b",
+          "hash": "sha256:e908d8332bb7d78ee94deadbcda35d4525de0e85d1fe4c508a5668d5520e7a31",
+          "runResult": "COMPLETED",
+          "stepId": "<improve-id>"
+        },
+        "zweig-c": {
+          "ausgabe": "c.txt",
+          "foton": "sha256:fa5cd0add6216a9c5f5af602656cbde7c6bfe6370b86e752a6cd5cba29f1cc21",
+          "hash": "sha256:fb76c5fd07819ff96996d189cd08fe52c64894e55d3dba89eebbebb495f60739",
+          "runResult": "COMPLETED",
+          "stepId": "<improve-id>"
+        }
+      }
+    },
+    {
+      "phase": "b:run2",
+      "id": "b:run2",
+      "title": "run 2: die Vorgaben des Pakets (mitgelieferte Testdaten, anzahl = 1)",
+      "actor": "improve-server",
+      "command": "c.Realize(ctx, tplB, RealizeOptions{Bindings: {}, Run: true, Register: \u003cordner\u003e/kton-b})",
+      "gap": "S5: Potentiale und Realisierung gehören ins Cockpit (backend/improve: bind, realise) — heute improvego",
+      "ok": true,
+      "result": {
+        "aufbereitung": {
+          "ausgabe": "daten.txt",
+          "foton": "sha256:2c721ebb9f797e819c7159657c0a6e7df3a804758feb4aa94fb804ab1d74c329",
+          "hash": "sha256:e80079e56ed5e01f9def48b233c4cdfc9893f30720659c8d4a662025a82eb6f5",
+          "runResult": "COMPLETED",
+          "stepId": "<improve-id>"
+        },
+        "zusammenführung": {
+          "ausgabe": "ergebnis.txt",
+          "foton": "sha256:a0d76a5e847977b497f3284d3471d9ee4510d657ff38899f38e1429e635176ec",
+          "hash": "sha256:7271b8778cd92fb7b3767e9a9f093124629d786f8f7cb418a2217efec2a65019",
+          "runResult": "COMPLETED",
+          "stepId": "<improve-id>"
+        },
+        "zweig-b": {
+          "ausgabe": "b.txt",
+          "foton": "sha256:1ce0bb7f3dcb2ad3fe2a89c0c01651862e6dbb4f6f37e07b1d7b95004acbea24",
+          "hash": "sha256:50c88b03c160027d51d2049c66606ba55ac58f117432cc928c59fa6a240b9346",
+          "runResult": "COMPLETED",
+          "stepId": "<improve-id>"
+        },
+        "zweig-c": {
+          "ausgabe": "c.txt",
+          "foton": "sha256:7ccd1fb86f78e1fc4ebfd8a75831ac07fb3a5f976eda0a584930f949bff01454",
+          "hash": "sha256:a227b01a340204694bb2e1b98dee5aecab5c224990528a81763abba9fd85fbb9",
+          "runResult": "COMPLETED",
+          "stepId": "<improve-id>"
+        }
+      }
+    },
+    {
+      "phase": "b:select",
+      "id": "b:select",
+      "title": "vom ergebnis.txt jedes Laufs rückwärts: die Linie, nur Fotons, deren Signatur verifiziert",
+      "actor": "improvego",
+      "command": "reg.VerifiedLineage(ctx, \u003cergebnis run 1\u003e); reg.VerifiedLineage(ctx, \u003cergebnis run 2\u003e)",
+      "gap": "S4: das Cockpit kennt den improve-Modus noch nicht — die Schritte laufen über improvego; im Zielbild `cockpit ask {query: lineage}` gegen das improve-Register",
+      "ok": true,
+      "result": {
+        "auswahl": [
+          "sha256:142298e492946eed7d57eeca5295933f0df60f1e1438c77297caa2806f96219b",
+          "sha256:172d20fbeff48789b7d345d9b5ae7088680fea5033ea6a318730a3f5f626cbf8",
+          "sha256:1ce0bb7f3dcb2ad3fe2a89c0c01651862e6dbb4f6f37e07b1d7b95004acbea24",
+          "sha256:2c721ebb9f797e819c7159657c0a6e7df3a804758feb4aa94fb804ab1d74c329",
+          "sha256:5e72c51daef04200976243ea979b528591af7a738289705e9c49da1a61bc0bc6",
+          "sha256:7ccd1fb86f78e1fc4ebfd8a75831ac07fb3a5f976eda0a584930f949bff01454",
+          "sha256:a0d76a5e847977b497f3284d3471d9ee4510d657ff38899f38e1429e635176ec",
+          "sha256:fa5cd0add6216a9c5f5af602656cbde7c6bfe6370b86e752a6cd5cba29f1cc21"
+        ],
+        "run1": {
+          "abgewiesen": null,
+          "verifiziert": [
+            "sha256:142298e492946eed7d57eeca5295933f0df60f1e1438c77297caa2806f96219b",
+            "sha256:172d20fbeff48789b7d345d9b5ae7088680fea5033ea6a318730a3f5f626cbf8",
+            "sha256:5e72c51daef04200976243ea979b528591af7a738289705e9c49da1a61bc0bc6",
+            "sha256:fa5cd0add6216a9c5f5af602656cbde7c6bfe6370b86e752a6cd5cba29f1cc21"
+          ],
+          "von": "sha256:44d419866f5a847c591f1c4a3f9e46ff6416985c1b57840413d986ba60ba01e1"
+        },
+        "run1FotonsSameAsA": true,
+        "run2": {
+          "abgewiesen": null,
+          "verifiziert": [
+            "sha256:1ce0bb7f3dcb2ad3fe2a89c0c01651862e6dbb4f6f37e07b1d7b95004acbea24",
+            "sha256:2c721ebb9f797e819c7159657c0a6e7df3a804758feb4aa94fb804ab1d74c329",
+            "sha256:7ccd1fb86f78e1fc4ebfd8a75831ac07fb3a5f976eda0a584930f949bff01454",
+            "sha256:a0d76a5e847977b497f3284d3471d9ee4510d657ff38899f38e1429e635176ec"
+          ],
+          "von": "sha256:7271b8778cd92fb7b3767e9a9f093124629d786f8f7cb418a2217efec2a65019"
+        }
+      }
+    },
+    {
+      "phase": "b:propose",
+      "id": "b:propose",
+      "title": "Ausführungen über den Adapter, dann der Vorschlag — beobachtet, nicht entschieden",
+      "actor": "ktonpkg",
+      "command": "c.ProposeRay(ctx, \u003cEnd-Steps beider Läufe\u003e) — Gegenprobe: dieselben Fotons wie im Register verifiziert",
+      "gap": "S5/S6: im Zielbild cockpit ask {query: ray}",
+      "ok": true,
+      "result": {
+        "dateikandidaten": [
+          "aufbereitung/aufbereiten.R",
+          "aufbereitung/dataset.csv",
+          "zweig-c/zweigC.R",
+          "zweig-b/zweigB.R",
+          "zusammenführung/zusammen.R"
+        ],
+        "endSteps": [
+          "<improve-id>",
+          "<improve-id>"
+        ],
+        "executions": [
+          {
+            "id": "sha256:142298e492946eed7d57eeca5295933f0df60f1e1438c77297caa2806f96219b",
+            "name": "zweig-b",
+            "inputs": [
+              {
+                "slot": "daten.txt",
+                "hash": "sha256:ab0a3a6253897602cb84d4592293e905714a017ec4333254ca80b836780df12b"
+              },
+              {
+                "slot": "zweigB.R",
+                "hash": "sha256:c8643db6360a8e1e4f0a2f7e643ff1da5163c088b690e9c1a5621a7f0ac9ed62"
+              }
+            ],
+            "outputs": [
+              {
+                "slot": "b.txt",
+                "hash": "sha256:e908d8332bb7d78ee94deadbcda35d4525de0e85d1fe4c508a5668d5520e7a31"
+              }
+            ],
+            "command": [
+              "scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a",
+              "zweigB.R",
+              "3"
+            ],
+            "commandFile": "zweigB.R",
+            "environment": "scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a",
+            "label": "zweig-b",
+            "rationale": "erste Umformung"
+          },
+          {
+            "id": "sha256:5e72c51daef04200976243ea979b528591af7a738289705e9c49da1a61bc0bc6",
+            "name": "aufbereitung",
+            "inputs": [
+              {
+                "slot": "aufbereiten.R",
+                "hash": "sha256:7a667219a89e0f5d4ecfbedfb206082e3b1693fefee9a9e7f09b4a3492ae90d0"
+              },
+              {
+                "slot": "dataset.csv",
+                "hash": "sha256:ab0a3a6253897602cb84d4592293e905714a017ec4333254ca80b836780df12b"
+              }
+            ],
+            "outputs": [
+              {
+                "slot": "daten.txt",
+                "hash": "sha256:ab0a3a6253897602cb84d4592293e905714a017ec4333254ca80b836780df12b"
+              }
+            ],
+            "command": [
+              "scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a",
+              "aufbereiten.R"
+            ],
+            "commandFile": "aufbereiten.R",
+            "environment": "scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a",
+            "label": "aufbereitung",
+            "rationale": "Datensatz übernehmen"
+          },
+          {
+            "id": "sha256:fa5cd0add6216a9c5f5af602656cbde7c6bfe6370b86e752a6cd5cba29f1cc21",
+            "name": "zweig-c",
+            "inputs": [
+              {
+                "slot": "daten.txt",
+                "hash": "sha256:ab0a3a6253897602cb84d4592293e905714a017ec4333254ca80b836780df12b"
+              },
+              {
+                "slot": "zweigC.R",
+                "hash": "sha256:f182205e0308596bdf69f0dcfd1c20f1df535165362144ba13e9103320fd0293"
+              }
+            ],
+            "outputs": [
+              {
+                "slot": "c.txt",
+                "hash": "sha256:fb76c5fd07819ff96996d189cd08fe52c64894e55d3dba89eebbebb495f60739"
+              }
+            ],
+            "command": [
+              "scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a",
+              "zweigC.R"
+            ],
+            "commandFile": "zweigC.R",
+            "environment": "scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a",
+            "label": "zweig-c",
+            "rationale": "zweite Umformung"
+          },
+          {
+            "id": "sha256:172d20fbeff48789b7d345d9b5ae7088680fea5033ea6a318730a3f5f626cbf8",
+            "name": "zusammenführung",
+            "inputs": [
+              {
+                "slot": "b.txt",
+                "hash": "sha256:e908d8332bb7d78ee94deadbcda35d4525de0e85d1fe4c508a5668d5520e7a31"
+              },
+              {
+                "slot": "c.txt",
+                "hash": "sha256:fb76c5fd07819ff96996d189cd08fe52c64894e55d3dba89eebbebb495f60739"
+              },
+              {
+                "slot": "zusammen.R",
+                "hash": "sha256:86368fd1efca1fdbee0296735346f74462ef4e459a9335f60440a1eb8dd82ea0"
+              }
+            ],
+            "outputs": [
+              {
+                "slot": "ergebnis.txt",
+                "hash": "sha256:44d419866f5a847c591f1c4a3f9e46ff6416985c1b57840413d986ba60ba01e1"
+              }
+            ],
+            "command": [
+              "scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a",
+              "zusammen.R"
+            ],
+            "commandFile": "zusammen.R",
+            "environment": "scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a",
+            "label": "zusammenführung",
+            "rationale": "beide Zweige"
+          },
+          {
+            "id": "sha256:1ce0bb7f3dcb2ad3fe2a89c0c01651862e6dbb4f6f37e07b1d7b95004acbea24",
+            "name": "zweig-b",
+            "inputs": [
+              {
+                "slot": "daten.txt",
+                "hash": "sha256:e80079e56ed5e01f9def48b233c4cdfc9893f30720659c8d4a662025a82eb6f5"
+              },
+              {
+                "slot": "zweigB.R",
+                "hash": "sha256:c8643db6360a8e1e4f0a2f7e643ff1da5163c088b690e9c1a5621a7f0ac9ed62"
+              }
+            ],
+            "outputs": [
+              {
+                "slot": "b.txt",
+                "hash": "sha256:50c88b03c160027d51d2049c66606ba55ac58f117432cc928c59fa6a240b9346"
+              }
+            ],
+            "command": [
+              "scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a",
+              "zweigB.R",
+              "1"
+            ],
+            "commandFile": "zweigB.R",
+            "environment": "scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a",
+            "label": "zweig-b",
+            "rationale": "erste Umformung"
+          },
+          {
+            "id": "sha256:2c721ebb9f797e819c7159657c0a6e7df3a804758feb4aa94fb804ab1d74c329",
+            "name": "aufbereitung",
+            "inputs": [
+              {
+                "slot": "aufbereiten.R",
+                "hash": "sha256:7a667219a89e0f5d4ecfbedfb206082e3b1693fefee9a9e7f09b4a3492ae90d0"
+              },
+              {
+                "slot": "dataset.csv",
+                "hash": "sha256:e80079e56ed5e01f9def48b233c4cdfc9893f30720659c8d4a662025a82eb6f5"
+              }
+            ],
+            "outputs": [
+              {
+                "slot": "daten.txt",
+                "hash": "sha256:e80079e56ed5e01f9def48b233c4cdfc9893f30720659c8d4a662025a82eb6f5"
+              }
+            ],
+            "command": [
+              "scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a",
+              "aufbereiten.R"
+            ],
+            "commandFile": "aufbereiten.R",
+            "environment": "scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a",
+            "label": "aufbereitung",
+            "rationale": "Datensatz übernehmen"
+          },
+          {
+            "id": "sha256:7ccd1fb86f78e1fc4ebfd8a75831ac07fb3a5f976eda0a584930f949bff01454",
+            "name": "zweig-c",
+            "inputs": [
+              {
+                "slot": "daten.txt",
+                "hash": "sha256:e80079e56ed5e01f9def48b233c4cdfc9893f30720659c8d4a662025a82eb6f5"
+              },
+              {
+                "slot": "zweigC.R",
+                "hash": "sha256:f182205e0308596bdf69f0dcfd1c20f1df535165362144ba13e9103320fd0293"
+              }
+            ],
+            "outputs": [
+              {
+                "slot": "c.txt",
+                "hash": "sha256:a227b01a340204694bb2e1b98dee5aecab5c224990528a81763abba9fd85fbb9"
+              }
+            ],
+            "command": [
+              "scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a",
+              "zweigC.R"
+            ],
+            "commandFile": "zweigC.R",
+            "environment": "scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a",
+            "label": "zweig-c",
+            "rationale": "zweite Umformung"
+          },
+          {
+            "id": "sha256:a0d76a5e847977b497f3284d3471d9ee4510d657ff38899f38e1429e635176ec",
+            "name": "zusammenführung",
+            "inputs": [
+              {
+                "slot": "b.txt",
+                "hash": "sha256:50c88b03c160027d51d2049c66606ba55ac58f117432cc928c59fa6a240b9346"
+              },
+              {
+                "slot": "c.txt",
+                "hash": "sha256:a227b01a340204694bb2e1b98dee5aecab5c224990528a81763abba9fd85fbb9"
+              },
+              {
+                "slot": "zusammen.R",
+                "hash": "sha256:86368fd1efca1fdbee0296735346f74462ef4e459a9335f60440a1eb8dd82ea0"
+              }
+            ],
+            "outputs": [
+              {
+                "slot": "ergebnis.txt",
+                "hash": "sha256:7271b8778cd92fb7b3767e9a9f093124629d786f8f7cb418a2217efec2a65019"
+              }
+            ],
+            "command": [
+              "scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a",
+              "zusammen.R"
+            ],
+            "commandFile": "zusammen.R",
+            "environment": "scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a",
+            "label": "zusammenführung",
+            "rationale": "beide Zweige"
+          }
+        ],
+        "gleicheAuswahlWieRegister": true,
+        "reproduktionen": null
+      }
+    },
+    {
+      "phase": "b:extract",
+      "id": "b:extract",
+      "title": "ausdrücklich gewählt extrahieren, prov:wasDerivedFrom signieren",
+      "actor": "ktonpkg",
+      "command": "c.ExtractRay(ctx, \u003cvorschlag\u003e, \u003cchoice\u003e, \"/mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/pakete/raute-aus-improve\", improve.Signer())",
+      "gap": "S5/S6: im Zielbild cockpit publish {kind: ray, choose}",
+      "ok": true,
+      "result": {
+        "bundleId": "sha256:135701e7d917ae4aedbef8f973e22d59038840d5605b360a208217aabb3c9173",
+        "choice": {
+          "name": "raute-extrahiert",
+          "reference": "run-1",
+          "holes": [
+            {
+              "name": "dataset",
+              "step": "aufbereitung",
+              "slot": "dataset.csv"
+            }
+          ],
+          "params": [
+            {
+              "name": "anzahl",
+              "step": "zweig-b",
+              "position": 2
+            }
+          ],
+          "requires": [
+            {
+              "kind": "tool",
+              "spectrum": "sha256:e0669ff3f8f756868721fe603e72ee1243e93805b3cf422affd261dc311a8bee",
+              "name": "jam-r"
+            }
+          ]
+        },
+        "derivedFrom": [
+          "sha256:142298e492946eed7d57eeca5295933f0df60f1e1438c77297caa2806f96219b",
+          "sha256:172d20fbeff48789b7d345d9b5ae7088680fea5033ea6a318730a3f5f626cbf8",
+          "sha256:5e72c51daef04200976243ea979b528591af7a738289705e9c49da1a61bc0bc6",
+          "sha256:fa5cd0add6216a9c5f5af602656cbde7c6bfe6370b86e752a6cd5cba29f1cc21"
+        ],
+        "package": "/mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/pakete/raute-aus-improve",
+        "rayId": "sha256:1152ddff61fbfe83d9c948f92fb1abe7adb9a9e97f5bc80ea3255cadca855ab1",
+        "verify": null,
+        "zweigBArgs": "scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a\n\u003ccommand-file\u003e\n\u003canzahl\u003e"
+      }
+    }
+  ],
+  "a": {
+    "outputs": {
+      "aufbereitung/daten.txt": "sha256:ab0a3a6253897602cb84d4592293e905714a017ec4333254ca80b836780df12b",
+      "zusammenführung/ergebnis.txt": "sha256:44d419866f5a847c591f1c4a3f9e46ff6416985c1b57840413d986ba60ba01e1",
+      "zweig-b/b.txt": "sha256:e908d8332bb7d78ee94deadbcda35d4525de0e85d1fe4c508a5668d5520e7a31",
+      "zweig-c/c.txt": "sha256:fb76c5fd07819ff96996d189cd08fe52c64894e55d3dba89eebbebb495f60739"
+    },
+    "actionKeys": {
+      "aufbereitung": "sha256:4b82ee9d48473ac78864954e1cbb1e7908289ba8a081dd15d08eba635468ea9f",
+      "zusammenführung": "sha256:e4e67faa48e687592da6188aa389bb3f2035a915e1310aff6f6b3bb90aa178ad",
+      "zweig-b": "sha256:1b9e6993bb84d42ea20d5244cd5c994f99c9b6ec8703233b760c5a159d2807d0",
+      "zweig-c": "sha256:8ea8cb81bdbd532c2faf2a66f259194a1c2c49f421116722955bc0ee08f10b80"
+    },
+    "actionKeysKtonpkg": {
+      "aufbereitung": "sha256:4b82ee9d48473ac78864954e1cbb1e7908289ba8a081dd15d08eba635468ea9f",
+      "zusammenführung": "sha256:e4e67faa48e687592da6188aa389bb3f2035a915e1310aff6f6b3bb90aa178ad",
+      "zweig-b": "sha256:1b9e6993bb84d42ea20d5244cd5c994f99c9b6ec8703233b760c5a159d2807d0",
+      "zweig-c": "sha256:8ea8cb81bdbd532c2faf2a66f259194a1c2c49f421116722955bc0ee08f10b80"
+    },
+    "gitActionKeys": {
+      "aufbereitung": "sha256:4b82ee9d48473ac78864954e1cbb1e7908289ba8a081dd15d08eba635468ea9f",
+      "zusammenführung": "sha256:e4e67faa48e687592da6188aa389bb3f2035a915e1310aff6f6b3bb90aa178ad",
+      "zweig-b": "sha256:1b9e6993bb84d42ea20d5244cd5c994f99c9b6ec8703233b760c5a159d2807d0",
+      "zweig-c": "sha256:8ea8cb81bdbd532c2faf2a66f259194a1c2c49f421116722955bc0ee08f10b80"
+    },
+    "recordedActionKeys": {
+      "aufbereitung": "sha256:c0ef7464dcf9af0a5b33462f5d5d78f62e0ad5d7fdde10e6b8c4cddef80afd5d",
+      "zusammenführung": "sha256:3181e4bde62f2f482bf638c640b240df056b24299624b8c4f715c10a8a12334f",
+      "zweig-b": "sha256:a19cd9e25f8ffe70a273ed307496a0c9e6f938f4d804c0dd77a0dbed50cc22b8",
+      "zweig-c": "sha256:958b3a75df1bd9ca18ae728bc993d30aec17cb66401223cbbf0681cffa6ce905"
+    },
+    "fotons": {
+      "aufbereitung": "sha256:5e72c51daef04200976243ea979b528591af7a738289705e9c49da1a61bc0bc6",
+      "zusammenführung": "sha256:172d20fbeff48789b7d345d9b5ae7088680fea5033ea6a318730a3f5f626cbf8",
+      "zweig-b": "sha256:142298e492946eed7d57eeca5295933f0df60f1e1438c77297caa2806f96219b",
+      "zweig-c": "sha256:fa5cd0add6216a9c5f5af602656cbde7c6bfe6370b86e752a6cd5cba29f1cc21"
+    },
+    "sameOutputsAsGit": true,
+    "sameActionKeysAsGit": true
+  },
+  "b": {
+    "proposal": {
+      "runs": [
+        {
+          "id": "run-1",
+          "executions": [
+            "sha256:142298e492946eed7d57eeca5295933f0df60f1e1438c77297caa2806f96219b",
+            "sha256:172d20fbeff48789b7d345d9b5ae7088680fea5033ea6a318730a3f5f626cbf8",
+            "sha256:5e72c51daef04200976243ea979b528591af7a738289705e9c49da1a61bc0bc6",
+            "sha256:fa5cd0add6216a9c5f5af602656cbde7c6bfe6370b86e752a6cd5cba29f1cc21"
+          ],
+          "endpoints": [
+            "sha256:44d419866f5a847c591f1c4a3f9e46ff6416985c1b57840413d986ba60ba01e1"
+          ]
+        },
+        {
+          "id": "run-2",
+          "executions": [
+            "sha256:1ce0bb7f3dcb2ad3fe2a89c0c01651862e6dbb4f6f37e07b1d7b95004acbea24",
+            "sha256:2c721ebb9f797e819c7159657c0a6e7df3a804758feb4aa94fb804ab1d74c329",
+            "sha256:7ccd1fb86f78e1fc4ebfd8a75831ac07fb3a5f976eda0a584930f949bff01454",
+            "sha256:a0d76a5e847977b497f3284d3471d9ee4510d657ff38899f38e1429e635176ec"
+          ],
+          "endpoints": [
+            "sha256:7271b8778cd92fb7b3767e9a9f093124629d786f8f7cb418a2217efec2a65019"
+          ]
+        }
+      ],
+      "steps": [
+        {
+          "id": "aufbereitung",
+          "executions": {
+            "run-1": "sha256:5e72c51daef04200976243ea979b528591af7a738289705e9c49da1a61bc0bc6",
+            "run-2": "sha256:2c721ebb9f797e819c7159657c0a6e7df3a804758feb4aa94fb804ab1d74c329"
+          },
+          "commandFile": "aufbereiten.R",
+          "inputs": [
+            {
+              "slot": "aufbereiten.R"
+            },
+            {
+              "slot": "dataset.csv"
+            }
+          ],
+          "outputs": [
+            "daten.txt"
+          ]
+        },
+        {
+          "id": "zweig-b",
+          "executions": {
+            "run-1": "sha256:142298e492946eed7d57eeca5295933f0df60f1e1438c77297caa2806f96219b",
+            "run-2": "sha256:1ce0bb7f3dcb2ad3fe2a89c0c01651862e6dbb4f6f37e07b1d7b95004acbea24"
+          },
+          "commandFile": "zweigB.R",
+          "inputs": [
+            {
+              "slot": "daten.txt",
+              "upstream": "aufbereitung:daten.txt"
+            },
+            {
+              "slot": "zweigB.R"
+            }
+          ],
+          "outputs": [
+            "b.txt"
+          ]
+        },
+        {
+          "id": "zweig-c",
+          "executions": {
+            "run-1": "sha256:fa5cd0add6216a9c5f5af602656cbde7c6bfe6370b86e752a6cd5cba29f1cc21",
+            "run-2": "sha256:7ccd1fb86f78e1fc4ebfd8a75831ac07fb3a5f976eda0a584930f949bff01454"
+          },
+          "commandFile": "zweigC.R",
+          "inputs": [
+            {
+              "slot": "daten.txt",
+              "upstream": "aufbereitung:daten.txt"
+            },
+            {
+              "slot": "zweigC.R"
+            }
+          ],
+          "outputs": [
+            "c.txt"
+          ]
+        },
+        {
+          "id": "zusammenführung",
+          "executions": {
+            "run-1": "sha256:172d20fbeff48789b7d345d9b5ae7088680fea5033ea6a318730a3f5f626cbf8",
+            "run-2": "sha256:a0d76a5e847977b497f3284d3471d9ee4510d657ff38899f38e1429e635176ec"
+          },
+          "commandFile": "zusammen.R",
+          "inputs": [
+            {
+              "slot": "b.txt",
+              "upstream": "zweig-b:b.txt"
+            },
+            {
+              "slot": "c.txt",
+              "upstream": "zweig-c:c.txt"
+            },
+            {
+              "slot": "zusammen.R"
+            }
+          ],
+          "outputs": [
+            "ergebnis.txt"
+          ]
+        }
+      ],
+      "files": [
+        {
+          "step": "aufbereitung",
+          "slot": "aufbereiten.R",
+          "commandFile": true,
+          "hashes": {
+            "run-1": "sha256:7a667219a89e0f5d4ecfbedfb206082e3b1693fefee9a9e7f09b4a3492ae90d0",
+            "run-2": "sha256:7a667219a89e0f5d4ecfbedfb206082e3b1693fefee9a9e7f09b4a3492ae90d0"
+          }
+        },
+        {
+          "step": "aufbereitung",
+          "slot": "dataset.csv",
+          "hashes": {
+            "run-1": "sha256:ab0a3a6253897602cb84d4592293e905714a017ec4333254ca80b836780df12b",
+            "run-2": "sha256:e80079e56ed5e01f9def48b233c4cdfc9893f30720659c8d4a662025a82eb6f5"
+          }
+        },
+        {
+          "step": "zweig-c",
+          "slot": "zweigC.R",
+          "commandFile": true,
+          "hashes": {
+            "run-1": "sha256:f182205e0308596bdf69f0dcfd1c20f1df535165362144ba13e9103320fd0293",
+            "run-2": "sha256:f182205e0308596bdf69f0dcfd1c20f1df535165362144ba13e9103320fd0293"
+          }
+        },
+        {
+          "step": "zweig-b",
+          "slot": "zweigB.R",
+          "commandFile": true,
+          "hashes": {
+            "run-1": "sha256:c8643db6360a8e1e4f0a2f7e643ff1da5163c088b690e9c1a5621a7f0ac9ed62",
+            "run-2": "sha256:c8643db6360a8e1e4f0a2f7e643ff1da5163c088b690e9c1a5621a7f0ac9ed62"
+          }
+        },
+        {
+          "step": "zusammenführung",
+          "slot": "zusammen.R",
+          "commandFile": true,
+          "hashes": {
+            "run-1": "sha256:86368fd1efca1fdbee0296735346f74462ef4e459a9335f60440a1eb8dd82ea0",
+            "run-2": "sha256:86368fd1efca1fdbee0296735346f74462ef4e459a9335f60440a1eb8dd82ea0"
+          }
+        }
+      ],
+      "params": [
+        {
+          "step": "zweig-b",
+          "position": 2,
+          "values": {
+            "run-1": "3",
+            "run-2": "1"
+          }
+        }
+      ]
+    },
+    "choice": {
+      "name": "raute-extrahiert",
+      "reference": "run-1",
+      "holes": [
+        {
+          "name": "dataset",
+          "step": "aufbereitung",
+          "slot": "dataset.csv"
+        }
+      ],
+      "params": [
+        {
+          "name": "anzahl",
+          "step": "zweig-b",
+          "position": 2
+        }
+      ],
+      "requires": [
+        {
+          "kind": "tool",
+          "spectrum": "sha256:e0669ff3f8f756868721fe603e72ee1243e93805b3cf422affd261dc311a8bee",
+          "name": "jam-r"
+        }
+      ]
+    },
+    "package": "/mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/pakete/raute-aus-improve",
+    "bundleId": "sha256:135701e7d917ae4aedbef8f973e22d59038840d5605b360a208217aabb3c9173",
+    "rayId": "sha256:1152ddff61fbfe83d9c948f92fb1abe7adb9a9e97f5bc80ea3255cadca855ab1",
+    "runs": {
+      "run1Outputs": {
+        "aufbereitung/daten.txt": "sha256:ab0a3a6253897602cb84d4592293e905714a017ec4333254ca80b836780df12b",
+        "zusammenführung/ergebnis.txt": "sha256:44d419866f5a847c591f1c4a3f9e46ff6416985c1b57840413d986ba60ba01e1",
+        "zweig-b/b.txt": "sha256:e908d8332bb7d78ee94deadbcda35d4525de0e85d1fe4c508a5668d5520e7a31",
+        "zweig-c/c.txt": "sha256:fb76c5fd07819ff96996d189cd08fe52c64894e55d3dba89eebbebb495f60739"
+      },
+      "run2Outputs": {
+        "aufbereitung/daten.txt": "sha256:e80079e56ed5e01f9def48b233c4cdfc9893f30720659c8d4a662025a82eb6f5",
+        "zusammenführung/ergebnis.txt": "sha256:7271b8778cd92fb7b3767e9a9f093124629d786f8f7cb418a2217efec2a65019",
+        "zweig-b/b.txt": "sha256:50c88b03c160027d51d2049c66606ba55ac58f117432cc928c59fa6a240b9346",
+        "zweig-c/c.txt": "sha256:a227b01a340204694bb2e1b98dee5aecab5c224990528a81763abba9fd85fbb9"
+      },
+      "run1Fotons": {
+        "aufbereitung": "sha256:5e72c51daef04200976243ea979b528591af7a738289705e9c49da1a61bc0bc6",
+        "zusammenführung": "sha256:172d20fbeff48789b7d345d9b5ae7088680fea5033ea6a318730a3f5f626cbf8",
+        "zweig-b": "sha256:142298e492946eed7d57eeca5295933f0df60f1e1438c77297caa2806f96219b",
+        "zweig-c": "sha256:fa5cd0add6216a9c5f5af602656cbde7c6bfe6370b86e752a6cd5cba29f1cc21"
+      },
+      "run2Fotons": {
+        "aufbereitung": "sha256:2c721ebb9f797e819c7159657c0a6e7df3a804758feb4aa94fb804ab1d74c329",
+        "zusammenführung": "sha256:a0d76a5e847977b497f3284d3471d9ee4510d657ff38899f38e1429e635176ec",
+        "zweig-b": "sha256:1ce0bb7f3dcb2ad3fe2a89c0c01651862e6dbb4f6f37e07b1d7b95004acbea24",
+        "zweig-c": "sha256:7ccd1fb86f78e1fc4ebfd8a75831ac07fb3a5f976eda0a584930f949bff01454"
+      },
+      "run1FotonsSameAsA": true
+    }
+  }
+}

@@ -1,0 +1,15 @@
+# Die installierten Workflows dieses Repos.
+#
+# Ein Workflow ist installiert, wenn dieses Repo `installed` über eine Revision gesagt hat und deren
+# Ray ein Teil mit der Rolle "ray" ist. Ausgewertet wird nur, was ein Schlüssel der Vertrauensstufen
+# unterschrieben hat (das Cockpit projiziert nichts anderes).
+PREFIX nk:  <https://kton.dev/v/>
+PREFIX lab: <https://kton.dev/v/lab/>
+PREFIX dct: <http://purl.org/dc/terms/>
+
+SELECT ?name ?label ?ray ?seal ?package ?revision WHERE {
+  GRAPH ?g { ?revision nk:installed ?o .
+             ?o lab:name ?name ; lab:label ?label ; lab:ray ?ray ; lab:seal ?seal ; lab:package ?package . }
+  GRAPH ?h { ?ray dct:isPartOf ?m . ?m lab:value ?v . ?v lab:role "ray" . }
+}
+ORDER BY ?name ?label

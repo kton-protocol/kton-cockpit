@@ -51,6 +51,7 @@ func TestAuthor_MatchesTheReferenceCLI(t *testing.T) {
 	for _, l := range located {
 		args = append(args, "--located", l)
 	}
+	args = append(args, statementArgs...)
 	args = append(args, "--env-ref", envRef, "--cmd", cmd,
 		"--sign", "keys/"+SessionID+".key", "--add", "--registry", cliDir, "--print-id")
 	cli := exec.Command(filepath.Join(r.Root, "bin", "plankton"), args...)
@@ -72,9 +73,9 @@ func TestAuthor_MatchesTheReferenceCLI(t *testing.T) {
 		t.Fatalf("linked author: %v", err)
 	}
 
-	if fromLib != fromCLI {
+	if fromLib.ID != fromCLI {
 		t.Fatalf("the two authoring paths disagree on identity:\n  cli %s\n  lib %s\n"+
 			"A descriptor default differs — kind, the descriptor's shape, a carried locator, or what "+
-			"counts as a logical path.", fromCLI, fromLib)
+			"counts as a logical path.", fromCLI, fromLib.ID)
 	}
 }

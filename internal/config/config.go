@@ -15,11 +15,18 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/kton-protocol/kton-cockpit/cockpit/backend"
+	// The reference implementation ships with the cockpit (ADR-008): every binary that reads a
+	// configuration knows git and local mode. Extensions register further modes the same way.
+	_ "github.com/kton-protocol/kton-cockpit/cockpit/backend/github"
+	_ "github.com/kton-protocol/kton-cockpit/cockpit/backend/local"
+	"github.com/kton-protocol/kton-cockpit/cockpit/source"
+	"github.com/kton-protocol/kton-cockpit/internal/gitrepo"
 )
 
 // Mode names how this cockpit is bound to a location, and therefore what the anti-wrong-folder
@@ -40,6 +47,36 @@ type RepoRef struct {
 	// Root is the absolute path this config belongs to, required in local mode. Every call verifies
 	// that the config really is where it says it is.
 	Root string `json:"root,omitempty"`
+	// Block is the repo object exactly as written, so a backend from an extension can read the
+	// fields it defines (ADR-008). The three above are the reference backends' own.
+	Block json.RawMessage `json:"-"`
+}
+
+// UnmarshalJSON keeps the raw block next to the fields this package knows.
+func (r *RepoRef) UnmarshalJSON(b []byte) error {
+	type plain RepoRef
+	var p plain
+	if err := json.Unmarshal(b, &p); err != nil {
+		return err
+	}
+	*r = RepoRef(p)
+	r.Block = append(json.RawMessage(nil), b...)
+	return nil
+}
+
+// block is the repo object a backend decodes: as written, or rebuilt from the known fields when
+// the configuration was assembled in code rather than read from a file.
+func (r RepoRef) block() json.RawMessage {
+	if len(r.Block) > 0 {
+		return r.Block
+	}
+	b, _ := json.Marshal(struct {
+		Mode  string `json:"mode,omitempty"`
+		Owner string `json:"owner,omitempty"`
+		Name  string `json:"name,omitempty"`
+		Root  string `json:"root,omitempty"`
+	}{r.Mode, r.Owner, r.Name, r.Root})
+	return b
 }
 
 // IsLocal reports whether this cockpit runs without git.
@@ -81,6 +118,18 @@ type Claims struct {
 	// session does. Empty is the default, and a claim written without naming a scope stands on
 	// its own — which stays the common case.
 	Scopes map[string]string `json:"scopes,omitempty"`
+
+	// AllowedPackages are the installed packages whose templates and queries this cockpit uses, by
+	// package id (the hash of the package's seed). The operator names packages, not every template:
+	// a vocabulary package brings its templates with it, and admitting the package admits them.
+	// Templates are read from the package's latest SEALED revision only.
+	AllowedPackages []string `json:"allowedPackages,omitempty"`
+}
+
+// Query is how search and profile rules are evaluated: SPARQL in a pinned image (Oxigraph).
+type Query struct {
+	// Image is the SPARQL engine, pinned by digest like execution.image.
+	Image string `json:"image,omitempty"`
 }
 
 type Trust struct {
@@ -249,6 +298,11 @@ type Execution struct {
 	// and inside a sandboxed agent host, where the cockpit is the session's entire surface, it is also
 	// the cheapest way out of it. Publishing records when this was on.
 	Network bool `json:"network,omitempty"`
+	// Entrypoint is what the image runs a command with, as its tool definition states (jam-r:
+	// `--entrypoint Rscript`). It is needed only to extract a ray (ADR-006): a package carries the
+	// image as its first line and leaves the interpreter to the tool, so the recorded shell line's
+	// leading word must be this and is dropped.
+	Entrypoint string `json:"entrypoint,omitempty"`
 }
 
 // CommitEnabled and PushEnabled answer for the whole configuration, not just the git block: with no
@@ -315,12 +369,25 @@ type Raw struct {
 	Union        Union        `json:"union,omitempty"`
 	Anchor       Anchor       `json:"anchor,omitempty"`
 	Material     Material     `json:"material,omitempty"`
+	Query        Query        `json:"query,omitempty"`
+	Federation   Federation   `json:"federation,omitempty"`
+}
+
+// Federation names the other registries this cockpit reads together with its own. Which places
+// those are is the cockpit's to say — the kernels know no location — and how a kind of place is
+// read is a source kind (cockpit/source): `dir` here, others from extensions.
+type Federation struct {
+	Sources []source.Spec `json:"sources,omitempty"`
 }
 
 // Config is the loaded, validated, path-resolved configuration for one cockpit invocation. Every
 // path is absolute and already verified to exist. RepoRoot is the git repository root the config
 // was loaded from and the repo/remote match was checked against.
 type Config struct {
+	// Backend is what repo.mode selected, and Repo is the configuration as it sees it (ADR-008).
+	// Every write that must become durable, and every locator, goes through them.
+	Backend  backend.Backend
+	Repo     backend.Repo
 	Raw      Raw
 	RepoRoot string
 
@@ -374,16 +441,21 @@ func Load(ctx context.Context, startDir string) (*Config, error) {
 		return nil, fmt.Errorf("cockpit: cockpit.config.json at %s is invalid: %w", cfgPath, err)
 	}
 
+	be, _ := backend.Lookup(raw.Repo.Mode) // validate has already refused an unknown mode
+	repo := repoOf(cfgDir, raw)
+	if err := be.Bind(ctx, repo); err != nil {
+		return nil, fmt.Errorf("cockpit: refusing to act — %w", err)
+	}
+
+	// Checked after Bind, not before: a backend whose state lives elsewhere (improve, ADR-008)
+	// brings the working directory up to date as part of binding, and the files these checks read
+	// — trust-tier keys, material — are among what it brings.
 	if err := checkTrustTierContents(cfgDir, &raw); err != nil {
 		return nil, fmt.Errorf("cockpit: cockpit.config.json at %s is invalid: %w", cfgPath, err)
 	}
 
 	if err := checkMaterialFiles(cfgDir, raw.Material); err != nil {
 		return nil, fmt.Errorf("cockpit: cockpit.config.json at %s is invalid: %w", cfgPath, err)
-	}
-
-	if err := checkBinding(ctx, cfgDir, raw.Repo); err != nil {
-		return nil, fmt.Errorf("cockpit: refusing to act — %w", err)
 	}
 
 	repoRoot := cfgDir
@@ -397,6 +469,8 @@ func Load(ctx context.Context, startDir string) (*Config, error) {
 		BinDir:       filepath.Join(repoRoot, raw.Paths.BinDir),
 		PlanktonKey:  filepath.Join(repoRoot, raw.Identity.PlanktonKey),
 		NektonKey:    filepath.Join(repoRoot, raw.Identity.NektonKey),
+		Backend:      be,
+		Repo:         repo,
 	}
 	return cfg, nil
 }
@@ -426,7 +500,7 @@ func findConfigDir(ctx context.Context, startDir string) (string, error) {
 		return dir, nil
 	}
 	// One step, and only to a place git itself names — never an arbitrary ancestor.
-	if root, rerr := repoRootOf(ctx, dir); rerr == nil && hasConfig(root) {
+	if root, rerr := gitrepo.Root(ctx, dir); rerr == nil && hasConfig(root) {
 		return root, nil
 	}
 	return "", fmt.Errorf(
@@ -439,89 +513,24 @@ func hasConfig(dir string) bool {
 	return err == nil
 }
 
-// checkBinding is the anti-wrong-folder guard. It answers one question — is this the place this
-// config was written for — and refuses outright on any doubt. How it answers depends on the mode,
-// because the two modes have different second opinions available:
-//
-//   - git: the repository's own `origin` remote must name the configured owner/repo, and the config
-//     must sit at the repository root. The config and git's metadata are independent sources, so
-//     this catches acting on a different repository than the one configured.
-//   - local: there is no remote to disagree with, so the config's own declared absolute path is the
-//     anchor and must equal where the config actually is. This catches a directory that was copied
-//     or moved — the case the guard was originally built for, which was several sibling registries
-//     under one parent rather than a different remote.
-//
-// Neither catches everything: git mode passes a duplicated clone, local mode passes two directories
-// whose paths both look right. See ADR-004.
-func checkBinding(ctx context.Context, cfgDir string, repo RepoRef) error {
-	if repo.IsLocal() {
-		// Local mode is for a directory with no git repository. Accepting it inside one that HAS an
-		// origin would silently trade the stronger check for the weaker: the remote is an independent
-		// second source, and the declared path is only the config agreeing with itself. A config that
-		// turns that off by naming a mode, in a repo where it was available, is the kind of quiet
-		// downgrade this guard exists to prevent.
-		if root, err := repoRootOf(ctx, cfgDir); err == nil {
-			if _, rerr := originURL(ctx, root); rerr == nil {
-				return fmt.Errorf(
-					"repo.mode is %q, but %s is a git repository with an origin remote — local mode would "+
-						"drop the remote check for a weaker one. Use the default git mode here",
-					ModeLocal, root)
-			}
-		}
-		declared, err := filepath.Abs(repo.Root)
-		if err != nil {
-			return fmt.Errorf("repo.root %q is not a usable path: %w", repo.Root, err)
-		}
-		if !samePath(declared, cfgDir) {
-			return fmt.Errorf(
-				"location mismatch: cockpit.config.json says it belongs at %s, but it is at %s — refusing "+
-					"to act against a directory this config was not written for", declared, cfgDir)
-		}
-		return nil
-	}
-
-	repoRoot, err := repoRootOf(ctx, cfgDir)
-	if err != nil {
-		return fmt.Errorf(
-			"not inside a git repository (%s), and repo.mode is not %q: %w", cfgDir, ModeLocal, err)
-	}
-	if !samePath(repoRoot, cfgDir) {
-		return fmt.Errorf(
-			"cockpit.config.json is at %s but the git repository root is %s — the config must sit at the "+
-				"repository root, so that what it binds is unambiguous", cfgDir, repoRoot)
-	}
-	return checkRemoteMatches(ctx, repoRoot, repo)
-}
-
-// samePath compares two absolute paths after resolving symlinks where possible, so a config reached
-// through a symlinked parent is not mistaken for the wrong directory.
-func samePath(a, b string) bool {
-	if a == b {
-		return true
-	}
-	ra, err1 := filepath.EvalSymlinks(a)
-	rb, err2 := filepath.EvalSymlinks(b)
-	return err1 == nil && err2 == nil && ra == rb
-}
-
 func validate(raw *Raw) error {
+	if err := source.Validate(raw.Federation.Sources); err != nil {
+		return err
+	}
 	var missing []string
-	switch raw.Repo.Mode {
-	case "", ModeGit:
-		if raw.Repo.Owner == "" {
-			missing = append(missing, "repo.owner")
+	be, ok := backend.Lookup(raw.Repo.Mode)
+	if !ok {
+		// Named rather than treated as git: a binary that lacks the extension for a mode must say
+		// so, not act as some other backend against a repository configured for that one.
+		return fmt.Errorf("repo.mode %q is not a mode this cockpit knows (it knows: %s) — a mode an extension "+
+			"provides needs a binary built with that extension", raw.Repo.Mode, strings.Join(backend.Modes(), ", "))
+	}
+	if err := be.Validate(repoOf("", *raw)); err != nil {
+		if strings.HasPrefix(err.Error(), "missing required field(s): ") {
+			missing = append(missing, strings.TrimPrefix(err.Error(), "missing required field(s): "))
+		} else {
+			return err
 		}
-		if raw.Repo.Name == "" {
-			missing = append(missing, "repo.name")
-		}
-	case ModeLocal:
-		if raw.Repo.Root == "" {
-			missing = append(missing, "repo.root (the absolute path this config belongs to — in local mode it is what the guard checks, since there is no remote to disagree with)")
-		} else if !filepath.IsAbs(raw.Repo.Root) {
-			return fmt.Errorf("repo.root must be an absolute path, got %q", raw.Repo.Root)
-		}
-	default:
-		return fmt.Errorf("repo.mode %q is not one of %q, %q", raw.Repo.Mode, ModeGit, ModeLocal)
 	}
 	if raw.Paths.PlanktonDir == "" {
 		missing = append(missing, "paths.plankton_dir")
@@ -765,51 +774,6 @@ func (c *Config) TierPubkeys() map[string]string {
 	return out
 }
 
-func repoRootOf(ctx context.Context, dir string) (string, error) {
-	cmd := exec.CommandContext(ctx, "git", "rev-parse", "--show-toplevel")
-	cmd.Dir = dir
-	out, err := cmd.Output()
-	if err != nil {
-		return "", err
-	}
-	return strings.TrimSpace(string(out)), nil
-}
-
-var remoteRe = regexp.MustCompile(`(?:github\.com[:/])([^/]+)/([^/.]+?)(?:\.git)?$`)
-
-// originURL reads a repository's origin remote, or errors if it has none.
-func originURL(ctx context.Context, repoRoot string) (string, error) {
-	cmd := exec.CommandContext(ctx, "git", "remote", "get-url", "origin")
-	cmd.Dir = repoRoot
-	out, err := cmd.Output()
-	if err != nil {
-		return "", err
-	}
-	return strings.TrimSpace(string(out)), nil
-}
-
-// checkRemoteMatches is the hard-refuse step of the anti-wrong-folder guard: the repo's own
-// `origin` remote must name the exact owner/repo the config claims to be. On any mismatch —
-// including no remote at all — every cockpit tool call refuses outright.
-func checkRemoteMatches(ctx context.Context, repoRoot string, want RepoRef) error {
-	url, err := originURL(ctx, repoRoot)
-	if err != nil {
-		return fmt.Errorf("could not read git remote 'origin' in %s: %w", repoRoot, err)
-	}
-	m := remoteRe.FindStringSubmatch(url)
-	if m == nil {
-		return fmt.Errorf("remote 'origin' (%s) is not a recognizable github.com owner/repo URL", url)
-	}
-	owner, name := m[1], m[2]
-	if !strings.EqualFold(owner, want.Owner) || !strings.EqualFold(name, want.Name) {
-		return fmt.Errorf(
-			"repo/remote mismatch: cockpit.config.json says %s/%s, but this repo's origin is %s/%s — refusing to act against the wrong repo",
-			want.Owner, want.Name, owner, name,
-		)
-	}
-	return nil
-}
-
 // validateMaterial checks the shape of every attachment, and nothing about its contents.
 //
 // The line it holds is worth stating, because it is the whole point of this block: it refuses
@@ -957,4 +921,10 @@ func (c *Config) ScopeID(name string) (string, []string, bool) {
 	sort.Strings(names)
 	id, ok := c.Raw.Claims.Scopes[name]
 	return id, names, ok
+}
+
+// repoOf is the configuration as a backend sees it.
+func repoOf(dir string, raw Raw) backend.Repo {
+	return backend.Repo{Mode: raw.Repo.Mode, Block: raw.Repo.block(), Dir: dir,
+		Commit: raw.CommitEnabled(), Push: raw.PushEnabled(), SessionID: raw.Identity.SessionID}
 }

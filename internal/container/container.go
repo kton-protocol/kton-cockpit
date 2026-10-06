@@ -125,6 +125,9 @@ func Run(ctx context.Context, cfg *config.Config, cmd string) (*Result, error) {
 		return nil, fmt.Errorf("container.Run called with execution disabled (no execution.image configured)")
 	}
 
+	if err := ensureMountPoints(cfg); err != nil {
+		return nil, err
+	}
 	args := []string{"run", "--rm"}
 	if !ex.Network {
 		args = append(args, "--network", "none")
@@ -165,4 +168,24 @@ func Version(ctx context.Context, cfg *config.Config) (string, error) {
 		return "", fmt.Errorf("could not reach the %s engine: %w", engine, err)
 	}
 	return strings.TrimSpace(string(out)), nil
+}
+
+// RunTool runs a pinned tool image (not the execution image) with dir mounted at /q, without network
+// and as the invoking user: the SPARQL engine for search and profile rules. args go to the image's
+// own entrypoint.
+func RunTool(ctx context.Context, cfg *config.Config, image, dir string, args ...string) (string, error) {
+	ref := strings.TrimPrefix(image, "oci://")
+	full := []string{"run", "--rm", "--network", "none",
+		"--user", fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid()),
+		"--cap-drop=ALL", "--security-opt=no-new-privileges",
+		"--volume", dir + ":/q", ref}
+	full = append(full, args...)
+	c := exec.CommandContext(ctx, cfg.Raw.Execution.EngineOrDefault(), full...)
+	var out, errBuf bytes.Buffer
+	c.Stdout = &out
+	c.Stderr = &errBuf
+	if err := c.Run(); err != nil {
+		return "", fmt.Errorf("%s %s: %w\n%s", ref, strings.Join(args, " "), err, strings.TrimSpace(errBuf.String()))
+	}
+	return out.String(), nil
 }

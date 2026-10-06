@@ -2,10 +2,10 @@ name: ci
 
 # Two jobs, and the split is the point.
 #
-# `test` runs against the kernel commit AGENTS.md names. That is the claim this repository makes
+# `test` runs against the kernel version go.mod requires. That is the claim this repository makes
 # about itself, so it is the one that gates a merge.
 #
-# `kernel-dev` runs the same suite against kton `dev` HEAD and is allowed to fail. kton's `dev`
+# `kernel-main` runs the same suite against kton `main` HEAD and is allowed to fail. The kernel
 # moves under this repository, and it has broken things here four separate times — each of which
 # showed up as a symptom (an unknown subcommand, an empty registry read) rather than as "the kernel
 # moved". A job that says so out loud, on a schedule, turns that into news instead of a debugging
@@ -16,7 +16,7 @@ on:
     branches: [main]
   pull_request:
   schedule:
-    # Drift from a moving `dev` is the thing this catches, and it happens whether or not anyone
+    # Drift from a moving kernel is the thing this catches, and it happens whether or not anyone
     # pushed here.
     - cron: "17 6 * * *"
   workflow_dispatch:
@@ -26,44 +26,12 @@ permissions:
 
 jobs:
   test:
-    name: against the pinned kernel
+    name: against the kernel go.mod requires
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           path: cockpit
-
-      # The pin is read from AGENTS.md rather than duplicated here. Two places naming a commit is
-      # two places to forget, and `TestVerifiedAgainst` already fails when that line disagrees with
-      # what the binaries were built from — so CI and the suite check the same single statement.
-      - name: Read the kernel commit AGENTS.md pins
-        id: pin
-        working-directory: cockpit
-        run: |
-          sha=$(sed -n 's/^\*\*Verified against:\*\* kton `dev` at `\([0-9a-f]\{7,40\}\)`.*/\1/p' AGENTS.md)
-          [ -n "$sha" ] || { echo "AGENTS.md has no 'Verified against' pin" >&2; exit 1; }
-          echo "sha=$sha" >> "$GITHUB_OUTPUT"
-          echo "pinned kton: $sha"
-
-      # Checked out as `dev` and then moved to the pinned commit, rather than passing the commit as
-      # `ref`: AGENTS.md pins a SHORT sha, and actions/checkout resolves a ref by fetching it, which
-      # a 7-character sha is not. Full history so the object is present to check out — and so Go can
-      # stamp vcs.revision, which is what TestVerifiedAgainst compares the pin against.
-      #
-      # `path: kton-pinned`, not `kton`: go.mod resolves the three kton modules through `replace`
-      # directives naming `../kton-pinned/...`, so the directory name is load-bearing until kton.dev
-      # serves them and the replaces come out.
-      - uses: actions/checkout@v4
-        with:
-          repository: kton-protocol/kton
-          ref: dev
-          path: kton-pinned
-          fetch-depth: 0
-
-      - name: Move kton to the pinned commit
-        run: |
-          git -C kton-pinned checkout --quiet ${{ steps.pin.outputs.sha }}
-          echo "kton at $(git -C kton-pinned rev-parse --short HEAD)"
 
       - uses: actions/setup-go@v5
         with:
@@ -72,8 +40,7 @@ jobs:
       - name: gofmt
         working-directory: cockpit
         run: |
-          # `./...`, not `.`: the second walks vendor/, which is other people's source and not
-          # ours to reformat. Go's own package list already excludes it.
+          # `./...`, not `.`: Go's own package list is exactly this module's source.
           unformatted=$(gofmt -l $(go list -f '{{.Dir}}' ./...))
           [ -z "$unformatted" ] || { echo "not gofmt'd:"; echo "$unformatted"; exit 1; }
 
@@ -81,12 +48,10 @@ jobs:
         working-directory: cockpit
         run: go vet ./...
 
-      # The suite builds the kernel itself from KTON_SRC; it is not built here, so that CI exercises
-      # the same path a contributor's machine does rather than a shortcut only CI has.
+      # The suite builds the kernel CLIs itself, from the module go.mod requires; they are not built
+      # here, so that CI exercises the same path a contributor's machine does.
       - name: go test
         working-directory: cockpit
-        env:
-          KTON_SRC: ${{ github.workspace }}/kton-pinned
         run: go test ./...
 
       # Asserted rather than assumed. "Nothing in the default suite skips" is a property this
@@ -94,8 +59,6 @@ jobs:
       # it previously spent months reporting success while exercising none of the handlers.
       - name: no skips in the default suite
         working-directory: cockpit
-        env:
-          KTON_SRC: ${{ github.workspace }}/kton-pinned
         run: |
           go test -count=1 -v ./... > /tmp/test.log 2>&1 || { tail -50 /tmp/test.log; exit 1; }
           if grep -q "^--- SKIP" /tmp/test.log; then
@@ -117,8 +80,6 @@ jobs:
 
       - name: examples
         working-directory: cockpit
-        env:
-          KTON_SRC: ${{ github.workspace }}/kton-pinned
         # 11 and 12 build R's Nix closure — about 2 GB the first time on a cold runner.
         timeout-minutes: 60
         run: examples/run-all.sh
@@ -130,24 +91,6 @@ jobs:
       - uses: actions/checkout@v4
         with:
           path: cockpit
-      - id: pin
-        working-directory: cockpit
-        run: |
-          sha=$(sed -n 's/^\*\*Verified against:\*\* kton `dev` at `\([0-9a-f]\{7,40\}\)`.*/\1/p' AGENTS.md)
-          [ -n "$sha" ] || { echo "AGENTS.md has no 'Verified against' pin" >&2; exit 1; }
-          echo "sha=$sha" >> "$GITHUB_OUTPUT"
-      # Same short-sha reason as the job above.
-      - uses: actions/checkout@v4
-        with:
-          repository: kton-protocol/kton
-          ref: dev
-          path: kton-pinned
-          fetch-depth: 0
-
-      - name: Move kton to the pinned commit
-        run: |
-          git -C kton-pinned checkout --quiet ${{ steps.pin.outputs.sha }}
-          echo "kton at $(git -C kton-pinned rev-parse --short HEAD)"
       - uses: actions/setup-go@v5
         with:
           go-version-file: cockpit/go.mod
@@ -157,45 +100,52 @@ jobs:
       # is a failure and not a skip, because you asked.
       - name: go test -tags docker
         working-directory: cockpit
-        env:
-          KTON_SRC: ${{ github.workspace }}/kton-pinned
         run: go test -tags docker ./...
 
-  kernel-dev:
-    name: against kton dev (advisory)
+  cli:
+    name: the command line, end to end
+    # uat/cli.sh: two participants set up, work, take each other in and reproduce with nothing but
+    # `cockpit` — the walkthrough a person at a shell follows. It pins and pulls a public image.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: cockpit
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: cockpit/go.mod
+      - name: uat/cli.sh
+        working-directory: cockpit
+        timeout-minutes: 20
+        run: |
+          git config --global user.name ci
+          git config --global user.email ci@cockpit.local
+          uat/cli.sh
+
+  kernel-main:
+    name: against kton main (advisory)
     runs-on: ubuntu-latest
     # Allowed to fail. A red mark here means upstream moved, which is news rather than a defect in
-    # this branch — and the pinned job above is what gates anything.
+    # this branch — and the job above, on the version go.mod requires, is what gates anything.
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
         with:
           path: cockpit
-      - uses: actions/checkout@v4
-        with:
-          repository: kton-protocol/kton
-          ref: dev
-          path: kton-pinned
-          fetch-depth: 0
       - uses: actions/setup-go@v5
         with:
           go-version-file: cockpit/go.mod
 
-      - name: how far has dev moved
-        run: |
-          pinned=$(sed -n 's/^\*\*Verified against:\*\* kton `dev` at `\([0-9a-f]\{7,40\}\)`.*/\1/p' cockpit/AGENTS.md)
-          head=$(git -C kton-pinned rev-parse --short HEAD)
-          echo "pinned: $pinned   dev HEAD: $head"
-          if [ "$pinned" != "$head" ]; then
-            echo "::notice::kton dev has moved from $pinned to $head — rebuild, re-run, and update AGENTS.md's pin in the same commit"
-            git -C kton-pinned log --oneline "$pinned..HEAD" | head -40 || true
-          fi
-
-      # TestVerifiedAgainst deliberately fails when the pin and the checkout disagree, which is the
-      # normal state of this job. Excluded here so the run reports what the REST of the suite does
-      # against a newer kernel — the question this job exists to answer.
-      - name: go test against dev
+      - name: move to kton main HEAD
         working-directory: cockpit
-        env:
-          KTON_SRC: ${{ github.workspace }}/kton-pinned
-        run: go test ./... -skip TestVerifiedAgainst_NamesTheKernelTheBinariesWereBuiltFrom
+        run: |
+          echo "required: $(go list -m -f '{{.Version}}' kton.dev/plankton)"
+          go get kton.dev/plankton@main kton.dev/nekton@main kton.dev/kton@main
+          # -e: tidy also reads the files behind -tags unreleased, whose imports (ktonpkg, the
+          # unpublished kernel packages) do not resolve here. What builds without the tag still does.
+          go mod tidy -e
+          echo "main HEAD: $(go list -m -f '{{.Version}}' kton.dev/plankton)"
+
+      - name: go test against main
+        working-directory: cockpit
+        run: go test ./...

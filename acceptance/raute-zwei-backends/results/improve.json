@@ -1,0 +1,356 @@
+{
+  "side": "improve",
+  "ranAt": "2026-09-30T14:45:45Z",
+  "bindings": {
+    "anzahl": "3",
+    "dataset": "sha256:ab0a3a6253897602cb84d4592293e905714a017ec4333254ca80b836780df12b"
+  },
+  "steps": [
+    {
+      "phase": "setup",
+      "id": "setup",
+      "title": "eigenen Testordner und das kton-Register darin anlegen",
+      "actor": "improvego",
+      "command": "c.CreateFolder(ctx, \"/dst\", \"raute-vergleich-20260930T164545\"); c.EnsureRegister(ctx, \"/dst/raute-vergleich-20260930T164545/kton\")",
+      "gap": "S4: das Cockpit kennt den improve-Modus noch nicht — die Schritte laufen über improvego",
+      "ok": true,
+      "result": {
+        "cockpitModus": "keiner — cockpit kennt nur git und local (SPEC §5.2 und SPEC §5.3)",
+        "ordner": "/dst/raute-vergleich-20260930T164545",
+        "register": "/dst/raute-vergleich-20260930T164545/kton",
+        "signierschluessel": "e0ea0c6e1bfc0090"
+      }
+    },
+    {
+      "phase": "tool-install",
+      "id": "tool-install",
+      "title": "die Toolinstanz jam-r finden oder aus dem Paket einrichten",
+      "actor": "improve-server",
+      "command": "c.ResolveTool(ctx, \"\", \"jam-r 1.0.0\"); sonst c.InstallTool(ctx, \u003crunserver \"default\"\u003e, improve/tool-instance.json)",
+      "gap": "S4: das Cockpit kennt den improve-Modus noch nicht — die Schritte laufen über improvego; Werkzeuginstallation hat im Cockpit kein Verb — sie gehört zu S6 (Werkzeugpaket über ktonpkg)",
+      "ok": true,
+      "result": {
+        "args": "scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a\n\u003ccommand-file\u003e",
+        "instanz": "jam-r 1.0.0",
+        "runserver": "default",
+        "toolId": "<improve-id>",
+        "toolIdWieImPaket": false,
+        "vorgefunden": true
+      }
+    },
+    {
+      "phase": "tool-qualify",
+      "id": "tool-qualify",
+      "title": "die Member des jam-r-Spectrums auf dieser Instanz laufen lassen und gegen das Spectrum halten",
+      "actor": "improvego",
+      "command": "c.QualifySpectrum(ctx, ktonpkg.Open(\"/mnt/c/dev/workstreams/active/improveGo/tools/jam-r/paket\"), QualifyOptions{TargetFolder: \"/dst/raute-vergleich-20260930T164545/werkzeug\", Tool: \u003cjam-r\u003e, Register: \"/dst/raute-vergleich-20260930T164545/kton\"}); reg.Sign(OQ)",
+      "gap": "S6: Rays und Spectren über ktonpkg im Cockpit (Spectrum-Erfüllung als Kernel-Funktion erst mit K3) — heute improvego",
+      "ok": true,
+      "result": {
+        "erfuellt": "5 von 5",
+        "fotonen": {
+          "bericht": "sha256:995965ef124520de1adaeda5706a66ff6e667d6676572ecbfa57c1449ab57910",
+          "grafik-daten": "sha256:90c731052dfad3f1aea358ce6471fae7a6681683ae30df3eda8a23ce3b5997f8",
+          "json": "sha256:ca85fecd58b88ba5e1e3040f06531cfd15d5676388650fb3943759f82a758e6b",
+          "modell": "sha256:92db5e710c5e82a66c7ac7852572398fb7258503dd5933e40c5302e3baec0139",
+          "tabelle": "sha256:56449705cd617172e0ac2765919e7945c56b5ce54ccb0074502d607f158ad06c"
+        },
+        "oqClaim": "sha256:136a90e321074b2c8d9779d6afbd5480f578563c559e477ab1e36a2161203949",
+        "spectrum": "jam-r",
+        "spectrumId": "sha256:e0669ff3f8f756868721fe603e72ee1243e93805b3cf422affd261dc311a8bee",
+        "verdict": "L1"
+      }
+    },
+    {
+      "phase": "load",
+      "id": "load",
+      "title": "das Raute-Paket öffnen, prüfen und in den Testordner einspielen",
+      "actor": "ktonpkg",
+      "command": "ktonpkg.Open(\"/mnt/c/dev/workstreams/active/improveGo/examples/raute/paket\").Verify(); c.InstallPackage(ctx, b, InstallOptions{TargetFolder: \"/dst/raute-vergleich-20260930T164545/raute\", Tool: \u003cjam-r\u003e})",
+      "gap": "S6: Rays und Spectren über ktonpkg im Cockpit (Spectrum-Erfüllung als Kernel-Funktion erst mit K3) — heute improvego",
+      "ok": true,
+      "result": {
+        "loecher": [
+          "anzahl (param, Vorgabe \"1\")",
+          "dataset (file, Vorgabe \"testdaten/dataset.csv\")"
+        ],
+        "paket": "sha256:0cb0d874284a939f9ef9c9d425232f8a613bb36c1cd62cb6bbeb67540940c06a",
+        "potential": "sha256:0d6a28044aa6d22dbec51efdbc70e42289e7397f88439561e6c84d8bdeb5d036",
+        "steps": [
+          "zweig-c",
+          "aufbereitung",
+          "zweig-b",
+          "zusammenführung"
+        ],
+        "templateSteps": 4,
+        "toolAufgeloest": "ausdrücklich übergeben (jam-r 1.0.0), nicht über das Register",
+        "verify": [],
+        "ziel": "/dst/raute-vergleich-20260930T164545/raute"
+      }
+    },
+    {
+      "phase": "require",
+      "id": "require",
+      "title": "verlangt das Paket genau das Spectrum, das die qualifizierte Instanz erfüllt?",
+      "actor": "improvego",
+      "command": "b.Requires[i].Spectrum == toolBundle.Spectrum.ID(); c.Resolve(ctx, b, OpenRegister(\"/dst/raute-vergleich-20260930T164545/kton\"))",
+      "gap": "S6: Rays und Spectren über ktonpkg im Cockpit (Spectrum-Erfüllung als Kernel-Funktion erst mit K3) — heute improvego",
+      "ok": true,
+      "result": {
+        "erfuelltVonInstanz": "sha256:e0669ff3f8f756868721fe603e72ee1243e93805b3cf422affd261dc311a8bee",
+        "passt": true,
+        "resolveErfuellt": false,
+        "resolveGrund": [
+          "1 Werkzeug(e) haben jam-r gemessen, aber keines ist angenommen — es fehlt die Prüfung, nicht die Installation"
+        ],
+        "verlangt": [
+          "sha256:e0669ff3f8f756868721fe603e72ee1243e93805b3cf422affd261dc311a8bee"
+        ]
+      }
+    },
+    {
+      "phase": "refuse-unbound",
+      "id": "refuse-unbound",
+      "title": "ohne Bindung und ohne Paketvorgaben realisieren — muss abgelehnt werden (URS-6)",
+      "actor": "improvego",
+      "command": "c.Realize(ctx, tpl /* Vorgaben von dataset und anzahl entfernt */, RealizeOptions{TreeID: \u003cungebunden\u003e, Bindings: {}, Run: true})",
+      "gap": "S5: Potentiale und Realisierung gehören ins Cockpit (backend/improve: bind, realise) — heute improvego",
+      "ok": true,
+      "result": {
+        "ablehnung": "Required parameters not set: anzahl, dataset",
+        "stepsAngelegt": 0,
+        "vorgabenEntfernt": [
+          "anzahl",
+          "dataset"
+        ]
+      }
+    },
+    {
+      "phase": "bind",
+      "id": "bind",
+      "title": "eigene Daten hochladen und die Löcher binden: dataset = eigene-daten.csv, anzahl = 3",
+      "actor": "improvego",
+      "command": "c.CreateFile(ctx, \"/dst/raute-vergleich-20260930T164545\", \"/mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/eigene-daten.csv\"); bindings = {dataset: \u003cresourceId\u003e, anzahl: \"3\"}",
+      "gap": "S5: Potentiale und Realisierung gehören ins Cockpit (backend/improve: bind, realise) — heute improvego",
+      "ok": true,
+      "result": {
+        "bindings": {
+          "anzahl": "3",
+          "dataset": "<improve-id>"
+        },
+        "datei": "eigene-daten.csv",
+        "hash": "sha256:ab0a3a6253897602cb84d4592293e905714a017ec4333254ca80b836780df12b",
+        "hashWieErwartet": true,
+        "resourceId": "<improve-id>",
+        "serverFileHash": "sha256:ab0a3a6253897602cb84d4592293e905714a017ec4333254ca80b836780df12b"
+      }
+    },
+    {
+      "phase": "run",
+      "id": "run:aufbereitung",
+      "title": "Step aufbereitung realisieren, laufen lassen und als signiertes Foton ins Register",
+      "actor": "improve-server",
+      "command": "c.Realize(ctx, tpl, RealizeOptions{TreeID: \u003cRaute\u003e, Bindings: {dataset: \"<improve-id>\", anzahl: \"3\"}, Run: true, Register: \"/dst/raute-vergleich-20260930T164545/kton\"}) — Step aufbereitung; danach c.ExportFoton(ctx, \u003cstepId\u003e, reg)",
+      "gap": "S5: Potentiale und Realisierung gehören ins Cockpit (backend/improve: bind, realise) — heute improvego",
+      "ok": true,
+      "result": {
+        "ausgabe": "daten.txt",
+        "foton": "sha256:5e72c51daef04200976243ea979b528591af7a738289705e9c49da1a61bc0bc6",
+        "hash": "sha256:ab0a3a6253897602cb84d4592293e905714a017ec4333254ca80b836780df12b",
+        "inhalt": [
+          "probe-01",
+          "probe-02",
+          "probe-03",
+          "probe-04",
+          "probe-05"
+        ],
+        "runResult": "COMPLETED",
+        "stepId": "<improve-id>",
+        "zeilen": 5
+      }
+    },
+    {
+      "phase": "run",
+      "id": "run:zweig-c",
+      "title": "Step zweig-c realisieren, laufen lassen und als signiertes Foton ins Register",
+      "actor": "improve-server",
+      "command": "c.Realize(ctx, tpl, RealizeOptions{TreeID: \u003cRaute\u003e, Bindings: {dataset: \"<improve-id>\", anzahl: \"3\"}, Run: true, Register: \"/dst/raute-vergleich-20260930T164545/kton\"}) — Step zweig-c; danach c.ExportFoton(ctx, \u003cstepId\u003e, reg)",
+      "gap": "S5: Potentiale und Realisierung gehören ins Cockpit (backend/improve: bind, realise) — heute improvego",
+      "ok": true,
+      "result": {
+        "ausgabe": "c.txt",
+        "foton": "sha256:fa5cd0add6216a9c5f5af602656cbde7c6bfe6370b86e752a6cd5cba29f1cc21",
+        "hash": "sha256:fb76c5fd07819ff96996d189cd08fe52c64894e55d3dba89eebbebb495f60739",
+        "inhalt": [
+          "C: probe-01",
+          "C: probe-02",
+          "C: probe-03",
+          "C: probe-04",
+          "C: probe-05"
+        ],
+        "runResult": "COMPLETED",
+        "stepId": "<improve-id>",
+        "zeilen": 5
+      }
+    },
+    {
+      "phase": "run",
+      "id": "run:zweig-b",
+      "title": "Step zweig-b realisieren, laufen lassen und als signiertes Foton ins Register",
+      "actor": "improve-server",
+      "command": "c.Realize(ctx, tpl, RealizeOptions{TreeID: \u003cRaute\u003e, Bindings: {dataset: \"<improve-id>\", anzahl: \"3\"}, Run: true, Register: \"/dst/raute-vergleich-20260930T164545/kton\"}) — Step zweig-b; danach c.ExportFoton(ctx, \u003cstepId\u003e, reg)",
+      "gap": "S5: Potentiale und Realisierung gehören ins Cockpit (backend/improve: bind, realise) — heute improvego",
+      "ok": true,
+      "result": {
+        "ausgabe": "b.txt",
+        "foton": "sha256:142298e492946eed7d57eeca5295933f0df60f1e1438c77297caa2806f96219b",
+        "hash": "sha256:e908d8332bb7d78ee94deadbcda35d4525de0e85d1fe4c508a5668d5520e7a31",
+        "inhalt": [
+          "B: probe-01",
+          "B: probe-02",
+          "B: probe-03"
+        ],
+        "runResult": "COMPLETED",
+        "stepId": "<improve-id>",
+        "zeilen": 3
+      }
+    },
+    {
+      "phase": "run",
+      "id": "run:zusammenführung",
+      "title": "Step zusammenführung realisieren, laufen lassen und als signiertes Foton ins Register",
+      "actor": "improve-server",
+      "command": "c.Realize(ctx, tpl, RealizeOptions{TreeID: \u003cRaute\u003e, Bindings: {dataset: \"<improve-id>\", anzahl: \"3\"}, Run: true, Register: \"/dst/raute-vergleich-20260930T164545/kton\"}) — Step zusammenführung; danach c.ExportFoton(ctx, \u003cstepId\u003e, reg)",
+      "gap": "S5: Potentiale und Realisierung gehören ins Cockpit (backend/improve: bind, realise) — heute improvego",
+      "ok": true,
+      "result": {
+        "ausgabe": "ergebnis.txt",
+        "foton": "sha256:172d20fbeff48789b7d345d9b5ae7088680fea5033ea6a318730a3f5f626cbf8",
+        "hash": "sha256:44d419866f5a847c591f1c4a3f9e46ff6416985c1b57840413d986ba60ba01e1",
+        "inhalt": [
+          "B: probe-01",
+          "B: probe-02",
+          "B: probe-03",
+          "C: probe-01",
+          "C: probe-02",
+          "C: probe-03",
+          "C: probe-04",
+          "C: probe-05"
+        ],
+        "runResult": "COMPLETED",
+        "stepId": "<improve-id>",
+        "zeilen": 8
+      }
+    },
+    {
+      "phase": "verify",
+      "id": "verify",
+      "title": "aus dem Register zurück: Herkunft von ergebnis.txt bis zum Datensatz",
+      "actor": "improvego",
+      "command": "improve.OpenRegister(ctx, \"/dst/raute-vergleich-20260930T164545/kton\").Lineage(ctx, \u003chash ergebnis.txt\u003e)",
+      "gap": "S4: das Cockpit kennt den improve-Modus noch nicht — die Schritte laufen über improvego; `cockpit ask lineage` sollte das gegen das improve-Register beantworten",
+      "ok": true,
+      "result": {
+        "erreichtDatensatz": true,
+        "kette": [
+          {
+            "foton": "sha256:172d20fbeff48789b7d345d9b5ae7088680fea5033ea6a318730a3f5f626cbf8",
+            "protokoll": "improve/step",
+            "eingaben": [
+              "sha256:e908d8332bb7d78ee94deadbcda35d4525de0e85d1fe4c508a5668d5520e7a31",
+              "sha256:fb76c5fd07819ff96996d189cd08fe52c64894e55d3dba89eebbebb495f60739",
+              "sha256:86368fd1efca1fdbee0296735346f74462ef4e459a9335f60440a1eb8dd82ea0"
+            ],
+            "ausgaben": [
+              "sha256:44d419866f5a847c591f1c4a3f9e46ff6416985c1b57840413d986ba60ba01e1"
+            ]
+          },
+          {
+            "foton": "sha256:142298e492946eed7d57eeca5295933f0df60f1e1438c77297caa2806f96219b",
+            "protokoll": "improve/step",
+            "eingaben": [
+              "sha256:ab0a3a6253897602cb84d4592293e905714a017ec4333254ca80b836780df12b",
+              "sha256:c8643db6360a8e1e4f0a2f7e643ff1da5163c088b690e9c1a5621a7f0ac9ed62"
+            ],
+            "ausgaben": [
+              "sha256:e908d8332bb7d78ee94deadbcda35d4525de0e85d1fe4c508a5668d5520e7a31"
+            ]
+          },
+          {
+            "foton": "sha256:5e72c51daef04200976243ea979b528591af7a738289705e9c49da1a61bc0bc6",
+            "protokoll": "improve/step",
+            "eingaben": [
+              "sha256:7a667219a89e0f5d4ecfbedfb206082e3b1693fefee9a9e7f09b4a3492ae90d0",
+              "sha256:ab0a3a6253897602cb84d4592293e905714a017ec4333254ca80b836780df12b"
+            ],
+            "ausgaben": [
+              "sha256:ab0a3a6253897602cb84d4592293e905714a017ec4333254ca80b836780df12b"
+            ]
+          },
+          {
+            "foton": "sha256:fa5cd0add6216a9c5f5af602656cbde7c6bfe6370b86e752a6cd5cba29f1cc21",
+            "protokoll": "improve/step",
+            "eingaben": [
+              "sha256:ab0a3a6253897602cb84d4592293e905714a017ec4333254ca80b836780df12b",
+              "sha256:f182205e0308596bdf69f0dcfd1c20f1df535165362144ba13e9103320fd0293"
+            ],
+            "ausgaben": [
+              "sha256:fb76c5fd07819ff96996d189cd08fe52c64894e55d3dba89eebbebb495f60739"
+            ]
+          }
+        ],
+        "steps": [
+          "zusammenführung",
+          "zweig-b",
+          "aufbereitung",
+          "zweig-c"
+        ],
+        "von": "sha256:44d419866f5a847c591f1c4a3f9e46ff6416985c1b57840413d986ba60ba01e1"
+      }
+    }
+  ],
+  "qualification": {
+    "tool": "jam-r",
+    "spectrum": "sha256:e0669ff3f8f756868721fe603e72ee1243e93805b3cf422affd261dc311a8bee",
+    "verdict": "L1",
+    "members": {
+      "bericht": {
+        "output": "sha256:defc1bafe2f9152c8d5407f7985193b52bace7084cf80067d9d8a4f5f815893f",
+        "reference": "sha256:7c05410d8c68ca61a70680840c992a56eb755473ab961dc8d2d64e4cd3f27e82",
+        "match": "via-normalizer"
+      },
+      "grafik-daten": {
+        "output": "sha256:f75dd1bc9d8112d8d6d18614bd543af749e47e2516d010fc87eabc8996a0aa43",
+        "reference": "sha256:f75dd1bc9d8112d8d6d18614bd543af749e47e2516d010fc87eabc8996a0aa43",
+        "match": "identical"
+      },
+      "json": {
+        "output": "sha256:28f2841e50343381e09f001facb3f9b87c047d879a4c25cdfb0a24f87ce86db1",
+        "reference": "sha256:28f2841e50343381e09f001facb3f9b87c047d879a4c25cdfb0a24f87ce86db1",
+        "match": "identical"
+      },
+      "modell": {
+        "output": "sha256:9e8a620b446144a6f34cfb0f5b2c605ee2db5b192686700d59eefe49be7e99b4",
+        "reference": "sha256:9e8a620b446144a6f34cfb0f5b2c605ee2db5b192686700d59eefe49be7e99b4",
+        "match": "identical"
+      },
+      "tabelle": {
+        "output": "sha256:0cce87e13fe345df0da8946de1fcf6689769e50895fea0b8efad6a4e06aa010b",
+        "reference": "sha256:0cce87e13fe345df0da8946de1fcf6689769e50895fea0b8efad6a4e06aa010b",
+        "match": "identical"
+      }
+    }
+  },
+  "outputs": {
+    "aufbereitung/daten.txt": "sha256:ab0a3a6253897602cb84d4592293e905714a017ec4333254ca80b836780df12b",
+    "zusammenführung/ergebnis.txt": "sha256:44d419866f5a847c591f1c4a3f9e46ff6416985c1b57840413d986ba60ba01e1",
+    "zweig-b/b.txt": "sha256:e908d8332bb7d78ee94deadbcda35d4525de0e85d1fe4c508a5668d5520e7a31",
+    "zweig-c/c.txt": "sha256:fb76c5fd07819ff96996d189cd08fe52c64894e55d3dba89eebbebb495f60739"
+  },
+  "fotons": {
+    "aufbereitung": "sha256:5e72c51daef04200976243ea979b528591af7a738289705e9c49da1a61bc0bc6",
+    "zusammenführung": "sha256:172d20fbeff48789b7d345d9b5ae7088680fea5033ea6a318730a3f5f626cbf8",
+    "zweig-b": "sha256:142298e492946eed7d57eeca5295933f0df60f1e1438c77297caa2806f96219b",
+    "zweig-c": "sha256:fa5cd0add6216a9c5f5af602656cbde7c6bfe6370b86e752a6cd5cba29f1cc21"
+  }
+}

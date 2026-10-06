@@ -1,0 +1,130 @@
+{
+  "name": "raute-extrahiert",
+  "steps": [
+    {
+      "id": "aufbereitung",
+      "label": "aufbereitung",
+      "rationale": "Datensatz übernehmen",
+      "protocol": {
+        "command": {
+          "args": "scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a\n\u003ccommand-file\u003e"
+        }
+      },
+      "inputs": [
+        {
+          "slot": "aufbereiten.R",
+          "path": "steps/aufbereitung/aufbereiten.R",
+          "hash": "sha256:7a667219a89e0f5d4ecfbedfb206082e3b1693fefee9a9e7f09b4a3492ae90d0",
+          "variable": "command-file"
+        },
+        {
+          "slot": "dataset.csv",
+          "from": "hole:dataset"
+        }
+      ],
+      "outputs": [
+        "daten.txt"
+      ]
+    },
+    {
+      "id": "zweig-b",
+      "label": "zweig-b",
+      "rationale": "erste Umformung",
+      "protocol": {
+        "command": {
+          "args": "scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a\n\u003ccommand-file\u003e\n\u003canzahl\u003e"
+        }
+      },
+      "params": {
+        "anzahl": "hole:anzahl"
+      },
+      "inputs": [
+        {
+          "slot": "daten.txt",
+          "from": "upstream:aufbereitung:daten.txt"
+        },
+        {
+          "slot": "zweigB.R",
+          "path": "steps/zweig-b/zweigB.R",
+          "hash": "sha256:c8643db6360a8e1e4f0a2f7e643ff1da5163c088b690e9c1a5621a7f0ac9ed62",
+          "variable": "command-file"
+        }
+      ],
+      "outputs": [
+        "b.txt"
+      ]
+    },
+    {
+      "id": "zweig-c",
+      "label": "zweig-c",
+      "rationale": "zweite Umformung",
+      "protocol": {
+        "command": {
+          "args": "scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a\n\u003ccommand-file\u003e"
+        }
+      },
+      "inputs": [
+        {
+          "slot": "daten.txt",
+          "from": "upstream:aufbereitung:daten.txt"
+        },
+        {
+          "slot": "zweigC.R",
+          "path": "steps/zweig-c/zweigC.R",
+          "hash": "sha256:f182205e0308596bdf69f0dcfd1c20f1df535165362144ba13e9103320fd0293",
+          "variable": "command-file"
+        }
+      ],
+      "outputs": [
+        "c.txt"
+      ]
+    },
+    {
+      "id": "zusammenführung",
+      "label": "zusammenführung",
+      "rationale": "beide Zweige",
+      "protocol": {
+        "command": {
+          "args": "scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a\n\u003ccommand-file\u003e"
+        }
+      },
+      "inputs": [
+        {
+          "slot": "b.txt",
+          "from": "upstream:zweig-b:b.txt"
+        },
+        {
+          "slot": "c.txt",
+          "from": "upstream:zweig-c:c.txt"
+        },
+        {
+          "slot": "zusammen.R",
+          "path": "steps/zusammenführung/zusammen.R",
+          "hash": "sha256:86368fd1efca1fdbee0296735346f74462ef4e459a9335f60440a1eb8dd82ea0",
+          "variable": "command-file"
+        }
+      ],
+      "outputs": [
+        "ergebnis.txt"
+      ]
+    }
+  ],
+  "holes": [
+    {
+      "name": "anzahl",
+      "step": "zweig-b",
+      "param": "anzahl",
+      "type": "param",
+      "required": true,
+      "default": "3"
+    },
+    {
+      "name": "dataset",
+      "step": "aufbereitung",
+      "slot": "dataset.csv",
+      "type": "file",
+      "required": true,
+      "default": "testdaten/dataset/dataset.csv"
+    }
+  ]
+}

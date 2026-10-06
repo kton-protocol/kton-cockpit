@@ -1,0 +1,13 @@
+{
+  "name": "installed",
+  "target": "either",
+  "predicate": "https://kton.dev/v/installed",
+  "fields": {
+    "package": {"type": "ref",    "required": true},
+    "seal":    {"type": "ref",    "required": true},
+    "head":    {"type": "ref",    "required": true},
+    "ray":     {"type": "ref",    "required": true},
+    "name":    {"type": "string", "required": true},
+    "label":   {"type": "string", "required": true}
+  }
+}

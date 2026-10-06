@@ -10,8 +10,9 @@ examples/02-chain/run.sh     # or one
 Each builds its own participant repo from nothing — a real git repo with a real github.com origin,
 because the anti-wrong-folder guard reads that remote on every call and an example that bypassed it
 would be demonstrating something else. Only the remote's *push* url points at a local bare repo, so
-everything completes offline. Binaries are built from a kton checkout (`KTON_SRC`, else `../kton-pinned`, else `../kton`) and the
-cockpit from this one; nothing is vendored and nothing comes from `$PATH`.
+everything completes offline once the modules are in Go's cache. The kernel binaries are built from
+the kton modules this repository's `go.mod` requires — the same kernel the cockpit links — and the
+cockpit from this checkout; nothing comes from `$PATH`.
 
 The examples drive the kernel CLI directly in places, which the cockpit itself no longer does — it
 links the kernels as libraries. That is deliberate: what these show is that the work stays

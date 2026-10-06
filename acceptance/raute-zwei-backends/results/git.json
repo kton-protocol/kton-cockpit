@@ -1,0 +1,790 @@
+{
+  "side": "git",
+  "ranAt": "2026-09-30T16:42:36Z",
+  "bindings": {
+    "dataset": "sha256:ab0a3a6253897602cb84d4592293e905714a017ec4333254ca80b836780df12b",
+    "anzahl": "3"
+  },
+  "steps": [
+    {
+      "phase": "setup",
+      "id": "setup:version",
+      "title": "Welches Cockpit, welcher Kernel",
+      "actor": "cockpit",
+      "command": "./bin/cockpit version",
+      "gap": "",
+      "ok": true,
+      "exit": 0,
+      "result": {
+        "text": "cockpit (devel)\n  built from 7fe58357cebeb7258b0a4328b7ba93595dc7c480 (uncommitted changes)\n  go1.25.0\n  kton.dev/kton        v0.2.1\n  kton.dev/nekton      v0.2.1\n  kton.dev/plankton    v0.2.1"
+      }
+    },
+    {
+      "phase": "setup",
+      "id": "setup:doctor",
+      "title": "Teilnehmerrepo: Konfiguration und Bindung an den origin-Remote prüfen",
+      "actor": "cockpit",
+      "command": "./bin/cockpit doctor",
+      "gap": "",
+      "ok": true,
+      "exit": 0,
+      "result": {
+        "text": "repo root:      /mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/.work/repo\nbound to:       cockpit-examples/raute-zwei-backends (verified against origin remote)\nplankton_dir:   /mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/.work/repo/registry/plankton  [ok]\nnekton_dir:     /mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/.work/repo/registry/nekton  [ok]\ntemplates_dir:  /mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/.work/repo/templates  [ok]\nplankton key:   /mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/.work/repo/keys/session-1.key  [READABLE BY OTHERS: mode -rwxrwxrwx]\n                this is a PRIVATE signing key. Either the filesystem does not enforce\n                modes (a Windows drive mounted into WSL, FAT/exFAT, some network mounts)\n                or the mode was widened. Anyone who can read it can sign as this repo.\nnekton key:     /mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/.work/repo/keys/session-1-claims.key  [READABLE BY OTHERS: mode -rwxrwxrwx]\n                this is a PRIVATE signing key. Either the filesystem does not enforce\n                modes (a Windows drive mounted into WSL, FAT/exFAT, some network mounts)\n                or the mode was widened. Anyone who can read it can sign as this repo.\nallowed templates: [reproduces working-on oq-executed derived-from reviewed]\nclaim scopes:   none configured — every claim stands on its own\ntrust tiers:    map[self:[registry/keys/session-1.pub registry/keys/session-1-claims.pub]]\nkernel:         linked, not invoked — no plankton/nekton process is ever started\n                kton.dev/kton        v0.2.1\n                kton.dev/nekton      v0.2.1\n                kton.dev/plankton    v0.2.1\ngit:            commit + push\nanchor:         off — records are signed, but nothing independent attests WHEN they existed\nmaterial:       none configured — records carry the signature and nothing about whose key it is\nunion:          not published — the graph is reachable via `cockpit show` only\nexecution:      docker in oci://docker.io/scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a\nengine ver:     29.6.2\nnetwork:        isolated (--network none)"
+      }
+    },
+    {
+      "phase": "tool-install",
+      "id": "tool-install:pin",
+      "title": "Das Werkzeug ist das per Digest gepinnte Image in execution.image — Einrichten heißt: es liegt lokal vor",
+      "actor": "script",
+      "command": "docker pull -q scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a && python3 -c 'import json; print(json.dumps(json.load(open(\"cockpit.config.json\"))[\"execution\"]))'",
+      "gap": "",
+      "ok": true,
+      "exit": 0,
+      "result": {
+        "text": "docker.io/scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a\n{\"image\": \"oci://docker.io/scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a\", \"network\": false, \"entrypoint\": \"Rscript\"}"
+      }
+    },
+    {
+      "phase": "tool-qualify",
+      "id": "tool-qualify:inspect",
+      "title": "Das Werkzeugpaket öffnen: Identität, Prüfbefund, angebotenes Spectrum",
+      "actor": "ktonpkg",
+      "command": "/mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/.work/pkgtool inspect packages/jam-r",
+      "gap": "S6: cockpit kennt kton-Pakete noch nicht",
+      "ok": true,
+      "exit": 0,
+      "result": {
+        "bundleId": "sha256:2a5a9cfb05278c576b660f28bf8108c7d2d51938a4984e3b61dc0dd0da991b8b",
+        "format": "kton-package/1",
+        "holes": [
+          {
+            "name": "eingabe",
+            "step": "normalisieren",
+            "slot": "eingabe",
+            "type": "file",
+            "required": true,
+            "description": "die zu normalisierende Ausgabe"
+          }
+        ],
+        "kind": "tool",
+        "name": "jam-r",
+        "problems": null,
+        "rayId": "sha256:cda4c48206833580d65fa0119ee4abb930d4eca30788edb8c346ea9f2cf925aa",
+        "requires": null,
+        "spectrum": {
+          "spectrum": "jam-r",
+          "of": "die R-Umgebung des Jam",
+          "normalizer": "sha256:983fad994d10de10660e868d7ea2569ecc4eb2830567521b430e23cd25692b85",
+          "members": [
+            {
+              "name": "json",
+              "output": "sha256:28f2841e50343381e09f001facb3f9b87c047d879a4c25cdfb0a24f87ce86db1"
+            },
+            {
+              "name": "tabelle",
+              "output": "sha256:0cce87e13fe345df0da8946de1fcf6689769e50895fea0b8efad6a4e06aa010b"
+            },
+            {
+              "name": "modell",
+              "output": "sha256:9e8a620b446144a6f34cfb0f5b2c605ee2db5b192686700d59eefe49be7e99b4"
+            },
+            {
+              "name": "bericht",
+              "output": "sha256:7c05410d8c68ca61a70680840c992a56eb755473ab961dc8d2d64e4cd3f27e82"
+            },
+            {
+              "name": "grafik-daten",
+              "output": "sha256:f75dd1bc9d8112d8d6d18614bd543af749e47e2516d010fc87eabc8996a0aa43"
+            }
+          ]
+        },
+        "spectrumId": "sha256:e0669ff3f8f756868721fe603e72ee1243e93805b3cf422affd261dc311a8bee",
+        "steps": 7,
+        "verified": true
+      }
+    },
+    {
+      "phase": "tool-qualify",
+      "id": "tool-qualify:referenzen",
+      "title": "Die Referenz-Fotons des Herstellers ins eigene Register übernehmen — ohne sie ist das Spectrum eine Liste unbelegter Hashes",
+      "actor": "kernel-cli",
+      "command": "./bin/plankton add /mnt/c/dev/workstreams/active/improveGo/tools/jam-r/spectrum/registry/objects/sha256/*.json --registry registry/plankton",
+      "gap": "K3/S6: Referenz-Fotons des Spectrums übernimmt heute die Kernel-CLI",
+      "ok": true,
+      "exit": 0,
+      "result": {
+        "text": "indexed 14 fotons, 0 already present, 0 refused  (registry now holds 14)"
+      }
+    },
+    {
+      "phase": "tool-qualify",
+      "id": "tool-qualify:member:json",
+      "title": "Spectrum-Member json im gepinnten jam-r-Image laufen lassen und als Foton veröffentlichen",
+      "actor": "cockpit",
+      "command": "./bin/cockpit publish '{\"cmd\":\"cd work/jam-r/json && Rscript 01-json.R\",\"inputs\":[\"work/jam-r/json/01-json.R\"],\"outputs\":[\"work/jam-r/json/json.out\"]}'",
+      "gap": "",
+      "ok": true,
+      "exit": 0,
+      "result": {
+        "fotonId": "sha256:73439b1843aec5412adeb16b9351e1a3a01527c7335b49e7e9db090ca1a4b7bd",
+        "outputHashes": {
+          "work/jam-r/json/json.out": "sha256:28f2841e50343381e09f001facb3f9b87c047d879a4c25cdfb0a24f87ce86db1"
+        },
+        "commitSha": "5c3e6b85a3141ddc899738c3993acb7e46be1dcf",
+        "permalinks": {
+          "work/jam-r/json/01-json.R": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/5c3e6b85a3141ddc899738c3993acb7e46be1dcf/work/jam-r/json/01-json.R",
+          "work/jam-r/json/json.out": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/5c3e6b85a3141ddc899738c3993acb7e46be1dcf/work/jam-r/json/json.out"
+        },
+        "envRef": "oci://docker.io/scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a",
+        "executedIn": "oci://docker.io/scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a",
+        "committed": true,
+        "pushed": true
+      }
+    },
+    {
+      "phase": "tool-qualify",
+      "id": "tool-qualify:member:tabelle",
+      "title": "Spectrum-Member tabelle im gepinnten jam-r-Image laufen lassen und als Foton veröffentlichen",
+      "actor": "cockpit",
+      "command": "./bin/cockpit publish '{\"cmd\":\"cd work/jam-r/tabelle && Rscript 02-tabelle.R\",\"inputs\":[\"work/jam-r/tabelle/02-tabelle.R\"],\"outputs\":[\"work/jam-r/tabelle/tabelle.out\"]}'",
+      "gap": "",
+      "ok": true,
+      "exit": 0,
+      "result": {
+        "fotonId": "sha256:d536927e8b417d5a6a633f4dae683ffb39b4bf070d55eb114fec22b86c0f8794",
+        "outputHashes": {
+          "work/jam-r/tabelle/tabelle.out": "sha256:0cce87e13fe345df0da8946de1fcf6689769e50895fea0b8efad6a4e06aa010b"
+        },
+        "commitSha": "988474f2bd9080c0bda1c190fcc6fa3dcda30f5d",
+        "permalinks": {
+          "work/jam-r/tabelle/02-tabelle.R": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/988474f2bd9080c0bda1c190fcc6fa3dcda30f5d/work/jam-r/tabelle/02-tabelle.R",
+          "work/jam-r/tabelle/tabelle.out": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/988474f2bd9080c0bda1c190fcc6fa3dcda30f5d/work/jam-r/tabelle/tabelle.out"
+        },
+        "envRef": "oci://docker.io/scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a",
+        "executedIn": "oci://docker.io/scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a",
+        "committed": true,
+        "pushed": true
+      }
+    },
+    {
+      "phase": "tool-qualify",
+      "id": "tool-qualify:member:modell",
+      "title": "Spectrum-Member modell im gepinnten jam-r-Image laufen lassen und als Foton veröffentlichen",
+      "actor": "cockpit",
+      "command": "./bin/cockpit publish '{\"cmd\":\"cd work/jam-r/modell && Rscript 03-modell.R\",\"inputs\":[\"work/jam-r/modell/03-modell.R\"],\"outputs\":[\"work/jam-r/modell/modell.out\"]}'",
+      "gap": "",
+      "ok": true,
+      "exit": 0,
+      "result": {
+        "fotonId": "sha256:32bd97b3f3d7d410ad2427319b49078e5137523f832b5c475fc2382981d95e12",
+        "outputHashes": {
+          "work/jam-r/modell/modell.out": "sha256:9e8a620b446144a6f34cfb0f5b2c605ee2db5b192686700d59eefe49be7e99b4"
+        },
+        "commitSha": "eee2e57068cc3ec773b75ac0a6b802605d98efec",
+        "permalinks": {
+          "work/jam-r/modell/03-modell.R": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/eee2e57068cc3ec773b75ac0a6b802605d98efec/work/jam-r/modell/03-modell.R",
+          "work/jam-r/modell/modell.out": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/eee2e57068cc3ec773b75ac0a6b802605d98efec/work/jam-r/modell/modell.out"
+        },
+        "envRef": "oci://docker.io/scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a",
+        "executedIn": "oci://docker.io/scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a",
+        "committed": true,
+        "pushed": true
+      }
+    },
+    {
+      "phase": "tool-qualify",
+      "id": "tool-qualify:member:bericht",
+      "title": "Spectrum-Member bericht im gepinnten jam-r-Image laufen lassen und als Foton veröffentlichen",
+      "actor": "cockpit",
+      "command": "./bin/cockpit publish '{\"cmd\":\"cd work/jam-r/bericht && Rscript 05-bericht.R\",\"inputs\":[\"work/jam-r/bericht/05-bericht.R\"],\"outputs\":[\"work/jam-r/bericht/bericht.out\"]}'",
+      "gap": "",
+      "ok": true,
+      "exit": 0,
+      "result": {
+        "fotonId": "sha256:eedf5bf09e5b254110bb46fa85bba631ebf0d8305c7fd2a14ad800679bf510d5",
+        "outputHashes": {
+          "work/jam-r/bericht/bericht.out": "sha256:defc1bafe2f9152c8d5407f7985193b52bace7084cf80067d9d8a4f5f815893f"
+        },
+        "commitSha": "d711e10322ba0b541f6b48164ea19ec2a6abee9d",
+        "permalinks": {
+          "work/jam-r/bericht/05-bericht.R": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/d711e10322ba0b541f6b48164ea19ec2a6abee9d/work/jam-r/bericht/05-bericht.R",
+          "work/jam-r/bericht/bericht.out": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/d711e10322ba0b541f6b48164ea19ec2a6abee9d/work/jam-r/bericht/bericht.out"
+        },
+        "envRef": "oci://docker.io/scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a",
+        "executedIn": "oci://docker.io/scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a",
+        "stdout": "[1] \"bericht.out\"",
+        "undeclaredChanges": [
+          "work/jam-r/bericht/bericht.Rmd"
+        ],
+        "committed": true,
+        "pushed": true
+      }
+    },
+    {
+      "phase": "tool-qualify",
+      "id": "tool-qualify:member:grafik-daten",
+      "title": "Spectrum-Member grafik-daten im gepinnten jam-r-Image laufen lassen und als Foton veröffentlichen",
+      "actor": "cockpit",
+      "command": "./bin/cockpit publish '{\"cmd\":\"cd work/jam-r/grafik-daten && Rscript 06-grafik-daten.R\",\"inputs\":[\"work/jam-r/grafik-daten/06-grafik-daten.R\"],\"outputs\":[\"work/jam-r/grafik-daten/grafik-daten.out\"]}'",
+      "gap": "",
+      "ok": true,
+      "exit": 0,
+      "result": {
+        "fotonId": "sha256:641cd59d842106f17737dbcd90acedef4a3152a5ee34ca82bf0dc61e482dfe22",
+        "outputHashes": {
+          "work/jam-r/grafik-daten/grafik-daten.out": "sha256:f75dd1bc9d8112d8d6d18614bd543af749e47e2516d010fc87eabc8996a0aa43"
+        },
+        "commitSha": "14d7f1e10b85d384892452b8b25ba8c514312a68",
+        "permalinks": {
+          "work/jam-r/grafik-daten/06-grafik-daten.R": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/14d7f1e10b85d384892452b8b25ba8c514312a68/work/jam-r/grafik-daten/06-grafik-daten.R",
+          "work/jam-r/grafik-daten/grafik-daten.out": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/14d7f1e10b85d384892452b8b25ba8c514312a68/work/jam-r/grafik-daten/grafik-daten.out"
+        },
+        "envRef": "oci://docker.io/scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a",
+        "executedIn": "oci://docker.io/scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a",
+        "committed": true,
+        "pushed": true
+      }
+    },
+    {
+      "phase": "tool-qualify",
+      "id": "tool-qualify:check",
+      "title": "Die eigenen Ausgaben gegen das Spectrum halten (identisch oder über den Normalisierer)",
+      "actor": "kernel-cli",
+      "command": "PLANKTON_DIR=registry/plankton ./bin/plankton spectrum check packages/jam-r/kton/spectrum.json --candidate json=sha256:28f2841e50343381e09f001facb3f9b87c047d879a4c25cdfb0a24f87ce86db1 --candidate tabelle=sha256:0cce87e13fe345df0da8946de1fcf6689769e50895fea0b8efad6a4e06aa010b --candidate modell=sha256:9e8a620b446144a6f34cfb0f5b2c605ee2db5b192686700d59eefe49be7e99b4 --candidate bericht=sha256:defc1bafe2f9152c8d5407f7985193b52bace7084cf80067d9d8a4f5f815893f --candidate grafik-daten=sha256:f75dd1bc9d8112d8d6d18614bd543af749e47e2516d010fc87eabc8996a0aa43",
+      "gap": "K3: die Spectrum-Prüfung gibt es nur als plankton-Kommando, nicht als Bibliothek — das Cockpit kann sie nicht aufrufen",
+      "ok": false,
+      "exit": 1,
+      "result": {
+        "text": "json                     fulfilled (identical)\n  tabelle                  fulfilled (identical)\n  modell                   fulfilled (identical)\n  bericht                  not fulfilled  (to converge via sha256:983fad994d10de10660e868d7ea2569ecc4eb2830567521b430e23cd25692b85, an executor must apply it to both and `plankton add` the ray)\n  grafik-daten             fulfilled (identical)\nspectrum \"jam-r\": 4/5 member(s) fulfilled (reproducible fact).\nthe \"validated at L0/L1\" judgment is semantics on top - record it as a claim in nekton."
+      }
+    },
+    {
+      "phase": "tool-qualify",
+      "id": "tool-qualify:normalizer-potential",
+      "title": "Das Normalisierer-Potential des Spectrums (Ray-Step normalisieren, Loch eingabe) aufzeichnen",
+      "actor": "ktonpkg",
+      "command": "/mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/.work/pkgtool foton packages/jam-r normalisieren > /mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/.work/potential.json && ./bin/plankton author /mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/.work/potential.json keys/session-1.key /mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/.work/potential.dsse && ./bin/plankton add /mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/.work/potential.dsse --registry registry/plankton --print-id",
+      "gap": "S5: ein Potential aufzeichnen soll cockpit publish {kind: potential} sein",
+      "ok": true,
+      "exit": 0,
+      "result": {
+        "text": "sha256:3486ee0a054438c03208dcfab306eb3f41fb26768e2f0e5a48c8087b05951b27",
+        "stderr": "indexed foton sha256:3486ee0a054438c03208dcfab306eb3f41fb26768e2f0e5a48c8087b05951b27  (registry now holds 20 fotons)\nnote: recorded without verifying - run `plankton verify <envelope> <signer-pubkey>` to check authenticity"
+      }
+    },
+    {
+      "phase": "tool-qualify",
+      "id": "tool-qualify:normalize:bericht:referenz",
+      "title": "Normalisierer auf die referenz-Ausgabe von bericht anwenden, im gepinnten jam-r-Image",
+      "actor": "script",
+      "command": "docker run --rm --network none --user $(id -u):$(id -g) -v $PWD/work/jam-r/normalisiert/bericht/referenz:/w -w /w scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a sh -c 'Rscript fences.R eingabe normalisiert.out'",
+      "gap": "S5: das Potential realisieren (Loch binden, im gepinnten Image laufen lassen) soll das Cockpit",
+      "ok": true,
+      "exit": 0,
+      "result": {}
+    },
+    {
+      "phase": "tool-qualify",
+      "id": "tool-qualify:record:bericht:referenz",
+      "title": "Die Realisierung als Foton aufzeichnen — Protokoll aus dem Potential, Loch eingabe an die Bytes gebunden",
+      "actor": "kernel-cli",
+      "command": "/mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/.work/pkgtool foton packages/jam-r normalisieren --bind eingabe=$(./bin/plankton hash work/jam-r/normalisiert/bericht/referenz/eingabe) --output normalisiert.out=work/jam-r/normalisiert/bericht/referenz/normalisiert.out > /mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/.work/r.json && ./bin/plankton author /mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/.work/r.json keys/session-1.key /mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/.work/r.dsse && ./bin/plankton add /mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/.work/r.dsse --registry registry/plankton --print-id",
+      "gap": "S5: die Realisierung aufzeichnen soll cockpit publish {from, bindings} sein",
+      "ok": true,
+      "exit": 0,
+      "result": {
+        "text": "sha256:a50ab0d9e9f3c6322f635c008bb3dfc555ee0cc8603d0bf8b98d4a84e068d36c",
+        "stderr": "indexed foton sha256:a50ab0d9e9f3c6322f635c008bb3dfc555ee0cc8603d0bf8b98d4a84e068d36c  (registry now holds 21 fotons)\nnote: recorded without verifying - run `plankton verify <envelope> <signer-pubkey>` to check authenticity"
+      }
+    },
+    {
+      "phase": "tool-qualify",
+      "id": "tool-qualify:normalize:bericht:eigen",
+      "title": "Normalisierer auf die eigen-Ausgabe von bericht anwenden, im gepinnten jam-r-Image",
+      "actor": "script",
+      "command": "docker run --rm --network none --user $(id -u):$(id -g) -v $PWD/work/jam-r/normalisiert/bericht/eigen:/w -w /w scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a sh -c 'Rscript fences.R eingabe normalisiert.out'",
+      "gap": "S5: das Potential realisieren (Loch binden, im gepinnten Image laufen lassen) soll das Cockpit",
+      "ok": true,
+      "exit": 0,
+      "result": {}
+    },
+    {
+      "phase": "tool-qualify",
+      "id": "tool-qualify:record:bericht:eigen",
+      "title": "Die Realisierung als Foton aufzeichnen — Protokoll aus dem Potential, Loch eingabe an die Bytes gebunden",
+      "actor": "kernel-cli",
+      "command": "/mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/.work/pkgtool foton packages/jam-r normalisieren --bind eingabe=$(./bin/plankton hash work/jam-r/normalisiert/bericht/eigen/eingabe) --output normalisiert.out=work/jam-r/normalisiert/bericht/eigen/normalisiert.out > /mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/.work/r.json && ./bin/plankton author /mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/.work/r.json keys/session-1.key /mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/.work/r.dsse && ./bin/plankton add /mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/.work/r.dsse --registry registry/plankton --print-id",
+      "gap": "S5: die Realisierung aufzeichnen soll cockpit publish {from, bindings} sein",
+      "ok": true,
+      "exit": 0,
+      "result": {
+        "text": "sha256:2dbacb4fd5e8e39975ecf82e0fdbd5b652e003685070d54f164432acfecd8a3a",
+        "stderr": "indexed foton sha256:2dbacb4fd5e8e39975ecf82e0fdbd5b652e003685070d54f164432acfecd8a3a  (registry now holds 22 fotons)\nnote: recorded without verifying - run `plankton verify <envelope> <signer-pubkey>` to check authenticity"
+      }
+    },
+    {
+      "phase": "tool-qualify",
+      "id": "tool-qualify:check-normalized",
+      "title": "Erneut gegen das Spectrum halten, jetzt mit aufgezeichneter Normalisierung",
+      "actor": "kernel-cli",
+      "command": "PLANKTON_DIR=registry/plankton ./bin/plankton spectrum check packages/jam-r/kton/spectrum.json --candidate json=sha256:28f2841e50343381e09f001facb3f9b87c047d879a4c25cdfb0a24f87ce86db1 --candidate tabelle=sha256:0cce87e13fe345df0da8946de1fcf6689769e50895fea0b8efad6a4e06aa010b --candidate modell=sha256:9e8a620b446144a6f34cfb0f5b2c605ee2db5b192686700d59eefe49be7e99b4 --candidate bericht=sha256:defc1bafe2f9152c8d5407f7985193b52bace7084cf80067d9d8a4f5f815893f --candidate grafik-daten=sha256:f75dd1bc9d8112d8d6d18614bd543af749e47e2516d010fc87eabc8996a0aa43",
+      "gap": "K3: die Spectrum-Prüfung gibt es nur als plankton-Kommando, nicht als Bibliothek — das Cockpit kann sie nicht aufrufen",
+      "ok": true,
+      "exit": 0,
+      "result": {
+        "text": "json                     fulfilled (identical)\n  tabelle                  fulfilled (identical)\n  modell                   fulfilled (identical)\n  bericht                  fulfilled (via potential sha256:983fad994d10de10660e868d7ea2569ecc4eb2830567521b430e23cd25692b85 in the ray)\n  grafik-daten             fulfilled (identical)\nspectrum \"jam-r\": 5/5 member(s) fulfilled (reproducible fact).\nthe \"validated at L0/L1\" judgment is semantics on top - record it as a claim in nekton."
+      }
+    },
+    {
+      "phase": "tool-qualify",
+      "id": "tool-qualify:claim",
+      "title": "Den Befund als signierten Claim festhalten (dasselbe OQ-Prädikat wie auf der improve-Seite)",
+      "actor": "cockpit",
+      "command": "./bin/cockpit say '{\"subject\":\"sha256:e0669ff3f8f756868721fe603e72ee1243e93805b3cf422affd261dc311a8bee\",\"template\":\"oq-executed\",\"fields\":{\"tool\":\"oci://docker.io/scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a\",\"verdict\":\"L1\",\"candidates\":\"--candidate json=sha256:28f2841e50343381e09f001facb3f9b87c047d879a4c25cdfb0a24f87ce86db1 --candidate tabelle=sha256:0cce87e13fe345df0da8946de1fcf6689769e50895fea0b8efad6a4e06aa010b --candidate modell=sha256:9e8a620b446144a6f34cfb0f5b2c605ee2db5b192686700d59eefe49be7e99b4 --candidate bericht=sha256:defc1bafe2f9152c8d5407f7985193b52bace7084cf80067d9d8a4f5f815893f --candidate grafik-daten=sha256:f75dd1bc9d8112d8d6d18614bd543af749e47e2516d010fc87eabc8996a0aa43\"}}'",
+      "gap": "",
+      "ok": true,
+      "exit": 0,
+      "result": {
+        "claimId": "sha256:9e5c53eef2b048c78f296580de631b4f6f8ba4d39e1686ffcf0658714c454346",
+        "confirmation": "registered: nekton reports sha256:9e5c53eef2b048c78f296580de631b4f6f8ba4d39e1686ffcf0658714c454346 among the 1 claim(s) about sha256:e0669ff3f8f756868721fe603e72ee1243e93805b3cf422affd261dc311a8bee"
+      }
+    },
+    {
+      "phase": "load",
+      "id": "load:inspect",
+      "title": "Das Workflow-Paket öffnen und prüfen: Identität, Ray, Löcher, Bedingungen",
+      "actor": "ktonpkg",
+      "command": "/mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/.work/pkgtool inspect packages/raute",
+      "gap": "S6: cockpit kennt kton-Pakete noch nicht",
+      "ok": true,
+      "exit": 0,
+      "result": {
+        "bundleId": "sha256:0cb0d874284a939f9ef9c9d425232f8a613bb36c1cd62cb6bbeb67540940c06a",
+        "format": "kton-package/1",
+        "holes": [
+          {
+            "name": "anzahl",
+            "step": "zweig-b",
+            "param": "anzahl",
+            "type": "param",
+            "required": true,
+            "default": "1"
+          },
+          {
+            "name": "dataset",
+            "step": "aufbereitung",
+            "slot": "dataset.csv",
+            "type": "file",
+            "required": true,
+            "default": "testdaten/dataset.csv"
+          }
+        ],
+        "kind": "ray",
+        "name": "raute",
+        "problems": null,
+        "rayId": "sha256:0d6a28044aa6d22dbec51efdbc70e42289e7397f88439561e6c84d8bdeb5d036",
+        "requires": [
+          {
+            "kind": "tool",
+            "spectrum": "sha256:e0669ff3f8f756868721fe603e72ee1243e93805b3cf422affd261dc311a8bee",
+            "name": "jam-r"
+          }
+        ],
+        "spectrum": {
+          "spectrum": "raute",
+          "of": "raute",
+          "members": [
+            {
+              "name": "aufbereitung",
+              "output": "sha256:e80079e56ed5e01f9def48b233c4cdfc9893f30720659c8d4a662025a82eb6f5"
+            },
+            {
+              "name": "zusammenführung",
+              "output": "sha256:7271b8778cd92fb7b3767e9a9f093124629d786f8f7cb418a2217efec2a65019"
+            },
+            {
+              "name": "zweig-b",
+              "output": "sha256:50c88b03c160027d51d2049c66606ba55ac58f117432cc928c59fa6a240b9346"
+            },
+            {
+              "name": "zweig-c",
+              "output": "sha256:a227b01a340204694bb2e1b98dee5aecab5c224990528a81763abba9fd85fbb9"
+            }
+          ]
+        },
+        "spectrumId": "sha256:af4e183638c7ebe130cf323d58ee7b47377ff67130d25e7c8eb26374dfaa8e9d",
+        "steps": 4,
+        "verified": true
+      }
+    },
+    {
+      "phase": "require",
+      "id": "require:spectrum",
+      "title": "Verlangt das Paket ein Werkzeug, das hier qualifiziert ist?",
+      "actor": "script",
+      "command": "python3 -c 'import json,sys; ok=sys.argv[1]==sys.argv[2] and sys.argv[3]!=\"failed\"; print(json.dumps({\"required\":sys.argv[1],\"qualified\":sys.argv[2],\"verdict\":sys.argv[3],\"fulfilled\":ok})); sys.exit(0 if ok else 1)' sha256:e0669ff3f8f756868721fe603e72ee1243e93805b3cf422affd261dc311a8bee sha256:e0669ff3f8f756868721fe603e72ee1243e93805b3cf422affd261dc311a8bee L1",
+      "gap": "S6: die Bedingung eines Pakets gegen qualifizierte Werkzeuge halten gehört ins Cockpit",
+      "ok": true,
+      "exit": 0,
+      "result": {
+        "required": "sha256:e0669ff3f8f756868721fe603e72ee1243e93805b3cf422affd261dc311a8bee",
+        "qualified": "sha256:e0669ff3f8f756868721fe603e72ee1243e93805b3cf422affd261dc311a8bee",
+        "verdict": "L1",
+        "fulfilled": true
+      }
+    },
+    {
+      "phase": "refuse-unbound",
+      "id": "refuse-unbound:plan",
+      "title": "Ohne Bindungen (und ohne Testdatensatz als Vorgabe) darf der Workflow nicht anlaufen",
+      "actor": "ktonpkg",
+      "command": "/mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/.work/pkgtool plan packages/raute work/raute --no-defaults",
+      "gap": "S5: im Zielbild lehnt cockpit publish {from, bindings} das selbst ab",
+      "ok": true,
+      "exit": 2,
+      "result": {
+        "missing": [
+          "anzahl",
+          "dataset"
+        ],
+        "reason": "offene Pflichtlöcher: anzahl, dataset",
+        "refused": true
+      }
+    },
+    {
+      "phase": "bind",
+      "id": "bind:plan",
+      "title": "Löcher binden: dataset = eigener Datensatz, anzahl = 3; daraus die Steps in Reihenfolge",
+      "actor": "ktonpkg",
+      "command": "/mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/.work/pkgtool plan packages/raute work/raute --bind dataset=data/eigene-daten.csv --bind anzahl=3",
+      "gap": "S5: Löcher binden und realisieren soll cockpit publish {from, bindings} sein",
+      "ok": true,
+      "exit": 0,
+      "result": {
+        "bindings": {
+          "anzahl": "3",
+          "dataset": "data/eigene-daten.csv"
+        },
+        "steps": [
+          {
+            "id": "aufbereitung",
+            "dir": "work/raute/aufbereitung",
+            "stage": [
+              {
+                "from": "data/eigene-daten.csv",
+                "to": "work/raute/aufbereitung/dataset.csv"
+              },
+              {
+                "from": "packages/raute/steps/aufbereitung/aufbereiten.R",
+                "to": "work/raute/aufbereitung/aufbereiten.R"
+              }
+            ],
+            "cmd": "cd work/raute/aufbereitung && Rscript aufbereiten.R",
+            "inputs": [
+              "work/raute/aufbereitung/dataset.csv",
+              "work/raute/aufbereitung/aufbereiten.R"
+            ],
+            "outputs": [
+              "work/raute/aufbereitung/daten.txt"
+            ]
+          },
+          {
+            "id": "zweig-c",
+            "dir": "work/raute/zweig-c",
+            "stage": [
+              {
+                "from": "work/raute/aufbereitung/daten.txt",
+                "to": "work/raute/zweig-c/daten.txt"
+              },
+              {
+                "from": "packages/raute/steps/zweig-c/zweigC.R",
+                "to": "work/raute/zweig-c/zweigC.R"
+              }
+            ],
+            "cmd": "cd work/raute/zweig-c && Rscript zweigC.R",
+            "inputs": [
+              "work/raute/zweig-c/daten.txt",
+              "work/raute/zweig-c/zweigC.R"
+            ],
+            "outputs": [
+              "work/raute/zweig-c/c.txt"
+            ]
+          },
+          {
+            "id": "zweig-b",
+            "dir": "work/raute/zweig-b",
+            "stage": [
+              {
+                "from": "packages/raute/steps/zweig-b/zweigB.R",
+                "to": "work/raute/zweig-b/zweigB.R"
+              },
+              {
+                "from": "work/raute/aufbereitung/daten.txt",
+                "to": "work/raute/zweig-b/daten.txt"
+              }
+            ],
+            "params": {
+              "anzahl": "3"
+            },
+            "cmd": "cd work/raute/zweig-b && Rscript zweigB.R 3",
+            "inputs": [
+              "work/raute/zweig-b/zweigB.R",
+              "work/raute/zweig-b/daten.txt"
+            ],
+            "outputs": [
+              "work/raute/zweig-b/b.txt"
+            ]
+          },
+          {
+            "id": "zusammenführung",
+            "dir": "work/raute/zusammenführung",
+            "stage": [
+              {
+                "from": "packages/raute/steps/zusammenführung/zusammen.R",
+                "to": "work/raute/zusammenführung/zusammen.R"
+              },
+              {
+                "from": "work/raute/zweig-b/b.txt",
+                "to": "work/raute/zusammenführung/b.txt"
+              },
+              {
+                "from": "work/raute/zweig-c/c.txt",
+                "to": "work/raute/zusammenführung/c.txt"
+              }
+            ],
+            "cmd": "cd work/raute/zusammenführung && Rscript zusammen.R",
+            "inputs": [
+              "work/raute/zusammenführung/zusammen.R",
+              "work/raute/zusammenführung/b.txt",
+              "work/raute/zusammenführung/c.txt"
+            ],
+            "outputs": [
+              "work/raute/zusammenführung/ergebnis.txt"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "phase": "run",
+      "id": "run:aufbereitung",
+      "title": "Step aufbereitung im gepinnten jam-r-Image ausführen und als Foton veröffentlichen",
+      "actor": "cockpit",
+      "command": "./bin/cockpit publish '{\"cmd\": \"cd work/raute/aufbereitung && Rscript aufbereiten.R\", \"inputs\": [\"work/raute/aufbereitung/dataset.csv\", \"work/raute/aufbereitung/aufbereiten.R\"], \"outputs\": [\"work/raute/aufbereitung/daten.txt\"]}'",
+      "gap": "S5: heute ein publish je Step mit ausgeschriebenem Befehl; im Zielbild realisiert das Cockpit das Potential selbst",
+      "ok": true,
+      "exit": 0,
+      "result": {
+        "fotonId": "sha256:4afc54a1d6f2b61bd58c33a93ef22b2dd5283a80378378602398a4249bc4c99c",
+        "outputHashes": {
+          "work/raute/aufbereitung/daten.txt": "sha256:ab0a3a6253897602cb84d4592293e905714a017ec4333254ca80b836780df12b"
+        },
+        "commitSha": "063763568d30cadef3f375a64fac655ac35e8dbb",
+        "permalinks": {
+          "work/raute/aufbereitung/aufbereiten.R": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/063763568d30cadef3f375a64fac655ac35e8dbb/work/raute/aufbereitung/aufbereiten.R",
+          "work/raute/aufbereitung/dataset.csv": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/063763568d30cadef3f375a64fac655ac35e8dbb/work/raute/aufbereitung/dataset.csv",
+          "work/raute/aufbereitung/daten.txt": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/063763568d30cadef3f375a64fac655ac35e8dbb/work/raute/aufbereitung/daten.txt"
+        },
+        "envRef": "oci://docker.io/scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a",
+        "executedIn": "oci://docker.io/scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a",
+        "committed": true,
+        "pushed": true
+      }
+    },
+    {
+      "phase": "run",
+      "id": "run:zweig-c",
+      "title": "Step zweig-c im gepinnten jam-r-Image ausführen und als Foton veröffentlichen",
+      "actor": "cockpit",
+      "command": "./bin/cockpit publish '{\"cmd\": \"cd work/raute/zweig-c && Rscript zweigC.R\", \"inputs\": [\"work/raute/zweig-c/daten.txt\", \"work/raute/zweig-c/zweigC.R\"], \"outputs\": [\"work/raute/zweig-c/c.txt\"]}'",
+      "gap": "S5: heute ein publish je Step mit ausgeschriebenem Befehl; im Zielbild realisiert das Cockpit das Potential selbst",
+      "ok": true,
+      "exit": 0,
+      "result": {
+        "fotonId": "sha256:bc72f4dbdaa329516bcbc9821781dc493422bf069d66b7a9dd23404e19860437",
+        "outputHashes": {
+          "work/raute/zweig-c/c.txt": "sha256:fb76c5fd07819ff96996d189cd08fe52c64894e55d3dba89eebbebb495f60739"
+        },
+        "commitSha": "ae67bf0e8008d9bbf75201ba2e1a53ef14a88d0a",
+        "permalinks": {
+          "work/raute/zweig-c/c.txt": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/ae67bf0e8008d9bbf75201ba2e1a53ef14a88d0a/work/raute/zweig-c/c.txt",
+          "work/raute/zweig-c/daten.txt": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/ae67bf0e8008d9bbf75201ba2e1a53ef14a88d0a/work/raute/zweig-c/daten.txt",
+          "work/raute/zweig-c/zweigC.R": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/ae67bf0e8008d9bbf75201ba2e1a53ef14a88d0a/work/raute/zweig-c/zweigC.R"
+        },
+        "envRef": "oci://docker.io/scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a",
+        "executedIn": "oci://docker.io/scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a",
+        "committed": true,
+        "pushed": true
+      }
+    },
+    {
+      "phase": "run",
+      "id": "run:zweig-b",
+      "title": "Step zweig-b im gepinnten jam-r-Image ausführen und als Foton veröffentlichen",
+      "actor": "cockpit",
+      "command": "./bin/cockpit publish '{\"cmd\": \"cd work/raute/zweig-b && Rscript zweigB.R 3\", \"inputs\": [\"work/raute/zweig-b/zweigB.R\", \"work/raute/zweig-b/daten.txt\"], \"outputs\": [\"work/raute/zweig-b/b.txt\"]}'",
+      "gap": "S5: heute ein publish je Step mit ausgeschriebenem Befehl; im Zielbild realisiert das Cockpit das Potential selbst",
+      "ok": true,
+      "exit": 0,
+      "result": {
+        "fotonId": "sha256:8aade9fc2f7c7913a30e075c9df99713fe03f76f6a3c15e5b2262790b5ba28cb",
+        "outputHashes": {
+          "work/raute/zweig-b/b.txt": "sha256:e908d8332bb7d78ee94deadbcda35d4525de0e85d1fe4c508a5668d5520e7a31"
+        },
+        "commitSha": "8ccfa24d8840e609e33e6abf08b40e78cda38c1d",
+        "permalinks": {
+          "work/raute/zweig-b/b.txt": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/8ccfa24d8840e609e33e6abf08b40e78cda38c1d/work/raute/zweig-b/b.txt",
+          "work/raute/zweig-b/daten.txt": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/8ccfa24d8840e609e33e6abf08b40e78cda38c1d/work/raute/zweig-b/daten.txt",
+          "work/raute/zweig-b/zweigB.R": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/8ccfa24d8840e609e33e6abf08b40e78cda38c1d/work/raute/zweig-b/zweigB.R"
+        },
+        "envRef": "oci://docker.io/scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a",
+        "executedIn": "oci://docker.io/scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a",
+        "committed": true,
+        "pushed": true
+      }
+    },
+    {
+      "phase": "run",
+      "id": "run:zusammenführung",
+      "title": "Step zusammenführung im gepinnten jam-r-Image ausführen und als Foton veröffentlichen",
+      "actor": "cockpit",
+      "command": "./bin/cockpit publish '{\"cmd\": \"cd work/raute/zusammenführung && Rscript zusammen.R\", \"inputs\": [\"work/raute/zusammenführung/zusammen.R\", \"work/raute/zusammenführung/b.txt\", \"work/raute/zusammenführung/c.txt\"], \"outputs\": [\"work/raute/zusammenführung/ergebnis.txt\"]}'",
+      "gap": "S5: heute ein publish je Step mit ausgeschriebenem Befehl; im Zielbild realisiert das Cockpit das Potential selbst",
+      "ok": true,
+      "exit": 0,
+      "result": {
+        "fotonId": "sha256:b45494f6cbcbcb405c7417f1e9b9c589b6af14dfca262a1db1850774b6e3d262",
+        "outputHashes": {
+          "work/raute/zusammenführung/ergebnis.txt": "sha256:44d419866f5a847c591f1c4a3f9e46ff6416985c1b57840413d986ba60ba01e1"
+        },
+        "commitSha": "a9e5b0a26e7c296ec98ea50dc3d96fb087e9e849",
+        "permalinks": {
+          "work/raute/zusammenführung/b.txt": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/a9e5b0a26e7c296ec98ea50dc3d96fb087e9e849/work/raute/zusammenführung/b.txt",
+          "work/raute/zusammenführung/c.txt": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/a9e5b0a26e7c296ec98ea50dc3d96fb087e9e849/work/raute/zusammenführung/c.txt",
+          "work/raute/zusammenführung/ergebnis.txt": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/a9e5b0a26e7c296ec98ea50dc3d96fb087e9e849/work/raute/zusammenführung/ergebnis.txt",
+          "work/raute/zusammenführung/zusammen.R": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/a9e5b0a26e7c296ec98ea50dc3d96fb087e9e849/work/raute/zusammenführung/zusammen.R"
+        },
+        "envRef": "oci://docker.io/scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a",
+        "executedIn": "oci://docker.io/scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a",
+        "committed": true,
+        "pushed": true
+      }
+    },
+    {
+      "phase": "verify",
+      "id": "verify:lineage",
+      "title": "Vom Ergebnis zurück zum Datensatz: die Linie, gegen die Vertrauensstufen dieses Repos verifiziert",
+      "actor": "cockpit",
+      "command": "./bin/cockpit ask '{\"query\":\"lineage\",\"ref\":\"work/raute/zusammenführung/ergebnis.txt\"}'",
+      "gap": "",
+      "ok": true,
+      "exit": 0,
+      "result": {
+        "query": "lineage",
+        "ref": "sha256:44d419866f5a847c591f1c4a3f9e46ff6416985c1b57840413d986ba60ba01e1",
+        "raw": "sha256:b45494f6cbcbcb405c7417f1e9b9c589b6af14dfca262a1db1850774b6e3d262  kind=script  in=3 out=1\nsha256:8aade9fc2f7c7913a30e075c9df99713fe03f76f6a3c15e5b2262790b5ba28cb  kind=script  in=2 out=1\nsha256:4afc54a1d6f2b61bd58c33a93ef22b2dd5283a80378378602398a4249bc4c99c  kind=script  in=2 out=1\nsha256:bc72f4dbdaa329516bcbc9821781dc493422bf069d66b7a9dd23404e19860437  kind=script  in=2 out=1",
+        "records": [
+          {
+            "id": "sha256:b45494f6cbcbcb405c7417f1e9b9c589b6af14dfca262a1db1850774b6e3d262",
+            "tier": "self",
+            "verified": true
+          },
+          {
+            "id": "sha256:8aade9fc2f7c7913a30e075c9df99713fe03f76f6a3c15e5b2262790b5ba28cb",
+            "tier": "self",
+            "verified": true
+          },
+          {
+            "id": "sha256:4afc54a1d6f2b61bd58c33a93ef22b2dd5283a80378378602398a4249bc4c99c",
+            "tier": "self",
+            "verified": true
+          },
+          {
+            "id": "sha256:bc72f4dbdaa329516bcbc9821781dc493422bf069d66b7a9dd23404e19860437",
+            "tier": "self",
+            "verified": true
+          }
+        ],
+        "included": [
+          "sha256:b45494f6cbcbcb405c7417f1e9b9c589b6af14dfca262a1db1850774b6e3d262",
+          "sha256:8aade9fc2f7c7913a30e075c9df99713fe03f76f6a3c15e5b2262790b5ba28cb",
+          "sha256:4afc54a1d6f2b61bd58c33a93ef22b2dd5283a80378378602398a4249bc4c99c",
+          "sha256:bc72f4dbdaa329516bcbc9821781dc493422bf069d66b7a9dd23404e19860437"
+        ],
+        "fotons": [
+          {
+            "id": "sha256:b45494f6cbcbcb405c7417f1e9b9c589b6af14dfca262a1db1850774b6e3d262",
+            "kind": "script",
+            "inputs": 3,
+            "outputs": 1
+          },
+          {
+            "id": "sha256:8aade9fc2f7c7913a30e075c9df99713fe03f76f6a3c15e5b2262790b5ba28cb",
+            "kind": "script",
+            "inputs": 2,
+            "outputs": 1
+          },
+          {
+            "id": "sha256:4afc54a1d6f2b61bd58c33a93ef22b2dd5283a80378378602398a4249bc4c99c",
+            "kind": "script",
+            "inputs": 2,
+            "outputs": 1
+          },
+          {
+            "id": "sha256:bc72f4dbdaa329516bcbc9821781dc493422bf069d66b7a9dd23404e19860437",
+            "kind": "script",
+            "inputs": 2,
+            "outputs": 1
+          }
+        ],
+        "resolvedFrom": "work/raute/zusammenführung/ergebnis.txt",
+        "filterApplied": "none — every record verified against a configured trust tier is included; unverified records are always excluded"
+      }
+    }
+  ],
+  "qualification": {
+    "tool": "jam-r",
+    "spectrum": "sha256:e0669ff3f8f756868721fe603e72ee1243e93805b3cf422affd261dc311a8bee",
+    "verdict": "L1",
+    "members": {
+      "json": {
+        "output": "sha256:28f2841e50343381e09f001facb3f9b87c047d879a4c25cdfb0a24f87ce86db1",
+        "reference": "sha256:28f2841e50343381e09f001facb3f9b87c047d879a4c25cdfb0a24f87ce86db1",
+        "match": "identical"
+      },
+      "tabelle": {
+        "output": "sha256:0cce87e13fe345df0da8946de1fcf6689769e50895fea0b8efad6a4e06aa010b",
+        "reference": "sha256:0cce87e13fe345df0da8946de1fcf6689769e50895fea0b8efad6a4e06aa010b",
+        "match": "identical"
+      },
+      "modell": {
+        "output": "sha256:9e8a620b446144a6f34cfb0f5b2c605ee2db5b192686700d59eefe49be7e99b4",
+        "reference": "sha256:9e8a620b446144a6f34cfb0f5b2c605ee2db5b192686700d59eefe49be7e99b4",
+        "match": "identical"
+      },
+      "bericht": {
+        "output": "sha256:defc1bafe2f9152c8d5407f7985193b52bace7084cf80067d9d8a4f5f815893f",
+        "reference": "sha256:7c05410d8c68ca61a70680840c992a56eb755473ab961dc8d2d64e4cd3f27e82",
+        "match": "via-normalizer"
+      },
+      "grafik-daten": {
+        "output": "sha256:f75dd1bc9d8112d8d6d18614bd543af749e47e2516d010fc87eabc8996a0aa43",
+        "reference": "sha256:f75dd1bc9d8112d8d6d18614bd543af749e47e2516d010fc87eabc8996a0aa43",
+        "match": "identical"
+      }
+    }
+  },
+  "outputs": {
+    "aufbereitung/daten.txt": "sha256:ab0a3a6253897602cb84d4592293e905714a017ec4333254ca80b836780df12b",
+    "zweig-c/c.txt": "sha256:fb76c5fd07819ff96996d189cd08fe52c64894e55d3dba89eebbebb495f60739",
+    "zweig-b/b.txt": "sha256:e908d8332bb7d78ee94deadbcda35d4525de0e85d1fe4c508a5668d5520e7a31",
+    "zusammenführung/ergebnis.txt": "sha256:44d419866f5a847c591f1c4a3f9e46ff6416985c1b57840413d986ba60ba01e1"
+  },
+  "fotons": {
+    "aufbereitung": "sha256:4afc54a1d6f2b61bd58c33a93ef22b2dd5283a80378378602398a4249bc4c99c",
+    "zweig-c": "sha256:bc72f4dbdaa329516bcbc9821781dc493422bf069d66b7a9dd23404e19860437",
+    "zweig-b": "sha256:8aade9fc2f7c7913a30e075c9df99713fe03f76f6a3c15e5b2262790b5ba28cb",
+    "zusammenführung": "sha256:b45494f6cbcbcb405c7417f1e9b9c589b6af14dfca262a1db1850774b6e3d262"
+  }
+}

@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/kton-protocol/kton-cockpit/internal/config"
+	"github.com/kton-protocol/kton-cockpit/internal/packages"
 	nclaim "kton.dev/nekton/claim"
 	nregistry "kton.dev/nekton/registry"
 	ntemplate "kton.dev/nekton/template"
@@ -67,12 +68,21 @@ type AuthorInput struct {
 // descriptor as {cmd, environment?, envRef?}, and no automatic file:// locator — a logical path is
 // the repo-relative one the caller gave. TestAuthor_MatchesTheReferenceCLI holds that equivalence
 // against the binary, because "the same id" is not something to take on reading.
-func (r *Runner) Author(ctx context.Context, in AuthorInput) (fotonID string, err error) {
+// Authored is what Author recorded.
+type Authored struct {
+	ID string
+	// CoSigned means the registry already held this foton and the call added this repo's signature
+	// to the stored record instead of a record of its own (its locators are kept, ours are not).
+	CoSigned bool
+}
+
+func (r *Runner) Author(ctx context.Context, in AuthorInput) (Authored, error) {
+	coSigned := false
 	located := map[string][]string{}
 	for _, l := range in.Located {
 		path, uri, ok := strings.Cut(l, "=")
 		if !ok {
-			return "", fmt.Errorf("located %q is not path=uri", l)
+			return Authored{}, fmt.Errorf("located %q is not path=uri", l)
 		}
 		located[path] = append(located[path], uri)
 	}
@@ -84,17 +94,17 @@ func (r *Runner) Author(ctx context.Context, in AuthorInput) (fotonID string, er
 			if rerr != nil {
 				return nil, rerr
 			}
-			fs = append(fs, ffoton.FileSpec{Path: p, Hash: core.HashBytes(b), URI: located[p]})
+			fs = append(fs, recordFile(p, core.HashBytes(b), located[p]))
 		}
 		return fs, nil
 	}
 	inputs, err := hashFiles(in.Inputs)
 	if err != nil {
-		return "", err
+		return Authored{}, err
 	}
 	outputs, err := hashFiles(in.Outputs)
 	if err != nil {
-		return "", err
+		return Authored{}, err
 	}
 
 	desc := map[string]any{"cmd": in.Cmd}
@@ -108,23 +118,56 @@ func (r *Runner) Author(ctx context.Context, in AuthorInput) (fotonID string, er
 		Predicate: "foton", Inputs: inputs, Outputs: outputs,
 		Protocol: &ffoton.ProtocolSpec{Kind: "script", Descriptor: desc},
 	}
+	withStatement(&spec)
 
 	priv, err := loadSigningKey(in.SignKey)
 	if err != nil {
-		return "", err
+		return Authored{}, err
 	}
 	env, id, err := ffoton.SignWith(spec, priv)
 	if err != nil {
-		return "", fmt.Errorf("signing the foton: %w", err)
+		return Authored{}, fmt.Errorf("signing the foton: %w", err)
 	}
 	reg, err := pregistry.Open(r.cfg.PlanktonDir)
 	if err != nil {
-		return "", fmt.Errorf("opening the plankton registry: %w", err)
+		return Authored{}, fmt.Errorf("opening the plankton registry: %w", err)
+	}
+	pub := []ed25519.PublicKey{priv.Public().(ed25519.PublicKey)}
+	// The registry may already hold this foton — the same work, recorded by somebody else (an
+	// installed package's reference run) or by this repo at an earlier commit. Its identity is the
+	// same, but its carried locators are not: they pin THAT repo's commit. The kernel never merges
+	// signatures across differing payloads (a signature must stand over the bytes it signed), so
+	// adding our own envelope would be answered "already there" and our signature silently dropped.
+	// Instead we sign the STORED payload. That is a true statement — its covered projection is the
+	// work we just did, which is why the ids agree — and it is the only form a co-signature can take.
+	// The stored record's locators are kept; ours are not recorded.
+	if stored, ok := reg.Envelope(id); ok && core.VerifiedSignerKeyID(stored, pub) == "" {
+		payload, perr := stored.PayloadBytes()
+		if perr != nil {
+			return Authored{}, fmt.Errorf("the registry holds %s but its payload is unreadable: %w", id, perr)
+		}
+		cosigned, cid, serr := ffoton.Seal(payload, ed25519.Sign(priv, core.PAE(stored.PayloadType, payload)), pub[0])
+		if serr != nil {
+			return Authored{}, fmt.Errorf("co-signing the stored %s: %w", id, serr)
+		}
+		if cid != id {
+			return Authored{}, fmt.Errorf("the registry files a record under %s whose signed bytes derive %s; refusing to co-sign it", id, cid)
+		}
+		env = cosigned
+		coSigned = true
 	}
 	if _, _, err := reg.Add(env); err != nil {
-		return "", fmt.Errorf("the foton was signed but the registry refused it: %w", err)
+		return Authored{}, fmt.Errorf("the foton was signed but the registry refused it: %w", err)
 	}
-	return id, nil
+	// Never report a publish whose signature is not on the record. The check is on what the store
+	// now holds, not on what Add answered — "already there" is a success to Add.
+	if stored, ok := reg.Envelope(id); !ok || core.VerifiedSignerKeyID(stored, pub) == "" {
+		return Authored{}, fmt.Errorf("the registry holds %s but not with this repo's signature on it", id)
+	}
+	if err := attachLocators(reg, id, inputs, outputs, located, priv); err != nil {
+		return Authored{}, err
+	}
+	return Authored{ID: id, CoSigned: coSigned}, nil
 }
 
 // KeyID returns the keyid a signature carries for this public key, as the substrate derives it —
@@ -154,11 +197,16 @@ func (r *Runner) KeyID(ctx context.Context, pubkeyPath string) (string, error) {
 // and skipped 44 files "without a word", and the viewer drew a convincing lineage-only picture from
 // it. Nothing errored.
 func (r *Runner) Records(ctx context.Context) ([]Record, error) {
-	preg, err := pregistry.Open(r.cfg.PlanktonDir)
+	pdir, ndir, derr := r.readDirs(ctx)
+	if derr != nil {
+		return nil, derr
+	}
+	_, _ = pdir, ndir
+	preg, err := pregistry.Open(pdir)
 	if err != nil {
 		return nil, fmt.Errorf("opening the plankton registry: %w", err)
 	}
-	nreg, err := nregistry.Open(r.cfg.NektonDir)
+	nreg, err := nregistry.Open(ndir)
 	if err != nil {
 		return nil, fmt.Errorf("opening the nekton registry: %w", err)
 	}
@@ -195,12 +243,17 @@ func (r *Runner) Records(ctx context.Context) ([]Record, error) {
 // from before the write that just happened. Opening reads the whole store, which is exactly what
 // each CLI invocation did too; the saving is the process, not the read.
 func (r *Runner) EnvelopeFor(ctx context.Context, recordID string) (json.RawMessage, error) {
-	if preg, err := pregistry.Open(r.cfg.PlanktonDir); err == nil {
+	pdir, ndir, derr := r.readDirs(ctx)
+	if derr != nil {
+		return nil, derr
+	}
+	_, _ = pdir, ndir
+	if preg, err := pregistry.Open(pdir); err == nil {
 		if env, ok := preg.Envelope(recordID); ok {
 			return json.Marshal(env)
 		}
 	}
-	nreg, err := nregistry.Open(r.cfg.NektonDir)
+	nreg, err := nregistry.Open(ndir)
 	if err != nil {
 		return nil, fmt.Errorf("opening the nekton registry: %w", err)
 	}
@@ -237,7 +290,12 @@ func (r *Runner) Lineage(ctx context.Context, hash string) (*LineageResult, erro
 }
 
 func (r *Runner) lineage(ctx context.Context, relation, hash string) (*LineageResult, error) {
-	reg, err := pregistry.Open(r.cfg.PlanktonDir)
+	pdir, ndir, derr := r.readDirs(ctx)
+	if derr != nil {
+		return nil, derr
+	}
+	_, _ = pdir, ndir
+	reg, err := pregistry.Open(pdir)
 	if err != nil {
 		return nil, fmt.Errorf("opening the plankton registry: %w", err)
 	}
@@ -293,6 +351,11 @@ func (r *Runner) lineage(ctx context.Context, relation, hash string) (*LineageRe
 // was empty; the library returns the count, so the distinction is structural and there is nothing
 // left to misread.
 func (r *Runner) Reproductions(ctx context.Context, outputHash, tier string) (*ReproductionsResult, error) {
+	pdir, ndir, derr := r.readDirs(ctx)
+	if derr != nil {
+		return nil, derr
+	}
+	_, _ = pdir, ndir
 	keys, err := TrustKeys(r.cfg, tier)
 	if err != nil {
 		return nil, err
@@ -308,7 +371,7 @@ func (r *Runner) Reproductions(ctx context.Context, outputHash, tier string) (*R
 				"which their authors wrote. Configure trust.tiers", tierNote(tier))
 	}
 
-	reg, err := pregistry.Open(r.cfg.PlanktonDir)
+	reg, err := pregistry.Open(pdir)
 	if err != nil {
 		return nil, fmt.Errorf("opening the plankton registry: %w", err)
 	}
@@ -411,7 +474,12 @@ type ReproducesResult struct {
 // as unclosable: `reproduces` exits 1 both for a genuine non-match and for a usage error, so a
 // broken invocation would have been reported to the caller as "these outputs differ".
 func (r *Runner) Reproduces(ctx context.Context, refHash, candHash, via string) (*ReproducesResult, error) {
-	reg, err := pregistry.Open(r.cfg.PlanktonDir)
+	pdir, ndir, derr := r.readDirs(ctx)
+	if derr != nil {
+		return nil, derr
+	}
+	_, _ = pdir, ndir
+	reg, err := pregistry.Open(pdir)
 	if err != nil {
 		return nil, fmt.Errorf("opening the plankton registry: %w", err)
 	}
@@ -446,7 +514,7 @@ func (r *Runner) Annotate(ctx context.Context, subject, tmplName string, sets ma
 	}
 	t, ok := set.Get(tmplName)
 	if !ok {
-		return "", fmt.Errorf("no template %q in %s", tmplName, r.cfg.TemplatesDir)
+		return "", fmt.Errorf("no template %q in %s or in an allowed package", tmplName, r.cfg.TemplatesDir)
 	}
 
 	// A `file` field carries BYTES, not a path: the package never touches a filesystem, so that it
@@ -511,7 +579,40 @@ func (r *Runner) Annotate(ctx context.Context, subject, tmplName string, sets ma
 // templates loads this repo's template set. An alias file is optional and this cockpit ships none:
 // its templates name predicates by full IRI, so there is no prefix to resolve (SPEC §8.1).
 func (r *Runner) templates() (ntemplate.Set, error) {
-	set, err := ntemplate.Load(r.cfg.TemplatesDir, filepath.Join(r.cfg.RepoRoot, "aliases.json"))
+	aliasPath := filepath.Join(r.cfg.RepoRoot, "aliases.json")
+	var aliases []byte
+	if b, err := os.ReadFile(aliasPath); err == nil {
+		aliases = b
+	} else if !os.IsNotExist(err) {
+		return ntemplate.Set{}, fmt.Errorf("alias file %s: %w", aliasPath, err)
+	}
+	// Two sources, one set: the repository's own template directory, and the templates the allowed
+	// installed packages bring (claims.allowedPackages). A name declared by both is refused by the
+	// kernel's set constructor rather than resolved by which was read first.
+	raw := map[string][]byte{}
+	if ents, err := os.ReadDir(r.cfg.TemplatesDir); err == nil {
+		for _, e := range ents {
+			n := e.Name()
+			if e.IsDir() || !strings.HasSuffix(n, ".json") || n == filepath.Base(aliasPath) {
+				continue
+			}
+			b, err := os.ReadFile(filepath.Join(r.cfg.TemplatesDir, n))
+			if err != nil {
+				return ntemplate.Set{}, err
+			}
+			raw[strings.TrimSuffix(n, ".json")] = b
+		}
+	} else if !os.IsNotExist(err) {
+		return ntemplate.Set{}, fmt.Errorf("template directory %s: %w", r.cfg.TemplatesDir, err)
+	}
+	voc, err := packages.Allowed(r.cfg.RepoRoot, r.cfg.Raw.Claims.AllowedPackages)
+	if err != nil {
+		return ntemplate.Set{}, err
+	}
+	for name, b := range voc.Templates {
+		raw["package:"+name] = b
+	}
+	set, err := ntemplate.New(raw, aliases)
 	if err != nil {
 		return ntemplate.Set{}, err
 	}
@@ -562,7 +663,12 @@ func loadSigningKey(path string) (ed25519.PrivateKey, error) {
 // reachable; nekton's prose form carried only the id, predicate and declared signer (upstream #39),
 // and a claim you cannot read the content of is a claim you cannot serve.
 func (r *Runner) About(ctx context.Context, subject string) ([]ClaimAxis, error) {
-	reg, err := nregistry.Open(r.cfg.NektonDir)
+	pdir, ndir, derr := r.readDirs(ctx)
+	if derr != nil {
+		return nil, derr
+	}
+	_, _ = pdir, ndir
+	reg, err := nregistry.Open(ndir)
 	if err != nil {
 		return nil, fmt.Errorf("opening the nekton registry: %w", err)
 	}
@@ -593,7 +699,12 @@ func ValidByAxis(s string) bool {
 // nekton back to 0.1 rejects outright with its usage line — so `ask` with query "by" could never
 // have returned an answer, despite being advertised in the tool's own schema.
 func (r *Runner) By(ctx context.Context, axis ByAxis, value string) ([]ClaimAxis, error) {
-	reg, err := nregistry.Open(r.cfg.NektonDir)
+	pdir, ndir, derr := r.readDirs(ctx)
+	if derr != nil {
+		return nil, derr
+	}
+	_, _ = pdir, ndir
+	reg, err := nregistry.Open(ndir)
 	if err != nil {
 		return nil, fmt.Errorf("opening the nekton registry: %w", err)
 	}
@@ -968,4 +1079,135 @@ func pubHalfOf(privateKeyPath string) string {
 // public half sits beside it under the same stem.
 func trimKeySuffix(privateKeyPath string) string {
 	return strings.TrimSuffix(privateKeyPath, ".key") + ".pub"
+}
+
+// FotonFile is one file a record names, with the locator it carries.
+type FotonFile struct {
+	Path string   `json:"path,omitempty"`
+	Hash string   `json:"hash,omitempty"`
+	URI  []string `json:"uri,omitempty"`
+}
+
+// FotonRecord is what one foton says about itself.
+//
+// Two first-time users, working independently, reported the same thing as their single biggest
+// obstacle: a foton id is only ever an answer and never a question. Every lineage query takes a
+// FILE hash, so given the id a publish just handed back, there was no way to ask what that run did
+// — while `plankton show` printed it in full, one layer down. Nothing was missing; it was unexposed.
+type FotonDetail struct {
+	ID          string      `json:"id"`
+	Cmd         string      `json:"cmd,omitempty"`
+	Kind        string      `json:"kind,omitempty"`
+	Environment string      `json:"environment,omitempty"`
+	EnvRef      string      `json:"envRef,omitempty"`
+	SignerKeyID string      `json:"signerKeyId,omitempty"`
+	Inputs      []FotonFile `json:"inputs"`
+	Outputs     []FotonFile `json:"outputs"`
+}
+
+// FotonByID reads one record out of this repo's registry, by the id a publish returned.
+func (r *Runner) FotonByID(ctx context.Context, id string) (*FotonDetail, error) {
+	pdir, ndir, derr := r.readDirs(ctx)
+	if derr != nil {
+		return nil, derr
+	}
+	_, _ = pdir, ndir
+	reg, err := pregistry.Open(pdir)
+	if err != nil {
+		return nil, fmt.Errorf("opening the plankton registry: %w", err)
+	}
+	f, ok := reg.Foton(id)
+	if !ok {
+		return nil, fmt.Errorf("no foton %s in this repo's registry", id)
+	}
+	rec := &FotonDetail{ID: id, Kind: f.Protocol.Kind}
+	if d, dok := f.Protocol.Descriptor["cmd"].(string); dok {
+		rec.Cmd = d
+	}
+	if d, dok := f.Protocol.Descriptor["environment"].(string); dok {
+		rec.Environment = d
+	}
+	if d, dok := f.Protocol.Descriptor["envRef"].(string); dok {
+		rec.EnvRef = d
+	}
+	if env, eok := reg.Envelope(id); eok {
+		// The key that actually VERIFIED, never the one the record declares about itself — so the
+		// candidates are this repo's configured keys, and a record signed by nobody it trusts
+		// reports no signer rather than reporting the signer it claims to have.
+		if keys, kerr := TrustKeys(r.cfg, ""); kerr == nil {
+			rec.SignerKeyID = core.VerifiedSignerKeyID(env, keys)
+		}
+	}
+	for _, in := range f.Inputs {
+		rec.Inputs = append(rec.Inputs, FotonFile{Path: in.Path, Hash: in.Hash, URI: in.URI})
+	}
+	for _, o := range f.Outputs {
+		rec.Outputs = append(rec.Outputs, FotonFile{Path: o.Path, Hash: o.Hash, URI: o.URI})
+	}
+	return rec, nil
+}
+
+// HashFile is Hash for a path that is already absolute, or relative to the process rather than to
+// the repo. Same hash, same kernel function — what differs is only how the caller got there.
+func (r *Runner) HashFile(ctx context.Context, absPath string) (string, error) {
+	b, err := os.ReadFile(absPath)
+	if err != nil {
+		return "", err
+	}
+	return core.HashBytes(b), nil
+}
+
+// TemplateNames lists the templates this repository can use: its own directory and the allowed
+// installed packages.
+func (r *Runner) TemplateNames() ([]string, error) {
+	set, err := r.templates()
+	if err != nil {
+		return nil, err
+	}
+	return set.Names(), nil
+}
+
+// OwnScope finds a scope this repository opened itself, by name: a seed with that name, signed by
+// the key at signKey (verified, not declared). It is how the scope `cockpit install` opens for an
+// installation is found again without the operator copying its id into the configuration. "" when
+// there is none; an error when there are several, because a name that means two scopes is not a
+// name to write under.
+func (r *Runner) OwnScope(ctx context.Context, name, signKey string) (string, error) {
+	pubRaw, err := os.ReadFile(pubHalfOf(signKey))
+	if err != nil {
+		return "", err
+	}
+	pub, err := core.ParsePublicKeyHex(strings.TrimSpace(string(pubRaw)))
+	if err != nil {
+		return "", err
+	}
+	reg, err := nregistry.Open(r.cfg.NektonDir)
+	if err != nil {
+		return "", err
+	}
+	var found []string
+	for _, rec := range reg.Records(0) {
+		st, _, err := nclaim.ParseEnvelope(rec.Envelope)
+		if err != nil || st.PredicateType != nclaim.ScopePredicateType {
+			continue
+		}
+		var body struct {
+			Scope   string `json:"scope"`
+			Genesis bool   `json:"genesis"`
+		}
+		if json.Unmarshal(st.Predicate, &body) != nil || !body.Genesis || body.Scope != name {
+			continue
+		}
+		if core.VerifiedSignerKeyID(rec.Envelope, []ed25519.PublicKey{pub}) == "" {
+			continue
+		}
+		found = append(found, rec.ClaimID)
+	}
+	switch len(found) {
+	case 0:
+		return "", nil
+	case 1:
+		return found[0], nil
+	}
+	return "", fmt.Errorf("this repository opened %d scopes named %q: %s", len(found), name, strings.Join(found, ", "))
 }

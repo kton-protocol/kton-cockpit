@@ -20,11 +20,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 
 	"github.com/kton-protocol/kton-cockpit/internal/binaries"
 	"github.com/kton-protocol/kton-cockpit/internal/config"
 	"kton.dev/plankton/core"
+	pregistry "kton.dev/plankton/registry"
 )
 
 // Kind distinguishes which substrate holds the record.
@@ -114,4 +116,79 @@ func envelopeOf(ctx context.Context, r *binaries.Runner, idOrFile string, kind K
 		return core.Envelope{}, fmt.Errorf("the stored envelope for %s is not readable: %w", idOrFile, jerr)
 	}
 	return env, nil
+}
+
+// Locator is where a file of a foton can be fetched, said by a key this repo trusts.
+type Locator struct {
+	Path   string   `json:"path"`
+	Hash   string   `json:"hash"`
+	URI    []string `json:"uri"`
+	Signer string   `json:"signer"` // keyid
+	Tier   string   `json:"tier"`
+}
+
+// Locators reads the kton-locator/v1 material on a foton (kton §6.6.1 and kton §8.1) and returns what a key
+// in this repo's trust tiers signed about this record's own files. Each producer of a foton/v1
+// record says where ITS copies live; the record itself carries no locator. A statement by a key no
+// tier names, or about bytes the record does not contain, is not returned — it is not this repo's
+// to pass on as a location.
+func Locators(ctx context.Context, r *binaries.Runner, cfg *config.Config, fotonID string) ([]Locator, error) {
+	stored, err := r.MaterialForFoton(ctx, fotonID)
+	if err != nil {
+		return nil, err
+	}
+	// The union, as everywhere ask reads: a federated record's locators are asked about too.
+	pdir, _, err := binaries.ReadDirs(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+	reg, err := pregistry.Open(pdir)
+	if err != nil {
+		return nil, err
+	}
+	f, ok := reg.Foton(fotonID)
+	if !ok {
+		return nil, fmt.Errorf("no foton %s in this registry", fotonID)
+	}
+	keys, byKeyID, err := tierKeys(cfg)
+	if err != nil {
+		return nil, err
+	}
+	var out []Locator
+	for _, s := range stored {
+		ls, err := readLocators(s.Scheme, s.Material, *f, keys)
+		if err != nil {
+			continue
+		}
+		for _, l := range ls {
+			out = append(out, Locator{Path: l.Path, Hash: l.Hash, URI: l.URI, Signer: l.Signer, Tier: byKeyID[l.Signer].tier})
+		}
+	}
+	return out, nil
+}
+
+// Tiers reports every trust tier with a key that signed the record — all of them, not the first.
+// A record two producers did (the same work, co-signed) carries both signatures, and saying only
+// one of them would hide that it was reproduced. Sorted, without duplicates.
+func Tiers(ctx context.Context, r *binaries.Runner, cfg *config.Config, id string, kind Kind) ([]string, error) {
+	env, err := envelopeOf(ctx, r, id, kind)
+	if err != nil {
+		return nil, err
+	}
+	keys, byKeyID, err := tierKeys(cfg)
+	if err != nil {
+		return nil, err
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, k := range keys {
+		if kid := core.VerifiedSignerKeyID(env, []ed25519.PublicKey{k}); kid != "" {
+			if t := byKeyID[kid].tier; !seen[t] {
+				seen[t] = true
+				out = append(out, t)
+			}
+		}
+	}
+	sort.Strings(out)
+	return out, nil
 }

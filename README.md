@@ -102,8 +102,8 @@ layout, and the manual smoke-test recipe against a real populated registry.
 normative clause names the test that checks it, nothing in the default suite skips, and every
 check says what it saw.
 
-CI runs the suite against the kernel commit `AGENTS.md` pins, and separately against kton `dev`
-HEAD on a schedule — the second one is allowed to fail, because a moving `dev` breaking this
+CI runs the suite against the kernel version `go.mod` requires, and separately against kton `main`
+HEAD on a schedule — the second one is allowed to fail, because a moving kernel breaking this
 repository is news rather than a defect in it, and it has arrived four times as a symptom instead.
 
 ## Security

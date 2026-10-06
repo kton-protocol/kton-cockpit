@@ -10,10 +10,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
-
-	"github.com/kton-protocol/kton-cockpit/internal/config"
 )
 
 func run(ctx context.Context, dir, name string, args ...string) (string, error) {
@@ -73,27 +70,36 @@ func redactSlice(args []string, secrets ...string) []string {
 // It is a no-op (not an error) if there is nothing staged to commit — repeated publishes of
 // already-committed bytes should not fail.
 //
+// Git is what CommitAndPush needs to know about a repository: where it is, whether to commit and
+// push at all, and whose commits these are. It used to take the whole configuration, which tied git
+// to the cockpit's config package; the git backend (backend/github) now hands over just this.
+type Git struct {
+	Root         string
+	Commit, Push bool
+	SessionID    string
+}
+
 // When this repo has turned commits off, it returns an empty sha and does nothing. That is not a
 // failure: the record is still signed and registered, it simply gets no locators, because the sha
 // a permalink would pin does not exist. Returning HEAD instead would be worse than returning
 // nothing — a locator pinned to a commit that does not contain the bytes is a URL that resolves to
 // the wrong thing or to nothing, which is exactly the failure locators exist to prevent.
-func CommitAndPush(ctx context.Context, cfg *config.Config, paths []string, message string) (sha string, err error) {
-	if !cfg.Raw.CommitEnabled() {
+func CommitAndPush(ctx context.Context, cfg Git, paths []string, message string) (sha string, err error) {
+	if !cfg.Commit {
 		return "", nil
 	}
 	// The "--" separator is load-bearing, not cosmetic: without it, a path that happens to start
 	// with "-" (e.g. "-f") is parsed by git as a FLAG, not a literal path — "git add -f ." force-
 	// adds every gitignored file in the repo, keys included, without the string "keys/..." ever
-	// appearing in the request. internal/tools/publish.go's validatePublishPath also rejects
+	// appearing in the request. cockpit/publish.go's validatePublishPath also rejects
 	// leading-dash paths as defense in depth, but this is the actual, root-cause fix: with "--",
 	// everything after it is unconditionally a pathspec, regardless of what it starts with.
 	args := append([]string{"add", "--"}, paths...)
-	if _, err := run(ctx, cfg.RepoRoot, "git", args...); err != nil {
+	if _, err := run(ctx, cfg.Root, "git", args...); err != nil {
 		return "", err
 	}
 
-	if _, err := run(ctx, cfg.RepoRoot, "git", "diff", "--cached", "--quiet"); err == nil {
+	if _, err := run(ctx, cfg.Root, "git", "diff", "--cached", "--quiet"); err == nil {
 		// Nothing NEW staged this call — but HEAD may already be ahead of origin from a PRIOR
 		// call whose commit succeeded and whose push then failed (network blip, auth hiccup): a
 		// naive early return here, without ever attempting a push, would leave that commit
@@ -115,7 +121,8 @@ func CommitAndPush(ctx context.Context, cfg *config.Config, paths []string, mess
 		}
 		if ahead {
 			if err := push(ctx, cfg); err != nil {
-				return "", err
+				sha, serr := CurrentSHA(ctx, cfg)
+				return sha, errOrPushFailed(sha, err, serr)
 			}
 		}
 		return CurrentSHA(ctx, cfg)
@@ -127,22 +134,61 @@ func CommitAndPush(ctx context.Context, cfg *config.Config, paths []string, mess
 	// practice where writing to .git/config directly hit "Device or resource busy" inside that
 	// sandbox. Derived from the session identity already in config — not a new config field.
 	commitArgs := append(commitIdentityArgs(cfg), "commit", "-m", message)
-	if _, err := run(ctx, cfg.RepoRoot, "git", commitArgs...); err != nil {
+	if _, err := run(ctx, cfg.Root, "git", commitArgs...); err != nil {
 		return "", err
 	}
-	if cfg.Raw.PushEnabled() {
+	if cfg.Push {
 		if err := push(ctx, cfg); err != nil {
-			return "", err
+			sha, serr := CurrentSHA(ctx, cfg)
+			return sha, errOrPushFailed(sha, err, serr)
 		}
 	}
 	return CurrentSHA(ctx, cfg)
 }
 
+// PushFailed says that everything local succeeded and only the push did not.
+//
+// It exists because the two were indistinguishable, and the difference is the whole record. A
+// teammate pushing first rejects your push; the commit it would have carried is already made and
+// its sha is real, so the permalinks built from it are correct and will resolve the moment somebody
+// pushes. Treating that as a failed publish threw away a signed record and, when the cockpit had
+// just spent two minutes running the command in a container, the run as well.
+//
+// Found by a first-time user: twelve of twenty-eight publishes in one afternoon, three people in
+// one repository. Each one committed the artifacts, wrote no foton, and said only that git had
+// failed.
+type PushFailed struct {
+	SHA string
+	Err error
+}
+
+func (e *PushFailed) Error() string {
+	return fmt.Sprintf("committed as %s, but the push was rejected: %v", shortSHA(e.SHA), e.Err)
+}
+
+func (e *PushFailed) Unwrap() error { return e.Err }
+
+// errOrPushFailed reports a rejected push as PushFailed when the commit it belongs to can still be
+// named, and as a plain error when it cannot — a sha this could not read is a state worth failing on.
+func errOrPushFailed(sha string, pushErr, shaErr error) error {
+	if shaErr != nil || sha == "" {
+		return pushErr
+	}
+	return &PushFailed{SHA: sha, Err: pushErr}
+}
+
+func shortSHA(s string) string {
+	if len(s) > 8 {
+		return s[:8]
+	}
+	return s
+}
+
 // commitIdentityArgs returns the `-c user.name=... -c user.email=...` flags for this cockpit's
 // own commits, derived from the configured session identity so every participant's commits are
 // attributable without requiring git to be pre-configured in the environment.
-func commitIdentityArgs(cfg *config.Config) []string {
-	session := cfg.Raw.Identity.SessionID
+func commitIdentityArgs(cfg Git) []string {
+	session := cfg.SessionID
 	return []string{
 		"-c", fmt.Sprintf("user.name=cockpit (%s)", session),
 		"-c", fmt.Sprintf("user.email=%s@cockpit.local", session),
@@ -167,13 +213,13 @@ func commitIdentityArgs(cfg *config.Config) []string {
 // auth login` already configured, for instance). It exists because a sandboxed MCP client runtime
 // (an agent host's local-command connector) does not necessarily inherit that ambient credential
 // setup, so git push there fails with no way to authenticate unless told to explicitly.
-func push(ctx context.Context, cfg *config.Config) error {
+func push(ctx context.Context, cfg Git) error {
 	token := os.Getenv("GITHUB_TOKEN")
 	if token == "" {
 		token = os.Getenv("GH_TOKEN")
 	}
 	if token == "" {
-		_, err := run(ctx, cfg.RepoRoot, "git", "push", "origin", "HEAD")
+		_, err := run(ctx, cfg.Root, "git", "push", "origin", "HEAD")
 		return err
 	}
 	header := "AUTHORIZATION: basic " + base64.StdEncoding.EncodeToString([]byte("x-access-token:"+token))
@@ -182,13 +228,13 @@ func push(ctx context.Context, cfg *config.Config) error {
 	// actually appears in argv) is the real leak vector since it's base64, not the raw token
 	// substring — see runRedacted's doc comment. The raw token is included too as defense in
 	// depth in case it ever surfaces some other way.
-	_, err := runRedacted(ctx, cfg.RepoRoot, "git", args, token, header)
+	_, err := runRedacted(ctx, cfg.Root, "git", args, token, header)
 	return err
 }
 
 // CurrentSHA returns the repo's current HEAD commit sha.
-func CurrentSHA(ctx context.Context, cfg *config.Config) (string, error) {
-	out, err := run(ctx, cfg.RepoRoot, "git", "rev-parse", "HEAD")
+func CurrentSHA(ctx context.Context, cfg Git) (string, error) {
+	out, err := run(ctx, cfg.Root, "git", "rev-parse", "HEAD")
 	if err != nil {
 		return "", err
 	}
@@ -202,38 +248,20 @@ func CurrentSHA(ctx context.Context, cfg *config.Config) (string, error) {
 // its first push): this is only ever used to decide whether to SKIP a push, so erring toward true
 // on ambiguity never reintroduces the stranded-commit bug CommitAndPush's "nothing staged" branch
 // exists to fix — it only skips the network round-trip in the unambiguous already-synced case.
-func localAheadOfUpstream(ctx context.Context, cfg *config.Config) (bool, error) {
+func localAheadOfUpstream(ctx context.Context, cfg Git) (bool, error) {
 	head, err := CurrentSHA(ctx, cfg)
 	if err != nil {
 		return false, err
 	}
-	upstream, err := run(ctx, cfg.RepoRoot, "git", "rev-parse", "@{u}")
+	upstream, err := run(ctx, cfg.Root, "git", "rev-parse", "@{u}")
 	if err != nil {
 		return true, nil
 	}
 	return head != strings.TrimSpace(upstream), nil
 }
 
-// PermalinkBase builds the commit-pinned raw.githubusercontent.com base URL for the configured
-// repo at the given sha.
-func PermalinkBase(cfg *config.Config, sha string) string {
-	return fmt.Sprintf("https://raw.githubusercontent.com/%s/%s/%s", cfg.Raw.Repo.Owner, cfg.Raw.Repo.Name, sha)
-}
-
-// LocatedFlags builds one `path=permalink` pair per repo-relative path, in the form `plankton
-// author --located` expects. The caller supplies plain paths; the cockpit is the only thing that ever
-// constructs the URL.
-func LocatedFlags(cfg *config.Config, sha string, paths []string) []string {
-	// No commit, no locator. A URL pinned to no commit — or to whatever HEAD happened to be —
-	// points at bytes that are not there.
-	if sha == "" {
-		return nil
-	}
-	base := PermalinkBase(cfg, sha)
-	out := make([]string, 0, len(paths))
-	for _, p := range paths {
-		rel := filepath.ToSlash(p)
-		out = append(out, fmt.Sprintf("%s=%s/%s", rel, base, rel))
-	}
-	return out
+// PermalinkBase builds the commit-pinned raw.githubusercontent.com base URL for a repository at
+// the given sha.
+func PermalinkBase(owner, name, sha string) string {
+	return fmt.Sprintf("https://raw.githubusercontent.com/%s/%s/%s", owner, name, sha)
 }

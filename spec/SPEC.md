@@ -162,6 +162,18 @@ Neither is complete, and a cockpit MUST NOT present either as if it were. Local 
 shape for the original incident, which was sibling directories under one parent rather than a
 different remote.
 
+### 5.5 Modes from extensions
+
+The binding is done by the backend `repo.mode` names (ADR-008). The reference backends, git and
+local, are the ones §5.2 and §5.3 describe; an extension may add a mode, and its binding MUST meet
+the same bar — a second source the configuration did not write, checked on every call.
+
+A cockpit MUST refuse a mode it has no backend for, naming it. Treating an unknown mode as git would
+act as one backend against a repository configured for another.
+
+> **Checked by:** `TestAPI_AModeNoBackendProvidesIsRefusedByName`, and the conformance suite every
+> backend runs (`cockpit/backend/backendtest`): `TestConformance` in the git and local backends.
+
 ## 6 The surface
 
 A cockpit MUST expose exactly three verbs: `publish`, `say`, `ask`. It MUST NOT expose a fourth, and
@@ -193,8 +205,8 @@ version cannot exist at run time. That is one way of meeting the clause, not the
 that invokes binaries meets it by refusing anything but the build its configuration names, never one
 from `$PATH`, and by checking the version on the path a session actually takes.
 
-> **Checked by:** `TestVerifiedAgainst_NamesTheKernelTheBinariesWereBuiltFrom` (the pinned kernel
-> commit is compared against the build the fixture runs), `TestAuthor_MatchesTheReferenceCLI` (the
+> **Checked by:** `TestKernel_TheBinariesAreTheKernelGoModRequires` (the reference binaries the
+> fixture runs are built from the module version go.mod requires), `TestAuthor_MatchesTheReferenceCLI` (the
 > linked write path produces the same foton id as the reference binary does).
 
 ## 7 publish
@@ -279,6 +291,40 @@ Where the cockpit ran the command itself (§10), it MUST record the environment 
 refuse a supplied value naming a different one.
 
 > **Checked by:** `TestPublish_WillNotRecordAnEnvironmentOtherThanTheOneItRanIn`.
+
+### 7.6 Publishing a ray *(optional)*
+
+`publish` with `kind: "ray"` writes a potential extracted from executions that already ran as a
+`kton-package/1` ray, and records where it came from (ADR-006).
+
+- The cockpit MUST compute the proposal again from the endpoints it is given, and MUST NOT take one
+  from the caller. A proposal passed in could name candidates that do not exist.
+- A hole or a parameter MUST be one the proposal offers; anything else is refused, and nothing is
+  written. Whatever is not chosen stays fixed.
+- The target directory MUST NOT exist. An extracted package is written new, never over an old one.
+- The package MUST be recorded by a signed claim from the ray to the executions of the reference
+  run (`prov:wasDerivedFrom`), under a template the configuration admits (SPEC §8.1).
+
+> **Checked by:** `TestRay_PublishWritesThePackageAndRecordsWhereItCameFrom`,
+> `TestRay_PublishRefusesWhatWasNotOffered`, `TestRay_PublishNeedsTheTemplateAdmitted`.
+
+### 7.7 Work that is already a record
+
+The registry may already hold the foton a publish computes: the same inputs, outputs and protocol,
+recorded by somebody else (the reference run of an installed package, re-run by its user) or by
+this repository at an earlier commit. The id is the same; the carried locators are not, because
+each pins its own repository's commit (kton §6.1). The kernel never merges signatures across
+differing signed bytes.
+
+- If the stored record does not yet carry this repository's signature, the cockpit MUST sign the
+  **stored** payload and add that signature to the record, and MUST report `coSigned: true`. The
+  stored record's locators are kept; this repository's are not recorded in it.
+- The cockpit MUST NOT report a publish as done when the record it names does not carry its
+  signature afterwards. "Already there" is a success to the registry, not to the caller.
+- Publishing one's own work again is not a co-signature.
+
+> **Checked by:** `TestAuthor_CoSignsWorkTheRegistryAlreadyHolds`,
+> `TestAuthor_RepublishingOwnWorkIsNotACoSignature`, `acceptance/raute-scope`.
 
 ## 8 say
 
@@ -548,6 +594,44 @@ before a test caught it. Both were readings of a projection rather than of the t
 > **Known exception (0.1):** the reproduction level in §8.2 was read from a printed line until the
 > substrate gained a verdict for it. Any such exception MUST be named here and raised upstream, not
 > left implied.
+
+### 9.7 Proposing a ray
+
+`ask` with `query: "ray"` returns what `ktonpkg.Propose` observes in the executions behind one or
+more endpoints: runs, steps, wiring, file candidates and parameter candidates. It decides nothing.
+
+- Executions MUST be selected by the same path as `lineage`. Only records that verify against a
+  configured trust tier, and pass the filter, reach the proposal; that includes federated records.
+- A parameter candidate MUST come only from runs of the same step that differ at the same position
+  of the command line, never from a rule about what looks like a parameter.
+- With `execution.entrypoint` configured, a recorded command line MUST start with that word, which
+  is dropped, and the image from the record's `envRef` comes first. This is the form a package
+  carries. A command line that does not start with it is refused, not rewritten.
+
+> **Checked by:** `TestRay_TheProposalOffersWhatTheRunsShowAndDecidesNothing`,
+> `TestRay_TheAdapterTranslatesOnlyTheNamedEntrypoint`.
+
+### 9.8 Federated sources *(optional)*
+
+Where a record lives is not something the kernels know, so which other registries are read together
+with the own one is said in `cockpit.config.json`, under `federation.sources`. Each source has a
+`name` and a `kind`; a kind says how one kind of place is read. The core provides `dir` (a directory
+holding `registry/plankton` and `registry/nekton`); an extension MAY register further kinds the same
+way a repo backend is registered (§5.5).
+
+- `ask`, the served and published union (§12.2) and search MUST read the union of the own registry
+  and every source, joined by record id. Writes MUST go to the own registry only; a source is never
+  written to, and nothing is copied from a source into the own registry.
+- Every record entering the union MUST pass the registry's own checks. A source holding a record that
+  does not, or one whose registry reports skipped records, MUST be named in the failure; a partial
+  union MUST NOT pass for a whole one.
+- A source MAY yield more than one registry — a place holding several participants side by side
+  (a site and the packages installed in it, each with its own records). Each is read as it is; none
+  is copied into another.
+- A source adds records, never signers: the configured trust tiers remain the ceiling (§9.1).
+- A kind that is not available in the build MUST be refused when the configuration is loaded.
+
+> **Checked by:** `TestFederation_ReadsTheUnionOfOwnAndSources`, `TestFederation_UnknownKindIsRefusedAtLoad`.
 
 ## 10 Execution *(optional)*
 

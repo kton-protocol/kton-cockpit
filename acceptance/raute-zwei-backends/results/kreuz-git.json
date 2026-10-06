@@ -1,0 +1,819 @@
+{
+  "ranAt": "2026-09-30T16:50:25Z",
+  "steps": [
+    {
+      "phase": "compare",
+      "id": "compare:inspect:git",
+      "title": "Das in git extrahierte Paket: Identität",
+      "actor": "ktonpkg",
+      "command": "/mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/.work/kreuz/pkgtool inspect packages/raute-aus-git",
+      "gap": "",
+      "ok": true,
+      "exit": 0,
+      "result": {
+        "bundleId": "sha256:135701e7d917ae4aedbef8f973e22d59038840d5605b360a208217aabb3c9173",
+        "format": "kton-package/1",
+        "holes": [
+          {
+            "name": "anzahl",
+            "step": "zweig-b",
+            "param": "anzahl",
+            "type": "param",
+            "required": true,
+            "default": "3"
+          },
+          {
+            "name": "dataset",
+            "step": "aufbereitung",
+            "slot": "dataset.csv",
+            "type": "file",
+            "required": true,
+            "default": "testdaten/dataset/dataset.csv"
+          }
+        ],
+        "kind": "ray",
+        "name": "raute-extrahiert",
+        "problems": null,
+        "rayId": "sha256:1152ddff61fbfe83d9c948f92fb1abe7adb9a9e97f5bc80ea3255cadca855ab1",
+        "requires": [
+          {
+            "kind": "tool",
+            "spectrum": "sha256:e0669ff3f8f756868721fe603e72ee1243e93805b3cf422affd261dc311a8bee",
+            "name": "jam-r"
+          }
+        ],
+        "spectrum": {
+          "spectrum": "raute-extrahiert",
+          "of": "extrahiert aus dem Lauf mit den Endpunkten sha256:44d419866f5a847c591f1c4a3f9e46ff6416985c1b57840413d986ba60ba01e1",
+          "members": [
+            {
+              "name": "aufbereitung",
+              "output": "sha256:ab0a3a6253897602cb84d4592293e905714a017ec4333254ca80b836780df12b"
+            },
+            {
+              "name": "zusammenführung",
+              "output": "sha256:44d419866f5a847c591f1c4a3f9e46ff6416985c1b57840413d986ba60ba01e1"
+            },
+            {
+              "name": "zweig-b",
+              "output": "sha256:e908d8332bb7d78ee94deadbcda35d4525de0e85d1fe4c508a5668d5520e7a31"
+            },
+            {
+              "name": "zweig-c",
+              "output": "sha256:fb76c5fd07819ff96996d189cd08fe52c64894e55d3dba89eebbebb495f60739"
+            }
+          ]
+        },
+        "spectrumId": "sha256:797e3490217d5cc8a837c2bb2ac355654c0d917af2227db3c918cbf18ad0ed43",
+        "steps": 4,
+        "verified": true
+      }
+    },
+    {
+      "phase": "b:load",
+      "id": "b:load:inspect",
+      "title": "Das in improve extrahierte Paket öffnen und prüfen",
+      "actor": "ktonpkg",
+      "command": "/mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/.work/kreuz/pkgtool inspect packages/raute-aus-improve",
+      "gap": "S6: cockpit kennt kton-Pakete noch nicht",
+      "ok": true,
+      "exit": 0,
+      "result": {
+        "bundleId": "sha256:135701e7d917ae4aedbef8f973e22d59038840d5605b360a208217aabb3c9173",
+        "format": "kton-package/1",
+        "holes": [
+          {
+            "name": "anzahl",
+            "step": "zweig-b",
+            "param": "anzahl",
+            "type": "param",
+            "required": true,
+            "default": "3"
+          },
+          {
+            "name": "dataset",
+            "step": "aufbereitung",
+            "slot": "dataset.csv",
+            "type": "file",
+            "required": true,
+            "default": "testdaten/dataset/dataset.csv"
+          }
+        ],
+        "kind": "ray",
+        "name": "raute-extrahiert",
+        "problems": null,
+        "rayId": "sha256:1152ddff61fbfe83d9c948f92fb1abe7adb9a9e97f5bc80ea3255cadca855ab1",
+        "requires": [
+          {
+            "kind": "tool",
+            "spectrum": "sha256:e0669ff3f8f756868721fe603e72ee1243e93805b3cf422affd261dc311a8bee",
+            "name": "jam-r"
+          }
+        ],
+        "spectrum": {
+          "spectrum": "raute-extrahiert",
+          "of": "extrahiert aus dem Lauf mit den Endpunkten sha256:44d419866f5a847c591f1c4a3f9e46ff6416985c1b57840413d986ba60ba01e1",
+          "members": [
+            {
+              "name": "aufbereitung",
+              "output": "sha256:ab0a3a6253897602cb84d4592293e905714a017ec4333254ca80b836780df12b"
+            },
+            {
+              "name": "zusammenführung",
+              "output": "sha256:44d419866f5a847c591f1c4a3f9e46ff6416985c1b57840413d986ba60ba01e1"
+            },
+            {
+              "name": "zweig-b",
+              "output": "sha256:e908d8332bb7d78ee94deadbcda35d4525de0e85d1fe4c508a5668d5520e7a31"
+            },
+            {
+              "name": "zweig-c",
+              "output": "sha256:fb76c5fd07819ff96996d189cd08fe52c64894e55d3dba89eebbebb495f60739"
+            }
+          ]
+        },
+        "spectrumId": "sha256:797e3490217d5cc8a837c2bb2ac355654c0d917af2227db3c918cbf18ad0ed43",
+        "steps": 4,
+        "verified": true
+      }
+    },
+    {
+      "phase": "b:bind",
+      "id": "b:bind:plan",
+      "title": "Binden wie Lauf 1 in improve: eigene-daten.csv, anzahl=3",
+      "actor": "ktonpkg",
+      "command": "/mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/.work/kreuz/pkgtool plan packages/raute-aus-improve work/raute-aus-improve --bind dataset=data/eigene-daten.csv --bind anzahl=3",
+      "gap": "S5: im Zielbild cockpit publish {from, bindings}",
+      "ok": true,
+      "exit": 0,
+      "result": {
+        "bindings": {
+          "anzahl": "3",
+          "dataset": "data/eigene-daten.csv"
+        },
+        "steps": [
+          {
+            "id": "aufbereitung",
+            "dir": "work/raute-aus-improve/aufbereitung",
+            "stage": [
+              {
+                "from": "packages/raute-aus-improve/steps/aufbereitung/aufbereiten.R",
+                "to": "work/raute-aus-improve/aufbereitung/aufbereiten.R"
+              },
+              {
+                "from": "data/eigene-daten.csv",
+                "to": "work/raute-aus-improve/aufbereitung/dataset.csv"
+              }
+            ],
+            "cmd": "cd work/raute-aus-improve/aufbereitung && Rscript aufbereiten.R",
+            "inputs": [
+              "work/raute-aus-improve/aufbereitung/aufbereiten.R",
+              "work/raute-aus-improve/aufbereitung/dataset.csv"
+            ],
+            "outputs": [
+              "work/raute-aus-improve/aufbereitung/daten.txt"
+            ]
+          },
+          {
+            "id": "zweig-b",
+            "dir": "work/raute-aus-improve/zweig-b",
+            "stage": [
+              {
+                "from": "work/raute-aus-improve/aufbereitung/daten.txt",
+                "to": "work/raute-aus-improve/zweig-b/daten.txt"
+              },
+              {
+                "from": "packages/raute-aus-improve/steps/zweig-b/zweigB.R",
+                "to": "work/raute-aus-improve/zweig-b/zweigB.R"
+              }
+            ],
+            "params": {
+              "anzahl": "3"
+            },
+            "cmd": "cd work/raute-aus-improve/zweig-b && Rscript zweigB.R 3",
+            "inputs": [
+              "work/raute-aus-improve/zweig-b/daten.txt",
+              "work/raute-aus-improve/zweig-b/zweigB.R"
+            ],
+            "outputs": [
+              "work/raute-aus-improve/zweig-b/b.txt"
+            ]
+          },
+          {
+            "id": "zweig-c",
+            "dir": "work/raute-aus-improve/zweig-c",
+            "stage": [
+              {
+                "from": "work/raute-aus-improve/aufbereitung/daten.txt",
+                "to": "work/raute-aus-improve/zweig-c/daten.txt"
+              },
+              {
+                "from": "packages/raute-aus-improve/steps/zweig-c/zweigC.R",
+                "to": "work/raute-aus-improve/zweig-c/zweigC.R"
+              }
+            ],
+            "cmd": "cd work/raute-aus-improve/zweig-c && Rscript zweigC.R",
+            "inputs": [
+              "work/raute-aus-improve/zweig-c/daten.txt",
+              "work/raute-aus-improve/zweig-c/zweigC.R"
+            ],
+            "outputs": [
+              "work/raute-aus-improve/zweig-c/c.txt"
+            ]
+          },
+          {
+            "id": "zusammenführung",
+            "dir": "work/raute-aus-improve/zusammenführung",
+            "stage": [
+              {
+                "from": "work/raute-aus-improve/zweig-b/b.txt",
+                "to": "work/raute-aus-improve/zusammenführung/b.txt"
+              },
+              {
+                "from": "work/raute-aus-improve/zweig-c/c.txt",
+                "to": "work/raute-aus-improve/zusammenführung/c.txt"
+              },
+              {
+                "from": "packages/raute-aus-improve/steps/zusammenführung/zusammen.R",
+                "to": "work/raute-aus-improve/zusammenführung/zusammen.R"
+              }
+            ],
+            "cmd": "cd work/raute-aus-improve/zusammenführung && Rscript zusammen.R",
+            "inputs": [
+              "work/raute-aus-improve/zusammenführung/b.txt",
+              "work/raute-aus-improve/zusammenführung/c.txt",
+              "work/raute-aus-improve/zusammenführung/zusammen.R"
+            ],
+            "outputs": [
+              "work/raute-aus-improve/zusammenführung/ergebnis.txt"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "phase": "b:run",
+      "id": "b:run:aufbereitung",
+      "title": "Step aufbereitung im gepinnten jam-r-Image ausführen und als Foton veröffentlichen",
+      "actor": "cockpit",
+      "command": "./bin/cockpit publish '{\"cmd\": \"cd work/raute-aus-improve/aufbereitung && Rscript aufbereiten.R\", \"inputs\": [\"work/raute-aus-improve/aufbereitung/aufbereiten.R\", \"work/raute-aus-improve/aufbereitung/dataset.csv\"], \"outputs\": [\"work/raute-aus-improve/aufbereitung/daten.txt\"]}'",
+      "gap": "S5: heute ein publish je Step mit ausgeschriebenem Befehl; im Zielbild realisiert das Cockpit das Potential selbst",
+      "ok": true,
+      "exit": 0,
+      "result": {
+        "fotonId": "sha256:c503921fa445ec4bc06abaeb04c08e11a39891e224740450b616309ebf889959",
+        "outputHashes": {
+          "work/raute-aus-improve/aufbereitung/daten.txt": "sha256:ab0a3a6253897602cb84d4592293e905714a017ec4333254ca80b836780df12b"
+        },
+        "commitSha": "acf69cbae6f9c875d5226f89a7072333a3bf0477",
+        "permalinks": {
+          "work/raute-aus-improve/aufbereitung/aufbereiten.R": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/acf69cbae6f9c875d5226f89a7072333a3bf0477/work/raute-aus-improve/aufbereitung/aufbereiten.R",
+          "work/raute-aus-improve/aufbereitung/dataset.csv": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/acf69cbae6f9c875d5226f89a7072333a3bf0477/work/raute-aus-improve/aufbereitung/dataset.csv",
+          "work/raute-aus-improve/aufbereitung/daten.txt": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/acf69cbae6f9c875d5226f89a7072333a3bf0477/work/raute-aus-improve/aufbereitung/daten.txt"
+        },
+        "envRef": "oci://docker.io/scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a",
+        "executedIn": "oci://docker.io/scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a",
+        "committed": true,
+        "pushed": true
+      }
+    },
+    {
+      "phase": "b:run",
+      "id": "b:run:zweig-b",
+      "title": "Step zweig-b im gepinnten jam-r-Image ausführen und als Foton veröffentlichen",
+      "actor": "cockpit",
+      "command": "./bin/cockpit publish '{\"cmd\": \"cd work/raute-aus-improve/zweig-b && Rscript zweigB.R 3\", \"inputs\": [\"work/raute-aus-improve/zweig-b/daten.txt\", \"work/raute-aus-improve/zweig-b/zweigB.R\"], \"outputs\": [\"work/raute-aus-improve/zweig-b/b.txt\"]}'",
+      "gap": "S5: heute ein publish je Step mit ausgeschriebenem Befehl; im Zielbild realisiert das Cockpit das Potential selbst",
+      "ok": true,
+      "exit": 0,
+      "result": {
+        "fotonId": "sha256:2239f3724915063c54ba53ba03bdbaadf0adcd5aa2c3c79eb29e642abeda372c",
+        "outputHashes": {
+          "work/raute-aus-improve/zweig-b/b.txt": "sha256:e908d8332bb7d78ee94deadbcda35d4525de0e85d1fe4c508a5668d5520e7a31"
+        },
+        "commitSha": "c7f714477fa5fcb5f219cf575892fc69bc76f26f",
+        "permalinks": {
+          "work/raute-aus-improve/zweig-b/b.txt": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/c7f714477fa5fcb5f219cf575892fc69bc76f26f/work/raute-aus-improve/zweig-b/b.txt",
+          "work/raute-aus-improve/zweig-b/daten.txt": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/c7f714477fa5fcb5f219cf575892fc69bc76f26f/work/raute-aus-improve/zweig-b/daten.txt",
+          "work/raute-aus-improve/zweig-b/zweigB.R": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/c7f714477fa5fcb5f219cf575892fc69bc76f26f/work/raute-aus-improve/zweig-b/zweigB.R"
+        },
+        "envRef": "oci://docker.io/scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a",
+        "executedIn": "oci://docker.io/scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a",
+        "committed": true,
+        "pushed": true
+      }
+    },
+    {
+      "phase": "b:run",
+      "id": "b:run:zweig-c",
+      "title": "Step zweig-c im gepinnten jam-r-Image ausführen und als Foton veröffentlichen",
+      "actor": "cockpit",
+      "command": "./bin/cockpit publish '{\"cmd\": \"cd work/raute-aus-improve/zweig-c && Rscript zweigC.R\", \"inputs\": [\"work/raute-aus-improve/zweig-c/daten.txt\", \"work/raute-aus-improve/zweig-c/zweigC.R\"], \"outputs\": [\"work/raute-aus-improve/zweig-c/c.txt\"]}'",
+      "gap": "S5: heute ein publish je Step mit ausgeschriebenem Befehl; im Zielbild realisiert das Cockpit das Potential selbst",
+      "ok": true,
+      "exit": 0,
+      "result": {
+        "fotonId": "sha256:07455b63b1d3e109c37e021332b5895e1af0803b8209817559c2096c31a58ff1",
+        "outputHashes": {
+          "work/raute-aus-improve/zweig-c/c.txt": "sha256:fb76c5fd07819ff96996d189cd08fe52c64894e55d3dba89eebbebb495f60739"
+        },
+        "commitSha": "3c7f0f4e52373f51176593ac46ee4088f053c7e7",
+        "permalinks": {
+          "work/raute-aus-improve/zweig-c/c.txt": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/3c7f0f4e52373f51176593ac46ee4088f053c7e7/work/raute-aus-improve/zweig-c/c.txt",
+          "work/raute-aus-improve/zweig-c/daten.txt": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/3c7f0f4e52373f51176593ac46ee4088f053c7e7/work/raute-aus-improve/zweig-c/daten.txt",
+          "work/raute-aus-improve/zweig-c/zweigC.R": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/3c7f0f4e52373f51176593ac46ee4088f053c7e7/work/raute-aus-improve/zweig-c/zweigC.R"
+        },
+        "envRef": "oci://docker.io/scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a",
+        "executedIn": "oci://docker.io/scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a",
+        "committed": true,
+        "pushed": true
+      }
+    },
+    {
+      "phase": "b:run",
+      "id": "b:run:zusammenführung",
+      "title": "Step zusammenführung im gepinnten jam-r-Image ausführen und als Foton veröffentlichen",
+      "actor": "cockpit",
+      "command": "./bin/cockpit publish '{\"cmd\": \"cd work/raute-aus-improve/zusammenführung && Rscript zusammen.R\", \"inputs\": [\"work/raute-aus-improve/zusammenführung/b.txt\", \"work/raute-aus-improve/zusammenführung/c.txt\", \"work/raute-aus-improve/zusammenführung/zusammen.R\"], \"outputs\": [\"work/raute-aus-improve/zusammenführung/ergebnis.txt\"]}'",
+      "gap": "S5: heute ein publish je Step mit ausgeschriebenem Befehl; im Zielbild realisiert das Cockpit das Potential selbst",
+      "ok": true,
+      "exit": 0,
+      "result": {
+        "fotonId": "sha256:3ec3bc2ccd1b16f1adbaa5e1e2fae157e2abc782972b42700f5ed2cc3a3ba0ed",
+        "outputHashes": {
+          "work/raute-aus-improve/zusammenführung/ergebnis.txt": "sha256:44d419866f5a847c591f1c4a3f9e46ff6416985c1b57840413d986ba60ba01e1"
+        },
+        "commitSha": "e7d5bf15452f7eee96afda7fb842e3f818ca6f64",
+        "permalinks": {
+          "work/raute-aus-improve/zusammenführung/b.txt": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/e7d5bf15452f7eee96afda7fb842e3f818ca6f64/work/raute-aus-improve/zusammenführung/b.txt",
+          "work/raute-aus-improve/zusammenführung/c.txt": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/e7d5bf15452f7eee96afda7fb842e3f818ca6f64/work/raute-aus-improve/zusammenführung/c.txt",
+          "work/raute-aus-improve/zusammenführung/ergebnis.txt": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/e7d5bf15452f7eee96afda7fb842e3f818ca6f64/work/raute-aus-improve/zusammenführung/ergebnis.txt",
+          "work/raute-aus-improve/zusammenführung/zusammen.R": "https://raw.githubusercontent.com/cockpit-examples/raute-zwei-backends/e7d5bf15452f7eee96afda7fb842e3f818ca6f64/work/raute-aus-improve/zusammenführung/zusammen.R"
+        },
+        "envRef": "oci://docker.io/scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a",
+        "executedIn": "oci://docker.io/scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a",
+        "committed": true,
+        "pushed": true
+      }
+    },
+    {
+      "phase": "compare",
+      "id": "compare:potentials:raute",
+      "title": "Je Step Potential, Protokoll und Aktionsschlüssel von raute — gebunden wie Lauf 1",
+      "actor": "ktonpkg",
+      "command": "/mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/.work/kreuz/pkgtool potentials packages/raute --bind dataset=sha256:ab0a3a6253897602cb84d4592293e905714a017ec4333254ca80b836780df12b --bind anzahl=3 --upstream /mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/.work/kreuz/upstream.json | tee /mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/.work/kreuz/pot-raute.json",
+      "gap": "",
+      "ok": true,
+      "exit": 0,
+      "result": {
+        "aufbereitung": {
+          "actionKey": "sha256:4b82ee9d48473ac78864954e1cbb1e7908289ba8a081dd15d08eba635468ea9f",
+          "potential": "sha256:5ba5b8ae206dad3dcd9f0c2b628d8e83fd4645ffd5ce976ebddfb2a33c892234",
+          "protocolRef": "sha256:68aeed08065c93b75b192400697596cd29197ea8963068aa1a435364b7a18c8c"
+        },
+        "zusammenführung": {
+          "actionKey": "sha256:e4e67faa48e687592da6188aa389bb3f2035a915e1310aff6f6b3bb90aa178ad",
+          "potential": "sha256:fe7e2d66e456864422e3ec36e305b2d6fb633f20ddbafbc8010442a3fcded27b",
+          "protocolRef": "sha256:ece807fc0c7855a25e00c3675149b9a46a6e9c56ef57138e45ab04ae7e92e9e5"
+        },
+        "zweig-b": {
+          "actionKey": "sha256:1b9e6993bb84d42ea20d5244cd5c994f99c9b6ec8703233b760c5a159d2807d0",
+          "potential": "sha256:55482fd8afb685e425ff15f3ba02722c13c1a5dffe126c91a1e580368a43b019",
+          "protocolRef": "sha256:233f1a7e95b0917887c4004b99b49d69bc42f2032ea8a22afe301d96a0ac7b62"
+        },
+        "zweig-c": {
+          "actionKey": "sha256:8ea8cb81bdbd532c2faf2a66f259194a1c2c49f421116722955bc0ee08f10b80",
+          "potential": "sha256:c29fee12d8bef138b80a97f7c3091cd5e99155eb628f9b56413979f7a905e3ce",
+          "protocolRef": "sha256:a64485e0fd7a5d135c0d8113d7da5014cf95d071f97aa44d1263c4c7a45cc89c"
+        }
+      }
+    },
+    {
+      "phase": "compare",
+      "id": "compare:potentials:raute-aus-git",
+      "title": "Je Step Potential, Protokoll und Aktionsschlüssel von raute-aus-git — gebunden wie Lauf 1",
+      "actor": "ktonpkg",
+      "command": "/mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/.work/kreuz/pkgtool potentials packages/raute-aus-git --bind dataset=sha256:ab0a3a6253897602cb84d4592293e905714a017ec4333254ca80b836780df12b --bind anzahl=3 --upstream /mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/.work/kreuz/upstream.json | tee /mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/.work/kreuz/pot-raute-aus-git.json",
+      "gap": "",
+      "ok": true,
+      "exit": 0,
+      "result": {
+        "aufbereitung": {
+          "actionKey": "sha256:4b82ee9d48473ac78864954e1cbb1e7908289ba8a081dd15d08eba635468ea9f",
+          "potential": "sha256:bae8035a537271a9d2ab380cb44a0799951653747798001e5ad48b3b6cf56aa5",
+          "protocolRef": "sha256:68aeed08065c93b75b192400697596cd29197ea8963068aa1a435364b7a18c8c"
+        },
+        "zusammenführung": {
+          "actionKey": "sha256:e4e67faa48e687592da6188aa389bb3f2035a915e1310aff6f6b3bb90aa178ad",
+          "potential": "sha256:135c84e5bb4435b071daa39245bab9408586891c69dbf5b25b702f898a5f3bfa",
+          "protocolRef": "sha256:ece807fc0c7855a25e00c3675149b9a46a6e9c56ef57138e45ab04ae7e92e9e5"
+        },
+        "zweig-b": {
+          "actionKey": "sha256:1b9e6993bb84d42ea20d5244cd5c994f99c9b6ec8703233b760c5a159d2807d0",
+          "potential": "sha256:ecb486d74f98c3b62b09c7a4c4b43ff64110357130c1f1466efedffc800aaefd",
+          "protocolRef": "sha256:233f1a7e95b0917887c4004b99b49d69bc42f2032ea8a22afe301d96a0ac7b62"
+        },
+        "zweig-c": {
+          "actionKey": "sha256:8ea8cb81bdbd532c2faf2a66f259194a1c2c49f421116722955bc0ee08f10b80",
+          "potential": "sha256:6743509856e27405ce572cf63c1cf5a0ac4a3ed0f18b334940d4d074e27e9a0d",
+          "protocolRef": "sha256:a64485e0fd7a5d135c0d8113d7da5014cf95d071f97aa44d1263c4c7a45cc89c"
+        }
+      }
+    },
+    {
+      "phase": "compare",
+      "id": "compare:potentials:raute-aus-improve",
+      "title": "Je Step Potential, Protokoll und Aktionsschlüssel von raute-aus-improve — gebunden wie Lauf 1",
+      "actor": "ktonpkg",
+      "command": "/mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/.work/kreuz/pkgtool potentials packages/raute-aus-improve --bind dataset=sha256:ab0a3a6253897602cb84d4592293e905714a017ec4333254ca80b836780df12b --bind anzahl=3 --upstream /mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/.work/kreuz/upstream.json | tee /mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/.work/kreuz/pot-raute-aus-improve.json",
+      "gap": "",
+      "ok": true,
+      "exit": 0,
+      "result": {
+        "aufbereitung": {
+          "actionKey": "sha256:4b82ee9d48473ac78864954e1cbb1e7908289ba8a081dd15d08eba635468ea9f",
+          "potential": "sha256:bae8035a537271a9d2ab380cb44a0799951653747798001e5ad48b3b6cf56aa5",
+          "protocolRef": "sha256:68aeed08065c93b75b192400697596cd29197ea8963068aa1a435364b7a18c8c"
+        },
+        "zusammenführung": {
+          "actionKey": "sha256:e4e67faa48e687592da6188aa389bb3f2035a915e1310aff6f6b3bb90aa178ad",
+          "potential": "sha256:135c84e5bb4435b071daa39245bab9408586891c69dbf5b25b702f898a5f3bfa",
+          "protocolRef": "sha256:ece807fc0c7855a25e00c3675149b9a46a6e9c56ef57138e45ab04ae7e92e9e5"
+        },
+        "zweig-b": {
+          "actionKey": "sha256:1b9e6993bb84d42ea20d5244cd5c994f99c9b6ec8703233b760c5a159d2807d0",
+          "potential": "sha256:ecb486d74f98c3b62b09c7a4c4b43ff64110357130c1f1466efedffc800aaefd",
+          "protocolRef": "sha256:233f1a7e95b0917887c4004b99b49d69bc42f2032ea8a22afe301d96a0ac7b62"
+        },
+        "zweig-c": {
+          "actionKey": "sha256:8ea8cb81bdbd532c2faf2a66f259194a1c2c49f421116722955bc0ee08f10b80",
+          "potential": "sha256:6743509856e27405ce572cf63c1cf5a0ac4a3ed0f18b334940d4d074e27e9a0d",
+          "protocolRef": "sha256:a64485e0fd7a5d135c0d8113d7da5014cf95d071f97aa44d1263c4c7a45cc89c"
+        }
+      }
+    },
+    {
+      "phase": "compare",
+      "id": "compare:git-improve",
+      "title": "Das aus git und das aus improve extrahierte Paket nebeneinander",
+      "actor": "script",
+      "command": "python3 /mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/paketvergleich.py packages/raute-aus-git packages/raute-aus-improve /mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/.work/kreuz/pot-raute-aus-git.json /mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/.work/kreuz/pot-raute-aus-improve.json",
+      "gap": "",
+      "ok": true,
+      "exit": 0,
+      "result": {
+        "structureSame": true,
+        "rows": [
+          {
+            "what": "Steps",
+            "original": "aufbereitung, zusammenführung, zweig-b, zweig-c",
+            "extracted": "aufbereitung, zusammenführung, zweig-b, zweig-c",
+            "same": true,
+            "why": ""
+          },
+          {
+            "what": "Verdrahtung",
+            "original": "zusammenführung/b.txt ← zweig-b:b.txt<br>zusammenführung/c.txt ← zweig-c:c.txt<br>zweig-b/daten.txt ← aufbereitung:daten.txt<br>zweig-c/daten.txt ← aufbereitung:daten.txt",
+            "extracted": "zusammenführung/b.txt ← zweig-b:b.txt<br>zusammenführung/c.txt ← zweig-c:c.txt<br>zweig-b/daten.txt ← aufbereitung:daten.txt<br>zweig-c/daten.txt ← aufbereitung:daten.txt",
+            "same": true,
+            "why": ""
+          },
+          {
+            "what": "Code (Kommandodateien)",
+            "original": "aufbereitung: `sha256:7a667219a89e…`<br>zusammenführung: `sha256:86368fd1efca…`<br>zweig-b: `sha256:c8643db6360a…`<br>zweig-c: `sha256:f182205e0308…`",
+            "extracted": "aufbereitung: `sha256:7a667219a89e…`<br>zusammenführung: `sha256:86368fd1efca…`<br>zweig-b: `sha256:c8643db6360a…`<br>zweig-c: `sha256:f182205e0308…`",
+            "same": true,
+            "why": ""
+          },
+          {
+            "what": "Löcher",
+            "original": "anzahl: param an zweig-b/anzahl<br>dataset: file an aufbereitung/dataset.csv",
+            "extracted": "anzahl: param an zweig-b/anzahl<br>dataset: file an aufbereitung/dataset.csv",
+            "same": true,
+            "why": ""
+          },
+          {
+            "what": "Parameter am Step",
+            "original": "zweig-b: anzahl=hole:anzahl",
+            "extracted": "zweig-b: anzahl=hole:anzahl",
+            "same": true,
+            "why": ""
+          },
+          {
+            "what": "Bedingung",
+            "original": "sha256:e0669ff3f8f7…",
+            "extracted": "sha256:e0669ff3f8f7…",
+            "same": true,
+            "why": ""
+          },
+          {
+            "what": "Befehlszeile",
+            "original": "aufbereitung: `scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a ⏎ <command-file>`<br>zusammenführung: `scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a ⏎ <command-file>`<br>zweig-b: `scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a ⏎ <command-file> ⏎ <anzahl>`<br>zweig-c: `scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a ⏎ <command-file>`",
+            "extracted": "aufbereitung: `scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a ⏎ <command-file>`<br>zusammenführung: `scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a ⏎ <command-file>`<br>zweig-b: `scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a ⏎ <command-file> ⏎ <anzahl>`<br>zweig-c: `scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a ⏎ <command-file>`",
+            "same": true,
+            "why": ""
+          },
+          {
+            "what": "Vorgaben der Löcher",
+            "original": "anzahl=3<br>dataset=testdaten/dataset/dataset.csv",
+            "extracted": "anzahl=3<br>dataset=testdaten/dataset/dataset.csv",
+            "same": true,
+            "why": "erwartet: die Vorgaben kommen aus dem gewählten Referenzlauf"
+          },
+          {
+            "what": "Protokoll je Step (ktonpkg)",
+            "original": "aufbereitung: `sha256:68aeed08065c…`<br>zusammenführung: `sha256:ece807fc0c78…`<br>zweig-b: `sha256:233f1a7e95b0…`<br>zweig-c: `sha256:a64485e0fd7a…`",
+            "extracted": "aufbereitung: `sha256:68aeed08065c…`<br>zusammenführung: `sha256:ece807fc0c78…`<br>zweig-b: `sha256:233f1a7e95b0…`<br>zweig-c: `sha256:a64485e0fd7a…`",
+            "same": true,
+            "why": ""
+          },
+          {
+            "what": "Aktionsschlüssel je Step, gleich gebunden",
+            "original": "aufbereitung: `sha256:4b82ee9d4847…`<br>zusammenführung: `sha256:e4e67faa48e6…`<br>zweig-b: `sha256:1b9e6993bb84…`<br>zweig-c: `sha256:8ea8cb81bdbd…`",
+            "extracted": "aufbereitung: `sha256:4b82ee9d4847…`<br>zusammenführung: `sha256:e4e67faa48e6…`<br>zweig-b: `sha256:1b9e6993bb84…`<br>zweig-c: `sha256:8ea8cb81bdbd…`",
+            "same": true,
+            "why": ""
+          },
+          {
+            "what": "Potential-Id je Step",
+            "original": "aufbereitung: `sha256:bae8035a5372…`<br>zusammenführung: `sha256:135c84e5bb44…`<br>zweig-b: `sha256:ecb486d74f98…`<br>zweig-c: `sha256:6743509856e2…`",
+            "extracted": "aufbereitung: `sha256:bae8035a5372…`<br>zusammenführung: `sha256:135c84e5bb44…`<br>zweig-b: `sha256:ecb486d74f98…`<br>zweig-c: `sha256:6743509856e2…`",
+            "same": true,
+            "why": "erwartet: das extrahierte Paket erklärt seine Ausgaben (virtuelle Ausgaben, kton §6.4), das Original nicht — der Aktionsschlüssel rechnet ohne Ausgaben"
+          }
+        ]
+      }
+    },
+    {
+      "phase": "compare",
+      "id": "compare:original-improve",
+      "title": "Das aus improve extrahierte Paket neben dem Original",
+      "actor": "script",
+      "command": "python3 /mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/paketvergleich.py packages/raute packages/raute-aus-improve /mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/.work/kreuz/pot-raute.json /mnt/c/dev/git-repos/kton-cockpit/acceptance/raute-zwei-backends/.work/kreuz/pot-raute-aus-improve.json",
+      "gap": "",
+      "ok": true,
+      "exit": 0,
+      "result": {
+        "structureSame": true,
+        "rows": [
+          {
+            "what": "Steps",
+            "original": "aufbereitung, zusammenführung, zweig-b, zweig-c",
+            "extracted": "aufbereitung, zusammenführung, zweig-b, zweig-c",
+            "same": true,
+            "why": ""
+          },
+          {
+            "what": "Verdrahtung",
+            "original": "zusammenführung/b.txt ← zweig-b:b.txt<br>zusammenführung/c.txt ← zweig-c:c.txt<br>zweig-b/daten.txt ← aufbereitung:daten.txt<br>zweig-c/daten.txt ← aufbereitung:daten.txt",
+            "extracted": "zusammenführung/b.txt ← zweig-b:b.txt<br>zusammenführung/c.txt ← zweig-c:c.txt<br>zweig-b/daten.txt ← aufbereitung:daten.txt<br>zweig-c/daten.txt ← aufbereitung:daten.txt",
+            "same": true,
+            "why": ""
+          },
+          {
+            "what": "Code (Kommandodateien)",
+            "original": "aufbereitung: `sha256:7a667219a89e…`<br>zusammenführung: `sha256:86368fd1efca…`<br>zweig-b: `sha256:c8643db6360a…`<br>zweig-c: `sha256:f182205e0308…`",
+            "extracted": "aufbereitung: `sha256:7a667219a89e…`<br>zusammenführung: `sha256:86368fd1efca…`<br>zweig-b: `sha256:c8643db6360a…`<br>zweig-c: `sha256:f182205e0308…`",
+            "same": true,
+            "why": ""
+          },
+          {
+            "what": "Löcher",
+            "original": "anzahl: param an zweig-b/anzahl<br>dataset: file an aufbereitung/dataset.csv",
+            "extracted": "anzahl: param an zweig-b/anzahl<br>dataset: file an aufbereitung/dataset.csv",
+            "same": true,
+            "why": ""
+          },
+          {
+            "what": "Parameter am Step",
+            "original": "zweig-b: anzahl=hole:anzahl",
+            "extracted": "zweig-b: anzahl=hole:anzahl",
+            "same": true,
+            "why": ""
+          },
+          {
+            "what": "Bedingung",
+            "original": "sha256:e0669ff3f8f7…",
+            "extracted": "sha256:e0669ff3f8f7…",
+            "same": true,
+            "why": ""
+          },
+          {
+            "what": "Befehlszeile",
+            "original": "aufbereitung: `scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a ⏎ <command-file>`<br>zusammenführung: `scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a ⏎ <command-file>`<br>zweig-b: `scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a ⏎ <command-file> ⏎ <anzahl>`<br>zweig-c: `scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a ⏎ <command-file>`",
+            "extracted": "aufbereitung: `scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a ⏎ <command-file>`<br>zusammenführung: `scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a ⏎ <command-file>`<br>zweig-b: `scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a ⏎ <command-file> ⏎ <anzahl>`<br>zweig-c: `scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a ⏎ <command-file>`",
+            "same": true,
+            "why": ""
+          },
+          {
+            "what": "Vorgaben der Löcher",
+            "original": "anzahl=1<br>dataset=testdaten/dataset.csv",
+            "extracted": "anzahl=3<br>dataset=testdaten/dataset/dataset.csv",
+            "same": false,
+            "why": "erwartet: die Vorgaben kommen aus dem gewählten Referenzlauf"
+          },
+          {
+            "what": "Protokoll je Step (ktonpkg)",
+            "original": "aufbereitung: `sha256:68aeed08065c…`<br>zusammenführung: `sha256:ece807fc0c78…`<br>zweig-b: `sha256:233f1a7e95b0…`<br>zweig-c: `sha256:a64485e0fd7a…`",
+            "extracted": "aufbereitung: `sha256:68aeed08065c…`<br>zusammenführung: `sha256:ece807fc0c78…`<br>zweig-b: `sha256:233f1a7e95b0…`<br>zweig-c: `sha256:a64485e0fd7a…`",
+            "same": true,
+            "why": ""
+          },
+          {
+            "what": "Aktionsschlüssel je Step, gleich gebunden",
+            "original": "aufbereitung: `sha256:4b82ee9d4847…`<br>zusammenführung: `sha256:e4e67faa48e6…`<br>zweig-b: `sha256:1b9e6993bb84…`<br>zweig-c: `sha256:8ea8cb81bdbd…`",
+            "extracted": "aufbereitung: `sha256:4b82ee9d4847…`<br>zusammenführung: `sha256:e4e67faa48e6…`<br>zweig-b: `sha256:1b9e6993bb84…`<br>zweig-c: `sha256:8ea8cb81bdbd…`",
+            "same": true,
+            "why": ""
+          },
+          {
+            "what": "Potential-Id je Step",
+            "original": "aufbereitung: `sha256:5ba5b8ae206d…`<br>zusammenführung: `sha256:fe7e2d66e456…`<br>zweig-b: `sha256:55482fd8afb6…`<br>zweig-c: `sha256:c29fee12d8be…`",
+            "extracted": "aufbereitung: `sha256:bae8035a5372…`<br>zusammenführung: `sha256:135c84e5bb44…`<br>zweig-b: `sha256:ecb486d74f98…`<br>zweig-c: `sha256:6743509856e2…`",
+            "same": false,
+            "why": "erwartet: das extrahierte Paket erklärt seine Ausgaben (virtuelle Ausgaben, kton §6.4), das Original nicht — der Aktionsschlüssel rechnet ohne Ausgaben"
+          }
+        ]
+      }
+    }
+  ],
+  "b": {
+    "outputs": {
+      "aufbereitung/daten.txt": "sha256:ab0a3a6253897602cb84d4592293e905714a017ec4333254ca80b836780df12b",
+      "zweig-b/b.txt": "sha256:e908d8332bb7d78ee94deadbcda35d4525de0e85d1fe4c508a5668d5520e7a31",
+      "zweig-c/c.txt": "sha256:fb76c5fd07819ff96996d189cd08fe52c64894e55d3dba89eebbebb495f60739",
+      "zusammenführung/ergebnis.txt": "sha256:44d419866f5a847c591f1c4a3f9e46ff6416985c1b57840413d986ba60ba01e1"
+    },
+    "sameAsImproveRun1": true,
+    "sameAsGit": true
+  },
+  "compareGitImprove": {
+    "structureSame": true,
+    "rows": [
+      {
+        "what": "Steps",
+        "original": "aufbereitung, zusammenführung, zweig-b, zweig-c",
+        "extracted": "aufbereitung, zusammenführung, zweig-b, zweig-c",
+        "same": true,
+        "why": ""
+      },
+      {
+        "what": "Verdrahtung",
+        "original": "zusammenführung/b.txt ← zweig-b:b.txt<br>zusammenführung/c.txt ← zweig-c:c.txt<br>zweig-b/daten.txt ← aufbereitung:daten.txt<br>zweig-c/daten.txt ← aufbereitung:daten.txt",
+        "extracted": "zusammenführung/b.txt ← zweig-b:b.txt<br>zusammenführung/c.txt ← zweig-c:c.txt<br>zweig-b/daten.txt ← aufbereitung:daten.txt<br>zweig-c/daten.txt ← aufbereitung:daten.txt",
+        "same": true,
+        "why": ""
+      },
+      {
+        "what": "Code (Kommandodateien)",
+        "original": "aufbereitung: `sha256:7a667219a89e…`<br>zusammenführung: `sha256:86368fd1efca…`<br>zweig-b: `sha256:c8643db6360a…`<br>zweig-c: `sha256:f182205e0308…`",
+        "extracted": "aufbereitung: `sha256:7a667219a89e…`<br>zusammenführung: `sha256:86368fd1efca…`<br>zweig-b: `sha256:c8643db6360a…`<br>zweig-c: `sha256:f182205e0308…`",
+        "same": true,
+        "why": ""
+      },
+      {
+        "what": "Löcher",
+        "original": "anzahl: param an zweig-b/anzahl<br>dataset: file an aufbereitung/dataset.csv",
+        "extracted": "anzahl: param an zweig-b/anzahl<br>dataset: file an aufbereitung/dataset.csv",
+        "same": true,
+        "why": ""
+      },
+      {
+        "what": "Parameter am Step",
+        "original": "zweig-b: anzahl=hole:anzahl",
+        "extracted": "zweig-b: anzahl=hole:anzahl",
+        "same": true,
+        "why": ""
+      },
+      {
+        "what": "Bedingung",
+        "original": "sha256:e0669ff3f8f7…",
+        "extracted": "sha256:e0669ff3f8f7…",
+        "same": true,
+        "why": ""
+      },
+      {
+        "what": "Befehlszeile",
+        "original": "aufbereitung: `scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a ⏎ <command-file>`<br>zusammenführung: `scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a ⏎ <command-file>`<br>zweig-b: `scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a ⏎ <command-file> ⏎ <anzahl>`<br>zweig-c: `scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a ⏎ <command-file>`",
+        "extracted": "aufbereitung: `scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a ⏎ <command-file>`<br>zusammenführung: `scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a ⏎ <command-file>`<br>zweig-b: `scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a ⏎ <command-file> ⏎ <anzahl>`<br>zweig-c: `scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a ⏎ <command-file>`",
+        "same": true,
+        "why": ""
+      },
+      {
+        "what": "Vorgaben der Löcher",
+        "original": "anzahl=3<br>dataset=testdaten/dataset/dataset.csv",
+        "extracted": "anzahl=3<br>dataset=testdaten/dataset/dataset.csv",
+        "same": true,
+        "why": "erwartet: die Vorgaben kommen aus dem gewählten Referenzlauf"
+      },
+      {
+        "what": "Protokoll je Step (ktonpkg)",
+        "original": "aufbereitung: `sha256:68aeed08065c…`<br>zusammenführung: `sha256:ece807fc0c78…`<br>zweig-b: `sha256:233f1a7e95b0…`<br>zweig-c: `sha256:a64485e0fd7a…`",
+        "extracted": "aufbereitung: `sha256:68aeed08065c…`<br>zusammenführung: `sha256:ece807fc0c78…`<br>zweig-b: `sha256:233f1a7e95b0…`<br>zweig-c: `sha256:a64485e0fd7a…`",
+        "same": true,
+        "why": ""
+      },
+      {
+        "what": "Aktionsschlüssel je Step, gleich gebunden",
+        "original": "aufbereitung: `sha256:4b82ee9d4847…`<br>zusammenführung: `sha256:e4e67faa48e6…`<br>zweig-b: `sha256:1b9e6993bb84…`<br>zweig-c: `sha256:8ea8cb81bdbd…`",
+        "extracted": "aufbereitung: `sha256:4b82ee9d4847…`<br>zusammenführung: `sha256:e4e67faa48e6…`<br>zweig-b: `sha256:1b9e6993bb84…`<br>zweig-c: `sha256:8ea8cb81bdbd…`",
+        "same": true,
+        "why": ""
+      },
+      {
+        "what": "Potential-Id je Step",
+        "original": "aufbereitung: `sha256:bae8035a5372…`<br>zusammenführung: `sha256:135c84e5bb44…`<br>zweig-b: `sha256:ecb486d74f98…`<br>zweig-c: `sha256:6743509856e2…`",
+        "extracted": "aufbereitung: `sha256:bae8035a5372…`<br>zusammenführung: `sha256:135c84e5bb44…`<br>zweig-b: `sha256:ecb486d74f98…`<br>zweig-c: `sha256:6743509856e2…`",
+        "same": true,
+        "why": "erwartet: das extrahierte Paket erklärt seine Ausgaben (virtuelle Ausgaben, kton §6.4), das Original nicht — der Aktionsschlüssel rechnet ohne Ausgaben"
+      }
+    ]
+  },
+  "compareOriginalImprove": {
+    "structureSame": true,
+    "rows": [
+      {
+        "what": "Steps",
+        "original": "aufbereitung, zusammenführung, zweig-b, zweig-c",
+        "extracted": "aufbereitung, zusammenführung, zweig-b, zweig-c",
+        "same": true,
+        "why": ""
+      },
+      {
+        "what": "Verdrahtung",
+        "original": "zusammenführung/b.txt ← zweig-b:b.txt<br>zusammenführung/c.txt ← zweig-c:c.txt<br>zweig-b/daten.txt ← aufbereitung:daten.txt<br>zweig-c/daten.txt ← aufbereitung:daten.txt",
+        "extracted": "zusammenführung/b.txt ← zweig-b:b.txt<br>zusammenführung/c.txt ← zweig-c:c.txt<br>zweig-b/daten.txt ← aufbereitung:daten.txt<br>zweig-c/daten.txt ← aufbereitung:daten.txt",
+        "same": true,
+        "why": ""
+      },
+      {
+        "what": "Code (Kommandodateien)",
+        "original": "aufbereitung: `sha256:7a667219a89e…`<br>zusammenführung: `sha256:86368fd1efca…`<br>zweig-b: `sha256:c8643db6360a…`<br>zweig-c: `sha256:f182205e0308…`",
+        "extracted": "aufbereitung: `sha256:7a667219a89e…`<br>zusammenführung: `sha256:86368fd1efca…`<br>zweig-b: `sha256:c8643db6360a…`<br>zweig-c: `sha256:f182205e0308…`",
+        "same": true,
+        "why": ""
+      },
+      {
+        "what": "Löcher",
+        "original": "anzahl: param an zweig-b/anzahl<br>dataset: file an aufbereitung/dataset.csv",
+        "extracted": "anzahl: param an zweig-b/anzahl<br>dataset: file an aufbereitung/dataset.csv",
+        "same": true,
+        "why": ""
+      },
+      {
+        "what": "Parameter am Step",
+        "original": "zweig-b: anzahl=hole:anzahl",
+        "extracted": "zweig-b: anzahl=hole:anzahl",
+        "same": true,
+        "why": ""
+      },
+      {
+        "what": "Bedingung",
+        "original": "sha256:e0669ff3f8f7…",
+        "extracted": "sha256:e0669ff3f8f7…",
+        "same": true,
+        "why": ""
+      },
+      {
+        "what": "Befehlszeile",
+        "original": "aufbereitung: `scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a ⏎ <command-file>`<br>zusammenführung: `scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a ⏎ <command-file>`<br>zweig-b: `scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a ⏎ <command-file> ⏎ <anzahl>`<br>zweig-c: `scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a ⏎ <command-file>`",
+        "extracted": "aufbereitung: `scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a ⏎ <command-file>`<br>zusammenführung: `scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a ⏎ <command-file>`<br>zweig-b: `scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a ⏎ <command-file> ⏎ <anzahl>`<br>zweig-c: `scinteco/jam-r@sha256:dee2a8cfb95adf7eb63213da617a1ac538e0e328477ece0f07920bd9e513294a ⏎ <command-file>`",
+        "same": true,
+        "why": ""
+      },
+      {
+        "what": "Vorgaben der Löcher",
+        "original": "anzahl=1<br>dataset=testdaten/dataset.csv",
+        "extracted": "anzahl=3<br>dataset=testdaten/dataset/dataset.csv",
+        "same": false,
+        "why": "erwartet: die Vorgaben kommen aus dem gewählten Referenzlauf"
+      },
+      {
+        "what": "Protokoll je Step (ktonpkg)",
+        "original": "aufbereitung: `sha256:68aeed08065c…`<br>zusammenführung: `sha256:ece807fc0c78…`<br>zweig-b: `sha256:233f1a7e95b0…`<br>zweig-c: `sha256:a64485e0fd7a…`",
+        "extracted": "aufbereitung: `sha256:68aeed08065c…`<br>zusammenführung: `sha256:ece807fc0c78…`<br>zweig-b: `sha256:233f1a7e95b0…`<br>zweig-c: `sha256:a64485e0fd7a…`",
+        "same": true,
+        "why": ""
+      },
+      {
+        "what": "Aktionsschlüssel je Step, gleich gebunden",
+        "original": "aufbereitung: `sha256:4b82ee9d4847…`<br>zusammenführung: `sha256:e4e67faa48e6…`<br>zweig-b: `sha256:1b9e6993bb84…`<br>zweig-c: `sha256:8ea8cb81bdbd…`",
+        "extracted": "aufbereitung: `sha256:4b82ee9d4847…`<br>zusammenführung: `sha256:e4e67faa48e6…`<br>zweig-b: `sha256:1b9e6993bb84…`<br>zweig-c: `sha256:8ea8cb81bdbd…`",
+        "same": true,
+        "why": ""
+      },
+      {
+        "what": "Potential-Id je Step",
+        "original": "aufbereitung: `sha256:5ba5b8ae206d…`<br>zusammenführung: `sha256:fe7e2d66e456…`<br>zweig-b: `sha256:55482fd8afb6…`<br>zweig-c: `sha256:c29fee12d8be…`",
+        "extracted": "aufbereitung: `sha256:bae8035a5372…`<br>zusammenführung: `sha256:135c84e5bb44…`<br>zweig-b: `sha256:ecb486d74f98…`<br>zweig-c: `sha256:6743509856e2…`",
+        "same": false,
+        "why": "erwartet: das extrahierte Paket erklärt seine Ausgaben (virtuelle Ausgaben, kton §6.4), das Original nicht — der Aktionsschlüssel rechnet ohne Ausgaben"
+      }
+    ]
+  },
+  "bundleIds": {
+    "git": "sha256:135701e7d917ae4aedbef8f973e22d59038840d5605b360a208217aabb3c9173",
+    "improve": "sha256:135701e7d917ae4aedbef8f973e22d59038840d5605b360a208217aabb3c9173",
+    "same": true
+  }
+}
