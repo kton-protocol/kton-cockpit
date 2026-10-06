@@ -17,6 +17,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/ed25519"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -153,6 +154,7 @@ func trustAdd(ctx context.Context, args []string) error {
 // peerKeys reads the public keys a peer publishes, from a checkout on disk or from a git URL at its
 // current commit, and says where they were read.
 func peerKeys(ctx context.Context, src, keysDir string) ([]peerKey, string, error) {
+	root := src
 	dir := filepath.Join(src, filepath.FromSlash(keysDir))
 	where := "the working tree"
 	if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
@@ -169,6 +171,9 @@ func peerKeys(ctx context.Context, src, keysDir string) ([]peerKey, string, erro
 		}
 		sha, _ := exec.CommandContext(ctx, "git", "-C", tmp, "rev-parse", "HEAD").Output()
 		where = "commit " + string(bytes.TrimSpace(sha))
+		// Its configuration says which of those keys are its own; without one, all are shown.
+		_ = exec.CommandContext(ctx, "git", "-C", tmp, "checkout", "--quiet", "HEAD", "--", "cockpit.config.json").Run()
+		root = tmp
 		dir = filepath.Join(tmp, filepath.FromSlash(keysDir))
 	} else if sha, err := exec.CommandContext(ctx, "git", "-C", src, "rev-parse", "HEAD").Output(); err == nil {
 		where = "the working tree at " + string(bytes.TrimSpace(sha))
@@ -179,8 +184,17 @@ func peerKeys(ctx context.Context, src, keysDir string) ([]peerKey, string, erro
 		return nil, "", err
 	}
 	var out []peerKey
+	// registry/keys holds every key a repository publishes, including the ones it trusts in its
+	// other tiers. The peer is the keys its own configuration calls self; the rest are its peers',
+	// and taking them would trust them under this peer's name.
+	own, haveCfg := peerSelf(root)
+	skipped := 0
 	for _, e := range ents {
 		if e.IsDir() || filepath.Ext(e.Name()) != ".pub" {
+			continue
+		}
+		if haveCfg && !own[e.Name()] {
+			skipped++
 			continue
 		}
 		b, err := os.ReadFile(filepath.Join(dir, e.Name()))
@@ -195,7 +209,12 @@ func peerKeys(ctx context.Context, src, keysDir string) ([]peerKey, string, erro
 		out = append(out, peerKey{e.Name(), h, core.KeyIDHex(pub)})
 	}
 	if len(out) == 0 {
-		return nil, "", fmt.Errorf("%s has no public keys in %s/", src, keysDir)
+		return nil, "", fmt.Errorf("%s has no public keys of its own in %s/", src, keysDir)
+	}
+	if skipped > 0 {
+		where += fmt.Sprintf(" — its own keys (tier self); %d other key(s) it publishes are those it trusts, not taken", skipped)
+	} else if !haveCfg {
+		where += " — it has no cockpit.config.json, so every key it publishes is shown"
 	}
 	return out, where, nil
 }
@@ -269,4 +288,25 @@ func shortID(id string) string {
 		return id[:16]
 	}
 	return id
+}
+
+// peerSelf is the file names of the keys a peer's own configuration trusts as itself.
+func peerSelf(root string) (map[string]bool, bool) {
+	b, err := os.ReadFile(filepath.Join(root, "cockpit.config.json"))
+	if err != nil {
+		return nil, false
+	}
+	var c struct {
+		Trust struct {
+			Tiers map[string][]string `json:"tiers"`
+		} `json:"trust"`
+	}
+	if json.Unmarshal(b, &c) != nil || len(c.Trust.Tiers["self"]) == 0 {
+		return nil, false
+	}
+	own := map[string]bool{}
+	for _, p := range c.Trust.Tiers["self"] {
+		own[filepath.Base(p)] = true
+	}
+	return own, true
 }

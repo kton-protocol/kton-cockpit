@@ -75,3 +75,23 @@ func TestTrust_SelfIsNotAPeerTier(t *testing.T) {
 		t.Error("tier self was removed")
 	}
 }
+
+// A peer publishes the keys it trusts beside its own. Only its own — its tier self — are the peer;
+// the others were taken into the peer's tier, so a third party counted under the peer's name.
+func TestTrustAdd_TakesThePeersOwnKeysOnly(t *testing.T) {
+	peer := testrepo.New(t)
+	third := peerCheckout(t, "third")
+	b, _ := os.ReadFile(filepath.Join(third, "registry", "keys", "third.pub"))
+	must(t, os.WriteFile(filepath.Join(peer.Root, "registry", "keys", "third.pub"), b, 0o644))
+
+	r := testrepo.New(t)
+	t.Chdir(r.Root)
+	must(t, runTrust(context.Background(), []string{"add", "peer", peer.Root, "--yes"}))
+	cfg := readConfig(t, r.Root)
+	if !strings.Contains(cfg, "peer-"+testrepo.SessionID+".pub") {
+		t.Errorf("the peer's own key was not taken:\n%s", cfg)
+	}
+	if strings.Contains(cfg, "third") {
+		t.Errorf("a key the peer only trusts was taken as the peer:\n%s", cfg)
+	}
+}
