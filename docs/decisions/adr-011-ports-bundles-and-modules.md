@@ -69,7 +69,7 @@ executor's claim.
 
 A bundle is the set of registrations one module makes from its `init`: improve registers a backend mode,
 an executor, a source kind and later an index feeder. The binary that links the module *is* the
-composition (ADR-008 §3), so there is no `Bundle` struct to keep in sync with the ports.
+composition (ADR-008, layer 3), so there is no `Bundle` struct to keep in sync with the ports.
 
 ### 5 Modules add verbs through a narrow door
 
@@ -117,7 +117,7 @@ The binding guard still runs on every request, against the workspace folder the 
 - **kton-mignon** (`@kton/kern`) has its own TypeScript implementation of configuration, keys, nekton
   reading and writing, and an in-process Oxigraph. Under this ADR, that core becomes a client of the
   frontend protocol. Distributions without a cockpit binary would need the core built for the browser (Go to
-  wasm, as `cockpit/ARCHITEKTUR-BILD.md` §2.5 plans). That is the owning lane's decision, not taken here.
+  wasm, as `cockpit/ARCHITEKTUR-BILD.md`, section 2.5, plans). That is the owning lane's decision, not taken here.
 - **The Positron extension** (`recorder/positron`) stops pasting `cockpit publish` into a terminal. It sends
   the accepted draft as a `publish` request, and it receives ktonwatch's events over the same connection.
 

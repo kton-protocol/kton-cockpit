@@ -23,7 +23,7 @@ That is fine for a few hundred records in one repository. It does not hold for q
 for vocabularies (ktonpkg profiles) that run SPARQL rule sets, or for several clients (CLI, MCP, ktonwatch,
 kton-web viewers) asking the same machine.
 
-The kernel already defines how a consumer follows a registry incrementally. The §12 sync feed is `Epoch()`,
+The kernel already defines how a consumer follows a registry incrementally. The kton §12 sync feed is `Epoch()`,
 `MaxSeq()` and `Records(since)` on both the plankton and nekton registries. With 0.3.0, the kernel also
 ships the RDF projections as libraries (`kton.dev/plankton/rdf`, `kton.dev/nekton/nanopub`).
 
