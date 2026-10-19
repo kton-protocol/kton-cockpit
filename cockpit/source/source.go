@@ -70,6 +70,13 @@ type Puller interface {
 	Pull(ctx context.Context, s Spec, base, cache string) (was, now string, err error)
 }
 
+// Checkouter is a kind that can show the source as files — the participant's repository, not only its
+// registries — at the revision it is at. Optional. `trust add` reads a peer's published keys and
+// configuration through it. dir is "" when the source names a subdirectory that does not exist.
+type Checkouter interface {
+	Checkout(ctx context.Context, s Spec, base, cache string) (dir, revision string, err error)
+}
+
 var (
 	mu    sync.RWMutex
 	kinds = map[string]Kind{}
@@ -156,6 +163,18 @@ func (dir) Fetch(_ context.Context, s Spec, base, _ string) ([]Registry, error) 
 		p = filepath.Join(base, p)
 	}
 	return []Registry{{PlanktonDir: filepath.Join(p, "registry", "plankton"), NektonDir: filepath.Join(p, "registry", "nekton")}}, nil
+}
+
+// Checkout is the directory itself; a plain directory has no revision.
+func (dir) Checkout(_ context.Context, s Spec, base, _ string) (string, string, error) {
+	var b dirBlock
+	if err := s.Decode(&b); err != nil {
+		return "", "", err
+	}
+	if filepath.IsAbs(b.Path) {
+		return b.Path, "", nil
+	}
+	return filepath.Join(base, b.Path), "", nil
 }
 
 func init() { Register("dir", dir{}) }

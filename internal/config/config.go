@@ -66,6 +66,9 @@ func (r *RepoRef) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
+// MarshalJSON writes the block as it was read or proposed, so an extension's own fields survive.
+func (r RepoRef) MarshalJSON() ([]byte, error) { return r.block(), nil }
+
 // block is the repo object a backend decodes: as written, or rebuilt from the known fields when
 // the configuration was assembled in code rather than read from a file.
 func (r RepoRef) block() json.RawMessage {

@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -93,5 +94,31 @@ func TestTrustAdd_TakesThePeersOwnKeysOnly(t *testing.T) {
 	}
 	if strings.Contains(cfg, "third") {
 		t.Errorf("a key the peer only trusts was taken as the peer:\n%s", cfg)
+	}
+}
+
+// A peer given as a git repository rather than a checkout is read through the git source kind, at the
+// revision it is at — no git call of the CLI's own.
+func TestTrustAdd_ReadsAPeerFromAGitRepository(t *testing.T) {
+	work := peerCheckout(t, "remote-peer")
+	gitIn := func(dir string, args ...string) {
+		t.Helper()
+		c := exec.Command("git", args...)
+		c.Dir = dir
+		if out, err := c.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	gitIn(work, "init", "--quiet", "-b", "main")
+	gitIn(work, "add", ".")
+	gitIn(work, "-c", "user.name=p", "-c", "user.email=p@x", "commit", "--quiet", "-m", "keys")
+	bare := filepath.Join(t.TempDir(), "peer.git")
+	gitIn("", "clone", "--quiet", "--bare", work, bare)
+
+	r := testrepo.New(t)
+	t.Chdir(r.Root)
+	must(t, runTrust(context.Background(), []string{"add", "peer", bare, "--yes"}))
+	if cfg := readConfig(t, r.Root); !strings.Contains(cfg, "remote-peer.pub") {
+		t.Errorf("the key the git repository publishes was not taken:\n%s", cfg)
 	}
 }

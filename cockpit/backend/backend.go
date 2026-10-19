@@ -138,6 +138,50 @@ type Fetcher interface {
 	Fetch(ctx context.Context, uri string) ([]byte, error)
 }
 
+// Proposal is the repo block a backend would bind a folder with, for `cockpit init`.
+type Proposal struct {
+	// Root is where the configuration goes: the repository's root, as Binder.Root names it.
+	Root string
+	// Block is the repo object, mode included unless it is the default.
+	Block json.RawMessage
+	// Fallback marks a backend that can bind any folder (local). init takes it only when no other
+	// backend recognises the folder.
+	Fallback bool
+	// Describe says in a few words what was found, for init to print.
+	Describe string
+}
+
+// Proposer suggests how to bind a folder. ok is false when the folder is not one this backend can
+// bind (git: not inside a working tree).
+type Proposer interface {
+	Propose(ctx context.Context, dir string) (p Proposal, ok bool)
+}
+
+// Propose asks every registered backend, in mode order, and returns the first proposal that is not a
+// fallback, else the first fallback.
+func Propose(ctx context.Context, dir string) (Proposal, bool) {
+	var fallback *Proposal
+	for _, m := range Modes() {
+		b, _ := Lookup(m)
+		pr, ok := b.(Proposer)
+		if !ok {
+			continue
+		}
+		if p, ok := pr.Propose(ctx, dir); ok {
+			if !p.Fallback {
+				return p, true
+			}
+			if fallback == nil {
+				fallback = &p
+			}
+		}
+	}
+	if fallback != nil {
+		return *fallback, true
+	}
+	return Proposal{}, false
+}
+
 // Backend is what an extension implements for a repo mode: the three parts together (ADR-011).
 // Execution is not part of it; that is cockpit/executor, registered on its own, so a bundle such as
 // improve brings both and git brings only this.

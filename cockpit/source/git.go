@@ -133,6 +133,19 @@ func layoutNames() string {
 	return strings.Join(n, ", ")
 }
 
+// Checkout is the clone, made or refreshed, at its origin's current head.
+func (k gitKind) Checkout(ctx context.Context, s Spec, base, cache string) (string, string, error) {
+	var b gitBlock
+	if err := s.Decode(&b); err != nil {
+		return "", "", err
+	}
+	_, now, err := k.Pull(ctx, s, base, cache)
+	if err != nil {
+		return "", "", err
+	}
+	return filepath.Join(cache, "clone", filepath.FromSlash(b.Path)), now, nil
+}
+
 // Pull refreshes the clone to what the source's origin has now.
 func (gitKind) Pull(ctx context.Context, s Spec, _, cache string) (was, now string, err error) {
 	var b struct {

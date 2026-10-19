@@ -2,6 +2,7 @@ package github
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/kton-protocol/kton-cockpit/cockpit/backend"
@@ -59,4 +60,20 @@ func (Backend) Status(ctx context.Context, r backend.Repo, paths []string) (map[
 		}
 	}
 	return out, nil
+}
+
+// Propose binds the working tree containing dir to the GitHub repository its origin names. Without
+// an origin the owner and name stay empty, and doctor asks for them.
+func (Backend) Propose(ctx context.Context, dir string) (backend.Proposal, bool) {
+	root, err := gitrepo.Root(ctx, dir)
+	if err != nil {
+		return backend.Proposal{}, false
+	}
+	var c Config
+	if url, err := gitrepo.OriginURL(ctx, root); err == nil {
+		c.Owner, c.Name, _ = gitrepo.GitHubOwnerRepo(url)
+	}
+	b, _ := json.Marshal(c)
+	return backend.Proposal{Root: root, Block: b,
+		Describe: fmt.Sprintf("git mode, owner=%q name=%q", c.Owner, c.Name)}, true
 }

@@ -20,10 +20,10 @@ import (
 	"strings"
 
 	"github.com/kton-protocol/kton-cockpit/cockpit"
+	"github.com/kton-protocol/kton-cockpit/cockpit/backend"
 	"github.com/kton-protocol/kton-cockpit/internal/binaries"
 	"github.com/kton-protocol/kton-cockpit/internal/config"
 	"github.com/kton-protocol/kton-cockpit/internal/container"
-	"github.com/kton-protocol/kton-cockpit/internal/gitrepo"
 	"github.com/kton-protocol/kton-cockpit/internal/material"
 	"github.com/kton-protocol/kton-cockpit/internal/mcpsurface"
 	"github.com/kton-protocol/kton-cockpit/internal/show"
@@ -153,26 +153,20 @@ func runInit(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	// Outside a git repository, scaffold a local-mode config rather than refusing: running without
-	// git is a supported mode, and the current directory is what it binds to. See ADR-004.
-	root, err := gitrepo.Root(ctx, cwd)
-	local := err != nil
-	if local {
-		root = cwd
+	// Every backend is asked how it would bind this folder; one that recognises it (git: a working
+	// tree) wins over the fallback that binds any folder to itself (local, ADR-004).
+	prop, ok := backend.Propose(ctx, cwd)
+	if !ok {
+		return fmt.Errorf("no backend in this build can bind %s", cwd)
 	}
+	root := prop.Root
 	cfgPath := filepath.Join(root, "cockpit.config.json")
 	if _, err := os.Stat(cfgPath); err == nil {
 		return fmt.Errorf("%s already exists — remove it first if you want to regenerate", cfgPath)
 	}
-
-	owner, name := "", ""
-	if url, err := gitrepo.OriginURL(ctx, root); err == nil {
-		owner, name = parseOwnerRepo(url)
-	}
-
-	repo := config.RepoRef{Owner: owner, Name: name}
-	if local {
-		repo = config.RepoRef{Mode: config.ModeLocal, Root: root}
+	var repo config.RepoRef
+	if err := json.Unmarshal(prop.Block, &repo); err != nil {
+		return err
 	}
 	raw := config.Raw{
 		Repo: repo,
@@ -210,11 +204,7 @@ func runInit(ctx context.Context) error {
 		return err
 	}
 	todo := "" // what is left is said in the notes below, and `doctor` lists it
-	if local {
-		fmt.Printf("wrote %s (local mode, bound to %s — no git repository here%s)\n", cfgPath, root, strings.Replace(todo, " — ", "; ", 1))
-	} else {
-		fmt.Printf("wrote %s (owner=%q name=%q%s)\n", cfgPath, owner, name, todo)
-	}
+	fmt.Printf("wrote %s (%s%s)\n", cfgPath, prop.Describe, todo)
 	for _, n := range notes {
 		fmt.Println("  " + n)
 	}
@@ -485,15 +475,6 @@ func checkKeyPath(p string) string {
 			"                or the mode was widened. Anyone who can read it can sign as this repo.", p, perm)
 	}
 	return p + "  [ok]"
-}
-
-func parseOwnerRepo(url string) (owner, name string) {
-	url = strings.TrimSuffix(url, ".git")
-	parts := strings.FieldsFunc(url, func(r rune) bool { return r == '/' || r == ':' })
-	if len(parts) < 2 {
-		return "", ""
-	}
-	return parts[len(parts)-2], parts[len(parts)-1]
 }
 
 // linkedKernels reports the kton modules compiled into this binary, in the order they are listed

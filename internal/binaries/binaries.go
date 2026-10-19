@@ -59,7 +59,7 @@ type AuthorInput struct {
 	Inputs  []string // repo-relative paths, e.g. "data/runs.csv"
 	Outputs []string
 	Cmd     string
-	Located []string // "path=url" pairs for every input+output, from gitops.LocatedFlags
+	Located []string // "path=url" pairs for every input+output, from the backend's Locate
 	SignKey string   // absolute path to the plankton signing key
 
 	// Environment/EnvRef pin which execution environment produced this foton. Both are COVERED:
