@@ -15,7 +15,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"os/exec"
 	"path"
 	"path/filepath"
 	"regexp"
@@ -24,6 +23,7 @@ import (
 	"time"
 
 	"github.com/kton-protocol/kton-cockpit/cockpit"
+	"github.com/kton-protocol/kton-cockpit/cockpit/backend"
 	"github.com/kton-protocol/kton-cockpit/internal/binaries"
 	"github.com/kton-protocol/kton-cockpit/internal/config"
 	"kton.dev/plankton/core"
@@ -142,46 +142,38 @@ func layoutOf(rec *binaries.FotonDetail) (files []placed, script, body string) {
 // record names. A raw.githubusercontent.com locator that cannot be fetched over HTTP is tried as
 // git at the same commit, which also works offline against a local mirror (url.<x>.insteadOf).
 type fetcher struct {
-	clones map[string]string
 	client *http.Client
 }
 
 func newFetcher() *fetcher {
-	return &fetcher{clones: map[string]string{}, client: &http.Client{Timeout: 30 * time.Second}}
+	return &fetcher{client: &http.Client{Timeout: 30 * time.Second}}
 }
 
-func (f *fetcher) close() {
-	for _, d := range f.clones {
-		os.RemoveAll(d)
-	}
-}
+func (f *fetcher) close() {}
 
-var rawGitHub = regexp.MustCompile(`^https://raw\.githubusercontent\.com/([^/]+)/([^/]+)/([0-9a-f]{40})/(.+)$`)
-
+// fetch gives back the bytes of a recorded file from the first locator that yields them. A locator
+// a backend made is fetched by that backend (cockpit/backend Fetcher: a GitHub permalink falls back
+// to the pinned commit in a clone); any other http(s) locator is read as it is.
 func (f *fetcher) fetch(ctx context.Context, file binaries.FotonFile) ([]byte, string, error) {
 	if len(file.URI) == 0 {
 		return nil, "", fmt.Errorf("the record names no locator, so its bytes cannot be fetched")
 	}
 	var tried []string
 	for _, u := range file.URI {
-		if b, err := f.http(ctx, u); err == nil {
-			if core.HashBytes(b) == file.Hash {
-				return b, u, nil
-			}
-			tried = append(tried, u+": the bytes do not match the recorded hash")
+		var b []byte
+		var err error
+		if bf, ok := backend.FetcherFor(u); ok {
+			b, err = bf.Fetch(ctx, u)
 		} else {
-			tried = append(tried, u+": "+err.Error())
+			b, err = f.http(ctx, u)
 		}
-		if m := rawGitHub.FindStringSubmatch(u); m != nil {
-			repo := "https://github.com/" + m[1] + "/" + m[2] + ".git"
-			b, err := f.git(ctx, repo, m[3], m[4])
-			if err == nil && core.HashBytes(b) == file.Hash {
-				return b, "git " + m[1] + "/" + m[2] + "@" + m[3][:12], nil
-			}
-			if err == nil {
-				err = fmt.Errorf("the bytes do not match the recorded hash")
-			}
-			tried = append(tried, repo+" @"+m[3][:12]+": "+err.Error())
+		switch {
+		case err != nil:
+			tried = append(tried, u+": "+err.Error())
+		case core.HashBytes(b) != file.Hash:
+			tried = append(tried, u+": the bytes do not match the recorded hash")
+		default:
+			return b, u, nil
 		}
 	}
 	return nil, "", fmt.Errorf("no locator yields the recorded bytes:\n    %s", strings.Join(tried, "\n    "))
@@ -204,26 +196,6 @@ func (f *fetcher) http(ctx context.Context, u string) ([]byte, error) {
 		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 	return io.ReadAll(io.LimitReader(resp.Body, 1<<30))
-}
-
-func (f *fetcher) git(ctx context.Context, repo, sha, p string) ([]byte, error) {
-	dir, ok := f.clones[repo]
-	if !ok {
-		tmp, err := os.MkdirTemp("", "cockpit-fetch-")
-		if err != nil {
-			return nil, err
-		}
-		if out, err := exec.CommandContext(ctx, "git", "clone", "--quiet", "--bare", repo, tmp).CombinedOutput(); err != nil {
-			os.RemoveAll(tmp)
-			return nil, fmt.Errorf("git clone: %s", strings.TrimSpace(string(out)))
-		}
-		f.clones[repo], dir = tmp, tmp
-	}
-	out, err := exec.CommandContext(ctx, "git", "-C", dir, "show", sha+":"+p).Output()
-	if err != nil {
-		return nil, fmt.Errorf("git show %s:%s: %w", sha[:12], p, err)
-	}
-	return out, nil
 }
 
 // reproductionReport runs after `cockpit run <slug>` of a folder made from a record: same bytes,

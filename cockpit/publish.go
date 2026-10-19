@@ -488,7 +488,7 @@ func checkCorpusCorroboration(ctx context.Context, cfg *config.Config, r *binari
 
 // validatePublishPath rejects a repo-relative path publish must never commit/push: an absolute or
 // ..-escaping path, anything that could be parsed as a git command-line flag rather than a literal
-// path, anything inside this repo's configured keys_dir, anything inside .git, this repo's own
+// path, anything inside this repo's configured keys_dir, anything the backend keeps for itself (.git), this repo's own
 // cockpit.config.json, or anything with a .key extension regardless of location (a floor of
 // protection independent of keys_dir being configured correctly at all — see the "smaller" review
 // item that config validation doesn't require keys_dir to be set). Comparisons are
@@ -545,8 +545,10 @@ func validatePublishPath(cfg *config.Config, p string) error {
 	if pathIsUnderOrEqual(absPath, cfg.KeysDir) {
 		return fmt.Errorf("%q is inside this repo's configured keys_dir (%s) — publish never touches signing keys", p, cfg.Raw.Paths.KeysDir)
 	}
-	if pathIsUnderOrEqual(clean, ".git") {
-		return fmt.Errorf("%q is inside .git — publish never touches git internals", p)
+	for _, private := range cfg.Raw.Private() {
+		if pathIsUnderOrEqual(clean, private) {
+			return fmt.Errorf("%q is inside %s, which the %s backend keeps for itself — publish never touches it", p, private, cfg.Raw.Repo.ModeOrDefault())
+		}
 	}
 	if strings.EqualFold(clean, "cockpit.config.json") {
 		return fmt.Errorf("%q is this repo's cockpit.config.json — publish never touches its own config", p)

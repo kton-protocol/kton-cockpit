@@ -52,7 +52,7 @@ show cockpit init
 show cockpit keygen alice
 show cockpit pin "$IMAGE"
 require "doctor says ready"                   bash -c 'cockpit doctor | grep -q "^ready:"'
-require "and asks for the commit it needs"     bash -c 'cockpit doctor | grep -q "not committed yet"'
+require "and asks for what it must persist"    bash -c 'cockpit doctor | grep -q "not persisted yet"'
 git add -A && git commit -qm "cockpit init" && git push -q origin main
 require "nothing is left to do"                bash -c '! cockpit doctor | grep -qE "^  . [0-9]+\. (not committed|no signing)"'
 require "no private key is committed"          test -z "$(git ls-files keys)"

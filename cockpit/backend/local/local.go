@@ -80,3 +80,12 @@ func (Backend) Persist(context.Context, backend.Repo, []string, string) (backend
 }
 
 func (Backend) Locate(backend.Repo, backend.Revision, string) (string, bool) { return "", false }
+
+// Root: a plain directory names no containing repository, so the configuration is looked for only
+// in the directory itself.
+func (Backend) Root(context.Context, string) (string, error) {
+	return "", fmt.Errorf("local mode has no containing repository")
+}
+
+// Private: a plain directory keeps nothing for itself.
+func (Backend) Private() []string { return nil }

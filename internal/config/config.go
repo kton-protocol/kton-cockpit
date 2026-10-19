@@ -29,7 +29,6 @@ import (
 	// The reference executor ships the same way: every binary can run in a pinned container.
 	_ "github.com/kton-protocol/kton-cockpit/cockpit/executor/container"
 	"github.com/kton-protocol/kton-cockpit/cockpit/source"
-	"github.com/kton-protocol/kton-cockpit/internal/gitrepo"
 )
 
 // Mode names how this cockpit is bound to a location, and therefore what the anti-wrong-folder
@@ -84,6 +83,14 @@ func (r RepoRef) block() json.RawMessage {
 
 // IsLocal reports whether this cockpit runs without git.
 func (r RepoRef) IsLocal() bool { return r.Mode == ModeLocal }
+
+// ModeOrDefault is the mode a backend is looked up by: "git" when none is configured.
+func (r RepoRef) ModeOrDefault() string {
+	if r.Mode == "" {
+		return ModeGit
+	}
+	return r.Mode
+}
 
 type Paths struct {
 	PlanktonDir  string `json:"plankton_dir"`
@@ -495,8 +502,9 @@ func Load(ctx context.Context, startDir string) (*Config, error) {
 // says it belongs; it says nothing about whether that is the directory the session was meant to act
 // in, which is the whole question.
 //
-// So: bounded. In git mode the config can only ever be at the repository root, which is the property
-// the previous design had. In local mode it must be in the directory itself.
+// So: bounded. The config is in startDir, or at the root of the repository that contains it, as a
+// backend names that root (cockpit/backend Binder.Root; git: the working tree's top level) — never
+// further. In local mode, which names no containing repository, it must be in the directory itself.
 func findConfigDir(ctx context.Context, startDir string) (string, error) {
 	dir, err := filepath.Abs(startDir)
 	if err != nil {
@@ -505,13 +513,16 @@ func findConfigDir(ctx context.Context, startDir string) (string, error) {
 	if hasConfig(dir) {
 		return dir, nil
 	}
-	// One step, and only to a place git itself names — never an arbitrary ancestor.
-	if root, rerr := gitrepo.Root(ctx, dir); rerr == nil && hasConfig(root) {
-		return root, nil
+	// One step, and only to a place a backend itself names — never an arbitrary ancestor.
+	for _, mode := range backend.Modes() {
+		b, _ := backend.Lookup(mode)
+		if root, rerr := b.Root(ctx, dir); rerr == nil && hasConfig(root) {
+			return root, nil
+		}
 	}
 	return "", fmt.Errorf(
-		"cockpit: no cockpit.config.json in %s, and none at its git repository root — the config is "+
-			"looked for in those two places only, never in an arbitrary parent directory", startDir)
+		"cockpit: no cockpit.config.json in %s, and none at the root of a repository containing it — the "+
+			"config is looked for in those two places only, never in an arbitrary parent directory", startDir)
 }
 
 func hasConfig(dir string) bool {
@@ -596,7 +607,7 @@ func validate(raw *Raw) error {
 		// consequential as a publish path: `../..` escapes the repository, and `keys` or `.git`
 		// aims at exactly what publish's denylist exists to keep out — with the difference that
 		// nobody has to ask for it, since every record rewrites these files.
-		if err := validateRepoRelativeDir(raw.Union.Dir, raw.Paths); err != nil {
+		if err := validateRepoRelativeDir(raw.Union.Dir, raw.Paths, raw.Private()); err != nil {
 			return fmt.Errorf("union.dir: %w", err)
 		}
 	}
@@ -645,7 +656,7 @@ func validateExecution(ex Execution, env Environment) error {
 }
 
 // validateRepoRelativeDir refuses a directory the cockpit must not write into or commit from.
-func validateRepoRelativeDir(dir string, paths Paths) error {
+func validateRepoRelativeDir(dir string, paths Paths, private []string) error {
 	if filepath.IsAbs(dir) {
 		return fmt.Errorf("%q is an absolute path; it must be repo-relative", dir)
 	}
@@ -656,7 +667,7 @@ func validateRepoRelativeDir(dir string, paths Paths) error {
 	if strings.HasPrefix(clean, "-") {
 		return fmt.Errorf("%q starts with a dash and could be read by git as a flag rather than a path", dir)
 	}
-	for _, forbidden := range []string{".git", paths.KeysDir, paths.BinDir, paths.PlanktonDir, paths.NektonDir} {
+	for _, forbidden := range append([]string{paths.KeysDir, paths.BinDir, paths.PlanktonDir, paths.NektonDir}, private...) {
 		if forbidden == "" {
 			continue
 		}
@@ -931,6 +942,14 @@ func (c *Config) ScopeID(name string) (string, []string, bool) {
 	sort.Strings(names)
 	id, ok := c.Raw.Claims.Scopes[name]
 	return id, names, ok
+}
+
+// Private lists the paths this configuration's backend keeps for itself (git: ".git").
+func (r Raw) Private() []string {
+	if b, ok := backend.Lookup(r.Repo.Mode); ok {
+		return b.Private()
+	}
+	return nil
 }
 
 // repoOf is the configuration as a backend sees it.

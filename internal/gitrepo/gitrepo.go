@@ -6,6 +6,7 @@ package gitrepo
 
 import (
 	"context"
+	"fmt"
 	"os/exec"
 	"path/filepath"
 	"regexp"
@@ -53,4 +54,53 @@ func SamePath(a, b string) bool {
 	ra, err1 := filepath.EvalSymlinks(a)
 	rb, err2 := filepath.EvalSymlinks(b)
 	return err1 == nil && err2 == nil && ra == rb
+}
+
+// Head is the commit HEAD names.
+func Head(ctx context.Context, root string) (string, error) {
+	return output(ctx, root, "rev-parse", "HEAD")
+}
+
+// PullFFOnly takes in origin's commits when that needs no merge, and refuses otherwise.
+func PullFFOnly(ctx context.Context, root string) error {
+	cmd := exec.CommandContext(ctx, "git", "pull", "--ff-only", "--quiet")
+	cmd.Dir = root
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("git pull --ff-only: %s", strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+// Tracked lists which of paths git holds, and which of those differ from the working tree.
+func Tracked(ctx context.Context, root string, paths []string) (tracked, changed map[string]bool, err error) {
+	tracked, changed = map[string]bool{}, map[string]bool{}
+	ls, err := output(ctx, root, append([]string{"ls-files", "-z", "--"}, paths...)...)
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, p := range strings.Split(ls, "\x00") {
+		if p != "" {
+			tracked[p] = true
+		}
+	}
+	diff, err := output(ctx, root, append([]string{"diff", "--name-only", "-z", "HEAD", "--"}, paths...)...)
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, p := range strings.Split(diff, "\x00") {
+		if p != "" {
+			changed[p] = true
+		}
+	}
+	return tracked, changed, nil
+}
+
+func output(ctx context.Context, dir string, args ...string) (string, error) {
+	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
 }

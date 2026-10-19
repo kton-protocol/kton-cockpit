@@ -48,12 +48,13 @@ func hidden(cfg *config.Config) (dirs, files []string) {
 		cfg.Raw.Paths.BinDir,
 		cfg.Raw.Paths.PlanktonDir,
 		cfg.Raw.Paths.NektonDir,
-		".git",
 	} {
 		if rel != "" {
 			dirs = append(dirs, rel)
 		}
 	}
+	// What the backend keeps for itself (git: .git) is part of the same base.
+	dirs = append(dirs, cfg.Raw.Private()...)
 	return dirs, []string{"cockpit.config.json"}
 }
 

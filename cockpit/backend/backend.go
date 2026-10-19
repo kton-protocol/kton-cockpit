@@ -62,6 +62,15 @@ type Revision struct {
 
 // Binder answers "is this the repository the configuration belongs to".
 type Binder interface {
+	// Root names the repository that contains dir, in this backend's terms (git: the working tree's
+	// top level). The configuration is looked for in dir and, one step only, in the root a backend
+	// names here — never in an arbitrary parent (SPEC §5.1). A backend that has no notion of a
+	// containing repository returns an error.
+	Root(ctx context.Context, dir string) (string, error)
+	// Private lists the repository-relative paths the backend keeps for itself (git: ".git"). The
+	// cockpit never publishes them, never lets a configured directory lie in them, and hides them
+	// from an executed command.
+	Private() []string
 	// Validate checks the repo block alone, before anything touches the outside world.
 	Validate(r Repo) error
 	// Bind is the anti-wrong-folder guard (SPEC §5). It must compare the configuration against a
@@ -81,6 +90,49 @@ type Locator interface {
 	// Locate gives the URI from which a path's bytes in a revision can be fetched, if there is one.
 	// A locator is carried, not covered: it never changes a record's identity (kton §6.1).
 	Locate(r Repo, rev Revision, path string) (uri string, ok bool)
+}
+
+// The parts below are optional: a backend implements them where its store has the notion, and a
+// caller that finds one missing says so instead of falling back to some other backend's way.
+
+// Syncer follows a shared place: what the repository's current revision is, and taking in what
+// others made durable there since.
+type Syncer interface {
+	// Head is the current revision. It is cheap, so the index can ask it before every answer.
+	Head(ctx context.Context, r Repo) (Revision, error)
+	// Sync takes in what others shared, without discarding anything local, and returns the new
+	// head. It refuses rather than merges when the two have diverged.
+	Sync(ctx context.Context, r Repo) (Revision, error)
+}
+
+// State is what a path is to the store.
+type State int
+
+const (
+	// Untracked: the store does not hold the path.
+	Untracked State = iota
+	// Durable: the store holds it as it is on disk.
+	Durable
+	// Changed: the store holds it, and the file on disk differs.
+	Changed
+)
+
+func (s State) String() string {
+	return [...]string{"untracked", "durable", "changed"}[s]
+}
+
+// Inspector reports what the store holds of given paths.
+type Inspector interface {
+	Status(ctx context.Context, r Repo, paths []string) (map[string]State, error)
+}
+
+// Fetcher gives back the bytes behind a locator another backend's Locate made: the reverse of
+// Locate, chosen by the locator itself, so it needs no configured repository. The caller checks the
+// bytes against the recorded hash; a Fetcher only fetches.
+type Fetcher interface {
+	// Handles reports whether this backend can fetch uri.
+	Handles(uri string) bool
+	Fetch(ctx context.Context, uri string) ([]byte, error)
 }
 
 // Backend is what an extension implements for a repo mode: the three parts together (ADR-011).
@@ -121,6 +173,17 @@ func Lookup(mode string) (Backend, bool) {
 	defer mu.RUnlock()
 	b, ok := registry[mode]
 	return b, ok
+}
+
+// FetcherFor is the first registered backend, in mode order, that fetches uri.
+func FetcherFor(uri string) (Fetcher, bool) {
+	for _, m := range Modes() {
+		b, _ := Lookup(m)
+		if f, ok := b.(Fetcher); ok && f.Handles(uri) {
+			return f, true
+		}
+	}
+	return nil, false
 }
 
 // Modes lists the registered modes, sorted.

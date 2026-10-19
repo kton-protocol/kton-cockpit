@@ -5,17 +5,16 @@ package cli
 // says what that means for the person who just ran `init`.
 
 import (
-	"bytes"
 	"context"
 	"crypto/ed25519"
 	"encoding/hex"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
 
+	"github.com/kton-protocol/kton-cockpit/cockpit/backend"
 	"github.com/kton-protocol/kton-cockpit/internal/config"
 )
 
@@ -57,20 +56,31 @@ func readiness(ctx context.Context, cfg *config.Config) []nextStep {
 		}
 	}
 
-	if !cfg.Raw.Repo.IsLocal() {
-		if tracked := gitLsFiles(ctx, cfg.RepoRoot, cfg.Raw.Paths.KeysDir); tracked != "" {
-			steps = append(steps, nextStep{true, fmt.Sprintf("PRIVATE keys are committed (%s) — remove them from git history and make new ones",
-				strings.ReplaceAll(tracked, "\n", ", "))})
-		}
-		var missing []string
-		for _, p := range append([]string{"cockpit.config.json"}, tierFilesIn(cfg)...) {
-			if gitLsFiles(ctx, cfg.RepoRoot, p) == "" {
-				missing = append(missing, p)
+	// What the store holds, asked of the backend. One that cannot say (local mode) has nothing a
+	// peer could read either, so there is nothing to warn about.
+	if insp, ok := cfg.Backend.(backend.Inspector); ok {
+		keys := privateKeyFiles(cfg)
+		want := append([]string{"cockpit.config.json"}, tierFilesIn(cfg)...)
+		if st, err := insp.Status(ctx, cfg.Repo, append(keys, want...)); err == nil {
+			var leaked, missing []string
+			for _, p := range keys {
+				if st[p] != backend.Untracked {
+					leaked = append(leaked, p)
+				}
 			}
-		}
-		if len(missing) > 0 {
-			steps = append(steps, nextStep{false, fmt.Sprintf("not committed yet: %s — a peer needs them to verify your records: git add %s && git commit && git push",
-				strings.Join(missing, ", "), strings.Join(missing, " "))})
+			for _, p := range want {
+				if st[p] == backend.Untracked {
+					missing = append(missing, p)
+				}
+			}
+			if len(leaked) > 0 {
+				steps = append(steps, nextStep{true, fmt.Sprintf("PRIVATE keys are persisted (%s) — remove them from the store's history and make new ones",
+					strings.Join(leaked, ", "))})
+			}
+			if len(missing) > 0 {
+				steps = append(steps, nextStep{false, fmt.Sprintf("not persisted yet: %s — a peer needs them to verify your records (%s backend: persist and share them)",
+					strings.Join(missing, ", "), cfg.Raw.Repo.ModeOrDefault())})
+			}
 		}
 	}
 
@@ -127,12 +137,19 @@ func tierFilesIn(cfg *config.Config) []string {
 	return out
 }
 
-func gitLsFiles(ctx context.Context, root, path string) string {
-	out, err := exec.CommandContext(ctx, "git", "-C", root, "ls-files", "--", path).Output()
+// privateKeyFiles are the private key files on disk in keys_dir, repo-relative.
+func privateKeyFiles(cfg *config.Config) []string {
+	ents, err := os.ReadDir(cfg.KeysDir)
 	if err != nil {
-		return ""
+		return nil
 	}
-	return string(bytes.TrimSpace(out))
+	var out []string
+	for _, e := range ents {
+		if !e.IsDir() && filepath.Ext(e.Name()) == ".key" {
+			out = append(out, filepath.ToSlash(filepath.Join(cfg.Raw.Paths.KeysDir, e.Name())))
+		}
+	}
+	return out
 }
 
 // checkMadePath is checkPath for a directory publish or say creates when it first writes.
