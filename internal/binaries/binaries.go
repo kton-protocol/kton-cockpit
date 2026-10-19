@@ -1119,6 +1119,23 @@ type FotonDetail struct {
 	Outputs     []FotonFile `json:"outputs"`
 }
 
+// Foton is the kernel's own foton for an id, read from the union like every other read.
+func (r *Runner) Foton(ctx context.Context, id string) (*core.Foton, error) {
+	pdir, _, err := r.readDirs(ctx)
+	if err != nil {
+		return nil, err
+	}
+	reg, err := pregistry.Open(pdir)
+	if err != nil {
+		return nil, err
+	}
+	f, ok := reg.Foton(id)
+	if !ok {
+		return nil, fmt.Errorf("no foton %s in this registry", id)
+	}
+	return f, nil
+}
+
 // FotonByID reads one record out of this repo's registry, by the id a publish returned.
 func (r *Runner) FotonByID(ctx context.Context, id string) (*FotonDetail, error) {
 	pdir, ndir, derr := r.readDirs(ctx)

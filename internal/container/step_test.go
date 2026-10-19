@@ -11,7 +11,7 @@ import (
 // .git and the configuration. An executor outside this repository learns that only from the step.
 func TestStep_HidesTheTrustBase(t *testing.T) {
 	cfg := &config.Config{RepoRoot: "/r", Raw: config.Raw{
-		Paths: config.Paths{KeysDir: "keys", BinDir: "bin", PlanktonDir: "registry/plankton", NektonDir: "registry/nekton"},
+		Paths:     config.Paths{KeysDir: "keys", BinDir: "bin", PlanktonDir: "registry/plankton", NektonDir: "registry/nekton"},
 		Execution: config.Execution{Image: "oci://x@sha256:00", Network: true, Engine: "podman"}}}
 	s := Step(cfg, "make")
 	for _, d := range []string{"keys", "bin", "registry/plankton", "registry/nekton", ".git"} {

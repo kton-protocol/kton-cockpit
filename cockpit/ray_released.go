@@ -5,8 +5,8 @@ package cockpit
 import (
 	"context"
 
-	"github.com/kton-protocol/kton-cockpit/internal/binaries"
 	"github.com/kton-protocol/kton-cockpit/internal/config"
+	"github.com/kton-protocol/kton-cockpit/internal/index"
 )
 
 // A potential from executions (ADR-006) is proposed and extracted by ktonpkg, which is not
@@ -38,7 +38,7 @@ func errRayUnreleased() error {
 	return refuse("ray.unavailable", "", "a ray needs ktonpkg, which is not published; this cockpit is built without it (build with -tags unreleased)")
 }
 
-func askRay(context.Context, *config.Config, *binaries.Runner, AskRequest, *AskFilter) (*AskResult, error) {
+func askRay(context.Context, *config.Config, index.Reader, AskRequest, *AskFilter) (*AskResult, error) {
 	return nil, errRayUnreleased()
 }
 

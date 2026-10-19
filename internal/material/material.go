@@ -35,6 +35,7 @@ import (
 
 	"github.com/kton-protocol/kton-cockpit/internal/binaries"
 	"github.com/kton-protocol/kton-cockpit/internal/config"
+	"github.com/kton-protocol/kton-cockpit/internal/index"
 )
 
 // Kind selects which substrate holds the record, and so which binary stores and returns its
@@ -149,7 +150,7 @@ const locatorScheme = "kton-locator/v1"
 // binding to a declared identity would reintroduce exactly the "declared, not verified" hole the
 // verify package exists to close. An empty path means the record verified against no configured
 // key, and then no certificate can be bound and every item reports as carried.
-func Describe(ctx context.Context, cfg *config.Config, r *binaries.Runner, recordID string, kind Kind, verifyingKeyPath string) ([]Report, error) {
+func Describe(ctx context.Context, cfg *config.Config, r index.Reader, recordID string, kind Kind, verifyingKeyPath string) ([]Report, error) {
 	var stored []binaries.StoredMaterial
 	var err error
 	switch kind {

@@ -7,8 +7,8 @@ package cockpit
 import (
 	"context"
 
-	"github.com/kton-protocol/kton-cockpit/internal/binaries"
 	"github.com/kton-protocol/kton-cockpit/internal/config"
+	"github.com/kton-protocol/kton-cockpit/internal/index"
 	"github.com/kton-protocol/kton-cockpit/internal/scope"
 	"github.com/kton-protocol/kton-cockpit/internal/verify"
 )
@@ -19,7 +19,7 @@ type SealVerdict = scope.Verdict
 
 // askScope verifies a scope's seal and files its claims into the answer under the usual rule: a
 // claim that no configured key verifies is reported as found-and-excluded, never assembled in.
-func askScope(ctx context.Context, cfg *config.Config, r *binaries.Runner, scopeID string, out *AskResult) (*SealVerdict, string) {
+func askScope(ctx context.Context, cfg *config.Config, r index.Reader, scopeID string, out *AskResult) (*SealVerdict, string) {
 	verdict, claims, err := scope.Describe(ctx, cfg, r, scopeID)
 	if err != nil {
 		return nil, err.Error()
