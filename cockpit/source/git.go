@@ -133,4 +133,17 @@ func layoutNames() string {
 	return strings.Join(n, ", ")
 }
 
+// Pull refreshes the clone to what the source's origin has now.
+func (gitKind) Pull(ctx context.Context, s Spec, _, cache string) (was, now string, err error) {
+	var b struct {
+		URL string `json:"url"`
+	}
+	if err := s.Decode(&b); err != nil {
+		return "", "", err
+	}
+	was, _ = Head(ctx, cache)
+	now, err = Pull(ctx, b.URL, cache)
+	return was, now, err
+}
+
 func init() { Register("git", gitKind{}) }

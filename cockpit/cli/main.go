@@ -65,6 +65,8 @@ func Main() {
 		err = runTrust(ctx, os.Args[2:])
 	case "federation":
 		err = runFederation(ctx, os.Args[2:])
+	case "sync":
+		err = runSync(ctx, os.Args[2:])
 	case "config":
 		err = runConfig(ctx, os.Args[2:])
 	case "install":
@@ -102,7 +104,8 @@ usage:
   cockpit pin      pin the image publish and run execute in, by digest (pin <image>)
   cockpit trust    add <tier> <peer checkout|git URL> / list / remove <tier>
   cockpit federation  add <name> <git-URL|checkout> / list / pull / remove — read other registries
-  cockpit config   show the configuration, or set one value (config git.push off)
+  cockpit sync     take in what others shared, share what is here, then pull the federation sources
+  cockpit config   show the configuration, or set one value (config persist.share off)
   cockpit keygen   make a signing identity (keys/<name>.key + .pub, and the claims pair)
   cockpit version  what this binary is, and which kernel is compiled into it
   cockpit mcp      start the MCP stdio server (cockpit_publish/cockpit_say/cockpit_ask)

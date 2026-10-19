@@ -138,23 +138,37 @@ func federationPull(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	n, err := pullSources(ctx, cfg, args)
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return fmt.Errorf("no source to pull%s", map[bool]string{true: " named " + strings.Join(args, ""), false: ""}[len(args) > 0])
+	}
+	return nil
+}
+
+// pullSources refreshes every configured source whose kind can be pulled (only the one named, if a
+// name is given), says where each now is, and returns how many it pulled. A kind read in place has
+// nothing to refresh and is skipped.
+func pullSources(ctx context.Context, cfg *config.Config, args []string) (int, error) {
 	n := 0
 	for _, s := range cfg.Raw.Federation.Sources {
-		if (len(args) > 0 && s.Name != args[0]) || s.Kind != "git" {
+		if len(args) > 0 && s.Name != args[0] {
 			continue
 		}
-		var b struct {
-			URL string `json:"url"`
+		k, _ := source.Lookup(s.Kind)
+		p, ok := k.(source.Puller)
+		if !ok {
+			continue
 		}
-		s.Decode(&b)
 		cache, err := binaries.SourceCache(cfg, s.Name)
 		if err != nil {
-			return err
+			return n, err
 		}
-		was, _ := source.Head(ctx, cache)
-		now, err := source.Pull(ctx, b.URL, cache)
+		was, now, err := p.Pull(ctx, s, cfg.RepoRoot, cache)
 		if err != nil {
-			return fmt.Errorf("source %s: %v", s.Name, err)
+			return n, fmt.Errorf("source %s: %v", s.Name, err)
 		}
 		state := "up to date"
 		if was != now {
@@ -163,10 +177,7 @@ func federationPull(ctx context.Context, args []string) error {
 		fmt.Printf("%-12s %s\n", s.Name, state)
 		n++
 	}
-	if n == 0 {
-		return fmt.Errorf("no git source to pull%s", map[bool]string{true: " named " + strings.Join(args, ""), false: ""}[len(args) > 0])
-	}
-	return nil
+	return n, nil
 }
 
 func federationRemove(ctx context.Context, args []string) error {

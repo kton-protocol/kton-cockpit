@@ -31,7 +31,7 @@ func TestConfig_SetsOneValueAndPutsBackWhatDoesNotLoad(t *testing.T) {
 	if _, code := r.Cockpit(t, "config", "persist.share", "--unset"); code != 0 {
 		t.Error("unset failed")
 	}
-	if b, _ := os.ReadFile(cfgPath); strings.Contains(string(b), `"push"`) {
+	if b, _ := os.ReadFile(cfgPath); strings.Contains(string(b), `"share"`) {
 		t.Errorf("persist.share still set:\n%s", b)
 	}
 }

@@ -63,6 +63,13 @@ type Kind interface {
 	Fetch(ctx context.Context, s Spec, base, cache string) ([]Registry, error)
 }
 
+// Puller is a kind whose local copy can be refreshed from where the source lives. It is optional:
+// a kind read in place (dir) has nothing to refresh. was and now name the copy's revision before and
+// after, in the kind's own terms; both are "" when it has no notion of one.
+type Puller interface {
+	Pull(ctx context.Context, s Spec, base, cache string) (was, now string, err error)
+}
+
 var (
 	mu    sync.RWMutex
 	kinds = map[string]Kind{}
