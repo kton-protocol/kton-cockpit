@@ -56,6 +56,40 @@ is enabled.
 `Locator` (`Locate`). Existing implementations compile unchanged. A conformance suite or a caller that
 needs only one part takes only that part.
 
+### 2a No git outside a backend
+
+git is how one backend does its job, so the core and the CLI never call it. Everything they use git for
+today becomes an operation that every backend answers in its own terms:
+
+| operation | interface | git (`github`) | improve | `local` |
+|---|---|---|---|---|
+| `Root(dir)`: the repository that contains a folder | Binder | `rev-parse --show-toplevel` | the improve root folder | the folder holding `cockpit.config.json` |
+| `Persist(paths)`: make durable, and share if configured | Persister | commit, then push | check-in | nothing to do |
+| `Status(paths)`: is each path already durable, or changed | Persister | `ls-files`, `status` | entity version vs. file | always "untracked" |
+| `Head()`: the current revision | Syncer | `HEAD` | latest check-in | none: the index re-reads |
+| `Sync()`: take in what others shared | Syncer | `pull --ff-only` | update from the server | nothing to do |
+| `Private()`: paths the backend keeps for itself | Binder | `.git` | its metadata folder | none |
+| `Fetch(uri)`: the bytes behind a locator | Fetcher, chosen by URI scheme | `https://raw.githubusercontent.com/…` | `improve://…` | `file://` |
+
+- **Configuration:** `git.commit`/`git.push` become `persist.commit` (make durable) and `persist.share` (send it to
+  the shared place). `git` stays readable as an alias for one release, and `cockpit config` writes only the new
+  form.
+- **Answers:** `PublishResult` and `SayResult` report `persisted`/`shared` plus the backend's own revision id. The
+  JSON fields `committed`/`pushed` stay, with the same values, for one release.
+- **Command line:** `cockpit sync` (operator, CLI only) calls `Sync`, and then pulls the federation sources. This
+  replaces "run `git pull` first", which only works for one backend.
+- **Federation:** a source type may implement `Pull`. `federation pull` refreshes every source that does, not only
+  `git`.
+- **Peers:** `trust add <peer>` reads the peer as a federation source (any source type) instead of cloning it.
+- **Hidden paths:** the executor's hide list, the publish path guard and the configuration check take
+  `Private()` from the backend instead of naming `.git`.
+- **Fetching:** `run new --from` fetches through `Fetch` by the locator's URI scheme, so a record located in
+  improve can be re-run from a git repository and vice versa.
+- **The index:** heads come from `Syncer.Head` (ADR-012), so watching for changes never names git.
+
+`Syncer`, `Fetcher` and `Status` are optional. A backend without them answers "not supported", and the
+caller says so. `local` mode implements none of them.
+
 ### 3 The executor is a port
 
 `executor.Executor.Run(ctx, Step) (Result, error)`. A `Step` is self-contained: the repository root, the
@@ -138,6 +172,7 @@ The binding guard still runs on every request, against the workspace folder the 
 | P0.2 | `Backend` = `Binder` + `Persister` + `Locator` | no |
 | P0.3 | `cockpit/executor` with `container`; `publish` runs through it | no |
 | P0.4 | `internal/index` with `none`; `ask` reads through it (ADR-012) | no |
+| P0.5 | no git outside a backend (section 2a): `Root`, `Private`, `Status`, `Head`, `Sync`, `Fetch`; `persist.*` config; `cockpit sync` | names only (`git.*` and `committed`/`pushed` stay as aliases for one release) |
 | P3 | module registry; ktonpkg and ktonwatch as modules | new verbs, under the ceiling |
 | P4 | improve bundle: backend, executor, source, index feeder | new |
 | P5 | frontend protocol: `cockpit serve --stdio`, events; Positron extension on it, then kton-mignon | new transport |
