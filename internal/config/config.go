@@ -25,6 +25,9 @@ import (
 	// configuration knows git and local mode. Extensions register further modes the same way.
 	_ "github.com/kton-protocol/kton-cockpit/cockpit/backend/github"
 	_ "github.com/kton-protocol/kton-cockpit/cockpit/backend/local"
+	"github.com/kton-protocol/kton-cockpit/cockpit/executor"
+	// The reference executor ships the same way: every binary can run in a pinned container.
+	_ "github.com/kton-protocol/kton-cockpit/cockpit/executor/container"
 	"github.com/kton-protocol/kton-cockpit/cockpit/source"
 	"github.com/kton-protocol/kton-cockpit/internal/gitrepo"
 )
@@ -288,6 +291,9 @@ func (g Git) PushEnabled() bool {
 // handed to the container runtime and the string pinned into the foton are the same string, so what
 // ran and what is recorded cannot differ. See ADR-003.
 type Execution struct {
+	// Executor names the registered executor that runs the command (cockpit/executor). Empty means
+	// "container", the reference implementation; an extension binary registers further ones.
+	Executor string `json:"executor,omitempty"`
 	// Engine is the container runtime executable. Empty means "docker".
 	Engine string `json:"engine,omitempty"`
 	// Image is the digest-pinned OCI reference to run in, e.g. oci://ghcr.io/org/x@sha256:...
@@ -614,6 +620,10 @@ func validateExecution(ex Execution, env Environment) error {
 			return fmt.Errorf("execution.network is set but execution.image is not — nothing runs, so nothing is being allowed onto the network")
 		}
 		return nil
+	}
+	if _, ok := executor.Lookup(ex.Executor); !ok {
+		return fmt.Errorf("execution.executor %q is not available in this build (have: %s)",
+			ex.Executor, strings.Join(executor.Names(), ", "))
 	}
 	if !strings.HasPrefix(ex.Image, "oci://") {
 		return fmt.Errorf("execution.image must be an oci:// reference, got %q", ex.Image)
