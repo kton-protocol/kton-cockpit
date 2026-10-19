@@ -60,19 +60,36 @@ type Revision struct {
 	Per map[string]string
 }
 
-// Backend is what an extension implements.
-type Backend interface {
+// Binder answers "is this the repository the configuration belongs to".
+type Binder interface {
 	// Validate checks the repo block alone, before anything touches the outside world.
 	Validate(r Repo) error
 	// Bind is the anti-wrong-folder guard (SPEC §5). It must compare the configuration against a
 	// second source the configuration did not write, and refuse on any mismatch. It is called on
 	// every verb, and nothing may be cached across calls.
 	Bind(ctx context.Context, r Repo) error
+}
+
+// Persister makes written records durable.
+type Persister interface {
 	// Persist makes the given repository-relative paths durable and names the revision.
 	Persist(ctx context.Context, r Repo, paths []string, message string) (Revision, error)
+}
+
+// Locator says where a written path's bytes can be fetched again.
+type Locator interface {
 	// Locate gives the URI from which a path's bytes in a revision can be fetched, if there is one.
 	// A locator is carried, not covered: it never changes a record's identity (kton §6.1).
 	Locate(r Repo, rev Revision, path string) (uri string, ok bool)
+}
+
+// Backend is what an extension implements for a repo mode: the three parts together (ADR-011).
+// Execution is not part of it; that is cockpit/executor, registered on its own, so a bundle such as
+// improve brings both and git brings only this.
+type Backend interface {
+	Binder
+	Persister
+	Locator
 }
 
 var (
