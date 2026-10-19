@@ -35,11 +35,11 @@ echo "== what the cockpit did on the caller's behalf =="
 # cannot be authored until the permalinks it embeds exist. Two shas therefore exist, and they mean
 # different things:
 #
-#   commitSha (returned)  the repo's real final state after this call. Reporting the first would be
+#   revision (returned)   the repo's real final state after this call. Reporting the first would be
 #                         stale the moment publish returned.
 #   the foton's OWN uri   pinned to the first commit, unavoidably: authoring happens between the
 #                         two. Both resolve — the files' bytes are identical in either.
-DATA_SHA=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["commitSha"])' <<<"$OUT")
+DATA_SHA=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["revision"])' <<<"$OUT")
 require "the output is committed"        test -n "$(git log --oneline -- work/sum.csv)"
 require "everything was pushed"          test "$(git rev-parse HEAD)" = "$(git -C "$WORK/origin.git" rev-parse main)"
 require "the reported sha IS the repo's final state" test "$DATA_SHA" = "$(git rev-parse HEAD)"

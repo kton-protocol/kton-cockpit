@@ -3,6 +3,7 @@ package github_test
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -59,8 +60,9 @@ func TestConformance(t *testing.T) {
 	backendtest.Run(t, github.Backend{}, &fixture{repos: map[string]*testrepo.Repo{}})
 }
 
-// Sync takes in what another clone pushed, and refuses — never merges — once the two have diverged.
-func TestSync_FastForwardsAndRefusesADivergedHistory(t *testing.T) {
+// Sync takes in what another clone pushed and shares what is here. When both moved it merges —
+// keeping the local commit, which records' locators pin — and refuses on a conflict.
+func TestSync_TakesInTheirsKeepsOursAndRefusesAConflict(t *testing.T) {
 	ctx := context.Background()
 	r := testrepo.New(t)
 	repo := r.Config(t).Repo
@@ -69,36 +71,62 @@ func TestSync_FastForwardsAndRefusesADivergedHistory(t *testing.T) {
 	t.Setenv("GIT_CONFIG_KEY_0", "url."+r.Origin+".insteadOf")
 	t.Setenv("GIT_CONFIG_VALUE_0", "git@github.com:"+testrepo.Owner+"/"+testrepo.Name+".git")
 	b := github.Backend{}
+	gitc := []string{"-c", "user.name=x", "-c", "user.email=x@x"}
+	commit := func(dir, file, content, msg string) string {
+		must(t, os.WriteFile(filepath.Join(dir, file), []byte(content), 0o644))
+		run(t, dir, "git", "add", file)
+		run(t, dir, "git", append(gitc, "commit", "--quiet", "-m", msg)...)
+		return strings.TrimSpace(run(t, dir, "git", "rev-parse", "HEAD"))
+	}
 
 	r.Write(t, "a.txt", "1\n")
 	if _, err := b.Persist(ctx, repo, []string{"a.txt"}, "a"); err != nil {
 		t.Fatal(err)
 	}
-
 	other := filepath.Join(t.TempDir(), "other")
 	run(t, "", "git", "clone", "--quiet", r.Origin, other)
-	run(t, other, "git", "-c", "user.name=o", "-c", "user.email=o@x", "commit", "--quiet", "--allow-empty", "-m", "theirs")
+
+	// Only they moved: a fast-forward.
+	theirs := commit(other, "b.txt", "b\n", "theirs")
 	run(t, other, "git", "push", "--quiet", "origin", "HEAD")
-	theirs := strings.TrimSpace(run(t, other, "git", "rev-parse", "HEAD"))
-
 	got, err := b.Sync(ctx, repo)
-	if err != nil {
-		t.Fatalf("Sync: %v", err)
-	}
-	if got.ID != theirs {
-		t.Fatalf("after Sync, head is %s, want %s", got.ID, theirs)
+	if err != nil || got.ID != theirs {
+		t.Fatalf("after Sync, head is %s (%v), want %s", got.ID, err, theirs)
 	}
 
-	// Both sides move on: Sync must refuse, and leave the local commit where it is.
-	run(t, r.Root, "git", "-c", "user.name=m", "-c", "user.email=m@x", "commit", "--quiet", "--allow-empty", "-m", "mine")
-	mine := strings.TrimSpace(run(t, r.Root, "git", "rev-parse", "HEAD"))
-	run(t, other, "git", "-c", "user.name=o", "-c", "user.email=o@x", "commit", "--quiet", "--allow-empty", "-m", "theirs again")
+	// Both moved, on different files: theirs comes in, ours stays, and both reach origin.
+	mine := commit(r.Root, "c.txt", "c\n", "mine")
+	commit(other, "d.txt", "d\n", "theirs again")
+	run(t, other, "git", "push", "--quiet", "origin", "HEAD")
+	got, err = b.Sync(ctx, repo)
+	if err != nil || got.Rejected {
+		t.Fatalf("Sync: %v %s", err, got.Reason)
+	}
+	run(t, r.Root, "git", "merge-base", "--is-ancestor", mine, "HEAD") // ours kept, not rewritten
+	if remote := strings.TrimSpace(run(t, "", "git", "--git-dir", r.Origin, "rev-parse", "main")); remote != got.ID {
+		t.Fatalf("Sync did not share: origin is at %s, here %s", remote, got.ID)
+	}
+
+	// Both changed the same file: refused, and nothing here moved.
+	run(t, other, "git", "pull", "--quiet", "--no-rebase")
+	mine = commit(r.Root, "a.txt", "mine\n", "conflict mine")
+	commit(other, "a.txt", "theirs\n", "conflict theirs")
 	run(t, other, "git", "push", "--quiet", "origin", "HEAD")
 	if _, err := b.Sync(ctx, repo); err == nil {
-		t.Fatal("Sync merged a diverged history")
+		t.Fatal("Sync resolved a conflict on its own")
 	}
 	if head, _ := b.Head(ctx, repo); head.ID != mine {
 		t.Fatalf("a refused Sync moved HEAD to %s", head.ID)
+	}
+	if st := run(t, r.Root, "git", "status", "--porcelain"); st != "" {
+		t.Fatalf("a refused Sync left the working tree changed:\n%s", st)
+	}
+}
+
+func must(t *testing.T, err error) {
+	t.Helper()
+	if err != nil {
+		t.Fatal(err)
 	}
 }
 

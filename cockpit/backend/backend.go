@@ -30,9 +30,10 @@ type Repo struct {
 	Block json.RawMessage
 	// Dir is where cockpit.config.json was found. Once Bind succeeded, it is the repository.
 	Dir string
-	// Commit and Push are what the configuration asks for. A backend that has no such notion
+	// Commit and Share are what the configuration asks for (persist.commit, persist.share): make
+	// durable, and share with the place others read. A backend that has no such notion
 	// ignores them.
-	Commit, Push bool
+	Commit, Share bool
 	// SessionID is the configured session identity, for backends that attribute their own writes.
 	SessionID string
 }
@@ -95,13 +96,15 @@ type Locator interface {
 // The parts below are optional: a backend implements them where its store has the notion, and a
 // caller that finds one missing says so instead of falling back to some other backend's way.
 
-// Syncer follows a shared place: what the repository's current revision is, and taking in what
-// others made durable there since.
+// Syncer follows a shared place: what the repository's current revision is, and exchanging what
+// was made durable there and here since.
 type Syncer interface {
 	// Head is the current revision. It is cheap, so the index can ask it before every answer.
 	Head(ctx context.Context, r Repo) (Revision, error)
-	// Sync takes in what others shared, without discarding anything local, and returns the new
-	// head. It refuses rather than merges when the two have diverged.
+	// Sync takes in what others shared, then shares what is durable here only (when r.Share), and
+	// returns the new head. It never rewrites a local revision: locators already signed into records
+	// pin them. Where both sides changed the same thing it refuses and leaves everything as it was.
+	// A share the shared place refuses comes back as Revision.Rejected, as from Persist.
 	Sync(ctx context.Context, r Repo) (Revision, error)
 }
 

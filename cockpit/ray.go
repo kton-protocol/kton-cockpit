@@ -252,7 +252,7 @@ func (c *Cockpit) publishRay(ctx context.Context, cfg *config.Config, in Publish
 	if err != nil {
 		return nil, refuse("store", "", "committing the package failed: %v", err)
 	}
-	pushRejected, sha := rev.Rejected, rev.ID
+	shareRejected, sha := rev.Rejected, rev.ID
 
 	claimID, err := r.Annotate(ctx, rayID, rayTemplate, map[string]string{
 		"bundle":    bundleID,
@@ -267,16 +267,16 @@ func (c *Cockpit) publishRay(ctx context.Context, cfg *config.Config, in Publish
 	if err != nil {
 		return nil, refuse("store", "", "committing the claim failed: %v", err)
 	}
-	pushRejected = pushRejected || finalRev.Rejected
+	shareRejected = shareRejected || finalRev.Rejected
 	finalSHA := finalRev.ID
 	if finalSHA == "" {
 		finalSHA = sha
 	}
 	return &PublishResult{
-		CommitSHA:    finalSHA,
-		Committed:    cfg.Raw.CommitEnabled(),
-		Pushed:       cfg.Raw.PushEnabled() && !pushRejected,
-		PushRejected: pushRejected,
+		Revision:      finalSHA,
+		Persisted:     cfg.Raw.CommitEnabled(),
+		Shared:        cfg.Raw.ShareEnabled() && !shareRejected,
+		ShareRejected: shareRejected,
 		Ray: &RayResult{Dir: rp.Dir, RayID: rayID, BundleID: bundleID, DerivedFrom: derived,
 			ClaimID: claimID},
 	}, nil

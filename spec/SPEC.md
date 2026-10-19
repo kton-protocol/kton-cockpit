@@ -257,18 +257,18 @@ Every denied path MUST be reported at once, not just the first.
 
 ### 7.4 Ordering and failure
 
-A publish makes two commits: the files, then the registry entry — because the foton embeds locators
-that must exist before it is authored. Consequently:
+A publish persists twice: the files, then the registry entry — because the foton embeds locators
+that must exist before it is authored. Consequently (in git terms, two commits):
 
-- the returned `commitSha` is the **second**, the repository's real state after the call;
+- the returned `revision` is the **second**, the repository's real state after the call;
 - the foton's own embedded locators pin the **first**;
 - both resolve, since the bytes are identical in either.
 
 > **Checked by:** `TestPublish_ReturnsTheActualFinalCommitSHA`, `examples/01-publish`.
 
-If the repository does not commit (§12.1), there is no sha and the cockpit MUST return no
-permalinks. It MUST NOT pin them to HEAD: a locator naming a commit that does not contain the bytes
-is the failure locators exist to prevent.
+If the repository does not persist (§12.1), there is no revision and the cockpit MUST return no
+locators. It MUST NOT pin them to the current head: a locator naming a revision that does not contain
+the bytes is the failure locators exist to prevent.
 
 > **Checked by:** `TestPublish_WithCommitsOffTheRecordIsStillMadeButCarriesNoLocators`.
 
@@ -810,14 +810,22 @@ configured, and MUST default to off.
 
 ## 12 Optional surfaces
 
-### 12.1 Git
+### 12.1 Persisting and sharing
 
-Committing and pushing MAY be turned off. Signing and registration are unaffected; what goes away is
-the locators (§7.4). The binding (§5) MUST be unaffected — turning off writing to git MUST NOT turn
-off checking which repository this is.
+What a verb wrote is made durable and shared by the backend (`persist.commit`, `persist.share`; in
+git: commit and push). Both MAY be turned off. Signing and registration are unaffected; what goes away
+is the locators (§7.4). The binding (§5) MUST be unaffected — turning off writing to the store MUST NOT
+turn off checking which repository this is. The cockpit itself MUST NOT call a backend's tools (git):
+everything it needs from the store goes through the backend (ADR-011).
 
 > **Checked by:** `TestConfigGuard_StillRefusesTheWrongRepoWithCommitsOff`,
 > `TestPublish_WithPushOffItCommitsLocallyAndSaysSo`.
+
+`cockpit sync` takes in what others shared and then shares what is durable here only. It MUST NOT
+rewrite a local revision — records already signed pin it in their locators — and where both sides
+changed the same file it MUST refuse and leave the repository as it was.
+
+> **Checked by:** `TestSync_TakesInTheirsKeepsOursAndRefusesAConflict`.
 
 ### 12.2 Publishing the graph
 

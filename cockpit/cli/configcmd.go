@@ -4,8 +4,8 @@ package cli
 // time, without opening the JSON.
 //
 //	cockpit config                         the main settings that shape what the verbs do
-//	cockpit config git.push                one value, as JSON
-//	cockpit config git.push off            set it (on/off, true/false, a number, JSON, or text)
+//	cockpit config persist.share           one value, as JSON
+//	cockpit config persist.share off       set it (on/off, true/false, a number, JSON, or text)
 //	cockpit config execution.network --unset
 //
 // A change is written, then the configuration is loaded the way every verb loads it. If that
@@ -192,8 +192,8 @@ func configOverview(cfg *config.Config, cfgPath string) {
 		row("repo", "local mode, bound to "+r.Repo.Root, "")
 	} else {
 		row("repo", r.Repo.Owner+"/"+r.Repo.Name+" (= origin remote)", "")
-		row("git.commit", on(r.Git.CommitEnabled()), "")
-		row("git.push", on(r.PushEnabled()), "")
+		row("persist.commit", on(r.Persist.CommitEnabled()), "")
+		row("persist.share", on(r.ShareEnabled()), "")
 	}
 	row("identity", r.Identity.SessionID, "cockpit keygen")
 	tiers := make([]string, 0, len(r.Trust.Tiers))
@@ -221,5 +221,5 @@ func configOverview(cfg *config.Config, cfgPath string) {
 	row("reproduction.requiredLevel", orDefault(r.Reproduction.RequiredLevel, "L0"), "")
 	row("union.publish", on(r.Union.Publish), "")
 	row("anchor.enabled", on(r.Anchor.Enabled), "")
-	fmt.Println("\nchange one:  cockpit config <key> <value>     e.g. cockpit config git.push off")
+	fmt.Println("\nchange one:  cockpit config <key> <value>     e.g. cockpit config persist.share off")
 }

@@ -126,13 +126,13 @@
         "envRef": { "type": "string", "description": "The default exact execution environment: an OCI image digest (oci://<image>@sha256:<digest>), a nix store path, a run-server id. The substrate stores it without interpreting it. An oci:// reference MUST carry a digest — a tag names whatever it points at today, so it pins no environment at all. Overridden by cockpit_publish's envRef argument. Passed as `plankton author --env-ref`." }
       }
     },
-    "git": {
+    "persist": {
       "type": "object",
-      "description": "Whether the cockpit commits and pushes on the caller's behalf. Both default to true; omit the block to keep the behaviour every existing repo has. This does NOT affect the anti-wrong-folder guard, which reads the repo's own origin remote on every call regardless — turning commits off makes the cockpit stop WRITING to git, never stop CHECKING which repo it is in.",
+      "description": "What the backend does with what a verb wrote (ADR-011): make it durable (git: commit; improve: check in) and share it with the place others read (git: push). Both default to true; omit the block to keep that. This does NOT affect the anti-wrong-folder guard, which runs on every call regardless — turning persisting off makes the cockpit stop WRITING to the store, never stop CHECKING which repository it is in.",
       "additionalProperties": false,
       "properties": {
-        "commit": { "type": "boolean", "description": "When false, records are signed and registered but the files they describe are not committed. The foton stays valid — a foton never implied its bytes were published anywhere — but it carries no locators, because the commit a permalink would pin does not exist, and a locator pinned to some other commit points at bytes that are not there. Turning this off turns pushing off with it." },
-        "push": { "type": "boolean", "description": "When false, the cockpit commits locally without pushing. Permalinks are still built, because the commit they pin is real and stable; they simply do not resolve until someone pushes. cockpit_publish reports committed/pushed so the caller knows which." }
+        "commit": { "type": "boolean", "description": "When false, records are signed and registered but the files they describe are not made durable. The foton stays valid — a foton never implied its bytes were published anywhere — but it carries no locators, because the revision a locator would pin does not exist, and a locator pinned to some other revision points at bytes that are not there. Turning this off turns sharing off with it." },
+        "share": { "type": "boolean", "description": "When false, the cockpit makes writes durable here without sharing them. Locators are still built, because the revision they pin is real and stable; they simply do not resolve until someone shares (cockpit sync). cockpit_publish reports persisted/shared so the caller knows which." }
       }
     },
     "anchor": {

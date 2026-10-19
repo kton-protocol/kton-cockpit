@@ -362,18 +362,19 @@ func runDoctor(ctx context.Context) error {
 		fmt.Printf("                %-20s %s\n", mod.Path, where)
 	}
 
+	mode := cfg.Raw.Repo.ModeOrDefault()
 	switch {
 	case cfg.Raw.Repo.IsLocal():
-		fmt.Printf("git:            none — no repository, so no commits, no pushes, and fotons carry no\n")
-		fmt.Printf("                locators (a permalink needs an owner/repo and a commit)\n")
+		fmt.Printf("persist:        none (%s) — nothing is made durable or shared, and fotons carry no\n", mode)
+		fmt.Printf("                locators (a locator needs a revision to pin)\n")
 	case !cfg.Raw.CommitEnabled():
-		fmt.Printf("git:            commits OFF — records are signed and registered, files are not committed,\n")
-		fmt.Printf("                and fotons carry no locators (no commit exists for a permalink to pin)\n")
-	case !cfg.Raw.PushEnabled():
-		fmt.Printf("git:            commits on, push OFF — permalinks are built and correct, but do not\n")
-		fmt.Printf("                resolve until someone pushes\n")
+		fmt.Printf("persist:        OFF (%s) — records are signed and registered, files are not made durable,\n", mode)
+		fmt.Printf("                and fotons carry no locators (no revision exists for one to pin)\n")
+	case !cfg.Raw.ShareEnabled():
+		fmt.Printf("persist:        commit on, share OFF (%s) — locators are built and correct, but do not\n", mode)
+		fmt.Printf("                resolve until someone shares\n")
 	default:
-		fmt.Printf("git:            commit + push\n")
+		fmt.Printf("persist:        commit + share (%s)\n", mode)
 	}
 
 	if cfg.Raw.Anchor.Enabled {
@@ -383,7 +384,7 @@ func runDoctor(ctx context.Context) error {
 		}
 		fmt.Printf("anchor:         every record is witnessed in %s\n", where)
 		fmt.Printf("                the WHOLE envelope is submitted, so the command, every input/output path\n")
-		fmt.Printf("                and hash, and the permalinks (which name %s/%s) become public\n",
+		fmt.Printf("                and hash, and the locators (which name %s/%s) become public\n",
 			cfg.Raw.Repo.Owner, cfg.Raw.Repo.Name)
 		fmt.Printf("                and stay public. File contents do not — only their hashes.\n")
 	} else {

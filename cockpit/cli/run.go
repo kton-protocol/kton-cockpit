@@ -262,11 +262,11 @@ func runExecute(ctx context.Context, slug string) error {
 		}
 	}
 	reproductionReport(ctx, cfg, rel, out)
-	if out.PushRejected {
-		fmt.Printf("\nThe record is made and committed here. The push was rejected because somebody\n")
-		fmt.Printf("pushed while this was running:  git pull --rebase && git push\n")
-	} else if !out.Pushed {
-		fmt.Printf("\nnot pushed (this repo has push off)\n")
+	if out.ShareRejected {
+		fmt.Printf("\nThe record is made and durable here. Sharing it was refused because somebody\n")
+		fmt.Printf("shared while this was running:  cockpit sync  (takes theirs in, then shares this)\n")
+	} else if !out.Shared {
+		fmt.Printf("\nnot shared (this repo has persist.share off)\n")
 	}
 	return nil
 }

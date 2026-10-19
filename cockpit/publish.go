@@ -69,8 +69,10 @@ type PublishResult struct {
 	// which then fails the SDK's own output-schema validation with a confusing "type: null, want
 	// object" error that masks whatever the real error was.
 	OutputHashes map[string]string `json:"outputHashes,omitempty"`
-	CommitSHA    string            `json:"commitSha"`
-	Permalinks   map[string]string `json:"permalinks,omitempty"`
+	// Revision is the backend's name for what the call persisted (git: the commit sha), empty when
+	// nothing was. Locators are where each file's bytes can be fetched, pinned to that revision.
+	Revision string            `json:"revision"`
+	Locators map[string]string `json:"locators,omitempty"`
 	// Environment reports which execution environment this foton pinned, if any.
 	Environment string `json:"environment,omitempty"`
 	EnvRef      string `json:"envRef,omitempty"`
@@ -108,17 +110,17 @@ type PublishResult struct {
 	// when, and not that the signer did not later prefer a different record.
 	RekorLogIndex int64  `json:"rekorLogIndex,omitempty"`
 	RekorUUID     string `json:"rekorUuid,omitempty"`
-	// PushRejected means the record is committed here and not yet anywhere else — somebody pushed
-	// between this run starting and finishing. Nothing is lost: `git pull --rebase && git push`.
-	// Reported as its own field rather than as pushed:false, because "this repo does not push" and
-	// "this push was refused" call for different things from whoever reads it.
-	PushRejected bool `json:"pushRejected,omitempty"`
-	// Committed and Pushed say what actually happened to git, because both are configurable and
-	// each changes what the permalinks are worth. Not committed means there are none: the sha one
-	// would pin does not exist. Committed but not pushed means they are correct and will resolve
-	// once someone pushes — but do not yet.
-	Committed bool `json:"committed"`
-	Pushed    bool `json:"pushed"`
+	// ShareRejected means the record is durable here and not yet anywhere else — somebody shared
+	// between this run starting and finishing. Nothing is lost: `cockpit sync`, then publish again
+	// or share by hand. Reported as its own field rather than as shared:false, because "this repo
+	// does not share" and "this share was refused" call for different things from whoever reads it.
+	ShareRejected bool `json:"shareRejected,omitempty"`
+	// Persisted and Shared say what actually happened in the store, because both are configurable
+	// (persist.commit, persist.share) and each changes what the locators are worth. Not persisted
+	// means there are none: the revision one would pin does not exist. Persisted but not shared
+	// means they are correct and will resolve once someone shares — but do not yet.
+	Persisted bool `json:"persisted"`
+	Shared    bool `json:"shared"`
 }
 
 func (c *Cockpit) Publish(ctx context.Context, in PublishRequest) (*PublishResult, error) {
@@ -304,7 +306,7 @@ func (c *Cockpit) Publish(ctx context.Context, in PublishRequest) (*PublishResul
 	if err != nil {
 		return nil, refuse("store", "", "git commit of inputs+outputs failed: %v", err)
 	}
-	pushRejected := rev.Rejected
+	shareRejected := rev.Rejected
 
 	located := locators(cfg, rev, allPaths)
 	fotonInputs := in.Inputs
@@ -378,7 +380,7 @@ func (c *Cockpit) Publish(ctx context.Context, in PublishRequest) (*PublishResul
 	if err != nil {
 		return nil, refuse("store", "", "git commit/push of the registry failed: %v", err)
 	}
-	pushRejected = pushRejected || finalRev.Rejected
+	shareRejected = shareRejected || finalRev.Rejected
 	finalSHA := finalRev.ID
 
 	// finalSHA is empty when this repo does not commit: there is then no commit for a permalink to
@@ -394,13 +396,13 @@ func (c *Cockpit) Publish(ctx context.Context, in PublishRequest) (*PublishResul
 	out := PublishResult{
 		FotonID:        fotonID,
 		OutputHashes:   outputHashes,
-		CommitSHA:      finalSHA,
-		Permalinks:     permalinks,
+		Revision:       finalSHA,
+		Locators:       permalinks,
 		Environment:    cfg.Raw.Environment.Spectrum,
 		EnvRef:         envRef,
-		Committed:      cfg.Raw.CommitEnabled(),
-		Pushed:         cfg.Raw.PushEnabled() && !pushRejected,
-		PushRejected:   pushRejected,
+		Persisted:      cfg.Raw.CommitEnabled(),
+		Shared:         cfg.Raw.ShareEnabled() && !shareRejected,
+		ShareRejected:  shareRejected,
 		UnionPublished: cfg.Raw.Union.Publish,
 		CoSigned:       authored.CoSigned,
 	}

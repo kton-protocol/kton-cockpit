@@ -3,7 +3,7 @@
 //
 //   - Bind: the configuration sits at the repository root, and git's own origin remote names the
 //     owner and repository the configuration claims (SPEC §5.2). These are two independent sources.
-//   - Persist: commit, then push to origin (internal/gitops).
+//   - Persist: commit, then push to origin when sharing (internal/gitops).
 //   - Locate: the commit-pinned raw.githubusercontent.com URL.
 //
 // Importing the package registers it as mode "git", which is also the default.
@@ -92,7 +92,7 @@ func checkRemoteMatches(ctx context.Context, repoRoot string, want Config) error
 }
 
 func (Backend) Persist(ctx context.Context, r backend.Repo, paths []string, message string) (backend.Revision, error) {
-	sha, err := gitops.CommitAndPush(ctx, gitops.Git{Root: r.Dir, Commit: r.Commit, Push: r.Push,
+	sha, err := gitops.CommitAndPush(ctx, gitops.Git{Root: r.Dir, Commit: r.Commit, Push: r.Share,
 		SessionID: r.SessionID}, paths, message)
 	if err != nil {
 		// A rejected push is not a failed write: the commit is made, its sha is real, and the

@@ -264,30 +264,31 @@ func (u Union) DirOrDefault() string {
 	return u.Dir
 }
 
-// Git controls whether the cockpit commits and pushes on the caller's behalf. Both default to on;
-// omitting the block entirely keeps the behaviour every existing repo has.
+// Persist controls what the backend does with what a verb wrote (ADR-011): make it durable
+// (git: commit; improve: check in), and share it with the place others read (git: push). Both
+// default to on; omitting the block keeps the behaviour every existing repo has.
 //
-// This does NOT touch the anti-wrong-folder guard. That check reads the repo's own `origin` remote
-// on every call and is the reason this project exists; it applies whether or not the cockpit writes
-// anything. Turning commits off makes the cockpit stop WRITING to git, never stop CHECKING which
-// repo it is in.
-type Git struct {
-	// Commit, when false, means the cockpit signs and registers records without committing the
-	// files they describe. The foton is still valid — a foton never implied its bytes were
+// This does NOT touch the anti-wrong-folder guard. That check runs on every call and is the reason
+// this project exists; it applies whether or not the cockpit writes anything. Turning persisting
+// off makes the cockpit stop WRITING to the store, never stop CHECKING which repository it is in.
+type Persist struct {
+	// Commit, when false, means the cockpit signs and registers records without making the files
+	// they describe durable. The foton is still valid — a foton never implied its bytes were
 	// published anywhere — but it carries no locators, so a peer has nowhere to fetch and re-hash
 	// them from.
 	Commit *bool `json:"commit,omitempty"`
-	// Push, when false, commits locally without pushing. Permalinks are still built, because the
-	// commit they pin is real and stable; they simply do not resolve until someone pushes.
-	Push *bool `json:"push,omitempty"`
+	// Share, when false, makes writes durable here without sharing them. Locators are still built,
+	// because the revision they pin is real and stable; they simply do not resolve until someone
+	// shares it.
+	Share *bool `json:"share,omitempty"`
 }
 
-// CommitEnabled and PushEnabled default to true, so an absent block behaves as before. Turning
-// commits off turns pushes off with them — there would be nothing to push — so `commit: false`
+// CommitEnabled and ShareEnabled default to true, so an absent block behaves as before. Turning
+// commits off turns sharing off with it — there would be nothing to share — so `commit: false`
 // alone is a complete statement and needs no second flag.
-func (g Git) CommitEnabled() bool { return g.Commit == nil || *g.Commit }
-func (g Git) PushEnabled() bool {
-	return g.CommitEnabled() && (g.Push == nil || *g.Push)
+func (p Persist) CommitEnabled() bool { return p.Commit == nil || *p.Commit }
+func (p Persist) ShareEnabled() bool {
+	return p.CommitEnabled() && (p.Share == nil || *p.Share)
 }
 
 // Execution turns cockpit_publish from recording a command into running one, inside a pinned
@@ -318,11 +319,11 @@ type Execution struct {
 	Entrypoint string `json:"entrypoint,omitempty"`
 }
 
-// CommitEnabled and PushEnabled answer for the whole configuration, not just the git block: with no
-// git repository there is nothing to commit to, so local mode turns both off structurally rather
-// than by asking the operator to also set the flags.
-func (r Raw) CommitEnabled() bool { return !r.Repo.IsLocal() && r.Git.CommitEnabled() }
-func (r Raw) PushEnabled() bool   { return r.CommitEnabled() && r.Git.PushEnabled() }
+// CommitEnabled and ShareEnabled answer for the whole configuration, not just the persist block:
+// local mode keeps nothing to commit to, so it turns both off structurally rather than by asking
+// the operator to also set the flags.
+func (r Raw) CommitEnabled() bool { return !r.Repo.IsLocal() && r.Persist.CommitEnabled() }
+func (r Raw) ShareEnabled() bool  { return r.CommitEnabled() && r.Persist.ShareEnabled() }
 
 // PinnedEnvRef is the exact execution environment to record in a foton. When the cockpit runs the
 // command itself, that is by definition the image it ran it in — the config cannot disagree,
@@ -378,7 +379,7 @@ type Raw struct {
 	Reproduction Reproduction `json:"reproduction"`
 	Environment  Environment  `json:"environment,omitempty"`
 	Execution    Execution    `json:"execution,omitempty"`
-	Git          Git          `json:"git,omitempty"`
+	Persist      Persist      `json:"persist,omitempty"`
 	Union        Union        `json:"union,omitempty"`
 	Anchor       Anchor       `json:"anchor,omitempty"`
 	Material     Material     `json:"material,omitempty"`
@@ -589,8 +590,8 @@ func validate(raw *Raw) error {
 					"`nekton seed <name> --sign <key> --add --print-id` prints one", name, id)
 		}
 	}
-	if raw.Repo.IsLocal() && raw.Git.Commit != nil && *raw.Git.Commit {
-		return fmt.Errorf("git.commit is true but repo.mode is %q — there is no git repository to commit to", ModeLocal)
+	if raw.Repo.IsLocal() && raw.Persist.Commit != nil && *raw.Persist.Commit {
+		return fmt.Errorf("persist.commit is true but repo.mode is %q — local mode keeps nothing to commit to", ModeLocal)
 	}
 	if raw.Anchor.RekorURL != "" && raw.Anchor.RekorPubkey == "" {
 		return fmt.Errorf(
@@ -617,9 +618,9 @@ func validate(raw *Raw) error {
 				"there would be nowhere for it to go")
 	}
 	// Only the explicit contradiction is an error. Setting `commit: false` alone is fine and means
-	// no push either; writing `push: true` next to it states something that cannot happen.
-	if raw.Git.Push != nil && *raw.Git.Push && !raw.Git.CommitEnabled() {
-		return fmt.Errorf("git.push is true but git.commit is false — there would be nothing to push")
+	// no sharing either; writing `share: true` next to it states something that cannot happen.
+	if raw.Persist.Share != nil && *raw.Persist.Share && !raw.Persist.CommitEnabled() {
+		return fmt.Errorf("persist.share is true but persist.commit is false — there would be nothing to share")
 	}
 	return nil
 }
@@ -955,5 +956,5 @@ func (r Raw) Private() []string {
 // repoOf is the configuration as a backend sees it.
 func repoOf(dir string, raw Raw) backend.Repo {
 	return backend.Repo{Mode: raw.Repo.Mode, Block: raw.Repo.block(), Dir: dir,
-		Commit: raw.CommitEnabled(), Push: raw.PushEnabled(), SessionID: raw.Identity.SessionID}
+		Commit: raw.CommitEnabled(), Share: raw.ShareEnabled(), SessionID: raw.Identity.SessionID}
 }

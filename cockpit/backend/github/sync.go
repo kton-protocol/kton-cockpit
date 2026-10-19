@@ -23,14 +23,22 @@ func (Backend) Head(ctx context.Context, r backend.Repo) (backend.Revision, erro
 	return backend.Revision{ID: sha}, nil
 }
 
-// Sync is a fast-forward pull from origin. A diverged history is refused, never merged: what to
-// keep is the operator's decision, and a merge commit made on their behalf would be a write they
-// did not ask for.
+// Sync pulls from origin — a fast-forward, or a merge commit when both sides moved, never a rebase:
+// the local commits are pinned in the locators of records already signed, and a rebase would leave
+// those pointing at nothing. A conflict aborts the merge and refuses. Then, when sharing is on, it
+// pushes; a push origin refuses is reported as Rejected, not as an error.
 func (b Backend) Sync(ctx context.Context, r backend.Repo) (backend.Revision, error) {
-	if err := gitrepo.PullFFOnly(ctx, r.Dir); err != nil {
+	if err := gitrepo.PullMerge(ctx, r.Dir); err != nil {
 		return backend.Revision{}, err
 	}
-	return b.Head(ctx, r)
+	head, err := b.Head(ctx, r)
+	if err != nil || !r.Share {
+		return head, err
+	}
+	if err := gitrepo.Push(ctx, r.Dir); err != nil {
+		head.Rejected, head.Reason = true, err.Error()
+	}
+	return head, nil
 }
 
 // Status is what git holds of the paths, compared with the working tree.

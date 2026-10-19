@@ -222,7 +222,7 @@ func TestUnion_RefusedWhenTheRepoDoesNotCommit(t *testing.T) {
 	r := testrepo.New(t)
 	raw := testrepo.DefaultConfig()
 	raw.Union = config.Union{Publish: true}
-	raw.Git = config.Git{Commit: testrepo.Bool(false)}
+	raw.Persist = config.Persist{Commit: testrepo.Bool(false)}
 	r.WriteConfig(t, raw)
 	r.Use(t)
 

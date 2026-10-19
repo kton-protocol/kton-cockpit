@@ -64,7 +64,7 @@ type WorkflowExtractResult struct {
 	References []string `json:"references"` // the reference runs packed with it
 	Holes      []string `json:"holes,omitempty"`
 	Params     []string `json:"params,omitempty"`
-	CommitSHA  string   `json:"commitSha,omitempty"`
+	Revision   string   `json:"commitSha,omitempty"`
 }
 
 // WorkflowExtract writes the chosen potential as a package in the scope format under
@@ -208,7 +208,7 @@ func (c *Cockpit) WorkflowExtract(ctx context.Context, in WorkflowExtractRequest
 	if err != nil {
 		return nil, refuse("store", "", "committing the package failed: %v", err)
 	}
-	out.CommitSHA = revn.ID
+	out.Revision = revn.ID
 	return out, nil
 }
 

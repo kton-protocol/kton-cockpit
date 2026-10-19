@@ -14,10 +14,10 @@ func TestConfig_SetsOneValueAndPutsBackWhatDoesNotLoad(t *testing.T) {
 	r := testrepo.New(t)
 	cfgPath := filepath.Join(r.Root, "cockpit.config.json")
 
-	if out, code := r.Cockpit(t, "config", "git.push", "off"); code != 0 || !strings.Contains(out, "git.push = false") {
+	if out, code := r.Cockpit(t, "config", "persist.share", "off"); code != 0 || !strings.Contains(out, "persist.share = false") {
 		t.Fatalf("exit %d:\n%s", code, out)
 	}
-	if out, _ := r.Cockpit(t, "config"); !strings.Contains(out, "git.push") || !strings.Contains(out, "off") {
+	if out, _ := r.Cockpit(t, "config"); !strings.Contains(out, "persist.share") || !strings.Contains(out, "off") {
 		t.Errorf("the overview does not show the change:\n%s", out)
 	}
 	before, _ := os.ReadFile(cfgPath)
@@ -28,11 +28,11 @@ func TestConfig_SetsOneValueAndPutsBackWhatDoesNotLoad(t *testing.T) {
 	if after, _ := os.ReadFile(cfgPath); string(after) != string(before) {
 		t.Error("the refused change was left in the file")
 	}
-	if _, code := r.Cockpit(t, "config", "git.push", "--unset"); code != 0 {
+	if _, code := r.Cockpit(t, "config", "persist.share", "--unset"); code != 0 {
 		t.Error("unset failed")
 	}
 	if b, _ := os.ReadFile(cfgPath); strings.Contains(string(b), `"push"`) {
-		t.Errorf("git.push still set:\n%s", b)
+		t.Errorf("persist.share still set:\n%s", b)
 	}
 }
 

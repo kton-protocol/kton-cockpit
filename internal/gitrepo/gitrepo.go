@@ -61,12 +61,27 @@ func Head(ctx context.Context, root string) (string, error) {
 	return output(ctx, root, "rev-parse", "HEAD")
 }
 
-// PullFFOnly takes in origin's commits when that needs no merge, and refuses otherwise.
-func PullFFOnly(ctx context.Context, root string) error {
-	cmd := exec.CommandContext(ctx, "git", "pull", "--ff-only", "--quiet")
+// PullMerge takes in origin's commits: a fast-forward when possible, a merge commit when both sides
+// moved — never a rebase, which would rewrite local commits. On a conflict the merge is aborted, the
+// working tree is as it was, and the error says so.
+func PullMerge(ctx context.Context, root string) error {
+	cmd := exec.CommandContext(ctx, "git", "pull", "--no-rebase", "--no-edit", "--quiet")
 	cmd.Dir = root
 	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("git pull --ff-only: %s", strings.TrimSpace(string(out)))
+		abort := exec.CommandContext(ctx, "git", "merge", "--abort")
+		abort.Dir = root
+		_ = abort.Run()
+		return fmt.Errorf("git pull --no-rebase: %s", strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+// Push sends HEAD to origin's branch of the same name.
+func Push(ctx context.Context, root string) error {
+	cmd := exec.CommandContext(ctx, "git", "push", "--quiet", "origin", "HEAD")
+	cmd.Dir = root
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("git push: %s", strings.TrimSpace(string(out)))
 	}
 	return nil
 }
