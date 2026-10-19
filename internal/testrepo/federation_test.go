@@ -3,6 +3,7 @@ package testrepo
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 
@@ -70,5 +71,57 @@ func TestFederation_UnknownKindIsRefusedAtLoad(t *testing.T) {
 	err := source.Validate([]source.Spec{spec})
 	if err == nil || !strings.Contains(err.Error(), "not available in this build") {
 		t.Fatalf("got %v", err)
+	}
+}
+
+// One call builds the union once, however many records it verifies; a write through the same
+// Runner drops it, so what was just written is read next.
+func TestFederation_TheUnionIsBuiltOncePerCall(t *testing.T) {
+	ctx := context.Background()
+	theirs := New(t)
+	theirs.Write(t, "data/in.csv", "id,value\n1,42\n")
+	theirs.Write(t, "data/out.csv", "id,result\n1,84\n")
+	tc := theirs.Config(t)
+	a, err := binaries.New(tc).Author(ctx, binaries.AuthorInput{Inputs: []string{"data/in.csv"},
+		Outputs: []string{"data/out.csv"}, Cmd: "double data/in.csv > data/out.csv", SignKey: tc.PlanktonKey})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ours := New(t)
+	oc := ours.Config(t)
+	var spec source.Spec
+	b, _ := json.Marshal(map[string]string{"name": "theirs", "kind": "dir", "path": tc.RepoRoot})
+	if err := json.Unmarshal(b, &spec); err != nil {
+		t.Fatal(err)
+	}
+	oc.Raw.Federation.Sources = []source.Spec{spec}
+	run := binaries.New(oc)
+	if _, err := run.FotonByID(ctx, a.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	// The source's registry disappears. The Runner still answers from the union it built, which a
+	// rebuild per read would not: it would no longer find the record.
+	if err := os.RemoveAll(tc.PlanktonDir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run.FotonByID(ctx, a.ID); err != nil {
+		t.Fatalf("a second read in the same call must not rebuild the union: %v", err)
+	}
+	if _, err := binaries.New(oc).FotonByID(ctx, a.ID); err == nil {
+		t.Fatal("a new call must rebuild the union and miss the removed record")
+	}
+
+	// A write through the Runner drops the union: the new record is read back at once.
+	ours.Write(t, "data/x.csv", "x\n1\n")
+	ours.Write(t, "data/y.csv", "y\n2\n")
+	mine, err := run.Author(ctx, binaries.AuthorInput{Inputs: []string{"data/x.csv"},
+		Outputs: []string{"data/y.csv"}, Cmd: "inc data/x.csv > data/y.csv", SignKey: oc.PlanktonKey})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run.FotonByID(ctx, mine.ID); err != nil {
+		t.Fatalf("a record written through the Runner must be read next: %v", err)
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -102,4 +103,18 @@ func cacheDir(cfg *config.Config) (string, error) {
 	return d, os.MkdirAll(d, 0o755)
 }
 
-func (r *Runner) readDirs(ctx context.Context) (string, string, error) { return ReadDirs(ctx, r.cfg) }
+func (r *Runner) readDirs(ctx context.Context) (string, string, error) {
+	srcs, _ := json.Marshal(r.cfg.Raw.Federation.Sources)
+	if r.union != nil && r.union.sources == string(srcs) {
+		return r.union.plankton, r.union.nekton, nil
+	}
+	pdir, ndir, err := ReadDirs(ctx, r.cfg)
+	if err != nil {
+		return "", "", err
+	}
+	r.union = &readDirs{pdir, ndir, string(srcs)}
+	return pdir, ndir, nil
+}
+
+// wrote drops the union after a write to the own registry: the next read rebuilds it.
+func (r *Runner) wrote() { r.union = nil }

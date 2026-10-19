@@ -38,6 +38,15 @@ import (
 // which store is written to is a property of the configuration, not of the shell that started it.
 type Runner struct {
 	cfg *config.Config
+	// union is the read directories once built, so one call that verifies many records builds the
+	// federated union once instead of once per record. A Runner lives for one call; every write it
+	// makes drops the union, so a record written a moment ago is never missing from the next read.
+	union *readDirs
+}
+
+type readDirs struct {
+	plankton, nekton string
+	sources          string // the federation sources it was built from
 }
 
 func New(cfg *config.Config) *Runner {
@@ -77,6 +86,7 @@ type Authored struct {
 }
 
 func (r *Runner) Author(ctx context.Context, in AuthorInput) (Authored, error) {
+	defer r.wrote()
 	coSigned := false
 	located := map[string][]string{}
 	for _, l := range in.Located {
@@ -508,6 +518,7 @@ func errOr(primary, fallback error) error {
 // The template is the ceiling: a claim's fields are whatever the template declares, so what a
 // session can say is decided by files an operator put in `templates/`, not by this function.
 func (r *Runner) Annotate(ctx context.Context, subject, tmplName string, sets map[string]string, signKey string, chain *Chain) (string, error) {
+	defer r.wrote()
 	set, err := r.templates()
 	if err != nil {
 		return "", err
@@ -762,6 +773,7 @@ func (r *Runner) AttachClaim(ctx context.Context, claimID, scheme, mediaType, fi
 }
 
 func (r *Runner) attach(ctx context.Context, bin, id, scheme, mediaType, file string) error {
+	defer r.wrote()
 	b, err := os.ReadFile(file)
 	if err != nil {
 		return err
@@ -989,6 +1001,7 @@ const SealPredicate = "https://kton.dev/v/sealedAt"
 // gap SPEC §9.6 otherwise has to state as a limit — tail truncation is undetectable IN-BAND, and a seal
 // is the out-of-band record that detects it.
 func (r *Runner) SealScope(ctx context.Context, childScope, childHead, parentScope, parentHead, signKey string) (string, error) {
+	defer r.wrote()
 	keyid, err := r.KeyID(ctx, pubHalfOf(signKey))
 	if err != nil {
 		return "", fmt.Errorf("reading the keyid to seal under: %w", err)
@@ -1025,6 +1038,7 @@ func (r *Runner) SealScope(ctx context.Context, childScope, childHead, parentSco
 // SeedScope opens a scope and returns its id. An operator action, never a verb: a scope exists
 // before the session that writes into it.
 func (r *Runner) SeedScope(ctx context.Context, name, signKey, parentScope string) (string, error) {
+	defer r.wrote()
 	keyid, err := r.KeyID(ctx, pubHalfOf(signKey))
 	if err != nil {
 		return "", fmt.Errorf("reading the keyid to seed under: %w", err)
@@ -1173,6 +1187,7 @@ func (r *Runner) TemplateNames() ([]string, error) {
 // there is none; an error when there are several, because a name that means two scopes is not a
 // name to write under.
 func (r *Runner) OwnScope(ctx context.Context, name, signKey string) (string, error) {
+	defer r.wrote()
 	pubRaw, err := os.ReadFile(pubHalfOf(signKey))
 	if err != nil {
 		return "", err
