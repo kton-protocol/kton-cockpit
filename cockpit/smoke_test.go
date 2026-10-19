@@ -802,7 +802,7 @@ func TestPublish_WithCommitsOffTheRecordIsStillMadeButCarriesNoLocators(t *testi
 		t.Errorf("locators were built without a revision to pin them to: %+v", out.Locators)
 	}
 	if out.Persisted || out.Shared {
-		t.Errorf("publish reported committed=%v pushed=%v", out.Persisted, out.Shared)
+		t.Errorf("publish reported persisted=%v shared=%v", out.Persisted, out.Shared)
 	}
 }
 
@@ -853,7 +853,7 @@ func TestConfigGuard_StillRefusesTheWrongRepoWithCommitsOff(t *testing.T) {
 
 // `commit: false` alone is a complete statement; writing `push: true` beside it states something
 // that cannot happen.
-func TestConfig_RefusesPushTrueWithCommitFalse(t *testing.T) {
+func TestConfig_RefusesShareTrueWithCommitFalse(t *testing.T) {
 	r := testrepo.New(t)
 	raw := testrepo.DefaultConfig()
 	raw.Persist = config.Persist{Commit: testrepo.Bool(false), Share: testrepo.Bool(true)}
@@ -865,9 +865,9 @@ func TestConfig_RefusesPushTrueWithCommitFalse(t *testing.T) {
 		t.Fatalf("expected a tool-level error, not a Go error: %v", err)
 	}
 	if !result.IsError {
-		t.Fatal("a config that pushes without committing was accepted")
+		t.Fatal("a config that shares without committing was accepted")
 	}
-	if !strings.Contains(errText(result), "nothing to push") {
+	if !strings.Contains(errText(result), "nothing to share") {
 		t.Fatalf("the error does not explain the problem: %s", errText(result))
 	}
 }

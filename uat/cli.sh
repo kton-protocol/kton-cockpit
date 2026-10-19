@@ -54,7 +54,7 @@ show cockpit pin "$IMAGE"
 require "doctor says ready"                   bash -c 'cockpit doctor | grep -q "^ready:"'
 require "and asks for what it must persist"    bash -c 'cockpit doctor | grep -q "not persisted yet"'
 git add -A && git commit -qm "cockpit init" && git push -q origin main
-require "nothing is left to do"                bash -c '! cockpit doctor | grep -qE "^  . [0-9]+\. (not committed|no signing)"'
+require "nothing is left to do"                bash -c '! cockpit doctor | grep -qE "^  . [0-9]+\. (not persisted|no signing)"'
 require "no private key is committed"          test -z "$(git ls-files keys)"
 require "the public keys are"                  test -n "$(git ls-files registry/keys)"
 

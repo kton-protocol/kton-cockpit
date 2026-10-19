@@ -98,6 +98,10 @@ func Tracked(ctx context.Context, root string, paths []string) (tracked, changed
 			tracked[p] = true
 		}
 	}
+	// A repository with no commit yet has nothing to differ from: every tracked path is staged only.
+	if _, err := output(ctx, root, "rev-parse", "--verify", "--quiet", "HEAD"); err != nil {
+		return tracked, changed, nil
+	}
 	diff, err := output(ctx, root, append([]string{"diff", "--name-only", "-z", "HEAD", "--"}, paths...)...)
 	if err != nil {
 		return nil, nil, err
