@@ -63,32 +63,40 @@ today becomes an operation that every backend answers in its own terms:
 
 | operation | interface | git (`github`) | improve | `local` |
 |---|---|---|---|---|
-| `Root(dir)`: the repository that contains a folder | Binder | `rev-parse --show-toplevel` | the improve root folder | the folder holding `cockpit.config.json` |
-| `Persist(paths)`: make durable, and share if configured | Persister | commit, then push | check-in | nothing to do |
-| `Status(paths)`: is each path already durable, or changed | Persister | `ls-files`, `status` | entity version vs. file | always "untracked" |
-| `Head()`: the current revision | Syncer | `HEAD` | latest check-in | none: the index re-reads |
-| `Sync()`: take in what others shared | Syncer | `pull --ff-only` | update from the server | nothing to do |
+| `Root(dir)`: the repository that contains a folder | Binder | `rev-parse --show-toplevel` | the improve root folder | none: the config must be in the folder |
 | `Private()`: paths the backend keeps for itself | Binder | `.git` | its metadata folder | none |
-| `Fetch(uri)`: the bytes behind a locator | Fetcher, chosen by URI scheme | `https://raw.githubusercontent.com/…` | `improve://…` | `file://` |
+| `Persist(paths)`: make durable, and share if configured | Persister | commit, then push | check-in | nothing to do |
+| `Status(paths)`: is each path untracked, durable or changed | Inspector | `ls-files`, `diff HEAD` | entity version vs. file | — |
+| `Head()`: the current revision | Syncer | `HEAD` | latest check-in | — |
+| `Sync()`: take in what others shared, then share ours | Syncer | `pull --no-rebase` (fast-forward or merge), then push | update from the server, check in | — |
+| `Fetch(uri)`: the bytes behind a locator | Fetcher, chosen by the locator | raw permalink, else a cached bare clone at the pinned commit | `improve://…` | — |
+| `Propose(dir)`: how `init` would bind a folder | Proposer | owner/name from `origin` | the improve root's configuration | any folder, as a fallback |
 
-- **Configuration:** `git.commit`/`git.push` become `persist.commit` (make durable) and `persist.share` (send it to
-  the shared place). `git` stays readable as an alias for one release, and `cockpit config` writes only the new
-  form.
-- **Answers:** `PublishResult` and `SayResult` report `persisted`/`shared` plus the backend's own revision id. The
-  JSON fields `committed`/`pushed` stay, with the same values, for one release.
-- **Command line:** `cockpit sync` (operator, CLI only) calls `Sync`, and then pulls the federation sources. This
+`Root` and `Private` are required. The other parts are optional: a caller that finds one missing says so,
+and never falls back to another backend's way.
+
+**Sync never rewrites a local revision.** Records already signed pin it in their locators, so a rebase would
+leave them pointing at nothing. When both sides moved, git mode makes a merge commit; when both changed the
+same file, Sync aborts, refuses, and leaves the repository as it was. A rejected share therefore has one
+remedy in every mode: `cockpit sync`. (The old hint, `git pull --rebase && git push`, broke those locators.)
+
+- **Configuration:** `git.commit`/`git.push` are now `persist.commit` (make durable) and `persist.share` (send it
+  to the shared place). No alias: there were no users yet.
+- **Answers:** `PublishResult` reports `revision`, `locators`, `persisted`, `shared` and `shareRejected` (were
+  `commitSha`, `permalinks`, `committed`, `pushed`, `pushRejected`).
+- **Command line:** `cockpit sync` (operator, CLI only) calls `Sync`, and then pulls the federation sources. It
   replaces "run `git pull` first", which only works for one backend.
-- **Federation:** a source type may implement `Pull`. `federation pull` refreshes every source that does, not only
-  `git`.
-- **Peers:** `trust add <peer>` reads the peer as a federation source (any source type) instead of cloning it.
-- **Hidden paths:** the executor's hide list, the publish path guard and the configuration check take
+- **Federation:** a source kind may implement `Puller`. `federation pull` refreshes every source that does, not
+  only `git`. A source kind may also implement `Checkouter` (the source as files, at its revision).
+- **Peers:** `trust add <peer>` reads the peer through a source kind's `Checkouter` instead of cloning it.
+- **Hidden paths:** the executor's hide list, the publish path guard and the configured-directory check take
   `Private()` from the backend instead of naming `.git`.
-- **Fetching:** `run new --from` fetches through `Fetch` by the locator's URI scheme, so a record located in
-  improve can be re-run from a git repository and vice versa.
+- **Fetching:** `run new --from` fetches through the backend that recognises the locator, so a record located
+  in improve can be re-run from a git repository and vice versa.
 - **The index:** heads come from `Syncer.Head` (ADR-012), so watching for changes never names git.
 
-`Syncer`, `Fetcher` and `Status` are optional. A backend without them answers "not supported", and the
-caller says so. `local` mode implements none of them.
+After this, only `backend/github`, `backend/local` (its guard refuses local mode inside a git repository with an
+origin), `source/git` and `internal/git*` call git.
 
 ### 3 The executor is a port
 
@@ -172,7 +180,7 @@ The binding guard still runs on every request, against the workspace folder the 
 | P0.2 | `Backend` = `Binder` + `Persister` + `Locator` | no |
 | P0.3 | `cockpit/executor` with `container`; `publish` runs through it | no |
 | P0.4 | `internal/index` with `none`; `ask` reads through it (ADR-012) | no |
-| P0.5 | no git outside a backend (section 2a): `Root`, `Private`, `Status`, `Head`, `Sync`, `Fetch`; `persist.*` config; `cockpit sync` | names only (`git.*` and `committed`/`pushed` stay as aliases for one release) |
+| P0.5 | no git outside a backend (section 2a): `Root`, `Private`, `Status`, `Head`, `Sync`, `Fetch`, `Propose`; `persist.*` config; `cockpit sync` | renamed config keys and answer fields, no aliases; `cockpit sync` is new |
 | P3 | module registry; ktonpkg and ktonwatch as modules | new verbs, under the ceiling |
 | P4 | improve bundle: backend, executor, source, index feeder | new |
 | P5 | frontend protocol: `cockpit serve --stdio`, events; Positron extension on it, then kton-mignon | new transport |
