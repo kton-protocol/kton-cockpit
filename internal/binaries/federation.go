@@ -69,26 +69,51 @@ func ReadDirs(ctx context.Context, cfg *config.Config) (planktonDir, nektonDir s
 		}
 		return nil
 	}
-	if err := add("(own)", source.Registry{PlanktonDir: cfg.PlanktonDir, NektonDir: cfg.NektonDir}); err != nil {
+	inputs, err := Inputs(ctx, cfg)
+	if err != nil {
 		return "", "", err
+	}
+	for _, in := range inputs {
+		if err := add(in.Name, in.Registry); err != nil {
+			return "", "", err
+		}
+	}
+	return pdir, ndir, nil
+}
+
+// Input is one registry a union is built from: the own one, or one a federation source brought.
+type Input struct {
+	Name string // "(own)", or the source's name
+	source.Registry
+}
+
+// Inputs are the registries the union of cfg is built from, in the order they are joined. A source
+// is fetched into its cache first, as the union does.
+func Inputs(ctx context.Context, cfg *config.Config) ([]Input, error) {
+	out := []Input{{"(own)", source.Registry{PlanktonDir: cfg.PlanktonDir, NektonDir: cfg.NektonDir}}}
+	srcs := cfg.Raw.Federation.Sources
+	if len(srcs) == 0 {
+		return out, nil
+	}
+	base, err := cacheDir(cfg)
+	if err != nil {
+		return nil, err
 	}
 	for _, s := range srcs {
 		k, _ := source.Lookup(s.Kind) // validated at load
 		cache := filepath.Join(base, "sources", s.Name)
 		if err := os.MkdirAll(cache, 0o755); err != nil {
-			return "", "", err
+			return nil, err
 		}
 		regs, err := k.Fetch(ctx, s, cfg.RepoRoot, cache)
 		if err != nil {
-			return "", "", fmt.Errorf("federation source %s (%s): %w", s.Name, s.Kind, err)
+			return nil, fmt.Errorf("federation source %s (%s): %w", s.Name, s.Kind, err)
 		}
 		for _, reg := range regs {
-			if err := add(s.Name, reg); err != nil {
-				return "", "", err
-			}
+			out = append(out, Input{s.Name, reg})
 		}
 	}
-	return pdir, ndir, nil
+	return out, nil
 }
 
 // cacheDir is outside the repository: the union is derived, and a repository holds nothing the

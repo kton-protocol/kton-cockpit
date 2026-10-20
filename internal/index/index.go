@@ -2,11 +2,12 @@
 // scope read about records goes through a Reader, so how records are found can change without any
 // of them changing.
 //
-// The only implementation today is "none": a binaries.Runner, which reads the registries through
-// the substrate on every call and holds nothing between calls. It stays the reference every other
-// implementation must answer identically to, and the fallback when one is unavailable. A derived
-// index (memory, oxigraph) adds digesting — heads and deltas from the kernel's sync feed — and
-// overrides the reads it can answer faster; anything it does not, it passes to a Runner.
+// "none" is a binaries.Runner, which reads the registries through the substrate on every call and
+// holds nothing between calls. It stays the reference every other implementation must answer
+// identically to, and the fallback when one is unavailable. "memory" is the same Runner with the
+// opened registries kept between calls, as long as none of them has changed (memory.go). A later
+// index (oxigraph) adds digesting — heads and deltas from the kernel's sync feed — and overrides
+// the reads it can answer faster; anything it does not, it passes to a Runner.
 //
 // A Reader never decides trust. Tiers come from the calling repository's configuration at answer
 // time (internal/verify), so the same record can be trusted in one repository and not in another.
@@ -60,6 +61,19 @@ type Reader interface {
 // The reference implementation is a Runner.
 var _ Reader = (*binaries.Runner)(nil)
 
-// Open returns the Reader for one call. Today that is always "none". The Runner it returns keeps
-// the union it builds for the rest of the call (binaries.Runner), and nothing after it.
-func Open(cfg *config.Config) Reader { return binaries.New(cfg) }
+// Open returns the Reader for one call, of the kind cfg names (index.kind).
+func Open(cfg *config.Config) Reader {
+	if cfg.Raw.Index.KindOrDefault() == "memory" {
+		o := &memOpener{m: mem}
+		return memReader{binaries.NewWith(cfg, o), o}
+	}
+	return binaries.New(cfg)
+}
+
+// From says where a Reader's answers came from: nil for "none", which reads the registries.
+func From(r Reader) *Answered {
+	if a, ok := r.(interface{ Answered() *Answered }); ok {
+		return a.Answered()
+	}
+	return nil
+}

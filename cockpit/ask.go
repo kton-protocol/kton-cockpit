@@ -161,6 +161,10 @@ type AskResult struct {
 	// Executions are the verified records the proposal was made from, as the adapter read them.
 	Executions    []rayExecution `json:"executions,omitempty"`
 	FilterApplied string         `json:"filterApplied"`
+	// Index says the answer was read through a derived index (index.kind, ADR-012): which kind,
+	// whether the registries were the ones it held from an earlier call, and since when. Absent
+	// when they were opened for this call.
+	Index *index.Answered `json:"index,omitempty"`
 }
 
 func (c *Cockpit) Ask(ctx context.Context, in AskRequest) (*AskResult, error) {
@@ -211,6 +215,7 @@ func (c *Cockpit) Ask(ctx context.Context, in AskRequest) (*AskResult, error) {
 		return nil, err
 	}
 	out.ResolvedFrom = resolvedFrom
+	out.Index = index.From(r)
 	return out, nil
 }
 

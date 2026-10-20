@@ -17,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
@@ -388,6 +389,27 @@ type Raw struct {
 	Material     Material     `json:"material,omitempty"`
 	Query        Query        `json:"query,omitempty"`
 	Federation   Federation   `json:"federation,omitempty"`
+	Index        Index        `json:"index,omitempty"`
+}
+
+// Index is how records are read (ADR-012). It is derived, never authoritative: whichever kind is
+// configured answers exactly as "none" does, only sooner.
+type Index struct {
+	// Kind is "none" (the default: the registries are opened on every call) or "memory" (the
+	// opened registries are kept for as long as the process runs, and opened again when one of
+	// them changes — for the MCP server, which runs across calls).
+	Kind string `json:"kind,omitempty"`
+}
+
+// IndexKinds are the index kinds this build has.
+var IndexKinds = []string{"none", "memory"}
+
+// KindOrDefault is the configured kind, "none" when unset.
+func (i Index) KindOrDefault() string {
+	if i.Kind == "" {
+		return "none"
+	}
+	return i.Kind
 }
 
 // Federation names the other registries this cockpit reads together with its own. Which places
@@ -582,6 +604,10 @@ func validate(raw *Raw) error {
 	}
 	if err := validateMaterial(raw.Material); err != nil {
 		return err
+	}
+	if !slices.Contains(IndexKinds, raw.Index.KindOrDefault()) {
+		return fmt.Errorf("index.kind %q is not available in this build (have: %s)",
+			raw.Index.Kind, strings.Join(IndexKinds, ", "))
 	}
 	for name, id := range raw.Claims.Scopes {
 		if name == "" {

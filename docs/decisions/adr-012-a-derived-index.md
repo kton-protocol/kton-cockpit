@@ -11,8 +11,8 @@ tags: [architecture, index, query, oxigraph, sparql, federation, performance]
 
 ## Status
 
-Proposed (2026-10-19). Builds on ADR-011 (the index is a port). It needs a SPEC §13 amendment before phase 1
-ships. Phase 0 (`none`) holds no state and changes no behaviour.
+Proposed (2026-10-19). Builds on ADR-011 (the index is a port). Phase 0 (`none`) holds no state and changes no
+behaviour. Phase 1 (`memory`, 2026-10-20) brings the SPEC §13 amendment with it, and adds SPEC §12.4.
 
 ## Context
 
@@ -60,6 +60,9 @@ The signed registries stay the only source of truth. The index:
 
 ### 3 The index follows the sync feed
 
+This is how an index that digests records (`oxigraph`) keeps up. `memory` digests nothing: it holds the
+registries as the kernel opened them and opens them again when they change (section "Noticing a change").
+
 The index is one more sync peer. For every registry it keeps `(epoch, maxSeq)` and applies
 `Records(maxSeq)` as a delta. Updates arrive from three places, all through one `Apply`:
 
@@ -76,7 +79,7 @@ marked as deferred and excluded from answers until their dependency resolves, as
 | `index.kind` | lives | for |
 |---|---|---|
 | `none` (default) | per call | today's behaviour. The reference, the fallback, and the proof that every operation stays performable with the substrate alone. |
-| `memory` | as long as the process | the MCP server, which is already long-running |
+| `memory` | as long as the process | the MCP server, which is already long-running. It keeps the opened registries and checks them before every answer (section "Noticing a change") |
 | `oxigraph` | a daemon | SPARQL vocabularies, aggregations, several clients |
 
 **Who runs Oxigraph:** a cockpit starts it.
@@ -104,6 +107,10 @@ type Index interface {
 no-op, because it holds nothing. A conformance suite (`indextest`) runs the same questions against every
 implementation and requires identical answers to `none`.
 
+As built in phase 1, the port is still `Reader` alone: `memory` needs no `Heads` or `Apply`, so they arrive
+with `oxigraph`. `memory` is a `binaries.Runner` with an `Opener` that keeps the opened union, so it answers
+through the same code as `none` by construction; its tests compare it with `none` after every kind of change.
+
 ## SPEC amendment (before phase 1)
 
 SPEC §13 currently reads: "no state of its own between calls beyond that static configuration". It becomes:
@@ -113,20 +120,32 @@ SPEC §13 currently reads: "no state of its own between calls beyond that static
 > verdict or the trust tier, and deleting them changes no answer. An answer states whether it came from such
 > a cache and at which heads.
 
-The amendment lands together with the first stateful implementation (`memory`), not before, and after
-`cockpit/adr-009` has been merged, because that branch edits the same section.
+The amendment landed together with the first stateful implementation (`memory`), in SPEC §13 and the new SPEC §12.4.
+`cockpit/adr-009` edits the same line of SPEC §13 (it removes "no fourth verb"); whichever merges second keeps
+both changes.
 
-## Open
+## Noticing a change
 
-- **Noticing a change cheaply.** `MaxSeq` is only known after `Open`, and `Open` replays the log. The options
-  are to re-open on every call (the replay stays, the union and projection costs go), to watch the registry
-  directories and git `HEAD` in long-running processes, or to ask the kernel for a call that reports
-  `(epoch, maxSeq)` without replaying. Undecided.
+`MaxSeq` is only known after `Open`, and `Open` replays the log, so the kernel cannot say cheaply whether
+anything changed. Decided for phase 1 (2026-10-20):
+
+- **`memory` stamps the files.** Before every answer it takes the path, size and modification time of every
+  file under the registries the union is built from (own and every source), with `stat`. It never reads
+  them, so it learns nothing about the store's layout (SPEC §12.3). The same stamp keeps the held union; any
+  other stamp opens it again from the substrate. A write in this process, a pull, a check-in, another
+  cockpit on the same repository: each changes a file, so none of them has to notify the index, and
+  write-through needs no `Apply` yet.
+- **The stamp is taken before opening**, and the union is held under it. A write landing between the stamp
+  and the open costs one more open on the next call, never a stale answer. Opening can itself write (the
+  kernel persists its numbering), which costs the same one extra open.
+- **No backend or git involved:** the stamp covers uncommitted writes too, which `Syncer.Head` would not.
+- **Later:** a kernel call that reports `(epoch, maxSeq)` without replaying would let `oxigraph` follow the
+  feed without re-opening. It is a kton issue to file before phase 2, not a precondition of phase 1.
 
 ## Phases
 
 | phase | content | needs |
 |---|---|---|
 | 0 | port + `none`; `ask` reads through it | nothing |
-| 1 | `memory` in the MCP process; write-through; head check; SPEC §13 amendment | the open point above |
+| 1 | `memory`: the opened union kept per process, the file stamp before every answer; `ask` says `index`; SPEC §12.4, SPEC §13 amendment | done (2026-10-20) |
 | 2 | `oxigraph` daemon; `query.go` runs on it; `cockpit index …` | kernel 0.3.0 (RDF projections) |

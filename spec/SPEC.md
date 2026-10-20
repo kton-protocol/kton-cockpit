@@ -846,6 +846,23 @@ A cockpit MUST obtain records through the substrate and MUST NOT parse the regis
 store's layout is the substrate's, and a consumer that assumes one shape loses records silently
 rather than failing (kton §11).
 
+### 12.4 A derived index *(optional)*
+
+A cockpit MAY keep what it read between calls (`index.kind`, ADR-012). Such an index is derived: it
+MUST answer exactly as reading the registries would, it MUST be rebuildable from them alone, and it
+MUST NOT hold a trust tier. Tiers come from the calling repository's configuration at answer time.
+It MUST NOT answer from what it holds after a registry it was built from changed. An answer read
+through it MUST say so (ask's `index`: the kind, whether the registries were the ones it held, and
+since when).
+
+`memory` holds the opened registries for as long as the process runs. Before each answer it compares
+the path, size and modification time of every file under those registries (with `stat`, without
+reading them) and opens them again on any difference.
+
+> **Checked by:** `TestMemory_KeepsTheUnionAcrossCallsWhileNothingChanged`,
+> `TestMemory_AnswersAsNoneAfterAnyChange`, `TestMemory_AnUnknownKindIsRefusedAtLoad`,
+> `TestIndex_AnAnswerSaysItCameFromTheMemoryIndex`.
+
 ## 13 What a cockpit does not do
 
 From the governing design, restated normatively:

@@ -192,6 +192,14 @@
         "entrypoint": { "type": "string", "description": "What the image runs a command with, as the tool definition states (e.g. Rscript). Needed only to extract a ray (ADR-006): a package carries the image as its first line and leaves the interpreter to the tool, so a recorded command line must start with this word, which is dropped." }
       }
     },
+    "index": {
+      "type": "object",
+      "description": "How records are read (ADR-012). Derived, never authoritative: every kind answers exactly as \"none\" does, and deleting what it holds changes no answer.",
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "type": "string", "enum": ["none", "memory"], "description": "\"none\" (default): the registries are opened on every call. \"memory\": the opened registries are kept for as long as the process runs and opened again when a file in one of them changes; useful for the MCP server, which runs across calls. An answer read through it says so (ask's \"index\" field)." }
+      }
+    },
     "reproduction": {
       "type": "object",
       "description": "The reproduction precondition policy cockpit_say runs itself before writing a reproduces claim's level field — never self-declared by the caller.",

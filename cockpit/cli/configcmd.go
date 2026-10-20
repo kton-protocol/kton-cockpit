@@ -217,6 +217,7 @@ func configOverview(cfg *config.Config, cfgPath string) {
 		srcs = append(srcs, s.Name+" ("+s.Kind+")")
 	}
 	row("federation.sources", orDefault(strings.Join(srcs, ", "), "none"), "cockpit federation")
+	row("index.kind", r.Index.KindOrDefault(), "")
 	row("claims.allowedTemplates", strings.Join(r.Claims.AllowedTemplates, ", "), "")
 	row("reproduction.requiredLevel", orDefault(r.Reproduction.RequiredLevel, "L0"), "")
 	row("union.publish", on(r.Union.Publish), "")
