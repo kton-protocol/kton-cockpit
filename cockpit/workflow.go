@@ -64,7 +64,7 @@ type WorkflowExtractResult struct {
 	References []string `json:"references"` // the reference runs packed with it
 	Holes      []string `json:"holes,omitempty"`
 	Params     []string `json:"params,omitempty"`
-	Revision   string   `json:"commitSha,omitempty"`
+	Persisted  string   `json:"persistedRevision,omitempty"` // the revision the package was persisted at
 }
 
 // WorkflowExtract writes the chosen potential as a package in the scope format under
@@ -208,7 +208,7 @@ func (c *Cockpit) WorkflowExtract(ctx context.Context, in WorkflowExtractRequest
 	if err != nil {
 		return nil, refuse("store", "", "committing the package failed: %v", err)
 	}
-	out.Revision = revn.ID
+	out.Persisted = revn.ID
 	return out, nil
 }
 
