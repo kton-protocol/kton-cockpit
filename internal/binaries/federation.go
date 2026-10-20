@@ -103,18 +103,62 @@ func cacheDir(cfg *config.Config) (string, error) {
 	return d, os.MkdirAll(d, 0o755)
 }
 
-func (r *Runner) readDirs(ctx context.Context) (string, string, error) {
-	srcs, _ := json.Marshal(r.cfg.Raw.Federation.Sources)
-	if r.union != nil && r.union.sources == string(srcs) {
-		return r.union.plankton, r.union.nekton, nil
-	}
-	pdir, ndir, err := ReadDirs(ctx, r.cfg)
-	if err != nil {
-		return "", "", err
-	}
-	r.union = &readDirs{pdir, ndir, string(srcs)}
-	return pdir, ndir, nil
+// Union is the read side, opened: the registries ReadDirs names, as the kernel loaded them. Reads
+// only — a write goes to the own registry, never to a union.
+type Union struct {
+	Plankton *pregistry.Registry
+	Nekton   *nregistry.Registry
 }
 
-// wrote drops the union after a write to the own registry: the next read rebuilds it.
-func (r *Runner) wrote() { r.union = nil }
+// An Opener opens the union a configuration reads from. Fresh opens it from the registries every
+// time; a derived index (internal/index) keeps what it opened as long as nothing it was opened from
+// has changed. Every Opener must answer as Fresh would.
+type Opener interface {
+	Open(ctx context.Context, cfg *config.Config) (*Union, error)
+}
+
+// OpenerFunc is a function as an Opener.
+type OpenerFunc func(ctx context.Context, cfg *config.Config) (*Union, error)
+
+func (f OpenerFunc) Open(ctx context.Context, cfg *config.Config) (*Union, error) { return f(ctx, cfg) }
+
+// Fresh opens the union from the registries, holding nothing afterwards.
+var Fresh Opener = OpenerFunc(OpenUnion)
+
+// OpenUnion opens what ReadDirs names.
+func OpenUnion(ctx context.Context, cfg *config.Config) (*Union, error) {
+	pdir, ndir, err := ReadDirs(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+	preg, err := pregistry.Open(pdir)
+	if err != nil {
+		return nil, fmt.Errorf("opening the plankton registry: %w", err)
+	}
+	nreg, err := nregistry.Open(ndir)
+	if err != nil {
+		return nil, fmt.Errorf("opening the nekton registry: %w", err)
+	}
+	return &Union{Plankton: preg, Nekton: nreg}, nil
+}
+
+type heldUnion struct {
+	u       *Union
+	sources string // the federation sources it was opened from
+}
+
+func (r *Runner) read(ctx context.Context) (*Union, error) {
+	srcs, _ := json.Marshal(r.cfg.Raw.Federation.Sources)
+	if r.held != nil && r.held.sources == string(srcs) {
+		return r.held.u, nil
+	}
+	u, err := r.opener.Open(ctx, r.cfg)
+	if err != nil {
+		return nil, err
+	}
+	r.held = &heldUnion{u, string(srcs)}
+	return u, nil
+}
+
+// wrote drops the union after a write to the own registry: the next read opens it again.
+func (r *Runner) wrote() { r.held = nil }
