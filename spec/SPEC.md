@@ -863,6 +863,16 @@ reading them) and opens them again on any difference.
 > `TestMemory_AnswersAsNoneAfterAnyChange`, `TestMemory_AnUnknownKindIsRefusedAtLoad`,
 > `TestIndex_AnAnswerSaysItCameFromTheMemoryIndex`.
 
+`oxigraph` reads records as `memory` does and evaluates vocabulary queries on one Oxigraph per machine,
+which the first such query starts. It keeps one view per repository and set of trusted keys: the kernel's
+projection of that union under those keys, rebuilt when the same stamp as `memory`'s changes. A query runs
+with exactly its view as the dataset, so what one configuration trusts never reaches another's answer, and
+its rows are the rows a container started for that query alone would return. A running daemon from another
+image or store schema is not used.
+
+> **Checked by:** `TestOxigraph_ViewsAreKeptWhileCurrentAndNeverSeeEachOther`,
+> `TestQuery_TheIndexAnswersAsAContainerForTheQueryDoes` (both `-tags docker,unreleased`).
+
 ## 13 What a cockpit does not do
 
 From the governing design, restated normatively:

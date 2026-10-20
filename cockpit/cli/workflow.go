@@ -285,7 +285,11 @@ func workflowList(ctx context.Context, c *cockpit.Cockpit, args []string) error 
 		fmt.Println("no workflows installed")
 		return nil
 	}
-	fmt.Printf("%d workflow(s) installed  (query from %s)\n\n", len(out.Workflows), out.Query)
+	fmt.Printf("%d workflow(s) installed  (query from %s)\n", len(out.Workflows), out.Query)
+	if out.Index != "" {
+		fmt.Printf("read through %s\n", out.Index)
+	}
+	fmt.Println()
 	for _, w := range out.Workflows {
 		fmt.Printf("  %-16s revision %-4s ray %s  sealed %s\n", w["name"], w["label"], short(w["ray"]), short(w["seal"]))
 	}

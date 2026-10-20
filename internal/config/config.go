@@ -397,14 +397,29 @@ type Raw struct {
 // Index is how records are read (ADR-012). It is derived, never authoritative: whichever kind is
 // configured answers exactly as "none" does, only sooner.
 type Index struct {
-	// Kind is "none" (the default: the registries are opened on every call) or "memory" (the
+	// Kind is "none" (the default: the registries are opened on every call), "memory" (the
 	// opened registries are kept for as long as the process runs, and opened again when one of
-	// them changes — for the MCP server, which runs across calls).
+	// them changes — for the MCP server, which runs across calls) or, in a build that has the
+	// kernel's RDF projections, "oxigraph" (memory, plus a long-running Oxigraph that keeps the
+	// projection SPARQL queries run on).
 	Kind string `json:"kind,omitempty"`
+	// URL is an Oxigraph to connect to instead of starting one ("connect, don't start").
+	URL string `json:"url,omitempty"`
+	// Memory limits the Oxigraph container the cockpit starts, in the engine's notation. Empty
+	// means "2g".
+	Memory string `json:"memory,omitempty"`
 }
 
 // IndexKinds are the index kinds this build has.
 var IndexKinds = []string{"none", "memory"}
+
+// MemoryOrDefault is the memory limit of a started Oxigraph.
+func (i Index) MemoryOrDefault() string {
+	if i.Memory == "" {
+		return "2g"
+	}
+	return i.Memory
+}
 
 // KindOrDefault is the configured kind, "none" when unset.
 func (i Index) KindOrDefault() string {
@@ -610,6 +625,9 @@ func validate(raw *Raw) error {
 	if !slices.Contains(IndexKinds, raw.Index.KindOrDefault()) {
 		return fmt.Errorf("index.kind %q is not available in this build (have: %s)",
 			raw.Index.Kind, strings.Join(IndexKinds, ", "))
+	}
+	if raw.Index.Kind == "oxigraph" && raw.Index.URL == "" && raw.Query.Image == "" {
+		return fmt.Errorf("index.kind \"oxigraph\" needs query.image (the Oxigraph image to start, pinned by digest) or index.url (one to connect to)")
 	}
 	for name, id := range raw.Claims.Scopes {
 		if name == "" {

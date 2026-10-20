@@ -63,7 +63,8 @@ var _ Reader = (*binaries.Runner)(nil)
 
 // Open returns the Reader for one call, of the kind cfg names (index.kind).
 func Open(cfg *config.Config) Reader {
-	if cfg.Raw.Index.KindOrDefault() == "memory" {
+	// oxigraph reads records the way memory does; only SPARQL queries go to the daemon.
+	if k := cfg.Raw.Index.KindOrDefault(); k == "memory" || k == "oxigraph" {
 		o := &memOpener{m: mem}
 		return memReader{binaries.NewWith(cfg, o), o}
 	}

@@ -218,6 +218,8 @@ func (c *Cockpit) WorkflowExtract(ctx context.Context, in WorkflowExtractRequest
 type WorkflowListResult struct {
 	Query     string              `json:"query"` // where the query came from
 	Workflows []map[string]string `json:"workflows"`
+	// Index says the answer was read through the index daemon, and which view (ADR-012).
+	Index string `json:"index,omitempty"`
 }
 
 // WorkflowList runs the vocabulary's "workflows" query over this repository's records.
@@ -226,11 +228,11 @@ func (c *Cockpit) WorkflowList(ctx context.Context) (*WorkflowListResult, error)
 	if err != nil {
 		return nil, refuse("binding", "SPEC §5", "%v", err)
 	}
-	rows, from, err := runQuery(ctx, cfg, "workflows")
+	a, err := runQuery(ctx, cfg, "workflows")
 	if err != nil {
 		return nil, err
 	}
-	return &WorkflowListResult{Query: from, Workflows: rows}, nil
+	return &WorkflowListResult{Query: a.from, Workflows: a.rows, Index: a.via}, nil
 }
 
 // ---- show ------------------------------------------------------------------------------------------

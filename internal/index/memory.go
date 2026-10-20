@@ -64,7 +64,7 @@ func (m *memory) open(ctx context.Context, cfg *config.Config) (*heldEntry, bool
 	if err != nil {
 		return nil, false, err
 	}
-	stamp, err := stampOf(inputs)
+	stamp, err := Stamp(inputs)
 	if err != nil {
 		return nil, false, err
 	}
@@ -90,10 +90,10 @@ func (m *memory) open(ctx context.Context, cfg *config.Config) (*heldEntry, bool
 	return e, false, nil
 }
 
-// stampOf names every file under the registries a union is built from, with its size and
+// Stamp names every file under the registries a union is built from, with its size and
 // modification time. A registry that does not exist is part of the stamp too, so creating it
 // changes it.
-func stampOf(inputs []binaries.Input) (string, error) {
+func Stamp(inputs []binaries.Input) (string, error) {
 	h := sha256.New()
 	for _, in := range inputs {
 		for _, dir := range []string{in.PlanktonDir, in.NektonDir} {
