@@ -36,6 +36,27 @@ func TestConfig_SetsOneValueAndPutsBackWhatDoesNotLoad(t *testing.T) {
 	}
 }
 
+// A key the configuration does not have is refused, not written and then ignored on load: a typo
+// would otherwise leave the real setting as it was, with nothing said.
+func TestConfig_RefusesAKeyTheConfigurationDoesNotHave(t *testing.T) {
+	r := testrepo.New(t)
+	cfgPath := filepath.Join(r.Root, "cockpit.config.json")
+	before, _ := os.ReadFile(cfgPath)
+	for _, key := range []string{"git.pushh", "nonsense.key", "execution.netwerk"} {
+		out, code := r.Cockpit(t, "config", key, "off")
+		if code == 0 || !strings.Contains(out, "no setting "+key) {
+			t.Errorf("%s was accepted (exit %d):\n%s", key, code, out)
+		}
+	}
+	if after, _ := os.ReadFile(cfgPath); string(after) != string(before) {
+		t.Error("a refused key was written")
+	}
+	// Under a map, any key is the configuration's to judge on load.
+	if out, code := r.Cockpit(t, "config", "trust.tiers.peer", `[]`); code != 0 {
+		t.Errorf("a new trust tier name was refused (exit %d):\n%s", code, out)
+	}
+}
+
 // Another registry is read once added, its records counted against this repository's tiers; one
 // that cannot be read is said and leaves the configuration as it was.
 func TestFederation_AddListRemove(t *testing.T) {
