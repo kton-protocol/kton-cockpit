@@ -13,6 +13,7 @@ package executor
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"sync"
@@ -39,6 +40,9 @@ type Step struct {
 	HideFiles []string
 	// Cmd is the command line, run by a POSIX shell.
 	Cmd string
+	// Options is the configuration's execution.options block as written: the executor's own
+	// settings, which the core does not read (a run server's address, whether it is offline).
+	Options json.RawMessage
 }
 
 // Result is what one run produced.
@@ -48,6 +52,16 @@ type Result struct {
 	// Image is the reference the run actually used. The core pins this same value into the foton,
 	// so what ran and what is recorded cannot diverge.
 	Image string
+	// Removed are the repository-relative paths the command deleted, for an executor that does not
+	// run in the repository itself and so cannot leave the deletion where the core's diff would see
+	// it. Only what the command deleted belongs here, never what was not copied back.
+	Removed []string
+}
+
+// A Validator checks an executor's options block when the configuration is loaded, so a bad block
+// is refused before anything runs. Optional.
+type Validator interface {
+	Validate(options json.RawMessage) error
 }
 
 // Executor runs steps. A non-zero exit is an error: a run that failed produced nothing to record.

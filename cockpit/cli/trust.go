@@ -74,7 +74,7 @@ func trustAdd(ctx context.Context, args []string) error {
 		return err
 	}
 
-	keys, where, err := peerKeys(ctx, src, publicKeysDir(&cfg.Raw))
+	keys, where, err := peerKeys(ctx, cfg, src, publicKeysDir(&cfg.Raw))
 	if err != nil {
 		return err
 	}
@@ -151,19 +151,27 @@ func trustAdd(ctx context.Context, args []string) error {
 }
 
 // peerKeys reads the public keys a peer publishes, through the federation source kind that reads
-// that kind of place (a checkout on disk with keysDir is read in place, anything else is a git
-// repository to clone), and says
-// where they were read.
-func peerKeys(ctx context.Context, src, keysDir string) ([]peerKey, string, error) {
-	block := map[string]string{"name": "peer", "kind": "git", "url": src}
-	if fi, err := os.Stat(filepath.Join(src, filepath.FromSlash(keysDir))); err == nil && fi.IsDir() {
-		abs, _ := filepath.Abs(src)
-		block = map[string]string{"name": "peer", "kind": "dir", "path": abs}
-	}
+// that kind of place, and says where they were read. src is a configured federation source by name
+// (read through its own kind, whatever kind that is), a checkout on disk with keysDir (read in
+// place), or else a git repository to clone.
+func peerKeys(ctx context.Context, cfg *config.Config, src, keysDir string) ([]peerKey, string, error) {
 	var spec source.Spec
-	b, _ := json.Marshal(block)
-	if err := json.Unmarshal(b, &spec); err != nil {
-		return nil, "", err
+	base := "."
+	for _, s := range cfg.Raw.Federation.Sources {
+		if s.Name == src {
+			spec, base = s, cfg.RepoRoot
+		}
+	}
+	if spec.Kind == "" {
+		block := map[string]string{"name": "peer", "kind": "git", "url": src}
+		if fi, err := os.Stat(filepath.Join(src, filepath.FromSlash(keysDir))); err == nil && fi.IsDir() {
+			abs, _ := filepath.Abs(src)
+			block = map[string]string{"name": "peer", "kind": "dir", "path": abs}
+		}
+		b, _ := json.Marshal(block)
+		if err := json.Unmarshal(b, &spec); err != nil {
+			return nil, "", err
+		}
 	}
 	k, ok := source.Lookup(spec.Kind)
 	co, can := k.(source.Checkouter)
@@ -175,7 +183,7 @@ func peerKeys(ctx context.Context, src, keysDir string) ([]peerKey, string, erro
 		return nil, "", err
 	}
 	defer os.RemoveAll(cache)
-	root, rev, err := co.Checkout(ctx, spec, ".", cache)
+	root, rev, err := co.Checkout(ctx, spec, base, cache)
 	if err != nil {
 		return nil, "", fmt.Errorf("%s is neither a checkout with %s/ nor a repository this build can read: %v", src, keysDir, err)
 	}

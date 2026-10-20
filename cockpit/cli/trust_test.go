@@ -5,12 +5,14 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/kton-protocol/kton-cockpit/cockpit/source"
 	"github.com/kton-protocol/kton-cockpit/internal/testrepo"
 )
 
@@ -120,5 +122,25 @@ func TestTrustAdd_ReadsAPeerFromAGitRepository(t *testing.T) {
 	must(t, runTrust(context.Background(), []string{"add", "peer", bare, "--yes"}))
 	if cfg := readConfig(t, r.Root); !strings.Contains(cfg, "remote-peer.pub") {
 		t.Errorf("the key the git repository publishes was not taken:\n%s", cfg)
+	}
+}
+
+// A configured federation source is a peer by its name, read through its own kind — so a kind an
+// extension brings (improve) reaches trust add too.
+func TestTrustAdd_ReadsAPeerFromAConfiguredSourceByName(t *testing.T) {
+	peer := peerCheckout(t, "hub-peer")
+	r := testrepo.New(t)
+	rel, err := filepath.Rel(r.Root, peer)
+	must(t, err)
+	raw := testrepo.DefaultConfig()
+	var spec source.Spec
+	b, _ := json.Marshal(map[string]string{"name": "hub", "kind": "dir", "path": rel})
+	must(t, json.Unmarshal(b, &spec))
+	raw.Federation.Sources = []source.Spec{spec}
+	r.WriteConfig(t, raw)
+	t.Chdir(filepath.Join(r.Root, "registry")) // a relative source path is the configuration's, not the shell's
+	must(t, runTrust(context.Background(), []string{"add", "peer", "hub", "--yes"}))
+	if cfg := readConfig(t, r.Root); !strings.Contains(cfg, "hub-peer.pub") {
+		t.Errorf("the key the configured source publishes was not taken:\n%s", cfg)
 	}
 }

@@ -306,6 +306,8 @@ type Execution struct {
 	// Executor names the registered executor that runs the command (cockpit/executor). Empty means
 	// "container", the reference implementation; an extension binary registers further ones.
 	Executor string `json:"executor,omitempty"`
+	// Options is the executor's own block, handed to it as written (executor.Step.Options).
+	Options json.RawMessage `json:"options,omitempty"`
 	// Engine is the container runtime executable. Empty means "docker".
 	Engine string `json:"engine,omitempty"`
 	// Image is the digest-pinned OCI reference to run in, e.g. oci://ghcr.io/org/x@sha256:...
@@ -662,9 +664,15 @@ func validateExecution(ex Execution, env Environment) error {
 		}
 		return nil
 	}
-	if _, ok := executor.Lookup(ex.Executor); !ok {
+	e, ok := executor.Lookup(ex.Executor)
+	if !ok {
 		return fmt.Errorf("execution.executor %q is not available in this build (have: %s)",
 			ex.Executor, strings.Join(executor.Names(), ", "))
+	}
+	if v, ok := e.(executor.Validator); ok {
+		if err := v.Validate(ex.Options); err != nil {
+			return fmt.Errorf("execution.options: %w", err)
+		}
 	}
 	if !strings.HasPrefix(ex.Image, "oci://") {
 		return fmt.Errorf("execution.image must be an oci:// reference, got %q", ex.Image)

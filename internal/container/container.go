@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/kton-protocol/kton-cockpit/cockpit/executor"
@@ -105,6 +106,8 @@ type Result struct {
 	// Image is the reference actually handed to the runtime. Publishing pins this same value, which
 	// is the whole point: there is one string, so what ran and what is recorded cannot diverge.
 	Image string
+	// Removed are the paths the executor reports the command deleted (executor.Result.Removed).
+	Removed []string
 }
 
 // Step is the step the configuration describes for cmd.
@@ -119,6 +122,7 @@ func Step(cfg *config.Config, cmd string) executor.Step {
 		Hide:      dirs,
 		HideFiles: files,
 		Cmd:       cmd,
+		Options:   ex.Options,
 	}
 }
 
@@ -144,7 +148,12 @@ func Run(ctx context.Context, cfg *config.Config, cmd string) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Result{Stdout: res.Stdout, Stderr: res.Stderr, Image: res.Image}, nil
+	for _, p := range res.Removed {
+		if c := filepath.ToSlash(filepath.Clean(p)); filepath.IsAbs(p) || c == ".." || strings.HasPrefix(c, "../") {
+			return nil, fmt.Errorf("executor %q reported a removed path outside the repository: %q", ex.Executor, p)
+		}
+	}
+	return &Result{Stdout: res.Stdout, Stderr: res.Stderr, Image: res.Image, Removed: res.Removed}, nil
 }
 
 // Version reports what the configured engine says about itself, for doctor.

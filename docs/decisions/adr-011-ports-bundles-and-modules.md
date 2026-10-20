@@ -88,12 +88,16 @@ remedy in every mode: `cockpit sync`. (The old hint, `git pull --rebase && git p
   replaces "run `git pull` first", which only works for one backend.
 - **Federation:** a source kind may implement `Puller`. `federation pull` refreshes every source that does, not
   only `git`. A source kind may also implement `Checkouter` (the source as files, at its revision).
-- **Peers:** `trust add <peer>` reads the peer through a source kind's `Checkouter` instead of cloning it.
+- **Peers:** `trust add <tier> <peer>` reads the peer through a source kind's `Checkouter` instead of cloning
+  it. `<peer>` may name a configured federation source, which is then read through its own kind, whatever
+  kind that is; a path or URL is read as `dir` or `git`.
 - **Hidden paths:** the executor's hide list, the publish path guard and the configured-directory check take
   `Private()` from the backend instead of naming `.git`.
 - **Fetching:** `run new --from` fetches through the backend that recognises the locator, so a record located
   in improve can be re-run from a git repository and vice versa.
-- **The index:** heads come from `Syncer.Head` (ADR-012), so watching for changes never names git.
+- **The index:** notices a change by stamping the registry files (ADR-012, "Noticing a change"), so it
+  neither names git nor calls `Syncer.Head`. `Head` is called by `cockpit sync` only, and may be as costly as
+  a backend needs.
 
 After this, only `backend/github`, `backend/local` (its guard refuses local mode inside a git repository with an
 origin), `source/git` and `internal/git*` call git.
@@ -106,6 +110,16 @@ cockpit configuration type, so an implementation outside this repository can pro
 the executor named in `execution.executor` (default `container`) and no longer calls `exec` itself. The
 snapshot diff that finds a run's outputs stays in the core, because it is the core's evidence, not the
 executor's claim.
+
+- `Step.Options` is the configuration's `execution.options` block as written: the executor's own settings
+  (a run server's address, whether it runs offline), which the core does not read. An executor that
+  implements `Validator` checks the block when the configuration loads, so a bad block refuses before
+  anything runs.
+- `Result.Removed` lists the files the command deleted, for an executor that runs elsewhere and cannot
+  leave the deletion where the core's diff sees it. The core counts them as removed. It is the one thing
+  an executor reports about the tree, because otherwise nothing could.
+- An executor that cannot enforce `Network: false` refuses the step, as `container` does; it never runs
+  with a weaker isolation than the configuration states.
 
 ### 4 Bundles are a composition, not a type
 

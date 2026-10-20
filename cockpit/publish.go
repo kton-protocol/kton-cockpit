@@ -218,6 +218,11 @@ func (c *Cockpit) Publish(ctx context.Context, in PublishRequest) (*PublishResul
 		if err != nil {
 			return nil, refuse("execution.failed", "SPEC §10", "%v", err)
 		}
+		// The tree after the run, with what the executor reports the command deleted counted as gone.
+		afterRun := func() (container.Snapshot, error) {
+			s, err := container.TakeSnapshot(cfg.RepoRoot)
+			return s.Without(ran.Removed), err
+		}
 		if in.OutputDir != "" {
 			produced, derr := filesUnder(cfg.RepoRoot, in.OutputDir)
 			if derr != nil {
@@ -232,7 +237,7 @@ func (c *Cockpit) Publish(ctx context.Context, in PublishRequest) (*PublishResul
 			in.Outputs = produced
 		}
 		if in.OutputsIn != "" {
-			after, serr := container.TakeSnapshot(cfg.RepoRoot)
+			after, serr := afterRun()
 			if serr != nil {
 				return nil, refuse("io", "", "could not read the working tree after the run: %v", serr)
 			}
@@ -256,7 +261,7 @@ func (c *Cockpit) Publish(ctx context.Context, in PublishRequest) (*PublishResul
 			}
 		}
 
-		after, serr := container.TakeSnapshot(cfg.RepoRoot)
+		after, serr := afterRun()
 		if serr != nil {
 			return nil, refuse("io", "", "could not read the working tree after the run: %v", serr)
 		}
