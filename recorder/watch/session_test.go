@@ -2,8 +2,11 @@ package watch
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 const proj = "/p"
@@ -397,15 +400,25 @@ func TestSession_UnseenRewriteWithinTheCommandIsTheOutput(t *testing.T) {
 }
 
 // Review K1: what a call needs for ReuseBlocked comes from the log: the watcher's hash for an
-// outside read the shim did not hash, and the failed open of a project file per process.
+// outside read the shim did not hash, and the failed open of a project file per process. The
+// watcher hashes only a file that still has the logged size and mtime (K1 residual: a log
+// processed late must not name today's bytes as the input).
 func TestSession_CallsSeeOutsideHashesAndMissingFiles(t *testing.T) {
-	l := (&logb{}).
-		ev(100, "exec", "-", "/p", "/opt/nm/run/nmfe75 run1.mod run1.lst").
-		ev(100, "open", "r", "/share/pk.csv", "").
-		ev(100, "openfail", "r", "/p/b.txt", "errno=2").
-		task(1, "ok", "system('nmfe75 run1.mod run1.lst')")
-	s := sess(t, l, map[string]string{"/share/pk.csv": "hpk"})
-	ops := task(t, s, "1").Ops
+	share := filepath.Join(t.TempDir(), "pk.csv")
+	if err := os.WriteFile(share, []byte("v1"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-time.Hour)
+	os.Chtimes(share, old, old)
+	read := func(size, mtime int64) []FileOp {
+		l := &logb{ts: time.Now().UnixNano()}
+		l.ev(100, "exec", "-", "/p", "/opt/nm/run/nmfe75 run1.mod run1.lst")
+		l.lines = append(l.lines, fmt.Sprintf("%d\t100\t1\topen\tr\t%s\t%d\t%d\t0\t-", l.ts+1, share, size, mtime))
+		l.ts++
+		l.ev(100, "openfail", "r", "/p/b.txt", "errno=2").task(1, "ok", "system('nmfe75 run1.mod run1.lst')")
+		return task(t, sess(t, l, map[string]string{share: "hpk"}), "1").Ops
+	}
+	ops := read(2, old.UnixNano())
 	var outside, missing bool
 	for _, o := range ops {
 		outside = outside || (o.Op == "r" && o.Outside && o.SHA256 == "hpk")
@@ -413,5 +426,10 @@ func TestSession_CallsSeeOutsideHashesAndMissingFiles(t *testing.T) {
 	}
 	if !outside || !missing {
 		t.Fatalf("ops %+v", ops)
+	}
+	for _, o := range append(read(3, old.UnixNano()), read(2, old.UnixNano()-1)...) {
+		if o.Op == "r" && o.SHA256 != "" {
+			t.Fatalf("the file is not the one the log read (other size or mtime), yet hashed: %+v", o)
+		}
 	}
 }

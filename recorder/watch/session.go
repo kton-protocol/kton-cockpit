@@ -369,7 +369,7 @@ func (s *Session) open(c *taskState, e Event) {
 	if class == ClassProject || class == ClassOutside {
 		if strings.HasPrefix(mode, "r") && !fresh {
 			o := FileOp{PID: e.PID, Op: "r", Path: e.Path, SHA256: e.KV("sha256"), Outside: class == ClassOutside}
-			if o.Outside && o.SHA256 == "" && e.KV("unhashed") == "" {
+			if o.Outside && o.SHA256 == "" && e.KV("unhashed") == "" && stillAsRead(e) {
 				o.SHA256, _ = s.Hash(e.Path) // the shim hashes the project only; a reuse checks this one too
 			}
 			c.op(o)
@@ -408,6 +408,18 @@ func (s *Session) open(c *taskState, e Event) {
 			c.recreated[e.Path] = true
 		}
 	}
+}
+
+// racyNS: a file modified this shortly before it was read may have been rewritten with the
+// same size inside one mtime tick (the shim's rule for its hash cache, too).
+const racyNS = 2_000_000_000
+
+// stillAsRead: the file as it is now is the one the event read, as far as size and mtime tell,
+// and its mtime was not racy at the read. The watcher may process a line long after it was
+// written (catch-up, restart); hashing today's bytes then would name the wrong input.
+func stillAsRead(e Event) bool {
+	st, err := os.Stat(e.Path)
+	return err == nil && e.Mtime != 0 && st.Size() == e.Size && st.ModTime().UnixNano() == e.Mtime && e.TS-e.Mtime >= racyNS
 }
 
 // link connects an input to the earlier output it came from. Only the same path counts as
