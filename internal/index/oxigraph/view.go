@@ -62,6 +62,10 @@ type Answer struct {
 
 // Query answers a SPARQL SELECT over cfg's view, projecting it first when the registries changed.
 func Query(ctx context.Context, d *Daemon, cfg *config.Config, keys []ed25519.PublicKey, query string) (*Answer, error) {
+	// The dataset of the request is the only wall between views; SERVICE goes around it.
+	if err := index.CheckQuery(query); err != nil {
+		return nil, err
+	}
 	id := viewID(cfg, keys)
 	inputs, err := binaries.Inputs(ctx, cfg)
 	if err != nil {
@@ -154,8 +158,8 @@ DELETE { GRAPH ?g { ?s ?p ?o } } WHERE { GRAPH ?g { ?s ?p ?o } FILTER(STRSTARTS(
 	nctx := nanopub.NewContext(ntemplate.Set{}, keys)
 	var b strings.Builder
 	for _, rec := range u.Nekton.Records(0) {
-		// Only what a trusted key signed is projected, as before the daemon: a query answers over
-		// the records ask would include, never over what merely arrived.
+		// A claim only when a trusted key signed it, as before the daemon. (Plankton records are all
+		// in the view, attributed only where a trusted key verifies: rdf.Turtle above.)
 		if core.VerifiedSignerKeyID(rec.Envelope, keys) == "" {
 			continue
 		}

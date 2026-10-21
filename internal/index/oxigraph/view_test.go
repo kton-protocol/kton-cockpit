@@ -13,6 +13,7 @@ import (
 	"github.com/kton-protocol/kton-cockpit/cockpit/source"
 	"github.com/kton-protocol/kton-cockpit/internal/binaries"
 	"github.com/kton-protocol/kton-cockpit/internal/config"
+	"github.com/kton-protocol/kton-cockpit/internal/index"
 	"github.com/kton-protocol/kton-cockpit/internal/index/oxigraph"
 	"github.com/kton-protocol/kton-cockpit/internal/testrepo"
 )
@@ -131,6 +132,11 @@ func TestOxigraph_ViewsAreKeptWhileCurrentAndNeverSeeEachOther(t *testing.T) {
 	}
 	if a := query(t, d, ac, attributed); !holds(a, "a", first) || !a.Kept {
 		t.Fatalf("alice's view is unchanged by bob's: %+v", a)
+	}
+	// A query that calls the daemon itself would read bob's view from alice's; it is refused.
+	escape := `SELECT ?g WHERE { SERVICE <http://127.0.0.1:7878/query> { GRAPH ?g { ?s ?p ?o } } }`
+	if _, err := oxigraph.Query(ctx, d, ac, keys(t, ac), escape); !errors.Is(err, index.ErrService) {
+		t.Fatalf("a SERVICE query was not refused: %v", err)
 	}
 	if n, err := d.Views(ctx); err != nil || n != 2 {
 		t.Fatalf("the daemon holds %d views (%v), want 2", n, err)

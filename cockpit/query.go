@@ -22,13 +22,15 @@ import (
 	"github.com/kton-protocol/kton-cockpit/internal/binaries"
 	"github.com/kton-protocol/kton-cockpit/internal/config"
 	"github.com/kton-protocol/kton-cockpit/internal/container"
+	"github.com/kton-protocol/kton-cockpit/internal/index"
 	"github.com/kton-protocol/kton-cockpit/internal/index/oxigraph"
 	"github.com/kton-protocol/kton-cockpit/internal/packages"
 )
 
 // Search and profile rules are SPARQL over the registries' RDF projection (kton K8), evaluated in a
-// pinned Oxigraph image. Only what verifies against this repository's trust tiers is projected: a
-// query answers over the same records ask would include, never over what merely arrived.
+// pinned Oxigraph image. Plankton records are projected all, as the union holds them, with attribution
+// only where a key of this repository's trust tiers verifies (rdf.Turtle); claims only when such a key
+// signed them. A query that wants trusted records only filters on prov:wasAttributedTo.
 
 // queryAnswer is a vocabulary query's rows, the package the query came from, and how it was read.
 type queryAnswer struct {
@@ -54,6 +56,11 @@ func runQuery(ctx context.Context, cfg *config.Config, name string) (*queryAnswe
 	}
 	src := voc.From["query:"+name]
 	from := src.Name + " (" + src.Dir + ")"
+	// Refused on either path: in the shared daemon SERVICE would leave this view (SPEC §12.4), and
+	// a query must not answer differently by where it runs.
+	if err := index.CheckQuery(string(q)); err != nil {
+		return nil, refuse("query.refused", "", "%s (from %s): %v", name, from, err)
+	}
 
 	keys, err := trustedKeys(cfg)
 	if err != nil {
