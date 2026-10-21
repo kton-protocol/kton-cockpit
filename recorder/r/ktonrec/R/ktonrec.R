@@ -27,7 +27,13 @@ log_path <- function() Sys.getenv("KTON_TRACE_LOG")
   # recording switched off (PAUSED next to the log): no boundaries either, except the session's
   # own frame (ENV at start, END at the end) so it stays a session
   if (!op %in% c("ENV", "END") && .paused()) return(invisible())
-  clean <- function(x) gsub("[\t\r\n]", " ", x)
+  # the shim's v2 escaping: a backslash, TAB, LF and CR as \\, \t, \n, \r
+  clean <- function(x) {
+    x <- gsub("\\", "\\\\", x, fixed = TRUE)
+    x <- gsub("\t", "\\t", x, fixed = TRUE)
+    x <- gsub("\n", "\\n", x, fixed = TRUE)
+    gsub("\r", "\\r", x, fixed = TRUE)
+  }
   cat(sprintf("%.0f\t%d\t0\t%s\t%s\t%s\t0\t0\t0\t%s\n",
               as.numeric(Sys.time()) * 1e9, Sys.getpid(), op, mode, clean(path), clean(extra)),
       file = .ktonrec$log, append = TRUE)

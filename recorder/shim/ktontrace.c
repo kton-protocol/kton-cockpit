@@ -6,8 +6,9 @@
  * exec'd children do not interleave). Nothing is interpreted here; ktonwatch does that.
  *
  * Line format (tab separated; the process that creates the log first writes
- * "#ktontrace v1<TAB>hash=<$KTON_TRACE_HASH>"):
+ * "#ktontrace v2<TAB>hash=<$KTON_TRACE_HASH>"):
  *   ts_ns pid ppid op mode path size mtime_ns ino extra
+ * v2: in path and extra, a backslash, TAB, LF and CR are written as \\, \t, \n, \r (v1: a space).
  *
  *   op        mode      path            extra
  *   exec      -         cwd             command line              (once per process image)
@@ -84,10 +85,16 @@ static void raw_write(const char *buf, size_t n) {
     errno = saved;
 }
 
-/* replace tabs/newlines so a line stays a line */
-static void sanitize(char *s) {
-    for (; *s; s++)
-        if (*s == '\t' || *s == '\n' || *s == '\r') *s = ' ';
+/* escape backslash, tab, newline and CR so a line stays a line and the path stays the path */
+static void escape_to(char *out, size_t n, const char *s) {
+    size_t o = 0;
+    for (; *s && o + 2 < n; s++) {
+        char c = *s;
+        const char *esc = c == '\\' ? "\\\\" : c == '\t' ? "\\t" : c == '\n' ? "\\n" : c == '\r' ? "\\r" : NULL;
+        if (esc) { out[o++] = esc[0]; out[o++] = esc[1]; }
+        else out[o++] = c;
+    }
+    out[o] = 0;
 }
 
 static int is_paused(void) {
@@ -107,10 +114,8 @@ static void emit_line(const char *op, const char *mode, const char *path,
     if (is_paused()) return;
     char line[8192];
     char p[4096], e[2048];
-    snprintf(p, sizeof p, "%s", path ? path : "-");
-    snprintf(e, sizeof e, "%s", extra && *extra ? extra : "-");
-    sanitize(p);
-    sanitize(e);
+    escape_to(p, sizeof p, path ? path : "-");
+    escape_to(e, sizeof e, extra && *extra ? extra : "-");
     int n = snprintf(line, sizeof line, "%lld\t%d\t%d\t%s\t%s\t%s\t%lld\t%lld\t%llu\t%s\n",
                      now_ns(), (int)getpid(), (int)getppid(), op, mode, p, size,
                      mtime, ino, e);
@@ -165,24 +170,38 @@ static int hash_raw(int fd, char out[65]) {
 }
 
 /* Per-process cache keyed by (dev, ino, size, mtime): the same big input opened again is not
- * hashed again. A changed file has a new size or mtime and misses. */
+ * hashed again. A changed file has a new size or mtime and misses, except a same-size rewrite
+ * within one tick of the coarse clock the kernel stamps mtime from. So: a file whose mtime is
+ * not at least HC_RACY_NS old when it is hashed is not cached (as git does with racy entries),
+ * opening a write fd drops the inode's slot, and the hash at close never comes from the cache.
+ * The lock is only ever tried: a child forked while another thread held it (mclapply) must not
+ * spin forever, so whoever does not get it goes without the cache. */
 #define HC 256
+#define HC_RACY_NS 2000000000LL
 static struct { dev_t dev; ino_t ino; long long size, mtime; char hex[65]; } hcache[HC];
 static int hc_lock;
-static void hc_acquire(void) { while (__atomic_exchange_n(&hc_lock, 1, __ATOMIC_ACQUIRE)) ; }
+static int hc_try(void) { return !__atomic_exchange_n(&hc_lock, 1, __ATOMIC_ACQUIRE); }
 static void hc_release(void) { __atomic_store_n(&hc_lock, 0, __ATOMIC_RELEASE); }
+static unsigned hc_slot(const struct stat *st) { return (unsigned)((st->st_ino * 2654435761u) ^ st->st_dev) % HC; }
 
-/* hash an fd; falls back to reopening /proc/self/fd/N when the fd is write-only (pread: EBADF) */
-static int hash_fd(int fd, const struct stat *st, char out[65]) {
-    unsigned slot = (unsigned)((st->st_ino * 2654435761u) ^ st->st_dev) % HC;
-    hc_acquire();
-    if (hcache[slot].hex[0] && hcache[slot].dev == st->st_dev && hcache[slot].ino == st->st_ino &&
-        hcache[slot].size == (long long)st->st_size && hcache[slot].mtime == mtime_of(st)) {
-        memcpy(out, hcache[slot].hex, 65);
-        hc_release();
-        return 0;
-    }
+static void hc_drop(const struct stat *st) {
+    unsigned slot = hc_slot(st);
+    if (!hc_try()) return;
+    if (hcache[slot].dev == st->st_dev && hcache[slot].ino == st->st_ino) hcache[slot].hex[0] = 0;
     hc_release();
+}
+
+/* hash an fd; falls back to reopening /proc/self/fd/N when the fd is write-only (pread: EBADF).
+ * use_cache 0: hash the bytes now (the content at close). */
+static int hash_fd(int fd, const struct stat *st, int use_cache, char out[65]) {
+    unsigned slot = hc_slot(st);
+    if (use_cache && hc_try()) {
+        int hit = hcache[slot].hex[0] && hcache[slot].dev == st->st_dev && hcache[slot].ino == st->st_ino &&
+                  hcache[slot].size == (long long)st->st_size && hcache[slot].mtime == mtime_of(st);
+        if (hit) memcpy(out, hcache[slot].hex, 65);
+        hc_release();
+        if (hit) return 0;
+    }
     int rc = hash_raw(fd, out);
     if (rc != 0) {
         char link[64];
@@ -193,11 +212,12 @@ static int hash_fd(int fd, const struct stat *st, char out[65]) {
         syscall(SYS_close, rfd);
         if (rc != 0) return -1;
     }
-    hc_acquire();
-    hcache[slot].dev = st->st_dev; hcache[slot].ino = st->st_ino;
-    hcache[slot].size = (long long)st->st_size; hcache[slot].mtime = mtime_of(st);
-    memcpy(hcache[slot].hex, out, 65);
-    hc_release();
+    if (now_ns() - mtime_of(st) >= HC_RACY_NS && hc_try()) {
+        hcache[slot].dev = st->st_dev; hcache[slot].ino = st->st_ino;
+        hcache[slot].size = (long long)st->st_size; hcache[slot].mtime = mtime_of(st);
+        memcpy(hcache[slot].hex, out, 65);
+        hc_release();
+    }
     return 0;
 }
 
@@ -216,11 +236,11 @@ static int under_hash_prefix(const char *p) {
 }
 
 /* "sha256=…" or "unhashed=large" into extra */
-static void add_hash(int fd, const struct stat *st, char *extra, size_t n) {
+static void add_hash(int fd, const struct stat *st, int use_cache, char *extra, size_t n) {
     char h[80];
     if ((long long)st->st_size > hash_max) { add_kv(extra, n, "unhashed=large"); return; }
     char hex[65];
-    if (hash_fd(fd, st, hex) == 0) { snprintf(h, sizeof h, "sha256=%s", hex); add_kv(extra, n, h); }
+    if (hash_fd(fd, st, use_cache, hex) == 0) { snprintf(h, sizeof h, "sha256=%s", hex); add_kv(extra, n, h); }
 }
 
 static int fd_path(int fd, char *path, size_t n) {
@@ -276,8 +296,8 @@ static void emit_fd(const char *op, const char *mode, int fd, int is_new, int tr
     if (is_new) add_kv(extra, sizeof extra, "new=1");
     if (trunc) add_kv(extra, sizeof extra, "trunc=1");
     if (S_ISREG(st.st_mode) && under_hash_prefix(path)) {
-        if (mode[0] == 'r' && !is_new && !trunc) add_hash(fd, &st, extra, sizeof extra);
-        if (strchr(mode, 'w')) wt_set(fd, 1);
+        if (mode[0] == 'r' && !is_new && !trunc) add_hash(fd, &st, 1, extra, sizeof extra);
+        if (strchr(mode, 'w')) { wt_set(fd, 1); hc_drop(&st); }
     }
     emit_line(op, m, path, (long long)st.st_size, mtime_of(&st), (unsigned long long)st.st_ino, extra);
 }
@@ -288,7 +308,7 @@ static void emit_close(int fd) {
     struct stat st; char path[4096], extra[128] = "";
     if (fstat(fd, &st) != 0 || !S_ISREG(st.st_mode)) return;
     if (fd_path(fd, path, sizeof path) != 0) return;
-    add_hash(fd, &st, extra, sizeof extra);
+    add_hash(fd, &st, 0, extra, sizeof extra);
     if (!extra[0]) return;
     emit_line("closew", "w", path, (long long)st.st_size, mtime_of(&st), (unsigned long long)st.st_ino, extra);
 }
@@ -354,7 +374,7 @@ __attribute__((constructor)) static void kton_init(void) {
         log_dev = st.st_dev; log_ino = st.st_ino;
         if (st.st_size == 0) {
             char hdr[4200];
-            int n = snprintf(hdr, sizeof hdr, "#ktontrace v1\thash=%s\n", hash_prefixes);
+            int n = snprintf(hdr, sizeof hdr, "#ktontrace v2\thash=%s\n", hash_prefixes);
             if (n > 0) raw_write(hdr, (size_t)n < sizeof hdr ? (size_t)n : sizeof hdr - 1);
         }
     }
@@ -383,6 +403,7 @@ __attribute__((constructor)) static void kton_init(void) {
         char path[4096];
         if (fd_path(i, path, sizeof path) != 0 || !under_hash_prefix(path)) continue;
         wt_set(i, 1);
+        hc_drop(&fst);
         emit_line("inherit", (fl & O_ACCMODE) == O_WRONLY ? "w" : "rw", path, (long long)fst.st_size,
                   mtime_of(&fst), (unsigned long long)fst.st_ino, "-");
     }

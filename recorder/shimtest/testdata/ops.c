@@ -1,6 +1,7 @@
 /* ops: one file/network operation per argument group, for the shim tests.
  *   read F | write F TEXT | writeonly F TEXT | append F TEXT | fopenw F TEXT
  *   rename A B | unlink F | openfail F | connect PORT | dupwrite F TEXT
+ *   rewritekeep F TEXT   overwrite F in place from offset 0 and put its old mtime back (touch -r)
  * Runs them in order; exits 0 even if an operation fails (the test reads the log). */
 #define _GNU_SOURCE
 #include <arpa/inet.h>
@@ -10,6 +11,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 int main(int argc, char **argv) {
@@ -30,6 +32,14 @@ int main(int argc, char **argv) {
             int fd = open(f, O_WRONLY | O_CREAT | O_TRUNC, 0644);
             int d = dup(fd); close(fd);              /* original closed before anything is written */
             if (write(d, t, strlen(t)) < 0) {} close(d);
+        } else if (!strcmp(op, "rewritekeep")) {
+            const char *f = argv[++i], *t = argv[++i];
+            int fd = open(f, O_WRONLY); struct stat st;
+            if (fd >= 0 && fstat(fd, &st) == 0) {
+                if (pwrite(fd, t, strlen(t), 0) < 0) {}
+                struct timespec ts[2] = {st.st_atim, st.st_mtim}; futimens(fd, ts);
+                close(fd);
+            }
         } else if (!strcmp(op, "rename")) {
             const char *a = argv[++i], *b = argv[++i]; rename(a, b);
         } else if (!strcmp(op, "unlink")) {

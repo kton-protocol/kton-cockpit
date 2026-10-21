@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 type event struct {
@@ -79,7 +80,7 @@ func run(t *testing.T, setup func(proj string), argv ...string) (string, []event
 		t.Fatal(err)
 	}
 	lines := strings.Split(strings.TrimRight(string(b), "\n"), "\n")
-	if lines[0] != "#ktontrace v1\thash="+proj {
+	if lines[0] != "#ktontrace v2\thash="+proj {
 		t.Fatalf("first line %q, want the format header naming the project", lines[0])
 	}
 	var evs []event
@@ -115,6 +116,34 @@ func TestShim_ReadIsHashedWhenOpened(t *testing.T) {
 	o := find(evs, "open", filepath.Join(proj, "in.csv"))
 	if len(o) != 1 || o[0].mode != "r" || o[0].kv("sha256") != sum("a,b\n1,2\n") {
 		t.Fatalf("open of in.csv: %+v", o)
+	}
+}
+
+// Review S1: a same-size rewrite that keeps the mtime used to hit the read's hash cache, and
+// closew reported the old content.
+func TestShim_ASameSizeRewriteIsHashedAfresh(t *testing.T) {
+	proj, evs := run(t, func(p string) {
+		f := filepath.Join(p, "data.csv")
+		write(t, f, "aaaa")
+		old := time.Now().Add(-time.Hour)
+		if err := os.Chtimes(f, old, old); err != nil {
+			t.Fatal(err)
+		}
+	}, opsPath(t), "read", "data.csv", "rewritekeep", "data.csv", "bbbb")
+	p := filepath.Join(proj, "data.csv")
+	if o := find(evs, "open", p); len(o) < 1 || o[0].kv("sha256") != sum("aaaa") {
+		t.Fatalf("open of data.csv: %+v", o)
+	}
+	if c := find(evs, "closew", p); len(c) != 1 || c[0].kv("sha256") != sum("bbbb") {
+		t.Fatalf("closew must name the bytes written, not the cached read: %+v", c)
+	}
+}
+
+// Review S2: a tab in a path used to become a space and name another file.
+func TestShim_ATabInAPathIsEscaped(t *testing.T) {
+	proj, evs := run(t, nil, opsPath(t), "write", "a\tb", "x")
+	if c := find(evs, "closew", filepath.Join(proj, `a\tb`)); len(c) != 1 || c[0].kv("sha256") != sum("x") {
+		t.Fatalf("closew of a<TAB>b, written as a\\tb: %+v", evs)
 	}
 }
 
