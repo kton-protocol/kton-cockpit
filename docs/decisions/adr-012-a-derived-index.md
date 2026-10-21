@@ -135,9 +135,9 @@ anything changed. Decided for phase 1 (2026-10-20):
 
 - **`memory` stamps the files.** Before every answer it takes the path, size and modification time of every
   file under the registries the union is built from (own and every source), with `stat`. It never reads
-  them, so it learns nothing about the store's layout (SPEC §12.3). Dot-files (`.seq`, `.format`, locks)
-  are left out: opening a registry rewrites them, which would make every second call look like a change
-  (kton#233 leaves out the same files). The same stamp keeps the held union; any
+  them, so it learns nothing about the store's layout (SPEC §12.3). It follows symlinks, and leaves out
+  only the bookkeeping that opening a registry rewrites (`.seq`, `.format`, `*.lock`, `.tmp-*`): a store
+  reads a dot-named claim file too, so a wider rule would miss a change (kton-review, PR #7). The same stamp keeps the held union; any
   other stamp opens it again from the substrate. A write in this process, a pull, a check-in, another
   cockpit on the same repository: each changes a file, so none of them has to notify the index, and
   write-through needs no `Apply` yet.
@@ -171,6 +171,13 @@ leave to the kernel. So the daemon stores **views**:
   graph, `named-graph-uri` = the view's claims), so it cannot see another view. Results are mapped back to
   `https://kton.dev/np/`, so an answer reads exactly as a container started for that query returns it
   (`TestQuery_TheIndexAnswersAsAContainerForTheQueryDoes`).
+- **That dataset is the only wall between views.** A `SERVICE` clause goes around it: pointed at the
+  daemon itself it reads every other view, attribution under other keys included (found by kton-review on
+  PR #7). Oxigraph cannot switch `SERVICE` off, so the cockpit refuses a query that uses it, on both
+  paths, after tokenizing the query as SPARQL does (`index.CheckQuery`). The alternative, a store per
+  view, would give up the one daemon per machine. Phase 3 keeps the same rule.
+- `query.image` must be pinned by digest: the daemon is told from another by the image it was started
+  from.
 - Reads (`ask`, verification) under `oxigraph` go through `memory`. Only vocabulary queries use the daemon.
 - `oxigraph` is a kind of the `-tags unreleased` build only, which links the RDF packages until a kton
   0.3.0 tag exists. `cockpit index` is in every build.

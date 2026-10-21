@@ -857,10 +857,11 @@ since when).
 
 `memory` holds the opened registries for as long as the process runs. Before each answer it compares
 the path, size and modification time of every file under those registries (with `stat`, without
-reading them), leaving out dot-files (the store's bookkeeping, which opening rewrites), and opens
-them again on any difference.
+reading them, following symlinks), leaving out only the store's bookkeeping, which opening rewrites
+(`.seq`, `.format`, `*.lock`, `.tmp-*`), and opens them again on any difference.
 
-> **Checked by:** `TestMemory_KeepsTheUnionAcrossCallsWhileNothingChanged`,
+> **Checked by:** `TestStamp_MovesWithWhatTheStoreReadsNotWithItsBookkeeping`, `TestStamp_ALinkLoopEnds`,
+> `TestMemory_KeepsTheUnionAcrossCallsWhileNothingChanged`,
 > `TestMemory_AnswersAsNoneAfterAnyChange`, `TestMemory_AnUnknownKindIsRefusedAtLoad`,
 > `TestIndex_AnAnswerSaysItCameFromTheMemoryIndex`.
 
@@ -868,10 +869,14 @@ them again on any difference.
 which the first such query starts. It keeps one view per repository and set of trusted keys: the kernel's
 projection of that union under those keys, rebuilt when the same stamp as `memory`'s changes. A query runs
 with exactly its view as the dataset, so what one configuration trusts never reaches another's answer, and
-its rows are the rows a container started for that query alone would return. A running daemon from another
-image or store schema is not used.
+its rows are the rows a container started for that query alone would return. The dataset of the request is
+the only wall between views, so a query that calls an endpoint (`SERVICE`, found as a SPARQL parser tokenizes
+the query) MUST be refused, on either path. The plankton part of a view holds every record of the union, with
+attribution only where a trusted key verifies; its claims are only those a trusted key signed. `query.image`
+MUST be pinned by digest, and a running daemon from another image or store schema is not used.
 
 > **Checked by:** `TestOxigraph_ViewsAreKeptWhileCurrentAndNeverSeeEachOther`,
+> `TestCheckQuery_RefusesServiceAndOnlyService`, `TestConfig_QueryImageIsPinnedByDigest`,
 > `TestQuery_TheIndexAnswersAsAContainerForTheQueryDoes` (both `-tags docker,unreleased`).
 
 ## 13 What a cockpit does not do

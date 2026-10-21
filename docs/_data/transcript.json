@@ -6,7 +6,7 @@
 },
 {
  "cmd": "cockpit publish '{\"cmd\":\"mean data/sensor.csv > work/summary.csv\",\"inputs\":[\"data/sensor.csv\"],\"outputs\":[\"work/summary.csv\"]}'",
- "out": "{\n  \"fotonId\": \"sha256:36ba044073eb562706ca32a5bfb2e8e68bbd7b56da2b95ade1525c1dd19e22a9\",\n  \"outputHashes\": {\n    \"work/summary.csv\": \"sha256:fc9756d8300c0b6de3bf54fd0b6c8bede8298a8f8a4585acc3f03aa24450bfcb\"\n  },\n  \"commitSha\": \"6af50db11e5b5dc1e0c6084c1068b08ef29bbd5e\",\n  \"permalinks\": {\n    \"data/sensor.csv\": \"https://raw.githubusercontent.com/cockpit-examples/cockpit-tour/6af50db11e5b5dc1e0c6084c1068b08ef29bbd5e/data/sensor.csv\",\n    \"work/summary.csv\": \"https://raw.githubusercontent.com/cockpit-examples/cockpit-tour/6af50db11e5b5dc1e0c6084c1068b08ef29bbd5e/work/summary.csv\"\n  },\n  \"committed\": true,\n  \"pushed\": true\n}",
+ "out": "{\n  \"fotonId\": \"sha256:36ba044073eb562706ca32a5bfb2e8e68bbd7b56da2b95ade1525c1dd19e22a9\",\n  \"outputHashes\": {\n    \"work/summary.csv\": \"sha256:fc9756d8300c0b6de3bf54fd0b6c8bede8298a8f8a4585acc3f03aa24450bfcb\"\n  },\n  \"revision\": \"6af50db11e5b5dc1e0c6084c1068b08ef29bbd5e\",\n  \"locators\": {\n    \"data/sensor.csv\": \"https://raw.githubusercontent.com/cockpit-examples/cockpit-tour/6af50db11e5b5dc1e0c6084c1068b08ef29bbd5e/data/sensor.csv\",\n    \"work/summary.csv\": \"https://raw.githubusercontent.com/cockpit-examples/cockpit-tour/6af50db11e5b5dc1e0c6084c1068b08ef29bbd5e/work/summary.csv\"\n  },\n  \"persisted\": true,\n  \"shared\": true\n}",
  "code": 0
 },
 {
