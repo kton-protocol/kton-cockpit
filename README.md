@@ -37,9 +37,11 @@ What the cockpit guarantees — and, as importantly, what it does not — is wri
 clause in [`spec/SPEC.md`](spec/SPEC.md). Every normative statement there names the test that
 exercises it, so the document is checkable rather than merely asserted.
 
-There is no fourth verb. Everything else on the command line (`init`, `keygen`, `pin`, `config`,
-`trust`, `federation`, `run`, `doctor`, `show`, `scope`, `version`; `install` and `workflow` with
-`-tags unreleased`) is operator work around the three, and `mcp` serves the three to an agent. The cockpit
+A new verb can be added when an operation does not fit the three
+([ADR-009](docs/decisions/adr-009-no-fixed-verb-count.md)). Everything else on the command line
+(`init`, `keygen`, `pin`, `config`, `trust`, `federation`, `run`, `doctor`, `show`, `scope`,
+`version`; `install` and `workflow` with `-tags unreleased`) is operator work around the verbs, and
+`mcp` serves the verbs to an agent. The cockpit
 reimplements no plankton/nekton logic of its own — it **links** the kernels as Go libraries
 (`kton.dev/plankton`, `kton.dev/nekton`, `kton.dev/kton`) and calls them, so one binary is the whole
 install and no participant repo needs a kernel binary. See

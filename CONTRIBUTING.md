@@ -37,7 +37,8 @@ another. `TestKernel_TheBinariesAreTheKernelGoModRequires` asserts the pairing. 
 
 [`spec/SPEC.md` §13](spec/SPEC.md) lists it, and each item there is checked by a named test: no own
 canonicalisation, signing, registry or chain logic; no trust logic beyond applying
-`cockpit.config.json`; no fourth verb; no cockpit-owned mutable state beyond that config file.
+`cockpit.config.json`; no cockpit-owned mutable state beyond that config file. A new verb is allowed
+per [ADR-009](docs/decisions/adr-009-no-fixed-verb-count.md).
 
 If a change would need one of these, it is a request against the kton protocol, not a cockpit-side
 workaround. That has happened six times on this project and all six landed upstream; one of them

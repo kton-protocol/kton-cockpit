@@ -302,9 +302,10 @@ cockpit.config.schema.json   JSON Schema for cockpit.config.json (documentation 
 
 Per [`spec/SPEC.md` §13](spec/SPEC.md), where each item is checked by a named test: no own
 canonicalization/signing/registry/chain logic, no trust logic beyond applying
-`cockpit.config.json`, no fourth verb, no cockpit-owned mutable state beyond that static config
-file. If a change would require one of these, raise it against the protocol spec first, not as a
-cockpit-side workaround.
+`cockpit.config.json`, no cockpit-owned mutable state beyond that static config file. A new verb is
+allowed ([ADR-009](docs/decisions/adr-009-no-fixed-verb-count.md)), with one implementation for every
+transport, under the configuration ceiling, and specified in SPEC. If a change would require one of
+these, raise it against the protocol spec first, not as a cockpit-side workaround.
 
 Applying the config is the line, and it is not the same as doing nothing: SPEC §11.2's certificate check
 is `crypto/x509` against roots the config names, which is applying configured trust. Re-verifying a
