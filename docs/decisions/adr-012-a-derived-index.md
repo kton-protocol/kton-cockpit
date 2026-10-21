@@ -176,6 +176,9 @@ leave to the kernel. So the daemon stores **views**:
   PR #7). Oxigraph cannot switch `SERVICE` off, so the cockpit refuses a query that uses it, on both
   paths, after tokenizing the query as SPARQL does (`index.CheckQuery`). The alternative, a store per
   view, would give up the one daemon per machine. Phase 3 keeps the same rule.
+  **Accepted risk:** confinement now rests on this tokenizer agreeing with Oxigraph's parser about where
+  `SERVICE` is. Revisit (the engine's own parsed algebra, or a store per view) before the daemon answers
+  anything other than queries from allowed vocabulary packages.
 - `query.image` must be pinned by digest: the daemon is told from another by the image it was started
   from.
 - Reads (`ask`, verification) under `oxigraph` go through `memory`. Only vocabulary queries use the daemon.
