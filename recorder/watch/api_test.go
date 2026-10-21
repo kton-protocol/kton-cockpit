@@ -2,6 +2,7 @@ package watch
 
 import (
 	"encoding/json"
+	"io"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -59,5 +60,39 @@ func TestAPI_SessionsFilteredTasksAndLineage(t *testing.T) {
 	}
 	if code := get("/", nil); code != 200 {
 		t.Fatalf("viewer: %d", code)
+	}
+}
+
+// Review B1: /kton/blob serves exactly the bytes that hash to its sha, also after a same-size
+// rewrite that kept the mtime (which a check by size and mtime does not see).
+func TestAPI_BlobServesOnlyTheBytesOfItsHash(t *testing.T) {
+	dir, proj := t.TempDir(), t.TempDir()
+	f := filepath.Join(proj, "secret.txt")
+	os.WriteFile(f, []byte("SECRET-A"), 0o644)
+	sumA := hexOf("SECRET-A")
+	log := "#ktontrace v2\thash=" + proj + "\n1\t100\t1\topen\tr\t" + f + "\t8\t0\t0\tsha256=" + sumA +
+		"\n2\t100\t1\tTASK\tok\t1\t0\t0\t0\tread\n"
+	os.WriteFile(filepath.Join(dir, "s1.tsv"), []byte(log), 0o644)
+	sv := &Service{Dir: dir, Store: t.TempDir(), Idle: time.Hour, NewClassifier: func() *Classifier { return &Classifier{} }}
+	sv.Poll(time.Now())
+	srv := httptest.NewServer(sv.Handler())
+	defer srv.Close()
+	blob := func() (int, string) {
+		r, err := srv.Client().Get(srv.URL + BlobURL("/kton/blob", proj, f, sumA))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer r.Body.Close()
+		b, _ := io.ReadAll(r.Body)
+		return r.StatusCode, string(b)
+	}
+	if code, body := blob(); code != 200 || body != "SECRET-A" {
+		t.Fatalf("observed bytes: %d %q", code, body)
+	}
+	st, _ := os.Stat(f)
+	os.WriteFile(f, []byte("SECRET-B"), 0o644)
+	os.Chtimes(f, st.ModTime(), st.ModTime())
+	if code, body := blob(); code != 404 || strings.Contains(body, "SECRET-B") {
+		t.Fatalf("rewritten file served under the old hash: %d %q", code, body)
 	}
 }

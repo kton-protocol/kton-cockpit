@@ -395,3 +395,23 @@ func TestSession_UnseenRewriteWithinTheCommandIsTheOutput(t *testing.T) {
 		}
 	}
 }
+
+// Review K1: what a call needs for ReuseBlocked comes from the log: the watcher's hash for an
+// outside read the shim did not hash, and the failed open of a project file per process.
+func TestSession_CallsSeeOutsideHashesAndMissingFiles(t *testing.T) {
+	l := (&logb{}).
+		ev(100, "exec", "-", "/p", "/opt/nm/run/nmfe75 run1.mod run1.lst").
+		ev(100, "open", "r", "/share/pk.csv", "").
+		ev(100, "openfail", "r", "/p/b.txt", "errno=2").
+		task(1, "ok", "system('nmfe75 run1.mod run1.lst')")
+	s := sess(t, l, map[string]string{"/share/pk.csv": "hpk"})
+	ops := task(t, s, "1").Ops
+	var outside, missing bool
+	for _, o := range ops {
+		outside = outside || (o.Op == "r" && o.Outside && o.SHA256 == "hpk")
+		missing = missing || (o.Op == "m" && o.Path == "/p/b.txt" && o.PID == 100)
+	}
+	if !outside || !missing {
+		t.Fatalf("ops %+v", ops)
+	}
+}

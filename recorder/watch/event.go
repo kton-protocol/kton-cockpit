@@ -31,7 +31,7 @@ type Header struct {
 	Hash    []string // $KTON_TRACE_HASH prefixes; the first one is taken as the project
 }
 
-// ParseHeader reads "#ktontrace v1<TAB>hash=a:b". ok is false for any other line.
+// ParseHeader reads "#ktontrace v2<TAB>hash=a:b" (or v1). ok is false for any other line.
 func ParseHeader(line string) (Header, bool) {
 	line = strings.TrimRight(line, "\r\n")
 	if !strings.HasPrefix(line, "#ktontrace ") {
@@ -47,7 +47,54 @@ func ParseHeader(line string) (Header, bool) {
 	return h, true
 }
 
-// Parse reads one event line. Comment lines and short lines are not events.
+// Escaped reports whether a log of this version escapes path and extra (v2: a backslash, TAB,
+// LF and CR as \\, \t, \n, \r). v1 wrote them as a space; that cannot be undone.
+func (h Header) Escaped() bool { return h.Version != "" && h.Version != "v1" }
+
+// Escape writes a path or extra field the v2 way, for programs that add lines to a log.
+func Escape(s string) string {
+	return strings.NewReplacer(`\`, `\\`, "\t", `\t`, "\n", `\n`, "\r", `\r`).Replace(s)
+}
+
+// Unescape undoes the v2 escaping of a path or extra field.
+func Unescape(s string) string {
+	if !strings.Contains(s, `\`) {
+		return s
+	}
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		if s[i] != '\\' || i+1 == len(s) {
+			b.WriteByte(s[i])
+			continue
+		}
+		i++
+		switch s[i] {
+		case 't':
+			b.WriteByte('\t')
+		case 'n':
+			b.WriteByte('\n')
+		case 'r':
+			b.WriteByte('\r')
+		case '\\':
+			b.WriteByte('\\')
+		default:
+			b.WriteByte('\\')
+			b.WriteByte(s[i])
+		}
+	}
+	return b.String()
+}
+
+// ParseEscaped reads one event line of a v2 log: path and extra are unescaped.
+func ParseEscaped(line string) (Event, bool) {
+	e, ok := Parse(line)
+	if ok {
+		e.Path, e.Extra = Unescape(e.Path), Unescape(e.Extra)
+	}
+	return e, ok
+}
+
+// Parse reads one event line as written (v1). Comment lines and short lines are not events.
 func Parse(line string) (Event, bool) {
 	line = strings.TrimRight(line, "\r\n")
 	if line == "" || line[0] == '#' {

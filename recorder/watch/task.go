@@ -69,8 +69,8 @@ type Command struct {
 	Cwd     string `json:"cwd,omitempty"`
 }
 
-// FileOp is one read (r), opening for writing (w), finished write (c, with the hash it left) or
-// removal (d: deleted, or renamed away)
+// FileOp is one read (r), opening for writing (w), finished write (c, with the hash it left),
+// removal (d: deleted, or renamed away) or failed open (m: looked for, missing)
 // of a project file by one process. Unlike Inputs it keeps reads of files the task wrote itself:
 // inside a task, a tool reads what another one wrote (PsN writes psn.mod, nmfe reads it).
 type FileOp struct {

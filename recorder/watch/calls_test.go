@@ -1,6 +1,8 @@
 package watch
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
 	"path/filepath"
 	"strings"
@@ -204,3 +206,54 @@ func TestCalls_DeletedLaterIsTheInnerCallsOutputOnly(t *testing.T) {
 		t.Fatalf("nmfe keeps what it wrote: %+v", cs[1].Writes)
 	}
 }
+
+// Review K1: a reuse checks what the key does not cover. A dataset on a share (outside the
+// project) must still have the bytes the call read, and a file the call looked for in vain must
+// still be absent.
+func TestCalls_ReuseIsBlockedWhenWhatTheKeyDoesNotCoverChanged(t *testing.T) {
+	root := t.TempDir()
+	share := filepath.Join(t.TempDir(), "pk.csv")
+	os.WriteFile(filepath.Join(root, "a.txt"), []byte("a"), 0o644)
+	os.WriteFile(share, []byte("v1"), 0o644)
+	task := &Task{ID: "1",
+		Commands: []Command{{PID: 20, PPID: 1, Cmdline: "/opt/nm/run/nmfe75 run1.mod run1.lst", Cwd: root}},
+		Ops: []FileOp{
+			{PID: 20, Op: "r", Path: root + "/a.txt", SHA256: "ha"},
+			{PID: 20, Op: "r", Path: share, SHA256: hexOf("v1"), Outside: true},
+			{PID: 20, Op: "m", Path: root + "/b.txt"},
+			{PID: 20, Op: "m", Path: root + "/made.txt"}, // looked for, then made itself: not missing
+			{PID: 20, Op: "w", Path: root + "/made.txt"},
+			{PID: 20, Op: "c", Path: root + "/made.txt", SHA256: "hm"},
+		}}
+	cs := CallsOf(task)
+	if len(cs) != 1 || len(cs[0].Missing) != 1 || cs[0].Missing[0].Rel != "b.txt" || len(cs[0].Outside) != 1 {
+		t.Fatalf("call %+v", cs)
+	}
+	c := cs[0]
+	hash := func(p string) string {
+		b, err := os.ReadFile(p)
+		if err != nil {
+			return ""
+		}
+		return hexOf(string(b))
+	}
+	if why := ReuseBlocked(c, root, hash); why != "" {
+		t.Fatalf("nothing changed, yet: %s", why)
+	}
+	os.WriteFile(share, []byte("v2"), 0o644)
+	if why := ReuseBlocked(c, root, hash); !strings.Contains(why, "outside the project") {
+		t.Fatalf("the outside dataset changed: %q", why)
+	}
+	os.WriteFile(share, []byte("v1"), 0o644)
+	os.WriteFile(filepath.Join(root, "b.txt"), []byte("b"), 0o644)
+	if why := ReuseBlocked(c, root, hash); !strings.Contains(why, "b.txt") {
+		t.Fatalf("the optional input appeared: %q", why)
+	}
+	c.Outside[0].SHA256 = ""
+	os.Remove(filepath.Join(root, "b.txt"))
+	if why := ReuseBlocked(c, root, hash); !strings.Contains(why, "not hashed") {
+		t.Fatalf("an unhashed outside read cannot be checked: %q", why)
+	}
+}
+
+func hexOf(s string) string { h := sha256.Sum256([]byte(s)); return hex.EncodeToString(h[:]) }

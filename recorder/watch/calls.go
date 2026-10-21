@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -19,7 +20,9 @@ import (
 // {path relative to the working directory → hash} and the command as protocol. It is local
 // until kton decides how the environment enters the key (ADR-010): the environment is meant to
 // enter as its class, so nothing about the concrete installation is in here. Files outside the
-// project (a licence, an installation) are listed but not keyed: they belong to the environment.
+// project that are not environment (a licence, a dataset on a share) are listed, not keyed, and
+// so are project files the call looked for and did not find. Neither may have changed when a
+// call is reused (ReuseBlocked).
 
 // CallFile is one file of a call.
 type CallFile struct {
@@ -39,7 +42,8 @@ type Call struct {
 	Cwd     string     `json:"cwd"`
 	Reads   []CallFile `json:"reads"`
 	Writes  []CallFile `json:"writes"`
-	Outside []CallFile `json:"outside,omitempty"` // read outside the project: environment, not keyed
+	Outside []CallFile `json:"outside,omitempty"` // read outside the project, not keyed
+	Missing []CallFile `json:"missing,omitempty"` // looked for in the project, not there; not keyed
 	Key     string     `json:"key"`
 }
 
@@ -97,7 +101,8 @@ func CallsOf(t *Task) []Call {
 		written := map[string]bool{}
 		opened := map[string]bool{} // opened for writing inside the call: not a stdout it inherited
 		reads, writes, outside := map[string]string{}, map[string]string{}, map[string]string{}
-		var readOrder, writeOrder, outsideOrder []string
+		missing := map[string]bool{}
+		var readOrder, writeOrder, outsideOrder, missingOrder []string
 		for _, o := range t.Ops {
 			if !within(o.PID, pid) || Scratch(o.Path) || strings.HasSuffix(o.Path, " (deleted)") {
 				continue // the tool's own work files
@@ -127,6 +132,11 @@ func CallsOf(t *Task) []Call {
 					writeOrder = append(writeOrder, o.Path)
 				}
 				writes[o.Path] = o.SHA256
+			case "m":
+				if !written[o.Path] && !missing[o.Path] {
+					missing[o.Path] = true
+					missingOrder = append(missingOrder, o.Path)
+				}
 			case "d":
 				// removed within the call: not what it leaves. An inner call keeps it as its
 				// output when the outer one removes it afterwards (PsN cleans up NONMEM's files).
@@ -148,6 +158,11 @@ func CallsOf(t *Task) []Call {
 		}
 		for _, p := range outsideOrder {
 			call.Outside = append(call.Outside, file(p, outside[p]))
+		}
+		for _, p := range missingOrder {
+			if _, read := reads[p]; !read && !written[p] { // it created it itself, or found it later
+				call.Missing = append(call.Missing, file(p, ""))
+			}
 		}
 		call.Key = callKey(call)
 		calls = append(calls, call)
@@ -220,6 +235,28 @@ func callKey(c Call) string {
 		inputs[r.Rel] = r.SHA256
 	}
 	return CallKey(c.Argv, inputs)
+}
+
+// ReuseBlocked says why a recorded call must not be reused in cwd although its key matches,
+// or "" when nothing speaks against it: a file read outside the project that was not hashed or
+// has other bytes now (or is gone), or a project file the call looked for that exists now.
+// hash returns a file's sha256 in hex, "" when it cannot be read.
+func ReuseBlocked(c Call, cwd string, hash func(path string) string) string {
+	for _, o := range c.Outside {
+		want := strings.TrimPrefix(o.SHA256, "sha256:")
+		if want == "" {
+			return o.Path + " (outside the project) was read but not hashed"
+		}
+		if got := hash(o.Path); got != want {
+			return o.Path + " (outside the project) is not the file the call read"
+		}
+	}
+	for _, m := range c.Missing {
+		if _, err := os.Stat(filepath.Join(cwd, m.Rel)); err == nil {
+			return m.Rel + " was not there when the call ran, and is now"
+		}
+	}
+	return ""
 }
 
 // CallKey is the key of a call with this normalised command line and these inputs

@@ -35,6 +35,7 @@ type Session struct {
 	known      map[string]string // path → last content hash seen (closew, outputs)
 	procs      map[int]bool
 	hashCache  map[string]string
+	escaped    bool // the log's header says v2: path and extra are escaped
 
 	// Hash computes a file's content hash when the shim did not (files outside the hashed
 	// prefixes). Replaceable in tests.
@@ -146,13 +147,18 @@ func (s *Session) hashFile(p string) (string, string) {
 // Line feeds one raw log line (header or event).
 func (s *Session) Line(line string) {
 	if h, ok := ParseHeader(line); ok {
+		s.escaped = h.Escaped()
 		if len(h.Hash) > 0 && s.cls.Project == "" {
 			s.cls.Project = h.Hash[0]
 			s.Project = h.Hash[0]
 		}
 		return
 	}
-	if e, ok := Parse(line); ok {
+	parse := Parse
+	if s.escaped {
+		parse = ParseEscaped
+	}
+	if e, ok := parse(line); ok {
 		s.Handle(e)
 	}
 }
@@ -268,9 +274,12 @@ func (s *Session) Handle(e Event) {
 		c.recreated[e.Path] = true
 		delete(s.known, e.Path)
 	case "openfail":
-		if s.cls.Class(e.Path) == ClassProject && !c.missingIdx[e.Path] {
-			c.missingIdx[e.Path] = true
-			t.Missing = append(t.Missing, e.Path)
+		if s.cls.Class(e.Path) == ClassProject {
+			c.op(FileOp{PID: e.PID, Op: "m", Path: e.Path}) // per process, for the calls
+			if !c.missingIdx[e.Path] {
+				c.missingIdx[e.Path] = true
+				t.Missing = append(t.Missing, e.Path)
+			}
 		}
 	case "SOURCE":
 		if !c.sourceIdx[e.Path] {
@@ -360,6 +369,9 @@ func (s *Session) open(c *taskState, e Event) {
 	if class == ClassProject || class == ClassOutside {
 		if strings.HasPrefix(mode, "r") && !fresh {
 			o := FileOp{PID: e.PID, Op: "r", Path: e.Path, SHA256: e.KV("sha256"), Outside: class == ClassOutside}
+			if o.Outside && o.SHA256 == "" && e.KV("unhashed") == "" {
+				o.SHA256, _ = s.Hash(e.Path) // the shim hashes the project only; a reuse checks this one too
+			}
 			c.op(o)
 			s.seen(o)
 		}

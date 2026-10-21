@@ -3,7 +3,8 @@
 //
 // It treats the call as a function. Earlier calls with the same command line (ktonwatch knows
 // them) say which files such a call reads; kton-call hashes today's files at those places and
-// forms the call's key. When a recorded call has that key and its outputs are kept in the CAS,
+// forms the call's key. When a recorded call has that key, its outputs are kept in the CAS, and
+// nothing it read outside the project or looked for in vain has changed (watch.ReuseBlocked),
 // the outputs are put in place and nothing is computed. Otherwise the real tool runs, exactly as
 // if kton-call were not there.
 //
@@ -132,6 +133,10 @@ func reusable(argv []string, cwd string) (watch.Call, bool) {
 		if !ok || watch.CallKey(argv, inputs) != c.Key {
 			continue
 		}
+		if why := watch.ReuseBlocked(c, cwd, sha256File); why != "" {
+			debugf("  %s/%s: %s", c.Session, c.Task, why)
+			continue
+		}
 		for _, w := range c.Writes {
 			if !cas.Has(w.SHA256) {
 				debugf("  %s/%s: Output %s nicht im Speicher", c.Session, c.Task, w.Rel)
@@ -226,11 +231,18 @@ func putOutputs(c watch.Call, cwd string) error {
 	defer f.Close()
 	pid, ppid := os.Getpid(), os.Getppid()
 	line := func(op, mode, path, extra string) {
-		fmt.Fprintf(f, "%d\t%d\t%d\t%s\t%s\t%s\t0\t0\t0\t%s\n", time.Now().UnixNano(), pid, ppid, op, mode, path, extra)
+		fmt.Fprintf(f, "%d\t%d\t%d\t%s\t%s\t%s\t0\t0\t0\t%s\n", time.Now().UnixNano(), pid, ppid, op, mode,
+			watch.Escape(path), watch.Escape(extra))
 	}
 	line("exec", "-", cwd, strings.Join(append([]string{filepath.Base(os.Args[0])}, os.Args[1:]...), " "))
 	for _, r := range c.Reads {
 		line("open", "r", filepath.Join(cwd, r.Rel), "sha256="+r.SHA256)
+	}
+	for _, o := range c.Outside {
+		line("open", "r", o.Path, "sha256="+o.SHA256) // checked unchanged by ReuseBlocked
+	}
+	for _, m := range c.Missing {
+		line("openfail", "r", filepath.Join(cwd, m.Rel), "errno=2") // checked still absent
 	}
 	for _, p := range put {
 		line("open", "w", p.path, "new=1")

@@ -1,11 +1,37 @@
 package watch
 
 import (
+	"bytes"
+	"crypto/sha256"
 	_ "embed"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
+	"time"
 )
+
+// maxBlob bounds what /kton/blob reads into memory to serve a file preview.
+const maxBlob = 256 << 20
+
+var errTooLarge = errors.New("too large")
+
+func readAtMost(path string, n int64) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	b, err := io.ReadAll(io.LimitReader(f, n+1))
+	if err == nil && int64(len(b)) > n {
+		return nil, errTooLarge
+	}
+	return b, err
+}
 
 //go:embed ui/index.html
 var indexHTML []byte
@@ -138,11 +164,22 @@ func (sv *Service) Handler() http.Handler {
 	mux.HandleFunc("GET /kton/blob", func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
 		project, path, sum := q.Get("project"), q.Get("path"), q.Get("sha")
-		if !sv.KnownFile(project, path, sum) || check.State(path, sum) != NowSame {
+		if !sv.KnownFile(project, path, sum) {
 			http.Error(w, "not an observed file with these bytes", http.StatusNotFound)
 			return
 		}
-		http.ServeFile(w, r, path)
+		// read once, hash what was read, serve that: a check by size and mtime followed by a
+		// second open could serve other bytes under this hash (review B1)
+		b, err := readAtMost(path, maxBlob)
+		if err == errTooLarge {
+			http.Error(w, "too large to preview", http.StatusRequestEntityTooLarge)
+			return
+		}
+		if h := sha256.Sum256(b); err != nil || hex.EncodeToString(h[:]) != strings.TrimPrefix(sum, "sha256:") {
+			http.Error(w, "not an observed file with these bytes", http.StatusNotFound)
+			return
+		}
+		http.ServeContent(w, r, filepath.Base(path), time.Time{}, bytes.NewReader(b))
 	})
 	if sv.Web != "" { // a kton-web checkout, served as it is (cockpit show --web does the same)
 		mux.Handle("GET /web/", http.StripPrefix("/web/", http.FileServer(http.Dir(sv.Web))))
