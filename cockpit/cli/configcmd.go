@@ -56,7 +56,7 @@ func runConfig(ctx context.Context, args []string) error {
 	key, raw := args[0], args[1]
 	path := strings.Split(key, ".")
 	// A key the configuration does not have would be written and then ignored on load: a typo such as
-	// git.pushh would leave git.push as it was and say nothing.
+	// persist.sharee would leave persist.share as it was and say nothing.
 	if !knownKey(reflect.TypeOf(config.Raw{}), path) {
 		return fmt.Errorf("cockpit.config.json has no setting %s (cockpit config lists the main ones, "+
 			"cockpit.config.schema.json all of them)", key)

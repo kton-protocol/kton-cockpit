@@ -42,7 +42,7 @@ func TestConfig_RefusesAKeyTheConfigurationDoesNotHave(t *testing.T) {
 	r := testrepo.New(t)
 	cfgPath := filepath.Join(r.Root, "cockpit.config.json")
 	before, _ := os.ReadFile(cfgPath)
-	for _, key := range []string{"git.pushh", "nonsense.key", "execution.netwerk"} {
+	for _, key := range []string{"persist.sharee", "nonsense.key", "execution.netwerk"} {
 		out, code := r.Cockpit(t, "config", key, "off")
 		if code == 0 || !strings.Contains(out, "no setting "+key) {
 			t.Errorf("%s was accepted (exit %d):\n%s", key, code, out)

@@ -157,7 +157,7 @@ only.
 
 ```sh
 cockpit config                                 # the main settings, and the command that changes each
-cockpit config git.push off                    # one value; an unknown key, or a change that does not load, is refused
+cockpit config persist.share off               # one value; an unknown key, or a change that does not load, is refused
 ```
 
 ## Working with others
