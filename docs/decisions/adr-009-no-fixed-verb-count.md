@@ -21,11 +21,11 @@ verbs, which is still true of them.
 The cockpit has three verbs, `publish`, `say` and `ask`, and SPEC §13 forbade a fourth. The rule
 kept a session's surface small and made every new capability argue its way into one of the three.
 
-The recorder (`recorder/`) observes work done outside the cockpit, in an R session, a Quarto
-document or a NONMEM run, and has to hand what it saw to kton. Forcing every recorder operation
-through the existing three bends their meaning: "persist this state" is not a publish of one
-computation, and an annotation of an observed run is not a claim from a template the operator
-chose ahead of time. The project owner decided the fixed count goes.
+The recorder (built on the `recorder` branch, now in the cockpit-runtime work) observes work done
+outside the cockpit, in an R session, a Quarto document or a NONMEM run, and has to hand what it saw
+to kton. Forcing every recorder operation through the existing three bends their meaning: "persist
+this state" is not a publish of one computation, and an annotation of an observed run is not a claim
+from a template the operator chose ahead of time. The project owner decided the fixed count goes.
 
 ## Decision
 
@@ -40,7 +40,7 @@ chose ahead of time. The project owner decided the fixed count goes.
   - **Deletable** (SPEC §13) still holds: whatever a new verb does must stay performable by hand
     with the substrate.
 - No new verb is added by this decision. Which recorder operations become verbs is decided with the
-  recorder's design (plan section A).
+  recorder's design.
 
 ## Consequences
 
