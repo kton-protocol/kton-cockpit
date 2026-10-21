@@ -626,6 +626,9 @@ func validate(raw *Raw) error {
 		return fmt.Errorf("index.kind %q is not available in this build (have: %s)",
 			raw.Index.Kind, strings.Join(IndexKinds, ", "))
 	}
+	if err := validateQueryImage(raw.Query.Image); err != nil {
+		return err
+	}
 	if raw.Index.Kind == "oxigraph" && raw.Index.URL == "" && raw.Query.Image == "" {
 		return fmt.Errorf("index.kind \"oxigraph\" needs query.image (the Oxigraph image to start, pinned by digest) or index.url (one to connect to)")
 	}
@@ -1012,4 +1015,13 @@ func (r Raw) Private() []string {
 func repoOf(dir string, raw Raw) backend.Repo {
 	return backend.Repo{Mode: raw.Repo.Mode, Block: raw.Repo.block(), Dir: dir,
 		Commit: raw.CommitEnabled(), Share: raw.ShareEnabled(), SessionID: raw.Identity.SessionID}
+}
+
+// validateQueryImage holds the SPARQL image to the rule execution.image follows: a tag names
+// whatever it points at today, and a daemon started from it could not be told from another.
+func validateQueryImage(img string) error {
+	if img != "" && (!strings.HasPrefix(img, "oci://") || !strings.Contains(img, "@sha256:")) {
+		return fmt.Errorf("query.image %q is not pinned by digest. Use oci://<image>@sha256:<digest>", img)
+	}
+	return nil
 }
