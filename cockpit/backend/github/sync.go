@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/kton-protocol/kton-cockpit/cockpit/backend"
+	"github.com/kton-protocol/kton-cockpit/internal/gitops"
 	"github.com/kton-protocol/kton-cockpit/internal/gitrepo"
 )
 
@@ -29,7 +30,8 @@ func (Backend) Head(ctx context.Context, r backend.Repo) (backend.Revision, erro
 // those pointing at nothing. A conflict aborts the merge and refuses. Then, when sharing is on, it
 // pushes; a push origin refuses is reported as Rejected, not as an error.
 func (b Backend) Sync(ctx context.Context, r backend.Repo) (backend.Revision, error) {
-	if err := gitrepo.PullMerge(ctx, r.Dir); err != nil {
+	// The merge commit is the cockpit's, made under the session's identity as its other commits are.
+	if err := gitrepo.PullMerge(ctx, r.Dir, gitops.IdentityArgs(r.SessionID)...); err != nil {
 		return backend.Revision{}, err
 	}
 	head, err := b.Head(ctx, r)

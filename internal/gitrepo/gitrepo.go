@@ -63,9 +63,10 @@ func Head(ctx context.Context, root string) (string, error) {
 
 // PullMerge takes in origin's commits: a fast-forward when possible, a merge commit when both sides
 // moved — never a rebase, which would rewrite local commits. On a conflict the merge is aborted, the
-// working tree is as it was, and the error says so.
-func PullMerge(ctx context.Context, root string) error {
-	cmd := exec.CommandContext(ctx, "git", "pull", "--no-rebase", "--no-edit", "--quiet")
+// working tree is as it was, and the error says so. identity is passed to git before the
+// subcommand (-c user.name=… -c user.email=…), for the merge commit.
+func PullMerge(ctx context.Context, root string, identity ...string) error {
+	cmd := exec.CommandContext(ctx, "git", append(identity, "pull", "--no-rebase", "--no-edit", "--quiet")...)
 	cmd.Dir = root
 	if out, err := cmd.CombinedOutput(); err != nil {
 		abort := exec.CommandContext(ctx, "git", "merge", "--abort")

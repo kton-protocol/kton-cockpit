@@ -187,8 +187,11 @@ func shortSHA(s string) string {
 // commitIdentityArgs returns the `-c user.name=... -c user.email=...` flags for this cockpit's
 // own commits, derived from the configured session identity so every participant's commits are
 // attributable without requiring git to be pre-configured in the environment.
-func commitIdentityArgs(cfg Git) []string {
-	session := cfg.SessionID
+func commitIdentityArgs(cfg Git) []string { return IdentityArgs(cfg.SessionID) }
+
+// IdentityArgs are those flags for a session: what a backend passes to any git command that makes
+// a commit (a merge too), so none depends on git being configured where the cockpit runs.
+func IdentityArgs(session string) []string {
 	return []string{
 		"-c", fmt.Sprintf("user.name=cockpit (%s)", session),
 		"-c", fmt.Sprintf("user.email=%s@cockpit.local", session),
