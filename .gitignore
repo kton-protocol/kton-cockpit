@@ -4,3 +4,6 @@
 # worth keeping, and each one is a git repository of its own.
 examples/*/.work/
 uat/.work/
+
+# recorder build output (recorder/build.sh)
+recorder/.build/
