@@ -135,7 +135,9 @@ anything changed. Decided for phase 1 (2026-10-20):
 
 - **`memory` stamps the files.** Before every answer it takes the path, size and modification time of every
   file under the registries the union is built from (own and every source), with `stat`. It never reads
-  them, so it learns nothing about the store's layout (SPEC §12.3). The same stamp keeps the held union; any
+  them, so it learns nothing about the store's layout (SPEC §12.3). Dot-files (`.seq`, `.format`, locks)
+  are left out: opening a registry rewrites them, which would make every second call look like a change
+  (kton#233 leaves out the same files). The same stamp keeps the held union; any
   other stamp opens it again from the substrate. A write in this process, a pull, a check-in, another
   cockpit on the same repository: each changes a file, so none of them has to notify the index, and
   write-through needs no `Apply` yet.

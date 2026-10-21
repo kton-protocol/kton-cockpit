@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -90,9 +91,11 @@ func (m *memory) open(ctx context.Context, cfg *config.Config) (*heldEntry, bool
 	return e, false, nil
 }
 
-// Stamp names every file under the registries a union is built from, with its size and
-// modification time. A registry that does not exist is part of the stamp too, so creating it
-// changes it.
+// Stamp names every record and material file under the registries a union is built from, with its
+// size and modification time. A registry that does not exist is part of the stamp too, so creating
+// it changes it. A file whose name starts with a dot is left out: that is the store's bookkeeping
+// (.seq, .format, locks), which opening a registry rewrites without any change to what an answer
+// reads. kton#233 leaves the same files out of the kernel's position, which replaces this stamp.
 func Stamp(inputs []binaries.Input) (string, error) {
 	h := sha256.New()
 	for _, in := range inputs {
@@ -102,10 +105,13 @@ func Stamp(inputs []binaries.Input) (string, error) {
 				if err != nil {
 					return err
 				}
-				if d.IsDir() {
+				if d.IsDir() || strings.HasPrefix(d.Name(), ".") {
 					return nil
 				}
 				fi, err := d.Info()
+				if os.IsNotExist(err) {
+					return nil // a temporary file, renamed into place while we walked
+				}
 				if err != nil {
 					return err
 				}

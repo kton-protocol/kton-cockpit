@@ -857,7 +857,8 @@ since when).
 
 `memory` holds the opened registries for as long as the process runs. Before each answer it compares
 the path, size and modification time of every file under those registries (with `stat`, without
-reading them) and opens them again on any difference.
+reading them), leaving out dot-files (the store's bookkeeping, which opening rewrites), and opens
+them again on any difference.
 
 > **Checked by:** `TestMemory_KeepsTheUnionAcrossCallsWhileNothingChanged`,
 > `TestMemory_AnswersAsNoneAfterAnyChange`, `TestMemory_AnUnknownKindIsRefusedAtLoad`,
