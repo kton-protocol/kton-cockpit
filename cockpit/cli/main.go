@@ -685,6 +685,10 @@ func runVersion() error {
 				dirty = " (uncommitted changes)"
 			}
 			fmt.Printf("  built from %s%s\n", rev, dirty)
+		} else if v := info.Main.Version; v != "" && v != "(devel)" {
+			// `go install …@main` stamps no vcs settings; its module version is a pseudo-version,
+			// which ends in the commit.
+			fmt.Printf("  module %s\n", v)
 		}
 		fmt.Printf("  %s\n", info.GoVersion)
 	}

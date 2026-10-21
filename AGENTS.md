@@ -124,10 +124,23 @@ cockpit say     '<json>' [--field NAME]   bind a claim from an allowed template
 cockpit ask     '<json>' [--field NAME]   query the graph, re-verified against configured trust
 
 cockpit mcp      start the MCP stdio server (cockpit_publish/cockpit_say/cockpit_ask)
-cockpit init     scaffold a cockpit.config.json in the current git repo (human operator only)
-cockpit doctor   validate cockpit.config.json + the repo binding (human operator only)
-cockpit show     serve this repo's records to a kton-web viewer (human operator only)
-cockpit scope    seed, seal or read a nekton scope (human operator only)
+
+human operator only:
+cockpit init        scaffold a cockpit.config.json in the current repo
+cockpit keygen      make a signing identity and bind it into the configuration
+cockpit pin         pin the image every run executes in, by digest
+cockpit config      read or change one setting
+cockpit trust       list, add or remove the keys a trust tier holds
+cockpit federation  add, list, pull or remove the registries read with this one
+cockpit run         a run folder: new, run it, list
+cockpit doctor      validate cockpit.config.json + the repo binding, and say what is left to do
+cockpit show        serve this repo's records to a kton-web viewer
+cockpit scope       seed, seal or read a nekton scope
+cockpit version     the binary, its commit, and the kernels linked into it
+
+with -tags unreleased:
+cockpit install     install a package
+cockpit workflow    run a package's workflow
 ```
 
 The three verbs have **two transports and one implementation**: `publish`/`say`/`ask` at a shell and

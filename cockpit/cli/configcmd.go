@@ -3,7 +3,7 @@ package cli
 // configcmd.go is `cockpit config`: this repository's configuration, read and changed one value at a
 // time, without opening the JSON.
 //
-//	cockpit config                         the settings that shape what the verbs do
+//	cockpit config                         the main settings that shape what the verbs do
 //	cockpit config git.push                one value, as JSON
 //	cockpit config git.push off            set it (on/off, true/false, a number, JSON, or text)
 //	cockpit config execution.network --unset
@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 
@@ -54,6 +55,12 @@ func runConfig(ctx context.Context, args []string) error {
 
 	key, raw := args[0], args[1]
 	path := strings.Split(key, ".")
+	// A key the configuration does not have would be written and then ignored on load: a typo such as
+	// git.pushh would leave git.push as it was and say nothing.
+	if !knownKey(reflect.TypeOf(config.Raw{}), path) {
+		return fmt.Errorf("cockpit.config.json has no setting %s (cockpit config lists the main ones, "+
+			"cockpit.config.schema.json all of them)", key)
+	}
 	before, err := os.ReadFile(cfgPath)
 	if err != nil {
 		return err
@@ -77,6 +84,37 @@ func runConfig(ctx context.Context, args []string) error {
 	}
 	fmt.Println("  commit cockpit.config.json to keep it")
 	return nil
+}
+
+// knownKey reports whether path names a setting of t, by the JSON names config.Raw is read with.
+// Below a map or a value that decodes itself (the repo block an extension backend defines, a
+// federation source), any key is the reader's to judge, so the load that follows decides.
+func knownKey(t reflect.Type, path []string) bool {
+	for t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	if len(path) == 0 {
+		return true
+	}
+	if reflect.PointerTo(t).Implements(reflect.TypeOf((*json.Unmarshaler)(nil)).Elem()) {
+		return true
+	}
+	switch t.Kind() {
+	case reflect.Map, reflect.Interface:
+		return true
+	case reflect.Struct:
+		for i := 0; i < t.NumField(); i++ {
+			f := t.Field(i)
+			name, _, _ := strings.Cut(f.Tag.Get("json"), ",")
+			if name == "" {
+				name = f.Name
+			}
+			if name == path[0] && name != "-" {
+				return knownKey(f.Type, path[1:])
+			}
+		}
+	}
+	return false
 }
 
 func parseValue(s string) any {
