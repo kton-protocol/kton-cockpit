@@ -845,7 +845,10 @@ From the governing design, restated normatively:
 - No canonicalization, hashing, signing, registry or chain logic of its own. Every mutation and query
   goes through the substrate.
 - No trust logic beyond applying the configuration.
-- No fourth verb, and no state of its own between calls beyond that static configuration.
+- No state of its own between calls beyond that static configuration. (The former "no fourth verb"
+  is lifted by [ADR-009](../docs/decisions/adr-009-no-fixed-verb-count.md): a verb may be added; each
+  one has a single implementation for every transport, sits under the configuration ceiling and is
+  specified here.)
 - **Deletable:** every operation MUST remain performable by hand with the substrate binaries. A
   cockpit that made something reachable only through itself would have become the thing it narrows.
 
