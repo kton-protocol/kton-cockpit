@@ -29,19 +29,19 @@ func TestSession_AV2HeaderUnescapesItsLines(t *testing.T) {
 	}
 }
 
-// Re-check of #12: a v2 shim joined argv by spaces, so a quote there is a character; v3 quotes.
-func TestSession_CommandLinesAreReadAsTheirShimWroteThem(t *testing.T) {
-	read := func(header, line string) []string {
-		s := NewSession("t", "/log.tsv", &Classifier{System: DefaultSystem, Temp: DefaultTemp})
-		s.Line(header)
-		s.Line("1\t100\t1\texec\t-\t/p\t0\t0\t0\t" + line)
-		s.Line("2\t100\t1\tTASK\tok\t1\t0\t0\t0\tx")
-		return splitCmdline(s.Tasks[0].Commands[0].Cmdline)
+// Review K1 of #14: quoting is marked per line (mode q), so a log with lines from an older shim
+// or another writer is read right line by line, whatever its header says.
+func TestSession_CommandLinesAreReadByTheirOwnLine(t *testing.T) {
+	s := NewSession("t", "/log.tsv", &Classifier{System: DefaultSystem, Temp: DefaultTemp})
+	s.Line("#ktontrace v3\thash=/p")
+	s.Line("1\t100\t1\texec\t-\t/p\t0\t0\t0\tR -e it's")                         // an older shim: joined by spaces
+	s.Line("2\t101\t100\texec\tq\t/p\t0\t0\t0\tnmfe75 'run 1.mod' 'it'\\\\''s'") // v3, escaped as logged
+	s.Line("3\t100\t1\tTASK\tok\t1\t0\t0\t0\tx")
+	cs := s.Tasks[0].Commands
+	if got := splitCmdline(cs[0].Cmdline); len(got) != 3 || got[2] != "it's" {
+		t.Fatalf("unmarked line: %q", got)
 	}
-	if got := read("#ktontrace v2\thash=/p", `R -e it's`); len(got) != 3 || got[2] != "it's" {
-		t.Fatalf("v2: %q", got)
-	}
-	if got := read("#ktontrace v3\thash=/p", `nmfe75 'run 1.mod' 'it'\\''s'`); len(got) != 3 || got[1] != "run 1.mod" || got[2] != "it's" {
-		t.Fatalf("v3: %q", got)
+	if got := splitCmdline(cs[1].Cmdline); len(got) != 3 || got[1] != "run 1.mod" || got[2] != "it's" {
+		t.Fatalf("q line: %q", got)
 	}
 }

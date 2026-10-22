@@ -26,7 +26,9 @@ type DraftFile struct {
 
 // RepoRoot is the nearest ancestor of dir holding cockpit.config.json or a .git directory. A
 // .git file (a submodule, a worktree) counts only when no such ancestor is above it: a path in
-// the parent repository stays a path of that repository. dir itself when there is none.
+// the parent repository stays a path of that repository. A worktree inside the repository
+// (.claude/worktrees/w) without a cockpit.config.json of its own so resolves to the main
+// repository; with the checked-in one it is its own root. dir itself when there is none.
 func RepoRoot(dir string) string {
 	gitFile := ""
 	for d := dir; d != "" && d != "/" && d != "."; d = filepath.Dir(d) {

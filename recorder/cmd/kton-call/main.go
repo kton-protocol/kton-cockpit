@@ -234,7 +234,7 @@ func putOutputs(c watch.Call, cwd string) error {
 		fmt.Fprintf(f, "%d\t%d\t%d\t%s\t%s\t%s\t0\t0\t0\t%s\n", time.Now().UnixNano(), pid, ppid, op, mode,
 			watch.Escape(path), watch.Escape(extra))
 	}
-	line("exec", "-", cwd, strings.Join(append([]string{filepath.Base(os.Args[0])}, os.Args[1:]...), " "))
+	line("exec", "q", cwd, watch.QuoteArgs(append([]string{filepath.Base(os.Args[0])}, os.Args[1:]...))) // as the shim writes it
 	for _, r := range c.Reads {
 		line("open", "r", filepath.Join(cwd, r.Rel), "sha256="+r.SHA256)
 	}

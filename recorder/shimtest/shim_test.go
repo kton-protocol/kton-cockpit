@@ -312,6 +312,9 @@ func TestShim_AnArgumentWithASpaceIsQuotedInTheExecLine(t *testing.T) {
 	_, evs := run(t, nil, opsPath(t), "write", "run 1.lst", "x", "write", "it's", "y")
 	for _, e := range evs {
 		if e.op == "exec" {
+			if e.mode != "q" {
+				t.Fatalf("exec line in mode %q, want q (quoted)", e.mode)
+			}
 			// as logged: the v2 escaping doubles the backslash of '\''
 			if !strings.HasSuffix(e.extra, ` write 'run 1.lst' x write 'it'\\''s' y`) {
 				t.Fatalf("exec line %q", e.extra)

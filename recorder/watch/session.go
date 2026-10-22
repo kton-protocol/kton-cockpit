@@ -37,7 +37,6 @@ type Session struct {
 	procs      map[int]bool
 	hashCache  map[string]string
 	escaped    bool // the log's header says v2 or later: path and extra are escaped
-	quoted     bool // v3: command lines quote their arguments; older ones are read as split by spaces
 
 	// Hash computes a file's content hash when the shim did not (files outside the hashed
 	// prefixes). Replaceable in tests.
@@ -149,7 +148,7 @@ func (s *Session) hashFile(p string) (string, string) {
 // Line feeds one raw log line (header or event).
 func (s *Session) Line(line string) {
 	if h, ok := ParseHeader(line); ok {
-		s.escaped, s.quoted = h.Escaped(), h.Quoted()
+		s.escaped = h.Escaped()
 		if len(h.Hash) > 0 && s.cls.Project == "" {
 			s.cls.Project = h.Hash[0]
 			s.Project = h.Hash[0]
@@ -209,7 +208,7 @@ func (s *Session) Handle(e Event) {
 	}
 	switch e.Op {
 	case "exec":
-		cmdline := s.cmdline(e.Extra)
+		cmdline := lineCmdline(e.Mode, e.Extra)
 		prog := ""
 		if f := splitCmdline(cmdline); len(f) > 0 {
 			prog = f[0]
@@ -228,7 +227,7 @@ func (s *Session) Handle(e Event) {
 		if i := strings.Index(argv, "argv="); i >= 0 {
 			argv = argv[i+5:]
 		}
-		c.spawns[pid] = Command{PID: pid, PPID: e.PID, Program: e.Path, Cmdline: s.cmdline(argv)}
+		c.spawns[pid] = Command{PID: pid, PPID: e.PID, Program: e.Path, Cmdline: lineCmdline(e.Mode, argv)}
 	case "connect":
 		s.connect(t, e)
 	case "open", "inherit":
@@ -599,10 +598,12 @@ func (c *taskState) rewrote(p string) bool {
 	return ok && read && at[1] != 0 && rm != 0 && at[1] != rm
 }
 
-// cmdline puts a logged command line in v3's quoted form: a line from an older shim was joined
-// by spaces, so its words are its arguments, and a quote in one is just a character.
-func (s *Session) cmdline(line string) string {
-	if s.quoted {
+// lineCmdline puts a logged command line in the quoted form. A line in mode q quotes its
+// arguments (the v3 shim, kton-call); any other was joined by spaces, so its words are its
+// arguments and a quote in one is just a character. Per line, not per log: an older shim or
+// another writer may append to the same log.
+func lineCmdline(mode, line string) string {
+	if mode == "q" {
 		return line
 	}
 	return shellJoin(strings.Fields(line))
