@@ -218,6 +218,11 @@ func storyOf(tasks []*Task, project, path, sum string) *Story {
 		for _, h := range handEdited {
 			s.Warnings = append(s.Warnings, h+" had been changed by hand before")
 		}
+		for _, in := range t.Inputs {
+			if l := in.Later; l != nil && !l.Same {
+				s.Warnings = append(s.Warnings, rel(in.Path)+" was overwritten later ("+l.Session+", command "+l.Task+"): this step used an earlier version")
+			}
+		}
 		for _, m := range t.Missing {
 			if !probe(m) {
 				s.Warnings = append(s.Warnings, rel(m)+" did not exist")

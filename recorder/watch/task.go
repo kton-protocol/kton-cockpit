@@ -39,6 +39,7 @@ type Input struct {
 	Status    string `json:"status"` // observed | hashed-by-watcher | unhashed-large | gone
 	PID       int    `json:"pid"`
 	LastRead  int64  `json:"last_read_ns,omitempty"` // the task's last read of these bytes (AttachOrigins)
+	Later     *Later `json:"later,omitempty"`        // written again by a later step (project views)
 	From      []Ref  `json:"from,omitempty"`         // the earlier task that wrote this very file with these bytes
 	SameAs    []Ref  `json:"same_as,omitempty"`      // other files earlier tasks wrote with the same bytes (not provenance)
 	Rewritten bool   `json:"rewritten,omitempty"`    // the same task wrote this file afterwards: a scratch file, not data
@@ -52,7 +53,8 @@ type Output struct {
 	SHA256      string `json:"sha256"`
 	Status      string `json:"status"` // observed | hashed-by-watcher | unhashed-large
 	Overwritten bool   `json:"overwritten_later,omitempty"`
-	Now         string `json:"now,omitempty"` // same | changed | gone, compared with disk when shown
+	Later       *Later `json:"later,omitempty"` // written again by a later step (project views)
+	Now         string `json:"now,omitempty"`   // same | changed | gone, compared with disk when shown
 }
 
 // Ref points at an output of an earlier task.

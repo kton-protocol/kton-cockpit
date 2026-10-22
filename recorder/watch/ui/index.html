@@ -249,9 +249,18 @@ async function renderFiles() {
   }
 }
 
+// the step's version of a file is history: a later step wrote the file again
+function laterChip(x) {
+  const l = x.later;
+  if (!l) return "";
+  const who = `${sessLabel(l.session)} command ${esc(l.task)}`;
+  return l.same_bytes
+    ? `<span class="chip" title="written again by ${who}, with the same bytes">rewritten later, same bytes</span>`
+    : `<span class="chip warn" title="written again by ${who}, with other bytes: this step used a version the file no longer has">overwritten later by ${who}</span>`;
+}
 function stepCard(t, i) {
-  const ins = (t.inputs || []).map((x) => `<span class="f">${esc(rel(x.path))}</span>${x.from ? "" : `<span class="chip">Ausgang</span>`}${x.now === "same" ? "" : nowChip(x.now)}`).join(", ");
-  const outs = (t.outputs || []).map((x) => `<span class="f">${esc(rel(x.path))}</span>`).join(", ");
+  const ins = (t.inputs || []).map((x) => `<span class="f">${esc(rel(x.path))}</span>${x.from ? "" : `<span class="chip">source</span>`}${laterChip(x)}${x.now === "same" || x.later ? "" : nowChip(x.now)}`).join(", ");
+  const outs = (t.outputs || []).map((x) => `<span class="f">${esc(rel(x.path))}</span>${laterChip(x)}`).join(", ");
   const uses = (t.uses || []).map((u) => `<span class="f">${esc(u.name)}</span>`).join(", ");
   return `<div class="step"><div class="t"><span class="n">${i + 1}</span><span class="o">${esc(origin(t))}</span>
       <span class="h">${sessLabel(t.session)} · ${clock(t.end_ns)}</span>${t.status === "err" ? `<span class="bad">error</span>` : ""}</div>

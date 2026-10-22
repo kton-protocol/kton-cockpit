@@ -47,6 +47,7 @@ func (sv *Service) projectTasks(check *Checker, project string) []*Task {
 		}
 	}
 	sort.SliceStable(all, func(i, j int) bool { return all[i].End < all[j].End })
+	markLater(all)
 	return all
 }
 
