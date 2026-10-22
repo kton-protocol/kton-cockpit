@@ -192,6 +192,13 @@ func relTo(dir, p string) string {
 // NormArgv is normArgv for a command line given as its arguments (a stub's own os.Args).
 func NormArgv(args []string, cwd string) []string { return normArgv(shellJoin(args), cwd) }
 
+// QuoteArgs writes argv as a command line in mode q, as the shim does: for a program such as
+// kton-call that adds its own exec line to a log.
+func QuoteArgs(args []string) string { return shellJoin(args) }
+
+// SplitArgs is the inverse of QuoteArgs: the arguments of a command line as Command.Cmdline holds it.
+func SplitArgs(cmdline string) []string { return splitCmdline(cmdline) }
+
 // splitCmdline splits a command line as the shim writes it: arguments separated by spaces, an
 // argument with other characters in single quotes ('run 1.mod', 'it'\”s').
 func splitCmdline(s string) []string {

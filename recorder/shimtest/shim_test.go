@@ -80,7 +80,7 @@ func run(t *testing.T, setup func(proj string), argv ...string) (string, []event
 		t.Fatal(err)
 	}
 	lines := strings.Split(strings.TrimRight(string(b), "\n"), "\n")
-	if lines[0] != "#ktontrace v2\thash="+proj {
+	if lines[0] != "#ktontrace v3\thash="+proj {
 		t.Fatalf("first line %q, want the format header naming the project", lines[0])
 	}
 	var evs []event
@@ -312,6 +312,9 @@ func TestShim_AnArgumentWithASpaceIsQuotedInTheExecLine(t *testing.T) {
 	_, evs := run(t, nil, opsPath(t), "write", "run 1.lst", "x", "write", "it's", "y")
 	for _, e := range evs {
 		if e.op == "exec" {
+			if e.mode != "q" {
+				t.Fatalf("exec line in mode %q, want q (quoted)", e.mode)
+			}
 			// as logged: the v2 escaping doubles the backslash of '\''
 			if !strings.HasSuffix(e.extra, ` write 'run 1.lst' x write 'it'\\''s' y`) {
 				t.Fatalf("exec line %q", e.extra)

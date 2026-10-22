@@ -6,12 +6,14 @@
  * exec'd children do not interleave). Nothing is interpreted here; ktonwatch does that.
  *
  * Line format (tab separated; the process that creates the log first writes
- * "#ktontrace v2<TAB>hash=<$KTON_TRACE_HASH>"):
+ * "#ktontrace v3<TAB>hash=<$KTON_TRACE_HASH>"):
  *   ts_ns pid ppid op mode path size mtime_ns ino extra
  * v2: in path and extra, a backslash, TAB, LF and CR are written as \\, \t, \n, \r (v1: a space).
+ * v3: exec and spawn quote an argument with other than safe characters ('run 1.mod') and say so with
+ *     mode q; a line without it (an older shim, another writer) is joined by spaces.
  *
  *   op        mode      path            extra
- *   exec      -         cwd             command line              (once per process image)
+ *   exec      q         cwd             command line              (once per process image)
  *   open      r|w|rw[d] file or dir     k=v;… (sha256, new, trunc, unhashed)
  *   inherit   w|rw      file            k=v;…  a write fd this process received at exec (e.g. `> f`)
  *   openfail  r|w|rw    file            errno=N  (only under $KTON_TRACE_HASH)
@@ -19,7 +21,7 @@
  *   rename    -         new path        old path
  *   unlink    -         file            -
  *   connect   net       address         class=loopback|unix|remote;rc=…;errno=…
- *   spawn     -         program         argv (execve/execv/execvp/posix_spawn; child=PID for spawn)
+ *   spawn     q         program         argv (execve/execv/execvp/posix_spawn; child=PID for spawn)
  *
  * While a file PAUSED exists next to the log, nothing is logged (checked at most once a second).
  *
@@ -392,7 +394,7 @@ __attribute__((constructor)) static void kton_init(void) {
         log_dev = st.st_dev; log_ino = st.st_ino;
         if (st.st_size == 0) {
             char hdr[4200];
-            int n = snprintf(hdr, sizeof hdr, "#ktontrace v2\thash=%s\n", hash_prefixes);
+            int n = snprintf(hdr, sizeof hdr, "#ktontrace v3\thash=%s\n", hash_prefixes);
             if (n > 0) raw_write(hdr, (size_t)n < sizeof hdr ? (size_t)n : sizeof hdr - 1);
         }
     }
@@ -409,7 +411,7 @@ __attribute__((constructor)) static void kton_init(void) {
     }
     if (!getcwd(cwd, sizeof cwd)) strcpy(cwd, "-");
     in_hook = 1;
-    emit_line("exec", "-", cwd, 0, 0, 0, cmd);
+    emit_line("exec", "q", cwd, 0, 0, 0, cmd);
 
     /* Write fds this image received from its parent (a shell's `> file`): the parent closed its
      * copy before anything was written, so only this process can report the final content. */
@@ -693,7 +695,7 @@ static void emit_spawn(const char *path, char *const argv[], pid_t child) {
     if (child > 0) l = (size_t)snprintf(extra, sizeof extra, "child=%d;", (int)child);
     if (argv && argv[0]) l += (size_t)snprintf(extra + l, sizeof extra - l, "argv=");
     for (int i = 0; argv && argv[i] && l + 2 < sizeof extra; i++) append_arg(extra, sizeof extra, &l, argv[i], i == 0);
-    emit_line("spawn", "-", path, 0, 0, 0, extra);
+    emit_line("spawn", "q", path, 0, 0, 0, extra);
     in_hook = 0;
 }
 int execve(const char *path, char *const argv[], char *const envp[]) {
