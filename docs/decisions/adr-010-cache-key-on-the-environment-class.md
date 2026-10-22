@@ -72,14 +72,16 @@ env-spectrum), not on the concrete environment.**
    "part of the identity" to "evidence of where it ran".
 3. **No class, nothing changes.** Without `environment`, `envRef` stays covered, as today: the
    digest is then the only statement about what ran. Two concrete environments give two action keys,
-   so there is no reuse across environments, and no consumer rule is needed for it. The same holds for
-   every `foton/v0` record, which has no place for carried material.
+   so there is no reuse across environments. The same holds for every `foton/v0` record, which has no
+   place for carried material. A reader MUST ignore env material on such a record (kton §6.5), and on
+   any record takes it only about that foton and only from a key that also signed it: `ask` and reuse
+   read env material only through the kernel's `foton.ReadEnv`, which applies exactly these rules.
 4. **Reuse needs accepted qualification.** A class is only a label until it is qualified: anyone can
    name a class and run in an image that never fulfilled it. A hit across environments counts only if
    the hit's carried `envRef` has a `qualifies-as` claim for the class, signed under a trust tier the
    consumer configured, the same rule `cockpit ask` already applies to records (a consumer rule,
-   kton §8). `Registry.Reuse` keeps returning every candidate
-   for an action key; the decision belongs to the consumer, not to the kernel.
+   kton §8); without one the hit is treated as unqualified (fail closed). `Registry.Reuse` keeps
+   returning every candidate for an action key; the decision belongs to the consumer, not to the kernel.
 5. **Reproduction via a foton** means "in some environment of this class", not "in this image", when
    a class is present; without one it still means this exact environment. Differences within the
    spectrum's tolerance are what the qualification has already accepted.
@@ -103,10 +105,13 @@ class exists, rule 3 keeps the old guarantee unchanged: the digest stays covered
   under the old rule and stay valid (monotonicity, kton §11). New fotons of the same computation
   written with a class get a different id and action key. The cockpit's test vectors and any reuse by action key across the change see two
   records for one computation.
-- The cockpit's part (`-tags unreleased` until kton 0.3.0): with `environment` set, pass both to `author`
-  and attach the `kton-env/v1` material the kernel produces; `ask` and reuse take the env statement
-  signed by the trusted producer key; tests for both cases (the kernel's own regression tests, kton#211
-  item 7, cover the action key).
+- The cockpit's part (`-tags unreleased` until kton 0.3.0): the cockpit builds the descriptor itself
+  (`binaries.Author`), so it applies the kernel's rule with the guards `plankton author` has: leave
+  `envRef` out of the descriptor only with a class on `foton/v1`, sign it with `foton.SignEnv` and attach
+  it as material, refuse a blank `envRef`, and accept as a class only a canonical content hash
+  (`core.NormalizeContentHash`; `"sha256:"` alone would let two images collide on one record). `ask` and
+  reuse read the env statement through `foton.ReadEnv`. Tests for both cases (the kernel's own regression
+  tests, kton#211 item 7, cover the action key).
 - An orchestrator's spectrum needs the reference fotons of every `nmfe` call it makes. The recorder
   can supply them: it sees each call, the files it read and the files it wrote.
 - Open, and not decided here:
