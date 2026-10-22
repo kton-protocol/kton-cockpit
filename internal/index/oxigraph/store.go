@@ -35,10 +35,12 @@ import (
 // The graph urn:kton:index says what is in the store, per registry directory:
 //   - <urn:kton:reg:<id>> urn:kton:holds <record graph>, for every record of that registry;
 //   - <record graph> urn:kton:layer "plankton"|"nekton";
-//   - <attribution graph> urn:kton:of <record graph> ; urn:kton:keyid "<keyid>";
+//   - <urn:kton:reg:<id>> urn:kton:attests <attribution graph>, for every signature of a key it was
+//     attributed under that verifies in its own copy of the record (another registry's copy may
+//     carry other signatures); <attribution graph> urn:kton:of <record graph> ; urn:kton:keyid "<keyid>";
 //   - the registry's urn:kton:key (every public key it was attributed under), urn:kton:cursor (the
 //     last position read with Records) and urn:kton:position (kton#233, read before the records),
-//     written last: a registry without a position is stale and is read again.
+//     replaced together last: a registry whose position differs is stale and is read again.
 //
 // A registry is brought up to date before a query that reads it. Its position equal: nothing to do.
 // Otherwise it is opened and Records(cursor) applied, or Records(0) when its epoch changed, when
@@ -216,45 +218,86 @@ func (d *Daemon) apply(ctx context.Context, layer, dir string, trusted []ed25519
 		return false, err
 	}
 
-	// The position goes first, so a reader meanwhile finds the registry stale, never current. A
-	// full read also forgets which records the registry held: one that left it is no longer read.
-	forget := fmt.Sprintf(`DELETE WHERE { GRAPH <%s> { <%s> <%sposition> ?a } } ;
-DELETE WHERE { GRAPH <%s> { <%s> <%scursor> ?b } }`, indexGraph, reg, kNS, indexGraph, reg, kNS)
-	if since == 0 {
-		forget += fmt.Sprintf(` ;
-DELETE WHERE { GRAPH <%s> { <%s> <%sholds> ?c } }`, indexGraph, reg, kNS)
-	}
-	if _, err := d.post(ctx, "/update", "", url.Values{"update": {forget}}); err != nil {
-		return false, err
-	}
-
+	// Readers do not wait for the lock, and a full read can run while the position stays what it was
+	// (a newly trusted key), so nothing a reader may select ever goes missing on the way: the new
+	// records and attribution are added first, what the registry no longer holds is removed after,
+	// and the position, cursor and keys are replaced together last. A registry half read is either
+	// stale (its position not yet written) or a superset of what it was, never a subset.
 	var recs, meta strings.Builder
 	m := func(s, p, o string) { fmt.Fprintf(&meta, "%s <%s%s> %s <%s> .\n", s, kNS, p, o, indexGraph) }
+	heldNow, attestsNow := map[string]bool{}, map[string]bool{}
 	for _, p := range ps {
 		recs.Write(p.own)
 		m("<"+reg+">", "holds", "<"+p.graph+">")
 		m("<"+p.graph+">", "layer", nqLit(p.layer))
+		heldNow[p.graph] = true
 		for kid, a := range p.attr {
 			recs.Write(a)
 			g := p.attributionGraph(kid)
+			// Attribution belongs to the registry that holds the signature: another registry's copy
+			// of the same record may carry fewer signatures, and must not be attributed by this one.
+			m("<"+reg+">", "attests", "<"+g+">")
 			m("<"+g+">", "of", "<"+p.graph+">")
 			m("<"+g+">", "keyid", nqLit(kid))
+			attestsNow[g] = true
 		}
 	}
-	for k := range all {
-		m("<"+reg+">", "key", nqLit(k))
-	}
-	m("<"+reg+">", "cursor", nqLit(strconv.Itoa(cursor)))
 	if recs.Len() > 0 {
 		if err := d.load(ctx, "application/n-quads", recs.String()); err != nil {
 			return false, fmt.Errorf("loading records: %w", err)
 		}
 	}
-	if err := d.load(ctx, "application/n-quads", meta.String()); err != nil {
-		return false, fmt.Errorf("recording what was loaded: %w", err)
+	if meta.Len() > 0 {
+		if err := d.load(ctx, "application/n-quads", meta.String()); err != nil {
+			return false, fmt.Errorf("recording what was loaded: %w", err)
+		}
 	}
-	mark := fmt.Sprintf("<%s> <%sposition> %s <%s> .\n", reg, kNS, nqLit(now), indexGraph)
-	return true, d.load(ctx, "application/n-quads", mark)
+	if since == 0 {
+		if err := d.forgetDeparted(ctx, reg, heldNow, attestsNow, trustedIDs(keys)); err != nil {
+			return false, err
+		}
+	}
+	var mark strings.Builder
+	for k := range all {
+		fmt.Fprintf(&mark, "<%s> <%skey> %s .\n", reg, kNS, nqLit(k))
+	}
+	fmt.Fprintf(&mark, "<%s> <%scursor> %s .\n<%s> <%sposition> %s .\n", reg, kNS, nqLit(strconv.Itoa(cursor)), reg, kNS, nqLit(now))
+	done := fmt.Sprintf(`DELETE WHERE { GRAPH <%[1]s> { <%[2]s> <%[3]sposition> ?a } } ;
+DELETE WHERE { GRAPH <%[1]s> { <%[2]s> <%[3]scursor> ?b } } ;
+DELETE WHERE { GRAPH <%[1]s> { <%[2]s> <%[3]skey> ?c } } ;
+INSERT DATA { GRAPH <%[1]s> { %[4]s } }`, indexGraph, reg, kNS, mark.String())
+	if _, err := d.post(ctx, "/update", "", url.Values{"update": {done}}); err != nil {
+		return false, fmt.Errorf("marking %s read: %w", reg, err)
+	}
+	return true, nil
+}
+
+// forgetDeparted removes, after a full read, what reg listed and no longer holds: records that left
+// it, and its attribution under keys that no longer verify. Only the keys this read used are
+// judged; attribution under a key another reader added meanwhile is that reader's to keep.
+func (d *Daemon) forgetDeparted(ctx context.Context, reg string, held, attests, used map[string]bool) error {
+	q := fmt.Sprintf(`SELECT ?p ?o ?kid WHERE { GRAPH <%s> { <%s> ?p ?o
+  FILTER(?p IN (<%sholds>, <%sattests>)) OPTIONAL { ?o <%skeyid> ?kid } } }`, indexGraph, reg, kNS, kNS, kNS)
+	rows, err := d.selectCSV(ctx, url.Values{"query": {q}})
+	if err != nil {
+		return err
+	}
+	var gone strings.Builder
+	for _, r := range rows {
+		switch {
+		case r["p"] == kNS+"holds" && !held[r["o"]]:
+		case r["p"] == kNS+"attests" && !attests[r["o"]] && used[r["kid"]]:
+		default:
+			continue
+		}
+		fmt.Fprintf(&gone, "<%s> <%s> <%s> .\n", reg, r["p"], r["o"])
+	}
+	if gone.Len() == 0 {
+		return nil
+	}
+	u := fmt.Sprintf(`DELETE DATA { GRAPH <%s> { %s } }`, indexGraph, gone.String())
+	_, err = d.post(ctx, "/update", "", url.Values{"update": {u}})
+	return err
 }
 
 // dataset is the default and the named graphs a query of these registries reads under trusted.
@@ -265,7 +308,7 @@ func (d *Daemon) dataset(ctx context.Context, regs []string, trusted map[string]
 	}
 	q := fmt.Sprintf(`SELECT DISTINCT ?rec ?layer ?ag ?kid WHERE { GRAPH <%s> {
   VALUES ?reg { %s } ?reg <%sholds> ?rec . ?rec <%slayer> ?layer .
-  OPTIONAL { ?ag <%sof> ?rec ; <%skeyid> ?kid } } }`, indexGraph, strings.Join(vals, " "), kNS, kNS, kNS, kNS)
+  OPTIONAL { ?reg <%sattests> ?ag . ?ag <%sof> ?rec ; <%skeyid> ?kid } } }`, indexGraph, strings.Join(vals, " "), kNS, kNS, kNS, kNS, kNS)
 	rows, err := d.selectCSV(ctx, url.Values{"query": {q}})
 	if err != nil {
 		return nil, nil, err

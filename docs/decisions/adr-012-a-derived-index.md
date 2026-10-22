@@ -207,9 +207,21 @@ With kton#232 (`rdf.Record`/`Attribution`, `nanopub.Record`/`Attribution`) and k
   attributed under, its cursor and its position. Before a query each registry of the union is checked: an
   equal position reads nothing; otherwise `Records(cursor)`, or `Records(0)` when the epoch changed, when
   objects changed with `maxSeq` unchanged (records a git merge brought, numbered by nobody), or when the
-  query trusts a key the registry was not attributed under yet. The position is removed first and written
-  last, so a registry half read is stale, never current; a file lock per registry makes two cockpits take
-  turns. A full read also forgets the registry's list of records, so one that left it is no longer read.
+  query trusts a key the registry was not attributed under yet. A file lock per registry makes two writers
+  take turns; readers do not wait for it. So a read only adds at first: new records and attribution go in,
+  what the registry no longer holds is removed after (on a full read), and the position, cursor and keys are
+  replaced together last. A registry half read is stale or a superset of what it was, never a subset
+  (`TestOxigraph_AReaderNeverSeesARegistryHalfRead`, found by kton-review on PR #8).
+- **Attribution is the registry's own.** Each registry lists the attribution graphs of the signatures in its
+  own copy of a record (`urn:kton:attests`), and a query selects attribution only through the registries it
+  reads. Another registry's copy of the same record may carry other signatures (a co-signature added after
+  a pull), and must not attribute this one (`TestOxigraph_AttributionIsTheRegistrysOwn`, also from that
+  review). A full read removes only attribution under the keys it read with; a key another configuration
+  added meanwhile is left to it.
+- **Known limits.** An incremental read never forgets a record that left the registry: stores are append-only,
+  so that takes a revert plus a new record before the next query (the next full read corrects it). Each query
+  names every graph of its dataset as a request parameter, so the request grows with the union; fine for
+  repositories, worth revisiting for aggregations of many thousands of records.
 - **Trust chosen per query.** The dataset is computed for each query from `urn:kton:index`: the default
   graph is every plankton record of the union plus its attribution to the trusted keys; the named graphs are
   the claims a trusted key signed, plus that attribution. A container started for one query loads the same
