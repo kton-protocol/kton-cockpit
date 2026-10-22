@@ -1,0 +1,197 @@
+{
+  "name": "kton-recorder",
+  "displayName": "kton recorder",
+  "description": "Records where each piece of R code came from, switches recording on and off, shows each result's story step by step, and runs publish and reproduction from there.",
+  "version": "0.2.0",
+  "publisher": "kton",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.65.0"
+  },
+  "extensionKind": [
+    "workspace"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "kton.openObservations",
+        "title": "kton: Beobachtungen im Panel öffnen"
+      },
+      {
+        "command": "kton.openInBrowser",
+        "title": "Große Ansicht im Browser",
+        "icon": "$(link-external)"
+      },
+      {
+        "command": "kton.refresh",
+        "title": "Aktualisieren",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "kton.toggleRecording",
+        "title": "kton: Aufzeichnung an/aus",
+        "icon": "$(record)"
+      },
+      {
+        "command": "kton.story",
+        "title": "Geschichte erzählen",
+        "icon": "$(book)"
+      },
+      {
+        "command": "kton.reproduceItem",
+        "title": "Reproduzieren",
+        "icon": "$(debug-rerun)"
+      },
+      {
+        "command": "kton.openFile",
+        "title": "Datei öffnen",
+        "icon": "$(go-to-file)"
+      },
+      {
+        "command": "kton.storyFile",
+        "title": "kton: Geschichte dieser Datei"
+      },
+      {
+        "command": "kton.reproduceFile",
+        "title": "kton: Diese Datei reproduzieren"
+      }
+    ],
+    "configuration": {
+      "title": "kton recorder",
+      "properties": {
+        "kton.recorder.traceDir": {
+          "type": "string",
+          "default": "",
+          "description": "Directory the recorder's logs live in. Empty: ~/.cache/kton-cockpit/trace (or $XDG_CACHE_HOME/kton-cockpit/trace)."
+        },
+        "kton.recorder.viewerUrl": {
+          "type": "string",
+          "default": "http://127.0.0.1:8378/",
+          "description": "Where `ktonwatch serve` shows the observations."
+        },
+        "kton.recorder.ktonwatchPath": {
+          "type": "string",
+          "default": "",
+          "description": "ktonwatch binary. Empty: ~/.local/bin/ktonwatch."
+        },
+        "kton.recorder.cockpitPath": {
+          "type": "string",
+          "default": "",
+          "description": "cockpit binary for publish. Empty: ~/.local/bin/cockpit."
+        },
+        "kton.recorder.ktonRPath": {
+          "type": "string",
+          "default": "",
+          "description": "kton-R, used to run a reproduction under the recorder. Empty: ~/.local/share/kton/r/kton-R."
+        }
+      }
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "kton.refresh",
+          "when": "view == kton.files",
+          "group": "navigation@1"
+        },
+        {
+          "command": "kton.openInBrowser",
+          "when": "view == kton.files",
+          "group": "navigation@2"
+        },
+        {
+          "command": "kton.toggleRecording",
+          "when": "view == kton.files",
+          "group": "more"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "kton.story",
+          "when": "view == kton.files && viewItem == produced",
+          "group": "inline@1"
+        },
+        {
+          "command": "kton.reproduceItem",
+          "when": "view == kton.files && viewItem == produced",
+          "group": "inline@2"
+        },
+        {
+          "command": "kton.story",
+          "when": "view == kton.files && viewItem == produced",
+          "group": "kton@1"
+        },
+        {
+          "command": "kton.reproduceItem",
+          "when": "view == kton.files && viewItem == produced",
+          "group": "kton@2"
+        },
+        {
+          "command": "kton.openFile",
+          "when": "view == kton.files && viewItem == produced",
+          "group": "kton@3"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "kton.storyFile",
+          "group": "kton@1"
+        },
+        {
+          "command": "kton.reproduceFile",
+          "group": "kton@2"
+        }
+      ],
+      "editor/title/context": [
+        {
+          "command": "kton.storyFile",
+          "group": "kton@1"
+        },
+        {
+          "command": "kton.reproduceFile",
+          "group": "kton@2"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "kton.story",
+          "when": "false"
+        },
+        {
+          "command": "kton.reproduceItem",
+          "when": "false"
+        },
+        {
+          "command": "kton.openFile",
+          "when": "false"
+        }
+      ]
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "kton",
+          "title": "kton",
+          "icon": "media/kton.svg"
+        }
+      ]
+    },
+    "views": {
+      "kton": [
+        {
+          "id": "kton.files",
+          "name": "Ergebnisse"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "kton.files",
+        "contents": "Noch keine Beobachtungen. Starte eine R-Sitzung mit eingeschalteter Aufzeichnung.\n[Aktualisieren](command:kton.refresh)"
+      }
+    ]
+  }
+}

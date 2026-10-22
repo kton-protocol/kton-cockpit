@@ -1,0 +1,439 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>kton Beobachtungen</title>
+<style>
+:root {
+  --bg: #fbfbf9; --panel: #ffffff; --ink: #1d1d1b; --muted: #6b6b66; --line: #e4e3dd;
+  --accent: #2f5d8a; --good: #2e7d4f; --warn: #9a5b00; --bad: #a33a2a; --chip: #f0efe9; --sel: #e8eef5;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #161614; --panel: #1e1e1b; --ink: #e9e8e2; --muted: #9a9991; --line: #33322e;
+    --accent: #8db4dd; --good: #7cc79a; --warn: #e0a54a; --bad: #e07a6a; --chip: #2a2a26; --sel: #24303c;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #161614; --panel: #1e1e1b; --ink: #e9e8e2; --muted: #9a9991; --line: #33322e;
+  --accent: #8db4dd; --good: #7cc79a; --warn: #e0a54a; --bad: #e07a6a; --chip: #2a2a26; --sel: #24303c;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+header { padding: 12px 16px; border-bottom: 1px solid var(--line); display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; }
+header h1 { font-size: 16px; margin: 0; font-weight: 600; }
+header .sub { color: var(--muted); font-size: 13px; }
+.wrap { display: grid; grid-template-columns: 250px 1fr; min-height: calc(100vh - 48px); }
+@media (max-width: 760px) { .wrap { grid-template-columns: 1fr; } nav { border-right: 0; border-bottom: 1px solid var(--line); max-height: 220px; } }
+nav { border-right: 1px solid var(--line); overflow: auto; }
+nav h3 { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 12px 16px 4px; font-weight: 600; }
+nav button { display: block; width: 100%; text-align: left; padding: 8px 16px; border: 0; border-bottom: 1px solid var(--line); background: none; color: inherit; cursor: pointer; font: inherit; }
+nav button.on { background: var(--sel); }
+nav .id { font-size: 13px; overflow-wrap: anywhere; }
+nav .meta { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+main { padding: 10px 16px 40px; min-width: 0; }
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 8px; flex-wrap: wrap; }
+.tabs button { border: 0; border-bottom: 2px solid transparent; background: none; color: var(--muted); padding: 8px 12px; cursor: pointer; font: inherit; }
+.tabs button.on { color: var(--ink); border-bottom-color: var(--accent); }
+.bar { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; padding: 6px 0 10px; }
+.bar label { display: inline-flex; gap: 6px; align-items: center; color: var(--muted); }
+input[type=text], select { background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; font: inherit; }
+.count { color: var(--muted); font-size: 13px; margin-left: auto; }
+.empty { color: var(--muted); padding: 24px 0; }
+.f { font-family: ui-monospace, monospace; font-size: 12px; overflow-wrap: anywhere; }
+.h { color: var(--muted); }
+.chip { display: inline-block; background: var(--chip); border-radius: 4px; padding: 0 5px; font-size: 11px; margin-left: 4px; white-space: nowrap; }
+.warn { color: var(--warn); } .bad { color: var(--bad); } .good { color: var(--good); }
+button.lnk { border: 0; background: none; color: var(--accent); cursor: pointer; font: inherit; padding: 0; text-align: left; }
+button.btn { border: 1px solid var(--line); background: var(--panel); color: var(--ink); border-radius: 6px; padding: 4px 10px; cursor: pointer; font: inherit; font-size: 13px; }
+button.btn:hover { background: var(--sel); }
+.files { display: grid; grid-template-columns: minmax(260px, 380px) 1fr; gap: 16px; }
+@media (max-width: 1000px) { .files { grid-template-columns: 1fr; } }
+.flist h4 { margin: 12px 0 4px; font-size: 12px; color: var(--muted); font-weight: 600; }
+.frow { display: block; width: 100%; text-align: left; border: 1px solid transparent; border-radius: 6px; background: none; padding: 5px 8px; cursor: pointer; color: inherit; font: inherit; }
+.frow:hover { background: var(--chip); }
+.frow.on { background: var(--sel); border-color: var(--line); }
+.frow .p { font-family: ui-monospace, monospace; font-size: 12px; overflow-wrap: anywhere; }
+.frow .m { color: var(--muted); font-size: 11px; }
+.detail { min-width: 0; }
+.detail h2 { font-size: 15px; margin: 4px 0 2px; overflow-wrap: anywhere; }
+.verdict { border: 1px solid var(--line); border-left-width: 4px; border-radius: 8px; padding: 10px 12px; margin: 10px 0; background: var(--panel); }
+.verdict.scripts { border-left-color: var(--good); }
+.verdict.scripts-need-session, .verdict.interactive, .verdict.scripts-with-gaps { border-left-color: var(--warn); }
+.verdict .big { font-weight: 600; margin-bottom: 4px; }
+.verdict code { font: 12px ui-monospace, monospace; background: var(--chip); padding: 1px 5px; border-radius: 4px; }
+.section { margin: 14px 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); font-weight: 600; }
+.step { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin: 6px 0; background: var(--panel); }
+.step .t { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.step .n { font-family: ui-monospace, monospace; color: var(--muted); font-size: 12px; }
+.step .o { font-weight: 600; overflow-wrap: anywhere; }
+.code { margin: 6px 0 2px; padding: 6px 8px; background: var(--chip); border-radius: 6px; font: 12px/1.4 ui-monospace, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+pre.script { max-height: 360px; overflow: auto; }
+.actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0; }
+ul.gaps { margin: 4px 0; padding-left: 18px; }
+.task { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin: 8px 0; }
+.task.err { border-left: 3px solid var(--bad); }
+.head { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+.seq { font-family: ui-monospace, monospace; color: var(--muted); font-size: 12px; }
+.when { color: var(--muted); font-size: 12px; }
+.origin { font-weight: 600; overflow-wrap: anywhere; }
+.rows { display: grid; grid-template-columns: 92px 1fr; gap: 2px 10px; margin-top: 6px; font-size: 13px; }
+.rows .k { color: var(--muted); }
+.docbtn { margin-left: auto; }
+#kweb { width: 100%; height: calc(100vh - 140px); border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+dialog { border: 1px solid var(--line); border-radius: 10px; background: var(--panel); color: var(--ink); width: min(760px, calc(100vw - 32px)); padding: 16px; }
+dialog::backdrop { background: rgba(0,0,0,.35); }
+dialog h2 { font-size: 15px; margin: 0 0 4px; }
+dialog .note { color: var(--muted); font-size: 12px; margin: 0 0 10px; }
+dialog fieldset { border: 1px solid var(--line); border-radius: 8px; margin: 8px 0; padding: 6px 10px; }
+dialog legend { color: var(--muted); font-size: 12px; }
+dialog label { display: block; margin: 2px 0; }
+dialog input[type=text], dialog textarea { width: 100%; background: var(--bg); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; font: 12px ui-monospace, monospace; }
+dialog textarea { min-height: 56px; font-family: inherit; font-size: 13px; }
+dialog pre { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; max-height: 300px; overflow: auto; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Beobachtungen</h1>
+  <span class="sub">Was der Recorder gesehen hat. Nichts davon ist in kton, bis du es auswählst und dokumentierst.</span>
+</header>
+<div class="wrap">
+  <nav id="nav"></nav>
+  <main>
+    <div class="tabs">
+      <button data-tab="files">Dateien</button>
+      <button data-tab="list">Befehle</button>
+      <button data-tab="flow">Fluss</button>
+    </div>
+    <div class="bar" id="filters">
+      <label><input type="checkbox" id="noise" checked> Rauschen ausblenden</label>
+      <label><input type="checkbox" id="effect" checked> Nur mit Wirkung</label>
+      <label>Werkzeug <select id="tool">
+        <option value="">alle</option><option>nmfe</option><option>execute</option><option>bbi</option>
+        <option>python</option><option>quarto</option><option>Rscript</option></select></label>
+      <label>Datei <input type="text" id="file" placeholder="z. B. step3.qmd" size="14"></label>
+      <span class="count" id="count"></span>
+    </div>
+    <div id="view"><p class="empty">Links ein Projekt oder eine Sitzung wählen.</p></div>
+  </main>
+</div>
+<dialog id="doc">
+  <h2 id="docTitle">Dokumentieren</h2>
+  <p class="note" id="docNote"></p>
+  <div id="docBody"></div>
+  <pre id="docOutText"></pre>
+  <div class="actions" style="justify-content:flex-end"><button class="btn" id="docRun" style="display:none">Im Terminal ausführen</button><button class="btn" id="docCopy">Kopieren</button><button class="btn" id="docClose">Schließen</button></div>
+</dialog>
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
+const time = (ns) => ns ? new Date(ns / 1e6).toLocaleString("de-AT", {dateStyle: "short", timeStyle: "short"}) : "";
+const clock = (ns) => ns ? new Date(ns / 1e6).toLocaleTimeString("de-AT", {timeStyle: "short"}) : "";
+const short = (h) => h ? h.slice(0, 12) : "–";
+const trunc = (s, n) => s.length > n ? s.slice(0, n - 1) + "…" : s;
+const get = async (u) => { const r = await fetch(u); return r.ok ? r.json() : null; };
+const enc = encodeURIComponent;
+
+let scope = null;          // {kind: "project"|"session", id, project}
+let tab = "files";
+let picked = null;         // {path, sha}
+let project = "";
+let cfg = {web: false};
+// inside the Positron extension's panel: actions go to the extension, which runs them visibly
+const EMBEDDED = window.parent !== window;
+const toHost = (msg) => window.parent.postMessage(Object.assign({kton: true}, msg), "*");
+let docRepo = "";
+let focusNode = null;      // kton-web: open the graph on this node's ancestry
+const rel = (p) => project && p && p.startsWith(project + "/") ? p.slice(project.length + 1) : p;
+const stepKey = (t) => (t.session || (scope && scope.kind === "session" ? scope.id : "")) + "/" + t.id;
+
+async function nav() {
+  const [projects, sessions] = await Promise.all([get("api/projects"), get("api/sessions")]);
+  let h = `<h3>Projekte</h3>`;
+  h += (projects || []).map((p) => `<button data-kind="project" data-id="${esc(p.path)}" class="${scope && scope.kind === "project" && scope.id === p.path ? "on" : ""}">
+      <div class="id">${esc(p.path.split("/").pop())}</div><div class="meta">${esc(p.path)}</div>
+      <div class="meta">${p.sessions} Sitzung${p.sessions > 1 ? "en" : ""} · ${p.tasks} Befehle · ${time(p.last_ns)}</div></button>`).join("") || `<p class="empty" style="padding:0 16px">–</p>`;
+  h += `<h3>Sitzungen</h3>`;
+  h += (sessions || []).map((s) => `<button data-kind="session" data-id="${esc(s.id)}" data-project="${esc(s.project)}" class="${scope && scope.kind === "session" && scope.id === s.id ? "on" : ""}">
+      <div class="id">${esc(s.id)}</div><div class="meta">${esc((s.project || "–").split("/").pop())} · ${time(s.last_ns)} · ${s.tasks} Befehle${s.closed ? "" : " · läuft"}</div></button>`).join("");
+  $("nav").innerHTML = h;
+  for (const b of $("nav").querySelectorAll("button")) b.onclick = () => {
+    scope = {kind: b.dataset.kind, id: b.dataset.id, project: b.dataset.kind === "project" ? b.dataset.id : b.dataset.project};
+    picked = null; focusNode = null; kwebSrc = "";
+    nav(); render();
+  };
+}
+
+function setTab(t) {
+  tab = t;
+  for (const b of document.querySelectorAll(".tabs button")) b.classList.toggle("on", b.dataset.tab === t);
+  $("filters").style.display = t === "files" ? "none" : "";
+  render();
+}
+for (const b of document.querySelectorAll(".tabs button")) b.onclick = () => setTab(b.dataset.tab);
+
+async function render() {
+  if (!scope) return;
+  project = scope.project || "";
+  if (tab === "files") return renderFiles();
+  if (tab === "flow") return renderKtonWeb();
+  renderList(await tasks());
+}
+
+async function tasks() {
+  const q = new URLSearchParams({noise: $("noise").checked ? 1 : 0, effect: $("effect").checked ? 1 : 0, tool: $("tool").value, file: $("file").value});
+  const s = scope.kind === "project" ? await get(`api/project?path=${enc(scope.id)}&${q}`) : await get(`api/sessions/${enc(scope.id)}?${q}`);
+  if (!s) return [];
+  $("count").textContent = `${(s.tasks || []).length} von ${s.total} Befehlen`;
+  return s.tasks || [];
+}
+
+function codeOf(t) {
+  const o = (t.origins || []).find((x) => x.code);
+  return o ? o.code : (t.expr.startsWith("base::") ? "" : t.expr);
+}
+function origin(t) {
+  const o = (t.origins || [])[0];
+  if (o && o.file) {
+    if (/^\s*source\(/.test(o.code || "")) return `source(${rel(o.file)})`;
+    const where = o.chunk ? `Chunk ${o.chunk}` : (o.start_line ? `Zeile ${o.start_line}${o.end_line > o.start_line ? "–" + o.end_line : ""}` : "");
+    return rel(o.file) + (where ? " · " + where : "");
+  }
+  const src = (t.sources || []).find((x) => x.class === "project");
+  if (src) return `source(${rel(src.path)})`;
+  if (o) return o.kind === "paste" ? "Konsole (eingefügt)" : "Konsole";
+  const c = codeOf(t);
+  return c ? trunc(c.split("\n")[0], 60) : (t.id === "tail" ? "nach dem letzten Befehl" : "Befehl " + t.id);
+}
+function codeBlock(t) {
+  const c = codeOf(t);
+  if (!c.trim()) return "";
+  const lines = c.replace(/\s+$/, "").split("\n");
+  return `<pre class="code">${esc(lines.slice(0, 6).join("\n") + (lines.length > 6 ? `\n… (${lines.length - 6} Zeilen mehr)` : ""))}</pre>`;
+}
+function nowChip(now) {
+  if (now === "changed") return `<span class="chip warn">heute anders</span>`;
+  if (now === "gone") return `<span class="chip bad">nicht mehr da</span>`;
+  if (now === "same") return `<span class="chip" title="Datei existiert noch mit diesem Hash">✓ aktuell</span>`;
+  return "";
+}
+const isCode = (p) => /\.(R|r|py|qmd|Rmd|rmd|ctl|mod|yaml|yml|sh|toml)$/.test(p);
+const sessLabel = (sid) => sid ? `Sitzung ${sid.split("-").pop()}` : "";
+
+// ------------------------------------------------------------------ files: the entry point
+async function renderFiles() {
+  const files = await get(`api/files?project=${enc(project)}`) || [];
+  const groups = [["result", "Ergebnisse", "Dateien, die ein Schritt erzeugt hat und die nichts mehr gelesen hat"],
+                  ["source", "Erhalten / Ausgangsdaten", "Dateien, die kein aufgezeichneter Schritt erzeugt hat"],
+                  ["intermediate", "Zwischenstände", ""]];
+  const filter = (($("fsearch") || {}).value || "").toLowerCase();
+  const had = document.activeElement && document.activeElement.id === "fsearch";
+  const row = (f) => `<button class="frow ${picked && picked.path === f.path && picked.sha === f.sha256 ? "on" : ""}" data-path="${esc(f.path)}" data-sha="${esc(f.sha256)}">
+      <div class="p">${esc(rel(f.path))}</div><div class="m">${short(f.sha256)} · ${time(f.when_ns)} ${nowChip(f.now)}${f.class === "outside" ? "" : ""}</div></button>`;
+  let list = `<input type="text" id="fsearch" placeholder="Datei suchen" style="width:100%" value="${esc(filter)}">`;
+  for (const [role, title, hint] of groups) {
+    const fs = files.filter((f) => f.role === role && (!filter || rel(f.path).toLowerCase().includes(filter)));
+    if (fs.length) list += `<h4 title="${esc(hint)}">${title} (${fs.length})</h4>` + fs.map(row).join("");
+  }
+  if (!files.length) list += `<p class="empty">Noch keine Dateien in diesem Projekt.</p>`;
+  $("view").innerHTML = `<div class="files"><div class="flist">${list}</div><div class="detail" id="detail">${picked ? "" : `<p class="empty">Eine Datei wählen: bei einem Ergebnis siehst du, wie es entstanden ist und wie du es wieder machst; bei erhaltenen Daten, was daraus wurde.</p>`}</div></div>`;
+  const fsearch = $("fsearch");
+  fsearch.oninput = () => { clearTimeout(window._fs); window._fs = setTimeout(renderFiles, 200); };
+  if (had) { fsearch.focus(); fsearch.setSelectionRange(fsearch.value.length, fsearch.value.length); }
+  for (const b of $("view").querySelectorAll(".frow")) b.onclick = () => { picked = {path: b.dataset.path, sha: b.dataset.sha}; renderFiles(); };
+  if (picked) {
+    const f = files.find((x) => x.path === picked.path && x.sha256 === picked.sha);
+    if (f && f.role === "source") showDescendants(f); else showRecipe();
+  }
+}
+
+function stepCard(t, i) {
+  const ins = (t.inputs || []).map((x) => `<span class="f">${esc(rel(x.path))}</span>${x.from ? "" : `<span class="chip">Ausgang</span>`}${x.now === "same" ? "" : nowChip(x.now)}`).join(", ");
+  const outs = (t.outputs || []).map((x) => `<span class="f">${esc(rel(x.path))}</span>`).join(", ");
+  const uses = (t.uses || []).map((u) => `<span class="f">${esc(u.name)}</span>`).join(", ");
+  return `<div class="step"><div class="t"><span class="n">${i + 1}</span><span class="o">${esc(origin(t))}</span>
+      <span class="h">${sessLabel(t.session)} · ${clock(t.end_ns)}</span>${t.status === "err" ? `<span class="bad">Fehler</span>` : ""}</div>
+    ${codeBlock(t)}
+    <div class="h" style="font-size:12px">${ins ? "liest " + ins : ""}${uses ? (ins ? " · " : "") + "nutzt " + uses : ""}${outs ? " → schreibt " + outs : ""}</div></div>`;
+}
+
+async function showRecipe() {
+  const r = await get(`api/recipe?project=${enc(project)}&path=${enc(picked.path)}&sha=${enc(picked.sha)}`);
+  if (!r) { $("detail").innerHTML = `<p class="empty">Kein aufgezeichneter Schritt hat diese Datei geschrieben.</p>`; return; }
+  const v = r.verdict;
+  const names = (us) => (us || []).map((u) => `<code>${esc(u.name)}</code>`).join(", ");
+  let verdict;
+  if (v.kind === "scripts") verdict = `<div class="big good">Entsteht durch Skript${v.scripts.length > 1 ? "e" : ""}, die du kennst</div>Nachrechnen: <code>${esc(v.command)}</code>`;
+  else if (v.kind === "scripts-with-gaps") verdict = `<div class="big warn">Skripte, aber mit Lücken</div>Die Skripte sind bekannt (<code>${esc(v.command)}</code>), doch dazwischen geschah etwas, das sie nicht enthalten.`;
+  else if (v.kind === "scripts-need-session") verdict = `<div class="big warn">Skript, aber abhängig von der Sitzung</div>Es braucht Variablen, die vorher in der Konsole entstanden: ${names(v.session_vars)}. Allein laufen gelassen, rechnet es nicht dasselbe.`;
+  else verdict = `<div class="big warn">Interaktiv entstanden</div>${v.interactive} von ${r.steps.length} Schritten waren Befehle in der Konsole oder aus dem Editor${(v.scripts || []).length ? `, ${v.scripts.length} Skriptläufe` : ""}.${(v.session_vars || []).length ? ` Ein Skript braucht dabei Session-Variablen: ${names(v.session_vars)}.` : ""} Unten steht ein Skript aus genau diesen Schritten: daraus kannst du dein Skript machen.`;
+  for (const n of v.notes || []) verdict += `<div class="warn" style="margin-top:4px">${esc(n)}</div>`;
+  const t = r.target;
+  $("detail").innerHTML = `
+    <h2>${esc(rel(t.path))}</h2><div class="h f">sha256 ${esc(t.sha256)} · ${time(t.when_ns)} ${nowChip(t.now)}</div>
+    <div class="verdict ${esc(v.kind)}">${verdict}</div>
+    <div class="actions">
+      <button class="btn" id="showWay">Weg im Fluss zeigen</button>
+      <button class="btn" id="dlScript">Skript herunterladen (.R)</button>
+      <button class="btn" id="docChain">Alle Schritte dokumentieren</button>
+      ${EMBEDDED ? `<button class="btn" id="repro" title="nur die Ausgangsdaten und Skripte in einen leeren Ordner kopieren, das Rezept dort laufen lassen und den Hash vergleichen">Reproduzieren</button>` : ""}
+    </div>
+    <div class="section">Ausgangsdaten</div>
+    ${(r.sources || []).filter((s) => !isCode(s.path)).map((s) => `<div><span class="f">${esc(rel(s.path))}</span> <span class="h f">${short(s.sha256)}</span>${nowChip(s.now)}${s.class === "outside" ? "" : ""}${s.status === "changed-outside" ? `<span class="chip warn">von Hand geändert</span>` : ""}</div>`).join("") || `<span class="h">–</span>`}
+    ${(r.sources || []).some((s) => isCode(s.path)) ? `<div class="section">Code und Konfiguration</div>${r.sources.filter((s) => isCode(s.path)).map((s) => `<div><span class="f">${esc(rel(s.path))}</span> <span class="h f">${short(s.sha256)}</span>${nowChip(s.now)}</div>`).join("")}` : ""}
+    ${(r.gaps || []).length ? `<div class="section">Lücken</div><ul class="gaps">${r.gaps.map((g) => `<li class="warn">${esc(g)}</li>`).join("")}</ul>` : ""}
+    <div class="section">Der Weg: ${r.steps.length} Schritte${r.detours ? ` <span class="h" style="text-transform:none">(dazwischen ${r.detours} Abweg${r.detours > 1 ? "e" : ""}, die nicht dazu beitrugen)</span>` : ""}</div>
+    ${r.steps.map(stepCard).join("")}
+    <div class="section">Als Skript</div>
+    <pre class="code script">${esc(r.script)}</pre>`;
+  $("showWay").onclick = () => {
+    focusNode = r.node;
+    if (scope.kind !== "project") scope = {kind: "project", id: project, project};
+    nav(); setTab("flow");
+  };
+  $("dlScript").onclick = () => {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([r.script], {type: "text/plain"}));
+    a.download = "rezept_" + rel(t.path).replace(/[^A-Za-z0-9._-]+/g, "_") + ".R";
+    a.click();
+  };
+  $("docChain").onclick = () => documentChain(r);
+  if ($("repro")) $("repro").onclick = () => toHost({action: "reproduce", project, path: t.path, sha: t.sha256});
+}
+
+async function showDescendants(f) {
+  const d = await get(`api/descendants?project=${enc(project)}&path=${enc(f.path)}&sha=${enc(f.sha256)}`);
+  if (!d) { $("detail").innerHTML = `<p class="empty">Nichts gefunden.</p>`; return; }
+  $("detail").innerHTML = `
+    <h2>${esc(rel(f.path))}</h2><div class="h f">sha256 ${esc(f.sha256)} ${nowChip(f.now)}${f.class === "outside" ? "" : ""}</div>
+    <div class="verdict scripts"><div class="big">Was ist daraus geworden?</div>${d.steps.length} Schritte haben diese Daten benutzt, direkt oder über das, was daraus entstand.</div>
+    <div class="section">Ergebnisse</div>
+    ${(d.results || []).map((x) => `<div><button class="lnk f" data-path="${esc(x.path)}" data-sha="${esc(x.sha256)}">${esc(rel(x.path))}</button> <span class="h f">${short(x.sha256)}</span>${nowChip(x.now)}</div>`).join("") || `<span class="h">–</span>`}
+    <div class="section">Schritte</div>
+    ${d.steps.map(stepCard).join("")}`;
+  for (const b of $("detail").querySelectorAll("button.lnk")) b.onclick = () => { picked = {path: b.dataset.path, sha: b.dataset.sha}; renderFiles(); };
+}
+
+// ------------------------------------------------------------------ commands
+function fileRow(label, items, render) {
+  return items && items.length ? `<div class="k">${label}</div><div>${items.map(render).join("<br>")}</div>` : "";
+}
+function renderList(ts) {
+  $("view").innerHTML = ts.length ? ts.map((t, i) => {
+    const ins = fileRow("gelesen", t.inputs, (x) => `<button class="lnk f" data-path="${esc(x.path)}" data-sha="${esc(x.sha256)}">${esc(rel(x.path))}</button> <span class="h f">${short(x.sha256)}</span>` + nowChip(x.now) +
+      (x.from ? `<span class="chip">← ${x.from[0].session && x.from[0].session !== t.session ? sessLabel(x.from[0].session) + ", " : ""}Befehl ${esc(x.from[0].task)}</span>` : "") +
+      (x.status === "changed-outside" ? `<span class="chip warn">von Hand geändert</span>` : "") +
+      (x.same_as ? `<span class="chip">gleicher Inhalt wie ${esc(rel(x.same_as[0].path))}</span>` : ""));
+    const outs = fileRow("geschrieben", t.outputs, (x) => `<button class="lnk f" data-path="${esc(x.path)}" data-sha="${esc(x.sha256)}">${esc(rel(x.path))}</button> <span class="h f">${short(x.sha256)}</span>` + nowChip(x.now) +
+      (x.overwritten_later ? `<span class="chip">später überschrieben</span>` : ""));
+    const vars = fileRow("Variablen", t.vars, (v) => `<span class="f">${esc(v.name)}</span> <span class="h">${esc(v.desc)}</span>`);
+    const uses = fileRow("nutzt", t.uses, (u) => `<span class="f">${esc(u.name)}</span> <span class="h">aus Befehl ${esc(u.task)}</span>`);
+    const cmds = fileRow("Programme", t.commands, (c) => `<span class="f">${esc(c.cmdline || c.program)}</span>`);
+    const warn = [];
+    for (const n of t.network || []) if (n.class === "remote") warn.push(`<span class="warn">Netz ${esc(n.address)}: kein Foton, braucht einen Claim</span>`);
+    for (const m of t.missing || []) warn.push(`<span class="warn">fehlte: ${esc(rel(m))}</span>`);
+    for (const u of t.unrecorded || []) warn.push(`<span class="warn">nicht aufgezeichnet (statisch?): ${esc(u.program)}</span>`);
+    return `<div class="task ${t.status === "err" ? "err" : ""}">
+      <div class="head"><span class="seq">${t.session ? sessLabel(t.session) + " · " : ""}#${t.seq}</span><span class="origin">${esc(origin(t))}</span>
+        <span class="when">${time(t.end_ns)}</span>${t.status === "err" ? `<span class="bad">Fehler</span>` : ""}
+        ${(t.inputs || []).length + (t.outputs || []).length ? `<button class="btn docbtn" data-i="${i}">Dokumentieren</button>` : ""}</div>
+      ${codeBlock(t)}
+      <div class="rows">${ins}${outs}${vars}${uses}${cmds}${warn.length ? `<div class="k">Hinweise</div><div>${warn.join("<br>")}</div>` : ""}</div>
+    </div>`;
+  }).join("") : `<p class="empty">Keine Befehle für diese Filter.</p>`;
+  for (const b of $("view").querySelectorAll("button.lnk")) b.onclick = () => openFile(b.dataset.path, b.dataset.sha);
+  for (const b of $("view").querySelectorAll(".docbtn")) b.onclick = () => documentTask(ts[+b.dataset.i]);
+}
+function openFile(path, sha) { picked = {path, sha}; setTab("files"); }
+
+// ------------------------------------------------------------------ flow: kton-web's own graph viewer
+// The observations in kton-web's graph form (/kton/graph.json), drawn and navigated by kton-web's
+// viewer unchanged. Reloaded only when the project or the focus changes, so its navigation stays.
+let kwebSrc = "";
+function renderKtonWeb() {
+  $("filters").style.display = "none";
+  if (!cfg.web) {
+    $("view").innerHTML = `<p class="empty">Der Fluss ist kton-webs Graph-Betrachter, und ktonwatch kennt keinen kton-web-Checkout. Starten mit <code>ktonwatch serve -web /pfad/zu/kton-web</code> oder <code>KTON_WEB=…</code>; <code>recorder/install.sh</code> merkt ihn sich, wenn kton-web neben kton-cockpit liegt.</p>`;
+    kwebSrc = "";
+    return;
+  }
+  const g = `/kton/graph.json?project=${enc(project)}`;
+  let src = `/web/viewers/graph/?graph=${enc(g)}`;
+  if (focusNode) src += `&focus=${enc(focusNode)}&mode=anc`;
+  if (src === kwebSrc && $("kweb")) return;
+  kwebSrc = src;
+  $("view").innerHTML = `<div class="bar" style="padding-top:0"><span class="h">kton-web Graph · Schritte sind Fotons (unverifiziert: nichts davon ist signiert), Ausgangsdateien sind Quellen.</span>
+      <button class="btn" id="kwebReload">Neu laden</button><a class="btn" href="${esc(src)}" target="_blank" style="text-decoration:none">In eigenem Fenster</a>
+      ${focusNode ? `<button class="btn" id="kwebAll">Ganzer Graph</button>` : ""}</div>
+    <iframe id="kweb" src="${esc(src)}"></iframe>`;
+  $("kwebReload").onclick = () => { kwebSrc = ""; renderKtonWeb(); };
+  if ($("kwebAll")) $("kwebAll").onclick = () => { focusNode = null; renderKtonWeb(); };
+}
+
+// ------------------------------------------------------------------ documenting (by hand, with the cockpit's verbs)
+const sq = (s) => "'" + s.replace(/'/g, "'\\''") + "'";
+function publishLine(d, sel) {
+  const req = {inputs: sel ? sel.inputs : d.inputs.filter((f) => f.use).map((f) => f.path),
+               outputs: sel ? sel.outputs : d.outputs.filter((f) => f.use).map((f) => f.path), cmd: sel ? sel.cmd : d.cmd};
+  if (sel && sel.env) req.envRef = sel.env;
+  return `cockpit publish ${sq(JSON.stringify(req))}`;
+}
+async function documentTask(t) {
+  const d = await get(`api/draft?session=${enc(t.session || scope.id)}&task=${enc(t.id)}`);
+  if (!d) return;
+  const box = (list) => (list || []).map((f) => `<label><input type="checkbox" value="${esc(f.path)}" ${f.use ? "checked" : ""} ${f.note && f.note.startsWith("nicht im Repo") ? "disabled" : ""}>
+    <span class="f">${esc(f.path)}</span>${f.note ? ` <span class="chip warn">${esc(f.note)}</span>` : ""}</label>`).join("") || `<span class="h">–</span>`;
+  docRepo = d.repo;
+  $("docTitle").textContent = "Dokumentieren: " + origin(t);
+  $("docNote").textContent = `Diese Ansicht schreibt nichts: Sie erzeugt den Aufruf, mit dem du den Schritt über das Cockpit persistierst – im Repo ${d.repo}.` + ((d.notes || []).length ? " Außerdem: " + d.notes.join("; ") + "." : "");
+  $("docBody").innerHTML = `<fieldset><legend>gelesen</legend><div id="docIn">${box(d.inputs)}</div></fieldset>
+    <fieldset><legend>geschrieben</legend><div id="docOut">${box(d.outputs)}</div></fieldset>
+    <label>Befehl (<code>cmd</code>) <input type="text" id="docCmd" value="${esc(d.cmd || "")}"></label>
+    <label>Umgebung (<code>envRef</code>, optional) <input type="text" id="docEnv" placeholder="oci://…@sha256:… oder Nix-Store-Pfad"></label>
+    <label>Begründung <textarea id="docWhy" placeholder="Warum dieser Schritt, was er bedeutet"></textarea></label>`;
+  const upd = () => {
+    const pick = (id) => [...$(id).querySelectorAll("input:checked")].map((x) => x.value);
+    let text = publishLine(d, {inputs: pick("docIn"), outputs: pick("docOut"), cmd: $("docCmd").value.trim(), env: $("docEnv").value.trim()});
+    const why = $("docWhy").value.trim();
+    if (why) text += `\n\n# Begründung (noch kein Claim-Template für "rationale"):\n# ${why.replace(/\n/g, "\n# ")}`;
+    $("docOutText").textContent = text;
+  };
+  for (const el of $("docBody").querySelectorAll("input, textarea")) el.oninput = el.onchange = upd;
+  upd();
+  $("doc").showModal();
+}
+async function documentChain(r) {
+  docRepo = "";
+  const lines = [`# Kette für ${rel(r.target.path)}: ein publish pro Schritt, in dieser Reihenfolge.`,
+                 `# Vorausgewählt wie in den einzelnen Entwürfen; geänderte oder fehlende Dateien sind weggelassen.`];
+  for (const [i, s] of r.steps.entries()) {
+    const d = await get(`api/draft?session=${enc(s.session)}&task=${enc(s.id)}`);
+    if (!d) continue;
+    docRepo = docRepo || d.repo;
+    lines.push(`\n# Schritt ${i + 1}: ${origin(s)}`);
+    if ((d.notes || []).length) lines.push(`# ${d.notes.join("; ")}`);
+    lines.push(publishLine(d));
+  }
+  $("docTitle").textContent = "Alle Schritte dokumentieren";
+  $("docNote").textContent = "Eine Folge von cockpit publish-Aufrufen, ausgeführt von Hand. Diese Ansicht schreibt nichts.";
+  $("docBody").innerHTML = "";
+  $("docOutText").textContent = lines.join("\n");
+  $("doc").showModal();
+}
+$("docClose").onclick = () => $("doc").close();
+$("docRun").style.display = EMBEDDED ? "" : "none";
+$("docRun").onclick = () => { toHost({action: "publish", repo: docRepo, text: $("docOutText").textContent}); $("doc").close(); };
+$("docCopy").onclick = () => navigator.clipboard && navigator.clipboard.writeText($("docOutText").textContent);
+
+for (const id of ["noise", "effect", "tool"]) $(id).onchange = render;
+$("file").oninput = () => { clearTimeout(window._ft); window._ft = setTimeout(render, 250); };
+get("api/config").then((c) => { if (c) cfg = c; });
+setTab("files");
+nav();
+// kton-web keeps its own state; it is not redrawn on the timer (renderKtonWeb returns early)
+setInterval(() => { if (!$("doc").open && !(document.activeElement && document.activeElement.id === "fsearch")) { nav(); render(); } }, 5000);
+</script>
+</body>
+</html>

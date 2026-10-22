@@ -1,0 +1,11 @@
+Package: ktonrec
+Title: Command Boundaries for the kton Recorder
+Version: 0.0.1
+Authors@R: person("kton", "contributors", role = c("aut", "cre"), email = "noreply@kton.dev")
+Description: Writes command boundaries (TASK), sourced files (SOURCE), the
+    environment (ENV) and changed variables (VARS) into the event log that
+    libktontrace.so writes, so that ktonwatch can tell which file access
+    belonged to which command. Records nothing by itself and executes nothing.
+License: MIT + file LICENSE
+Encoding: UTF-8
+Depends: R (>= 4.1)

@@ -1,0 +1,21 @@
+#!/bin/sh
+# Startet R (oder radian) mit der Aufzeichnungsschicht.
+#   kton-R                -> R im aktuellen Verzeichnis, Projekt = aktuelles Verzeichnis
+#   KTON_R=radian kton-R  -> radian statt R
+# ktonwatch serve liest das Log mit (gleicher Ordner wie dessen -dir).
+export R_PROFILE_USER="${R_PROFILE_USER:-$(dirname "$0")/Rprofile-kton.R}"
+export KTON_R_HOME="${KTON_R_HOME:-$(cd "$(dirname "$0")" && pwd)}"
+HERE=$(cd "$(dirname "$0")/.." && pwd)
+# installed (install.sh): <prefix>/share/kton/r/kton-R next to <prefix>/lib/kton; in the repo: recorder/.build
+SHIM=${KTON_SHIM:-}
+for c in "$HERE/../../lib/kton/libktontrace.so" "$HERE/.build/libktontrace.so"; do
+  [ -z "$SHIM" ] && [ -f "$c" ] && SHIM=$(cd "$(dirname "$c")" && pwd)/libktontrace.so
+done
+[ -n "$SHIM" ] || { sh "$HERE/build.sh" && SHIM="$HERE/.build/libktontrace.so"; }
+TRACE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/kton-cockpit/trace"
+mkdir -p "$TRACE_DIR"
+export KTON_TRACE_LOG="${KTON_TRACE_LOG:-$TRACE_DIR/$(date +%Y%m%d-%H%M%S)-$$.tsv}"
+export KTON_TRACE_HASH="${KTON_TRACE_HASH:-$PWD}"
+export LD_PRELOAD="$SHIM${LD_PRELOAD:+:$LD_PRELOAD}"
+echo "kton: Log $KTON_TRACE_LOG, gehasht wird unter $KTON_TRACE_HASH" >&2
+exec ${KTON_R:-R} "$@"

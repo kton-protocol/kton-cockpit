@@ -1,0 +1,50 @@
+:root { color-scheme: light dark; }
+body { margin: 0; font-family: var(--vscode-font-family); font-size: 13px; line-height: 1.45; color: var(--vscode-foreground); background: var(--vscode-editor-background); }
+main.one { max-width: 980px; margin: 0 auto; padding: 14px 16px 40px; }
+header { margin-bottom: 10px; }
+h1 { font-size: 18px; margin: 0; font-weight: 600; overflow-wrap: anywhere; }
+.sub { margin: 2px 0 8px; }
+.muted { color: var(--vscode-descriptionForeground); }
+.warn { color: var(--vscode-editorWarning-foreground); }
+.ok { color: var(--vscode-charts-green); white-space: nowrap; }
+code { font-family: var(--vscode-editor-font-family); font-size: 12px; background: var(--vscode-textCodeBlock-background); padding: 0 4px; border-radius: 3px; }
+.actions { display: flex; gap: 6px; flex-wrap: wrap; }
+button { font-family: inherit; font-size: 12px; padding: 3px 10px; border-radius: 3px; border: 1px solid var(--vscode-button-border, transparent); cursor: pointer; color: var(--vscode-button-foreground); background: var(--vscode-button-background); }
+button:hover { background: var(--vscode-button-hoverBackground); }
+button.secondary { color: var(--vscode-button-secondaryForeground); background: var(--vscode-button-secondaryBackground); }
+button:disabled { opacity: .5; cursor: default; }
+button.link { background: none; border: 0; padding: 0 2px; color: var(--vscode-textLink-foreground); font-size: 11px; }
+
+/* the story: a timeline, one line per script or session */
+ol.story { list-style: none; margin: 0 0 0 58px; padding: 0; border-left: 2px solid var(--vscode-panel-border); }
+ol.story li { position: relative; padding: 5px 0 5px 14px; }
+ol.story li::before { content: ""; position: absolute; left: -6px; top: 11px; width: 10px; height: 10px; border-radius: 50%; background: var(--vscode-charts-blue); }
+ol.story li.done { opacity: .55; }
+ol.story li.done::before { background: var(--vscode-charts-green); }
+ol.story li.hand::before { background: var(--vscode-charts-orange); }
+ol.story li.hand .head { color: var(--vscode-editorWarning-foreground); }
+.t { position: absolute; left: -58px; width: 46px; text-align: right; top: 6px; font-size: 11px; color: var(--vscode-descriptionForeground); font-variant-numeric: tabular-nums; }
+.head { display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: baseline; }
+.head b { margin-right: 4px; }
+.f { font-family: var(--vscode-editor-font-family); font-size: 12px; padding: 0 6px; border-radius: 9px; background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); overflow-wrap: anywhere; }
+.f.out { outline: 1px dashed var(--vscode-editorWarning-foreground); }
+.f.w { background: var(--vscode-inputValidation-warningBackground); color: var(--vscode-foreground); }
+.more { font-size: 11px; color: var(--vscode-descriptionForeground); cursor: help; }
+.arrow { color: var(--vscode-descriptionForeground); }
+.tool { font-size: 12px; font-weight: 600; }
+.notes { display: grid; grid-template-columns: max-content 1fr; gap: 1px 8px; margin-top: 3px; align-items: baseline; }
+.notes.quiet { display: none; }
+li:hover .notes.quiet { display: grid; }
+.nl { font-size: 11px; color: var(--vscode-descriptionForeground); }
+.note { padding: 1px 6px; border-radius: 3px; min-height: 1.3em; outline: none; border-bottom: 1px dotted var(--vscode-panel-border); }
+.note:hover { background: var(--vscode-input-background); }
+.note:focus { background: var(--vscode-input-background); outline: 1px solid var(--vscode-focusBorder); border-bottom-color: transparent; }
+.note.empty::before { content: attr(data-ph); color: var(--vscode-descriptionForeground); opacity: .7; }
+.note.empty:focus::before { content: ""; }
+.details { margin: 4px 0 2px; padding: 4px 8px; background: var(--vscode-textBlockQuote-background); border-radius: 4px; }
+.cmd { padding: 1px 0; overflow-wrap: anywhere; }
+.cmd.off { opacity: .55; }
+.when { font-size: 11px; color: var(--vscode-descriptionForeground); }
+details.gaps { margin-top: 12px; }
+details.gaps summary { cursor: pointer; color: var(--vscode-descriptionForeground); }
+.head code.cmdline { font-weight: 600; margin-right: 4px; }
