@@ -43,6 +43,14 @@ type PublishRequest struct {
 	// (cockpit run --dir): only the cockpit, which runs the command, can see what it produced.
 	OutputsIn string `json:"outputsIn,omitempty" jsonschema:"a directory whose files the run created or changed (except the inputs) are the outputs; requires execution"`
 	Cmd       string `json:"cmd,omitempty" jsonschema:"the exact command that was run to produce the outputs"`
+	// Base is a repo-relative directory the work was done in. Inputs, outputs, outputDir and
+	// outputsIn are then given relative to it, cmd is the command as run in it, and the record keys
+	// its paths relative to it: the same call in two directories, or two repositories, is then the
+	// same computation with the same action key. Where base was is not part of the record (the
+	// locators still say where the bytes live). A path that leaves base is refused, since a record's
+	// paths may not escape upward (kton §6.1); a call that reads above its directory needs a base
+	// that holds everything it touches.
+	Base string `json:"base,omitempty" jsonschema:"a repo-relative directory the work ran in; paths and cmd are relative to it, and so is the record, so the same call elsewhere has the same action key"`
 	// Corpus lists nekton claim or plankton foton refs (sha256:...) that this result's own
 	// reasoning drew on as its basis. When set, the cockpit records a small corpus manifest file
 	// as an extra foton input, so the reasoning-as-basis is itself a registered foton whose
@@ -121,6 +129,8 @@ type PublishResult struct {
 	// means they are correct and will resolve once someone shares — but do not yet.
 	Persisted bool `json:"persisted"`
 	Shared    bool `json:"shared"`
+	// Base echoes the directory the paths above are relative to, when the call gave one.
+	Base string `json:"base,omitempty"`
 }
 
 func (c *Cockpit) Publish(ctx context.Context, in PublishRequest) (*PublishResult, error) {
@@ -150,6 +160,12 @@ func (c *Cockpit) Publish(ctx context.Context, in PublishRequest) (*PublishResul
 	}
 	if in.Cmd == "" {
 		return nil, refuse("argument", "", "publish requires cmd (the command that produced the outputs)")
+	}
+	// From here on every path is repo-relative, as persisting, locating and the path checks need;
+	// only the record (and the answer) see them relative to base again.
+	base, err := resolveBase(cfg, &in)
+	if err != nil {
+		return nil, refuse("base", "SPEC §7.8", "%v", err)
 	}
 
 	envRef, envErr := resolveEnvRef(cfg, in.EnvRef)
@@ -214,7 +230,7 @@ func (c *Cockpit) Publish(ctx context.Context, in PublishRequest) (*PublishResul
 			return nil, refuse("io", "", "could not read the working tree before the run: %v", serr)
 		}
 
-		ran, err = container.Run(ctx, cfg, in.Cmd)
+		ran, err = container.Run(ctx, cfg, inBase(base, in.Cmd))
 		if err != nil {
 			return nil, refuse("execution.failed", "SPEC §10", "%v", err)
 		}
@@ -292,7 +308,7 @@ func (c *Cockpit) Publish(ctx context.Context, in PublishRequest) (*PublishResul
 
 	var corpusPath string
 	if len(in.Corpus) > 0 {
-		corpusPath = filepath.Join("corpus", fmt.Sprintf("%s-%d.json", cfg.Raw.Identity.SessionID, time.Now().UnixNano()))
+		corpusPath = filepath.Join(base, "corpus", fmt.Sprintf("%s-%d.json", cfg.Raw.Identity.SessionID, time.Now().UnixNano()))
 		abs := filepath.Join(cfg.RepoRoot, corpusPath)
 		if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
 			return nil, refuse("io", "", "could not create corpus manifest dir: %v", err)
@@ -320,10 +336,11 @@ func (c *Cockpit) Publish(ctx context.Context, in PublishRequest) (*PublishResul
 	}
 
 	authored, err := r.Author(ctx, binaries.AuthorInput{
-		Inputs:  fotonInputs,
-		Outputs: in.Outputs,
+		Base:    base,
+		Inputs:  underBase(base, fotonInputs),
+		Outputs: underBase(base, in.Outputs),
 		Cmd:     in.Cmd,
-		Located: located,
+		Located: locatedUnderBase(base, located),
 		SignKey: cfg.PlanktonKey,
 		// From the config, never from the caller: both values are COVERED, so a self-declared one
 		// would bake an unverified assertion about which environment ran into the record's own
@@ -342,7 +359,7 @@ func (c *Cockpit) Publish(ctx context.Context, in PublishRequest) (*PublishResul
 		if err != nil {
 			return nil, refuse("kernel", "", "plankton hash %s failed: %v", o, err)
 		}
-		outputHashes[o] = h
+		outputHashes[underBase(base, []string{o})[0]] = h
 	}
 
 	// Configured evidence is attached before anything is committed, for the same reason the anchor
@@ -394,7 +411,7 @@ func (c *Cockpit) Publish(ctx context.Context, in PublishRequest) (*PublishResul
 	permalinks := map[string]string{}
 	for _, p := range allPaths {
 		if uri, ok := cfg.Backend.Locate(cfg.Repo, finalRev, p); ok {
-			permalinks[p] = uri
+			permalinks[underBase(base, []string{p})[0]] = uri
 		}
 	}
 
@@ -410,6 +427,7 @@ func (c *Cockpit) Publish(ctx context.Context, in PublishRequest) (*PublishResul
 		ShareRejected:  shareRejected,
 		UnionPublished: cfg.Raw.Union.Publish,
 		CoSigned:       authored.CoSigned,
+		Base:           base,
 	}
 	out.UndeclaredChanges = undeclared
 	if anchored != nil {
@@ -620,4 +638,95 @@ func filesUnder(repoRoot, dir string) ([]string, error) {
 	}
 	sort.Strings(out)
 	return out, nil
+}
+
+// resolveBase checks in.Base and rewrites the request's paths from base-relative to repo-relative.
+// It returns the cleaned base, "" without one.
+func resolveBase(cfg *config.Config, in *PublishRequest) (string, error) {
+	if in.Base == "" {
+		return "", nil
+	}
+	b := filepath.ToSlash(filepath.Clean(in.Base))
+	switch {
+	case filepath.IsAbs(in.Base) || strings.HasPrefix(in.Base, "/"):
+		return "", fmt.Errorf("base %q must be repo-relative", in.Base)
+	case b == "..", strings.HasPrefix(b, "../"):
+		return "", fmt.Errorf("base %q leaves the repository", in.Base)
+	case b == ".":
+		return "", nil
+	}
+	if fi, err := os.Stat(filepath.Join(cfg.RepoRoot, b)); err != nil || !fi.IsDir() {
+		return "", fmt.Errorf("base %q is not a directory in this repository", in.Base)
+	}
+	if err := validatePublishPath(cfg, b); err != nil {
+		return "", err
+	}
+	join := func(p string) (string, error) {
+		c := filepath.ToSlash(filepath.Clean(p))
+		if filepath.IsAbs(p) || c == ".." || strings.HasPrefix(c, "../") {
+			return "", fmt.Errorf("%q leaves base %s: a record's paths stay inside it (kton §6.1). "+
+				"A call that reads above its directory needs a base that holds everything it touches", p, b)
+		}
+		return b + "/" + c, nil
+	}
+	var bad []string
+	mapAll := func(ps []string) []string {
+		out := make([]string, 0, len(ps))
+		for _, p := range ps {
+			j, err := join(p)
+			if err != nil {
+				bad = append(bad, err.Error())
+				continue
+			}
+			out = append(out, j)
+		}
+		return out
+	}
+	in.Inputs, in.Outputs = mapAll(in.Inputs), mapAll(in.Outputs)
+	for _, d := range []*string{&in.OutputDir, &in.OutputsIn} {
+		if *d != "" {
+			if j := mapAll([]string{*d}); len(j) == 1 {
+				*d = j[0]
+			}
+		}
+	}
+	if len(bad) > 0 {
+		return "", fmt.Errorf("%s", strings.Join(bad, "\n"))
+	}
+	return b, nil
+}
+
+// inBase is cmd as run in base: the executor runs a command with the repository as its working
+// directory, so it is told to change there first. The record keeps cmd as given.
+func inBase(base, cmd string) string {
+	if base == "" {
+		return cmd
+	}
+	return "cd '" + strings.ReplaceAll(base, "'", `'\''`) + "' && " + cmd
+}
+
+// underBase is ps relative to base again; every path here was joined under it by resolveBase.
+func underBase(base string, ps []string) []string {
+	if base == "" {
+		return ps
+	}
+	out := make([]string, len(ps))
+	for i, p := range ps {
+		out[i] = strings.TrimPrefix(filepath.ToSlash(p), base+"/")
+	}
+	return out
+}
+
+// locatedUnderBase rekeys "path=uri" pairs from repo-relative paths to base-relative ones; the uri,
+// where the bytes live in the repository, stays as it is.
+func locatedUnderBase(base string, located []string) []string {
+	if base == "" {
+		return located
+	}
+	out := make([]string, len(located))
+	for i, l := range located {
+		p, uri, _ := strings.Cut(l, "=")
+		out[i] = underBase(base, []string{p})[0] + "=" + uri
+	}
+	return out
 }

@@ -58,7 +58,10 @@ func NewWith(cfg *config.Config, o Opener) *Runner {
 // --- plankton ---
 
 type AuthorInput struct {
-	Inputs  []string // repo-relative paths, e.g. "data/runs.csv"
+	// Base is a repo-relative directory Inputs and Outputs are relative to ("" is the repository
+	// root). The files are read under it; the record names them as given.
+	Base    string
+	Inputs  []string // paths relative to Base, e.g. "data/runs.csv"
 	Outputs []string
 	Cmd     string
 	Located []string // "path=url" pairs for every input+output, from the backend's Locate
@@ -105,7 +108,7 @@ func (r *Runner) Author(ctx context.Context, in AuthorInput) (Authored, error) {
 	hashFiles := func(paths []string) ([]ffoton.FileSpec, error) {
 		fs := make([]ffoton.FileSpec, 0, len(paths))
 		for _, p := range paths {
-			b, rerr := os.ReadFile(filepath.Join(r.cfg.RepoRoot, p))
+			b, rerr := os.ReadFile(filepath.Join(r.cfg.RepoRoot, in.Base, p))
 			if rerr != nil {
 				return nil, rerr
 			}

@@ -45,6 +45,8 @@ func shellPublish(ctx context.Context, args []string) error {
 			in.EnvRef = v
 		case "--corpus":
 			in.Corpus = append(in.Corpus, v)
+		case "--base":
+			in.Base = v
 		default:
 			return fmt.Errorf("unknown flag %s\n%s", a, publishUsage)
 		}
@@ -87,8 +89,9 @@ func shellPublish(ctx context.Context, args []string) error {
 	return nil
 }
 
-const publishUsage = `usage: cockpit publish [--in FILE]... [--out FILE]... [--outputs-in DIR | --output-dir DIR] [--env-ref REF] [--json] -- COMMAND...
-  with an image pinned the cockpit runs COMMAND; without, it records the command you ran`
+const publishUsage = `usage: cockpit publish [--base DIR] [--in FILE]... [--out FILE]... [--outputs-in DIR | --output-dir DIR] [--env-ref REF] [--json] -- COMMAND...
+  with an image pinned the cockpit runs COMMAND; without, it records the command you ran
+  --base DIR: the files and COMMAND are relative to DIR, and so is the record (same call elsewhere, same action key)`
 
 // shellJoin puts a command back into one line, quoting what the shell would have split.
 func shellJoin(words []string) string {
