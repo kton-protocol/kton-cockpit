@@ -797,7 +797,7 @@ func (r *Runner) unionMaterial(ctx context.Context, id string) []pregistry.Verif
 	}
 	var out []pregistry.VerificationMaterial
 	for _, in := range inputs {
-		if reg, err := pregistry.Open(in.PlanktonDir); err == nil {
+		if reg, err := OpenPlanktonSource(in.PlanktonDir); err == nil {
 			out = append(out, reg.Material(id)...)
 		}
 	}

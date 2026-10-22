@@ -19,9 +19,7 @@ import (
 	"strconv"
 	"strings"
 
-	nregistry "kton.dev/nekton/registry"
 	"kton.dev/plankton/core"
-	pregistry "kton.dev/plankton/registry"
 
 	"github.com/kton-protocol/kton-cockpit/internal/binaries"
 	"github.com/kton-protocol/kton-cockpit/internal/config"
@@ -198,7 +196,7 @@ func (d *Daemon) apply(ctx context.Context, layer, dir string, trusted []ed25519
 	if _, err := os.Stat(dir); err == nil {
 		switch layer {
 		case "plankton":
-			r, err := pregistry.Open(dir)
+			r, err := binaries.OpenPlanktonSource(dir)
 			if err != nil {
 				return false, err
 			}
@@ -207,7 +205,7 @@ func (d *Daemon) apply(ctx context.Context, layer, dir string, trusted []ed25519
 			}
 			cursor = r.MaxSeq()
 		default:
-			r, err := nregistry.Open(dir)
+			r, err := binaries.OpenNektonSource(dir)
 			if err != nil {
 				return false, err
 			}
