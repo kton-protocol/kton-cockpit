@@ -352,6 +352,10 @@ record; the locators still say where the bytes live in the repository.
 - A path that leaves `base` MUST be refused: a record's paths never escape upward (kton §6.1). A call that
   reads above its directory needs a `base` that holds everything it touches; that call depends on the layout
   around it, and its key rightly says so.
+- `cmd` MUST NOT reach above `base` either (`..` as a path step, `--data=../x`, `cd ..`), and such a call MUST
+  be refused: a file it reads there is in no path of the record, so two repositories with different such files
+  would share one action key. The check covers what the command line says; what a program opens on its own is,
+  as without a base, what the record's declared inputs vouch for.
 - When the cockpit runs the command (§10), it MUST run it in `base`; the record keeps `cmd` as given.
 
 > **Checked by:** `TestPublish_TheSameCallUnderTwoBasesIsOneComputation`,

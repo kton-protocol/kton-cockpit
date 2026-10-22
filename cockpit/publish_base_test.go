@@ -89,7 +89,8 @@ func TestPublish_TheSameCallUnderTwoBasesIsOneComputation(t *testing.T) {
 }
 
 // A base must be a directory inside the repository, and nothing the call names may leave it: a
-// record's paths never escape upward (kton §6.1).
+// record's paths never escape upward (kton §6.1), and neither may its command, or a file it reads
+// above base would be outside the record under a key that claims the same work.
 func TestPublish_ABaseAndItsPathsStayInsideTheRepository(t *testing.T) {
 	r := testrepo.New(t)
 	r.Use(t)
@@ -101,8 +102,13 @@ func TestPublish_ABaseAndItsPathsStayInsideTheRepository(t *testing.T) {
 		"a base above the repo": {Base: "../x", Inputs: []string{"psn.mod"}, Outputs: []string{"psn.lst"}},
 		"an absolute base":      {Base: "/tmp", Inputs: []string{"psn.mod"}, Outputs: []string{"psn.lst"}},
 		"a base not there":      {Base: "models/none", Inputs: []string{"psn.mod"}, Outputs: []string{"psn.lst"}},
+		"a cmd reading above":   {Base: "models/run1", Inputs: []string{"psn.mod"}, Outputs: []string{"psn.lst"}, Cmd: "nmfe75 psn.mod psn.lst ../../data/shared.csv"},
+		"a cmd option above":    {Base: "models/run1", Inputs: []string{"psn.mod"}, Outputs: []string{"psn.lst"}, Cmd: "nmfe75 --data=../x psn.mod psn.lst"},
+		"a cmd changing up":     {Base: "models/run1", Inputs: []string{"psn.mod"}, Outputs: []string{"psn.lst"}, Cmd: "cd .. && nmfe75 psn.mod psn.lst"},
 	} {
-		req.Cmd = "nmfe75 psn.mod psn.lst"
+		if req.Cmd == "" {
+			req.Cmd = "nmfe75 psn.mod psn.lst"
+		}
 		result, _, err := Publish(context.Background(), nil, req)
 		if err != nil {
 			t.Fatal(err)

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -690,11 +691,21 @@ func resolveBase(cfg *config.Config, in *PublishRequest) (string, error) {
 			}
 		}
 	}
+	// The command is part of the record too: a word in it that climbs above base names a file the
+	// paths do not, and two repositories with different such files would share one action key.
+	if climbsAbove.MatchString(in.Cmd) {
+		bad = append(bad, fmt.Sprintf("cmd %q reaches above base %s (..): what it reads there is not "+
+			"in the record, so the same key would stand for different work. Choose a base that holds it", in.Cmd, b))
+	}
 	if len(bad) > 0 {
 		return "", fmt.Errorf("%s", strings.Join(bad, "\n"))
 	}
 	return b, nil
 }
+
+// climbsAbove finds ".." as a path step anywhere in a command line: as a word, at the start of a
+// path, or after "=", ":", "," or a quote (--data=../x, PATH=..:x, '../x').
+var climbsAbove = regexp.MustCompile(`(^|[\s'"=:,;|&<>()])\.\.(/|$|[\s'"=:,;|&<>()])`)
 
 // inBase is cmd as run in base: the executor runs a command with the repository as its working
 // directory, so it is told to change there first. The record keeps cmd as given.
