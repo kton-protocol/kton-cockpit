@@ -171,3 +171,35 @@ func TestService_HistoryNamesAChangeOutsideTheRecording(t *testing.T) {
 		t.Fatalf("the story does not say it: %+v", st.Steps)
 	}
 }
+
+// Review L1 of #18: a long step in another session wrote x before a read and ended after it.
+// That write is not later than the read: by write time, not by the step's end.
+func TestService_LaterGoesByWriteTimeNotByEnd(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name string, lines ...string) {
+		os.WriteFile(filepath.Join(dir, name), []byte("#ktontrace v3\thash=/p\n"+strings.Join(lines, "\n")+"\n"), 0o644)
+	}
+	write("long.tsv",
+		"20\t1\t1\topen\tw\t/p/x.csv\t0\t0\t0\tnew=1",
+		"21\t1\t1\tclosew\tw\t/p/x.csv\t0\t0\t0\tsha256=x2",
+		"100\t1\t0\tTASK\tok\t1\t0\t0\t0\tlong",
+		"101\t1\t0\tEND\t-\t-\t0\t0\t0\t-")
+	write("reader.tsv",
+		"10\t2\t1\topen\tw\t/p/x.csv\t0\t0\t0\tnew=1",
+		"11\t2\t1\tclosew\tw\t/p/x.csv\t0\t0\t0\tsha256=x1",
+		"12\t2\t0\tTASK\tok\t1\t0\t0\t0\tfirst",
+		"50\t2\t1\topen\tr\t/p/x.csv\t0\t0\t0\tsha256=x2",
+		"51\t2\t1\topen\tw\t/p/y.csv\t0\t0\t0\tnew=1",
+		"52\t2\t1\tclosew\tw\t/p/y.csv\t0\t0\t0\tsha256=y",
+		"53\t2\t0\tTASK\tok\t2\t0\t0\t0\tread",
+		"54\t2\t0\tEND\t-\t-\t0\t0\t0\t-")
+	sv := &Service{Dir: dir, Store: t.TempDir(), NewClassifier: func() *Classifier { return &Classifier{} }}
+	sv.Poll(time.Now())
+	for _, tk := range sv.projectTasks(NewChecker(), "/p") {
+		for _, in := range tk.Inputs {
+			if in.Path == "/p/x.csv" && in.Later != nil && !in.Later.Unrecorded {
+				t.Fatalf("x.csv as %s/%s read it: later %+v, but that write came before the read", tk.Session, tk.ID, in.Later)
+			}
+		}
+	}
+}

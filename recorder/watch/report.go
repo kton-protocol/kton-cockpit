@@ -29,9 +29,9 @@ func Report(w io.Writer, s *Session, tasks []*Task) {
 			if o.File != "" {
 				where = rel(o.File)
 				if o.Chunk != "" {
-					where += " · Chunk " + o.Chunk
+					where += " · chunk " + o.Chunk
 				} else if o.StartLine > 0 {
-					where += fmt.Sprintf(" · Zeile %d–%d", o.StartLine, o.EndLine)
+					where += fmt.Sprintf(" · lines %d–%d", o.StartLine, o.EndLine)
 				}
 			}
 			fmt.Fprintf(w, "   HERKUNFT %s\n", where)
@@ -69,7 +69,7 @@ func Report(w io.Writer, s *Session, tasks []*Task) {
 			fmt.Fprintf(w, "   INPUT   %s  %s  (pid %d)%s%s\n", short(in.SHA256), rel(in.Path), in.PID, from, tag)
 		}
 		for _, m := range t.Missing {
-			fmt.Fprintf(w, "   FEHLT   %s\n", rel(m))
+			fmt.Fprintf(w, "   MISSING %s\n", rel(m))
 		}
 		for _, l := range t.Listings {
 			fmt.Fprintf(w, "   LISTING %s\n", rel(l))

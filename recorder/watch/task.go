@@ -53,8 +53,9 @@ type Output struct {
 	SHA256      string `json:"sha256"`
 	Status      string `json:"status"` // observed | hashed-by-watcher | unhashed-large
 	Overwritten bool   `json:"overwritten_later,omitempty"`
-	Later       *Later `json:"later,omitempty"` // written again by a later step (project views)
-	Now         string `json:"now,omitempty"`   // same | changed | gone, compared with disk when shown
+	Later       *Later `json:"later,omitempty"`      // written again by a later step (project views)
+	WrittenAt   int64  `json:"written_ns,omitempty"` // the last close after writing; 0 in older observations
+	Now         string `json:"now,omitempty"`        // same | changed | gone, compared with disk when shown
 }
 
 // Ref points at an output of an earlier task.

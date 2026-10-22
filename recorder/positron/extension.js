@@ -85,7 +85,7 @@ function getJSON(url, timeout) {
 async function ensureService() {
   try { await getJSON(viewerUrl() + 'api/config'); return true; } catch (e) { /* not running */ }
   const exe = bin('ktonwatch');
-  if (!fs.existsSync(exe)) { vscode.window.showErrorMessage(`kton: ${exe} fehlt (recorder/install.sh)`); return false; }
+  if (!fs.existsSync(exe)) { vscode.window.showErrorMessage(`kton: ${exe} is missing (recorder/install.sh)`); return false; }
   // detached: the service outlives this window; the next one finds it running
   const p = spawn(exe, ['serve'], { detached: true, stdio: 'ignore' });
   p.unref();
@@ -201,7 +201,7 @@ async function reproduce(project, target, sum) {
     if (!inside(s.path)) { notes.push(`${s.path} is outside and is read from there`); continue; }
     const to = path.join(dir, rel(s.path));
     fs.mkdirSync(path.dirname(to), { recursive: true });
-    try { fs.copyFileSync(s.path, to); } catch (e) { notes.push(`${rel(s.path)} fehlt: ${e.message}`); continue; }
+    try { fs.copyFileSync(s.path, to); } catch (e) { notes.push(`${rel(s.path)} is missing: ${e.message}`); continue; }
     if (s.now !== 'same') notes.push(`${rel(s.path)} has other content today than at the time`);
   }
   // the directories the recipe writes into exist in the original too
@@ -260,8 +260,8 @@ class Tree {
       return ps.filter((p) => !p.path.startsWith(reproRoot() + '/')).map((p) => {
         const mine = ws.some((w) => p.path === w || p.path.startsWith(w + '/') || w.startsWith(p.path + '/'));
         const it = new vscode.TreeItem(path.basename(p.path), mine ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.Collapsed);
-        it.description = `${p.sessions} Sitzungen`;
-        it.tooltip = `${p.path}\n${p.sessions} Sitzungen, ${p.tasks} Schritte, zuletzt ${new Date(p.last_ns / 1e6).toLocaleString('de-AT')}`;
+        it.description = `${p.sessions} sessions`;
+        it.tooltip = `${p.path}\n${p.sessions} sessions, ${p.tasks} steps, last ${new Date(p.last_ns / 1e6).toLocaleString()}`;
         it.iconPath = new vscode.ThemeIcon('project');
         it.contextValue = 'project';
         return { kind: 'project', project: p.path, item: it };
@@ -297,7 +297,7 @@ class Tree {
       for (const f of list) {
         const it = new vscode.TreeItem(rel(f).slice(e.dir.length), vscode.TreeItemCollapsibleState.None);
         it.resourceUri = vscode.Uri.file(f.path);
-        const when = new Date(f.when_ns / 1e6).toLocaleString('de-AT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+        const when = new Date(f.when_ns / 1e6).toLocaleString(undefined, { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
         it.description = [NOW[f.now] || '', f.produced_by ? when : ''].filter(Boolean).join(' · ');
         it.tooltip = `${f.path}\nsha256 ${f.sha256.slice(0, 16)}…${f.now === 'changed' ? '\nThe file has other content today.' : f.now === 'gone' ? '\nThe file no longer exists.' : ''}`;
         if (f.produced_by) {

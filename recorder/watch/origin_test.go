@@ -175,3 +175,27 @@ func TestAttachOrigins_ReadsWhileTheConsoleWaitedAreNotTheCommands(t *testing.T)
 		t.Fatalf("task 2 inputs %s", got)
 	}
 }
+
+// Review I1 of #16: the extension notes the send time late, so a command's own first read can
+// lie before it. Only what Ark reads while waiting is dropped, a data file never.
+func TestAttachOrigins_ALateOriginNeverDropsData(t *testing.T) {
+	const s = 1_000_000_000
+	l := &logb{}
+	at := func(ts int64, op, mode, path, extra string) {
+		l.ts = ts - 1
+		l.ev(100, op, mode, path, extra)
+	}
+	at(1*s, "ENV", "-", "/usr/lib/R", "project=/p")
+	at(4*s, "open", "r", "/p/R/other.R", "sha256=o")                // Ark, while waiting
+	at(5*s-300_000_000, "open", "r", "/p/data/pk.csv", "sha256=pk") // the command, before the late origin
+	at(5*s+4_000_000, "TASK", "ok", "1", "base::invisible(base::.ark_last_value)")
+	se := sess(t, l, nil)
+	AttachOrigins(se.Tasks, []Origin{{TS: 5 * s, File: "/p/R/01.R", Code: `source("R/01.R")`, Language: "r"}})
+	var names []string
+	for _, in := range task(t, se, "1").Inputs {
+		names = append(names, filepath.Base(in.Path))
+	}
+	if strings.Join(names, ",") != "pk.csv" {
+		t.Fatalf("inputs %v: the data file stays, Ark's read goes", names)
+	}
+}

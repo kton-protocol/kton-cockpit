@@ -49,6 +49,7 @@ type taskState struct {
 	written    map[string]bool
 	closeSum   map[string]string
 	closeAt    map[string][2]int64
+	closeTS    map[string]int64 // when the file was last closed after writing: the write's time
 	deleted    map[string]bool
 	movedAway  map[string]bool
 	firstRead  map[string]string
@@ -89,7 +90,7 @@ func (s *Session) TakeSeen() []FileOp {
 func newTaskState(start int64) *taskState {
 	return &taskState{
 		t:       &Task{Start: start},
-		written: map[string]bool{}, closeSum: map[string]string{}, closeAt: map[string][2]int64{},
+		written: map[string]bool{}, closeSum: map[string]string{}, closeAt: map[string][2]int64{}, closeTS: map[string]int64{},
 		deleted: map[string]bool{}, movedAway: map[string]bool{}, firstRead: map[string]string{}, readMtime: map[string]int64{}, recreated: map[string]bool{},
 		inputIdx: map[string]bool{}, listIdx: map[string]bool{}, missingIdx: map[string]bool{},
 		sourceIdx: map[string]bool{}, procs: map[int]bool{}, spawns: map[int]Command{}, opIdx: map[FileOp]bool{},
@@ -241,6 +242,7 @@ func (s *Session) Handle(e Event) {
 		}
 		c.closeSum[e.Path] = e.KV("sha256")
 		c.closeAt[e.Path] = [2]int64{e.Size, e.Mtime}
+		c.closeTS[e.Path] = e.TS
 		if h := e.KV("sha256"); h != "" {
 			s.known[e.Path] = h
 		}
@@ -572,7 +574,7 @@ func (s *Session) finish() {
 		if fr, read := c.firstRead[p]; read && fr == h && !c.recreated[p] && !c.rewrote(p) {
 			continue // opened for writing, left unchanged: not an output
 		}
-		out := &Output{Path: p, Class: s.cls.Class(p), SHA256: h, Status: st}
+		out := &Output{Path: p, Class: s.cls.Class(p), SHA256: h, Status: st, WrittenAt: c.closeTS[p]}
 		if prev, ok := s.lastOutput[p]; ok && prev.SHA256 != h {
 			prev.Overwritten = true
 		}

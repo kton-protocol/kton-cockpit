@@ -1,6 +1,6 @@
 #!/bin/sh
 # A simulated working day on a PK project, recorded: four R sessions under the recorder and a
-# hand edit in between. Afterwards `ktonwatch serve` shows it ("Alle Sitzungen" of the project).
+# hand edit in between. Afterwards `ktonwatch serve` shows it ("all sessions" of the project).
 #
 #   PROJ=/path/to/arbeitstag-pk sh recorder/demo/arbeitstag.sh
 #
@@ -13,12 +13,12 @@ NM=${NM:-$HOME/.local/opt/nm751}
 PY=${PY:-$HOME/.local/opt/psn/PsN_5_7_2/pyvenv/bin/python}
 QUARTO=${QUARTO:-$(command -v quarto || ls "$HOME"/.positron-server/bin/*/quarto/bin/quarto 2>/dev/null | head -1)}
 KR="$HOME/.local/share/kton/r/kton-R"
-[ -x "$HOME/.local/lib/kton/libktontrace.so" ] || [ -f "$HOME/.local/lib/kton/libktontrace.so" ] || { echo "erst recorder/install.sh" >&2; exit 1; }
+[ -x "$HOME/.local/lib/kton/libktontrace.so" ] || [ -f "$HOME/.local/lib/kton/libktontrace.so" ] || { echo "run recorder/install.sh first" >&2; exit 1; }
 
 say() { printf '\n== %s\n' "$*"; }
 
 # ---------------------------------------------------------------- setup (not recorded)
-say "Projekt anlegen: $PROJ"
+say "creating the project: $PROJ"
 rm -rf "$PROJ" "$SHARED"
 mkdir -p "$PROJ/raw" "$PROJ/derived" "$PROJ/R" "$PROJ/model" "$PROJ/figures" "$PROJ/tables" "$PROJ/report" "$SHARED"
 cd "$PROJ"

@@ -3,7 +3,7 @@
 set -e
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 WORK=${WORK:-$(mktemp -d)}
-command -v R >/dev/null || { echo "R fehlt" >&2; exit 1; }
+command -v R >/dev/null || { echo "R is not installed" >&2; exit 1; }
 sh "$ROOT/build.sh"
 P="$WORK/project"; mkdir -p "$P/data"
 printf 'id,time,conc\n1,0,0\n1,1,4.2\n2,1,5.0\n' > "$P/data/pk.csv"

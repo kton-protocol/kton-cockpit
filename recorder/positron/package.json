@@ -2,7 +2,7 @@
   "name": "kton-recorder",
   "displayName": "kton recorder",
   "description": "Records where each piece of R code came from, switches recording on and off, shows each result's story step by step, and runs publish and reproduction from there.",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "publisher": "kton",
   "license": "MIT",
   "engines": {
@@ -43,7 +43,7 @@
       },
       {
         "command": "kton.reproduceItem",
-        "title": "Reproduzieren",
+        "title": "Reproduce",
         "icon": "$(debug-rerun)"
       },
       {
@@ -183,7 +183,7 @@
       "kton": [
         {
           "id": "kton.files",
-          "name": "Ergebnisse"
+          "name": "Results"
         }
       ]
     },

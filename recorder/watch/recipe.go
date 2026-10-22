@@ -328,7 +328,7 @@ func recipeOf(tasks []*Task, project, path, sum string) *Recipe {
 		case src.Status == "changed-outside":
 			who := "a step"
 			if w := before(src.Path, readAt[vkey(src.Path, src.SHA256)]); w != nil {
-				who = fmt.Sprintf("„%s“ (%s)", firstLine(w.Code()), sessionName(w))
+				who = fmt.Sprintf("“%s” (%s)", firstLine(w.Code()), sessionName(w))
 			}
 			r.Gaps = append(r.Gaps, fmt.Sprintf("%s was changed by hand after %s wrote it: that change cannot be recomputed, the path before it is broken", rel(src.Path), who))
 		}
@@ -489,7 +489,7 @@ func stepName(t *Task) string {
 	if c == "" {
 		c = "command " + t.ID
 	}
-	return fmt.Sprintf("„%s“ (%s)", c, time.Unix(0, t.End).Format("15:04"))
+	return fmt.Sprintf("“%s” (%s)", c, time.Unix(0, t.End).Format("15:04"))
 }
 
 // collapse: the same gap once, with how often it came up.

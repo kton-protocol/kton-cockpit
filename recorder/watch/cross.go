@@ -107,16 +107,24 @@ func markLater(tasks []*Task) {
 	type write struct {
 		t   *Task
 		sum string
+		at  int64 // when it was written: a long step may write early and end late
 	}
-	writes := map[string][]write{} // path → writes in order of their task's end
+	writes := map[string][]write{} // path → writes in order of time
 	for _, t := range tasks {
 		for _, o := range t.Outputs {
-			writes[o.Path] = append(writes[o.Path], write{t, o.SHA256})
+			at := o.WrittenAt
+			if at == 0 {
+				at = t.End
+			}
+			writes[o.Path] = append(writes[o.Path], write{t, o.SHA256, at})
 		}
+	}
+	for _, ws := range writes {
+		sort.SliceStable(ws, func(i, j int) bool { return ws[i].at < ws[j].at })
 	}
 	next := func(path, sum string, after int64, not *Task) *Later {
 		for _, w := range writes[path] {
-			if w.t != not && w.t.End > after {
+			if w.t != not && w.at > after {
 				return &Later{Session: w.t.Session, Task: w.t.ID, Same: w.sum == sum}
 			}
 		}
@@ -131,7 +139,11 @@ func markLater(tasks []*Task) {
 			in.Later = unrecorded(next(in.Path, in.SHA256, read, t), in.Now)
 		}
 		for _, o := range t.Outputs {
-			o.Later = unrecorded(next(o.Path, o.SHA256, t.End, t), o.Now)
+			at := o.WrittenAt
+			if at == 0 {
+				at = t.End
+			}
+			o.Later = unrecorded(next(o.Path, o.SHA256, at, t), o.Now)
 		}
 	}
 }
