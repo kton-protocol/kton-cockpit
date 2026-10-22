@@ -339,6 +339,28 @@ differing signed bytes.
 > **Checked by:** `TestAuthor_CoSignsWorkTheRegistryAlreadyHolds`,
 > `TestAuthor_RepublishingOwnWorkIsNotACoSignature`, `acceptance/raute-scope`.
 
+### 7.8 Publishing relative to a base *(optional)*
+
+A call MAY name a `base`: a repo-relative directory the work ran in. Its inputs, outputs, `outputDir` and
+`outputsIn` are then given relative to `base`, `cmd` is the command as run in it, and the record keys its
+paths relative to `base`. The same call in two directories, or two repositories, is then one computation:
+one action key (kton §6.3), and with the same outputs one record. Where `base` was is not part of the
+record; the locators still say where the bytes live in the repository.
+
+- `base` MUST be a directory inside the repository, and MUST pass the same path checks as a published path
+  (§7.3).
+- A path that leaves `base` MUST be refused: a record's paths never escape upward (kton §6.1). A call that
+  reads above its directory needs a `base` that holds everything it touches; that call depends on the layout
+  around it, and its key rightly says so.
+- `cmd` MUST NOT reach above `base` either (`..` as a path step, `--data=../x`, `cd ..`), and such a call MUST
+  be refused: a file it reads there is in no path of the record, so two repositories with different such files
+  would share one action key. The check covers what the command line says; what a program opens on its own is,
+  as without a base, what the record's declared inputs vouch for.
+- When the cockpit runs the command (§10), it MUST run it in `base`; the record keeps `cmd` as given.
+
+> **Checked by:** `TestPublish_TheSameCallUnderTwoBasesIsOneComputation`,
+> `TestPublish_ABaseAndItsPathsStayInsideTheRepository`, `TestPublish_ACommandTheCockpitRunsRunsInItsBase`.
+
 ## 8 say
 
 Binds a claim to a record.
