@@ -3,7 +3,7 @@ title: "Reuse is keyed on the environment class, not on the concrete environment
 type: "decision"
 project: "kton-cockpit"
 date: 2026-10-16
-status: "proposed"
+status: "accepted"
 tags: [architecture, environment, reproducibility, qualification, reuse, action-key]
 ---
 
@@ -11,10 +11,10 @@ tags: [architecture, environment, reproducibility, qualification, reuse, action-
 
 ## Status
 
-Proposed (2026-10-16; aligned with the kernel on 2026-10-20). The direction was decided by the project
-owner. It needed a kton change first, because it touches the action key: kton-protocol/kton#211, merged as
-#223 (`5a8895d`, kton 0.3.0-dev, `foton/v1` only). The cockpit side is implemented once the cockpit
-builds against kton 0.3.0. From then on this ADR supersedes the part of ADR-003 that makes `envRef`
+Accepted (2026-10-22; proposed 2026-10-16, aligned with the kernel on 2026-10-20). The direction was decided
+by the project owner. It needed a kton change first, because it touches the action key: kton-protocol/kton#211,
+merged as #223 (`5a8895d`, kton 0.3.0-dev, `foton/v1` only). The cockpit side is built behind
+`-tags unreleased` until a kton 0.3.0 tag exists, as the `oxigraph` index is. From then on this ADR supersedes the part of ADR-003 that makes `envRef`
 COVERED ("pins `envRef`…", and the `Environment` comment in `internal/config/config.go`) **for records
 that declare a class**. Everything else in ADR-003 stands: running in a digest-pinned image, the mount
 rules, deriving rather than declaring the environment, and a covered `envRef` when no class is declared.
@@ -103,7 +103,7 @@ class exists, rule 3 keeps the old guarantee unchanged: the digest stays covered
   under the old rule and stay valid (monotonicity, kton §11). New fotons of the same computation
   written with a class get a different id and action key. The cockpit's test vectors and any reuse by action key across the change see two
   records for one computation.
-- The cockpit's part, once it builds against kton 0.3.0: with `environment` set, pass both to `author`
+- The cockpit's part (`-tags unreleased` until kton 0.3.0): with `environment` set, pass both to `author`
   and attach the `kton-env/v1` material the kernel produces; `ask` and reuse take the env statement
   signed by the trusted producer key; tests for both cases (the kernel's own regression tests, kton#211
   item 7, cover the action key).
