@@ -128,22 +128,26 @@ async function openObservations() {
 async function publish(repo, text) {
   const calls = (text.match(/^cockpit publish /gm) || []).length;
   if (!calls) return;
-  const says = (text.match(/^cockpit describes /gm) || []).length;
+  const says = (text.match(/^cockpit claim /gm) || []).length;
   const ok = await vscode.window.showWarningMessage(
-    `Run ${calls} × cockpit publish${says ? ` and ${says} × cockpit say describes` : ''} in ${repo}? That signs, commits and pushes.`, { modal: true }, 'Run');
+    `Run ${calls} × cockpit publish${says ? ` and ${says} × cockpit say (description, rationale)` : ''} in ${repo}? That signs, commits and pushes.`, { modal: true }, 'Run');
   if (ok !== 'Run') return;
   const cockpit = bin('cockpit');
+  // the lines below are POSIX shell: the terminal is bash, whatever the person's default is
   const term = vscode.window.terminals.find((t) => t.name === 'kton cockpit') ||
-    vscode.window.createTerminal({ name: 'kton cockpit', cwd: repo });
+    vscode.window.createTerminal({ name: 'kton cockpit', cwd: repo, shellPath: '/bin/bash' });
   term.show();
   term.sendText(`cd ${JSON.stringify(repo)}`);
   const c = JSON.stringify(cockpit);
-  // `cockpit describes '<fields>'` is ours: a say with the template "describes" about the foton
-  // the publish before it returned (its JSON answer, kept in KTON_OUT and shown)
-  const claim = "import json,sys; o=json.loads(sys.argv[1]); print(json.dumps({'template':'describes','subject':o['fotonId'],'fields':json.loads(sys.argv[2])}))";
+  // `cockpit claim <template> '<text>'` is ours: a say with that template, its field "value",
+  // about the foton the publish before it returned (its JSON answer, kept in KTON_OUT and shown)
+  const claim = "import json,sys; o=json.loads(sys.argv[1]); print(json.dumps({'template':sys.argv[2],'subject':o['fotonId'],'fields':{'value':json.loads(sys.argv[3])}}))";
   for (const line of text.split('\n')) {
     if (line.startsWith('cockpit publish ')) term.sendText(`KTON_OUT=; KTON_OUT=$(${c}${line.slice('cockpit'.length)}) && printf '%s\\n' "$KTON_OUT"`);
-    else if (line.startsWith('cockpit describes ')) term.sendText(`[ -n "$KTON_OUT" ] && ${c} say "$(python3 -c ${sq(claim)} "$KTON_OUT" ${line.slice('cockpit describes '.length)})"`);
+    else if (line.startsWith('cockpit claim ')) {
+      const [, template, text] = line.match(/^cockpit claim (\S+) (.*)$/s);
+      term.sendText(`[ -n "$KTON_OUT" ] && ${c} say "$(python3 -c ${sq(claim)} "$KTON_OUT" ${template} ${text})"`);
+    }
     else if (line.trim()) term.sendText(line); // comments: shown, ignored by the shell
   }
 }
@@ -274,6 +278,7 @@ async function reproduce(project, target, sum) {
 const casFile = (sum) => path.join(process.env.XDG_CACHE_HOME || path.join(home, '.cache'), 'kton-cockpit', 'cas', 'sha256', sum.slice(0, 2), sum);
 async function diffReproduced(project, m) {
   const rel = path.relative(project, m.path);
+  if (rel.startsWith('..') || path.isAbsolute(rel)) { vscode.window.showWarningMessage(`kton: ${m.path} is not in the project`); return; }
   const reproduced = path.join(m.dir, rel);
   let recorded = null;
   if ((await sha256File(m.path)) === m.recorded) recorded = m.path;
@@ -423,9 +428,10 @@ function allowsTemplate(repo, name) {
 
 async function publishText(story, file, steps) {
   const lines = [`# Story of ${path.relative(story.repo, file.path)}`];
-  // a step's description and rationale become a signed claim about its foton (template
-  // "describes") where the repository allows it; elsewhere they stay comments
-  const describes = allowsTemplate(story.repo, 'describes');
+  // a step's description and rationale become signed claims about its foton (templates
+  // "describes" and "rationale", as cockpit init writes them) where the repository allows
+  // them; elsewhere they stay comments
+  const allowed = { describes: allowsTemplate(story.repo, 'describes'), rationale: allowsTemplate(story.repo, 'rationale') };
   for (const s of steps) {
     if (s.hand) { // not recorded, nothing to publish: the person's words stay with the story
       lines.push(`# ${s.sentence}`);
@@ -443,11 +449,10 @@ async function publishText(story, file, steps) {
     }
     lines.push('cockpit publish ' + sq(JSON.stringify(req)));
     const n = typeof s.note === 'string' ? { description: s.note } : (s.note || {});
-    if (describes && (n.description || '').trim()) {
-      const fields = { description: n.description.trim() };
-      if ((n.rationale || '').trim()) fields.rationale = n.rationale.trim();
-      lines.push('cockpit describes ' + sq(JSON.stringify(fields))); // see publish(): a say about the foton just published
-    }
+    // see publish(): a say about the foton just published, one per template
+    // the text as JSON: one line, whatever it holds (the script is sent line by line)
+    if (allowed.describes && (n.description || '').trim()) lines.push('cockpit claim describes ' + sq(JSON.stringify(n.description.trim())));
+    if (allowed.rationale && (n.rationale || '').trim()) lines.push('cockpit claim rationale ' + sq(JSON.stringify(n.rationale.trim())));
   }
   return lines.join('\n');
 }

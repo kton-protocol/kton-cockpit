@@ -261,16 +261,22 @@ func TestService_TheStoryCarriesReproductions(t *testing.T) {
 		"21\t1\t1\topen\tw\t/p/b.csv\t0\t0\t0\tnew=1",
 		"22\t1\t1\tclosew\tw\t/p/b.csv\t0\t0\t0\tsha256=b",
 		"23\t1\t0\tTASK\tok\t2\t0\t0\t0\tstamp",
-		"24\t1\t0\tEND\t-\t-\t0\t0\t0\t-"}, "\n")+"\n"), 0o644)
+		"30\t1\t1\topen\tw\t/p/b.csv\t0\t0\t0\ttrunc=1", // a rerun after the reproduction: version c
+		"31\t1\t1\tclosew\tw\t/p/b.csv\t0\t0\t0\tsha256=c",
+		"32\t1\t0\tTASK\tok\t3\t0\t0\t0\tstamp",
+		"34\t1\t0\tEND\t-\t-\t0\t0\t0\t-"}, "\n")+"\n"), 0o644)
 	run := filepath.Join(filepath.Dir(dir), "repro", "2026-10-23-b.csv")
 	os.MkdirAll(run, 0o755)
 	os.WriteFile(filepath.Join(run, "kton-repro.json"), []byte(`{"project":"/p","target":"/p/b.csv","recorded":"b","reproduced":"b2","same":false,
  "when":"2026-10-23T09:00:00Z","dir":"`+run+`","seconds":3,
  "steps":[{"session":"r","task":"1","outputs":[{"path":"/p/a.csv","recorded":"a","reproduced":"a","same":true}]},
-          {"session":"r","task":"2","outputs":[{"path":"/p/b.csv","recorded":"b","reproduced":"b2","same":false}]}]}`), 0o644)
+          {"session":"r","task":"2","outputs":[{"path":"/p/b.csv","recorded":"b","reproduced":"b2","same":true}]}]}`), 0o644)
 	sv := &Service{Dir: dir, Store: t.TempDir(), NewClassifier: func() *Classifier { return &Classifier{} }}
 	sv.Poll(time.Now())
-	st := sv.Story("/p", "/p/b.csv", "")
+	if st := sv.Story("/p", "/p/b.csv", "c"); st == nil || len(st.Reproductions) != 0 {
+		t.Fatalf("the story of version c shows the reproduction of version b: %+v", st) // review R1 of #19
+	}
+	st := sv.Story("/p", "/p/b.csv", "b")
 	if st == nil || len(st.Reproductions) != 1 || st.Reproductions[0].Same {
 		t.Fatalf("reproductions %+v", st)
 	}
@@ -282,6 +288,6 @@ func TestService_TheStoryCarriesReproductions(t *testing.T) {
 		t.Errorf("step 1: %+v, want reproduced with the same bytes", r)
 	}
 	if r := by["2"]; r == nil || r.Same || len(r.Different) != 1 || r.Different[0] != "b.csv" {
-		t.Errorf("step 2: %+v, want b.csv different", r)
+		t.Errorf("step 2: %+v, want b.csv different (the file says same, the hashes say no: review R2 of #19)", r)
 	}
 }

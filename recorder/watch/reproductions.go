@@ -61,14 +61,30 @@ func (sv *Service) Reproductions(project, target string) []Reproduction {
 		if err != nil || json.Unmarshal(b, &r) != nil || r.Project != project || r.Target != target {
 			continue // also older runs, which named neither
 		}
+		// "same" from the hashes, not as the file says
+		r.Same = r.Reproduced != "" && r.Reproduced == r.Recorded
+		for i := range r.Steps {
+			for j := range r.Steps[i].Outputs {
+				o := &r.Steps[i].Outputs[j]
+				o.Same = o.Reproduced != "" && o.Reproduced == o.Recorded
+			}
+		}
 		out = append(out, r)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].When.After(out[j].When) })
 	return out
 }
 
-// attachRepro gives the story's steps what the latest reproduction says about them.
+// attachRepro gives the story's steps what the latest reproduction of this very version says
+// about them. A reproduction of an earlier version of the file says nothing about this one.
 func attachRepro(st *Story, rs []Reproduction, rel func(string) string) {
+	var mine []Reproduction
+	for _, r := range rs {
+		if r.Recorded == st.Target.SHA256 {
+			mine = append(mine, r)
+		}
+	}
+	rs = mine
 	st.Reproductions = rs
 	if len(rs) == 0 {
 		return
