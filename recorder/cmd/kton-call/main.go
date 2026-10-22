@@ -53,7 +53,7 @@ func main() {
 				fmt.Fprintf(os.Stderr, "kton: %s from the store (key %s…, computed in command %s)\n", c.Tool, short(c.Key), c.Task)
 				os.Exit(0)
 			} else {
-				fmt.Fprintf(os.Stderr, "kton: Wiederverwendung abgebrochen, %v; rechne\n", err)
+				fmt.Fprintf(os.Stderr, "kton: reuse abandoned, %v; computing\n", err)
 			}
 		}
 	}

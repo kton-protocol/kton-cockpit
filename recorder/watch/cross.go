@@ -38,7 +38,7 @@ func (sv *Service) crossIndex(project, except string) map[string][]produced {
 
 // linkAcross fills From for inputs that the session itself cannot explain, with the latest
 // output of the same file and bytes that another session of the project wrote before the
-// task started. tasks must be copies (Checker.Annotate makes them).
+// command started. tasks must be copies (Checker.Annotate makes them).
 func (sv *Service) linkAcross(s *Session, tasks []*Task) {
 	idx := sv.crossIndex(s.Project, s.ID)
 	if len(idx) == 0 {
@@ -53,13 +53,14 @@ func (sv *Service) linkAcross(s *Session, tasks []*Task) {
 		}
 	}
 	for _, t := range tasks {
+		start := commandStart(t)
 		for _, in := range t.Inputs {
 			if len(in.From) > 0 || in.SHA256 == "" || in.SHA256 == EmptySHA256 {
 				continue
 			}
 			var best *produced
 			for i, p := range idx[in.Path+"\x00"+in.SHA256] {
-				if p.end <= t.Start {
+				if p.end <= start {
 					best = &idx[in.Path+"\x00"+in.SHA256][i]
 				}
 			}
@@ -71,11 +72,98 @@ func (sv *Service) linkAcross(s *Session, tasks []*Task) {
 				continue
 			}
 			// another session wrote this file earlier, with other bytes: changed by hand since
-			if last, ok := byPath[in.Path]; ok && last <= t.Start && in.Status == "observed" {
+			if last, ok := byPath[in.Path]; ok && last <= start && in.Status == "observed" {
 				in.Status = "changed-outside"
 			}
 		}
 	}
+}
+
+// commandStart: when the task's command began. A console task's Start is the previous
+// command's end; when the extension says when this one was sent, that is later and right (a
+// Python step in another session may have written its input in between).
+func commandStart(t *Task) int64 {
+	if len(t.Origins) > 0 && t.Origins[0].TS > t.Start {
+		return t.Origins[0].TS
+	}
+	return t.Start
+}
+
+// Later is the next write of a file after a step used or wrote it: who wrote it again, and
+// whether with the same bytes. The step's version is history then, not what the file holds.
+// Unrecorded: no recorded step wrote it again, but the file has other bytes today (an editor,
+// Excel, a copy): changed outside the recording.
+type Later struct {
+	Session    string `json:"session,omitempty"`
+	Task       string `json:"task,omitempty"`
+	Same       bool   `json:"same_bytes,omitempty"`
+	Unrecorded bool   `json:"unrecorded,omitempty"`
+}
+
+// markLater sets Later on every input and output of a project's tasks (sorted by End) that a
+// later step wrote again, across sessions, or that has other bytes today with no recorded
+// write to explain it (Now from Checker.Annotate).
+func markLater(tasks []*Task) {
+	type write struct {
+		t   *Task
+		sum string
+		at  int64 // when it was written: a long step may write early and end late
+	}
+	writes := map[string][]write{} // path → writes in order of time
+	for _, t := range tasks {
+		for _, o := range t.Outputs {
+			at := o.WrittenAt
+			if at == 0 {
+				at = t.End
+			}
+			writes[o.Path] = append(writes[o.Path], write{t, o.SHA256, at})
+		}
+	}
+	for _, ws := range writes {
+		sort.SliceStable(ws, func(i, j int) bool { return ws[i].at < ws[j].at })
+	}
+	// next: the first later write, unless a later one changed the bytes: then that one, since a
+	// recorded change explains today's file and a same-bytes rerun before it does not
+	next := func(path, sum string, after int64, not *Task) *Later {
+		var first *Later
+		for _, w := range writes[path] {
+			if w.t == not || w.at <= after {
+				continue
+			}
+			if w.sum != sum {
+				return &Later{Session: w.t.Session, Task: w.t.ID}
+			}
+			if first == nil {
+				first = &Later{Session: w.t.Session, Task: w.t.ID, Same: true}
+			}
+		}
+		return first
+	}
+	for _, t := range tasks {
+		for _, in := range t.Inputs {
+			read := in.LastRead
+			if read == 0 {
+				read = t.Start
+			}
+			in.Later = unrecorded(next(in.Path, in.SHA256, read, t), in.Now)
+		}
+		for _, o := range t.Outputs {
+			at := o.WrittenAt
+			if at == 0 {
+				at = t.End
+			}
+			o.Later = unrecorded(next(o.Path, o.SHA256, at, t), o.Now)
+		}
+	}
+}
+
+// unrecorded: the file has other bytes today, and no recorded step explains it (none wrote it
+// again with other bytes; next already prefers such a write): changed outside the recording.
+func unrecorded(l *Later, now string) *Later {
+	if now == NowChanged && (l == nil || l.Same) {
+		return &Later{Unrecorded: true}
+	}
+	return l
 }
 
 // lineageAcross walks back like Lineage, following references into other sessions.

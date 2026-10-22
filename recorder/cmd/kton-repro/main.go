@@ -187,7 +187,7 @@ func main() {
 		fmt.Printf("= %s: other bytes, but within the tolerance %g (provisional comparison): largest difference %.2g, %s\n",
 			plan.Target.Rel, *rtol, rep.Compare.MaxRel, rep.Compare.Where)
 	default:
-		fmt.Printf("= %s: abweichend, %s statt %s\n", plan.Target.Rel, rep.Reproduced[:12], plan.Target.SHA256[:12])
+		fmt.Printf("= %s: different, %s instead of %s\n", plan.Target.Rel, rep.Reproduced[:12], plan.Target.SHA256[:12])
 		if c := rep.Compare; c != nil {
 			if c.Where != "" {
 				fmt.Printf("  %s; largest difference %.2g, %s\n", c.Note, c.MaxRel, c.Where)

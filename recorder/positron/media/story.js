@@ -7,8 +7,8 @@
   let S = null, published = {}, notes = {}, cockpitRepo = false, open = {};
 
   const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
-  const clock = (ns) => new Date(ns / 1e6).toLocaleTimeString("de-AT", {hour: "2-digit", minute: "2-digit"});
-  const day = (ns) => new Date(ns / 1e6).toLocaleDateString("de-AT", {weekday: "short", day: "2-digit", month: "2-digit"});
+  const clock = (ns) => new Date(ns / 1e6).toLocaleTimeString(undefined, {hour: "2-digit", minute: "2-digit"});
+  const day = (ns) => new Date(ns / 1e6).toLocaleDateString(undefined, {weekday: "short", day: "2-digit", month: "2-digit"});
   const skey = (s) => s.session + "/" + s.task;
   const base = (p) => p.split("/").pop();
   const short = (p) => (p.startsWith("/") ? base(p) : p);
@@ -79,7 +79,9 @@
   function line(c) {
     const note = noteOf(c.key);
     const field = (f, ph) => `<div class="note ${note[f] ? "" : "empty"}" contenteditable="true" data-k="${esc(c.key)}" data-f="${f}" data-ph="${ph}">${esc(note[f])}</div>`;
-    const cls = c.hand ? "hand" : c.inKton ? "done" : "";
+    // the dot: blue, green when in kton, orange for a hand edit, the warning colour when the step
+    // has a warning (a file it used was changed or overwritten since), also over green
+    const cls = [c.hand ? "hand" : c.inKton ? "done" : "", c.warn.length ? "warned" : ""].filter(Boolean).join(" ");
     const what = c.hand
       ? `<span class="f w">${esc(c.steps[0].reads[0])}</span> changed by hand <span class="muted">· not recorded</span>`
       : `${files(c.ins)} <span class="arrow">→</span>${c.tools.length ? ` <span class="tool">${esc(c.tools.join(", "))}</span> <span class="arrow">→</span>` : ""} ${c.outs.length ? files(c.outs, 4, c.kton) : '<span class="muted">only objects in the session</span>'}`;

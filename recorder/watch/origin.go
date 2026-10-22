@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -127,7 +128,9 @@ func OriginsIn(origins []Origin, lang string) []Origin {
 // A task with an origin also knows when its command was sent. Before that the console was
 // waiting for input, and what the process read then was not the command's: Ark's language
 // server indexes the workspace's R files at start and reads a file again after it ran. Such
-// reads are dropped (a file the command read too keeps its later read).
+// reads are dropped (a file the command read too keeps its later read). Only the kind of file
+// Ark reads, though: the extension notes the time only after the command was handed over, so a
+// command's own first reads can lie before it, and a data file is never dropped for that.
 func AttachOrigins(tasks []*Task, origins []Origin) {
 	i := 0
 	for _, t := range tasks {
@@ -144,13 +147,23 @@ func AttachOrigins(tasks []*Task, origins []Origin) {
 			sent := t.Origins[0].TS - idleSlack
 			kept := t.Inputs[:0]
 			for _, in := range t.Inputs {
-				if in.LastRead == 0 || in.LastRead >= sent {
+				if in.LastRead == 0 || in.LastRead >= sent || !indexedByArk(in.Path) {
 					kept = append(kept, in)
 				}
 			}
 			t.Inputs = kept
 		}
 	}
+}
+
+// indexedByArk: the files Ark's language server reads while the console waits: R and Quarto
+// sources, and the ignore files it consults to know which ones.
+func indexedByArk(p string) bool {
+	switch strings.ToLower(filepath.Ext(p)) {
+	case ".r", ".qmd", ".rmd":
+		return true
+	}
+	return filepath.Base(p) == ".gitignore" || strings.HasSuffix(p, "/git/ignore")
 }
 
 // idleSlack: the extension's clock and the shim's are the same machine's, but the extension

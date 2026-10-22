@@ -85,7 +85,7 @@ function getJSON(url, timeout) {
 async function ensureService() {
   try { await getJSON(viewerUrl() + 'api/config'); return true; } catch (e) { /* not running */ }
   const exe = bin('ktonwatch');
-  if (!fs.existsSync(exe)) { vscode.window.showErrorMessage(`kton: ${exe} fehlt (recorder/install.sh)`); return false; }
+  if (!fs.existsSync(exe)) { vscode.window.showErrorMessage(`kton: ${exe} is missing (recorder/install.sh)`); return false; }
   // detached: the service outlives this window; the next one finds it running
   const p = spawn(exe, ['serve'], { detached: true, stdio: 'ignore' });
   p.unref();
@@ -165,10 +165,21 @@ const dockerUp = () => new Promise((resolve) => execFile('docker', ['version', '
 async function reproduceInContainers(project, target, sum) {
   const exe = bin('kton-repro');
   if (!fs.existsSync(exe) || !(await dockerUp())) return false;
+  // containers replay recorded tool calls (Rscript, nmfe, quarto …); a file a console command
+  // made has none, and is reproduced from its recipe instead
+  const q = `project=${encodeURIComponent(project)}&path=${encodeURIComponent(target)}&sha=${encodeURIComponent(sum)}`;
+  try { await getJSON(`${viewerUrl()}api/reproplan?${q}`, 10000); } catch (e) {
+    if (!/^404 /.test(e.message)) { // ktonwatch failed: say so, do not quietly take the other path
+      vscode.window.showErrorMessage(`kton: no reproduction plan: ${e.message}`);
+      return true;
+    }
+    out.appendLine(`\nkton: no recorded tool call wrote ${path.relative(project, target)}; reproducing it from its recipe instead`);
+    return false;
+  }
   out.show(true);
   out.appendLine(`\n=== Reproduction in containers: ${path.relative(project, target)}`);
   const lines = [];
-  const code = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `kton: reproduziere ${path.basename(target)} in Containern` }, () => new Promise((resolve) => {
+  const code = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `kton: reproducing ${path.basename(target)} in containers` }, () => new Promise((resolve) => {
     const p = spawn(exe, ['-project', project, '-path', target, '-sha', sum]);
     const take = (d) => { const t = d.toString(); out.append(t); lines.push(...t.split('\n')); };
     p.stdout.on('data', take); p.stderr.on('data', take);
@@ -201,7 +212,7 @@ async function reproduce(project, target, sum) {
     if (!inside(s.path)) { notes.push(`${s.path} is outside and is read from there`); continue; }
     const to = path.join(dir, rel(s.path));
     fs.mkdirSync(path.dirname(to), { recursive: true });
-    try { fs.copyFileSync(s.path, to); } catch (e) { notes.push(`${rel(s.path)} fehlt: ${e.message}`); continue; }
+    try { fs.copyFileSync(s.path, to); } catch (e) { notes.push(`${rel(s.path)} is missing: ${e.message}`); continue; }
     if (s.now !== 'same') notes.push(`${rel(s.path)} has other content today than at the time`);
   }
   // the directories the recipe writes into exist in the original too
@@ -210,7 +221,7 @@ async function reproduce(project, target, sum) {
   const env = Object.assign({}, process.env, { KTON_TRACE_HASH: dir });
   const v = r.verdict || {};
   const t0 = Date.now();
-  await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `kton: reproduziere ${path.basename(target)}` }, async () => {
+  await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `kton: reproducing ${path.basename(target)}` }, async () => {
     if ((v.kind === 'scripts' || v.kind === 'scripts-with-gaps') && (v.scripts || []).length) {
       for (const s of v.scripts) {                       // the scripts you know, one after the other
         const code = await run([ktonR(), '--no-save', '-q', '-f', rel(s.path)], dir, env);
@@ -218,8 +229,8 @@ async function reproduce(project, target, sum) {
       }
     } else {                                              // the steps as recorded, as one script
       const script = r.script.replace(`setwd(${JSON.stringify(project)})`, `setwd(${JSON.stringify(dir)})`);
-      fs.writeFileSync(path.join(dir, 'kton-rezept.R'), script);
-      await run([ktonR(), '--no-save', '-q', '-f', 'kton-rezept.R'], dir, env);
+      fs.writeFileSync(path.join(dir, 'kton-recipe.R'), script);
+      await run([ktonR(), '--no-save', '-q', '-f', 'kton-recipe.R'], dir, env);
     }
   });
   const got = await sha256File(path.join(dir, rel(target)));
@@ -260,8 +271,8 @@ class Tree {
       return ps.filter((p) => !p.path.startsWith(reproRoot() + '/')).map((p) => {
         const mine = ws.some((w) => p.path === w || p.path.startsWith(w + '/') || w.startsWith(p.path + '/'));
         const it = new vscode.TreeItem(path.basename(p.path), mine ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.Collapsed);
-        it.description = `${p.sessions} Sitzungen`;
-        it.tooltip = `${p.path}\n${p.sessions} Sitzungen, ${p.tasks} Schritte, zuletzt ${new Date(p.last_ns / 1e6).toLocaleString('de-AT')}`;
+        it.description = `${p.sessions} sessions`;
+        it.tooltip = `${p.path}\n${p.sessions} sessions, ${p.tasks} steps, last ${new Date(p.last_ns / 1e6).toLocaleString()}`;
         it.iconPath = new vscode.ThemeIcon('project');
         it.contextValue = 'project';
         return { kind: 'project', project: p.path, item: it };
@@ -297,7 +308,7 @@ class Tree {
       for (const f of list) {
         const it = new vscode.TreeItem(rel(f).slice(e.dir.length), vscode.TreeItemCollapsibleState.None);
         it.resourceUri = vscode.Uri.file(f.path);
-        const when = new Date(f.when_ns / 1e6).toLocaleString('de-AT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+        const when = new Date(f.when_ns / 1e6).toLocaleString(undefined, { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
         it.description = [NOW[f.now] || '', f.produced_by ? when : ''].filter(Boolean).join(' · ');
         it.tooltip = `${f.path}\nsha256 ${f.sha256.slice(0, 16)}…${f.now === 'changed' ? '\nThe file has other content today.' : f.now === 'gone' ? '\nThe file no longer exists.' : ''}`;
         if (f.produced_by) {

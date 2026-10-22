@@ -5,7 +5,7 @@
 #
 #   PROJ=/path/to/beispiel-theo sh recorder/demo/beispiel.sh
 #
-# Built to be reproduced (kton-repro, or "Reproduzieren" in Positron): base R only, numbers in
+# Built to be reproduced (kton-repro, or "Reproduce" in Positron): base R only, numbers in
 # tables rounded to 4 significant digits, Quarto called from the shell rather than by a path
 # inside R. Needs the installed recorder (recorder/install.sh), R, NONMEM (nmfe75), quarto.
 set -e
@@ -13,13 +13,13 @@ PROJ=${PROJ:?set PROJ to the project directory to create}
 SHIM="$HOME/.local/lib/kton/libktontrace.so"
 TRACE=${XDG_CACHE_HOME:-$HOME/.cache}/kton-cockpit/trace
 QUARTO_BIN=$(dirname "$(command -v quarto || ls "$HOME"/.positron-server/bin/*/quarto/bin/quarto 2>/dev/null | head -1)")
-[ -f "$SHIM" ] || { echo "erst recorder/install.sh" >&2; exit 1; }
+[ -f "$SHIM" ] || { echo "run recorder/install.sh first" >&2; exit 1; }
 command -v nmfe75 >/dev/null || { echo "nmfe75 is not on the PATH" >&2; exit 1; }
 
 say() { printf '\n== %s\n' "$*"; }
 
 # ---------------------------------------------------------------- setup (not recorded)
-say "Projekt anlegen: $PROJ"
+say "creating the project: $PROJ"
 rm -rf "$PROJ"
 mkdir -p "$PROJ"/R "$PROJ"/raw "$PROJ"/data "$PROJ"/qc "$PROJ"/tables "$PROJ"/figures "$PROJ"/models "$PROJ"/report
 cd "$PROJ"
@@ -51,10 +51,10 @@ pk <- read.csv("data/pk.csv")
 obs <- pk[pk$EVID == 0, ]
 checks <- data.frame(
   check = c("missing values", "negative concentrations", "duplicate time points",
-               "Probanden ohne Dosis", "Beobachtungen je Proband (min)"),
-  wert = c(sum(is.na(pk)), sum(obs$DV < 0), sum(duplicated(obs[, c("ID", "TIME")])),
+            "subjects without a dose", "observations per subject (min)"),
+  value = c(sum(is.na(pk)), sum(obs$DV < 0), sum(duplicated(obs[, c("ID", "TIME")])),
            length(setdiff(unique(obs$ID), pk$ID[pk$EVID == 1])), min(table(obs$ID))))
-checks$ok <- c(checks$wert[1:4] == 0, checks$wert[5] >= 5)
+checks$ok <- c(checks$value[1:4] == 0, checks$value[5] >= 5)
 write.csv(checks, "qc/qc_befunde.csv", row.names = FALSE)
 R
 
@@ -77,7 +77,7 @@ write.csv(nca, "tables/nca.csv", row.names = FALSE)
 R
 
 cat > models/run1.mod <<'NM'
-$PROBLEM Theophyllin, 1-Kompartiment, Absorption 1. Ordnung
+$PROBLEM Theophylline, 1 compartment, first-order absorption
 $INPUT ID TIME AMT DV EVID MDV CMT WT
 $DATA ../data/pk.csv IGNORE=@
 $SUBROUTINES ADVAN2 TRANS2
@@ -132,7 +132,7 @@ R
 
 cat > report/report.qmd <<'Q'
 ---
-title: "Theophyllin: populationspharmakokinetische Analyse"
+title: "Theophylline: population pharmacokinetic analysis"
 format:
   html:
     embed-resources: true

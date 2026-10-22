@@ -8,7 +8,7 @@ WORK=${WORK:-$(mktemp -d)}
 missing=""
 for t in gcc go python3; do command -v "$t" >/dev/null 2>&1 || missing="$missing $t"; done
 if [ -n "$missing" ]; then
-  echo "Fehlt:$missing  (Ubuntu: sudo apt install build-essential; Go: https://go.dev/dl/)" >&2
+  echo "missing:$missing  (Ubuntu: sudo apt install build-essential; Go: https://go.dev/dl/)" >&2
   exit 1
 fi
 
@@ -39,5 +39,5 @@ KTON_DEMO_OUTSIDE="$OUTSIDE" KTON_TRACE_LOG="$LOG" KTON_TRACE_HASH="$P" LD_PRELO
 
 wait $WATCH
 echo
-echo "Rohlog:  $LOG  ($(wc -l < "$LOG") Zeilen)"
+echo "raw log: $LOG  ($(wc -l < "$LOG") lines)"
 echo "JSON:    $WORK/tasks.json"

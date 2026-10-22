@@ -43,10 +43,10 @@ func CompareFiles(a, b []byte, rtol float64) Comparison {
 	}
 	la, lb := lines(a), lines(b)
 	if len(la) != len(lb) {
-		c.Verdict, c.Note = "different", "andere Zeilenzahl ("+strconv.Itoa(len(lb))+" statt "+strconv.Itoa(len(la))+")"
+		c.Verdict, c.Note = "different", "other number of lines ("+strconv.Itoa(len(lb))+" instead of "+strconv.Itoa(len(la))+")"
 		for i := 0; i < len(la) && i < len(lb); i++ {
 			if la[i] != lb[i] {
-				c.Note += "; zuerst anders in Zeile " + strconv.Itoa(i+1) + ": „" + clip(lb[i]) + "“ statt „" + clip(la[i]) + "“"
+				c.Note += "; first different in line " + strconv.Itoa(i+1) + ": “" + clip(lb[i]) + "” instead of “" + clip(la[i]) + "”"
 				break
 			}
 		}
@@ -71,7 +71,7 @@ func CompareFiles(a, b []byte, rtol float64) Comparison {
 			x, okx := number(ta[j])
 			y, oky := number(tb[j])
 			if !okx || !oky {
-				c.Verdict, c.Note = "different", "Zeile "+strconv.Itoa(i+1)+": „"+ta[j]+"“ statt „"+tb[j]+"“"
+				c.Verdict, c.Note = "different", "line "+strconv.Itoa(i+1)+": “"+ta[j]+"” instead of “"+tb[j]+"”"
 				return c
 			}
 			c.Numbers++

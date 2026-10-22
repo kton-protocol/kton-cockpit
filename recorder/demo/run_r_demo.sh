@@ -3,7 +3,7 @@
 set -e
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 WORK=${WORK:-$(mktemp -d)}
-command -v R >/dev/null || { echo "R fehlt" >&2; exit 1; }
+command -v R >/dev/null || { echo "R is not installed" >&2; exit 1; }
 sh "$ROOT/build.sh"
 P="$WORK/project"; mkdir -p "$P/data"
 printf 'id,time,conc\n1,0,0\n1,1,4.2\n2,1,5.0\n' > "$P/data/pk.csv"
@@ -17,7 +17,7 @@ cat > "$WORK/session.R" <<'R'
 source(Sys.getenv("KTON_TRACE_R"))
 pk <- read.csv("data/pk.csv")
 source("step2.R")
-x <- try(read.csv("data/gibtsnicht.csv"), silent = TRUE)
+x <- try(read.csv("data/does_not_exist.csv"), silent = TRUE)
 pkd2 <- read.csv("data/pk_dose.csv"); m <- matrix(1:6, 2)
 R
 LOG="$WORK/trace.tsv"; : > "$LOG"

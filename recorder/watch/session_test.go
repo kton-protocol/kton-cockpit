@@ -191,7 +191,7 @@ func TestSession_SourceEnvMissingAndTail(t *testing.T) {
 		ev(100, "open", "r", "/opt/nm751/util/x", "").
 		ev(100, "SOURCE", "-", "/p/step2.R", "").
 		ev(100, "SOURCE", "-", "/usr/lib/R/library/tools/R/tools", "").
-		ev(100, "openfail", "r", "/p/gibtsnicht.csv", "errno=2").
+		ev(100, "openfail", "r", "/p/does_not_exist.csv", "errno=2").
 		task(1, "err", "source('step2.R')").
 		ev(100, "open", "r", "/p/late.csv", "sha256=lll")
 	s := sess(t, l, nil)
@@ -498,5 +498,19 @@ func TestSession_APausedCommandLeavesNothing(t *testing.T) {
 		if o.Path == "/p/secret.txt" {
 			t.Fatalf("the paused command's file waits for the store: %+v", o)
 		}
+	}
+}
+
+// From MH's run: R looks for .Rhistory when it starts, before ktonrec's ENV. That is not a file a
+// command missed.
+func TestSession_FilesLookedForAtStartAreNotMissing(t *testing.T) {
+	l := (&logb{}).
+		ev(100, "openfail", "r", "/p/.Rhistory", "errno=2").
+		ev(100, "ENV", "-", "/usr/lib/R", "project=/p").
+		ev(100, "openfail", "r", "/p/data/missing.csv", "errno=2").
+		task(1, "ok", "read.csv('data/missing.csv')")
+	s := sess(t, l, nil)
+	if m := task(t, s, "1").Missing; len(m) != 1 || m[0] != "/p/data/missing.csv" {
+		t.Fatalf("missing %v", m)
 	}
 }

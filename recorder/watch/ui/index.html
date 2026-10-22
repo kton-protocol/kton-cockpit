@@ -129,8 +129,8 @@ dialog pre { background: var(--bg); border: 1px solid var(--line); border-radius
 <script>
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
-const time = (ns) => ns ? new Date(ns / 1e6).toLocaleString("de-AT", {dateStyle: "short", timeStyle: "short"}) : "";
-const clock = (ns) => ns ? new Date(ns / 1e6).toLocaleTimeString("de-AT", {timeStyle: "short"}) : "";
+const time = (ns) => ns ? new Date(ns / 1e6).toLocaleString(undefined, {dateStyle: "short", timeStyle: "short"}) : "";
+const clock = (ns) => ns ? new Date(ns / 1e6).toLocaleTimeString(undefined, {timeStyle: "short"}) : "";
 const short = (h) => h ? h.slice(0, 12) : "–";
 const trunc = (s, n) => s.length > n ? s.slice(0, n - 1) + "…" : s;
 const get = async (u) => { const r = await fetch(u); return r.ok ? r.json() : null; };
@@ -151,7 +151,7 @@ const stepKey = (t) => (t.session || (scope && scope.kind === "session" ? scope.
 
 async function nav() {
   const [projects, sessions] = await Promise.all([get("api/projects"), get("api/sessions")]);
-  let h = `<h3>Projekte</h3>`;
+  let h = `<h3>Projects</h3>`;
   h += (projects || []).map((p) => `<button data-kind="project" data-id="${esc(p.path)}" class="${scope && scope.kind === "project" && scope.id === p.path ? "on" : ""}">
       <div class="id">${esc(p.path.split("/").pop())}</div><div class="meta">${esc(p.path)}</div>
       <div class="meta">${p.sessions} session${p.sessions > 1 ? "s" : ""} · ${p.tasks} commands · ${time(p.last_ns)}</div></button>`).join("") || `<p class="empty" style="padding:0 16px">–</p>`;
@@ -198,7 +198,7 @@ function origin(t) {
   const o = (t.origins || [])[0];
   if (o && o.file) {
     if (/^\s*source\(/.test(o.code || "")) return `source(${rel(o.file)})`;
-    const where = o.chunk ? `Chunk ${o.chunk}` : (o.start_line ? `Zeile ${o.start_line}${o.end_line > o.start_line ? "–" + o.end_line : ""}` : "");
+    const where = o.chunk ? `chunk ${o.chunk}` : (o.start_line ? `lines ${o.start_line}${o.end_line > o.start_line ? "–" + o.end_line : ""}` : "");
     return rel(o.file) + (where ? " · " + where : "");
   }
   const src = (t.sources || []).find((x) => x.class === "project");
@@ -211,7 +211,7 @@ function codeBlock(t) {
   const c = codeOf(t);
   if (!c.trim()) return "";
   const lines = c.replace(/\s+$/, "").split("\n");
-  return `<pre class="code">${esc(lines.slice(0, 6).join("\n") + (lines.length > 6 ? `\n… (${lines.length - 6} Zeilen mehr)` : ""))}</pre>`;
+  return `<pre class="code">${esc(lines.slice(0, 6).join("\n") + (lines.length > 6 ? `\n… (${lines.length - 6} more lines)` : ""))}</pre>`;
 }
 function nowChip(now) {
   if (now === "changed") return `<span class="chip warn">different today</span>`;
@@ -249,9 +249,19 @@ async function renderFiles() {
   }
 }
 
+// the step's version of a file is history: a later step wrote the file again
+function laterChip(x) {
+  const l = x.later;
+  if (!l) return "";
+  if (l.unrecorded) return `<span class="chip warn" title="no recorded step wrote it again, but the file has other bytes today (an editor, Excel, a copy)">changed later outside the recording</span>`;
+  const who = `${sessLabel(l.session)} command ${esc(l.task)}`;
+  return l.same_bytes
+    ? `<span class="chip" title="written again by ${who}, with the same bytes">rewritten later, same bytes</span>`
+    : `<span class="chip warn" title="written again by ${who}, with other bytes: this step used a version the file no longer has">overwritten later by ${who}</span>`;
+}
 function stepCard(t, i) {
-  const ins = (t.inputs || []).map((x) => `<span class="f">${esc(rel(x.path))}</span>${x.from ? "" : `<span class="chip">Ausgang</span>`}${x.now === "same" ? "" : nowChip(x.now)}`).join(", ");
-  const outs = (t.outputs || []).map((x) => `<span class="f">${esc(rel(x.path))}</span>`).join(", ");
+  const ins = (t.inputs || []).map((x) => `<span class="f">${esc(rel(x.path))}</span>${x.from ? "" : `<span class="chip">source</span>`}${laterChip(x)}${x.now === "same" || x.later ? "" : nowChip(x.now)}`).join(", ");
+  const outs = (t.outputs || []).map((x) => `<span class="f">${esc(rel(x.path))}</span>${laterChip(x)}`).join(", ");
   const uses = (t.uses || []).map((u) => `<span class="f">${esc(u.name)}</span>`).join(", ");
   return `<div class="step"><div class="t"><span class="n">${i + 1}</span><span class="o">${esc(origin(t))}</span>
       <span class="h">${sessLabel(t.session)} · ${clock(t.end_ns)}</span>${t.status === "err" ? `<span class="bad">error</span>` : ""}</div>
@@ -333,7 +343,7 @@ function renderList(ts) {
     const cmds = fileRow("programs", t.commands, (c) => `<span class="f">${esc(c.cmdline || c.program)}</span>`);
     const warn = [];
     for (const n of t.network || []) if (n.class === "remote") warn.push(`<span class="warn">network ${esc(n.address)}: not a foton, needs a claim</span>`);
-    for (const m of t.missing || []) warn.push(`<span class="warn">fehlte: ${esc(rel(m))}</span>`);
+    for (const m of t.missing || []) warn.push(`<span class="warn">missing: ${esc(rel(m))}</span>`);
     for (const u of t.unrecorded || []) warn.push(`<span class="warn">not recorded (static?): ${esc(u.program)}</span>`);
     return `<div class="task ${t.status === "err" ? "err" : ""}">
       <div class="head"><span class="seq">${t.session ? sessLabel(t.session) + " · " : ""}#${t.seq}</span><span class="origin">${esc(origin(t))}</span>

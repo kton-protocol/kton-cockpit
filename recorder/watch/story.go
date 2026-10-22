@@ -218,6 +218,20 @@ func storyOf(tasks []*Task, project, path, sum string) *Story {
 		for _, h := range handEdited {
 			s.Warnings = append(s.Warnings, h+" had been changed by hand before")
 		}
+		for _, in := range t.Inputs {
+			switch l := in.Later; {
+			case l == nil, l.Same:
+			case l.Unrecorded:
+				s.Warnings = append(s.Warnings, rel(in.Path)+" was changed afterwards outside the recording: it no longer holds what this step used")
+			default:
+				s.Warnings = append(s.Warnings, rel(in.Path)+" was overwritten later ("+l.Session+", command "+l.Task+"): this step used an earlier version")
+			}
+		}
+		for _, o := range t.Outputs {
+			if l := o.Later; l != nil && l.Unrecorded {
+				s.Warnings = append(s.Warnings, rel(o.Path)+" was changed afterwards outside the recording: it no longer holds what this step wrote")
+			}
+		}
 		for _, m := range t.Missing {
 			if !probe(m) {
 				s.Warnings = append(s.Warnings, rel(m)+" did not exist")

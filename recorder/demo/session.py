@@ -85,7 +85,7 @@ try:
     s.close()
 except OSError:
     pass
-mark("lab <- dbGetQuery(con, 'SELECT * FROM lab')   # Live-Verbindung")
+mark("lab <- dbGetQuery(con, 'SELECT * FROM lab')   # a live connection")
 
 # 8
 mi = merge(read_csv("derived/clean.csv"), cov, on="id")
