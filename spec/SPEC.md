@@ -457,6 +457,30 @@ substrate restricts nobody from chaining under it, so one claim from a key in no
 tier froze writing entirely — a veto over a repository's own records, handed to anyone it mirrors
 from. Recorded here because the refusal looked like caution.
 
+### 8.6 Describing a step
+
+`cockpit init` admits two templates beside `working-on` and `reproduces`, so that what a person
+writes about a step outlives the script that ran it. Each is a signed claim about a foton or a
+potential with one required field, `value`:
+
+| template | predicate | says |
+|---|---|---|
+| `describes` | `http://purl.org/dc/terms/description` | what was done |
+| `rationale` | `https://w3id.org/ep-plan#hasRationale` | why this way |
+
+They are two claims rather than two fields of one, so a query by predicate tells a description from
+a reason (ADR-005). Both are published terms; ktonpkg reads packages by the same IRIs and field.
+
+A later claim MUST NOT replace an earlier one. Each is its own claim, and ask returns every included
+one with its signer and time; which to read as current is the reader's call. Taking one back is an
+explicit supersession in the substrate (nekton's append-only retraction), never an inference the
+cockpit draws from order. That would be chain logic §13 rules out, over records from signers it
+does not own.
+
+> **Checked by:** `TestSay_DescribesAndRationaleAreTwoClaimsAboutAFoton`,
+> `TestSay_DescribesRefusesAnEmptyClaim`, `TestTemplates_NamePredicatesByFullIRI`,
+> `TestTemplates_KtonpkgReadsWhatDescribesAndRationaleWrite` (`-tags unreleased`).
+
 ### 8.3 Registration
 
 A cockpit MUST confirm, by querying the record back, that the claim registered — and MUST NOT report

@@ -79,7 +79,7 @@ What that creates, all inside the repository:
 |---|---|---|
 | `cockpit.config.json` | binding to `alice/study` (must match `origin`), identity, trust tier `self`, pinned image | yes |
 | `.gitignore` | keeps `/keys/` out | yes |
-| `templates/working-on.json`, `templates/reproduces.json` | the claims this repository allows | yes |
+| `templates/working-on.json`, `templates/reproduces.json`, `templates/describes.json`, `templates/rationale.json` | the claims this repository allows | yes |
 | `registry/keys/alice.pub`, `alice-claims.pub` | the public keys — a peer verifies with them | yes |
 | `keys/alice.key`, `alice-claims.key` | the **private** signing keys | **no** |
 | `keys/alice.pub`, `alice-claims.pub` | the public keys again, beside their private keys | **no** |

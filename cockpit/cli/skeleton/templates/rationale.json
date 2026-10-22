@@ -1,0 +1,8 @@
+{
+  "name": "rationale",
+  "target": "either",
+  "predicate": "https://w3id.org/ep-plan#hasRationale",
+  "fields": {
+    "value": {"type": "string", "required": true}
+  }
+}

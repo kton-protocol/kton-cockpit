@@ -186,7 +186,7 @@ func runInit(ctx context.Context) error {
 			NektonKey:   "keys/session-1-claims.key",
 		},
 		Verbs:  config.Verbs{Publish: true, Say: true, Ask: true},
-		Claims: config.Claims{AllowedTemplates: []string{"reproduces", "working-on"}},
+		Claims: config.Claims{AllowedTemplates: []string{"describes", "rationale", "reproduces", "working-on"}},
 		Trust: config.Trust{
 			Tiers: map[string][]string{
 				"self": {},
