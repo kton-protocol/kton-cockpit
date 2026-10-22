@@ -34,7 +34,7 @@ for i in $(seq 1 12); do printf '%d,%d,%.2f\n' "$i" $((20 + i)) "$(echo "0.8 + $
 
 cat > R/explore.R <<'R'
 png("figures/conc_time.png", width = 800, height = 500)
-plot(CP ~ TIME, data = ana, col = ana$ID, pch = 19, main = "Konzentration über Zeit")
+plot(CP ~ TIME, data = ana, col = ana$ID, pch = 19, main = "Concentration over time")
 dev.off()
 R
 cat > R/nca.R <<'R'
@@ -44,7 +44,7 @@ auc <- sapply(split(obs, obs$ID), function(d) { d <- d[order(d$TIME), ]; sum(dif
 cmax <- tapply(obs$CP, obs$ID, max)
 nca <- data.frame(ID = as.integer(names(auc)), AUC = round(auc, 2), CMAX = cmax[names(auc)])
 write.csv(nca, "tables/nca.csv", row.names = FALSE)
-png("figures/nca_auc.png", width = 600, height = 400); barplot(nca$AUC, names.arg = nca$ID, main = "AUC je Proband"); dev.off()
+png("figures/nca_auc.png", width = 600, height = 400); barplot(nca$AUC, names.arg = nca$ID, main = "AUC per subject"); dev.off()
 R
 cat > R/summarise.py <<'PY'
 """Reads NONMEM results with pharmpy and writes a short summary."""
@@ -58,9 +58,9 @@ sed 's/^\$DATA *THEOPP/$DATA nm_data.dat/; s/^\$TABLE \(.*\)$/$TABLE \1 FILE=sdt
 sed 's/^\$PROB .*/$PROB  THEOPHYLLINE   VARIANT FOR PSN/' model/run1.ctl > model/run2.mod
 sed 's/^\$DATA nm_data.dat/$DATA ..\/nm_data.dat/; s/^\$PROB .*/$PROB  THEOPHYLLINE   VARIANT FOR BBI/' model/run1.ctl > model/run3.ctl
 (cd model && bbi init --dir "$(dirname "$NM")" >/dev/null)
-cat > report/bericht.qmd <<'Q'
+cat > report/report.qmd <<'Q'
 ---
-title: "Theophyllin – Tagesbericht"
+title: "Theophylline – daily report"
 format: html
 ---
 
@@ -76,7 +76,7 @@ cat("OFV:", fit$ofv)
 
 ![Konzentration](../figures/conc_time.png)
 Q
-Rscript -e 'if (!requireNamespace("jsonlite", quietly = TRUE)) quit(status = 1)' || sed -i 's/fit <- jsonlite::fromJSON("..\/model\/run1_summary.json")/fit <- list(ofv = readLines("..\/model\/run1_summary.json"))/' report/bericht.qmd
+Rscript -e 'if (!requireNamespace("jsonlite", quietly = TRUE)) quit(status = 1)' || sed -i 's/fit <- jsonlite::fromJSON("..\/model\/run1_summary.json")/fit <- list(ofv = readLines("..\/model\/run1_summary.json"))/' report/report.qmd
 
 run() { # $1 label, $2 script: one R session under the recorder, like `Rscript $2`
   say "$1"
@@ -85,7 +85,7 @@ run() { # $1 label, $2 script: one R session under the recorder, like `Rscript $
 }
 
 # ---------------------------------------------------------------- the day's scripts
-cat > R/01_daten.R <<'R'
+cat > R/01_data.R <<'R'
 pk <- read.csv("raw/theopp_raw.csv", na.strings = ".")
 dose <- haven::read_xpt("raw/dosing.xpt")
 lab <- read.csv(file.path(Sys.getenv("SHARED", "../shared-drive"), "lab_values.csv"))
@@ -103,7 +103,7 @@ dir.create("derived/subjects", showWarnings = FALSE); invisible(lapply(split(ana
 n_obs <- unlist(parallel::mclapply(list.files("derived/subjects", full.names = TRUE), function(f) sum(!is.na(read.csv(f)$CP)), mc.cores = 4))
 source("R/nca.R")
 R
-cat > R/03_modell.R <<'R'
+cat > R/03_model.R <<'R'
 ana <- read.csv("derived/analysis.csv")
 write.table(ana[, c("ID", "DOSE", "TIME", "CP", "WT")], "model/nm_data.dat", na = ".", row.names = FALSE, col.names = FALSE)
 setwd("model"); rc1 <- system("nmfe75 run1.ctl run1.lst > nmfe_run1.out 2>&1"); setwd("..")
@@ -111,15 +111,15 @@ setwd("model"); rc2 <- system("execute run2.mod -directory=run2_psn > psn_run2.o
 setwd("model"); rc3 <- system("bbi nonmem run local run3.ctl > bbi_run3.out 2>&1"); setwd("..")
 rc4 <- system2(Sys.getenv("PY", path.expand("~/.local/opt/psn/PsN_5_7_2/pyvenv/bin/python")), c("R/summarise.py", "model/run1.ctl", "model/run1_summary.json"))
 R
-cat > R/04_bericht.R <<'R'
+cat > R/04_report.R <<'R'
 quarto <- Sys.getenv("QUARTO", Sys.glob(path.expand("~/.positron-server/bin/*/quarto/bin/quarto"))[1])
-rc <- system(paste(shQuote(quarto), "render report/bericht.qmd --quiet"))
+rc <- system(paste(shQuote(quarto), "render report/report.qmd --quiet"))
 R
 
-run "08:30 Datenaufbereitung (Rscript R/01_daten.R)" R/01_daten.R
+run "08:30 Data preparation (Rscript R/01_data.R)" R/01_data.R
 
 # ---------------------------------------------------------------- Excel, not recorded
-say "dazwischen: analysis.csv von Hand in Excel korrigiert (nicht aufgezeichnet)"
+say "in between: analysis.csv corrected by hand in Excel (not recorded)"
 python3 -I - <<'PY'
 import csv
 rows = list(csv.reader(open("derived/analysis.csv")))
@@ -128,11 +128,11 @@ csv.writer(open("derived/analysis.csv", "w", newline="")).writerows(rows)
 PY
 
 run "10:15 Korrektur & NCA (R/02_nca.R)" R/02_nca.R
-run "13:00 Modellierung: nmfe75, PsN, bbi, pharmpy (R/03_modell.R)" R/03_modell.R
-run "16:00 Bericht (R/04_bericht.R)" R/04_bericht.R
+run "13:00 Modelling: nmfe75, PsN, bbi, pharmpy (R/03_model.R)" R/03_model.R
+run "16:00 Report (R/04_report.R)" R/04_report.R
 
 # ---------------------------------------------------------------- 17:30 ad hoc, in the console
-say "17:30 ad hoc in der Konsole: etwas für eine Kollegin"
+say "17:30 ad hoc in the console: something for a colleague"
 cat > .adhoc.txt <<'R'
 nca <- read.csv("tables/nca.csv")
 summary(nca)
@@ -140,11 +140,11 @@ hist(nca$AUC)
 top <- nca[nca$AUC > median(nca$AUC), ]
 alt <- read.csv("tables/nca_alt.csv")
 top$AUC_h <- round(top$AUC / 24, 2)
-write.csv(top, "fuer_kollegin.csv", row.names = FALSE)
+write.csv(top, "for_colleague.csv", row.names = FALSE)
 R
 KTON_TRACE_HASH="$PROJ" sh "$KR" --no-save -q --interactive < .adhoc.txt > .adhoc.out 2>&1 || true
 tail -n 2 .adhoc.out
 
-say "fertig. Ergebnisse:"
+say "done. Results:"
 grep -h "OBJECTIVE FUNCTION VALUE WITHOUT" model/run1.lst model/run2.lst model/run3/run3.lst 2>/dev/null | sed 's/^/   /' || true
 ls report/ tables/ figures/ | sed 's/^/   /'

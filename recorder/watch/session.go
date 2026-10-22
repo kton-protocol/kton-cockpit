@@ -634,7 +634,7 @@ func (s *Session) Close(reason string, ts int64) {
 		return
 	}
 	t := s.cur.t
-	t.ID, t.Status, t.Expr, t.End = "tail", "-", "(nach dem letzten Befehl)", ts
+	t.ID, t.Status, t.Expr, t.End = "tail", "-", "(after the last command)", ts
 	s.finish()
 	s.Closed = true
 	s.CloseReason = reason

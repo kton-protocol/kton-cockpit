@@ -22,7 +22,7 @@ func TestStory_TellsThePathAndTheDetours(t *testing.T) {
 		t.Fatalf("on %d off %d: %+v", on, off, st.Steps)
 	}
 	first := st.Steps[0]
-	if !strings.Contains(first.Sentence, "liest du „data.csv“") || !strings.Contains(first.Sentence, "legst") {
+	if !strings.Contains(first.Sentence, "you read “data.csv”") || !strings.Contains(first.Sentence, "create") {
 		t.Fatalf("sentence %q", first.Sentence)
 	}
 	var merge StoryStep
@@ -31,11 +31,11 @@ func TestStory_TellsThePathAndTheDetours(t *testing.T) {
 			merge = s
 		}
 	}
-	if !strings.Contains(merge.Sentence, "arbeitest du mit „c2“ und „lab“") {
+	if !strings.Contains(merge.Sentence, "work with “c2” and “lab”") {
 		t.Fatalf("merge sentence %q", merge.Sentence)
 	}
 	for _, s := range st.Steps {
-		if s.Error && !strings.HasSuffix(s.Sentence, "Das scheitert.") {
+		if s.Error && !strings.HasSuffix(s.Sentence, "It fails.") {
 			t.Fatalf("error step %q", s.Sentence)
 		}
 	}
@@ -61,7 +61,7 @@ func TestStory_StartsBeforeTheHandEdit(t *testing.T) {
 	if strings.Join(got, " ") != "a/1 hand/a.csv@v2bbbbbbbbbb b/1 b/2" {
 		t.Fatalf("steps %v", got)
 	}
-	if !st.Steps[0].OnPath || !st.Steps[1].Hand || !strings.Contains(st.Steps[1].Sentence, "von Hand") {
+	if !st.Steps[0].OnPath || !st.Steps[1].Hand || !strings.Contains(st.Steps[1].Sentence, "by hand") {
 		t.Fatalf("%+v", st.Steps[:2])
 	}
 }

@@ -2,7 +2,7 @@
   "name": "kton-recorder",
   "displayName": "kton recorder",
   "description": "Records where each piece of R code came from, switches recording on and off, shows each result's story step by step, and runs publish and reproduction from there.",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "publisher": "kton",
   "license": "MIT",
   "engines": {
@@ -19,11 +19,11 @@
     "commands": [
       {
         "command": "kton.openObservations",
-        "title": "kton: Beobachtungen im Panel öffnen"
+        "title": "kton: Open observations in a panel"
       },
       {
         "command": "kton.openInBrowser",
-        "title": "Große Ansicht im Browser",
+        "title": "Full view in the browser",
         "icon": "$(link-external)"
       },
       {
@@ -33,12 +33,12 @@
       },
       {
         "command": "kton.toggleRecording",
-        "title": "kton: Aufzeichnung an/aus",
+        "title": "kton: Recording on/off",
         "icon": "$(record)"
       },
       {
         "command": "kton.story",
-        "title": "Geschichte erzählen",
+        "title": "Tell the story",
         "icon": "$(book)"
       },
       {
@@ -48,16 +48,16 @@
       },
       {
         "command": "kton.openFile",
-        "title": "Datei öffnen",
+        "title": "Open file",
         "icon": "$(go-to-file)"
       },
       {
         "command": "kton.storyFile",
-        "title": "kton: Geschichte dieser Datei"
+        "title": "kton: Story of this file"
       },
       {
         "command": "kton.reproduceFile",
-        "title": "kton: Diese Datei reproduzieren"
+        "title": "kton: Reproduce this file"
       }
     ],
     "configuration": {
@@ -190,7 +190,7 @@
     "viewsWelcome": [
       {
         "view": "kton.files",
-        "contents": "Noch keine Beobachtungen. Starte eine R-Sitzung mit eingeschalteter Aufzeichnung.\n[Aktualisieren](command:kton.refresh)"
+        "contents": "No observations yet. Start an R session with recording on.\n[Refresh](command:kton.refresh)"
       }
     ]
   }

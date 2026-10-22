@@ -59,8 +59,8 @@ function origin(e) {
 const recording = () => !fs.existsSync(pauseFile());
 function showStatus() {
   const on = recording();
-  status.text = on ? '$(record) kton' : '$(circle-slash) kton aus';
-  status.tooltip = on ? 'kton zeichnet auf (Klick: pausieren)' : 'kton pausiert: nichts wird aufgezeichnet (Klick: weiter)';
+  status.text = on ? '$(record) kton' : '$(circle-slash) kton off';
+  status.tooltip = on ? 'kton is recording (click: pause)' : 'kton is paused: nothing is recorded (click: resume)';
   status.backgroundColor = on ? undefined : new vscode.ThemeColor('statusBarItem.warningBackground');
 }
 function toggleRecording() {
@@ -68,7 +68,7 @@ function toggleRecording() {
   if (recording()) fs.writeFileSync(pauseFile(), `paused ${new Date().toISOString()}\n`);
   else fs.rmSync(pauseFile(), { force: true });
   showStatus();
-  vscode.window.setStatusBarMessage(recording() ? 'kton: Aufzeichnung läuft' : 'kton: Aufzeichnung pausiert', 3000);
+  vscode.window.setStatusBarMessage(recording() ? 'kton: recording' : 'kton: recording paused', 3000);
 }
 
 // ------------------------------------------------------------------ ktonwatch
@@ -94,7 +94,7 @@ async function ensureService() {
     await new Promise((r) => setTimeout(r, 250));
     try { await getJSON(viewerUrl() + 'api/config'); return true; } catch (e) { /* not yet */ }
   }
-  vscode.window.showErrorMessage('kton: ktonwatch serve antwortet nicht');
+  vscode.window.showErrorMessage('kton: ktonwatch serve does not answer');
   return false;
 }
 
@@ -105,7 +105,7 @@ async function openObservations() {
   const ext = await vscode.env.asExternalUri(vscode.Uri.parse(viewerUrl()));
   const src = ext.toString(true);
   const originOf = new URL(src).origin;
-  panel = vscode.window.createWebviewPanel('ktonObservations', 'kton Beobachtungen', vscode.ViewColumn.Beside,
+  panel = vscode.window.createWebviewPanel('ktonObservations', 'kton observations', vscode.ViewColumn.Beside,
     { enableScripts: true, retainContextWhenHidden: true });
   const nonce = crypto.randomBytes(16).toString('hex');
   panel.webview.html = `<!doctype html><html><head><meta charset="utf-8">
@@ -129,8 +129,8 @@ async function publish(repo, text) {
   const calls = (text.match(/^cockpit publish /gm) || []).length;
   if (!calls) return;
   const ok = await vscode.window.showWarningMessage(
-    `${calls} × cockpit publish in ${repo} ausführen? Das signiert, committet und pusht.`, { modal: true }, 'Ausführen');
-  if (ok !== 'Ausführen') return;
+    `Run ${calls} × cockpit publish in ${repo}? That signs, commits and pushes.`, { modal: true }, 'Run');
+  if (ok !== 'Run') return;
   const cockpit = bin('cockpit');
   const term = vscode.window.terminals.find((t) => t.name === 'kton cockpit') ||
     vscode.window.createTerminal({ name: 'kton cockpit', cwd: repo });
@@ -166,7 +166,7 @@ async function reproduceInContainers(project, target, sum) {
   const exe = bin('kton-repro');
   if (!fs.existsSync(exe) || !(await dockerUp())) return false;
   out.show(true);
-  out.appendLine(`\n=== Reproduktion in Containern: ${path.relative(project, target)}`);
+  out.appendLine(`\n=== Reproduction in containers: ${path.relative(project, target)}`);
   const lines = [];
   const code = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `kton: reproduziere ${path.basename(target)} in Containern` }, () => new Promise((resolve) => {
     const p = spawn(exe, ['-project', project, '-path', target, '-sha', sum]);
@@ -177,9 +177,9 @@ async function reproduceInContainers(project, target, sum) {
   const dir = (lines.find((l) => l.startsWith('kton-repro: ') && l.includes(' in ')) || '').split(' in ').pop().trim();
   const verdict = (lines.filter((l) => l.startsWith('= ')).pop() || lines.filter((l) => l.trim()).pop() || '').replace(/^= /, '');
   const show = code === 0 ? vscode.window.showInformationMessage : vscode.window.showWarningMessage;
-  const pick = await show(`kton: ${verdict}`, ...(dir ? ['Ordner öffnen'] : []), 'Protokoll');
-  if (pick === 'Ordner öffnen') vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(dir));
-  if (pick === 'Protokoll') out.show();
+  const pick = await show(`kton: ${verdict}`, ...(dir ? ['Open folder'] : []), 'Log');
+  if (pick === 'Open folder') vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(dir));
+  if (pick === 'Log') out.show();
   return true;
 }
 
@@ -189,24 +189,24 @@ async function reproduce(project, target, sum) {
   let r;
   try {
     r = await getJSON(`${viewerUrl()}api/recipe?project=${encodeURIComponent(project)}&path=${encodeURIComponent(target)}&sha=${encodeURIComponent(sum)}`);
-  } catch (e) { vscode.window.showErrorMessage('kton: kein Rezept für ' + target); return; }
+  } catch (e) { vscode.window.showErrorMessage('kton: no recipe for ' + target); return; }
   const rel = (p) => path.relative(project, p);
   const inside = (p) => !rel(p).startsWith('..') && !path.isAbsolute(rel(p));
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
   const dir = path.join(home, '.cache', 'kton-cockpit', 'repro', `${stamp}-${path.basename(target)}`);
   fs.mkdirSync(dir, { recursive: true });
-  out.appendLine(`\n=== Reproduktion von ${rel(target)} (sha256 ${sum.slice(0, 12)}) in ${dir}`);
+  out.appendLine(`\n=== Reproduction of ${rel(target)} (sha256 ${sum.slice(0, 12)}) in ${dir}`);
   const notes = [];
   for (const s of r.sources || []) {
-    if (!inside(s.path)) { notes.push(`${s.path} liegt außerhalb und wird von dort gelesen`); continue; }
+    if (!inside(s.path)) { notes.push(`${s.path} is outside and is read from there`); continue; }
     const to = path.join(dir, rel(s.path));
     fs.mkdirSync(path.dirname(to), { recursive: true });
     try { fs.copyFileSync(s.path, to); } catch (e) { notes.push(`${rel(s.path)} fehlt: ${e.message}`); continue; }
-    if (s.now !== 'same') notes.push(`${rel(s.path)} hat heute einen anderen Inhalt als damals`);
+    if (s.now !== 'same') notes.push(`${rel(s.path)} has other content today than at the time`);
   }
   // the directories the recipe writes into exist in the original too
   for (const st of r.steps || []) for (const o of st.outputs || []) if (inside(o.path)) fs.mkdirSync(path.join(dir, path.dirname(rel(o.path))), { recursive: true });
-  for (const n of notes) out.appendLine('  Hinweis: ' + n);
+  for (const n of notes) out.appendLine('  note: ' + n);
   const env = Object.assign({}, process.env, { KTON_TRACE_HASH: dir });
   const v = r.verdict || {};
   const t0 = Date.now();
@@ -214,7 +214,7 @@ async function reproduce(project, target, sum) {
     if ((v.kind === 'scripts' || v.kind === 'scripts-with-gaps') && (v.scripts || []).length) {
       for (const s of v.scripts) {                       // the scripts you know, one after the other
         const code = await run([ktonR(), '--no-save', '-q', '-f', rel(s.path)], dir, env);
-        if (code !== 0) { out.appendLine(`  ${rel(s.path)} endete mit ${code}`); break; }
+        if (code !== 0) { out.appendLine(`  ${rel(s.path)} exited with ${code}`); break; }
       }
     } else {                                              // the steps as recorded, as one script
       const script = r.script.replace(`setwd(${JSON.stringify(project)})`, `setwd(${JSON.stringify(dir)})`);
@@ -225,24 +225,24 @@ async function reproduce(project, target, sum) {
   const got = await sha256File(path.join(dir, rel(target)));
   const result = { target: rel(target), recorded: sum, reproduced: got, same: got === sum, dir, seconds: Math.round((Date.now() - t0) / 1000), notes, verdict: v.kind };
   fs.writeFileSync(path.join(dir, 'kton-repro.json'), JSON.stringify(result, null, 1));
-  const msg = got === null ? `nicht erzeugt: das Rezept hat ${rel(target)} nicht geschrieben`
-    : got === sum ? `reproduziert ✓ dieselben Bytes (sha256 ${sum.slice(0, 12)})`
-    : `abweichend: ${got.slice(0, 12)} statt ${sum.slice(0, 12)}`;
+  const msg = got === null ? `not produced: the recipe did not write ${rel(target)}`
+    : got === sum ? `reproduced ✓ the same bytes (sha256 ${sum.slice(0, 12)})`
+    : `different: ${got.slice(0, 12)} instead of ${sum.slice(0, 12)}`;
   out.appendLine(`=== ${rel(target)}: ${msg}`);
   const show = got === sum ? vscode.window.showInformationMessage : vscode.window.showWarningMessage;
-  const pick = await show(`kton: ${rel(target)} ${msg}`, 'Ordner öffnen', 'Protokoll');
-  if (pick === 'Ordner öffnen') vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(dir));
-  if (pick === 'Protokoll') out.show();
+  const pick = await show(`kton: ${rel(target)} ${msg}`, 'Open folder', 'Log');
+  if (pick === 'Open folder') vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(dir));
+  if (pick === 'Log') out.show();
 }
 
 // ------------------------------------------------------------------ the side bar
-// Projects → Ergebnisse / Erhalten / Zwischenstände → files. A file that a recorded step wrote
+// Projects → Results / Received / Intermediates → files. A file that a recorded step wrote
 // opens its story; one that only came in opens in the editor.
 const reproRoot = () => path.join(home, '.cache', 'kton-cockpit', 'repro');
-const GROUPS = [['result', 'Ergebnisse', 'Dateien, die entstanden sind und die nichts danach mehr gelesen hat'],
-  ['source', 'Erhalten', 'Dateien, die von außen kamen: Rohdaten, Skripte, Laufwerke'],
-  ['intermediate', 'Zwischenstände', 'Entstanden und danach weiterverarbeitet']];
-const NOW = { same: '', changed: 'heute anders', gone: 'gelöscht' };
+const GROUPS = [['result', 'Results', 'files that came about and that nothing read afterwards'],
+  ['source', 'Received', 'files that came from outside: raw data, scripts, drives'],
+  ['intermediate', 'Intermediates', 'came about and were processed further']];
+const NOW = { same: '', changed: 'different today', gone: 'deleted' };
 
 class Tree {
   constructor() { this.ev = new vscode.EventEmitter(); this.onDidChangeTreeData = this.ev.event; this.files = {}; }
@@ -299,13 +299,13 @@ class Tree {
         it.resourceUri = vscode.Uri.file(f.path);
         const when = new Date(f.when_ns / 1e6).toLocaleString('de-AT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
         it.description = [NOW[f.now] || '', f.produced_by ? when : ''].filter(Boolean).join(' · ');
-        it.tooltip = `${f.path}\nsha256 ${f.sha256.slice(0, 16)}…${f.now === 'changed' ? '\nDie Datei hat heute einen anderen Inhalt.' : f.now === 'gone' ? '\nDie Datei gibt es nicht mehr.' : ''}`;
+        it.tooltip = `${f.path}\nsha256 ${f.sha256.slice(0, 16)}…${f.now === 'changed' ? '\nThe file has other content today.' : f.now === 'gone' ? '\nThe file no longer exists.' : ''}`;
         if (f.produced_by) {
           it.contextValue = 'produced';
-          it.command = { command: 'kton.story', title: 'Geschichte', arguments: [{ project: e.project, file: f }] };
+          it.command = { command: 'kton.story', title: 'Story', arguments: [{ project: e.project, file: f }] };
         } else {
           it.contextValue = 'received';
-          if (f.now !== 'gone') it.command = { command: 'vscode.open', title: 'Öffnen', arguments: [vscode.Uri.file(f.path)] };
+          if (f.now !== 'gone') it.command = { command: 'vscode.open', title: 'Open', arguments: [vscode.Uri.file(f.path)] };
         }
         items.push({ kind: 'file', project: e.project, file: f, item: it });
       }
@@ -321,10 +321,10 @@ async function recordedFile(uri) {
   if (!(await ensureService())) return null;
   const projects = await getJSON(viewerUrl() + 'api/projects').catch(() => []);
   const p = (projects || []).map((x) => x.path).filter((x) => file.startsWith(x + '/')).sort((a, b) => b.length - a.length)[0];
-  if (!p) { vscode.window.showWarningMessage('kton: keine Beobachtungen zu ' + file); return null; }
+  if (!p) { vscode.window.showWarningMessage('kton: no observations for ' + file); return null; }
   const files = await getJSON(`${viewerUrl()}api/files?project=${encodeURIComponent(p)}`, 10000).catch(() => []);
   const f = (files || []).find((x) => x.path === file && x.produced_by);
-  if (!f) { vscode.window.showWarningMessage('kton: kein aufgezeichneter Schritt hat ' + path.basename(file) + ' geschrieben'); return null; }
+  if (!f) { vscode.window.showWarningMessage('kton: no recorded step wrote ' + path.basename(file)); return null; }
   return { project: p, file: f };
 }
 
@@ -356,7 +356,7 @@ function noteLines(n) {
   if (!n) return [];
   if (typeof n === 'string') n = { description: n };
   const out_ = [];
-  for (const [f, label] of [['description', 'Beschreibung'], ['rationale', 'Begründung']]) {
+  for (const [f, label] of [['description', 'Description'], ['rationale', 'Rationale']]) {
     (n[f] || '').split('\n').filter((l) => l.trim()).forEach((l, i) => out_.push(`#   ${i ? ' '.repeat(label.length + 1) : label + ':'} ${l}`));
   }
   return out_;
@@ -364,7 +364,7 @@ function noteLines(n) {
 
 // the lines handed to publish(): per step the person's words as comments, then the call
 async function publishText(story, file, steps) {
-  const lines = [`# Geschichte von ${path.relative(story.repo, file.path)}`];
+  const lines = [`# Story of ${path.relative(story.repo, file.path)}`];
   for (const s of steps) {
     if (s.hand) { // not recorded, nothing to publish: the person's words stay with the story
       lines.push(`# ${s.sentence}`);
@@ -377,7 +377,7 @@ async function publishText(story, file, steps) {
     lines.push(...noteLines(s.note));
     const req = { inputs: (d.inputs || []).filter((f) => f.use).map((f) => f.path), outputs: (d.outputs || []).filter((f) => f.use).map((f) => f.path), cmd: d.cmd };
     if (!req.outputs.length) { // the files it wrote are not there with these bytes any more: nothing to sign
-      lines.push('#   nicht veröffentlichbar: ' + ((d.outputs || []).map((f) => `${f.path}${f.note ? ' (' + f.note + ')' : ''}`).join(', ') || 'keine Ausgabe'));
+      lines.push('#   cannot be published: ' + ((d.outputs || []).map((f) => `${f.path}${f.note ? ' (' + f.note + ')' : ''}`).join(', ') || 'no output'));
       continue;
     }
     lines.push('cockpit publish ' + sq(JSON.stringify(req)));
@@ -390,7 +390,7 @@ async function openStory(context, project, file) {
   if (stories.has(id)) { stories.get(id).reveal(); return; }
   if (!(await ensureService())) return;
   const media = vscode.Uri.file(path.join(context.extensionPath, 'media'));
-  const p = vscode.window.createWebviewPanel('ktonStory', 'Geschichte: ' + path.basename(file.path), vscode.ViewColumn.Active,
+  const p = vscode.window.createWebviewPanel('ktonStory', 'Story: ' + path.basename(file.path), vscode.ViewColumn.Active,
     { enableScripts: true, retainContextWhenHidden: true, localResourceRoots: [media] });
   p.iconPath = vscode.Uri.joinPath(media, 'kton.svg');
   stories.set(id, p);
@@ -401,7 +401,7 @@ async function openStory(context, project, file) {
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${w.cspSource}; script-src 'nonce-${nonce}';">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="stylesheet" href="${w.asWebviewUri(vscode.Uri.joinPath(media, 'story.css'))}"></head>
-<body><div id="root"><main><p class="muted">Die Geschichte wird zusammengesetzt …</p></main></div>
+<body><div id="root"><main><p class="muted">Putting the story together …</p></main></div>
 <script nonce="${nonce}" src="${w.asWebviewUri(vscode.Uri.joinPath(media, 'story.js'))}"></script></body></html>`;
   let story = null;
   const notesKey = 'kton.notes';
@@ -410,7 +410,7 @@ async function openStory(context, project, file) {
     try {
       story = await getJSON(`${viewerUrl()}api/story?project=${encodeURIComponent(project)}&path=${encodeURIComponent(file.path)}&sha=${encodeURIComponent(file.sha256)}`, 20000);
     } catch (e) {
-      w.html = `<!doctype html><body style="font-family:sans-serif;padding:20px">Keine Geschichte für ${path.basename(file.path)}: ${String(e.message).replace(/</g, '&lt;')}</body>`;
+      w.html = `<!doctype html><body style="font-family:sans-serif;padding:20px">No story for ${path.basename(file.path)}: ${String(e.message).replace(/</g, '&lt;')}</body>`;
       return;
     }
     // notes are kept per line of the story: session/script, or hand/<file>@<hash>

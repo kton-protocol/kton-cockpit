@@ -38,7 +38,7 @@ func CompareFiles(a, b []byte, rtol float64) Comparison {
 		return c
 	}
 	if binary(a) || binary(b) {
-		c.Verdict, c.Note = "different", "Binärdatei (etwa ein Bild): andere Bytes; vergleichen lässt sie sich nur mit einem Normaliser für diese Art Datei"
+		c.Verdict, c.Note = "different", "binary file (an image, say): other bytes; it can only be compared with a normaliser for this kind of file"
 		return c
 	}
 	la, lb := lines(a), lines(b)
@@ -61,7 +61,7 @@ func CompareFiles(a, b []byte, rtol float64) Comparison {
 		}
 		ta, tb := tokens(la[i]), tokens(lb[i])
 		if len(ta) != len(tb) {
-			c.Verdict, c.Note = "different", "Zeile "+strconv.Itoa(i+1)+" ist anders aufgebaut"
+			c.Verdict, c.Note = "different", "line "+strconv.Itoa(i+1)+" is built differently"
 			return c
 		}
 		for j := range ta {
@@ -78,13 +78,13 @@ func CompareFiles(a, b []byte, rtol float64) Comparison {
 			rel := math.Abs(x-y) / math.Max(math.Max(math.Abs(x), math.Abs(y)), 1e-300)
 			if rel > c.MaxRel {
 				c.MaxRel = rel
-				c.Where = "Zeile " + strconv.Itoa(i+1) + ": " + ta[j] + " statt " + tb[j]
+				c.Where = "line " + strconv.Itoa(i+1) + ": " + ta[j] + " instead of " + tb[j]
 			}
 		}
 	}
 	c.Verdict = "within"
 	if c.MaxRel > rtol {
-		c.Verdict, c.Note = "different", "Abweichung über der Toleranz"
+		c.Verdict, c.Note = "different", "difference above the tolerance"
 	}
 	return c
 }

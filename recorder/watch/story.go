@@ -19,7 +19,7 @@ type StoryStep struct {
 	Session  string   `json:"session"`
 	Task     string   `json:"task"`
 	When     int64    `json:"when_ns"`
-	Where    string   `json:"where"`    // "Skript 02_nca.R", "Konsole", "Chunk #1 von step3.qmd"
+	Where    string   `json:"where"`    // "script 02_nca.R", "console", "chunk #1 of step3.qmd"
 	Sentence string   `json:"sentence"` // what happened, in words
 	Code     string   `json:"code,omitempty"`
 	Reads    []string `json:"reads,omitempty"`  // project-relative
@@ -72,7 +72,7 @@ func toolsOf(t *Task) []string {
 func list(xs []string) string {
 	q := make([]string, len(xs))
 	for i, x := range xs {
-		q[i] = "„" + x + "“"
+		q[i] = "“" + x + "”"
 	}
 	switch len(q) {
 	case 0:
@@ -81,9 +81,9 @@ func list(xs []string) string {
 		return q[0]
 	}
 	if len(q) > 4 {
-		return strings.Join(q[:3], ", ") + fmt.Sprintf(" und %d weitere", len(q)-3)
+		return strings.Join(q[:3], ", ") + fmt.Sprintf(" and %d more", len(q)-3)
 	}
-	return strings.Join(q[:len(q)-1], ", ") + " und " + q[len(q)-1]
+	return strings.Join(q[:len(q)-1], ", ") + " and " + q[len(q)-1]
 }
 
 func storyOf(tasks []*Task, project, path, sum string) *Story {
@@ -118,9 +118,9 @@ func storyOf(tasks []*Task, project, path, sum string) *Story {
 				}
 				w, sum := writerBefore(tasks, in.Path, t.Start)
 				hands = append(hands, StoryStep{Session: "hand", Task: rel(in.Path) + "@" + in.SHA256[:12], When: t.Start - 1,
-					Where: "außerhalb der Aufzeichnung", OnPath: true, Hand: true, Reads: []string{rel(in.Path)}, Hashes: nil,
-					Sentence: "Du änderst „" + rel(in.Path) + "“ von Hand, zum Beispiel in Excel. Das wurde nicht aufgezeichnet: Was du hier geändert hast, kennt nur deine Beschreibung.",
-					Warnings: []string{"nicht nachrechenbar: wer die Skripte erneut laufen lässt, bekommt die Datei ohne diese Änderung"}})
+					Where: "outside the recording", OnPath: true, Hand: true, Reads: []string{rel(in.Path)}, Hashes: nil,
+					Sentence: "You change “" + rel(in.Path) + "” by hand, in Excel for example. That was not recorded: what you changed here is known only from your description.",
+					Warnings: []string{"cannot be recomputed: whoever runs the scripts again gets the file without this change"}})
 				if w != nil {
 					if before := recipeOf(tasks, project, in.Path, sum); before != nil {
 						todo = append(todo, before.Steps)
@@ -142,15 +142,15 @@ func storyOf(tasks []*Task, project, path, sum string) *Story {
 		s := StoryStep{Session: t.Session, Task: t.ID, When: t.End, Code: t.Code(), OnPath: on[stepKey(t)], Error: t.Status == "err"}
 		switch {
 		case len(t.Origins) > 0 && t.Origins[0].Chunk != "":
-			s.Where = "Chunk " + t.Origins[0].Chunk + " von " + rel(t.Origins[0].File)
+			s.Where = "chunk " + t.Origins[0].Chunk + " of " + rel(t.Origins[0].File)
 		case t.Script != "":
-			s.Where = "Skript " + rel(t.Script)
+			s.Where = "script " + rel(t.Script)
 		case len(t.Origins) > 0 && t.Origins[0].File != "":
 			s.Where = rel(t.Origins[0].File)
 		case shellSession(t.Session):
 			s.Where = "$ " + shellPlace(t)
 		default:
-			s.Where = "Konsole"
+			s.Where = "console"
 		}
 		var srcs []string
 		for _, x := range t.Sources {
@@ -182,61 +182,54 @@ func storyOf(tasks []*Task, project, path, sum string) *Story {
 		// the sentence: who, what was read, what ran, what came out
 		var parts []string
 		if len(srcs) > 0 {
-			parts = append(parts, "führst "+list(srcs)+" aus")
+			parts = append(parts, "run "+list(srcs))
 		}
 		if len(s.Reads) > 0 {
-			parts = append(parts, "liest "+list(s.Reads))
+			parts = append(parts, "read "+list(s.Reads))
 		}
 		if len(s.Uses) > 0 {
-			parts = append(parts, "arbeitest mit "+list(s.Uses))
+			parts = append(parts, "work with "+list(s.Uses))
 		}
 		if tools := toolsOf(t); len(tools) > 0 {
 			s.Tools = tools
-			parts = append(parts, "startest "+strings.Join(tools, ", "))
+			parts = append(parts, "start "+strings.Join(tools, ", "))
 		}
 		if len(s.Writes) > 0 {
-			parts = append(parts, "schreibst "+list(s.Writes))
+			parts = append(parts, "write "+list(s.Writes))
 		} else if len(s.Makes) > 0 {
-			parts = append(parts, "legst "+list(s.Makes)+" an")
+			parts = append(parts, "create "+list(s.Makes))
 		}
-		lead := "Du "
+		lead := "You "
 		switch {
-		case strings.HasPrefix(s.Where, "Skript "):
-			lead = "Im " + s.Where + " "
-		case strings.HasPrefix(s.Where, "Chunk "):
-			lead = "Im " + s.Where + " "
-		case s.Where == "Konsole":
-			lead = "In der Konsole "
+		case strings.HasPrefix(s.Where, "script "), strings.HasPrefix(s.Where, "chunk "):
+			lead = "In " + s.Where + ", you "
+		case s.Where == "console":
+			lead = "In the console, you "
 		case strings.HasPrefix(s.Where, "$ "):
-			lead = "Mit „" + s.Where[2:] + "“ "
+			lead = "With “" + s.Where[2:] + "”, you "
 		}
 		if len(parts) == 0 {
-			parts = []string{"führst Code aus, der keine Datei berührt"}
+			parts = []string{"run code that touches no file"}
 		}
-		verb := strings.Join(parts, ", ")
-		if lead == "Du " {
-			s.Sentence = lead + verb + "."
-		} else {
-			s.Sentence = lead + strings.Replace(verb, " ", " du ", 1) + "."
-		}
+		s.Sentence = lead + strings.Join(parts, ", ") + "."
 		if s.Error {
-			s.Sentence += " Das scheitert."
+			s.Sentence += " It fails."
 		}
 		for _, h := range handEdited {
-			s.Warnings = append(s.Warnings, h+" war vorher von Hand geändert worden")
+			s.Warnings = append(s.Warnings, h+" had been changed by hand before")
 		}
 		for _, m := range t.Missing {
 			if !probe(m) {
-				s.Warnings = append(s.Warnings, rel(m)+" gab es nicht")
+				s.Warnings = append(s.Warnings, rel(m)+" did not exist")
 			}
 		}
 		for _, n := range t.Network {
 			if n.Class == "remote" {
-				s.Warnings = append(s.Warnings, "Verbindung zu "+n.Address)
+				s.Warnings = append(s.Warnings, "connection to "+n.Address)
 			}
 		}
 		for _, u := range t.Unrecorded {
-			s.Warnings = append(s.Warnings, filepath.Base(u.Program)+" lief, konnte aber nicht aufgezeichnet werden")
+			s.Warnings = append(s.Warnings, filepath.Base(u.Program)+" ran but could not be recorded")
 		}
 		st.Steps = append(st.Steps, s)
 	}
@@ -281,8 +274,8 @@ func contains(xs []string, x string) bool {
 func Clock(ns int64) string { return time.Unix(0, ns).Format("15:04") }
 
 // shellSession: a session of shell commands, each marked from outside: Claude Code's Bash tool
-// (claude-…) or a recorded shell script (shell-…, recorder/demo/beispiel.sh).
-// Every command is its own place in the story, not one "Konsole" for all.
+// (claude-…) or a recorded shell script (shell-…, recorder/demo/example.sh).
+// Every command is its own place in the story, not one "console" for all.
 func shellSession(id string) bool {
 	return strings.HasPrefix(id, "claude-") || strings.HasPrefix(id, "shell-")
 }

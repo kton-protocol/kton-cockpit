@@ -14,7 +14,7 @@ SHIM="$HOME/.local/lib/kton/libktontrace.so"
 TRACE=${XDG_CACHE_HOME:-$HOME/.cache}/kton-cockpit/trace
 QUARTO_BIN=$(dirname "$(command -v quarto || ls "$HOME"/.positron-server/bin/*/quarto/bin/quarto 2>/dev/null | head -1)")
 [ -f "$SHIM" ] || { echo "erst recorder/install.sh" >&2; exit 1; }
-command -v nmfe75 >/dev/null || { echo "nmfe75 fehlt im PATH" >&2; exit 1; }
+command -v nmfe75 >/dev/null || { echo "nmfe75 is not on the PATH" >&2; exit 1; }
 
 say() { printf '\n== %s\n' "$*"; }
 
@@ -26,8 +26,8 @@ cd "$PROJ"
 COCKPIT=${COCKPIT:-$HOME/.local/bin/cockpit}
 if [ -x "$COCKPIT" ]; then "$COCKPIT" init >/dev/null && "$COCKPIT" keygen analystin >/dev/null; fi
 
-cat > R/01_daten.R <<'R'
-# Rohdaten und NONMEM-Datensatz aus datasets::Theoph
+cat > R/01_data.R <<'R'
+# raw data and the NONMEM dataset from datasets::Theoph
 raw <- as.data.frame(datasets::Theoph)
 raw$Subject <- as.integer(as.character(raw$Subject))
 raw <- raw[order(raw$Subject, raw$Time), ]
@@ -46,11 +46,11 @@ write.csv(pk, "data/pk.csv", row.names = FALSE, quote = FALSE)
 R
 
 cat > R/02_qc.R <<'R'
-# Datenqualität
+# data quality
 pk <- read.csv("data/pk.csv")
 obs <- pk[pk$EVID == 0, ]
 checks <- data.frame(
-  pruefung = c("fehlende Werte", "negative Konzentrationen", "doppelte Zeitpunkte",
+  check = c("missing values", "negative concentrations", "duplicate time points",
                "Probanden ohne Dosis", "Beobachtungen je Proband (min)"),
   wert = c(sum(is.na(pk)), sum(obs$DV < 0), sum(duplicated(obs[, c("ID", "TIME")])),
            length(setdiff(unique(obs$ID), pk$ID[pk$EVID == 1])), min(table(obs$ID))))
@@ -59,12 +59,12 @@ write.csv(checks, "qc/qc_befunde.csv", row.names = FALSE)
 R
 
 cat > R/03_eda.R <<'R'
-# Explorative Analyse: Konzentrations-Zeit-Verläufe und NCA
+# exploratory analysis: concentration-time profiles and NCA
 pk <- read.csv("data/pk.csv")
 obs <- pk[pk$EVID == 0, ]
 png("figures/spaghetti.png", width = 900, height = 550)
-plot(DV ~ TIME, data = obs, type = "n", log = "y", xlab = "Zeit (h)", ylab = "Konzentration (mg/L)",
-     main = "Theophyllin: Konzentration über Zeit")
+plot(DV ~ TIME, data = obs, type = "n", log = "y", xlab = "time (h)", ylab = "concentration (mg/L)",
+     main = "Theophylline: concentration over time")
 for (i in unique(obs$ID)) lines(DV ~ TIME, data = obs[obs$ID == i, ], col = i)
 dev.off()
 nca <- do.call(rbind, lapply(split(obs, obs$ID), function(s) {
@@ -99,38 +99,38 @@ $ESTIMATION METHOD=1 INTER MAXEVAL=9999 PRINT=5 NOABORT
 $COVARIANCE
 $TABLE ID TIME DV PRED IPRED CWRES IWRES NOPRINT ONEHEADER NOAPPEND FILE=sdtab1
 NM
-sed -e 's/^\$PROBLEM .*/$PROBLEM Theophyllin, 1-Kompartiment, Gewicht allometrisch auf CL und V/' \
+sed -e 's/^\$PROBLEM .*/$PROBLEM Theophylline, 1 compartment, weight allometric on CL and V/' \
     -e 's/^  CL = THETA(2)\*EXP(ETA(2))/  CL = THETA(2)*(WT\/70)**0.75*EXP(ETA(2))/' \
     -e 's/^  V  = THETA(3)\*EXP(ETA(3))/  V  = THETA(3)*(WT\/70)*EXP(ETA(3))/' \
     -e 's/FILE=sdtab1/FILE=sdtab2/' models/run1.mod > models/run2.mod
 
-cat > R/04_modelle.R <<'R'
-# Modellvergleich aus den .ext-Dateien
+cat > R/04_models.R <<'R'
+# model comparison from the .ext files
 ext <- function(run) {
   x <- read.table(sprintf("models/%s.ext", run), skip = 1, header = TRUE)
   est <- x[x$ITERATION == -1000000000, ]
-  data.frame(modell = run, OFV = est$OBJ, KA = est$THETA1, CL = est$THETA2, V = est$THETA3)
+  data.frame(model = run, OFV = est$OBJ, KA = est$THETA1, CL = est$THETA2, V = est$THETA3)
 }
 m <- rbind(ext("run1"), ext("run2"))
 m$dOFV <- m$OFV - m$OFV[1]
 m[, -1] <- signif(m[, -1], 4)
-write.csv(m, "tables/modelle.csv", row.names = FALSE)
+write.csv(m, "tables/models.csv", row.names = FALSE)
 R
 
 cat > R/05_gof.R <<'R'
-# Goodness of fit des finalen Modells (run2)
+# goodness of fit of the final model (run2)
 sd <- read.table("models/sdtab2", skip = 1, header = TRUE)
 sd <- sd[sd$DV > 0, ]
 png("figures/gof_run2.png", width = 1000, height = 500)
 par(mfrow = c(1, 2))
-plot(DV ~ IPRED, data = sd, xlab = "individuelle Vorhersage", ylab = "beobachtet", main = "DV gegen IPRED")
+plot(DV ~ IPRED, data = sd, xlab = "individual prediction", ylab = "observed", main = "DV against IPRED")
 abline(0, 1, col = "grey40")
-plot(CWRES ~ TIME, data = sd, xlab = "Zeit (h)", ylab = "CWRES", main = "CWRES gegen Zeit")
+plot(CWRES ~ TIME, data = sd, xlab = "time (h)", ylab = "CWRES", main = "CWRES against time")
 abline(h = 0, col = "grey40")
 dev.off()
 R
 
-cat > report/bericht.qmd <<'Q'
+cat > report/report.qmd <<'Q'
 ---
 title: "Theophyllin: populationspharmakokinetische Analyse"
 format:
@@ -140,7 +140,7 @@ execute:
   echo: false
 ---
 
-## Daten und Qualität
+## Data and quality
 
 ```{r}
 knitr::kable(read.csv("../qc/qc_befunde.csv"))
@@ -154,10 +154,10 @@ knitr::kable(read.csv("../qc/qc_befunde.csv"))
 knitr::kable(read.csv("../tables/nca.csv"), caption = "NCA je Proband")
 ```
 
-## Modelle
+## Models
 
 ```{r}
-knitr::kable(read.csv("../tables/modelle.csv"), caption = "run1: Basismodell, run2: mit Gewicht")
+knitr::kable(read.csv("../tables/models.csv"), caption = "run1: base model, run2: with weight")
 ```
 
 ![](../figures/gof_run2.png)
@@ -176,15 +176,15 @@ step() { # $1: label, $2: the command as typed
   printf '%s\t%d\t0\tTASK\t%s\t%d\t0\t0\t0\t%s\n' "$(date +%s%N)" "$$" "$ST" "$N" "$2" >> "$LOG"
 }
 
-step "Daten"              "Rscript R/01_daten.R"
-step "Datenqualität"      "Rscript R/02_qc.R"
+step "Data"               "Rscript R/01_data.R"
+step "Data quality"       "Rscript R/02_qc.R"
 step "Explorative Analyse" "Rscript R/03_eda.R"
-step "Basismodell"        "cd models && nmfe75 run1.mod run1.lst > run1.log 2>&1"
-step "Modell mit Gewicht" "cd models && nmfe75 run2.mod run2.lst > run2.log 2>&1"
-step "Modellvergleich"    "Rscript R/04_modelle.R"
+step "Base model"         "cd models && nmfe75 run1.mod run1.lst > run1.log 2>&1"
+step "Model with weight"  "cd models && nmfe75 run2.mod run2.lst > run2.log 2>&1"
+step "Model comparison"   "Rscript R/04_models.R"
 step "Goodness of fit"    "Rscript R/05_gof.R"
-step "Bericht"            "quarto render report/bericht.qmd --quiet"
+step "Report"             "quarto render report/report.qmd --quiet"
 
-say "fertig: $LOG"
-cat tables/modelle.csv
+say "done: $LOG"
+cat tables/models.csv
 ls report
