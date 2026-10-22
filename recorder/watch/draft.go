@@ -111,13 +111,16 @@ func draftCmd(t *Task, repo string) string {
 			return `source("` + rel(s.Path) + `")`
 		}
 	}
-	if t.Expr != "" && !strings.HasPrefix(t.Expr, "base::") {
+	if t.Expr != "" && t.ID != "tail" && !strings.HasPrefix(t.Expr, "base::") {
 		return t.Expr // what the person typed, e.g. system("nmfe75 …")
 	}
 	for _, c := range t.Commands {
 		if toolCmd.MatchString(c.Cmdline) {
 			return c.Cmdline
 		}
+	}
+	if t.ID == "tail" && len(t.Commands) > 0 {
+		return t.Commands[0].Cmdline // no markers (a shell script): the command the session ran
 	}
 	return ""
 }

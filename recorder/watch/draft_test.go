@@ -91,3 +91,53 @@ func sha(s string) string {
 	h := sha256.Sum256([]byte(s))
 	return hex.EncodeToString(h[:])
 }
+
+// A shell script, no R and so no markers: the session is one "tail" task. Its redirect
+// (`awk … > out.csv`) is opened by the shell and inherited by awk; that file is the output, not
+// the session's console. The draft names the script as the command, and cockpit publish takes it.
+func TestDraft_AShellScriptWithoutMarkersIsPublishedWithItsOutput(t *testing.T) {
+	r := testrepo.New(t)
+	r.Write(t, "means.sh", "#!/bin/sh\nawk -F, 'NR>1{s+=$2;n++} END{print \"mean,\" s/n}' data/pk.csv > out.csv\n")
+	r.Write(t, "data/pk.csv", "id,v\n1,2\n2,4\n")
+	r.Write(t, "out.csv", "mean,3\n")
+	root, _ := filepath.EvalSymlinks(r.Root)
+
+	l := (&logb{}).
+		ev(100, "exec", "-", root, "/bin/sh ./means.sh").
+		ev(100, "open", "r", root+"/means.sh", "sha256=sh").
+		ev(100, "open", "w", root+"/out.csv", "new=1").
+		ev(100, "closew", "w", root+"/out.csv", "sha256="+EmptySHA256).
+		ev(101, "exec", "-", root, "awk -F, NR>1{s+=$2;n++} data/pk.csv").
+		ev(101, "inherit", "w", root+"/out.csv", "").
+		ev(101, "open", "r", root+"/data/pk.csv", "sha256=pk").
+		ev(101, "closew", "w", root+"/out.csv", "sha256=out")
+	s := NewSession("t", "/log.tsv", &Classifier{System: DefaultSystem, Temp: DefaultTemp})
+	s.Line("#ktontrace v2\thash=" + root) // the shim names the project in the header
+	for _, line := range l.lines {
+		s.Line(line)
+	}
+	s.Close("eof", l.ts+1)
+	tail := task(t, s, "tail")
+	if len(tail.Outputs) != 1 || tail.Outputs[0].Path != root+"/out.csv" || tail.Outputs[0].SHA256 != "out" {
+		t.Fatalf("the redirect is the script's output, not its console: %+v", tail.Outputs)
+	}
+	d := MakeDraft(s, tail)
+	if d.Cmd != "/bin/sh ./means.sh" {
+		t.Fatalf("cmd %q: the command the session ran, not the placeholder", d.Cmd)
+	}
+	var ins, outs []string
+	for _, f := range d.Inputs {
+		if f.Use {
+			ins = append(ins, f.Path)
+		}
+	}
+	for _, f := range d.Outputs {
+		if f.Use {
+			outs = append(outs, f.Path)
+		}
+	}
+	b, _ := json.Marshal(map[string]any{"inputs": ins, "outputs": outs, "cmd": d.Cmd})
+	if out, code := r.Cockpit(t, "publish", string(b)); code != 0 || !strings.Contains(out, "sha256:") {
+		t.Fatalf("cockpit publish %s exited %d:\n%s", b, code, out)
+	}
+}

@@ -355,8 +355,10 @@ func (s *Session) open(c *taskState, e Event) {
 	}
 	mode := strings.TrimSuffix(e.Mode, "d")
 	writes := strings.Contains(mode, "w")
-	if e.Op == "inherit" && s.owner == 0 && s.seq == 0 {
-		s.console[e.Path] = true // the session's own console log, before any command
+	if e.Op == "inherit" && s.owner == 0 && s.seq == 0 && !c.written[e.Path] {
+		// the session's own console log, before any command. Not a file the session opened
+		// itself and handed to a child (`awk … > out.csv` in a script): that is an output.
+		s.console[e.Path] = true
 		return
 	}
 	if e.Op == "inherit" || class == ClassTemp {
