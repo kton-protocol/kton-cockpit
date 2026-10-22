@@ -122,13 +122,22 @@ func markLater(tasks []*Task) {
 	for _, ws := range writes {
 		sort.SliceStable(ws, func(i, j int) bool { return ws[i].at < ws[j].at })
 	}
+	// next: the first later write, unless a later one changed the bytes: then that one, since a
+	// recorded change explains today's file and a same-bytes rerun before it does not
 	next := func(path, sum string, after int64, not *Task) *Later {
+		var first *Later
 		for _, w := range writes[path] {
-			if w.t != not && w.at > after {
-				return &Later{Session: w.t.Session, Task: w.t.ID, Same: w.sum == sum}
+			if w.t == not || w.at <= after {
+				continue
+			}
+			if w.sum != sum {
+				return &Later{Session: w.t.Session, Task: w.t.ID}
+			}
+			if first == nil {
+				first = &Later{Session: w.t.Session, Task: w.t.ID, Same: true}
 			}
 		}
-		return nil
+		return first
 	}
 	for _, t := range tasks {
 		for _, in := range t.Inputs {
@@ -149,7 +158,7 @@ func markLater(tasks []*Task) {
 }
 
 // unrecorded: the file has other bytes today, and no recorded step explains it (none wrote it
-// again, or only with the same bytes): it was changed outside the recording afterwards.
+// again with other bytes; next already prefers such a write): changed outside the recording.
 func unrecorded(l *Later, now string) *Later {
 	if now == NowChanged && (l == nil || l.Same) {
 		return &Later{Unrecorded: true}

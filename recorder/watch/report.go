@@ -34,7 +34,7 @@ func Report(w io.Writer, s *Session, tasks []*Task) {
 					where += fmt.Sprintf(" · lines %d–%d", o.StartLine, o.EndLine)
 				}
 			}
-			fmt.Fprintf(w, "   HERKUNFT %s\n", where)
+			fmt.Fprintf(w, "   ORIGIN %s\n", where)
 		}
 		for _, v := range t.Vars {
 			fmt.Fprintf(w, "   VARIABLE %s  %s\n", v.Name, v.Desc)

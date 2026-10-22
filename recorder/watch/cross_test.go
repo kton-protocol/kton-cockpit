@@ -3,6 +3,7 @@ package watch
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -200,6 +201,50 @@ func TestService_LaterGoesByWriteTimeNotByEnd(t *testing.T) {
 			if in.Path == "/p/x.csv" && in.Later != nil && !in.Later.Unrecorded {
 				t.Fatalf("x.csv as %s/%s read it: later %+v, but that write came before the read", tk.Session, tk.ID, in.Later)
 			}
+		}
+	}
+}
+
+// Review U1 of #18: T1 writes v1, T2 reruns it (v1 again), T3 writes v2, and the disk holds v2.
+// The change was recorded (T3): neither T1's output nor a reader of v1 between T1 and T2 may
+// claim a change outside the recording.
+func TestService_ARecordedChangeAfterARerunIsNotAHandEdit(t *testing.T) {
+	dir, proj := t.TempDir(), t.TempDir()
+	out := filepath.Join(proj, "out.csv")
+	os.WriteFile(out, []byte("v2\n"), 0o644)
+	v1, v2 := hexOf("v1\n"), hexOf("v2\n")
+	write := func(name string, lines ...string) {
+		os.WriteFile(filepath.Join(dir, name), []byte("#ktontrace v3\thash="+proj+"\n"+strings.Join(lines, "\n")+"\n"), 0o644)
+	}
+	step := func(ts int, pid int, sum, id string) []string {
+		p := strconv.Itoa(pid)
+		return []string{
+			strconv.Itoa(ts) + "\t" + p + "\t1\topen\tw\t" + out + "\t0\t0\t0\tnew=1",
+			strconv.Itoa(ts+1) + "\t" + p + "\t1\tclosew\tw\t" + out + "\t0\t0\t0\tsha256=" + sum,
+			strconv.Itoa(ts+2) + "\t" + p + "\t0\tTASK\tok\t" + id + "\t0\t0\t0\twrite",
+		}
+	}
+	write("t1.tsv", append(step(10, 1, v1, "1"), "13\t1\t0\tEND\t-\t-\t0\t0\t0\t-")...)
+	write("reader.tsv",
+		"20\t5\t1\topen\tr\t"+out+"\t0\t0\t0\tsha256="+v1,
+		"21\t5\t0\tTASK\tok\t1\t0\t0\t0\tread",
+		"22\t5\t0\tEND\t-\t-\t0\t0\t0\t-")
+	write("t2.tsv", append(step(30, 2, v1, "1"), "33\t2\t0\tEND\t-\t-\t0\t0\t0\t-")...)
+	write("t3.tsv", append(step(40, 3, v2, "1"), "43\t3\t0\tEND\t-\t-\t0\t0\t0\t-")...)
+	sv := &Service{Dir: dir, Store: t.TempDir(), NewClassifier: func() *Classifier { return &Classifier{} }}
+	sv.Poll(time.Now())
+	for _, tk := range sv.projectTasks(NewChecker(), proj) {
+		var l *Later
+		switch tk.Session {
+		case "t1":
+			l = tk.Outputs[0].Later
+		case "reader":
+			l = tk.Inputs[0].Later
+		default:
+			continue
+		}
+		if l == nil || l.Unrecorded || l.Same || l.Session != "t3" {
+			t.Errorf("%s: later %+v, want overwritten by t3 (recorded)", tk.Session, l)
 		}
 	}
 }
