@@ -99,10 +99,8 @@ func MakeDraft(s *Session, t *Task) Draft {
 	for _, u := range t.Unrecorded {
 		d.Notes = append(d.Notes, "nicht aufgezeichnetes Programm "+u.Program+": seine Dateien fehlen in der Auswahl")
 	}
-	for _, o := range t.Origins {
-		if _, _, opts, ok := pyRun(o.Code); ok && o.Language == "python" && len(opts) > 0 {
-			d.Notes = append(d.Notes, "cmd prüfen: %run mit "+strings.Join(opts, " ")+" läuft anders als python3")
-		}
+	if len(t.Origins) > 0 && t.Origins[0].Language == "python" {
+		d.Notes = append(d.Notes, pyNotes(t.Origins[0])...)
 	}
 	return d
 }
@@ -173,7 +171,41 @@ func shellWords(s string) []string {
 	return out
 }
 
-func isPyRun(code string) bool { _, _, _, ok := pyRun(code); return ok }
+// pyDraftCmd: a Python execution as a command. Only a %run of a .py file is a program run
+// (python3 file args); anything else names where the code was, or is the code as typed, and the
+// draft says to check it (pyNotes). R's source() is never a Python command.
+func pyDraftCmd(o Origin, rel func(string) string) string {
+	if file, args, _, ok := pyRun(o.Code); ok {
+		if filepath.Base(file) == filepath.Base(o.File) {
+			file = o.File // %run names it relative to the console's directory; the extension knows where
+		}
+		return shellJoin(append([]string{"python3", rel(file)}, args...))
+	}
+	switch {
+	case o.Chunk != "":
+		return "chunk " + o.Chunk + " of " + rel(o.File)
+	case o.StartLine > 0:
+		return rel(o.File) + ":" + itoa(o.StartLine) + "-" + itoa(o.EndLine)
+	}
+	return strings.TrimSpace(o.Code)
+}
+
+// pyNotes: what a person must check in a Python draft's cmd.
+func pyNotes(o Origin) []string {
+	file, args, opts, ok := pyRun(o.Code)
+	switch {
+	case !ok:
+		return []string{"cmd prüfen: Python-Code aus der Konsole, kein Programmaufruf"}
+	case len(opts) > 0:
+		return []string{"cmd prüfen: %run mit " + strings.Join(opts, " ") + " läuft anders als python3 " + filepath.Base(file)}
+	}
+	for _, a := range args {
+		if strings.ContainsAny(a, "$*?[") {
+			return []string{"cmd prüfen: %run setzt $… und Muster (*, ?) ein, bevor das Skript sie sieht"}
+		}
+	}
+	return nil
+}
 
 func draftCmd(t *Task, repo string) string {
 	rel := func(p string) string {
@@ -184,13 +216,10 @@ func draftCmd(t *Task, repo string) string {
 	}
 	if len(t.Origins) > 0 && t.Origins[0].File != "" {
 		o := t.Origins[0]
+		if o.Language == "python" {
+			return pyDraftCmd(o, rel)
+		}
 		switch {
-		case o.Language == "python" && isPyRun(o.Code):
-			file, args, _, _ := pyRun(o.Code)
-			if filepath.Base(file) == filepath.Base(o.File) {
-				file = o.File // %run names it relative to the console's directory; the extension knows where
-			}
-			return shellJoin(append([]string{"python3", rel(file)}, args...))
 		case o.Chunk != "":
 			return "chunk " + o.Chunk + " of " + rel(o.File)
 		case o.StartLine > 0 && !(strings.HasPrefix(strings.TrimSpace(o.Code), "source(")):

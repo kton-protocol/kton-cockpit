@@ -378,7 +378,7 @@ func outPaths(xs []*watch.Output) (out []string) {
 }
 
 // Review P2, P3, P5 of #15: the startup file starts the boundaries only under the shim, writes
-// no bytecode of ktonrec while doing so, stays valid Python with a '"' in the installed path,
+// no bytecode of ktonrec while doing so, stays valid Python with a '"' or an emoji in the path,
 // and a missing log costs the console nothing.
 func TestShim_TheIPythonStartupFile(t *testing.T) {
 	if _, err := exec.LookPath("python3"); err != nil {
@@ -386,7 +386,7 @@ func TestShim_TheIPythonStartupFile(t *testing.T) {
 	}
 	startup, _ := filepath.Abs("../python/50-kton.py")
 	fake, _ := filepath.Abs("testdata/startup_fake.py")
-	inst := filepath.Join(t.TempDir(), `pre"fix`, "python") // a quote in $PREFIX
+	inst := filepath.Join(t.TempDir(), `pre"fix🙂`, "python") // a quote and a non-BMP character in $PREFIX
 	os.MkdirAll(inst, 0o755)
 	src, _ := os.ReadFile("../python/ktonrec.py")
 	os.WriteFile(filepath.Join(inst, "ktonrec.py"), src, 0o644)
