@@ -274,8 +274,21 @@ the bytes is the failure locators exist to prevent.
 
 ### 7.5 The execution environment
 
-`envRef` names where the work ran: an OCI image digest, a nix store path, a run-server id. It is
-COVERED (kton §6.5), so the same command in a different pinned environment is a different foton.
+`envRef` names where the work ran: an OCI image digest, a nix store path, a run-server id. Without an
+environment class (`environment.spectrum`) it is COVERED (kton §6.5), so the same command in a different
+pinned environment is a different foton.
+
+With a class, the record covers the class and not the image (ADR-010): on `foton/v1` (`-tags unreleased`
+until kton 0.3.0) the cockpit MUST leave `envRef` out of the record and attach it as this producer's signed
+`kton-env/v1` statement, so runs in images of one class are one record. A class MUST be a content hash in
+canonical form, and a blank `envRef` MUST be refused. A reader takes such a statement only through the
+kernel's `foton.ReadEnv`: only about that record, only from a key that also signed it, and only under a key
+the reader's trust tiers name; `ask` shows each such account.
+
+> **Checked by:** `TestAuthor_WithoutAClassTheImageIsPartOfTheRecord`,
+> `TestAuthor_RefusesABlankImageAndAClassThatNamesNothing`, `TestConfig_SpectrumIsACanonicalContentHash`,
+> `TestAuthor_MatchesTheReferenceCLI`, `TestAuthor_WithAClassTheImageIsCarriedAndTwoImagesAreOneRecord`
+> (`-tags unreleased`).
 
 It is supplied per call, because a session works across many environments and no configured value
 could be right for all of them. Like the command, it is attested.

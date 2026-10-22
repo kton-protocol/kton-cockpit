@@ -21,6 +21,8 @@ import (
 	"sort"
 	"strings"
 
+	"kton.dev/plankton/core"
+
 	"github.com/kton-protocol/kton-cockpit/cockpit/backend"
 	// The reference implementation ships with the cockpit (ADR-008): every binary that reads a
 	// configuration knows git and local mode. Extensions register further modes the same way.
@@ -152,12 +154,15 @@ type Trust struct {
 
 // Environment pins WHICH execution environment produced this repo's fotons.
 //
-// Deliberately config, not a tool argument. Both fields are COVERED — they ride in the foton's
-// descriptor into its id, so they are part of what a reproduction commits to re-executing. A value
-// supplied per-call by the caller would therefore be a self-declared, unverified assertion about which
-// environment ran, baked into the record's identity; the same class of thing this project refuses
-// everywhere else (see how say computes the reproduction level itself). The human operator knows
-// which environment their cockpit runs in; a session does not.
+// Deliberately config, not a tool argument. Spectrum is COVERED: it rides in the foton's descriptor
+// into its id. EnvRef is covered too when no Spectrum is set, so it is then part of what a
+// reproduction commits to re-executing. With a Spectrum set (and foton/v1, -tags unreleased) EnvRef
+// is CARRIED instead: this producer's signed kton-env/v1 statement beside the record, so runs in
+// images of one class are one record and can be reused across them (ADR-010). Either way a value
+// supplied per-call by the caller would be a self-declared, unverified assertion about which
+// environment ran; the same class of thing this project refuses everywhere else (see how say
+// computes the reproduction level itself). The human operator knows which environment their cockpit
+// runs in; a session does not.
 type Environment struct {
 	// Spectrum is the qualified env-spectrum id (`plankton author --environment`), which must be a
 	// content hash. It QUALIFIES an environment; it does not name an exact one.
@@ -821,10 +826,25 @@ func ValidateEnvRef(ref string) error {
 // values are COVERED, so a wrong one does not fail — it silently produces a foton that pins
 // something other than what ran, and no later check can tell.
 func validateEnvironment(env Environment) error {
-	if env.Spectrum != "" && !strings.HasPrefix(env.Spectrum, "sha256:") {
-		return fmt.Errorf("environment.spectrum must be an env-spectrum content hash (sha256:...), got %q", env.Spectrum)
+	if err := ValidateSpectrum(env.Spectrum); err != nil {
+		return err
 	}
 	return ValidateEnvRef(env.EnvRef)
+}
+
+// ValidateSpectrum accepts an environment class only as a content hash in canonical form, as
+// `plankton author --environment` does. "sha256:" alone, or a short or upper-case one, would still be
+// a class to the descriptor: with envRef carried (ADR-010), two different images would then fall into
+// one record under a class that names nothing.
+func ValidateSpectrum(spectrum string) error {
+	if spectrum == "" {
+		return nil
+	}
+	if n, ok := core.NormalizeContentHash(spectrum); !ok || n != spectrum {
+		return fmt.Errorf("environment.spectrum must be an env-spectrum content hash in canonical form "+
+			"(sha256: and 64 lowercase hex), got %q", spectrum)
+	}
+	return nil
 }
 
 // AllowsTemplate reports whether template is in the configured claim-template ceiling.

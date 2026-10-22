@@ -641,7 +641,12 @@ func recordLines(rec *binaries.FotonDetail, signer string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s\n", rec.ID)
 	fmt.Fprintf(&b, "  cmd      %s\n", rec.Cmd)
-	if rec.EnvRef != "" {
+	switch {
+	case len(rec.RanIn) > 0: // carried (ADR-010): each producer says where it ran, the class is covered
+		for _, ri := range rec.RanIn {
+			fmt.Fprintf(&b, "  ran in   %s  (said by key:%s; class %s)\n", ri.EnvRef, ri.Signer, short(rec.Environment))
+		}
+	case rec.EnvRef != "":
 		fmt.Fprintf(&b, "  ran in   %s\n", rec.EnvRef)
 	}
 	who := rec.SignerKeyID
