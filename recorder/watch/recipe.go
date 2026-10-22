@@ -411,7 +411,8 @@ func script(r *Recipe, project string, rel func(string) string) string {
 
 // pythonStep: a step of a Python console in the recipe, which is an R script. A %run of a .py
 // file runs that file with python3; other console code runs on its own with python3 -c,
-// without the console's variables, and says so.
+// without the console's variables, and says so. system2 pastes its arguments into a shell line
+// as they are, so each is shQuote'd: code and paths with spaces, quotes, ;, $ stay one argument.
 func pythonStep(code string) string {
 	rstr := func(s string) string { return strconv.Quote(s) } // Go's quoting is valid R for these strings
 	if file, args, opts, ok := pyRun(code); ok && len(opts) == 0 {
@@ -419,10 +420,10 @@ func pythonStep(code string) string {
 		for _, a := range args {
 			q = append(q, rstr(a))
 		}
-		return "stopifnot(system2(\"python3\", c(" + strings.Join(q, ", ") + ")) == 0)  # " + strings.TrimSpace(code) + "\n"
+		return "stopifnot(system2(\"python3\", shQuote(c(" + strings.Join(q, ", ") + "))) == 0)  # " + strings.TrimSpace(code) + "\n"
 	}
 	return "# Python console code, run on its own (without the console's variables):\n" +
-		"stopifnot(system2(\"python3\", c(\"-c\", " + rstr(code) + ")) == 0)\n"
+		"stopifnot(system2(\"python3\", shQuote(c(\"-c\", " + rstr(code) + "))) == 0)\n"
 }
 
 // Descendants is what became of a file: the steps that used it, directly or through what
