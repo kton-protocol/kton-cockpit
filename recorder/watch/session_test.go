@@ -191,7 +191,7 @@ func TestSession_SourceEnvMissingAndTail(t *testing.T) {
 		ev(100, "open", "r", "/opt/nm751/util/x", "").
 		ev(100, "SOURCE", "-", "/p/step2.R", "").
 		ev(100, "SOURCE", "-", "/usr/lib/R/library/tools/R/tools", "").
-		ev(100, "openfail", "r", "/p/gibtsnicht.csv", "errno=2").
+		ev(100, "openfail", "r", "/p/does_not_exist.csv", "errno=2").
 		task(1, "err", "source('step2.R')").
 		ev(100, "open", "r", "/p/late.csv", "sha256=lll")
 	s := sess(t, l, nil)

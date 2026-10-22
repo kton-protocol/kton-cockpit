@@ -17,7 +17,7 @@ cat > "$WORK/session.R" <<'R'
 source(Sys.getenv("KTON_TRACE_R"))
 pk <- read.csv("data/pk.csv")
 source("step2.R")
-x <- try(read.csv("data/gibtsnicht.csv"), silent = TRUE)
+x <- try(read.csv("data/does_not_exist.csv"), silent = TRUE)
 pkd2 <- read.csv("data/pk_dose.csv"); m <- matrix(1:6, 2)
 R
 LOG="$WORK/trace.tsv"; : > "$LOG"

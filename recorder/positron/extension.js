@@ -165,10 +165,17 @@ const dockerUp = () => new Promise((resolve) => execFile('docker', ['version', '
 async function reproduceInContainers(project, target, sum) {
   const exe = bin('kton-repro');
   if (!fs.existsSync(exe) || !(await dockerUp())) return false;
+  // containers replay recorded tool calls (Rscript, nmfe, quarto …); a file a console command
+  // made has none, and is reproduced from its recipe instead
+  const q = `project=${encodeURIComponent(project)}&path=${encodeURIComponent(target)}&sha=${encodeURIComponent(sum)}`;
+  try { await getJSON(`${viewerUrl()}api/reproplan?${q}`, 10000); } catch (e) {
+    out.appendLine(`\nkton: no recorded tool call wrote ${path.relative(project, target)}; reproducing it from its recipe instead`);
+    return false;
+  }
   out.show(true);
   out.appendLine(`\n=== Reproduction in containers: ${path.relative(project, target)}`);
   const lines = [];
-  const code = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `kton: reproduziere ${path.basename(target)} in Containern` }, () => new Promise((resolve) => {
+  const code = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `kton: reproducing ${path.basename(target)} in containers` }, () => new Promise((resolve) => {
     const p = spawn(exe, ['-project', project, '-path', target, '-sha', sum]);
     const take = (d) => { const t = d.toString(); out.append(t); lines.push(...t.split('\n')); };
     p.stdout.on('data', take); p.stderr.on('data', take);
@@ -210,7 +217,7 @@ async function reproduce(project, target, sum) {
   const env = Object.assign({}, process.env, { KTON_TRACE_HASH: dir });
   const v = r.verdict || {};
   const t0 = Date.now();
-  await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `kton: reproduziere ${path.basename(target)}` }, async () => {
+  await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `kton: reproducing ${path.basename(target)}` }, async () => {
     if ((v.kind === 'scripts' || v.kind === 'scripts-with-gaps') && (v.scripts || []).length) {
       for (const s of v.scripts) {                       // the scripts you know, one after the other
         const code = await run([ktonR(), '--no-save', '-q', '-f', rel(s.path)], dir, env);
@@ -218,8 +225,8 @@ async function reproduce(project, target, sum) {
       }
     } else {                                              // the steps as recorded, as one script
       const script = r.script.replace(`setwd(${JSON.stringify(project)})`, `setwd(${JSON.stringify(dir)})`);
-      fs.writeFileSync(path.join(dir, 'kton-rezept.R'), script);
-      await run([ktonR(), '--no-save', '-q', '-f', 'kton-rezept.R'], dir, env);
+      fs.writeFileSync(path.join(dir, 'kton-recipe.R'), script);
+      await run([ktonR(), '--no-save', '-q', '-f', 'kton-recipe.R'], dir, env);
     }
   });
   const got = await sha256File(path.join(dir, rel(target)));

@@ -77,7 +77,7 @@ write.csv(nca, "tables/nca.csv", row.names = FALSE)
 R
 
 cat > models/run1.mod <<'NM'
-$PROBLEM Theophyllin, 1-Kompartiment, Absorption 1. Ordnung
+$PROBLEM Theophylline, 1 compartment, first-order absorption
 $INPUT ID TIME AMT DV EVID MDV CMT WT
 $DATA ../data/pk.csv IGNORE=@
 $SUBROUTINES ADVAN2 TRANS2
@@ -132,7 +132,7 @@ R
 
 cat > report/report.qmd <<'Q'
 ---
-title: "Theophyllin: populationspharmakokinetische Analyse"
+title: "Theophylline: population pharmacokinetic analysis"
 format:
   html:
     embed-resources: true

@@ -199,3 +199,15 @@ func TestAttachOrigins_ALateOriginNeverDropsData(t *testing.T) {
 		t.Fatalf("inputs %v: the data file stays, Ark's read goes", names)
 	}
 }
+
+// From MH's reproduction of summary.md: the recipe is an R script, and a Python console step in
+// it must run Python, not land there as `%run …`.
+func TestPythonStep_RunsPythonFromTheRecipe(t *testing.T) {
+	if got := pythonStep(`%run -- "py/02_nca.py" --n 5`); got != `stopifnot(system2("python3", c("py/02_nca.py", "--n", "5")) == 0)  # %run -- "py/02_nca.py" --n 5`+"\n" {
+		t.Errorf("%%run: %q", got)
+	}
+	got := pythonStep("import csv\nprint('x')")
+	if !strings.Contains(got, `c("-c", "import csv\nprint('x')")`) || !strings.Contains(got, "without the console's variables") {
+		t.Errorf("console code: %q", got)
+	}
+}

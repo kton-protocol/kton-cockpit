@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -370,7 +371,7 @@ func script(r *Recipe, project string, rel func(string) string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "# Recipe for %s (sha256 %s)\n", rel(r.Target.Path), short(r.Target.SHA256))
 	fmt.Fprintf(&b, "# from %d recorded steps; %d other steps in that time were not part of it\n", len(r.Steps), r.Detours)
-	b.WriteString("#\n# Ausgangsdaten:\n")
+	b.WriteString("#\n# Source data:\n")
 	for _, s := range r.Sources {
 		state := map[string]string{NowSame: "unchanged", NowChanged: "DIFFERENT TODAY", NowGone: "MISSING"}[s.Now]
 		fmt.Fprintf(&b, "#   %-40s sha256 %s  %s\n", rel(s.Path), short(s.SHA256), state)
@@ -388,7 +389,7 @@ func script(r *Recipe, project string, rel func(string) string) string {
 			o := t.Origins[0]
 			where = rel(o.File)
 			if o.Chunk != "" {
-				where += " · Chunk " + o.Chunk
+				where += " · chunk " + o.Chunk
 			}
 		}
 		fmt.Fprintf(&b, "\n# --- Step %d · %s", i+1, time.Unix(0, t.End).Format("15:04"))
@@ -396,13 +397,32 @@ func script(r *Recipe, project string, rel func(string) string) string {
 			b.WriteString(" · " + where)
 		}
 		b.WriteString("\n")
-		if code := t.Code(); code != "" {
+		switch code := t.Code(); {
+		case code == "":
+			b.WriteString("# (code unknown)\n")
+		case len(t.Origins) > 0 && t.Origins[0].Language == "python":
+			b.WriteString(pythonStep(code))
+		default:
 			b.WriteString(strings.TrimRight(code, "\n") + "\n")
-		} else {
-			b.WriteString("# (Code unbekannt)\n")
 		}
 	}
 	return b.String()
+}
+
+// pythonStep: a step of a Python console in the recipe, which is an R script. A %run of a .py
+// file runs that file with python3; other console code runs on its own with python3 -c,
+// without the console's variables, and says so.
+func pythonStep(code string) string {
+	rstr := func(s string) string { return strconv.Quote(s) } // Go's quoting is valid R for these strings
+	if file, args, opts, ok := pyRun(code); ok && len(opts) == 0 {
+		q := []string{rstr(file)}
+		for _, a := range args {
+			q = append(q, rstr(a))
+		}
+		return "stopifnot(system2(\"python3\", c(" + strings.Join(q, ", ") + ")) == 0)  # " + strings.TrimSpace(code) + "\n"
+	}
+	return "# Python console code, run on its own (without the console's variables):\n" +
+		"stopifnot(system2(\"python3\", c(\"-c\", " + rstr(code) + ")) == 0)\n"
 }
 
 // Descendants is what became of a file: the steps that used it, directly or through what
