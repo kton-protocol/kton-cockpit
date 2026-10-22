@@ -16,22 +16,23 @@ import (
 
 // StoryStep is one thing that happened.
 type StoryStep struct {
-	Session  string   `json:"session"`
-	Task     string   `json:"task"`
-	When     int64    `json:"when_ns"`
-	Where    string   `json:"where"`    // "script 02_nca.R", "console", "chunk #1 of step3.qmd"
-	Sentence string   `json:"sentence"` // what happened, in words
-	Code     string   `json:"code,omitempty"`
-	Reads    []string `json:"reads,omitempty"`  // project-relative
-	Writes   []string `json:"writes,omitempty"` // project-relative
-	Hashes   []string `json:"hashes,omitempty"` // sha256 of the writes, for asking kton
-	Uses     []string `json:"uses,omitempty"`
-	Makes    []string `json:"makes,omitempty"` // variables it left
-	OnPath   bool     `json:"on_path"`
-	Error    bool     `json:"error,omitempty"`
-	Hand     bool     `json:"hand,omitempty"` // not recorded: a file changed by hand between two steps
-	Tools    []string `json:"tools,omitempty"`
-	Warnings []string `json:"warnings,omitempty"`
+	Session  string     `json:"session"`
+	Task     string     `json:"task"`
+	When     int64      `json:"when_ns"`
+	Where    string     `json:"where"`    // "script 02_nca.R", "console", "chunk #1 of step3.qmd"
+	Sentence string     `json:"sentence"` // what happened, in words
+	Code     string     `json:"code,omitempty"`
+	Reads    []string   `json:"reads,omitempty"`  // project-relative
+	Writes   []string   `json:"writes,omitempty"` // project-relative
+	Hashes   []string   `json:"hashes,omitempty"` // sha256 of the writes, for asking kton
+	Uses     []string   `json:"uses,omitempty"`
+	Makes    []string   `json:"makes,omitempty"` // variables it left
+	OnPath   bool       `json:"on_path"`
+	Error    bool       `json:"error,omitempty"`
+	Hand     bool       `json:"hand,omitempty"` // not recorded: a file changed by hand between two steps
+	Tools    []string   `json:"tools,omitempty"`
+	Warnings []string   `json:"warnings,omitempty"`
+	Repro    *StepRepro `json:"repro,omitempty"` // what the latest reproduction gave for this step
 }
 
 // Story is the file's whole story.
@@ -42,12 +43,23 @@ type Story struct {
 	Steps   []StoryStep `json:"steps"`
 	Script  string      `json:"script"`
 	Repo    string      `json:"repo"`
+	// Reproductions of the target, newest first (kton-repro.json of the extension's runs)
+	Reproductions []Reproduction `json:"reproductions,omitempty"`
 }
 
 func (sv *Service) Story(project, path, sum string) *Story {
 	sv.mu.RLock()
 	defer sv.mu.RUnlock()
-	return storyOf(sv.projectTasks(NewChecker(), project), project, path, sum)
+	st := storyOf(sv.projectTasks(NewChecker(), project), project, path, sum)
+	if st != nil {
+		attachRepro(st, sv.Reproductions(project, path), func(p string) string {
+			if r, err := filepath.Rel(project, p); err == nil {
+				return r
+			}
+			return p
+		})
+	}
+	return st
 }
 
 var toolNames = []struct{ match, name string }{

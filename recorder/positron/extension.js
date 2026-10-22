@@ -230,8 +230,21 @@ async function reproduce(project, target, sum) {
     }
   });
   const got = await sha256File(path.join(dir, rel(target)));
-  const result = { target: rel(target), recorded: sum, reproduced: got, same: got === sum, dir, seconds: Math.round((Date.now() - t0) / 1000), notes, verdict: v.kind };
+  // every step's outputs, not only the target: the story shows which step gave the same bytes
+  const steps = [];
+  for (const st of r.steps || []) {
+    const outputs = [];
+    for (const o of st.outputs || []) {
+      if (!inside(o.path)) continue;
+      const g = await sha256File(path.join(dir, rel(o.path)));
+      outputs.push({ path: o.path, recorded: o.sha256, reproduced: g || '', same: g === o.sha256 });
+    }
+    steps.push({ session: st.session, task: st.id, outputs });
+  }
+  const result = { project, target, recorded: sum, reproduced: got || '', same: got === sum, when: new Date().toISOString(), dir,
+    seconds: Math.round((Date.now() - t0) / 1000), notes, verdict: v.kind, steps };
   fs.writeFileSync(path.join(dir, 'kton-repro.json'), JSON.stringify(result, null, 1));
+  for (const s of steps) for (const o of s.outputs) if (!o.same) out.appendLine(`  ${rel(o.path)}: ${o.reproduced ? 'different bytes' : 'not produced'}`);
   const msg = got === null ? `not produced: the recipe did not write ${rel(target)}`
     : got === sum ? `reproduced ✓ the same bytes (sha256 ${sum.slice(0, 12)})`
     : `different: ${got.slice(0, 12)} instead of ${sum.slice(0, 12)}`;
@@ -404,7 +417,7 @@ async function openStory(context, project, file) {
   p.onDidDispose(() => stories.delete(id));
   const nonce = crypto.randomBytes(16).toString('hex');
   const w = p.webview;
-  w.html = `<!doctype html><html lang="de"><head><meta charset="utf-8">
+  w.html = `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${w.cspSource}; script-src 'nonce-${nonce}';">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="stylesheet" href="${w.asWebviewUri(vscode.Uri.joinPath(media, 'story.css'))}"></head>
@@ -429,9 +442,9 @@ async function openStory(context, project, file) {
   w.onDidReceiveMessage(async (m) => {
     if (m.type === 'ready') send();
     else if (m.type === 'note') { const n = allNotes(); n[m.key] = m.note; await context.globalState.update(notesKey, n); }
-    else if (m.type === 'reproduce') reproduce(project, file.path, file.sha256);
+    else if (m.type === 'reproduce') { await reproduce(project, file.path, file.sha256); send(); } // the result belongs in the story
     else if (m.type === 'save') {
-      const to = await vscode.window.showSaveDialog({ defaultUri: vscode.Uri.file(path.join(story ? story.repo : project, path.basename(file.path) + '.geschichte.md')), filters: { Markdown: ['md'] } });
+      const to = await vscode.window.showSaveDialog({ defaultUri: vscode.Uri.file(path.join(story ? story.repo : project, path.basename(file.path) + '.story.md')), filters: { Markdown: ['md'] } });
       if (to) { fs.writeFileSync(to.fsPath, m.markdown); vscode.window.showTextDocument(to); }
     } else if (m.type === 'publish' && story) {
       await publish(story.repo, await publishText(story, file, m.steps));

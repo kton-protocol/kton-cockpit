@@ -25,6 +25,8 @@ ol.story li.hand::before { background: var(--vscode-charts-orange); }
 ol.story li.hand .head { color: var(--vscode-editorWarning-foreground); }
 ol.story li.warned::before { background: var(--vscode-editorWarning-foreground); box-shadow: 0 0 0 2px var(--vscode-editor-background), 0 0 0 3px var(--vscode-editorWarning-foreground); }
 ol.story li.done.warned { opacity: 1; }
+ol.story li.repro::before { background: var(--vscode-charts-green); border-radius: 2px; }
+ol.story li.repro.warned::before { background: var(--vscode-editorWarning-foreground); }
 .t { position: absolute; left: -58px; width: 46px; text-align: right; top: 6px; font-size: 11px; color: var(--vscode-descriptionForeground); font-variant-numeric: tabular-nums; }
 .head { display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: baseline; }
 .head b { margin-right: 4px; }

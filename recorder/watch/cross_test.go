@@ -248,3 +248,40 @@ func TestService_ARecordedChangeAfterARerunIsNotAHandEdit(t *testing.T) {
 		}
 	}
 }
+
+// MH: a reproduction belongs in the story: when, and which step gave the same bytes. The
+// extension's kton-repro.json lies beside the logs (…/repro/<run>/).
+func TestService_TheStoryCarriesReproductions(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "r.tsv"), []byte("#ktontrace v3\thash=/p\n"+strings.Join([]string{
+		"10\t1\t1\topen\tw\t/p/a.csv\t0\t0\t0\tnew=1",
+		"11\t1\t1\tclosew\tw\t/p/a.csv\t0\t0\t0\tsha256=a",
+		"12\t1\t0\tTASK\tok\t1\t0\t0\t0\tclean",
+		"20\t1\t1\topen\tr\t/p/a.csv\t0\t0\t0\tsha256=a",
+		"21\t1\t1\topen\tw\t/p/b.csv\t0\t0\t0\tnew=1",
+		"22\t1\t1\tclosew\tw\t/p/b.csv\t0\t0\t0\tsha256=b",
+		"23\t1\t0\tTASK\tok\t2\t0\t0\t0\tstamp",
+		"24\t1\t0\tEND\t-\t-\t0\t0\t0\t-"}, "\n")+"\n"), 0o644)
+	run := filepath.Join(filepath.Dir(dir), "repro", "2026-10-23-b.csv")
+	os.MkdirAll(run, 0o755)
+	os.WriteFile(filepath.Join(run, "kton-repro.json"), []byte(`{"project":"/p","target":"/p/b.csv","recorded":"b","reproduced":"b2","same":false,
+ "when":"2026-10-23T09:00:00Z","dir":"`+run+`","seconds":3,
+ "steps":[{"session":"r","task":"1","outputs":[{"path":"/p/a.csv","recorded":"a","reproduced":"a","same":true}]},
+          {"session":"r","task":"2","outputs":[{"path":"/p/b.csv","recorded":"b","reproduced":"b2","same":false}]}]}`), 0o644)
+	sv := &Service{Dir: dir, Store: t.TempDir(), NewClassifier: func() *Classifier { return &Classifier{} }}
+	sv.Poll(time.Now())
+	st := sv.Story("/p", "/p/b.csv", "")
+	if st == nil || len(st.Reproductions) != 1 || st.Reproductions[0].Same {
+		t.Fatalf("reproductions %+v", st)
+	}
+	by := map[string]*StepRepro{}
+	for _, s := range st.Steps {
+		by[s.Task] = s.Repro
+	}
+	if r := by["1"]; r == nil || !r.Same {
+		t.Errorf("step 1: %+v, want reproduced with the same bytes", r)
+	}
+	if r := by["2"]; r == nil || r.Same || len(r.Different) != 1 || r.Different[0] != "b.csv" {
+		t.Errorf("step 2: %+v, want b.csv different", r)
+	}
+}
