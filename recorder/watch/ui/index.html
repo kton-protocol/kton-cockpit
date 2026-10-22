@@ -253,6 +253,7 @@ async function renderFiles() {
 function laterChip(x) {
   const l = x.later;
   if (!l) return "";
+  if (l.unrecorded) return `<span class="chip warn" title="no recorded step wrote it again, but the file has other bytes today (an editor, Excel, a copy)">changed later outside the recording</span>`;
   const who = `${sessLabel(l.session)} command ${esc(l.task)}`;
   return l.same_bytes
     ? `<span class="chip" title="written again by ${who}, with the same bytes">rewritten later, same bytes</span>`

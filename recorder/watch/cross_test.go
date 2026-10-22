@@ -123,3 +123,51 @@ func TestService_HistoryCrossesConsolesAndMarksLaterWrites(t *testing.T) {
 		}
 	}
 }
+
+// From MH: a step read pk_clean.csv, the first step ran again (same bytes), then the file was
+// edited by hand. Nothing recorded explains today's bytes: the history and the story say the
+// file was changed afterwards outside the recording.
+func TestService_HistoryNamesAChangeOutsideTheRecording(t *testing.T) {
+	dir, proj := t.TempDir(), t.TempDir()
+	clean := filepath.Join(proj, "clean.csv")
+	os.WriteFile(clean, []byte("edited by hand\n"), 0o644) // today's bytes: none of the recorded ones
+	write := func(name string, lines ...string) {
+		os.WriteFile(filepath.Join(dir, name), []byte("#ktontrace v3\thash="+proj+"\n"+strings.Join(lines, "\n")+"\n"), 0o644)
+	}
+	write("r.tsv",
+		"10\t1\t0\tENV\t-\t/usr/lib/R\t0\t0\t0\tproject="+proj,
+		"11\t1\t1\topen\tw\t"+clean+"\t0\t0\t0\tnew=1",
+		"12\t1\t1\tclosew\tw\t"+clean+"\t0\t0\t0\tsha256=clean",
+		"13\t1\t0\tTASK\tok\t1\t0\t0\t0\tclean",
+		"20\t1\t1\topen\tr\t"+clean+"\t0\t0\t0\tsha256=clean",
+		"21\t1\t1\topen\tw\t"+proj+"/plot.png\t0\t0\t0\tnew=1",
+		"22\t1\t1\tclosew\tw\t"+proj+"/plot.png\t0\t0\t0\tsha256=png",
+		"23\t1\t0\tTASK\tok\t2\t0\t0\t0\tplot",
+		"24\t1\t0\tEND\t-\t-\t0\t0\t0\t-")
+	write("r2.tsv", // step 1 again, the same bytes; the hand edit came after
+		"40\t3\t0\tENV\t-\t/usr/lib/R\t0\t0\t0\tproject="+proj,
+		"41\t3\t1\topen\tw\t"+clean+"\t0\t0\t0\ttrunc=1",
+		"42\t3\t1\tclosew\tw\t"+clean+"\t0\t0\t0\tsha256=clean",
+		"43\t3\t0\tTASK\tok\t1\t0\t0\t0\tclean",
+		"44\t3\t0\tEND\t-\t-\t0\t0\t0\t-")
+	sv := &Service{Dir: dir, Store: t.TempDir(), NewClassifier: func() *Classifier { return &Classifier{} }}
+	sv.Poll(time.Now())
+	r := sv.Recipe(proj, proj+"/plot.png", "")
+	if r == nil || len(r.Steps) != 2 {
+		t.Fatalf("recipe %+v", r)
+	}
+	in := r.Steps[1].Inputs[0]
+	if in.Later == nil || !in.Later.Unrecorded {
+		t.Fatalf("clean.csv as the plot read it: later %+v, want changed outside the recording", in.Later)
+	}
+	st := sv.Story(proj, proj+"/plot.png", "")
+	var warned bool
+	for _, s := range st.Steps {
+		for _, w := range s.Warnings {
+			warned = warned || strings.Contains(w, "outside the recording")
+		}
+	}
+	if !warned {
+		t.Fatalf("the story does not say it: %+v", st.Steps)
+	}
+}

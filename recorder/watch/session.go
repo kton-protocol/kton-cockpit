@@ -320,6 +320,8 @@ func (s *Session) Handle(e Event) {
 				delete(c.written, p)
 			}
 		}
+		t.Missing = nil // looked for at start (R's .Rhistory), not by a command
+		c.missingIdx = map[string]bool{}
 		listed := t.Listings[:0]
 		for _, l := range t.Listings {
 			if s.cls.Class(l) == ClassProject {

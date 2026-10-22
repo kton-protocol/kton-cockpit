@@ -91,14 +91,18 @@ func commandStart(t *Task) int64 {
 
 // Later is the next write of a file after a step used or wrote it: who wrote it again, and
 // whether with the same bytes. The step's version is history then, not what the file holds.
+// Unrecorded: no recorded step wrote it again, but the file has other bytes today (an editor,
+// Excel, a copy): changed outside the recording.
 type Later struct {
-	Session string `json:"session"`
-	Task    string `json:"task"`
-	Same    bool   `json:"same_bytes,omitempty"`
+	Session    string `json:"session,omitempty"`
+	Task       string `json:"task,omitempty"`
+	Same       bool   `json:"same_bytes,omitempty"`
+	Unrecorded bool   `json:"unrecorded,omitempty"`
 }
 
 // markLater sets Later on every input and output of a project's tasks (sorted by End) that a
-// later step wrote again, across sessions.
+// later step wrote again, across sessions, or that has other bytes today with no recorded
+// write to explain it (Now from Checker.Annotate).
 func markLater(tasks []*Task) {
 	type write struct {
 		t   *Task
@@ -124,12 +128,21 @@ func markLater(tasks []*Task) {
 			if read == 0 {
 				read = t.Start
 			}
-			in.Later = next(in.Path, in.SHA256, read, t)
+			in.Later = unrecorded(next(in.Path, in.SHA256, read, t), in.Now)
 		}
 		for _, o := range t.Outputs {
-			o.Later = next(o.Path, o.SHA256, t.End, t)
+			o.Later = unrecorded(next(o.Path, o.SHA256, t.End, t), o.Now)
 		}
 	}
+}
+
+// unrecorded: the file has other bytes today, and no recorded step explains it (none wrote it
+// again, or only with the same bytes): it was changed outside the recording afterwards.
+func unrecorded(l *Later, now string) *Later {
+	if now == NowChanged && (l == nil || l.Same) {
+		return &Later{Unrecorded: true}
+	}
+	return l
 }
 
 // lineageAcross walks back like Lineage, following references into other sessions.
