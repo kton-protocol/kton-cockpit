@@ -221,7 +221,10 @@ With kton#232 (`rdf.Record`/`Attribution`, `nanopub.Record`/`Attribution`) and k
 - **Known limits.** An incremental read never forgets a record that left the registry: stores are append-only,
   so that takes a revert plus a new record before the next query (the next full read corrects it). Each query
   names every graph of its dataset as a request parameter, so the request grows with the union; fine for
-  repositories, worth revisiting for aggregations of many thousands of records.
+  repositories, worth revisiting for aggregations of many thousands of records. Behind `index.url` there is
+  no lock: a full read working from an older snapshot can remove a record a concurrent writer just added and
+  write its older position. The next query reads the registry again and heals it; one answer in between can
+  lack that record.
 - **Trust chosen per query.** The dataset is computed for each query from `urn:kton:index`: the default
   graph is every plankton record of the union plus its attribution to the trusted keys; the named graphs are
   the claims a trusted key signed, plus that attribution. A container started for one query loads the same
