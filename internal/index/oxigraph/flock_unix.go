@@ -8,7 +8,7 @@ import (
 )
 
 // flock holds an exclusive lock on path until the returned function is called. Two cockpits
-// starting the daemon, or rebuilding one view, take turns.
+// starting the daemon, or reading one registry into it, take turns.
 func flock(path string) (func(), error) {
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o644)
 	if err != nil {

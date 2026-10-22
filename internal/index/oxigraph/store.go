@@ -1,0 +1,390 @@
+//go:build unreleased
+
+package oxigraph
+
+import (
+	"context"
+	"crypto/ed25519"
+	"crypto/sha256"
+	"encoding/csv"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"os"
+	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
+
+	nregistry "kton.dev/nekton/registry"
+	"kton.dev/plankton/core"
+	pregistry "kton.dev/plankton/registry"
+
+	"github.com/kton-protocol/kton-cockpit/internal/binaries"
+	"github.com/kton-protocol/kton-cockpit/internal/config"
+	"github.com/kton-protocol/kton-cockpit/internal/index"
+)
+
+// The store holds every record once, in the kernel's own graphs (project.go), whichever
+// repositories read it, and one attribution graph per key that verifies it. Trust is never stored:
+// a query picks the attribution of the keys its configuration trusts.
+//
+// The graph urn:kton:index says what is in the store, per registry directory:
+//   - <urn:kton:reg:<id>> urn:kton:holds <record graph>, for every record of that registry;
+//   - <record graph> urn:kton:layer "plankton"|"nekton";
+//   - <attribution graph> urn:kton:of <record graph> ; urn:kton:keyid "<keyid>";
+//   - the registry's urn:kton:key (every public key it was attributed under), urn:kton:cursor (the
+//     last position read with Records) and urn:kton:position (kton#233, read before the records),
+//     written last: a registry without a position is stale and is read again.
+//
+// A registry is brought up to date before a query that reads it. Its position equal: nothing to do.
+// Otherwise it is opened and Records(cursor) applied, or Records(0) when its epoch changed, when
+// objects changed but nothing was numbered (records a git merge brought), or when the query trusts
+// a key the registry was not attributed under yet.
+
+const (
+	indexGraph = "urn:kton:index"
+	kNS        = "urn:kton:"
+)
+
+// Answer is a query's rows and how the store was read for it.
+type Answer struct {
+	Rows       []map[string]string
+	Registries int  // registries the query read
+	Kept       bool // every one of them was current; nothing was read into the store for this query
+}
+
+// Query answers a SPARQL SELECT over the union of cfg, under keys, reading into the store first
+// whatever changed in its registries.
+func Query(ctx context.Context, d *Daemon, cfg *config.Config, keys []ed25519.PublicKey, query string) (*Answer, error) {
+	// The dataset of the request is the only wall between repositories; SERVICE goes around it.
+	if err := index.CheckQuery(query); err != nil {
+		return nil, err
+	}
+	inputs, err := binaries.Inputs(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+	kept := true
+	var regs []string
+	for _, in := range inputs {
+		for _, r := range []struct{ layer, dir string }{{"plankton", in.PlanktonDir}, {"nekton", in.NektonDir}} {
+			changed, err := d.apply(ctx, r.layer, r.dir, keys)
+			if err != nil {
+				return nil, fmt.Errorf("reading %s registry %s into the index: %w", r.layer, r.dir, err)
+			}
+			kept = kept && !changed
+			regs = append(regs, regIRI(r.dir))
+		}
+	}
+	def, named, err := d.dataset(ctx, regs, trustedIDs(keys))
+	if err != nil {
+		return nil, err
+	}
+	rows, err := d.selectOn(ctx, def, named, query)
+	if err != nil {
+		return nil, err
+	}
+	return &Answer{Rows: rows, Registries: len(regs), Kept: kept}, nil
+}
+
+// regIRI names a registry directory. The index belongs to one machine, so its path names it.
+func regIRI(dir string) string {
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		abs = dir
+	}
+	h := sha256.Sum256([]byte(abs))
+	return kNS + "reg:" + hex.EncodeToString(h[:12])
+}
+
+type regState struct {
+	position string // core.Position as JSON; "" when the registry was never read, or is being read
+	cursor   int
+	keys     map[string]bool // public keys, hex
+}
+
+func (d *Daemon) state(ctx context.Context, reg string) (regState, error) {
+	q := fmt.Sprintf(`SELECT ?p ?o WHERE { GRAPH <%s> { <%s> ?p ?o FILTER(?p IN (<%sposition>, <%scursor>, <%skey>)) } }`,
+		indexGraph, reg, kNS, kNS, kNS)
+	rows, err := d.selectCSV(ctx, url.Values{"query": {q}})
+	if err != nil {
+		return regState{}, err
+	}
+	s := regState{keys: map[string]bool{}}
+	for _, r := range rows {
+		switch r["p"] {
+		case kNS + "position":
+			s.position = r["o"]
+		case kNS + "cursor":
+			s.cursor, _ = strconv.Atoi(r["o"])
+		case kNS + "key":
+			s.keys[r["o"]] = true
+		}
+	}
+	return s, nil
+}
+
+// apply brings one registry up to date and reports whether anything was read.
+func (d *Daemon) apply(ctx context.Context, layer, dir string, trusted []ed25519.PublicKey) (bool, error) {
+	reg := regIRI(dir)
+	pos, err := core.ReadPosition(dir) // before the records, as kton#233 asks
+	if err != nil {
+		return false, err
+	}
+	pb, _ := json.Marshal(pos)
+	now := string(pb)
+	want := map[string]bool{}
+	for _, k := range trusted {
+		want[hex.EncodeToString(k)] = true
+	}
+	current := func(s regState) bool {
+		if s.position != now {
+			return false
+		}
+		for k := range want {
+			if !s.keys[k] {
+				return false
+			}
+		}
+		return true
+	}
+	s, err := d.state(ctx, reg)
+	if err != nil || current(s) {
+		return false, err
+	}
+	if d.Dir != "" { // two cockpits reading the same registry take turns; the second finds it current
+		unlock, err := flock(filepath.Join(d.Dir, strings.TrimPrefix(reg, kNS+"reg:")+".lock"))
+		if err != nil {
+			return false, err
+		}
+		defer unlock()
+		if s, err = d.state(ctx, reg); err != nil || current(s) {
+			return false, err
+		}
+	}
+
+	var last core.Position
+	_ = json.Unmarshal([]byte(s.position), &last)
+	since := s.cursor
+	newKey := false
+	for k := range want {
+		newKey = newKey || !s.keys[k]
+	}
+	if s.position == "" || last.Epoch != pos.Epoch || (last.Objects != pos.Objects && last.MaxSeq == pos.MaxSeq) || newKey {
+		since = 0
+	}
+	var keys []ed25519.PublicKey
+	all := map[string]bool{}
+	for k := range s.keys {
+		all[k] = true
+	}
+	for k := range want {
+		all[k] = true
+	}
+	for k := range all {
+		if b, err := hex.DecodeString(k); err == nil && len(b) == ed25519.PublicKeySize {
+			keys = append(keys, ed25519.PublicKey(b))
+		}
+	}
+
+	var ps []projected
+	cursor := 0
+	if _, err := os.Stat(dir); err == nil {
+		switch layer {
+		case "plankton":
+			r, err := pregistry.Open(dir)
+			if err != nil {
+				return false, err
+			}
+			if ps, err = projectPlankton(r, r.Records(since), keys); err != nil {
+				return false, err
+			}
+			cursor = r.MaxSeq()
+		default:
+			r, err := nregistry.Open(dir)
+			if err != nil {
+				return false, err
+			}
+			ps = projectNekton(r.Records(since), keys)
+			cursor = r.MaxSeq()
+		}
+	} else if !os.IsNotExist(err) {
+		return false, err
+	}
+
+	// The position goes first, so a reader meanwhile finds the registry stale, never current. A
+	// full read also forgets which records the registry held: one that left it is no longer read.
+	forget := fmt.Sprintf(`DELETE WHERE { GRAPH <%s> { <%s> <%sposition> ?a } } ;
+DELETE WHERE { GRAPH <%s> { <%s> <%scursor> ?b } }`, indexGraph, reg, kNS, indexGraph, reg, kNS)
+	if since == 0 {
+		forget += fmt.Sprintf(` ;
+DELETE WHERE { GRAPH <%s> { <%s> <%sholds> ?c } }`, indexGraph, reg, kNS)
+	}
+	if _, err := d.post(ctx, "/update", "", url.Values{"update": {forget}}); err != nil {
+		return false, err
+	}
+
+	var recs, meta strings.Builder
+	m := func(s, p, o string) { fmt.Fprintf(&meta, "%s <%s%s> %s <%s> .\n", s, kNS, p, o, indexGraph) }
+	for _, p := range ps {
+		recs.Write(p.own)
+		m("<"+reg+">", "holds", "<"+p.graph+">")
+		m("<"+p.graph+">", "layer", nqLit(p.layer))
+		for kid, a := range p.attr {
+			recs.Write(a)
+			g := p.attributionGraph(kid)
+			m("<"+g+">", "of", "<"+p.graph+">")
+			m("<"+g+">", "keyid", nqLit(kid))
+		}
+	}
+	for k := range all {
+		m("<"+reg+">", "key", nqLit(k))
+	}
+	m("<"+reg+">", "cursor", nqLit(strconv.Itoa(cursor)))
+	if recs.Len() > 0 {
+		if err := d.load(ctx, "application/n-quads", recs.String()); err != nil {
+			return false, fmt.Errorf("loading records: %w", err)
+		}
+	}
+	if err := d.load(ctx, "application/n-quads", meta.String()); err != nil {
+		return false, fmt.Errorf("recording what was loaded: %w", err)
+	}
+	mark := fmt.Sprintf("<%s> <%sposition> %s <%s> .\n", reg, kNS, nqLit(now), indexGraph)
+	return true, d.load(ctx, "application/n-quads", mark)
+}
+
+// dataset is the default and the named graphs a query of these registries reads under trusted.
+func (d *Daemon) dataset(ctx context.Context, regs []string, trusted map[string]bool) (def, named []string, err error) {
+	vals := make([]string, len(regs))
+	for i, r := range regs {
+		vals[i] = "<" + r + ">"
+	}
+	q := fmt.Sprintf(`SELECT DISTINCT ?rec ?layer ?ag ?kid WHERE { GRAPH <%s> {
+  VALUES ?reg { %s } ?reg <%sholds> ?rec . ?rec <%slayer> ?layer .
+  OPTIONAL { ?ag <%sof> ?rec ; <%skeyid> ?kid } } }`, indexGraph, strings.Join(vals, " "), kNS, kNS, kNS, kNS)
+	rows, err := d.selectCSV(ctx, url.Values{"query": {q}})
+	if err != nil {
+		return nil, nil, err
+	}
+	type rec struct {
+		layer string
+		attr  []string
+	}
+	recs := map[string]*rec{}
+	for _, r := range rows {
+		x := recs[r["rec"]]
+		if x == nil {
+			x = &rec{layer: r["layer"]}
+			recs[r["rec"]] = x
+		}
+		if r["ag"] != "" && trusted[r["kid"]] {
+			x.attr = append(x.attr, r["ag"])
+		}
+	}
+	for g, x := range recs {
+		p := projected{layer: x.layer, graph: g}
+		switch {
+		case x.layer == "plankton":
+			def = append(def, g)
+			def = append(def, x.attr...)
+		case len(x.attr) > 0: // a claim only when a trusted key signed it
+			named = append(named, p.graphs()...)
+			named = append(named, x.attr...)
+		}
+	}
+	sort.Strings(def)
+	sort.Strings(named)
+	return def, named, nil
+}
+
+// selectOn runs query with exactly def as its default graph and named as its named graphs.
+func (d *Daemon) selectOn(ctx context.Context, def, named []string, query string) ([]map[string]string, error) {
+	form := url.Values{"query": {query}}
+	// An empty list would mean "the store's own", not "none": name one nobody uses.
+	if len(def) == 0 {
+		def = []string{kNS + "none"}
+	}
+	if len(named) == 0 {
+		named = []string{kNS + "none"}
+	}
+	for _, g := range def {
+		form.Add("default-graph-uri", g)
+	}
+	for _, g := range named {
+		form.Add("named-graph-uri", g)
+	}
+	return d.selectCSV(ctx, form)
+}
+
+func (d *Daemon) selectCSV(ctx context.Context, form url.Values) ([]map[string]string, error) {
+	body, err := d.post(ctx, "/query", "text/csv", form)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := csv.NewReader(strings.NewReader(string(body))).ReadAll()
+	if err != nil {
+		return nil, fmt.Errorf("reading the index's answer: %w", err)
+	}
+	var out []map[string]string
+	for i, row := range rows {
+		if i == 0 {
+			continue
+		}
+		m := map[string]string{}
+		for j, v := range row {
+			if j < len(rows[0]) {
+				m[rows[0][j]] = v
+			}
+		}
+		out = append(out, m)
+	}
+	return out, nil
+}
+
+// nqLit writes s as an N-Quads string literal.
+func nqLit(s string) string {
+	r := strings.NewReplacer(`\`, `\\`, `"`, `\"`, "\n", `\n`, "\r", `\r`)
+	return `"` + r.Replace(s) + `"`
+}
+
+func (d *Daemon) post(ctx context.Context, path, accept string, form url.Values) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, d.URL+path, strings.NewReader(form.Encode()))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	if accept != "" {
+		req.Header.Set("Accept", accept)
+	}
+	return do(req)
+}
+
+func (d *Daemon) load(ctx context.Context, mediaType, data string) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, d.URL+"/store", strings.NewReader(data))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", mediaType)
+	_, err = do(req)
+	return err
+}
+
+func do(req *http.Request) ([]byte, error) {
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("%s %s: %s: %s", req.Method, req.URL.Path, resp.Status, strings.TrimSpace(string(body)))
+	}
+	return body, nil
+}

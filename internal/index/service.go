@@ -8,8 +8,8 @@ import (
 )
 
 // ErrService refuses a query that calls another SPARQL endpoint. One daemon holds every repository's
-// views, and a query is confined to its own view only by the dataset the protocol request names. A
-// SERVICE clause leaves that dataset: pointed at the daemon itself, it reads every other view,
+// records, and a query is confined to its own union only by the dataset the protocol request names. A
+// SERVICE clause leaves that dataset: pointed at the daemon itself, it reads every other repository's,
 // with attribution made under keys this configuration does not trust (SPEC §12.4), and pointed
 // anywhere else it sends the query out. No vocabulary query needs it.
 var ErrService = fmt.Errorf("the query calls another endpoint (SERVICE), which the cockpit does not run")

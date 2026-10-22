@@ -6,18 +6,10 @@ import (
 	"context"
 	"crypto/ed25519"
 	"encoding/csv"
-	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
-
-	nclaim "kton.dev/nekton/claim"
-	"kton.dev/nekton/nanopub"
-	nregistry "kton.dev/nekton/registry"
-	ntemplate "kton.dev/nekton/template"
-	"kton.dev/plankton/core"
-	"kton.dev/plankton/rdf"
-	pregistry "kton.dev/plankton/registry"
 
 	"github.com/kton-protocol/kton-cockpit/internal/binaries"
 	"github.com/kton-protocol/kton-cockpit/internal/config"
@@ -28,16 +20,17 @@ import (
 )
 
 // Search and profile rules are SPARQL over the registries' RDF projection (kton K8), evaluated in a
-// pinned Oxigraph image. Plankton records are projected all, as the union holds them, with attribution
-// only where a key of this repository's trust tiers verifies (rdf.Turtle); claims only when such a key
-// signed them. A query that wants trusted records only filters on prov:wasAttributedTo.
+// pinned Oxigraph image. What a query reads is oxigraph.Dataset, on the daemon and in a container
+// alike: every plankton record of the union, attributed only where a key of this repository's trust
+// tiers verifies; claims only when such a key signed them. A query that wants trusted records only
+// filters on prov:wasAttributedTo.
 
 // queryAnswer is a vocabulary query's rows, the package the query came from, and how it was read.
 type queryAnswer struct {
 	rows []map[string]string
 	from string
 	// via says where the answer was evaluated: "" for a container for this query alone, or the
-	// index daemon and its view (ADR-012), or why the daemon was not used.
+	// index daemon and how many registries it read (ADR-012), or why the daemon was not used.
 	via string
 }
 
@@ -56,8 +49,8 @@ func runQuery(ctx context.Context, cfg *config.Config, name string) (*queryAnswe
 	}
 	src := voc.From["query:"+name]
 	from := src.Name + " (" + src.Dir + ")"
-	// Refused on either path: in the shared daemon SERVICE would leave this view (SPEC §12.4), and
-	// a query must not answer differently by where it runs.
+	// Refused on either path: in the shared daemon SERVICE would leave this query's dataset
+	// (SPEC §12.4), and a query must not answer differently by where it runs.
 	if err := index.CheckQuery(string(q)); err != nil {
 		return nil, refuse("query.refused", "", "%s (from %s): %v", name, from, err)
 	}
@@ -74,11 +67,12 @@ func runQuery(ctx context.Context, cfg *config.Config, name string) (*queryAnswe
 			if err != nil {
 				return nil, refuse("query.failed", "", "%v", err)
 			}
-			kept := "projected for this query"
+			kept := "read into it for this query"
 			if a.Kept {
 				kept = "current"
 			}
-			return &queryAnswer{rows: shortIDs(a.Rows), from: from, via: "index oxigraph, view " + a.View + " (" + kept + ")"}, nil
+			return &queryAnswer{rows: shortIDs(a.Rows), from: from,
+				via: fmt.Sprintf("index oxigraph, %d registries (%s)", a.Registries, kept)}, nil
 		}
 		if cfg.Raw.Query.Image == "" {
 			return nil, refuse("query.failed", "", "%v", err)
@@ -102,7 +96,7 @@ func runQuery(ctx context.Context, cfg *config.Config, name string) (*queryAnswe
 		return nil, refuse("io", "", "%v", err)
 	}
 	if _, err := container.RunTool(ctx, cfg, cfg.Raw.Query.Image, dir, "load", "--location", "/q/store",
-		"--file", "/q/nekton.trig", "--file", "/q/plankton.ttl"); err != nil {
+		"--file", "/q/default.nt", "--file", "/q/named.nq"); err != nil {
 		return nil, refuse("query.failed", "", "%v", err)
 	}
 	res, err := container.RunTool(ctx, cfg, cfg.Raw.Query.Image, dir, "query", "--location", "/q/store",
@@ -140,47 +134,21 @@ func shortIDs(rows []map[string]string) []map[string]string {
 	return rows
 }
 
-// projectRegistries writes nekton.trig and plankton.ttl for the records a trusted key signed. The
-// index daemon projects the same way (internal/index/oxigraph), into a view of its own.
+// projectRegistries writes the dataset a query reads (oxigraph.Dataset): default.nt, the default
+// graph, and named.nq, the claims a trusted key signed. The daemon selects the same graphs.
 func projectRegistries(rctx context.Context, cfg *config.Config, keys []ed25519.PublicKey, dir string) error {
-	pdir, ndir, err := binaries.ReadDirs(rctx, cfg)
+	u, err := binaries.OpenUnion(rctx, cfg)
 	if err != nil {
 		return err
 	}
-	nreg, err := nregistry.Open(ndir)
+	def, named, err := oxigraph.Dataset(u, keys)
 	if err != nil {
 		return err
 	}
-	ctx := nanopub.NewContext(ntemplate.Set{}, keys)
-	var b strings.Builder
-	for _, rec := range nreg.Records(0) {
-		if core.VerifiedSignerKeyID(rec.Envelope, keys) == "" {
-			continue
-		}
-		st, payload, err := nclaim.ParseEnvelope(rec.Envelope)
-		if err != nil {
-			continue
-		}
-		var body map[string]any
-		if json.Unmarshal(st.Predicate, &body) != nil {
-			continue
-		}
-		id := strings.TrimPrefix(nclaim.ClaimID(payload), "sha256:")
-		b.WriteString(nanopub.RenderTrig(ctx, st, body, rec.Envelope, id, "", "", ""))
-		b.WriteString("\n")
-	}
-	if err := os.WriteFile(filepath.Join(dir, "nekton.trig"), []byte(b.String()), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "default.nt"), def, 0o644); err != nil {
 		return err
 	}
-	preg, err := pregistry.Open(pdir)
-	if err != nil {
-		return err
-	}
-	ttl, err := rdf.Turtle(preg, "", keys)
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(filepath.Join(dir, "plankton.ttl"), []byte(ttl), 0o644)
+	return os.WriteFile(filepath.Join(dir, "named.nq"), named, 0o644)
 }
 
 func trustedKeys(cfg *config.Config) ([]ed25519.PublicKey, error) {

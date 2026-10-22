@@ -20,7 +20,7 @@ import (
 const oxigraphImage = "oci://ghcr.io/oxigraph/oxigraph@sha256:7532c1f9aa5f28c0dc6a4243198f7f6144017fab7429bf6c164a89fec9411767"
 
 // The index daemon answers a query exactly as a container made for that one query does: the same
-// rows, the claims' nanopublication IRIs included.
+// rows, the claims' nanopublication graphs and their attribution included.
 func TestQuery_TheIndexAnswersAsAContainerForTheQueryDoes(t *testing.T) {
 	ctx := context.Background()
 	t.Setenv("COCKPIT_INDEX_DIR", t.TempDir())
@@ -48,6 +48,7 @@ func TestQuery_TheIndexAnswersAsAContainerForTheQueryDoes(t *testing.T) {
 		`PREFIX prov: <http://www.w3.org/ns/prov#> SELECT ?a ?k ?u WHERE { ?a a prov:Activity . OPTIONAL { ?a prov:wasAttributedTo ?k } OPTIONAL { ?a prov:used ?u } }`,
 		`SELECT ?g ?s ?p ?o WHERE { GRAPH ?g { ?s ?p ?o } }`,
 		`SELECT ?s ?p ?o WHERE { ?s ?p ?o }`,
+		`PREFIX prov: <http://www.w3.org/ns/prov#> SELECT ?g ?a ?k WHERE { GRAPH ?g { ?a prov:wasAttributedTo ?k } }`,
 	} {
 		dir := t.TempDir()
 		if err := projectRegistries(ctx, cfg, keys, dir); err != nil {
@@ -56,7 +57,7 @@ func TestQuery_TheIndexAnswersAsAContainerForTheQueryDoes(t *testing.T) {
 		must(t, os.WriteFile(filepath.Join(dir, "query.rq"), []byte(q), 0o644))
 		must(t, os.Mkdir(filepath.Join(dir, "store"), 0o755))
 		if _, err := container.RunTool(ctx, cfg, oxigraphImage, dir, "load", "--location", "/q/store",
-			"--file", "/q/nekton.trig", "--file", "/q/plankton.ttl"); err != nil {
+			"--file", "/q/default.nt", "--file", "/q/named.nq"); err != nil {
 			t.Fatal(err)
 		}
 		res, err := container.RunTool(ctx, cfg, oxigraphImage, dir, "query", "--location", "/q/store",
