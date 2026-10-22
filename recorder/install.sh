@@ -37,7 +37,9 @@ mkdir -p "$PREFIX/share/kton/python"
 put "$ROOT/python/ktonrec.py" "$PREFIX/share/kton/python/ktonrec.py"
 STARTUP=${IPYTHONDIR:-$HOME/.ipython}/profile_default/startup
 mkdir -p "$STARTUP"
-sed "s|@KTON_PY@|$PREFIX/share/kton/python|g" "$ROOT/python/50-kton.py" > "$STARTUP/50-kton.py.new.$$" && mv "$STARTUP/50-kton.py.new.$$" "$STARTUP/50-kton.py"
+# the path as a Python string literal, whatever characters $PREFIX has
+python3 -I -c 'import json, sys; src = open(sys.argv[1]).read(); sys.stdout.write(src.replace("\"@KTON_PY@\"", json.dumps(sys.argv[2])))' \
+  "$ROOT/python/50-kton.py" "$PREFIX/share/kton/python" > "$STARTUP/50-kton.py.new.$$" && mv "$STARTUP/50-kton.py.new.$$" "$STARTUP/50-kton.py"
 for v in "$ROOT"/.build/*.vsix; do put "$v" "$PREFIX/share/kton/$(basename "$v")"; done
 # the flow is kton-web's graph viewer: remember its checkout ($KTON_WEB, or next to kton-cockpit)
 WEB=${KTON_WEB:-$(cd "$ROOT/../.." && pwd)/kton-web}

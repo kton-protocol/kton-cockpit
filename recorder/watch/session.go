@@ -334,6 +334,14 @@ func (s *Session) Handle(e Event) {
 			}
 		}
 	case "TASK":
+		if e.Mode == "paused" {
+			// run while recording was off (ktonrec, ktonrec.py): the shim looks at PAUSED at
+			// most once a second and may have logged some of it. None of it is kept, not even
+			// for the store, and the next command does not inherit it.
+			s.forget(c)
+			s.cur = newTaskState(e.TS)
+			return
+		}
 		t.ID, t.Status, t.Expr, t.End = e.Path, e.Mode, e.Extra, e.TS
 		s.finish()
 		s.cur = newTaskState(e.TS)
@@ -479,6 +487,24 @@ func (s *Session) link(in *Input) {
 			in.SameAs = append(in.SameAs, r)
 		}
 	}
+}
+
+// forget drops what a paused command touched from the file versions waiting for the store.
+func (s *Session) forget(c *taskState) {
+	touched := map[string]bool{}
+	for p := range c.written {
+		touched[p] = true
+	}
+	for p := range c.firstRead {
+		touched[p] = true
+	}
+	kept := s.seenFiles[:0]
+	for _, o := range s.seenFiles {
+		if !touched[o.Path] {
+			kept = append(kept, o)
+		}
+	}
+	s.seenFiles = kept
 }
 
 func (s *Session) finish() {

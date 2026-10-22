@@ -479,3 +479,24 @@ func TestSession_WhatARuntimeTouchedBeforeENVIsItsStart(t *testing.T) {
 		t.Fatalf("outputs %+v: the start's writes are not the command's", t1.Outputs)
 	}
 }
+
+// Review P4 of #15: a command run while recording was paused leaves nothing, also not what the
+// shim logged before it saw PAUSED, and the next command does not inherit it.
+func TestSession_APausedCommandLeavesNothing(t *testing.T) {
+	l := (&logb{}).
+		ev(100, "open", "w", "/p/secret.txt", "new=1").
+		ev(100, "closew", "w", "/p/secret.txt", "sha256=sec").
+		ev(100, "TASK", "paused", "1", "-").
+		ev(100, "open", "w", "/p/out.csv", "new=1").
+		ev(100, "closew", "w", "/p/out.csv", "sha256=out").
+		task(2, "ok", "write.csv(d, 'out.csv')")
+	s := sess(t, l, nil)
+	if len(s.Tasks) != 1 || s.Tasks[0].ID != "2" || len(s.Tasks[0].Outputs) != 1 || s.Tasks[0].Outputs[0].Path != "/p/out.csv" {
+		t.Fatalf("tasks %+v", s.Tasks)
+	}
+	for _, o := range s.TakeSeen() {
+		if o.Path == "/p/secret.txt" {
+			t.Fatalf("the paused command's file waits for the store: %+v", o)
+		}
+	}
+}

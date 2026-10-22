@@ -376,3 +376,40 @@ func outPaths(xs []*watch.Output) (out []string) {
 	}
 	return out
 }
+
+// Review P2, P3, P5 of #15: the startup file starts the boundaries only under the shim, writes
+// no bytecode of ktonrec while doing so, stays valid Python with a '"' in the installed path,
+// and a missing log costs the console nothing.
+func TestShim_TheIPythonStartupFile(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("no python3")
+	}
+	startup, _ := filepath.Abs("../python/50-kton.py")
+	fake, _ := filepath.Abs("testdata/startup_fake.py")
+	inst := filepath.Join(t.TempDir(), `pre"fix`, "python") // a quote in $PREFIX
+	os.MkdirAll(inst, 0o755)
+	src, _ := os.ReadFile("../python/ktonrec.py")
+	os.WriteFile(filepath.Join(inst, "ktonrec.py"), src, 0o644)
+
+	_, evs := run(t, nil, "python3", "-I", fake, startup, inst, "expect-start")
+	var env, tasks int
+	for _, e := range evs {
+		switch e.op {
+		case "ENV":
+			env++
+		case "TASK":
+			tasks++
+		}
+	}
+	if env != 1 || tasks != 1 {
+		t.Fatalf("ENV %d TASK %d: one cell while the log was there, none while it was away", env, tasks)
+	}
+	if _, err := os.Stat(filepath.Join(inst, "__pycache__")); err == nil {
+		t.Fatalf("ktonrec's bytecode was written at import")
+	}
+	cmd := exec.Command("python3", "-I", fake, startup, inst, "expect-nothing")
+	cmd.Env = append(os.Environ(), "KTON_TRACE_LOG=", "LD_PRELOAD=")
+	if out, err := cmd.CombinedOutput(); err != nil || len(out) > 0 {
+		t.Fatalf("outside the shim it must do nothing and say nothing: %v %s", err, out)
+	}
+}

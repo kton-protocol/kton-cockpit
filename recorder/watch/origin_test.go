@@ -3,6 +3,7 @@ package watch
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -99,5 +100,29 @@ func TestOrigins_APythonSessionGetsPythonExecutions(t *testing.T) {
 	}
 	if got := draftCmd(t1, "/p"); got != "python3 py/02_nca.py" {
 		t.Fatalf("cmd %q", got)
+	}
+}
+
+// Review P1 of #15: python3 only for a %run of a .py file, with its arguments; options get a
+// note; a Quarto Python cell and code with lines take the general route.
+func TestDraftCmd_PythonRunsOnlyWhatPercentRunRan(t *testing.T) {
+	task := func(o Origin) *Task { o.Language = "python"; return &Task{ID: "1", Origins: []Origin{o}} }
+	for _, row := range []struct {
+		o    Origin
+		want string
+	}{
+		{Origin{Code: `%run -- "py/fit.py" --n 5`, File: "/p/py/fit.py"}, "python3 py/fit.py --n 5"},
+		{Origin{Code: `%run -i -- "py/fit.py"`, File: "/p/py/fit.py"}, "python3 py/fit.py"},
+		{Origin{Code: "x = 1", File: "/p/report.qmd"}, `source("report.qmd")`},
+		{Origin{Code: "x = 1", File: "/p/py/a.py", StartLine: 3, EndLine: 4}, "py/a.py:3-4"},
+	} {
+		if got := draftCmd(task(row.o), "/p"); got != row.want {
+			t.Errorf("%q: got %q, want %q", row.o.Code, got, row.want)
+		}
+	}
+	s := NewSession("t", "/log.tsv", &Classifier{})
+	d := MakeDraft(s, task(Origin{Code: `%run -i -- "py/fit.py"`, File: "/p/py/fit.py"}))
+	if !strings.Contains(strings.Join(d.Notes, ";"), "-i") {
+		t.Fatalf("notes %q: %%run -i runs in the console's namespace, not as python3", d.Notes)
 	}
 }

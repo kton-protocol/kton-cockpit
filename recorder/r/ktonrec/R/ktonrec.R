@@ -24,9 +24,15 @@ log_path <- function() Sys.getenv("KTON_TRACE_LOG")
 .paused <- function() file.exists(file.path(dirname(.ktonrec$log), "PAUSED"))
 
 .line <- function(op, mode = "-", path = "-", extra = "-") {
-  # recording switched off (PAUSED next to the log): no boundaries either, except the session's
-  # own frame (ENV at start, END at the end) so it stays a session
-  if (!op %in% c("ENV", "END") && .paused()) return(invisible())
+  # recording switched off (PAUSED next to the log): nothing but the session's own frame (ENV at
+  # start, END at the end) so it stays a session, and a TASK marked paused
+  if (!op %in% c("ENV", "END") && .paused()) {
+    # a TASK stays a boundary, so what the shim logged before it saw PAUSED (it looks at most
+    # once a second) is dropped instead of handed to the next command; the code is not written
+    if (op != "TASK") return(invisible())
+    mode <- "paused"
+    extra <- "-"
+  }
   # the shim's v2 escaping: a backslash, TAB, LF and CR as \\, \t, \n, \r
   clean <- function(x) {
     x <- gsub("\\", "\\\\", x, fixed = TRUE)

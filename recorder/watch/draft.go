@@ -99,8 +99,81 @@ func MakeDraft(s *Session, t *Task) Draft {
 	for _, u := range t.Unrecorded {
 		d.Notes = append(d.Notes, "nicht aufgezeichnetes Programm "+u.Program+": seine Dateien fehlen in der Auswahl")
 	}
+	for _, o := range t.Origins {
+		if _, _, opts, ok := pyRun(o.Code); ok && o.Language == "python" && len(opts) > 0 {
+			d.Notes = append(d.Notes, "cmd prüfen: %run mit "+strings.Join(opts, " ")+" läuft anders als python3")
+		}
+	}
 	return d
 }
+
+// pyRun reads IPython's `%run [options] [--] file.py [args]`, the form Positron sends when a
+// Python file is run in the console. ok is false for anything else (a Quarto cell, typed code);
+// options (-i, -e, -t …) change how the file runs, so a draft with them needs a look.
+func pyRun(code string) (file string, args, opts []string, ok bool) {
+	rest, found := strings.CutPrefix(strings.TrimSpace(code), "%run ")
+	if !found {
+		return "", nil, nil, false
+	}
+	f := shellWords(strings.TrimSpace(rest))
+	i := 0
+	for ; i < len(f) && strings.HasPrefix(f[i], "-") && f[i] != "--"; i++ {
+		opts = append(opts, f[i])
+	}
+	if i < len(f) && f[i] == "--" {
+		i++
+	}
+	if i >= len(f) || !strings.HasSuffix(f[i], ".py") {
+		return "", nil, nil, false
+	}
+	return f[i], f[i+1:], opts, true
+}
+
+// shellWords splits as a POSIX shell does for words: single quotes literal, double quotes with
+// backslash escapes, a backslash outside quotes escapes the next character. IPython's %run
+// splits its line that way, and Positron quotes the file in double quotes.
+func shellWords(s string) []string {
+	var out []string
+	var b strings.Builder
+	in := false
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case c == '\'':
+			in = true
+			for i++; i < len(s) && s[i] != '\''; i++ {
+				b.WriteByte(s[i])
+			}
+		case c == '"':
+			in = true
+			for i++; i < len(s) && s[i] != '"'; i++ {
+				if s[i] == '\\' && i+1 < len(s) && strings.ContainsRune(`"\$`+"`", rune(s[i+1])) {
+					i++
+				}
+				b.WriteByte(s[i])
+			}
+		case c == '\\' && i+1 < len(s):
+			in = true
+			i++
+			b.WriteByte(s[i])
+		case c == ' ' || c == '\t' || c == '\n':
+			if in {
+				out = append(out, b.String())
+				b.Reset()
+				in = false
+			}
+		default:
+			in = true
+			b.WriteByte(c)
+		}
+	}
+	if in {
+		out = append(out, b.String())
+	}
+	return out
+}
+
+func isPyRun(code string) bool { _, _, _, ok := pyRun(code); return ok }
 
 func draftCmd(t *Task, repo string) string {
 	rel := func(p string) string {
@@ -112,8 +185,12 @@ func draftCmd(t *Task, repo string) string {
 	if len(t.Origins) > 0 && t.Origins[0].File != "" {
 		o := t.Origins[0]
 		switch {
-		case o.Language == "python" && o.StartLine == 0:
-			return "python3 " + shellJoin([]string{rel(o.File)}) // %run of a file
+		case o.Language == "python" && isPyRun(o.Code):
+			file, args, _, _ := pyRun(o.Code)
+			if filepath.Base(file) == filepath.Base(o.File) {
+				file = o.File // %run names it relative to the console's directory; the extension knows where
+			}
+			return shellJoin(append([]string{"python3", rel(file)}, args...))
 		case o.Chunk != "":
 			return "chunk " + o.Chunk + " of " + rel(o.File)
 		case o.StartLine > 0 && !(strings.HasPrefix(strings.TrimSpace(o.Code), "source(")):

@@ -33,14 +33,21 @@ def _paused():
 
 def _line(op, mode="-", path="-", extra="-"):
     if op not in ("ENV", "END") and _paused():
-        return
+        if op != "TASK":
+            return
+        # still a boundary, so what the shim logged before it saw PAUSED is dropped, not
+        # handed to the next command; the code itself is not written
+        mode, extra = "paused", "-"
     line = "%d\t%d\t0\t%s\t%s\t%s\t0\t0\t0\t%s\n" % (
         time.time_ns(), os.getpid(), op, mode, _esc(path) or "-", _esc(extra) or "-")
-    fd = os.open(_state["log"], os.O_WRONLY | os.O_APPEND)  # one write per line, as the shim
     try:
-        os.write(fd, line.encode("utf-8", "replace"))
-    finally:
-        os.close(fd)
+        fd = os.open(_state["log"], os.O_WRONLY | os.O_APPEND)  # one write per line, as the shim
+        try:
+            os.write(fd, line.encode("utf-8", "replace"))
+        finally:
+            os.close(fd)
+    except OSError:  # the log is gone (cleaned up, a moved directory): recording must not disturb
+        pass
 
 
 def _env_dirs():
