@@ -381,18 +381,33 @@ function publishLine(d, sel) {
   return `cockpit publish ${sq(JSON.stringify(req))}`;
 }
 async function documentTask(t) {
-  const d = await get(`api/draft?session=${enc(t.session || scope.id)}&task=${enc(t.id)}`);
+  const sess = t.session || scope.id;
+  const [d, calls] = await Promise.all([get(`api/draft?session=${enc(sess)}&task=${enc(t.id)}`),
+                                        get(`api/calls?session=${enc(sess)}&task=${enc(t.id)}`)]);
   if (!d) return;
+  showDraft(t, d, calls || [], null);
+}
+// one tool call as its own publish (ADR-010: a reference record per nmfe call)
+async function documentCall(t, calls, c) {
+  const d = await get(`api/calldraft?session=${enc(t.session || scope.id)}&task=${enc(t.id)}&pid=${c.pid}`);
+  if (d) showDraft(t, d, calls, c);
+}
+function showDraft(t, d, calls, call) {
   const box = (list) => (list || []).map((f) => `<label><input type="checkbox" value="${esc(f.path)}" ${f.use ? "checked" : ""} ${f.note && f.note.startsWith("nicht im Repo") ? "disabled" : ""}>
     <span class="f">${esc(f.path)}</span>${f.note ? ` <span class="chip warn">${esc(f.note)}</span>` : ""}</label>`).join("") || `<span class="h">–</span>`;
   docRepo = d.repo;
-  $("docTitle").textContent = "Dokumentieren: " + origin(t);
+  $("docTitle").textContent = call ? "Aufruf dokumentieren: " + call.tool : "Dokumentieren: " + origin(t);
   $("docNote").textContent = `Diese Ansicht schreibt nichts: Sie erzeugt den Aufruf, mit dem du den Schritt über das Cockpit persistierst – im Repo ${d.repo}.` + ((d.notes || []).length ? " Außerdem: " + d.notes.join("; ") + "." : "");
   $("docBody").innerHTML = `<fieldset><legend>gelesen</legend><div id="docIn">${box(d.inputs)}</div></fieldset>
     <fieldset><legend>geschrieben</legend><div id="docOut">${box(d.outputs)}</div></fieldset>
     <label>Befehl (<code>cmd</code>) <input type="text" id="docCmd" value="${esc(d.cmd || "")}"></label>
     <label>Umgebung (<code>envRef</code>, optional) <input type="text" id="docEnv" placeholder="oci://…@sha256:… oder Nix-Store-Pfad"></label>
-    <label>Begründung <textarea id="docWhy" placeholder="Warum dieser Schritt, was er bedeutet"></textarea></label>`;
+    <label>Begründung <textarea id="docWhy" placeholder="Warum dieser Schritt, was er bedeutet"></textarea></label>
+    ${calls.length ? `<fieldset><legend>Werkzeugaufrufe einzeln (je ein Foton)</legend>
+      ${call ? `<button class="btn" id="docWhole">Ganzer Befehl</button> ` : ""}
+      ${calls.map((c, i) => `<button class="btn docCall" data-i="${i}" ${call && call.pid === c.pid ? "disabled" : ""}>${esc(c.tool)}</button>`).join(" ")}</fieldset>` : ""}`;
+  for (const b of $("docBody").querySelectorAll(".docCall")) b.onclick = () => documentCall(t, calls, calls[+b.dataset.i]);
+  if ($("docWhole")) $("docWhole").onclick = () => documentTask(t);
   const upd = () => {
     const pick = (id) => [...$(id).querySelectorAll("input:checked")].map((x) => x.value);
     let text = publishLine(d, {inputs: pick("docIn"), outputs: pick("docOut"), cmd: $("docCmd").value.trim(), env: $("docEnv").value.trim()});
@@ -402,7 +417,7 @@ async function documentTask(t) {
   };
   for (const el of $("docBody").querySelectorAll("input, textarea")) el.oninput = el.onchange = upd;
   upd();
-  $("doc").showModal();
+  if (!$("doc").open) $("doc").showModal(); // a call's draft replaces the task's in the open dialog
 }
 async function documentChain(r) {
   docRepo = "";

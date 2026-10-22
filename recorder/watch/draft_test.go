@@ -141,3 +141,67 @@ func TestDraft_AShellScriptWithoutMarkersIsPublishedWithItsOutput(t *testing.T) 
 		t.Fatalf("cockpit publish %s exited %d:\n%s", b, code, out)
 	}
 }
+
+// ADR-010: an orchestrator's qualification needs a record per nmfe call. The inner call of a
+// PsN vpc is drafted on its own (its files, its command from its directory, the licence as a
+// note) and cockpit publish takes it.
+func TestCallDraft_OneNmfeCallIsPublishedOnItsOwn(t *testing.T) {
+	r := testrepo.New(t)
+	r.Write(t, "models/run6.mod", "$PROB run6\n")
+	r.Write(t, "data/pk.csv", "id,dv\n1,2\n")
+	r.Write(t, "models/vpc/NM_run1/psn.mod", "$PROB psn\n")
+	r.Write(t, "models/vpc/NM_run1/psn.ext", "ITERATION OBJ\n0 104.561\n")
+	r.Write(t, "models/vpc/vpc_results.csv", "q,v\n")
+	root, _ := filepath.EvalSymlinks(r.Root)
+	run1 := root + "/models/vpc/NM_run1"
+	task := &Task{ID: "16", Session: "s",
+		Parents: map[int]int{21: 20, 22: 21},
+		Commands: []Command{
+			{PID: 20, PPID: 1, Cmdline: "perl /usr/local/bin/vpc run6.mod -samples=10", Cwd: root + "/models"},
+			{PID: 22, PPID: 21, Cmdline: "/bin/bash /opt/nm/run/nmfe75 psn.mod psn.lst", Cwd: run1},
+		},
+		Ops: []FileOp{
+			{PID: 20, Op: "r", Path: root + "/models/run6.mod", SHA256: "m6"},
+			{PID: 21, Op: "w", Path: run1 + "/psn.mod"},
+			{PID: 21, Op: "c", Path: run1 + "/psn.mod", SHA256: "p"},
+			{PID: 22, Op: "r", Path: run1 + "/psn.mod", SHA256: "p"},
+			{PID: 22, Op: "r", Path: root + "/data/pk.csv", SHA256: "d"},
+			{PID: 22, Op: "r", Path: "/opt/nm/license/nonmem.lic", SHA256: "lic", Outside: true},
+			{PID: 22, Op: "w", Path: run1 + "/psn.ext"},
+			{PID: 22, Op: "c", Path: run1 + "/psn.ext", SHA256: "e"},
+			{PID: 20, Op: "w", Path: root + "/models/vpc/vpc_results.csv"},
+			{PID: 20, Op: "c", Path: root + "/models/vpc/vpc_results.csv", SHA256: "v"},
+		}}
+	cs := CallsOf(task)
+	if len(cs) != 2 || cs[1].PID != 22 {
+		t.Fatalf("calls %+v", cs)
+	}
+	d := CallDraft(cs[1], root, nil)
+	if d.Cmd != "cd models/vpc/NM_run1 && nmfe75 psn.mod psn.lst" {
+		t.Fatalf("cmd %q", d.Cmd)
+	}
+	var ins, outs []string
+	for _, f := range d.Inputs {
+		ins = append(ins, f.Path)
+	}
+	for _, f := range d.Outputs {
+		outs = append(outs, f.Path)
+	}
+	if strings.Join(ins, ",") != "models/vpc/NM_run1/psn.mod,data/pk.csv" || strings.Join(outs, ",") != "models/vpc/NM_run1/psn.ext" {
+		t.Fatalf("inputs %v outputs %v", ins, outs)
+	}
+	notes := strings.Join(d.Notes, "; ")
+	if !strings.Contains(notes, "nonmem.lic") || !strings.Contains(notes, "pid 20") {
+		t.Fatalf("notes %q: the licence and the enclosing vpc", notes)
+	}
+	b, _ := json.Marshal(map[string]any{"inputs": ins, "outputs": outs, "cmd": d.Cmd})
+	if out, code := r.Cockpit(t, "publish", string(b)); code != 0 || !strings.Contains(out, "sha256:") {
+		t.Fatalf("cockpit publish %s exited %d:\n%s", b, code, out)
+	}
+}
+
+func TestShellJoin_QuotesWhatAShellWouldSplit(t *testing.T) {
+	if got := shellJoin([]string{"nmfe75", "run 1.mod", "it's", "-x=a/b"}); got != `nmfe75 'run 1.mod' 'it'\''s' -x=a/b` {
+		t.Fatalf("%s", got)
+	}
+}
