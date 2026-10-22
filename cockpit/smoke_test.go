@@ -100,7 +100,7 @@ func TestPublish_RecordsASignedFotonAndPushesIt(t *testing.T) {
 	if h := out.OutputHashes["data/out.csv"]; !strings.HasPrefix(h, "sha256:") {
 		t.Fatalf("expected an output hash for data/out.csv, got %q", h)
 	}
-	if out.CommitSHA == before {
+	if out.Revision == before {
 		t.Fatal("publish did not create a commit")
 	}
 	// The push is not incidental: without it the permalinks publish hands back point at bytes no
@@ -108,14 +108,14 @@ func TestPublish_RecordsASignedFotonAndPushesIt(t *testing.T) {
 	// Publish commits twice (data files, then the registry) and pins permalinks to the first, so
 	// the reported sha must be CONTAINED in the remote rather than equal to its tip — and the tip
 	// itself must match local HEAD, i.e. the registry commit was pushed too.
-	if !r.OriginContains(t, out.CommitSHA) {
-		t.Fatalf("publish did not push: remote main does not contain %s", out.CommitSHA)
+	if !r.OriginContains(t, out.Revision) {
+		t.Fatalf("publish did not push: remote main does not contain %s", out.Revision)
 	}
 	if got, want := r.OriginSHA(t), r.HeadSHA(t); got != want {
 		t.Fatalf("the registry commit was not pushed: remote is at %s, local HEAD is %s", got, want)
 	}
-	want := "https://raw.githubusercontent.com/" + testrepo.Owner + "/" + testrepo.Name + "/" + out.CommitSHA + "/data/out.csv"
-	if got := out.Permalinks["data/out.csv"]; got != want {
+	want := "https://raw.githubusercontent.com/" + testrepo.Owner + "/" + testrepo.Name + "/" + out.Revision + "/data/out.csv"
+	if got := out.Locators["data/out.csv"]; got != want {
 		t.Fatalf("permalink not pinned to the publish commit:\n got %s\nwant %s", got, want)
 	}
 }
@@ -782,7 +782,7 @@ func TestPublish_WithoutExecutionConfiguredTheCommandIsOnlyRecorded(t *testing.T
 func TestPublish_WithCommitsOffTheRecordIsStillMadeButCarriesNoLocators(t *testing.T) {
 	r := testrepo.New(t)
 	raw := testrepo.DefaultConfig()
-	raw.Git = config.Git{Commit: testrepo.Bool(false)}
+	raw.Persist = config.Persist{Commit: testrepo.Bool(false)}
 	r.WriteConfig(t, raw)
 	r.Use(t)
 
@@ -795,14 +795,14 @@ func TestPublish_WithCommitsOffTheRecordIsStillMadeButCarriesNoLocators(t *testi
 	if r.HeadSHA(t) != before {
 		t.Error("commits are off, yet publish created one")
 	}
-	if out.CommitSHA != "" {
-		t.Errorf("publish reported a commit sha (%q) for a commit it did not make", out.CommitSHA)
+	if out.Revision != "" {
+		t.Errorf("publish reported a commit sha (%q) for a commit it did not make", out.Revision)
 	}
-	if len(out.Permalinks) != 0 {
-		t.Errorf("permalinks were built without a commit to pin them to: %+v", out.Permalinks)
+	if len(out.Locators) != 0 {
+		t.Errorf("locators were built without a revision to pin them to: %+v", out.Locators)
 	}
-	if out.Committed || out.Pushed {
-		t.Errorf("publish reported committed=%v pushed=%v", out.Committed, out.Pushed)
+	if out.Persisted || out.Shared {
+		t.Errorf("publish reported persisted=%v shared=%v", out.Persisted, out.Shared)
 	}
 }
 
@@ -811,23 +811,23 @@ func TestPublish_WithCommitsOffTheRecordIsStillMadeButCarriesNoLocators(t *testi
 func TestPublish_WithPushOffItCommitsLocallyAndSaysSo(t *testing.T) {
 	r := testrepo.New(t)
 	raw := testrepo.DefaultConfig()
-	raw.Git = config.Git{Push: testrepo.Bool(false)}
+	raw.Persist = config.Persist{Share: testrepo.Bool(false)}
 	r.WriteConfig(t, raw)
 	r.Use(t)
 
 	remoteBefore := r.OriginSHA(t)
 	out := publishOne(t, r)
 
-	if out.CommitSHA == "" || !out.Committed {
+	if out.Revision == "" || !out.Persisted {
 		t.Fatal("publish did not commit")
 	}
-	if out.Pushed {
+	if out.Shared {
 		t.Error("publish reported a push it was configured not to make")
 	}
 	if r.OriginSHA(t) != remoteBefore {
 		t.Error("push is off, yet the remote moved")
 	}
-	if len(out.Permalinks) == 0 {
+	if len(out.Locators) == 0 {
 		t.Error("a local commit is still a real commit — its permalinks should be reported")
 	}
 }
@@ -837,7 +837,7 @@ func TestPublish_WithPushOffItCommitsLocallyAndSaysSo(t *testing.T) {
 func TestConfigGuard_StillRefusesTheWrongRepoWithCommitsOff(t *testing.T) {
 	r := testrepo.New(t)
 	raw := testrepo.DefaultConfig()
-	raw.Git = config.Git{Commit: testrepo.Bool(false)}
+	raw.Persist = config.Persist{Commit: testrepo.Bool(false)}
 	raw.Repo.Owner = "someone-else"
 	r.WriteConfig(t, raw)
 	r.Use(t)
@@ -853,10 +853,10 @@ func TestConfigGuard_StillRefusesTheWrongRepoWithCommitsOff(t *testing.T) {
 
 // `commit: false` alone is a complete statement; writing `push: true` beside it states something
 // that cannot happen.
-func TestConfig_RefusesPushTrueWithCommitFalse(t *testing.T) {
+func TestConfig_RefusesShareTrueWithCommitFalse(t *testing.T) {
 	r := testrepo.New(t)
 	raw := testrepo.DefaultConfig()
-	raw.Git = config.Git{Commit: testrepo.Bool(false), Push: testrepo.Bool(true)}
+	raw.Persist = config.Persist{Commit: testrepo.Bool(false), Share: testrepo.Bool(true)}
 	r.WriteConfig(t, raw)
 	r.Use(t)
 
@@ -865,9 +865,9 @@ func TestConfig_RefusesPushTrueWithCommitFalse(t *testing.T) {
 		t.Fatalf("expected a tool-level error, not a Go error: %v", err)
 	}
 	if !result.IsError {
-		t.Fatal("a config that pushes without committing was accepted")
+		t.Fatal("a config that shares without committing was accepted")
 	}
-	if !strings.Contains(errText(result), "nothing to push") {
+	if !strings.Contains(errText(result), "nothing to share") {
 		t.Fatalf("the error does not explain the problem: %s", errText(result))
 	}
 }
@@ -986,9 +986,9 @@ func TestLocalMode_PublishAndSayWorkWithNoGitRepositoryAtAll(t *testing.T) {
 	if !strings.HasPrefix(pub.FotonID, "sha256:") {
 		t.Fatalf("the foton was not registered: %q", pub.FotonID)
 	}
-	if pub.CommitSHA != "" || len(pub.Permalinks) != 0 || pub.Committed || pub.Pushed {
-		t.Errorf("git happened in a repo with no git: sha=%q permalinks=%d committed=%v pushed=%v",
-			pub.CommitSHA, len(pub.Permalinks), pub.Committed, pub.Pushed)
+	if pub.Revision != "" || len(pub.Locators) != 0 || pub.Persisted || pub.Shared {
+		t.Errorf("git happened in a repo with no git: revision=%q locators=%d persisted=%v shared=%v",
+			pub.Revision, len(pub.Locators), pub.Persisted, pub.Shared)
 	}
 
 	claimID := sayWorkingOn(t, pub.FotonID)
@@ -1034,7 +1034,7 @@ func TestLocalMode_RefusesGitCommitTrue(t *testing.T) {
 	r := testrepo.NewLocal(t)
 	raw := testrepo.DefaultConfig()
 	raw.Repo = config.RepoRef{Mode: config.ModeLocal, Root: r.Root}
-	raw.Git = config.Git{Commit: testrepo.Bool(true)}
+	raw.Persist = config.Persist{Commit: testrepo.Bool(true)}
 	r.WriteConfig(t, raw)
 	r.Use(t)
 

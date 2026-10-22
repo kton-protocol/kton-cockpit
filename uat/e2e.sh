@@ -113,7 +113,7 @@ P1=$(cockpit publish '{"cmd":"python3 session-1/clean.py",
 P1_FOTON=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["fotonId"])' <<<"$P1")
 P1_HASH=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["outputHashes"]["session-1/clean.csv"])' <<<"$P1")
 require "participant 1 has a foton"            test -n "$P1_FOTON"
-require "and it committed and pushed"          grep -q '"pushed": true' <<<"$P1"
+require "and it persisted and shared"          grep -q '"shared": true' <<<"$P1"
 echo "  $P1_FOTON"
 
 echo ""

@@ -6,6 +6,7 @@ package gitrepo
 
 import (
 	"context"
+	"fmt"
 	"os/exec"
 	"path/filepath"
 	"regexp"
@@ -53,4 +54,73 @@ func SamePath(a, b string) bool {
 	ra, err1 := filepath.EvalSymlinks(a)
 	rb, err2 := filepath.EvalSymlinks(b)
 	return err1 == nil && err2 == nil && ra == rb
+}
+
+// Head is the commit HEAD names.
+func Head(ctx context.Context, root string) (string, error) {
+	return output(ctx, root, "rev-parse", "HEAD")
+}
+
+// PullMerge takes in origin's commits: a fast-forward when possible, a merge commit when both sides
+// moved — never a rebase, which would rewrite local commits. On a conflict the merge is aborted, the
+// working tree is as it was, and the error says so. identity is passed to git before the
+// subcommand (-c user.name=… -c user.email=…), for the merge commit.
+func PullMerge(ctx context.Context, root string, identity ...string) error {
+	cmd := exec.CommandContext(ctx, "git", append(identity, "pull", "--no-rebase", "--no-edit", "--quiet")...)
+	cmd.Dir = root
+	if out, err := cmd.CombinedOutput(); err != nil {
+		abort := exec.CommandContext(ctx, "git", "merge", "--abort")
+		abort.Dir = root
+		_ = abort.Run()
+		return fmt.Errorf("git pull --no-rebase: %s", strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+// Push sends HEAD to origin's branch of the same name.
+func Push(ctx context.Context, root string) error {
+	cmd := exec.CommandContext(ctx, "git", "push", "--quiet", "origin", "HEAD")
+	cmd.Dir = root
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("git push: %s", strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+// Tracked lists which of paths git holds, and which of those differ from the working tree.
+func Tracked(ctx context.Context, root string, paths []string) (tracked, changed map[string]bool, err error) {
+	tracked, changed = map[string]bool{}, map[string]bool{}
+	ls, err := output(ctx, root, append([]string{"ls-files", "-z", "--"}, paths...)...)
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, p := range strings.Split(ls, "\x00") {
+		if p != "" {
+			tracked[p] = true
+		}
+	}
+	// A repository with no commit yet has nothing to differ from: every tracked path is staged only.
+	if _, err := output(ctx, root, "rev-parse", "--verify", "--quiet", "HEAD"); err != nil {
+		return tracked, changed, nil
+	}
+	diff, err := output(ctx, root, append([]string{"diff", "--name-only", "-z", "HEAD", "--"}, paths...)...)
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, p := range strings.Split(diff, "\x00") {
+		if p != "" {
+			changed[p] = true
+		}
+	}
+	return tracked, changed, nil
+}
+
+func output(ctx context.Context, dir string, args ...string) (string, error) {
+	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
 }

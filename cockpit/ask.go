@@ -10,6 +10,7 @@ import (
 
 	"github.com/kton-protocol/kton-cockpit/internal/binaries"
 	"github.com/kton-protocol/kton-cockpit/internal/config"
+	"github.com/kton-protocol/kton-cockpit/internal/index"
 	"github.com/kton-protocol/kton-cockpit/internal/material"
 	"kton.dev/plankton/core"
 
@@ -160,6 +161,10 @@ type AskResult struct {
 	// Executions are the verified records the proposal was made from, as the adapter read them.
 	Executions    []rayExecution `json:"executions,omitempty"`
 	FilterApplied string         `json:"filterApplied"`
+	// Index says the answer was read through a derived index (index.kind, ADR-012): which kind,
+	// whether the registries were the ones it held from an earlier call, and since when. Absent
+	// when they were opened for this call.
+	Index *index.Answered `json:"index,omitempty"`
 }
 
 func (c *Cockpit) Ask(ctx context.Context, in AskRequest) (*AskResult, error) {
@@ -174,7 +179,7 @@ func (c *Cockpit) Ask(ctx context.Context, in AskRequest) (*AskResult, error) {
 		return nil, refuse("argument", "", "ask requires ref (the hash, subject, or value to query)")
 	}
 
-	r := binaries.New(cfg)
+	r := index.Open(cfg)
 
 	// A file you have is a question you can ask. The substrate indexes bytes, so every lineage
 	// query wants a content hash — but the thing in front of somebody is a file, and hashing it by
@@ -210,10 +215,11 @@ func (c *Cockpit) Ask(ctx context.Context, in AskRequest) (*AskResult, error) {
 		return nil, err
 	}
 	out.ResolvedFrom = resolvedFrom
+	out.Index = index.From(r)
 	return out, nil
 }
 
-func dispatchAsk(ctx context.Context, cfg *config.Config, r *binaries.Runner, in AskRequest, filter *AskFilter) (*AskResult, error) {
+func dispatchAsk(ctx context.Context, cfg *config.Config, r index.Reader, in AskRequest, filter *AskFilter) (*AskResult, error) {
 	switch in.Query {
 	case "about", "by":
 		return askClaims(ctx, cfg, r, in, filter)
@@ -244,7 +250,7 @@ func dispatchAsk(ctx context.Context, cfg *config.Config, r *binaries.Runner, in
 // into a configured trust tier (and, if a filter was given, into that tier) are assembled into the
 // answer at all — the excluded ones are accounted for in Records/Excluded but their content is
 // never rendered anywhere.
-func askClaims(ctx context.Context, cfg *config.Config, r *binaries.Runner, in AskRequest, filter *AskFilter) (*AskResult, error) {
+func askClaims(ctx context.Context, cfg *config.Config, r index.Reader, in AskRequest, filter *AskFilter) (*AskResult, error) {
 	var claims []binaries.ClaimAxis
 	var err error
 
@@ -312,7 +318,7 @@ func askClaims(ctx context.Context, cfg *config.Config, r *binaries.Runner, in A
 // That worked only while a record's own id happened to be the first hash on its line — an
 // assumption no doc guaranteed and no test upstream protected. kton #57 gave these four queries a
 // --json mode where the id is a named field, so the assumption is gone rather than defended.
-func askLineage(ctx context.Context, cfg *config.Config, r *binaries.Runner, in AskRequest, filter *AskFilter) (*AskResult, error) {
+func askLineage(ctx context.Context, cfg *config.Config, r index.Reader, in AskRequest, filter *AskFilter) (*AskResult, error) {
 	if in.Query == "reproductions" {
 		return askReproductions(ctx, cfg, r, in, filter)
 	}
@@ -356,7 +362,7 @@ func askLineage(ctx context.Context, cfg *config.Config, r *binaries.Runner, in 
 // cockpit hands it — which is why the tier filter is passed down rather than applied afterwards: a
 // count taken over every tier and then labelled as one tier's would be a filtered answer that is
 // not filtered.
-func askReproductions(ctx context.Context, cfg *config.Config, r *binaries.Runner, in AskRequest, filter *AskFilter) (*AskResult, error) {
+func askReproductions(ctx context.Context, cfg *config.Config, r index.Reader, in AskRequest, filter *AskFilter) (*AskResult, error) {
 	res, err := r.Reproductions(ctx, in.Ref, filter.TrustTier)
 	if err != nil {
 		return nil, refuse("kernel", "", "query failed: %v", err)
@@ -404,7 +410,7 @@ func askReproductions(ctx context.Context, cfg *config.Config, r *binaries.Runne
 
 // siftFoton verifies one foton id and records the verdict on out, reporting whether it belongs in
 // the answer. The second return value is a non-empty error message.
-func siftFoton(ctx context.Context, cfg *config.Config, r *binaries.Runner, id string, filter *AskFilter, keyidOf map[string]string, out *AskResult) (bool, string) {
+func siftFoton(ctx context.Context, cfg *config.Config, r index.Reader, id string, filter *AskFilter, keyidOf map[string]string, out *AskResult) (bool, string) {
 	tier, verifyingKey, err := verify.ResolveTier(ctx, r, cfg, id, verify.Foton)
 	if err != nil {
 		return false, fmt.Sprintf("verifying %s failed: %v", id, err)
@@ -445,7 +451,7 @@ func joinWithWarning(lines []string, warning string) string {
 
 // validateFilter refuses a filter naming something this repo does not have. The second return value
 // is a non-empty error message.
-func validateFilter(ctx context.Context, cfg *config.Config, r *binaries.Runner, f *AskFilter) string {
+func validateFilter(ctx context.Context, cfg *config.Config, r index.Reader, f *AskFilter) string {
 	if !f.active() {
 		return ""
 	}
@@ -514,7 +520,7 @@ func (f *AskFilter) keepsFoton(tier, verifiedBy string) bool {
 // keyidsByPath maps each configured pubkey path to the keyid a signature carries for it. Resolved
 // once per call rather than per record: it is one substrate invocation per configured key, and the
 // answer cannot change while a call is running.
-func keyidsByPath(ctx context.Context, cfg *config.Config, r *binaries.Runner) (map[string]string, error) {
+func keyidsByPath(ctx context.Context, cfg *config.Config, r index.Reader) (map[string]string, error) {
 	out := map[string]string{}
 	for path := range cfg.TierPubkeys() {
 		kid, err := r.KeyID(ctx, path)
@@ -576,7 +582,7 @@ func carriesSignature(c binaries.ClaimAxis, keyid string) bool {
 // The signer is reported as the key that actually verified, and named when this repo's
 // configuration names it — a keyid is not a person, and the trust tiers are the only place that
 // says whose key is whose.
-func askRecord(ctx context.Context, cfg *config.Config, r *binaries.Runner, in AskRequest, filter *AskFilter) (*AskResult, error) {
+func askRecord(ctx context.Context, cfg *config.Config, r index.Reader, in AskRequest, filter *AskFilter) (*AskResult, error) {
 	out := AskResult{Query: in.Query, Ref: in.Ref, FilterApplied: filter.describe()}
 	rec, err := r.FotonByID(ctx, in.Ref)
 	if err != nil {
@@ -678,7 +684,7 @@ func wantsContentHash(query string) bool {
 //
 // Repo-relative first, then as given. That order matters: inside a participant repo the paths
 // people say out loud are repo-relative, and they are also what the records name.
-func hashLocalFile(ctx context.Context, cfg *config.Config, r *binaries.Runner, ref string) (hash, resolved string, err error) {
+func hashLocalFile(ctx context.Context, cfg *config.Config, r index.Reader, ref string) (hash, resolved string, err error) {
 	rel := filepath.Clean(ref)
 	candidates := []struct{ abs, report string }{
 		{filepath.Join(cfg.RepoRoot, filepath.FromSlash(rel)), filepath.ToSlash(rel)},

@@ -17,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
@@ -25,8 +26,10 @@ import (
 	// configuration knows git and local mode. Extensions register further modes the same way.
 	_ "github.com/kton-protocol/kton-cockpit/cockpit/backend/github"
 	_ "github.com/kton-protocol/kton-cockpit/cockpit/backend/local"
+	"github.com/kton-protocol/kton-cockpit/cockpit/executor"
+	// The reference executor ships the same way: every binary can run in a pinned container.
+	_ "github.com/kton-protocol/kton-cockpit/cockpit/executor/container"
 	"github.com/kton-protocol/kton-cockpit/cockpit/source"
-	"github.com/kton-protocol/kton-cockpit/internal/gitrepo"
 )
 
 // Mode names how this cockpit is bound to a location, and therefore what the anti-wrong-folder
@@ -64,6 +67,9 @@ func (r *RepoRef) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
+// MarshalJSON writes the block as it was read or proposed, so an extension's own fields survive.
+func (r RepoRef) MarshalJSON() ([]byte, error) { return r.block(), nil }
+
 // block is the repo object a backend decodes: as written, or rebuilt from the known fields when
 // the configuration was assembled in code rather than read from a file.
 func (r RepoRef) block() json.RawMessage {
@@ -81,6 +87,14 @@ func (r RepoRef) block() json.RawMessage {
 
 // IsLocal reports whether this cockpit runs without git.
 func (r RepoRef) IsLocal() bool { return r.Mode == ModeLocal }
+
+// ModeOrDefault is the mode a backend is looked up by: "git" when none is configured.
+func (r RepoRef) ModeOrDefault() string {
+	if r.Mode == "" {
+		return ModeGit
+	}
+	return r.Mode
+}
 
 type Paths struct {
 	PlanktonDir  string `json:"plankton_dir"`
@@ -254,30 +268,31 @@ func (u Union) DirOrDefault() string {
 	return u.Dir
 }
 
-// Git controls whether the cockpit commits and pushes on the caller's behalf. Both default to on;
-// omitting the block entirely keeps the behaviour every existing repo has.
+// Persist controls what the backend does with what a verb wrote (ADR-011): make it durable
+// (git: commit; improve: check in), and share it with the place others read (git: push). Both
+// default to on; omitting the block keeps the behaviour every existing repo has.
 //
-// This does NOT touch the anti-wrong-folder guard. That check reads the repo's own `origin` remote
-// on every call and is the reason this project exists; it applies whether or not the cockpit writes
-// anything. Turning commits off makes the cockpit stop WRITING to git, never stop CHECKING which
-// repo it is in.
-type Git struct {
-	// Commit, when false, means the cockpit signs and registers records without committing the
-	// files they describe. The foton is still valid — a foton never implied its bytes were
+// This does NOT touch the anti-wrong-folder guard. That check runs on every call and is the reason
+// this project exists; it applies whether or not the cockpit writes anything. Turning persisting
+// off makes the cockpit stop WRITING to the store, never stop CHECKING which repository it is in.
+type Persist struct {
+	// Commit, when false, means the cockpit signs and registers records without making the files
+	// they describe durable. The foton is still valid — a foton never implied its bytes were
 	// published anywhere — but it carries no locators, so a peer has nowhere to fetch and re-hash
 	// them from.
 	Commit *bool `json:"commit,omitempty"`
-	// Push, when false, commits locally without pushing. Permalinks are still built, because the
-	// commit they pin is real and stable; they simply do not resolve until someone pushes.
-	Push *bool `json:"push,omitempty"`
+	// Share, when false, makes writes durable here without sharing them. Locators are still built,
+	// because the revision they pin is real and stable; they simply do not resolve until someone
+	// shares it.
+	Share *bool `json:"share,omitempty"`
 }
 
-// CommitEnabled and PushEnabled default to true, so an absent block behaves as before. Turning
-// commits off turns pushes off with them — there would be nothing to push — so `commit: false`
+// CommitEnabled and ShareEnabled default to true, so an absent block behaves as before. Turning
+// commits off turns sharing off with it — there would be nothing to share — so `commit: false`
 // alone is a complete statement and needs no second flag.
-func (g Git) CommitEnabled() bool { return g.Commit == nil || *g.Commit }
-func (g Git) PushEnabled() bool {
-	return g.CommitEnabled() && (g.Push == nil || *g.Push)
+func (p Persist) CommitEnabled() bool { return p.Commit == nil || *p.Commit }
+func (p Persist) ShareEnabled() bool {
+	return p.CommitEnabled() && (p.Share == nil || *p.Share)
 }
 
 // Execution turns cockpit_publish from recording a command into running one, inside a pinned
@@ -288,6 +303,11 @@ func (g Git) PushEnabled() bool {
 // handed to the container runtime and the string pinned into the foton are the same string, so what
 // ran and what is recorded cannot differ. See ADR-003.
 type Execution struct {
+	// Executor names the registered executor that runs the command (cockpit/executor). Empty means
+	// "container", the reference implementation; an extension binary registers further ones.
+	Executor string `json:"executor,omitempty"`
+	// Options is the executor's own block, handed to it as written (executor.Step.Options).
+	Options json.RawMessage `json:"options,omitempty"`
 	// Engine is the container runtime executable. Empty means "docker".
 	Engine string `json:"engine,omitempty"`
 	// Image is the digest-pinned OCI reference to run in, e.g. oci://ghcr.io/org/x@sha256:...
@@ -305,11 +325,11 @@ type Execution struct {
 	Entrypoint string `json:"entrypoint,omitempty"`
 }
 
-// CommitEnabled and PushEnabled answer for the whole configuration, not just the git block: with no
-// git repository there is nothing to commit to, so local mode turns both off structurally rather
-// than by asking the operator to also set the flags.
-func (r Raw) CommitEnabled() bool { return !r.Repo.IsLocal() && r.Git.CommitEnabled() }
-func (r Raw) PushEnabled() bool   { return r.CommitEnabled() && r.Git.PushEnabled() }
+// CommitEnabled and ShareEnabled answer for the whole configuration, not just the persist block:
+// local mode keeps nothing to commit to, so it turns both off structurally rather than by asking
+// the operator to also set the flags.
+func (r Raw) CommitEnabled() bool { return !r.Repo.IsLocal() && r.Persist.CommitEnabled() }
+func (r Raw) ShareEnabled() bool  { return r.CommitEnabled() && r.Persist.ShareEnabled() }
 
 // PinnedEnvRef is the exact execution environment to record in a foton. When the cockpit runs the
 // command itself, that is by definition the image it ran it in — the config cannot disagree,
@@ -365,12 +385,48 @@ type Raw struct {
 	Reproduction Reproduction `json:"reproduction"`
 	Environment  Environment  `json:"environment,omitempty"`
 	Execution    Execution    `json:"execution,omitempty"`
-	Git          Git          `json:"git,omitempty"`
+	Persist      Persist      `json:"persist,omitempty"`
 	Union        Union        `json:"union,omitempty"`
 	Anchor       Anchor       `json:"anchor,omitempty"`
 	Material     Material     `json:"material,omitempty"`
 	Query        Query        `json:"query,omitempty"`
 	Federation   Federation   `json:"federation,omitempty"`
+	Index        Index        `json:"index,omitempty"`
+}
+
+// Index is how records are read (ADR-012). It is derived, never authoritative: whichever kind is
+// configured answers exactly as "none" does, only sooner.
+type Index struct {
+	// Kind is "none" (the default: the registries are opened on every call), "memory" (the
+	// opened registries are kept for as long as the process runs, and opened again when one of
+	// them changes — for the MCP server, which runs across calls) or, in a build that has the
+	// kernel's RDF projections, "oxigraph" (memory, plus a long-running Oxigraph that keeps the
+	// projection SPARQL queries run on).
+	Kind string `json:"kind,omitempty"`
+	// URL is an Oxigraph to connect to instead of starting one ("connect, don't start").
+	URL string `json:"url,omitempty"`
+	// Memory limits the Oxigraph container the cockpit starts, in the engine's notation. Empty
+	// means "2g".
+	Memory string `json:"memory,omitempty"`
+}
+
+// IndexKinds are the index kinds this build has.
+var IndexKinds = []string{"none", "memory"}
+
+// MemoryOrDefault is the memory limit of a started Oxigraph.
+func (i Index) MemoryOrDefault() string {
+	if i.Memory == "" {
+		return "2g"
+	}
+	return i.Memory
+}
+
+// KindOrDefault is the configured kind, "none" when unset.
+func (i Index) KindOrDefault() string {
+	if i.Kind == "" {
+		return "none"
+	}
+	return i.Kind
 }
 
 // Federation names the other registries this cockpit reads together with its own. Which places
@@ -489,8 +545,9 @@ func Load(ctx context.Context, startDir string) (*Config, error) {
 // says it belongs; it says nothing about whether that is the directory the session was meant to act
 // in, which is the whole question.
 //
-// So: bounded. In git mode the config can only ever be at the repository root, which is the property
-// the previous design had. In local mode it must be in the directory itself.
+// So: bounded. The config is in startDir, or at the root of the repository that contains it, as a
+// backend names that root (cockpit/backend Binder.Root; git: the working tree's top level) — never
+// further. In local mode, which names no containing repository, it must be in the directory itself.
 func findConfigDir(ctx context.Context, startDir string) (string, error) {
 	dir, err := filepath.Abs(startDir)
 	if err != nil {
@@ -499,13 +556,16 @@ func findConfigDir(ctx context.Context, startDir string) (string, error) {
 	if hasConfig(dir) {
 		return dir, nil
 	}
-	// One step, and only to a place git itself names — never an arbitrary ancestor.
-	if root, rerr := gitrepo.Root(ctx, dir); rerr == nil && hasConfig(root) {
-		return root, nil
+	// One step, and only to a place a backend itself names — never an arbitrary ancestor.
+	for _, mode := range backend.Modes() {
+		b, _ := backend.Lookup(mode)
+		if root, rerr := b.Root(ctx, dir); rerr == nil && hasConfig(root) {
+			return root, nil
+		}
 	}
 	return "", fmt.Errorf(
-		"cockpit: no cockpit.config.json in %s, and none at its git repository root — the config is "+
-			"looked for in those two places only, never in an arbitrary parent directory", startDir)
+		"cockpit: no cockpit.config.json in %s, and none at the root of a repository containing it — the "+
+			"config is looked for in those two places only, never in an arbitrary parent directory", startDir)
 }
 
 func hasConfig(dir string) bool {
@@ -562,6 +622,16 @@ func validate(raw *Raw) error {
 	if err := validateMaterial(raw.Material); err != nil {
 		return err
 	}
+	if !slices.Contains(IndexKinds, raw.Index.KindOrDefault()) {
+		return fmt.Errorf("index.kind %q is not available in this build (have: %s)",
+			raw.Index.Kind, strings.Join(IndexKinds, ", "))
+	}
+	if err := validateQueryImage(raw.Query.Image); err != nil {
+		return err
+	}
+	if raw.Index.Kind == "oxigraph" && raw.Index.URL == "" && raw.Query.Image == "" {
+		return fmt.Errorf("index.kind \"oxigraph\" needs query.image (the Oxigraph image to start, pinned by digest) or index.url (one to connect to)")
+	}
 	for name, id := range raw.Claims.Scopes {
 		if name == "" {
 			return fmt.Errorf("claims.scopes has an entry with an empty name; the name is how a claim asks for it")
@@ -572,8 +642,8 @@ func validate(raw *Raw) error {
 					"`nekton seed <name> --sign <key> --add --print-id` prints one", name, id)
 		}
 	}
-	if raw.Repo.IsLocal() && raw.Git.Commit != nil && *raw.Git.Commit {
-		return fmt.Errorf("git.commit is true but repo.mode is %q — there is no git repository to commit to", ModeLocal)
+	if raw.Repo.IsLocal() && raw.Persist.Commit != nil && *raw.Persist.Commit {
+		return fmt.Errorf("persist.commit is true but repo.mode is %q — local mode keeps nothing to commit to", ModeLocal)
 	}
 	if raw.Anchor.RekorURL != "" && raw.Anchor.RekorPubkey == "" {
 		return fmt.Errorf(
@@ -590,7 +660,7 @@ func validate(raw *Raw) error {
 		// consequential as a publish path: `../..` escapes the repository, and `keys` or `.git`
 		// aims at exactly what publish's denylist exists to keep out — with the difference that
 		// nobody has to ask for it, since every record rewrites these files.
-		if err := validateRepoRelativeDir(raw.Union.Dir, raw.Paths); err != nil {
+		if err := validateRepoRelativeDir(raw.Union.Dir, raw.Paths, raw.Private()); err != nil {
 			return fmt.Errorf("union.dir: %w", err)
 		}
 	}
@@ -600,9 +670,9 @@ func validate(raw *Raw) error {
 				"there would be nowhere for it to go")
 	}
 	// Only the explicit contradiction is an error. Setting `commit: false` alone is fine and means
-	// no push either; writing `push: true` next to it states something that cannot happen.
-	if raw.Git.Push != nil && *raw.Git.Push && !raw.Git.CommitEnabled() {
-		return fmt.Errorf("git.push is true but git.commit is false — there would be nothing to push")
+	// no sharing either; writing `share: true` next to it states something that cannot happen.
+	if raw.Persist.Share != nil && *raw.Persist.Share && !raw.Persist.CommitEnabled() {
+		return fmt.Errorf("persist.share is true but persist.commit is false — there would be nothing to share")
 	}
 	return nil
 }
@@ -614,6 +684,16 @@ func validateExecution(ex Execution, env Environment) error {
 			return fmt.Errorf("execution.network is set but execution.image is not — nothing runs, so nothing is being allowed onto the network")
 		}
 		return nil
+	}
+	e, ok := executor.Lookup(ex.Executor)
+	if !ok {
+		return fmt.Errorf("execution.executor %q is not available in this build (have: %s)",
+			ex.Executor, strings.Join(executor.Names(), ", "))
+	}
+	if v, ok := e.(executor.Validator); ok {
+		if err := v.Validate(ex.Options); err != nil {
+			return fmt.Errorf("execution.options: %w", err)
+		}
 	}
 	if !strings.HasPrefix(ex.Image, "oci://") {
 		return fmt.Errorf("execution.image must be an oci:// reference, got %q", ex.Image)
@@ -635,7 +715,7 @@ func validateExecution(ex Execution, env Environment) error {
 }
 
 // validateRepoRelativeDir refuses a directory the cockpit must not write into or commit from.
-func validateRepoRelativeDir(dir string, paths Paths) error {
+func validateRepoRelativeDir(dir string, paths Paths, private []string) error {
 	if filepath.IsAbs(dir) {
 		return fmt.Errorf("%q is an absolute path; it must be repo-relative", dir)
 	}
@@ -646,7 +726,7 @@ func validateRepoRelativeDir(dir string, paths Paths) error {
 	if strings.HasPrefix(clean, "-") {
 		return fmt.Errorf("%q starts with a dash and could be read by git as a flag rather than a path", dir)
 	}
-	for _, forbidden := range []string{".git", paths.KeysDir, paths.BinDir, paths.PlanktonDir, paths.NektonDir} {
+	for _, forbidden := range append([]string{paths.KeysDir, paths.BinDir, paths.PlanktonDir, paths.NektonDir}, private...) {
 		if forbidden == "" {
 			continue
 		}
@@ -923,8 +1003,25 @@ func (c *Config) ScopeID(name string) (string, []string, bool) {
 	return id, names, ok
 }
 
+// Private lists the paths this configuration's backend keeps for itself (git: ".git").
+func (r Raw) Private() []string {
+	if b, ok := backend.Lookup(r.Repo.Mode); ok {
+		return b.Private()
+	}
+	return nil
+}
+
 // repoOf is the configuration as a backend sees it.
 func repoOf(dir string, raw Raw) backend.Repo {
 	return backend.Repo{Mode: raw.Repo.Mode, Block: raw.Repo.block(), Dir: dir,
-		Commit: raw.CommitEnabled(), Push: raw.PushEnabled(), SessionID: raw.Identity.SessionID}
+		Commit: raw.CommitEnabled(), Share: raw.ShareEnabled(), SessionID: raw.Identity.SessionID}
+}
+
+// validateQueryImage holds the SPARQL image to the rule execution.image follows: a tag names
+// whatever it points at today, and a daemon started from it could not be told from another.
+func validateQueryImage(img string) error {
+	if img != "" && (!strings.HasPrefix(img, "oci://") || !strings.Contains(img, "@sha256:")) {
+		return fmt.Errorf("query.image %q is not pinned by digest. Use oci://<image>@sha256:<digest>", img)
+	}
+	return nil
 }

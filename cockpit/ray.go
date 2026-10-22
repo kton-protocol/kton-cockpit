@@ -14,6 +14,7 @@ import (
 	"github.com/gitmick/ktonpkg"
 	"github.com/kton-protocol/kton-cockpit/internal/binaries"
 	"github.com/kton-protocol/kton-cockpit/internal/config"
+	"github.com/kton-protocol/kton-cockpit/internal/index"
 )
 
 // A potential from executions that already ran (ADR-006).
@@ -56,7 +57,7 @@ const rayTemplate = "derived-from"
 // rayExecutions selects the executions behind the endpoints and turns them into backend-neutral
 // executions. It uses `ask lineage`'s own path, so a record that does not verify, or that the
 // filter excludes, never reaches the proposal.
-func rayExecutions(ctx context.Context, cfg *config.Config, r *binaries.Runner, refs []string,
+func rayExecutions(ctx context.Context, cfg *config.Config, r index.Reader, refs []string,
 	filter *AskFilter) ([]ktonpkg.Execution, map[string]string, []string, error) {
 	if len(refs) == 0 {
 		return nil, nil, nil, refuse("argument", "", "a ray needs at least one endpoint (refs)")
@@ -170,7 +171,7 @@ func executionOf(rec *binaries.FotonDetail, entrypoint string) (ktonpkg.Executio
 }
 
 // askRay proposes a ray from the executions behind the endpoints. It decides nothing.
-func askRay(ctx context.Context, cfg *config.Config, r *binaries.Runner, in AskRequest, filter *AskFilter) (*AskResult, error) {
+func askRay(ctx context.Context, cfg *config.Config, r index.Reader, in AskRequest, filter *AskFilter) (*AskResult, error) {
 	refs := in.Refs
 	if len(refs) == 0 && in.Ref != "" {
 		refs = []string{in.Ref}
@@ -251,7 +252,7 @@ func (c *Cockpit) publishRay(ctx context.Context, cfg *config.Config, in Publish
 	if err != nil {
 		return nil, refuse("store", "", "committing the package failed: %v", err)
 	}
-	pushRejected, sha := rev.Rejected, rev.ID
+	shareRejected, sha := rev.Rejected, rev.ID
 
 	claimID, err := r.Annotate(ctx, rayID, rayTemplate, map[string]string{
 		"bundle":    bundleID,
@@ -266,16 +267,16 @@ func (c *Cockpit) publishRay(ctx context.Context, cfg *config.Config, in Publish
 	if err != nil {
 		return nil, refuse("store", "", "committing the claim failed: %v", err)
 	}
-	pushRejected = pushRejected || finalRev.Rejected
+	shareRejected = shareRejected || finalRev.Rejected
 	finalSHA := finalRev.ID
 	if finalSHA == "" {
 		finalSHA = sha
 	}
 	return &PublishResult{
-		CommitSHA:    finalSHA,
-		Committed:    cfg.Raw.CommitEnabled(),
-		Pushed:       cfg.Raw.PushEnabled() && !pushRejected,
-		PushRejected: pushRejected,
+		Revision:      finalSHA,
+		Persisted:     cfg.Raw.CommitEnabled(),
+		Shared:        cfg.Raw.ShareEnabled() && !shareRejected,
+		ShareRejected: shareRejected,
 		Ray: &RayResult{Dir: rp.Dir, RayID: rayID, BundleID: bundleID, DerivedFrom: derived,
 			ClaimID: claimID},
 	}, nil

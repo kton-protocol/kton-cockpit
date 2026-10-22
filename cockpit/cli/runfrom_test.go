@@ -68,9 +68,8 @@ func TestFetch_GitAtThePinnedCommitAndOnlyTheRecordedBytes(t *testing.T) {
 	t.Setenv("GIT_CONFIG_VALUE_0", "https://github.com/someone/somewhere.git")
 	uri := "https://raw.githubusercontent.com/someone/somewhere/" + sha + "/a.txt"
 
+	t.Setenv("XDG_CACHE_HOME", t.TempDir()) // the backend's clone cache, not the user's
 	f := newFetcher()
-	defer f.close()
-	f.client.Timeout = 1 // no network in a test: the HTTP attempt fails at once
 	b, _, err := f.fetch(context.Background(), binaries.FotonFile{Path: "a.txt", Hash: core.HashBytes([]byte("first\n")), URI: []string{uri}})
 	if err != nil || string(b) != "first\n" {
 		t.Fatalf("got %q, %v", b, err)

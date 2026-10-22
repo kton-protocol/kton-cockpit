@@ -94,7 +94,7 @@ func WriteUnion(ctx context.Context, cfg *config.Config) ([]string, error) {
 // serveUnion answers with every record both registries hold. Read per request rather than cached:
 // a viewer of a live working repo that showed a start-up snapshot would be quietly stale.
 func (s *Server) serveUnion(w http.ResponseWriter, req *http.Request) {
-	recs, err := s.r.Records(req.Context())
+	recs, err := binaries.New(s.cfg).Records(req.Context())
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

@@ -257,18 +257,18 @@ Every denied path MUST be reported at once, not just the first.
 
 ### 7.4 Ordering and failure
 
-A publish makes two commits: the files, then the registry entry — because the foton embeds locators
-that must exist before it is authored. Consequently:
+A publish persists twice: the files, then the registry entry — because the foton embeds locators
+that must exist before it is authored. Consequently (in git terms, two commits):
 
-- the returned `commitSha` is the **second**, the repository's real state after the call;
+- the returned `revision` is the **second**, the repository's real state after the call;
 - the foton's own embedded locators pin the **first**;
 - both resolve, since the bytes are identical in either.
 
 > **Checked by:** `TestPublish_ReturnsTheActualFinalCommitSHA`, `examples/01-publish`.
 
-If the repository does not commit (§12.1), there is no sha and the cockpit MUST return no
-permalinks. It MUST NOT pin them to HEAD: a locator naming a commit that does not contain the bytes
-is the failure locators exist to prevent.
+If the repository does not persist (§12.1), there is no revision and the cockpit MUST return no
+locators. It MUST NOT pin them to the current head: a locator naming a revision that does not contain
+the bytes is the failure locators exist to prevent.
 
 > **Checked by:** `TestPublish_WithCommitsOffTheRecordIsStillMadeButCarriesNoLocators`.
 
@@ -810,14 +810,22 @@ configured, and MUST default to off.
 
 ## 12 Optional surfaces
 
-### 12.1 Git
+### 12.1 Persisting and sharing
 
-Committing and pushing MAY be turned off. Signing and registration are unaffected; what goes away is
-the locators (§7.4). The binding (§5) MUST be unaffected — turning off writing to git MUST NOT turn
-off checking which repository this is.
+What a verb wrote is made durable and shared by the backend (`persist.commit`, `persist.share`; in
+git: commit and push). Both MAY be turned off. Signing and registration are unaffected; what goes away
+is the locators (§7.4). The binding (§5) MUST be unaffected — turning off writing to the store MUST NOT
+turn off checking which repository this is. The cockpit itself MUST NOT call a backend's tools (git):
+everything it needs from the store goes through the backend (ADR-011).
 
 > **Checked by:** `TestConfigGuard_StillRefusesTheWrongRepoWithCommitsOff`,
 > `TestPublish_WithPushOffItCommitsLocallyAndSaysSo`.
+
+`cockpit sync` takes in what others shared and then shares what is durable here only. It MUST NOT
+rewrite a local revision — records already signed pin it in their locators — and where both sides
+changed the same file it MUST refuse and leave the repository as it was.
+
+> **Checked by:** `TestSync_TakesInTheirsKeepsOursAndRefusesAConflict`.
 
 ### 12.2 Publishing the graph
 
@@ -838,6 +846,39 @@ A cockpit MUST obtain records through the substrate and MUST NOT parse the regis
 store's layout is the substrate's, and a consumer that assumes one shape loses records silently
 rather than failing (kton §11).
 
+### 12.4 A derived index *(optional)*
+
+A cockpit MAY keep what it read between calls (`index.kind`, ADR-012). Such an index is derived: it
+MUST answer exactly as reading the registries would, it MUST be rebuildable from them alone, and it
+MUST NOT hold a trust tier. Tiers come from the calling repository's configuration at answer time.
+It MUST NOT answer from what it holds after a registry it was built from changed. An answer read
+through it MUST say so (ask's `index`: the kind, whether the registries were the ones it held, and
+since when).
+
+`memory` holds the opened registries for as long as the process runs. Before each answer it compares
+the path, size and modification time of every file under those registries (with `stat`, without
+reading them, following symlinks), leaving out only the store's bookkeeping, which opening rewrites
+(`.seq`, `.format`, `*.lock`, `.tmp-*`), and opens them again on any difference.
+
+> **Checked by:** `TestStamp_MovesWithWhatTheStoreReadsNotWithItsBookkeeping`, `TestStamp_ALinkLoopEnds`,
+> `TestMemory_KeepsTheUnionAcrossCallsWhileNothingChanged`,
+> `TestMemory_AnswersAsNoneAfterAnyChange`, `TestMemory_AnUnknownKindIsRefusedAtLoad`,
+> `TestIndex_AnAnswerSaysItCameFromTheMemoryIndex`.
+
+`oxigraph` reads records as `memory` does and evaluates vocabulary queries on one Oxigraph per machine,
+which the first such query starts. It keeps one view per repository and set of trusted keys: the kernel's
+projection of that union under those keys, rebuilt when the same stamp as `memory`'s changes. A query runs
+with exactly its view as the dataset, so what one configuration trusts never reaches another's answer, and
+its rows are the rows a container started for that query alone would return. The dataset of the request is
+the only wall between views, so a query that calls an endpoint (`SERVICE`, found as a SPARQL parser tokenizes
+the query) MUST be refused, on either path. The plankton part of a view holds every record of the union, with
+attribution only where a trusted key verifies; its claims are only those a trusted key signed. `query.image`
+MUST be pinned by digest, and a running daemon from another image or store schema is not used.
+
+> **Checked by:** `TestOxigraph_ViewsAreKeptWhileCurrentAndNeverSeeEachOther`,
+> `TestCheckQuery_RefusesServiceAndOnlyService`, `TestConfig_QueryImageIsPinnedByDigest`,
+> `TestQuery_TheIndexAnswersAsAContainerForTheQueryDoes` (both `-tags docker,unreleased`).
+
 ## 13 What a cockpit does not do
 
 From the governing design, restated normatively:
@@ -845,10 +886,12 @@ From the governing design, restated normatively:
 - No canonicalization, hashing, signing, registry or chain logic of its own. Every mutation and query
   goes through the substrate.
 - No trust logic beyond applying the configuration.
-- No state of its own between calls beyond that static configuration. (The former "no fourth verb"
-  is lifted by [ADR-009](../docs/decisions/adr-009-no-fixed-verb-count.md): a verb may be added; each
-  one has a single implementation for every transport, sits under the configuration ceiling and is
-  specified here.)
+- No **authoritative** state of its own beyond that static configuration. Derived caches (the index
+  of §12.4, source clones) are allowed when they are rebuildable from the substrate alone, are never
+  consulted for the binding verdict or the trust tier, and deleting them changes no answer. (The
+  former "no fourth verb" is lifted by [ADR-009](../docs/decisions/adr-009-no-fixed-verb-count.md): a
+  verb may be added; each one has a single implementation for every transport, sits under the
+  configuration ceiling and is specified here.)
 - **Deletable:** every operation MUST remain performable by hand with the substrate binaries. A
   cockpit that made something reachable only through itself would have become the thing it narrows.
 

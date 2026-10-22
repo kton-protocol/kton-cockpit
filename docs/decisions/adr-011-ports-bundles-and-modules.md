@@ -1,0 +1,200 @@
+---
+title: "Ports, bundles and modules: a small core with everything else pluggable"
+type: "decision"
+project: "kton-cockpit"
+date: 2026-10-19
+status: "proposed"
+tags: [architecture, api, extension, backend, executor, index, module, frontend, vscode]
+---
+
+# ADR-011: Ports, bundles and modules
+
+## Status
+
+Proposed (2026-10-19). This builds on ADR-008 (an extension API, a GitHub/Docker reference implementation,
+improve as an extension) and on ADR-009 (the verb count is not fixed). It finishes ADR-008's E4 for the
+executor, and it names where ktonpkg and ktonwatch plug in. The read side, the index, is its own decision
+(ADR-012).
+
+## Context
+
+ADR-008 put the binding, persisting and locating behind `cockpit/backend`. Everything else that differs
+between "a GitHub repository with Docker" and "improve" is still wired in:
+
+- **Execution:** `internal/container` runs `docker`/`podman` via `exec`. The improve run server cannot
+  stand in.
+- **Federation reading:** this is behind a registry (`cockpit/source`), but nothing ties a source kind to
+  the backend that brings it.
+- **Reading records:** every read goes through `internal/binaries` directly, re-opening the registries on
+  every call. With federation configured, it rebuilds the union for every claim it verifies.
+- **Packages and the recorder:** ktonpkg is a private import behind `-tags unreleased` (`internal/packages`).
+  ktonwatch (on `recorder`) talks to the cockpit only by printing a `cockpit publish` line for a human to run.
+
+"GitHub+Docker" and "improve" are each a **bundle** of these capabilities, but nothing names the bundle,
+and an extension that adds verbs (ADR-009) has no defined door into the core.
+
+## Decision
+
+### 1 The core owns verbs, the guard and trust. Everything else is a port.
+
+The core is `publish`, `say` and `ask` plus whatever verbs a module adds (ADR-009). It also owns the
+binding check on every call (SPEC §5) and the trust tiers, which it applies from the configuration at the
+moment it answers (SPEC §13). Everything that answers *where* or *how* is a **port**: an interface with a
+registry, filled from `init` functions and chosen by name in `cockpit.config.json`. Nothing is on until it
+is enabled.
+
+| port | package | answers | built-in implementations |
+|---|---|---|---|
+| Binder · Persister · Locator | `cockpit/backend` | is this the repository; how does a write become durable; where can its bytes be fetched | `github`, `local` |
+| Executor | `cockpit/executor` | where and how a command runs | `container` (docker/podman) |
+| Source | `cockpit/source` | where federated records come from | `dir`, `git` |
+| Index | `internal/index` (ADR-012) | how records are read and queried | `none` (today's behaviour) |
+
+### 2 A backend is three small interfaces
+
+`Backend` stays, but as the composition of `Binder` (`Validate`, `Bind`), `Persister` (`Persist`) and
+`Locator` (`Locate`). Existing implementations compile unchanged. A conformance suite or a caller that
+needs only one part takes only that part.
+
+### 2a No git outside a backend
+
+git is how one backend does its job, so the core and the CLI never call it. Everything they use git for
+today becomes an operation that every backend answers in its own terms:
+
+| operation | interface | git (`github`) | improve | `local` |
+|---|---|---|---|---|
+| `Root(dir)`: the repository that contains a folder | Binder | `rev-parse --show-toplevel` | the improve root folder | none: the config must be in the folder |
+| `Private()`: paths the backend keeps for itself | Binder | `.git` | its metadata folder | none |
+| `Persist(paths)`: make durable, and share if configured | Persister | commit, then push | check-in | nothing to do |
+| `Status(paths)`: is each path untracked, durable or changed | Inspector | `ls-files`, `diff HEAD` | entity version vs. file | — |
+| `Head()`: the current revision | Syncer | `HEAD` | latest check-in | — |
+| `Sync()`: take in what others shared, then share ours | Syncer | `pull --no-rebase` (fast-forward or merge), then push | update from the server, check in | — |
+| `Fetch(uri)`: the bytes behind a locator | Fetcher, chosen by the locator | raw permalink, else a cached bare clone at the pinned commit | `improve://…` | — |
+| `Propose(dir)`: how `init` would bind a folder | Proposer | owner/name from `origin` | the improve root's configuration | any folder, as a fallback |
+
+`Root` and `Private` are required. The other parts are optional: a caller that finds one missing says so,
+and never falls back to another backend's way.
+
+**Sync never rewrites a local revision.** Records already signed pin it in their locators, so a rebase would
+leave them pointing at nothing. When both sides moved, git mode makes a merge commit; when both changed the
+same file, Sync aborts, refuses, and leaves the repository as it was. A rejected share therefore has one
+remedy in every mode: `cockpit sync`. (The old hint, `git pull --rebase && git push`, broke those locators.)
+
+- **Configuration:** `git.commit`/`git.push` are now `persist.commit` (make durable) and `persist.share` (send it
+  to the shared place). No alias: there were no users yet.
+- **Answers:** `PublishResult` reports `revision`, `locators`, `persisted`, `shared` and `shareRejected` (were
+  `commitSha`, `permalinks`, `committed`, `pushed`, `pushRejected`).
+- **Command line:** `cockpit sync` (operator, CLI only) calls `Sync`, and then pulls the federation sources. It
+  replaces "run `git pull` first", which only works for one backend.
+- **Federation:** a source kind may implement `Puller`. `federation pull` refreshes every source that does, not
+  only `git`. A source kind may also implement `Checkouter` (the source as files, at its revision).
+- **Peers:** `trust add <tier> <peer>` reads the peer through a source kind's `Checkouter` instead of cloning
+  it. `<peer>` may name a configured federation source, which is then read through its own kind, whatever
+  kind that is; a path or URL is read as `dir` or `git`.
+- **Hidden paths:** the executor's hide list, the publish path guard and the configured-directory check take
+  `Private()` from the backend instead of naming `.git`.
+- **Fetching:** `run new --from` fetches through the backend that recognises the locator, so a record located
+  in improve can be re-run from a git repository and vice versa.
+- **The index:** notices a change by stamping the registry files (ADR-012, "Noticing a change"), so it
+  neither names git nor calls `Syncer.Head`. `Head` is called by `cockpit sync` only, and may be as costly as
+  a backend needs.
+
+After this, only `backend/github`, `backend/local` (its guard refuses local mode inside a git repository with an
+origin), `source/git` and `internal/git*` call git.
+
+### 3 The executor is a port
+
+`executor.Executor.Run(ctx, Step) (Result, error)`. A `Step` is self-contained: the repository root, the
+image, the network policy, the paths to hide from the command, and the command itself. It carries no
+cockpit configuration type, so an implementation outside this repository can provide one. `publish` calls
+the executor named in `execution.executor` (default `container`) and no longer calls `exec` itself. The
+snapshot diff that finds a run's outputs stays in the core, because it is the core's evidence, not the
+executor's claim.
+
+- `Step.Options` is the configuration's `execution.options` block as written: the executor's own settings
+  (a run server's address, whether it runs offline), which the core does not read. An executor that
+  implements `Validator` checks the block when the configuration loads, so a bad block refuses before
+  anything runs.
+- `Result.Removed` lists the files the command deleted, for an executor that runs elsewhere and cannot
+  leave the deletion where the core's diff sees it. The core counts them as removed. It is the one thing
+  an executor reports about the tree, because otherwise nothing could.
+- An executor that cannot enforce `Network: false` refuses the step, as `container` does; it never runs
+  with a weaker isolation than the configuration states.
+
+### 4 Bundles are a composition, not a type
+
+A bundle is the set of registrations one module makes from its `init`: improve registers a backend mode,
+an executor, a source kind and later an index feeder. The binary that links the module *is* the
+composition (ADR-008, layer 3), so there is no `Bundle` struct to keep in sync with the ports.
+
+### 5 Modules add verbs through a narrow door
+
+A module (ktonpkg, ktonwatch, improve) may register:
+
+- **verbs** (ADR-009): one definition, exposed on CLI, MCP and Go, under the configuration ceiling;
+- **operator commands**: CLI only (SPEC §6);
+- **a vocabulary**: named queries and templates, run on the index (ADR-012);
+- **event subscriptions**: `published`, `said`, `source-pulled`.
+
+A module reaches the core only through `Publish`, `Say`, `Ask`, the index's read side and the executor.
+It never opens a registry. In particular, ktonwatch writes only through `Publish`, after a human accepts a
+draft, so "nothing enters kton automatically" stays true.
+
+The module registry is specified when the first module moves (ktonpkg), not before. This ADR fixes only
+the shape above.
+
+### 6 Frontends are clients, never a second core
+
+A frontend (a VS Code or Positron extension, a viewer, kton-web) presents the cockpit to a person. It talks
+to the core over a **transport**. It does not reimplement the verbs, read the registries itself, or apply
+trust. There are four transports, all serving the same handlers (SPEC §6: one implementation per verb):
+
+| transport | for | reaches |
+|---|---|---|
+| CLI | a person in a shell, scripts | verbs + operator commands |
+| MCP (stdio) | an agent | **verbs only** (SPEC §6) |
+| Go API | modules, extension binaries, tests | verbs + ports' read sides |
+| **frontend protocol** (new) | an editor extension or viewer | verbs, the operator commands a person may confirm, index queries, events |
+
+The **frontend protocol** is JSON-RPC 2.0 over stdio. The extension starts `cockpit serve --stdio` (the
+same pattern as a language server), so one installed binary is still the whole install, and the protocol
+needs no port and no authentication. It carries:
+
+- **requests:** the verbs, `ask` with index scopes (ADR-012), and the vocabulary queries of enabled modules;
+- **operator commands**, marked as needing a person. The frontend shows a confirmation, and the core refuses
+  them unless the request carries that confirmation. This is the line SPEC §6 draws for MCP: an agent never
+  reaches operator commands, and a person in an editor does, explicitly;
+- **notifications:** `published`, `said`, `source-pulled`, index heads moved, and module events (ktonwatch:
+  session recorded, draft ready). A frontend refreshes on these instead of polling.
+
+The binding guard still runs on every request, against the workspace folder the extension opened.
+
+**Consequences for the existing frontends:**
+- **kton-mignon** (`@kton/kern`) has its own TypeScript implementation of configuration, keys, nekton
+  reading and writing, and an in-process Oxigraph. Under this ADR, that core becomes a client of the
+  frontend protocol. Distributions without a cockpit binary would need the core built for the browser (Go to
+  wasm, as `cockpit/ARCHITEKTUR-BILD.md`, section 2.5, plans). That is the owning lane's decision, not taken here.
+- **The Positron extension** (`recorder/positron`) stops pasting `cockpit publish` into a terminal. It sends
+  the accepted draft as a `publish` request, and it receives ktonwatch's events over the same connection.
+
+## Consequences
+
+- The public `cockpit` binary links `github`, `local`, `container`, `dir`, `git` and `none`. `cockpit-improve`
+  additionally links improve and ktonpkg. Behaviour of the public binary is unchanged by this ADR.
+- `internal/packages`, `cockpit/install.go` and `cockpit/workflow*.go` move into the ktonpkg module once the
+  module registry exists. The `-tags unreleased` split for packages then goes away.
+- SPEC §13's "no own canonicalisation, signing, registry or chain logic" and "no trust logic beyond the
+  configuration" are untouched. "No state between calls" is ADR-012's to amend.
+
+## Steps
+
+| step | content | behaviour changes? |
+|---|---|---|
+| P0.1 | the union is built once per call, not once per verified claim | no (faster) |
+| P0.2 | `Backend` = `Binder` + `Persister` + `Locator` | no |
+| P0.3 | `cockpit/executor` with `container`; `publish` runs through it | no |
+| P0.4 | `internal/index` with `none`; `ask` reads through it (ADR-012) | no |
+| P0.5 | no git outside a backend (section 2a): `Root`, `Private`, `Status`, `Head`, `Sync`, `Fetch`, `Propose`; `persist.*` config; `cockpit sync` | renamed config keys and answer fields, no aliases; `cockpit sync` is new |
+| P3 | module registry; ktonpkg and ktonwatch as modules | new verbs, under the ceiling |
+| P4 | improve bundle: backend, executor, source, index feeder | new |
+| P5 | frontend protocol: `cockpit serve --stdio`, events; Positron extension on it, then kton-mignon | new transport |

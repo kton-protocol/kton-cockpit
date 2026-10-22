@@ -31,11 +31,11 @@ func resultText(result *mcp.CallToolResult) string {
 // independently validating Michael's review fixes against a fresh kton-protocol/kton build:
 // Publish does two SEPARATE commits (inputs+outputs, then the signed registry entry), but
 // discarded the second commit's sha entirely (`if _, err := gitops.CommitAndPush(...)`) and
-// returned the FIRST commit's sha as CommitSHA — which is genuinely stale, not the repo's actual
+// returned the FIRST commit's sha as Revision — which is genuinely stale, not the repo's actual
 // HEAD by the time Publish returns. Confirmed live: `git ls-remote origin HEAD` disagreed with
-// the reported CommitSHA. This drives the real Publish() handler against a real local git repo
+// the reported Revision. This drives the real Publish() handler against a real local git repo
 // (real add/commit/rev-parse; only `push` is faked as a no-op, since it targets a well-formed but
-// nonexistent github.com URL) and confirms the returned CommitSHA matches the repo's actual final
+// nonexistent github.com URL) and confirms the returned Revision matches the repo's actual final
 // HEAD after both commits.
 func TestPublish_ReturnsTheActualFinalCommitSHA(t *testing.T) {
 	repoDir := t.TempDir()
@@ -129,8 +129,8 @@ func TestPublish_ReturnsTheActualFinalCommitSHA(t *testing.T) {
 	if result != nil && result.IsError {
 		t.Fatalf("Publish refused: %s", resultText(result))
 	}
-	if out.CommitSHA == "" {
-		t.Fatal("expected a non-empty CommitSHA")
+	if out.Revision == "" {
+		t.Fatal("expected a non-empty Revision")
 	}
 
 	actualHead := exec.Command("git", "rev-parse", "HEAD")
@@ -144,11 +144,11 @@ func TestPublish_ReturnsTheActualFinalCommitSHA(t *testing.T) {
 	logCmd := exec.Command("git", "log", "--oneline")
 	logCmd.Dir = repoDir
 	logOut, _ := logCmd.Output()
-	t.Logf("CommitSHA=%s actualHeadSHA=%s\ngit log:\n%s", out.CommitSHA, actualHeadSHA, logOut)
+	t.Logf("Revision=%s actualHeadSHA=%s\ngit log:\n%s", out.Revision, actualHeadSHA, logOut)
 
-	if out.CommitSHA != actualHeadSHA {
-		t.Fatalf("Publish returned a STALE CommitSHA: reported %s, but the repo's actual final HEAD is %s "+
+	if out.Revision != actualHeadSHA {
+		t.Fatalf("Publish returned a STALE Revision: reported %s, but the repo's actual final HEAD is %s "+
 			"(Publish makes two commits — inputs+outputs, then the registry entry — and must return the SECOND one)",
-			out.CommitSHA, actualHeadSHA)
+			out.Revision, actualHeadSHA)
 	}
 }

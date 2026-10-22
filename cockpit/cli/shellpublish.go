@@ -77,12 +77,12 @@ func shellPublish(ctx context.Context, args []string) error {
 		fmt.Printf("  also changed, not recorded: %s\n", p)
 	}
 	switch {
-	case out.PushRejected:
-		fmt.Println("committed; the push was rejected (someone pushed meanwhile): git pull --rebase && git push")
-	case out.Pushed:
-		fmt.Printf("committed and pushed (%s)\n", shortSHA(out.CommitSHA))
-	case out.Committed:
-		fmt.Printf("committed (%s), not pushed\n", shortSHA(out.CommitSHA))
+	case out.ShareRejected:
+		fmt.Println("durable here; sharing was refused (someone shared meanwhile) — cockpit sync takes theirs in and shares this")
+	case out.Shared:
+		fmt.Printf("persisted and shared (%s)\n", shortSHA(out.Revision))
+	case out.Persisted:
+		fmt.Printf("persisted (%s), not shared\n", shortSHA(out.Revision))
 	}
 	return nil
 }

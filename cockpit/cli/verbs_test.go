@@ -30,7 +30,7 @@ func TestVerbs_PublishFromAShellRecordsARealFoton(t *testing.T) {
 	var got struct {
 		FotonID      string            `json:"fotonId"`
 		OutputHashes map[string]string `json:"outputHashes"`
-		CommitSHA    string            `json:"commitSha"`
+		Revision     string            `json:"revision"`
 	}
 	if err := json.Unmarshal([]byte(out), &got); err != nil {
 		t.Fatalf("what publish printed is not JSON a caller can read: %v\n%s", err, out)
@@ -38,7 +38,7 @@ func TestVerbs_PublishFromAShellRecordsARealFoton(t *testing.T) {
 	if !strings.HasPrefix(got.FotonID, "sha256:") || len(got.FotonID) != 71 {
 		t.Fatalf("no foton id in the answer: %q", got.FotonID)
 	}
-	if got.OutputHashes["work/out.csv"] == "" || got.CommitSHA == "" {
+	if got.OutputHashes["work/out.csv"] == "" || got.Revision == "" {
 		t.Fatalf("the answer is missing what publish exists to report:\n%s", out)
 	}
 }

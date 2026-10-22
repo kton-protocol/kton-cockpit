@@ -27,6 +27,7 @@ import (
 
 	"github.com/kton-protocol/kton-cockpit/internal/binaries"
 	"github.com/kton-protocol/kton-cockpit/internal/config"
+	"github.com/kton-protocol/kton-cockpit/internal/index"
 	"github.com/kton-protocol/kton-cockpit/internal/verify"
 )
 
@@ -101,7 +102,7 @@ type ClaimVerification struct {
 }
 
 // Describe verifies a scope's seal and reports who wrote into it.
-func Describe(ctx context.Context, cfg *config.Config, r *binaries.Runner, scopeID string) (*Verdict, []ClaimVerification, error) {
+func Describe(ctx context.Context, cfg *config.Config, r index.Reader, scopeID string) (*Verdict, []ClaimVerification, error) {
 	seed, err := r.Seed(ctx, scopeID)
 	if err != nil {
 		return nil, nil, fmt.Errorf("no readable scope seed at %s: %w", scopeID, err)

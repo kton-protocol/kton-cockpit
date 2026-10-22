@@ -27,7 +27,7 @@ different things:
 
 | | |
 |---|---|
-| `commitSha` returned | the repo's real final state after the call — the registry commit |
+| `revision` returned | the repo's real final state after the call — the registry commit |
 | the foton's own `uri` | the *first* commit, unavoidably: authoring happens between the two |
 
 Both resolve, because the files' bytes are identical in either. The example reads the embedded

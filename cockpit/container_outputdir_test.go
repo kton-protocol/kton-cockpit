@@ -24,15 +24,15 @@ func TestContainer_OutputDirOutputsAreCommittedAndLocated(t *testing.T) {
 	if err != nil || result.IsError {
 		t.Fatalf("publish failed: %v %s", err, errText(result))
 	}
-	if _, ok := out.Permalinks["work/out/copy.csv"]; !ok {
-		t.Errorf("no permalink for the output the run wrote: %v", out.Permalinks)
+	if _, ok := out.Locators["work/out/copy.csv"]; !ok {
+		t.Errorf("no permalink for the output the run wrote: %v", out.Locators)
 	}
 	tracked, _ := exec.Command("git", "-C", r.Root, "ls-files", "work/out").Output()
 	if !strings.Contains(string(tracked), "work/out/copy.csv") {
 		t.Errorf("the output the run wrote is not committed (git ls-files: %q)", tracked)
 	}
 	// The negative control: the input was always committed; it still is, once.
-	if _, ok := out.Permalinks["data/in.csv"]; !ok {
+	if _, ok := out.Locators["data/in.csv"]; !ok {
 		t.Error("the input lost its permalink")
 	}
 }

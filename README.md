@@ -10,7 +10,7 @@ federation and leaving a record of it that somebody else can check.
 
 | Verb | German | What it does |
 |---|---|---|
-| `cockpit publish` | veröffentlichen | Record a work result as a signed, reproducible **foton**: runs the command in a pinned container (when one is pinned), commits and pushes the files, builds commit-pinned permalinks, signs, registers. |
+| `cockpit publish` | veröffentlichen | Record a work result as a signed, reproducible **foton**: runs the command in a pinned container (when one is pinned), persists and shares the files through the backend (git: commit + push), builds revision-pinned locators, signs, registers. |
 | `cockpit say` | sagen | Make a claim — from an allowed template — about a run, a file or a record. For `reproduces`, the cockpit compares the bytes and measures the level itself; it never takes a declared one. |
 | `cockpit ask` | fragen | Ask the graph: who made these bytes, what used them, the lineage behind them, who reproduced them, what was claimed — every answer re-verified against the configured trust tiers. |
 
@@ -157,7 +157,7 @@ only.
 
 ```sh
 cockpit config                                 # the main settings, and the command that changes each
-cockpit config git.push off                    # one value; an unknown key, or a change that does not load, is refused
+cockpit config persist.share off               # one value; an unknown key, or a change that does not load, is refused
 ```
 
 ## Working with others

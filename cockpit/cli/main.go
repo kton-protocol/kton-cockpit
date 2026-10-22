@@ -20,10 +20,10 @@ import (
 	"strings"
 
 	"github.com/kton-protocol/kton-cockpit/cockpit"
+	"github.com/kton-protocol/kton-cockpit/cockpit/backend"
 	"github.com/kton-protocol/kton-cockpit/internal/binaries"
 	"github.com/kton-protocol/kton-cockpit/internal/config"
 	"github.com/kton-protocol/kton-cockpit/internal/container"
-	"github.com/kton-protocol/kton-cockpit/internal/gitrepo"
 	"github.com/kton-protocol/kton-cockpit/internal/material"
 	"github.com/kton-protocol/kton-cockpit/internal/mcpsurface"
 	"github.com/kton-protocol/kton-cockpit/internal/show"
@@ -65,8 +65,12 @@ func Main() {
 		err = runTrust(ctx, os.Args[2:])
 	case "federation":
 		err = runFederation(ctx, os.Args[2:])
+	case "sync":
+		err = runSync(ctx, os.Args[2:])
 	case "config":
 		err = runConfig(ctx, os.Args[2:])
+	case "index":
+		err = runIndex(ctx, os.Args[2:])
 	case "install":
 		err = runInstall(ctx, os.Args[2:])
 	case "workflow":
@@ -100,9 +104,11 @@ usage:
 %s  cockpit run      also run folders: new / <slug> / list — clone inputs, execute, record
   cockpit scope    seed / seal / read a nekton scope
   cockpit pin      pin the image publish and run execute in, by digest (pin <image>)
-  cockpit trust    add <tier> <peer checkout|git URL> / list / remove <tier>
+  cockpit trust    add <tier> <peer checkout|git URL|source name> / list / remove <tier>
   cockpit federation  add <name> <git-URL|checkout> / list / pull / remove — read other registries
-  cockpit config   show the configuration, or set one value (config git.push off)
+  cockpit sync     take in what others shared, share what is here, then pull the federation sources
+  cockpit config   show the configuration, or set one value (config persist.share off)
+  cockpit index    status / start / stop / rebuild — the machine's index daemon (index.kind oxigraph)
   cockpit keygen   make a signing identity (keys/<name>.key + .pub, and the claims pair)
   cockpit version  what this binary is, and which kernel is compiled into it
   cockpit mcp      start the MCP stdio server (cockpit_publish/cockpit_say/cockpit_ask)
@@ -150,26 +156,20 @@ func runInit(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	// Outside a git repository, scaffold a local-mode config rather than refusing: running without
-	// git is a supported mode, and the current directory is what it binds to. See ADR-004.
-	root, err := gitrepo.Root(ctx, cwd)
-	local := err != nil
-	if local {
-		root = cwd
+	// Every backend is asked how it would bind this folder; one that recognises it (git: a working
+	// tree) wins over the fallback that binds any folder to itself (local, ADR-004).
+	prop, ok := backend.Propose(ctx, cwd)
+	if !ok {
+		return fmt.Errorf("no backend in this build can bind %s", cwd)
 	}
+	root := prop.Root
 	cfgPath := filepath.Join(root, "cockpit.config.json")
 	if _, err := os.Stat(cfgPath); err == nil {
 		return fmt.Errorf("%s already exists — remove it first if you want to regenerate", cfgPath)
 	}
-
-	owner, name := "", ""
-	if url, err := gitrepo.OriginURL(ctx, root); err == nil {
-		owner, name = parseOwnerRepo(url)
-	}
-
-	repo := config.RepoRef{Owner: owner, Name: name}
-	if local {
-		repo = config.RepoRef{Mode: config.ModeLocal, Root: root}
+	var repo config.RepoRef
+	if err := json.Unmarshal(prop.Block, &repo); err != nil {
+		return err
 	}
 	raw := config.Raw{
 		Repo: repo,
@@ -207,11 +207,7 @@ func runInit(ctx context.Context) error {
 		return err
 	}
 	todo := "" // what is left is said in the notes below, and `doctor` lists it
-	if local {
-		fmt.Printf("wrote %s (local mode, bound to %s — no git repository here%s)\n", cfgPath, root, strings.Replace(todo, " — ", "; ", 1))
-	} else {
-		fmt.Printf("wrote %s (owner=%q name=%q%s)\n", cfgPath, owner, name, todo)
-	}
+	fmt.Printf("wrote %s (%s%s)\n", cfgPath, prop.Describe, todo)
 	for _, n := range notes {
 		fmt.Println("  " + n)
 	}
@@ -362,18 +358,19 @@ func runDoctor(ctx context.Context) error {
 		fmt.Printf("                %-20s %s\n", mod.Path, where)
 	}
 
+	mode := cfg.Raw.Repo.ModeOrDefault()
 	switch {
 	case cfg.Raw.Repo.IsLocal():
-		fmt.Printf("git:            none — no repository, so no commits, no pushes, and fotons carry no\n")
-		fmt.Printf("                locators (a permalink needs an owner/repo and a commit)\n")
+		fmt.Printf("persist:        none (%s) — nothing is made durable or shared, and fotons carry no\n", mode)
+		fmt.Printf("                locators (a locator needs a revision to pin)\n")
 	case !cfg.Raw.CommitEnabled():
-		fmt.Printf("git:            commits OFF — records are signed and registered, files are not committed,\n")
-		fmt.Printf("                and fotons carry no locators (no commit exists for a permalink to pin)\n")
-	case !cfg.Raw.PushEnabled():
-		fmt.Printf("git:            commits on, push OFF — permalinks are built and correct, but do not\n")
-		fmt.Printf("                resolve until someone pushes\n")
+		fmt.Printf("persist:        OFF (%s) — records are signed and registered, files are not made durable,\n", mode)
+		fmt.Printf("                and fotons carry no locators (no revision exists for one to pin)\n")
+	case !cfg.Raw.ShareEnabled():
+		fmt.Printf("persist:        commit on, share OFF (%s) — locators are built and correct, but do not\n", mode)
+		fmt.Printf("                resolve until someone shares\n")
 	default:
-		fmt.Printf("git:            commit + push\n")
+		fmt.Printf("persist:        commit + share (%s)\n", mode)
 	}
 
 	if cfg.Raw.Anchor.Enabled {
@@ -383,7 +380,7 @@ func runDoctor(ctx context.Context) error {
 		}
 		fmt.Printf("anchor:         every record is witnessed in %s\n", where)
 		fmt.Printf("                the WHOLE envelope is submitted, so the command, every input/output path\n")
-		fmt.Printf("                and hash, and the permalinks (which name %s/%s) become public\n",
+		fmt.Printf("                and hash, and the locators (which name %s/%s) become public\n",
 			cfg.Raw.Repo.Owner, cfg.Raw.Repo.Name)
 		fmt.Printf("                and stay public. File contents do not — only their hashes.\n")
 	} else {
@@ -481,15 +478,6 @@ func checkKeyPath(p string) string {
 			"                or the mode was widened. Anyone who can read it can sign as this repo.", p, perm)
 	}
 	return p + "  [ok]"
-}
-
-func parseOwnerRepo(url string) (owner, name string) {
-	url = strings.TrimSuffix(url, ".git")
-	parts := strings.FieldsFunc(url, func(r rune) bool { return r == '/' || r == ':' })
-	if len(parts) < 2 {
-		return "", ""
-	}
-	return parts[len(parts)-2], parts[len(parts)-1]
 }
 
 // linkedKernels reports the kton modules compiled into this binary, in the order they are listed

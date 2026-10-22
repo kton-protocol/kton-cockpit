@@ -14,19 +14,18 @@ package cli
 // editing trust.tiers.
 
 import (
-	"bytes"
 	"context"
 	"crypto/ed25519"
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path"
 	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
 
+	"github.com/kton-protocol/kton-cockpit/cockpit/source"
 	"github.com/kton-protocol/kton-cockpit/internal/config"
 	"kton.dev/plankton/core"
 )
@@ -75,7 +74,7 @@ func trustAdd(ctx context.Context, args []string) error {
 		return err
 	}
 
-	keys, where, err := peerKeys(ctx, src, publicKeysDir(&cfg.Raw))
+	keys, where, err := peerKeys(ctx, cfg, src, publicKeysDir(&cfg.Raw))
 	if err != nil {
 		return err
 	}
@@ -151,32 +150,50 @@ func trustAdd(ctx context.Context, args []string) error {
 	return nil
 }
 
-// peerKeys reads the public keys a peer publishes, from a checkout on disk or from a git URL at its
-// current commit, and says where they were read.
-func peerKeys(ctx context.Context, src, keysDir string) ([]peerKey, string, error) {
-	root := src
-	dir := filepath.Join(src, filepath.FromSlash(keysDir))
-	where := "the working tree"
-	if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
-		tmp, err := os.MkdirTemp("", "cockpit-trust-")
-		if err != nil {
+// peerKeys reads the public keys a peer publishes, through the federation source kind that reads
+// that kind of place, and says where they were read. src is a configured federation source by name
+// (read through its own kind, whatever kind that is), a checkout on disk with keysDir (read in
+// place), or else a git repository to clone.
+func peerKeys(ctx context.Context, cfg *config.Config, src, keysDir string) ([]peerKey, string, error) {
+	var spec source.Spec
+	base := "."
+	for _, s := range cfg.Raw.Federation.Sources {
+		if s.Name == src {
+			spec, base = s, cfg.RepoRoot
+		}
+	}
+	if spec.Kind == "" {
+		block := map[string]string{"name": "peer", "kind": "git", "url": src}
+		if fi, err := os.Stat(filepath.Join(src, filepath.FromSlash(keysDir))); err == nil && fi.IsDir() {
+			abs, _ := filepath.Abs(src)
+			block = map[string]string{"name": "peer", "kind": "dir", "path": abs}
+		}
+		b, _ := json.Marshal(block)
+		if err := json.Unmarshal(b, &spec); err != nil {
 			return nil, "", err
 		}
-		defer os.RemoveAll(tmp)
-		if out, err := exec.CommandContext(ctx, "git", "clone", "--quiet", "--no-checkout", src, tmp).CombinedOutput(); err != nil {
-			return nil, "", fmt.Errorf("%s is neither a checkout with %s/ nor a git repository: %s", src, keysDir, strings.TrimSpace(string(out)))
-		}
-		if out, err := exec.CommandContext(ctx, "git", "-C", tmp, "checkout", "--quiet", "HEAD", "--", keysDir).CombinedOutput(); err != nil {
-			return nil, "", fmt.Errorf("%s publishes no %s/ at its HEAD: %s", src, keysDir, strings.TrimSpace(string(out)))
-		}
-		sha, _ := exec.CommandContext(ctx, "git", "-C", tmp, "rev-parse", "HEAD").Output()
-		where = "commit " + string(bytes.TrimSpace(sha))
-		// Its configuration says which of those keys are its own; without one, all are shown.
-		_ = exec.CommandContext(ctx, "git", "-C", tmp, "checkout", "--quiet", "HEAD", "--", "cockpit.config.json").Run()
-		root = tmp
-		dir = filepath.Join(tmp, filepath.FromSlash(keysDir))
-	} else if sha, err := exec.CommandContext(ctx, "git", "-C", src, "rev-parse", "HEAD").Output(); err == nil {
-		where = "the working tree at " + string(bytes.TrimSpace(sha))
+	}
+	k, ok := source.Lookup(spec.Kind)
+	co, can := k.(source.Checkouter)
+	if !ok || !can {
+		return nil, "", fmt.Errorf("this build cannot read a %s source as files", spec.Kind)
+	}
+	cache, err := os.MkdirTemp("", "cockpit-trust-")
+	if err != nil {
+		return nil, "", err
+	}
+	defer os.RemoveAll(cache)
+	root, rev, err := co.Checkout(ctx, spec, base, cache)
+	if err != nil {
+		return nil, "", fmt.Errorf("%s is neither a checkout with %s/ nor a repository this build can read: %v", src, keysDir, err)
+	}
+	where := "the working tree"
+	if rev != "" {
+		where = "revision " + rev
+	}
+	dir := filepath.Join(root, filepath.FromSlash(keysDir))
+	if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
+		return nil, "", fmt.Errorf("%s publishes no %s/ (read at %s)", src, keysDir, where)
 	}
 
 	ents, err := os.ReadDir(dir)

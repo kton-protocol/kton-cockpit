@@ -23,10 +23,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/kton-protocol/kton-cockpit/internal/binaries"
 	"github.com/kton-protocol/kton-cockpit/internal/config"
+	"github.com/kton-protocol/kton-cockpit/internal/index"
 	"kton.dev/plankton/core"
-	pregistry "kton.dev/plankton/registry"
 )
 
 // Kind distinguishes which substrate holds the record.
@@ -49,7 +48,7 @@ const Untrusted = ""
 // Returns Untrusted when no configured key verifies it. That is not a forged record: it is one
 // signed by somebody outside this repository's trust configuration, and SPEC §9.1 requires callers to
 // exclude it rather than surface it unverified.
-func ResolveTier(ctx context.Context, r *binaries.Runner, cfg *config.Config, idOrFile string, kind Kind) (tier string, verifyingKey string, err error) {
+func ResolveTier(ctx context.Context, r index.Reader, cfg *config.Config, idOrFile string, kind Kind) (tier string, verifyingKey string, err error) {
 	env, err := envelopeOf(ctx, r, idOrFile, kind)
 	if err != nil {
 		return Untrusted, "", err
@@ -95,7 +94,7 @@ func tierKeys(cfg *config.Config) ([]ed25519.PublicKey, map[string]tierKey, erro
 }
 
 // envelopeOf returns the signed bytes to check, from the registry by id or from a file.
-func envelopeOf(ctx context.Context, r *binaries.Runner, idOrFile string, kind Kind) (core.Envelope, error) {
+func envelopeOf(ctx context.Context, r index.Reader, idOrFile string, kind Kind) (core.Envelope, error) {
 	if _, ok := core.NormalizeContentHash(idOrFile); !ok {
 		b, err := os.ReadFile(idOrFile)
 		if err != nil {
@@ -132,23 +131,15 @@ type Locator struct {
 // record says where ITS copies live; the record itself carries no locator. A statement by a key no
 // tier names, or about bytes the record does not contain, is not returned — it is not this repo's
 // to pass on as a location.
-func Locators(ctx context.Context, r *binaries.Runner, cfg *config.Config, fotonID string) ([]Locator, error) {
+func Locators(ctx context.Context, r index.Reader, cfg *config.Config, fotonID string) ([]Locator, error) {
 	stored, err := r.MaterialForFoton(ctx, fotonID)
 	if err != nil {
 		return nil, err
 	}
 	// The union, as everywhere ask reads: a federated record's locators are asked about too.
-	pdir, _, err := binaries.ReadDirs(ctx, cfg)
+	f, err := r.Foton(ctx, fotonID)
 	if err != nil {
 		return nil, err
-	}
-	reg, err := pregistry.Open(pdir)
-	if err != nil {
-		return nil, err
-	}
-	f, ok := reg.Foton(fotonID)
-	if !ok {
-		return nil, fmt.Errorf("no foton %s in this registry", fotonID)
 	}
 	keys, byKeyID, err := tierKeys(cfg)
 	if err != nil {
@@ -170,7 +161,7 @@ func Locators(ctx context.Context, r *binaries.Runner, cfg *config.Config, foton
 // Tiers reports every trust tier with a key that signed the record — all of them, not the first.
 // A record two producers did (the same work, co-signed) carries both signatures, and saying only
 // one of them would hide that it was reproduced. Sorted, without duplicates.
-func Tiers(ctx context.Context, r *binaries.Runner, cfg *config.Config, id string, kind Kind) ([]string, error) {
+func Tiers(ctx context.Context, r index.Reader, cfg *config.Config, id string, kind Kind) ([]string, error) {
 	env, err := envelopeOf(ctx, r, id, kind)
 	if err != nil {
 		return nil, err

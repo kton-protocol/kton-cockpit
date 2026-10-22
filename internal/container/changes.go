@@ -69,6 +69,22 @@ func TakeSnapshot(root string) (Snapshot, error) {
 	return snap, nil
 }
 
+// Without is the snapshot with paths gone: what the tree is once the deletions an executor reported
+// (executor.Result.Removed) are counted.
+func (s Snapshot) Without(paths []string) Snapshot {
+	if len(paths) == 0 {
+		return s
+	}
+	out := make(Snapshot, len(s))
+	for k, v := range s {
+		out[k] = v
+	}
+	for _, p := range paths {
+		delete(out, filepath.ToSlash(filepath.Clean(p)))
+	}
+	return out
+}
+
 // ChangedSince lists the repo-relative paths that appeared or changed between the two snapshots,
 // excluding the given declared paths. Deletions are reported too: a run that removed a file changed
 // the tree, and a publish that says nothing about it describes a state that no longer exists.

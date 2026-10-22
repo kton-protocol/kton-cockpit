@@ -11,6 +11,8 @@ package backendtest
 import (
 	"bytes"
 	"context"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/kton-protocol/kton-cockpit/cockpit/backend"
@@ -54,6 +56,26 @@ func Run(t *testing.T, b backend.Backend, f Fixture) {
 		}
 	})
 
+	// Root names the repository a configuration was found in, or nothing; never somewhere else.
+	t.Run("RootIsTheBoundRepositoryOrNone", func(t *testing.T) {
+		r := f.Bound(t)
+		root, err := b.Root(ctx, r.Dir)
+		if err != nil {
+			return // no notion of a containing repository (local): the config must be in the folder
+		}
+		if !samePath(root, r.Dir) {
+			t.Fatalf("Root of %s is %s: a bound configuration sits at its repository's root", r.Dir, root)
+		}
+	})
+
+	t.Run("PrivatePathsAreRepositoryRelative", func(t *testing.T) {
+		for _, p := range b.Private() {
+			if p == "" || filepath.IsAbs(p) || p == "." || strings.HasPrefix(filepath.Clean(p), "..") {
+				t.Fatalf("Private() names %q: it must be a path inside the repository", p)
+			}
+		}
+	})
+
 	t.Run("NoRevisionNoLocator", func(t *testing.T) {
 		if uri, ok := b.Locate(f.Bound(t), backend.Revision{}, "any/file.txt"); ok {
 			t.Fatalf("a locator without a revision points at bytes that are not there: %s", uri)
@@ -70,6 +92,24 @@ func Run(t *testing.T, b backend.Backend, f Fixture) {
 		}
 		if rev.Rejected {
 			t.Fatalf("Persist was rejected: %s", rev.Reason)
+		}
+		if insp, ok := b.(backend.Inspector); ok && rev.ID != "" {
+			st, err := insp.Status(ctx, r, []string{path})
+			if err != nil {
+				t.Fatalf("Status: %v", err)
+			}
+			if st[path] != backend.Durable {
+				t.Fatalf("a persisted path reads as %s, not durable", st[path])
+			}
+		}
+		if sy, ok := b.(backend.Syncer); ok && rev.ID != "" {
+			head, err := sy.Head(ctx, r)
+			if err != nil {
+				t.Fatalf("Head: %v", err)
+			}
+			if head.ID != rev.ID {
+				t.Fatalf("Head is %s right after Persist made %s", head.ID, rev.ID)
+			}
 		}
 		uri, ok := b.Locate(r, rev, path)
 		if rev.ID == "" {
@@ -90,4 +130,13 @@ func Run(t *testing.T, b backend.Backend, f Fixture) {
 			t.Fatalf("the locator %s gives other bytes than were written: %q", uri, body)
 		}
 	})
+}
+
+func samePath(a, b string) bool {
+	if a == b {
+		return true
+	}
+	ra, err1 := filepath.EvalSymlinks(a)
+	rb, err2 := filepath.EvalSymlinks(b)
+	return err1 == nil && err2 == nil && ra == rb
 }

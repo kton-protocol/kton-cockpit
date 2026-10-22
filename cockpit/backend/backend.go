@@ -30,9 +30,10 @@ type Repo struct {
 	Block json.RawMessage
 	// Dir is where cockpit.config.json was found. Once Bind succeeded, it is the repository.
 	Dir string
-	// Commit and Push are what the configuration asks for. A backend that has no such notion
+	// Commit and Share are what the configuration asks for (persist.commit, persist.share): make
+	// durable, and share with the place others read. A backend that has no such notion
 	// ignores them.
-	Commit, Push bool
+	Commit, Share bool
 	// SessionID is the configured session identity, for backends that attribute their own writes.
 	SessionID string
 }
@@ -60,19 +61,134 @@ type Revision struct {
 	Per map[string]string
 }
 
-// Backend is what an extension implements.
-type Backend interface {
+// Binder answers "is this the repository the configuration belongs to".
+type Binder interface {
+	// Root names the repository that contains dir, in this backend's terms (git: the working tree's
+	// top level). The configuration is looked for in dir and, one step only, in the root a backend
+	// names here — never in an arbitrary parent (SPEC §5.1). A backend that has no notion of a
+	// containing repository returns an error.
+	Root(ctx context.Context, dir string) (string, error)
+	// Private lists the repository-relative paths the backend keeps for itself (git: ".git"). The
+	// cockpit never publishes them, never lets a configured directory lie in them, and hides them
+	// from an executed command.
+	Private() []string
 	// Validate checks the repo block alone, before anything touches the outside world.
 	Validate(r Repo) error
 	// Bind is the anti-wrong-folder guard (SPEC §5). It must compare the configuration against a
 	// second source the configuration did not write, and refuse on any mismatch. It is called on
 	// every verb, and nothing may be cached across calls.
 	Bind(ctx context.Context, r Repo) error
+}
+
+// Persister makes written records durable.
+type Persister interface {
 	// Persist makes the given repository-relative paths durable and names the revision.
 	Persist(ctx context.Context, r Repo, paths []string, message string) (Revision, error)
+}
+
+// Locator says where a written path's bytes can be fetched again.
+type Locator interface {
 	// Locate gives the URI from which a path's bytes in a revision can be fetched, if there is one.
 	// A locator is carried, not covered: it never changes a record's identity (kton §6.1).
 	Locate(r Repo, rev Revision, path string) (uri string, ok bool)
+}
+
+// The parts below are optional: a backend implements them where its store has the notion, and a
+// caller that finds one missing says so instead of falling back to some other backend's way.
+
+// Syncer follows a shared place: what the repository's current revision is, and exchanging what
+// was made durable there and here since.
+type Syncer interface {
+	// Head is the current revision. It is cheap, so the index can ask it before every answer.
+	Head(ctx context.Context, r Repo) (Revision, error)
+	// Sync takes in what others shared, then shares what is durable here only (when r.Share), and
+	// returns the new head. It never rewrites a local revision: locators already signed into records
+	// pin them. Where both sides changed the same thing it refuses and leaves everything as it was.
+	// A share the shared place refuses comes back as Revision.Rejected, as from Persist.
+	Sync(ctx context.Context, r Repo) (Revision, error)
+}
+
+// State is what a path is to the store.
+type State int
+
+const (
+	// Untracked: the store does not hold the path.
+	Untracked State = iota
+	// Durable: the store holds it as it is on disk.
+	Durable
+	// Changed: the store holds it, and the file on disk differs.
+	Changed
+)
+
+func (s State) String() string {
+	return [...]string{"untracked", "durable", "changed"}[s]
+}
+
+// Inspector reports what the store holds of given paths.
+type Inspector interface {
+	Status(ctx context.Context, r Repo, paths []string) (map[string]State, error)
+}
+
+// Fetcher gives back the bytes behind a locator another backend's Locate made: the reverse of
+// Locate, chosen by the locator itself, so it needs no configured repository. The caller checks the
+// bytes against the recorded hash; a Fetcher only fetches.
+type Fetcher interface {
+	// Handles reports whether this backend can fetch uri.
+	Handles(uri string) bool
+	Fetch(ctx context.Context, uri string) ([]byte, error)
+}
+
+// Proposal is the repo block a backend would bind a folder with, for `cockpit init`.
+type Proposal struct {
+	// Root is where the configuration goes: the repository's root, as Binder.Root names it.
+	Root string
+	// Block is the repo object, mode included unless it is the default.
+	Block json.RawMessage
+	// Fallback marks a backend that can bind any folder (local). init takes it only when no other
+	// backend recognises the folder.
+	Fallback bool
+	// Describe says in a few words what was found, for init to print.
+	Describe string
+}
+
+// Proposer suggests how to bind a folder. ok is false when the folder is not one this backend can
+// bind (git: not inside a working tree).
+type Proposer interface {
+	Propose(ctx context.Context, dir string) (p Proposal, ok bool)
+}
+
+// Propose asks every registered backend, in mode order, and returns the first proposal that is not a
+// fallback, else the first fallback.
+func Propose(ctx context.Context, dir string) (Proposal, bool) {
+	var fallback *Proposal
+	for _, m := range Modes() {
+		b, _ := Lookup(m)
+		pr, ok := b.(Proposer)
+		if !ok {
+			continue
+		}
+		if p, ok := pr.Propose(ctx, dir); ok {
+			if !p.Fallback {
+				return p, true
+			}
+			if fallback == nil {
+				fallback = &p
+			}
+		}
+	}
+	if fallback != nil {
+		return *fallback, true
+	}
+	return Proposal{}, false
+}
+
+// Backend is what an extension implements for a repo mode: the three parts together (ADR-011).
+// Execution is not part of it; that is cockpit/executor, registered on its own, so a bundle such as
+// improve brings both and git brings only this.
+type Backend interface {
+	Binder
+	Persister
+	Locator
 }
 
 var (
@@ -104,6 +220,17 @@ func Lookup(mode string) (Backend, bool) {
 	defer mu.RUnlock()
 	b, ok := registry[mode]
 	return b, ok
+}
+
+// FetcherFor is the first registered backend, in mode order, that fetches uri.
+func FetcherFor(uri string) (Fetcher, bool) {
+	for _, m := range Modes() {
+		b, _ := Lookup(m)
+		if f, ok := b.(Fetcher); ok && f.Handles(uri) {
+			return f, true
+		}
+	}
+	return nil, false
 }
 
 // Modes lists the registered modes, sorted.

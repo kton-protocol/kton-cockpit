@@ -12,6 +12,7 @@ package local
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 
@@ -80,3 +81,22 @@ func (Backend) Persist(context.Context, backend.Repo, []string, string) (backend
 }
 
 func (Backend) Locate(backend.Repo, backend.Revision, string) (string, bool) { return "", false }
+
+// Root: a plain directory names no containing repository, so the configuration is looked for only
+// in the directory itself.
+func (Backend) Root(context.Context, string) (string, error) {
+	return "", fmt.Errorf("local mode has no containing repository")
+}
+
+// Private: a plain directory keeps nothing for itself.
+func (Backend) Private() []string { return nil }
+
+// Propose binds any folder to itself: the fallback when no other backend recognises it (ADR-004).
+func (Backend) Propose(_ context.Context, dir string) (backend.Proposal, bool) {
+	b, _ := json.Marshal(struct {
+		Mode string `json:"mode"`
+		Root string `json:"root"`
+	}{Mode, dir})
+	return backend.Proposal{Root: dir, Block: b, Fallback: true,
+		Describe: "local mode, bound to " + dir + " — no other backend recognises this folder"}, true
+}

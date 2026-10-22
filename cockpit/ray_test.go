@@ -134,7 +134,7 @@ func TestRay_PublishWritesThePackageAndRecordsWhereItCameFrom(t *testing.T) {
 	if got := b.Ray.Step("count").Protocol.Command.Args; got != "sh\n<command-file>\n<n>" {
 		t.Fatalf("the command line with its parameter expected, got %q", got)
 	}
-	if !r.OriginContains(t, out.CommitSHA) {
+	if !r.OriginContains(t, out.Revision) {
 		t.Fatal("the package and its claim were not pushed")
 	}
 	about, err := c.Ask(ctx, AskRequest{Query: "about", Ref: out.Ray.RayID})

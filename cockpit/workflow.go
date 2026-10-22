@@ -64,7 +64,7 @@ type WorkflowExtractResult struct {
 	References []string `json:"references"` // the reference runs packed with it
 	Holes      []string `json:"holes,omitempty"`
 	Params     []string `json:"params,omitempty"`
-	CommitSHA  string   `json:"commitSha,omitempty"`
+	Persisted  string   `json:"persistedRevision,omitempty"` // the revision the package was persisted at
 }
 
 // WorkflowExtract writes the chosen potential as a package in the scope format under
@@ -208,7 +208,7 @@ func (c *Cockpit) WorkflowExtract(ctx context.Context, in WorkflowExtractRequest
 	if err != nil {
 		return nil, refuse("store", "", "committing the package failed: %v", err)
 	}
-	out.CommitSHA = revn.ID
+	out.Persisted = revn.ID
 	return out, nil
 }
 
@@ -218,6 +218,8 @@ func (c *Cockpit) WorkflowExtract(ctx context.Context, in WorkflowExtractRequest
 type WorkflowListResult struct {
 	Query     string              `json:"query"` // where the query came from
 	Workflows []map[string]string `json:"workflows"`
+	// Index says the answer was read through the index daemon, and which view (ADR-012).
+	Index string `json:"index,omitempty"`
 }
 
 // WorkflowList runs the vocabulary's "workflows" query over this repository's records.
@@ -226,11 +228,11 @@ func (c *Cockpit) WorkflowList(ctx context.Context) (*WorkflowListResult, error)
 	if err != nil {
 		return nil, refuse("binding", "SPEC §5", "%v", err)
 	}
-	rows, from, err := runQuery(ctx, cfg, "workflows")
+	a, err := runQuery(ctx, cfg, "workflows")
 	if err != nil {
 		return nil, err
 	}
-	return &WorkflowListResult{Query: from, Workflows: rows}, nil
+	return &WorkflowListResult{Query: a.from, Workflows: a.rows, Index: a.via}, nil
 }
 
 // ---- show ------------------------------------------------------------------------------------------
