@@ -123,6 +123,11 @@ func OriginsIn(origins []Origin, lang string) []Origin {
 // AttachOrigins gives each task the executions that were submitted while it was the current
 // one: after the previous marker, up to its own. Ark sets a marker after every execution, so
 // that is normally one origin per task; a task that is only Ark's own bookkeeping gets none.
+//
+// A task with an origin also knows when its command was sent. Before that the console was
+// waiting for input, and what the process read then was not the command's: Ark's language
+// server indexes the workspace's R files at start and reads a file again after it ran. Such
+// reads are dropped (a file the command read too keeps its later read).
 func AttachOrigins(tasks []*Task, origins []Origin) {
 	i := 0
 	for _, t := range tasks {
@@ -135,8 +140,22 @@ func AttachOrigins(tasks []*Task, origins []Origin) {
 			}
 			i++
 		}
+		if len(t.Origins) > 0 {
+			sent := t.Origins[0].TS - idleSlack
+			kept := t.Inputs[:0]
+			for _, in := range t.Inputs {
+				if in.LastRead == 0 || in.LastRead >= sent {
+					kept = append(kept, in)
+				}
+			}
+			t.Inputs = kept
+		}
 	}
 }
+
+// idleSlack: the extension's clock and the shim's are the same machine's, but the extension
+// writes milliseconds and notes the execution a moment after sending it.
+const idleSlack = 200_000_000
 
 var chunkStart = regexp.MustCompile("^\\s*```+\\s*\\{r([ ,][^}]*)?\\}\\s*$")
 var chunkLabel = regexp.MustCompile(`^\s*#\|\s*label:\s*(\S+)`)

@@ -431,9 +431,15 @@ func (s *Session) open(c *taskState, e Event) {
 		key := e.Path + "\x00" + h
 		if !c.inputIdx[key] {
 			c.inputIdx[key] = true
-			in := &Input{Path: e.Path, Class: class, SHA256: h, Status: st, PID: e.PID}
+			in := &Input{Path: e.Path, Class: class, SHA256: h, Status: st, PID: e.PID, LastRead: e.TS}
 			s.link(in)
 			t.Inputs = append(t.Inputs, in)
+		} else {
+			for _, in := range t.Inputs {
+				if in.Path == e.Path && in.SHA256 == h {
+					in.LastRead = e.TS
+				}
+			}
 		}
 		if _, ok := c.firstRead[e.Path]; !ok {
 			c.firstRead[e.Path] = h
