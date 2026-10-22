@@ -1,9 +1,9 @@
 """Runs the IPython startup file 50-kton.py as IPython does (exec with get_ipython), after
 install.sh's substitution of the path, then a cell; then one cell with the log moved away.
 argv: startup file, path to put in, "expect-start" or "expect-nothing"."""
-import json, os, sys
+import os, sys
 
-src = open(sys.argv[1]).read().replace('"@KTON_PY@"', json.dumps(sys.argv[2]))  # as install.sh
+src = open(sys.argv[1], encoding="utf-8").read().replace('"@KTON_PY@"', repr(sys.argv[2]))  # as install.sh
 
 
 class Shell:
