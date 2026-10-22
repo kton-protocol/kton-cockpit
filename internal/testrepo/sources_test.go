@@ -87,6 +87,10 @@ func TestFederation_ReadingASourceLeavesItAsItWas(t *testing.T) {
 	if _, _, err := binaries.ReadDirs(ctx, bc); err == nil || !strings.Contains(err.Error(), "no registry") {
 		t.Fatalf("a source with no registry was read as an empty one: %v", err)
 	}
+	// The index reads the same inputs, so it refuses the same source (kton-review V2 on PR #11).
+	if _, err := binaries.Inputs(ctx, bc); err == nil || !strings.Contains(err.Error(), "no registry") {
+		t.Fatalf("the union's inputs include a source with no registry: %v", err)
+	}
 }
 
 // The own registry before the first publish is not there yet, and that is no error: a union with

@@ -47,11 +47,6 @@ func ReadDirs(ctx context.Context, cfg *config.Config) (planktonDir, nektonDir s
 		return "", "", err
 	}
 	add := func(name string, reg source.Registry) error {
-		// A source with no registry at all is a wrong path, not an empty source. The own
-		// registry is different: before the first publish there is none yet.
-		if name != Own && !Exists(reg.PlanktonDir) && !Exists(reg.NektonDir) {
-			return fmt.Errorf("source %s: there is no registry at %s or %s", name, reg.PlanktonDir, reg.NektonDir)
-		}
 		if p, err := OpenPlanktonSource(reg.PlanktonDir); err == nil {
 			if n := p.Degraded(); n > 0 {
 				return fmt.Errorf("source %s: its plankton registry skipped %d record(s) on load", name, n)
@@ -97,7 +92,8 @@ type Input struct {
 const Own = "(own)"
 
 // Inputs are the registries the union of cfg is built from, in the order they are joined. A source
-// is fetched into its cache first, as the union does.
+// is fetched into its cache first, as the union does, and refused when it holds no registry at all.
+// The own registry is never refused: before the first publish there is none yet.
 func Inputs(ctx context.Context, cfg *config.Config) ([]Input, error) {
 	out := []Input{{Own, source.Registry{PlanktonDir: cfg.PlanktonDir, NektonDir: cfg.NektonDir}}}
 	srcs := cfg.Raw.Federation.Sources
@@ -119,6 +115,11 @@ func Inputs(ctx context.Context, cfg *config.Config) ([]Input, error) {
 			return nil, fmt.Errorf("federation source %s (%s): %w", s.Name, s.Kind, err)
 		}
 		for _, reg := range regs {
+			// A source with no registry at all is a wrong path, not an empty source; every reader of
+			// the union (the union itself, the index) gets the same refusal from here.
+			if !Exists(reg.PlanktonDir) && !Exists(reg.NektonDir) {
+				return nil, fmt.Errorf("source %s: there is no registry at %s or %s", s.Name, reg.PlanktonDir, reg.NektonDir)
+			}
 			out = append(out, Input{s.Name, reg})
 		}
 	}
