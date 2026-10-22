@@ -63,7 +63,7 @@ mark("clean <- subset(pk, conc > 0); write.csv(clean, 'derived/clean.csv')")
 
 # 3
 nbytes = c_read("data/dose.csv")
-mark("dose <- data.table::fread('data/dose.csv')   # C-Leser im Prozess")
+mark("dose <- data.table::fread('data/dose.csv')   # a C reader in the process")
 
 # 4
 subprocess.run("wc -l data/dose.csv > derived/n_dose.txt", shell=True, check=True)

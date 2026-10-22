@@ -59,7 +59,7 @@ func MakeDraft(s *Session, t *Task) Draft {
 	file := func(p string, cls Class, extra string) DraftFile {
 		r, err := filepath.Rel(repo, p)
 		if err != nil || strings.HasPrefix(r, "..") {
-			return DraftFile{Path: p, Note: "nicht im Repo: cockpit publish nimmt heute nur Pfade im Repo"}
+			return DraftFile{Path: p, Note: "not in the repo: cockpit publish takes only paths in the repo"}
 		}
 		f := DraftFile{Path: r, Use: cls == ClassProject, Note: extra}
 		return f
@@ -70,12 +70,12 @@ func MakeDraft(s *Session, t *Task) Draft {
 		}
 		note := ""
 		if in.Status == "changed-outside" {
-			note = "ohne Aufzeichnung geändert"
+			note = "changed without being recorded"
 		}
 		f := file(in.Path, in.Class, note)
 		if in.Rewritten || Scratch(in.Path) {
 			f.Use = false
-			f.Note = "Zwischendatei des Werkzeugs"
+			f.Note = "a work file of the tool"
 		}
 		nowNote(&f, in.Now)
 		d.Inputs = append(d.Inputs, f)
@@ -86,18 +86,18 @@ func MakeDraft(s *Session, t *Task) Draft {
 		}
 		f := file(o.Path, o.Class, "")
 		if Scratch(o.Path) {
-			f.Use, f.Note = false, "Zwischendatei des Werkzeugs"
+			f.Use, f.Note = false, "a work file of the tool"
 		}
 		nowNote(&f, o.Now)
 		d.Outputs = append(d.Outputs, f)
 	}
 	for _, n := range t.Network {
 		if n.Class == "remote" {
-			d.Notes = append(d.Notes, "Netzzugriff "+n.Address+": kein Foton, braucht einen Claim")
+			d.Notes = append(d.Notes, "network access "+n.Address+": not a foton, needs a claim")
 		}
 	}
 	for _, u := range t.Unrecorded {
-		d.Notes = append(d.Notes, "nicht aufgezeichnetes Programm "+u.Program+": seine Dateien fehlen in der Auswahl")
+		d.Notes = append(d.Notes, "program not recorded "+u.Program+": its files are missing from the selection")
 	}
 	if len(t.Origins) > 0 && t.Origins[0].Language == "python" {
 		d.Notes = append(d.Notes, pyNotes(t.Origins[0])...)
@@ -194,14 +194,16 @@ func pyDraftCmd(o Origin, rel func(string) string) string {
 func pyNotes(o Origin) []string {
 	file, args, opts, ok := pyRun(o.Code)
 	switch {
+	case !ok && strings.HasPrefix(strings.TrimSpace(o.Code), "%run"):
+		return []string{"check cmd: a %run that python3 cannot repeat as is (-m, or an option with a value)"}
 	case !ok:
-		return []string{"cmd prüfen: Python-Code aus der Konsole, kein Programmaufruf"}
+		return []string{"check cmd: Python code from the console, not a program run"}
 	case len(opts) > 0:
-		return []string{"cmd prüfen: %run mit " + strings.Join(opts, " ") + " läuft anders als python3 " + filepath.Base(file)}
+		return []string{"check cmd: %run with " + strings.Join(opts, " ") + " runs differently from python3 " + filepath.Base(file)}
 	}
 	for _, a := range args {
 		if strings.ContainsAny(a, "$*?[") {
-			return []string{"cmd prüfen: %run setzt $… und Muster (*, ?) ein, bevor das Skript sie sieht"}
+			return []string{"check cmd: %run expands $… and patterns (*, ?) before the script sees them"}
 		}
 	}
 	return nil
@@ -252,9 +254,9 @@ func draftCmd(t *Task, repo string) string {
 func nowNote(f *DraftFile, now string) {
 	switch now {
 	case NowChanged:
-		f.Use, f.Note = false, "seit der Beobachtung geändert: publish würde den neuen Inhalt registrieren"
+		f.Use, f.Note = false, "changed since it was observed: publish would register the new content"
 	case NowGone:
-		f.Use, f.Note = false, "nicht mehr vorhanden"
+		f.Use, f.Note = false, "no longer there"
 	}
 }
 
@@ -274,16 +276,16 @@ func CallDraft(c Call, repo string, now func(path, sum string) string) Draft {
 		d.Cmd = "cd " + shellJoin([]string{cwd}) + " && " + d.Cmd
 	}
 	if outside {
-		d.Notes = append(d.Notes, "lief außerhalb des Repos in "+c.Cwd+": cmd gilt so nicht vom Repo aus, bitte prüfen")
+		d.Notes = append(d.Notes, "ran outside the repo in "+c.Cwd+": cmd does not hold from the repo root, please check")
 	}
 	file := func(f CallFile) DraftFile {
 		r, err := filepath.Rel(repo, f.Path)
 		if err != nil || strings.HasPrefix(r, "..") {
-			return DraftFile{Path: f.Path, Note: "nicht im Repo: cockpit publish nimmt heute nur Pfade im Repo"}
+			return DraftFile{Path: f.Path, Note: "not in the repo: cockpit publish takes only paths in the repo"}
 		}
 		df := DraftFile{Path: r, Use: true}
 		if Scratch(f.Path) {
-			df.Use, df.Note = false, "Zwischendatei des Werkzeugs"
+			df.Use, df.Note = false, "a work file of the tool"
 		}
 		if now != nil && df.Use {
 			nowNote(&df, now(f.Path, f.SHA256))
@@ -301,16 +303,16 @@ func CallDraft(c Call, repo string, now func(path, sum string) string) Draft {
 		}
 	}
 	for _, f := range c.Outside {
-		d.Notes = append(d.Notes, "liest außerhalb des Projekts "+f.Path+": kein Foton-Input, gehört zur Umgebung oder braucht einen Claim")
+		d.Notes = append(d.Notes, "reads outside the project "+f.Path+": not a foton input, belongs to the environment or needs a claim")
 	}
 	for _, f := range c.Missing {
-		d.Notes = append(d.Notes, "suchte "+f.Rel+" und fand es nicht")
+		d.Notes = append(d.Notes, "looked for "+f.Rel+" and did not find it")
 	}
 	if c.Parent != 0 {
-		d.Notes = append(d.Notes, "läuft innerhalb eines anderen Aufrufs (pid "+itoa(c.Parent)+")")
+		d.Notes = append(d.Notes, "runs inside another call (pid "+itoa(c.Parent)+")")
 	}
 	if len(d.Outputs) == 0 {
-		d.Notes = append(d.Notes, "hinterlässt keine Datei: nichts zu veröffentlichen")
+		d.Notes = append(d.Notes, "leaves no file: nothing to publish")
 	}
 	return d
 }

@@ -40,7 +40,7 @@ func TestDraft_IsAcceptedByCockpitPublishAtTheCommandLine(t *testing.T) {
 	for _, f := range d.Inputs {
 		if f.Use {
 			ins = append(ins, f.Path)
-		} else if !strings.Contains(f.Note, "nicht im Repo") {
+		} else if !strings.Contains(f.Note, "not in the repo") {
 			t.Fatalf("only outside files may be left out: %+v", f)
 		}
 	}

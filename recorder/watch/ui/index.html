@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="de">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>kton Beobachtungen</title>
+<title>kton observations</title>
 <style>
 :root {
   --bg: #fbfbf9; --panel: #ffffff; --ink: #1d1d1b; --muted: #6b6b66; --line: #e4e3dd;
@@ -96,35 +96,35 @@ dialog pre { background: var(--bg); border: 1px solid var(--line); border-radius
 </head>
 <body>
 <header>
-  <h1>Beobachtungen</h1>
-  <span class="sub">Was der Recorder gesehen hat. Nichts davon ist in kton, bis du es auswählst und dokumentierst.</span>
+  <h1>Observations</h1>
+  <span class="sub">What the recorder saw. None of it is in kton until you select and document it.</span>
 </header>
 <div class="wrap">
   <nav id="nav"></nav>
   <main>
     <div class="tabs">
-      <button data-tab="files">Dateien</button>
-      <button data-tab="list">Befehle</button>
-      <button data-tab="flow">Fluss</button>
+      <button data-tab="files">Files</button>
+      <button data-tab="list">Commands</button>
+      <button data-tab="flow">Flow</button>
     </div>
     <div class="bar" id="filters">
-      <label><input type="checkbox" id="noise" checked> Rauschen ausblenden</label>
-      <label><input type="checkbox" id="effect" checked> Nur mit Wirkung</label>
-      <label>Werkzeug <select id="tool">
-        <option value="">alle</option><option>nmfe</option><option>execute</option><option>bbi</option>
+      <label><input type="checkbox" id="noise" checked> Hide noise</label>
+      <label><input type="checkbox" id="effect" checked> Only with effect</label>
+      <label>Tool <select id="tool">
+        <option value="">all</option><option>nmfe</option><option>execute</option><option>bbi</option>
         <option>python</option><option>quarto</option><option>Rscript</option></select></label>
-      <label>Datei <input type="text" id="file" placeholder="z. B. step3.qmd" size="14"></label>
+      <label>File <input type="text" id="file" placeholder="e.g. step3.qmd" size="14"></label>
       <span class="count" id="count"></span>
     </div>
-    <div id="view"><p class="empty">Links ein Projekt oder eine Sitzung wählen.</p></div>
+    <div id="view"><p class="empty">Choose a project or a session on the left.</p></div>
   </main>
 </div>
 <dialog id="doc">
-  <h2 id="docTitle">Dokumentieren</h2>
+  <h2 id="docTitle">Document</h2>
   <p class="note" id="docNote"></p>
   <div id="docBody"></div>
   <pre id="docOutText"></pre>
-  <div class="actions" style="justify-content:flex-end"><button class="btn" id="docRun" style="display:none">Im Terminal ausführen</button><button class="btn" id="docCopy">Kopieren</button><button class="btn" id="docClose">Schließen</button></div>
+  <div class="actions" style="justify-content:flex-end"><button class="btn" id="docRun" style="display:none">Run in the terminal</button><button class="btn" id="docCopy">Copy</button><button class="btn" id="docClose">Close</button></div>
 </dialog>
 <script>
 const $ = (id) => document.getElementById(id);
@@ -154,10 +154,10 @@ async function nav() {
   let h = `<h3>Projekte</h3>`;
   h += (projects || []).map((p) => `<button data-kind="project" data-id="${esc(p.path)}" class="${scope && scope.kind === "project" && scope.id === p.path ? "on" : ""}">
       <div class="id">${esc(p.path.split("/").pop())}</div><div class="meta">${esc(p.path)}</div>
-      <div class="meta">${p.sessions} Sitzung${p.sessions > 1 ? "en" : ""} · ${p.tasks} Befehle · ${time(p.last_ns)}</div></button>`).join("") || `<p class="empty" style="padding:0 16px">–</p>`;
-  h += `<h3>Sitzungen</h3>`;
+      <div class="meta">${p.sessions} session${p.sessions > 1 ? "s" : ""} · ${p.tasks} commands · ${time(p.last_ns)}</div></button>`).join("") || `<p class="empty" style="padding:0 16px">–</p>`;
+  h += `<h3>Sessions</h3>`;
   h += (sessions || []).map((s) => `<button data-kind="session" data-id="${esc(s.id)}" data-project="${esc(s.project)}" class="${scope && scope.kind === "session" && scope.id === s.id ? "on" : ""}">
-      <div class="id">${esc(s.id)}</div><div class="meta">${esc((s.project || "–").split("/").pop())} · ${time(s.last_ns)} · ${s.tasks} Befehle${s.closed ? "" : " · läuft"}</div></button>`).join("");
+      <div class="id">${esc(s.id)}</div><div class="meta">${esc((s.project || "–").split("/").pop())} · ${time(s.last_ns)} · ${s.tasks} commands${s.closed ? "" : " · running"}</div></button>`).join("");
   $("nav").innerHTML = h;
   for (const b of $("nav").querySelectorAll("button")) b.onclick = () => {
     scope = {kind: b.dataset.kind, id: b.dataset.id, project: b.dataset.kind === "project" ? b.dataset.id : b.dataset.project};
@@ -186,7 +186,7 @@ async function tasks() {
   const q = new URLSearchParams({noise: $("noise").checked ? 1 : 0, effect: $("effect").checked ? 1 : 0, tool: $("tool").value, file: $("file").value});
   const s = scope.kind === "project" ? await get(`api/project?path=${enc(scope.id)}&${q}`) : await get(`api/sessions/${enc(scope.id)}?${q}`);
   if (!s) return [];
-  $("count").textContent = `${(s.tasks || []).length} von ${s.total} Befehlen`;
+  $("count").textContent = `${(s.tasks || []).length} of ${s.total} commands`;
   return s.tasks || [];
 }
 
@@ -203,9 +203,9 @@ function origin(t) {
   }
   const src = (t.sources || []).find((x) => x.class === "project");
   if (src) return `source(${rel(src.path)})`;
-  if (o) return o.kind === "paste" ? "Konsole (eingefügt)" : "Konsole";
+  if (o) return o.kind === "paste" ? "console (pasted)" : "console";
   const c = codeOf(t);
-  return c ? trunc(c.split("\n")[0], 60) : (t.id === "tail" ? "nach dem letzten Befehl" : "Befehl " + t.id);
+  return c ? trunc(c.split("\n")[0], 60) : (t.id === "tail" ? "after the last command" : "command " + t.id);
 }
 function codeBlock(t) {
   const c = codeOf(t);
@@ -214,31 +214,31 @@ function codeBlock(t) {
   return `<pre class="code">${esc(lines.slice(0, 6).join("\n") + (lines.length > 6 ? `\n… (${lines.length - 6} Zeilen mehr)` : ""))}</pre>`;
 }
 function nowChip(now) {
-  if (now === "changed") return `<span class="chip warn">heute anders</span>`;
-  if (now === "gone") return `<span class="chip bad">nicht mehr da</span>`;
-  if (now === "same") return `<span class="chip" title="Datei existiert noch mit diesem Hash">✓ aktuell</span>`;
+  if (now === "changed") return `<span class="chip warn">different today</span>`;
+  if (now === "gone") return `<span class="chip bad">gone</span>`;
+  if (now === "same") return `<span class="chip" title="the file still exists with this hash">✓ current</span>`;
   return "";
 }
 const isCode = (p) => /\.(R|r|py|qmd|Rmd|rmd|ctl|mod|yaml|yml|sh|toml)$/.test(p);
-const sessLabel = (sid) => sid ? `Sitzung ${sid.split("-").pop()}` : "";
+const sessLabel = (sid) => sid ? `session ${sid.split("-").pop()}` : "";
 
 // ------------------------------------------------------------------ files: the entry point
 async function renderFiles() {
   const files = await get(`api/files?project=${enc(project)}`) || [];
-  const groups = [["result", "Ergebnisse", "Dateien, die ein Schritt erzeugt hat und die nichts mehr gelesen hat"],
-                  ["source", "Erhalten / Ausgangsdaten", "Dateien, die kein aufgezeichneter Schritt erzeugt hat"],
-                  ["intermediate", "Zwischenstände", ""]];
+  const groups = [["result", "Results", "files a step produced and nothing read afterwards"],
+                  ["source", "Received / source data", "files no recorded step produced"],
+                  ["intermediate", "Intermediates", ""]];
   const filter = (($("fsearch") || {}).value || "").toLowerCase();
   const had = document.activeElement && document.activeElement.id === "fsearch";
   const row = (f) => `<button class="frow ${picked && picked.path === f.path && picked.sha === f.sha256 ? "on" : ""}" data-path="${esc(f.path)}" data-sha="${esc(f.sha256)}">
       <div class="p">${esc(rel(f.path))}</div><div class="m">${short(f.sha256)} · ${time(f.when_ns)} ${nowChip(f.now)}${f.class === "outside" ? "" : ""}</div></button>`;
-  let list = `<input type="text" id="fsearch" placeholder="Datei suchen" style="width:100%" value="${esc(filter)}">`;
+  let list = `<input type="text" id="fsearch" placeholder="Search files" style="width:100%" value="${esc(filter)}">`;
   for (const [role, title, hint] of groups) {
     const fs = files.filter((f) => f.role === role && (!filter || rel(f.path).toLowerCase().includes(filter)));
     if (fs.length) list += `<h4 title="${esc(hint)}">${title} (${fs.length})</h4>` + fs.map(row).join("");
   }
-  if (!files.length) list += `<p class="empty">Noch keine Dateien in diesem Projekt.</p>`;
-  $("view").innerHTML = `<div class="files"><div class="flist">${list}</div><div class="detail" id="detail">${picked ? "" : `<p class="empty">Eine Datei wählen: bei einem Ergebnis siehst du, wie es entstanden ist und wie du es wieder machst; bei erhaltenen Daten, was daraus wurde.</p>`}</div></div>`;
+  if (!files.length) list += `<p class="empty">No files in this project yet.</p>`;
+  $("view").innerHTML = `<div class="files"><div class="flist">${list}</div><div class="detail" id="detail">${picked ? "" : `<p class="empty">Choose a file: for a result you see how it came about and how to make it again; for received data, what became of it.</p>`}</div></div>`;
   const fsearch = $("fsearch");
   fsearch.oninput = () => { clearTimeout(window._fs); window._fs = setTimeout(renderFiles, 200); };
   if (had) { fsearch.focus(); fsearch.setSelectionRange(fsearch.value.length, fsearch.value.length); }
@@ -254,39 +254,39 @@ function stepCard(t, i) {
   const outs = (t.outputs || []).map((x) => `<span class="f">${esc(rel(x.path))}</span>`).join(", ");
   const uses = (t.uses || []).map((u) => `<span class="f">${esc(u.name)}</span>`).join(", ");
   return `<div class="step"><div class="t"><span class="n">${i + 1}</span><span class="o">${esc(origin(t))}</span>
-      <span class="h">${sessLabel(t.session)} · ${clock(t.end_ns)}</span>${t.status === "err" ? `<span class="bad">Fehler</span>` : ""}</div>
+      <span class="h">${sessLabel(t.session)} · ${clock(t.end_ns)}</span>${t.status === "err" ? `<span class="bad">error</span>` : ""}</div>
     ${codeBlock(t)}
-    <div class="h" style="font-size:12px">${ins ? "liest " + ins : ""}${uses ? (ins ? " · " : "") + "nutzt " + uses : ""}${outs ? " → schreibt " + outs : ""}</div></div>`;
+    <div class="h" style="font-size:12px">${ins ? "reads " + ins : ""}${uses ? (ins ? " · " : "") + "uses " + uses : ""}${outs ? " → writes " + outs : ""}</div></div>`;
 }
 
 async function showRecipe() {
   const r = await get(`api/recipe?project=${enc(project)}&path=${enc(picked.path)}&sha=${enc(picked.sha)}`);
-  if (!r) { $("detail").innerHTML = `<p class="empty">Kein aufgezeichneter Schritt hat diese Datei geschrieben.</p>`; return; }
+  if (!r) { $("detail").innerHTML = `<p class="empty">No recorded step wrote this file.</p>`; return; }
   const v = r.verdict;
   const names = (us) => (us || []).map((u) => `<code>${esc(u.name)}</code>`).join(", ");
   let verdict;
-  if (v.kind === "scripts") verdict = `<div class="big good">Entsteht durch Skript${v.scripts.length > 1 ? "e" : ""}, die du kennst</div>Nachrechnen: <code>${esc(v.command)}</code>`;
-  else if (v.kind === "scripts-with-gaps") verdict = `<div class="big warn">Skripte, aber mit Lücken</div>Die Skripte sind bekannt (<code>${esc(v.command)}</code>), doch dazwischen geschah etwas, das sie nicht enthalten.`;
-  else if (v.kind === "scripts-need-session") verdict = `<div class="big warn">Skript, aber abhängig von der Sitzung</div>Es braucht Variablen, die vorher in der Konsole entstanden: ${names(v.session_vars)}. Allein laufen gelassen, rechnet es nicht dasselbe.`;
-  else verdict = `<div class="big warn">Interaktiv entstanden</div>${v.interactive} von ${r.steps.length} Schritten waren Befehle in der Konsole oder aus dem Editor${(v.scripts || []).length ? `, ${v.scripts.length} Skriptläufe` : ""}.${(v.session_vars || []).length ? ` Ein Skript braucht dabei Session-Variablen: ${names(v.session_vars)}.` : ""} Unten steht ein Skript aus genau diesen Schritten: daraus kannst du dein Skript machen.`;
+  if (v.kind === "scripts") verdict = `<div class="big good">Made by script${v.scripts.length > 1 ? "s" : ""} you know</div>Recompute: <code>${esc(v.command)}</code>`;
+  else if (v.kind === "scripts-with-gaps") verdict = `<div class="big warn">Scripts, but with gaps</div>The scripts are known (<code>${esc(v.command)}</code>), but something happened in between that they do not contain.`;
+  else if (v.kind === "scripts-need-session") verdict = `<div class="big warn">Script, but dependent on the session</div>It needs variables created in the console before: ${names(v.session_vars)}. Run on its own, it does not compute the same.`;
+  else verdict = `<div class="big warn">Made interactively</div>${v.interactive} of ${r.steps.length} steps were commands in the console or from the editor${(v.scripts || []).length ? `, ${v.scripts.length} script runs` : ""}.${(v.session_vars || []).length ? ` A script among them needs session variables: ${names(v.session_vars)}.` : ""} Below is a script of exactly these steps: you can make your script from it.`;
   for (const n of v.notes || []) verdict += `<div class="warn" style="margin-top:4px">${esc(n)}</div>`;
   const t = r.target;
   $("detail").innerHTML = `
     <h2>${esc(rel(t.path))}</h2><div class="h f">sha256 ${esc(t.sha256)} · ${time(t.when_ns)} ${nowChip(t.now)}</div>
     <div class="verdict ${esc(v.kind)}">${verdict}</div>
     <div class="actions">
-      <button class="btn" id="showWay">Weg im Fluss zeigen</button>
-      <button class="btn" id="dlScript">Skript herunterladen (.R)</button>
-      <button class="btn" id="docChain">Alle Schritte dokumentieren</button>
-      ${EMBEDDED ? `<button class="btn" id="repro" title="nur die Ausgangsdaten und Skripte in einen leeren Ordner kopieren, das Rezept dort laufen lassen und den Hash vergleichen">Reproduzieren</button>` : ""}
+      <button class="btn" id="showWay">Show the path in the flow</button>
+      <button class="btn" id="dlScript">Download script (.R)</button>
+      <button class="btn" id="docChain">Document all steps</button>
+      ${EMBEDDED ? `<button class="btn" id="repro" title="copy only the source data and scripts into an empty folder, run the recipe there and compare the hash">Reproduce</button>` : ""}
     </div>
-    <div class="section">Ausgangsdaten</div>
-    ${(r.sources || []).filter((s) => !isCode(s.path)).map((s) => `<div><span class="f">${esc(rel(s.path))}</span> <span class="h f">${short(s.sha256)}</span>${nowChip(s.now)}${s.class === "outside" ? "" : ""}${s.status === "changed-outside" ? `<span class="chip warn">von Hand geändert</span>` : ""}</div>`).join("") || `<span class="h">–</span>`}
-    ${(r.sources || []).some((s) => isCode(s.path)) ? `<div class="section">Code und Konfiguration</div>${r.sources.filter((s) => isCode(s.path)).map((s) => `<div><span class="f">${esc(rel(s.path))}</span> <span class="h f">${short(s.sha256)}</span>${nowChip(s.now)}</div>`).join("")}` : ""}
-    ${(r.gaps || []).length ? `<div class="section">Lücken</div><ul class="gaps">${r.gaps.map((g) => `<li class="warn">${esc(g)}</li>`).join("")}</ul>` : ""}
-    <div class="section">Der Weg: ${r.steps.length} Schritte${r.detours ? ` <span class="h" style="text-transform:none">(dazwischen ${r.detours} Abweg${r.detours > 1 ? "e" : ""}, die nicht dazu beitrugen)</span>` : ""}</div>
+    <div class="section">Source data</div>
+    ${(r.sources || []).filter((s) => !isCode(s.path)).map((s) => `<div><span class="f">${esc(rel(s.path))}</span> <span class="h f">${short(s.sha256)}</span>${nowChip(s.now)}${s.class === "outside" ? "" : ""}${s.status === "changed-outside" ? `<span class="chip warn">changed by hand</span>` : ""}</div>`).join("") || `<span class="h">–</span>`}
+    ${(r.sources || []).some((s) => isCode(s.path)) ? `<div class="section">Code and configuration</div>${r.sources.filter((s) => isCode(s.path)).map((s) => `<div><span class="f">${esc(rel(s.path))}</span> <span class="h f">${short(s.sha256)}</span>${nowChip(s.now)}</div>`).join("")}` : ""}
+    ${(r.gaps || []).length ? `<div class="section">Gaps</div><ul class="gaps">${r.gaps.map((g) => `<li class="warn">${esc(g)}</li>`).join("")}</ul>` : ""}
+    <div class="section">The path: ${r.steps.length} steps${r.detours ? ` <span class="h" style="text-transform:none">(${r.detours} detour${r.detours > 1 ? "s" : ""} in between that did not contribute)</span>` : ""}</div>
     ${r.steps.map(stepCard).join("")}
-    <div class="section">Als Skript</div>
+    <div class="section">As a script</div>
     <pre class="code script">${esc(r.script)}</pre>`;
   $("showWay").onclick = () => {
     focusNode = r.node;
@@ -296,7 +296,7 @@ async function showRecipe() {
   $("dlScript").onclick = () => {
     const a = document.createElement("a");
     a.href = URL.createObjectURL(new Blob([r.script], {type: "text/plain"}));
-    a.download = "rezept_" + rel(t.path).replace(/[^A-Za-z0-9._-]+/g, "_") + ".R";
+    a.download = "recipe_" + rel(t.path).replace(/[^A-Za-z0-9._-]+/g, "_") + ".R";
     a.click();
   };
   $("docChain").onclick = () => documentChain(r);
@@ -305,13 +305,13 @@ async function showRecipe() {
 
 async function showDescendants(f) {
   const d = await get(`api/descendants?project=${enc(project)}&path=${enc(f.path)}&sha=${enc(f.sha256)}`);
-  if (!d) { $("detail").innerHTML = `<p class="empty">Nichts gefunden.</p>`; return; }
+  if (!d) { $("detail").innerHTML = `<p class="empty">Nothing found.</p>`; return; }
   $("detail").innerHTML = `
     <h2>${esc(rel(f.path))}</h2><div class="h f">sha256 ${esc(f.sha256)} ${nowChip(f.now)}${f.class === "outside" ? "" : ""}</div>
-    <div class="verdict scripts"><div class="big">Was ist daraus geworden?</div>${d.steps.length} Schritte haben diese Daten benutzt, direkt oder über das, was daraus entstand.</div>
-    <div class="section">Ergebnisse</div>
+    <div class="verdict scripts"><div class="big">What became of it?</div>${d.steps.length} steps used this data, directly or through what came of it.</div>
+    <div class="section">Results</div>
     ${(d.results || []).map((x) => `<div><button class="lnk f" data-path="${esc(x.path)}" data-sha="${esc(x.sha256)}">${esc(rel(x.path))}</button> <span class="h f">${short(x.sha256)}</span>${nowChip(x.now)}</div>`).join("") || `<span class="h">–</span>`}
-    <div class="section">Schritte</div>
+    <div class="section">Steps</div>
     ${d.steps.map(stepCard).join("")}`;
   for (const b of $("detail").querySelectorAll("button.lnk")) b.onclick = () => { picked = {path: b.dataset.path, sha: b.dataset.sha}; renderFiles(); };
 }
@@ -322,27 +322,27 @@ function fileRow(label, items, render) {
 }
 function renderList(ts) {
   $("view").innerHTML = ts.length ? ts.map((t, i) => {
-    const ins = fileRow("gelesen", t.inputs, (x) => `<button class="lnk f" data-path="${esc(x.path)}" data-sha="${esc(x.sha256)}">${esc(rel(x.path))}</button> <span class="h f">${short(x.sha256)}</span>` + nowChip(x.now) +
-      (x.from ? `<span class="chip">← ${x.from[0].session && x.from[0].session !== t.session ? sessLabel(x.from[0].session) + ", " : ""}Befehl ${esc(x.from[0].task)}</span>` : "") +
-      (x.status === "changed-outside" ? `<span class="chip warn">von Hand geändert</span>` : "") +
-      (x.same_as ? `<span class="chip">gleicher Inhalt wie ${esc(rel(x.same_as[0].path))}</span>` : ""));
-    const outs = fileRow("geschrieben", t.outputs, (x) => `<button class="lnk f" data-path="${esc(x.path)}" data-sha="${esc(x.sha256)}">${esc(rel(x.path))}</button> <span class="h f">${short(x.sha256)}</span>` + nowChip(x.now) +
-      (x.overwritten_later ? `<span class="chip">später überschrieben</span>` : ""));
-    const vars = fileRow("Variablen", t.vars, (v) => `<span class="f">${esc(v.name)}</span> <span class="h">${esc(v.desc)}</span>`);
-    const uses = fileRow("nutzt", t.uses, (u) => `<span class="f">${esc(u.name)}</span> <span class="h">aus Befehl ${esc(u.task)}</span>`);
-    const cmds = fileRow("Programme", t.commands, (c) => `<span class="f">${esc(c.cmdline || c.program)}</span>`);
+    const ins = fileRow("read", t.inputs, (x) => `<button class="lnk f" data-path="${esc(x.path)}" data-sha="${esc(x.sha256)}">${esc(rel(x.path))}</button> <span class="h f">${short(x.sha256)}</span>` + nowChip(x.now) +
+      (x.from ? `<span class="chip">← ${x.from[0].session && x.from[0].session !== t.session ? sessLabel(x.from[0].session) + ", " : ""}command ${esc(x.from[0].task)}</span>` : "") +
+      (x.status === "changed-outside" ? `<span class="chip warn">changed by hand</span>` : "") +
+      (x.same_as ? `<span class="chip">same content as ${esc(rel(x.same_as[0].path))}</span>` : ""));
+    const outs = fileRow("written", t.outputs, (x) => `<button class="lnk f" data-path="${esc(x.path)}" data-sha="${esc(x.sha256)}">${esc(rel(x.path))}</button> <span class="h f">${short(x.sha256)}</span>` + nowChip(x.now) +
+      (x.overwritten_later ? `<span class="chip">overwritten later</span>` : ""));
+    const vars = fileRow("variables", t.vars, (v) => `<span class="f">${esc(v.name)}</span> <span class="h">${esc(v.desc)}</span>`);
+    const uses = fileRow("uses", t.uses, (u) => `<span class="f">${esc(u.name)}</span> <span class="h">from command ${esc(u.task)}</span>`);
+    const cmds = fileRow("programs", t.commands, (c) => `<span class="f">${esc(c.cmdline || c.program)}</span>`);
     const warn = [];
-    for (const n of t.network || []) if (n.class === "remote") warn.push(`<span class="warn">Netz ${esc(n.address)}: kein Foton, braucht einen Claim</span>`);
+    for (const n of t.network || []) if (n.class === "remote") warn.push(`<span class="warn">network ${esc(n.address)}: not a foton, needs a claim</span>`);
     for (const m of t.missing || []) warn.push(`<span class="warn">fehlte: ${esc(rel(m))}</span>`);
-    for (const u of t.unrecorded || []) warn.push(`<span class="warn">nicht aufgezeichnet (statisch?): ${esc(u.program)}</span>`);
+    for (const u of t.unrecorded || []) warn.push(`<span class="warn">not recorded (static?): ${esc(u.program)}</span>`);
     return `<div class="task ${t.status === "err" ? "err" : ""}">
       <div class="head"><span class="seq">${t.session ? sessLabel(t.session) + " · " : ""}#${t.seq}</span><span class="origin">${esc(origin(t))}</span>
-        <span class="when">${time(t.end_ns)}</span>${t.status === "err" ? `<span class="bad">Fehler</span>` : ""}
-        ${(t.inputs || []).length + (t.outputs || []).length ? `<button class="btn docbtn" data-i="${i}">Dokumentieren</button>` : ""}</div>
+        <span class="when">${time(t.end_ns)}</span>${t.status === "err" ? `<span class="bad">error</span>` : ""}
+        ${(t.inputs || []).length + (t.outputs || []).length ? `<button class="btn docbtn" data-i="${i}">Document</button>` : ""}</div>
       ${codeBlock(t)}
-      <div class="rows">${ins}${outs}${vars}${uses}${cmds}${warn.length ? `<div class="k">Hinweise</div><div>${warn.join("<br>")}</div>` : ""}</div>
+      <div class="rows">${ins}${outs}${vars}${uses}${cmds}${warn.length ? `<div class="k">notes</div><div>${warn.join("<br>")}</div>` : ""}</div>
     </div>`;
-  }).join("") : `<p class="empty">Keine Befehle für diese Filter.</p>`;
+  }).join("") : `<p class="empty">No commands for these filters.</p>`;
   for (const b of $("view").querySelectorAll("button.lnk")) b.onclick = () => openFile(b.dataset.path, b.dataset.sha);
   for (const b of $("view").querySelectorAll(".docbtn")) b.onclick = () => documentTask(ts[+b.dataset.i]);
 }
@@ -355,7 +355,7 @@ let kwebSrc = "";
 function renderKtonWeb() {
   $("filters").style.display = "none";
   if (!cfg.web) {
-    $("view").innerHTML = `<p class="empty">Der Fluss ist kton-webs Graph-Betrachter, und ktonwatch kennt keinen kton-web-Checkout. Starten mit <code>ktonwatch serve -web /pfad/zu/kton-web</code> oder <code>KTON_WEB=…</code>; <code>recorder/install.sh</code> merkt ihn sich, wenn kton-web neben kton-cockpit liegt.</p>`;
+    $("view").innerHTML = `<p class="empty">The flow is kton-web's graph viewer, and ktonwatch knows no kton-web checkout. Start it with <code>ktonwatch serve -web /path/to/kton-web</code> or <code>KTON_WEB=…</code>; <code>recorder/install.sh</code> remembers it when kton-web is next to kton-cockpit.</p>`;
     kwebSrc = "";
     return;
   }
@@ -364,9 +364,9 @@ function renderKtonWeb() {
   if (focusNode) src += `&focus=${enc(focusNode)}&mode=anc`;
   if (src === kwebSrc && $("kweb")) return;
   kwebSrc = src;
-  $("view").innerHTML = `<div class="bar" style="padding-top:0"><span class="h">kton-web Graph · Schritte sind Fotons (unverifiziert: nichts davon ist signiert), Ausgangsdateien sind Quellen.</span>
-      <button class="btn" id="kwebReload">Neu laden</button><a class="btn" href="${esc(src)}" target="_blank" style="text-decoration:none">In eigenem Fenster</a>
-      ${focusNode ? `<button class="btn" id="kwebAll">Ganzer Graph</button>` : ""}</div>
+  $("view").innerHTML = `<div class="bar" style="padding-top:0"><span class="h">kton-web graph · steps are fotons (unverified: none of it is signed), source files are sources.</span>
+      <button class="btn" id="kwebReload">Reload</button><a class="btn" href="${esc(src)}" target="_blank" style="text-decoration:none">In its own window</a>
+      ${focusNode ? `<button class="btn" id="kwebAll">Whole graph</button>` : ""}</div>
     <iframe id="kweb" src="${esc(src)}"></iframe>`;
   $("kwebReload").onclick = () => { kwebSrc = ""; renderKtonWeb(); };
   if ($("kwebAll")) $("kwebAll").onclick = () => { focusNode = null; renderKtonWeb(); };
@@ -393,18 +393,18 @@ async function documentCall(t, calls, c) {
   if (d) showDraft(t, d, calls, c);
 }
 function showDraft(t, d, calls, call) {
-  const box = (list) => (list || []).map((f) => `<label><input type="checkbox" value="${esc(f.path)}" ${f.use ? "checked" : ""} ${f.note && f.note.startsWith("nicht im Repo") ? "disabled" : ""}>
+  const box = (list) => (list || []).map((f) => `<label><input type="checkbox" value="${esc(f.path)}" ${f.use ? "checked" : ""} ${f.note && f.note.startsWith("not in the repo") ? "disabled" : ""}>
     <span class="f">${esc(f.path)}</span>${f.note ? ` <span class="chip warn">${esc(f.note)}</span>` : ""}</label>`).join("") || `<span class="h">–</span>`;
   docRepo = d.repo;
-  $("docTitle").textContent = call ? "Aufruf dokumentieren: " + call.tool : "Dokumentieren: " + origin(t);
-  $("docNote").textContent = `Diese Ansicht schreibt nichts: Sie erzeugt den Aufruf, mit dem du den Schritt über das Cockpit persistierst – im Repo ${d.repo}.` + ((d.notes || []).length ? " Außerdem: " + d.notes.join("; ") + "." : "");
-  $("docBody").innerHTML = `<fieldset><legend>gelesen</legend><div id="docIn">${box(d.inputs)}</div></fieldset>
-    <fieldset><legend>geschrieben</legend><div id="docOut">${box(d.outputs)}</div></fieldset>
-    <label>Befehl (<code>cmd</code>) <input type="text" id="docCmd" value="${esc(d.cmd || "")}"></label>
-    <label>Umgebung (<code>envRef</code>, optional) <input type="text" id="docEnv" placeholder="oci://…@sha256:… oder Nix-Store-Pfad"></label>
-    <label>Begründung <textarea id="docWhy" placeholder="Warum dieser Schritt, was er bedeutet"></textarea></label>
-    ${calls.length ? `<fieldset><legend>Werkzeugaufrufe einzeln (je ein Foton)</legend>
-      ${call ? `<button class="btn" id="docWhole">Ganzer Befehl</button> ` : ""}
+  $("docTitle").textContent = call ? "Document call: " + call.tool : "Document: " + origin(t);
+  $("docNote").textContent = `This view writes nothing: it produces the call with which you persist the step through the cockpit, in the repo ${d.repo}.` + ((d.notes || []).length ? " Also: " + d.notes.join("; ") + "." : "");
+  $("docBody").innerHTML = `<fieldset><legend>read</legend><div id="docIn">${box(d.inputs)}</div></fieldset>
+    <fieldset><legend>written</legend><div id="docOut">${box(d.outputs)}</div></fieldset>
+    <label>Command (<code>cmd</code>) <input type="text" id="docCmd" value="${esc(d.cmd || "")}"></label>
+    <label>Environment (<code>envRef</code>, optional) <input type="text" id="docEnv" placeholder="oci://…@sha256:… or a Nix store path"></label>
+    <label>Rationale <textarea id="docWhy" placeholder="Why this step, what it means"></textarea></label>
+    ${calls.length ? `<fieldset><legend>Tool calls one by one (one foton each)</legend>
+      ${call ? `<button class="btn" id="docWhole">Whole command</button> ` : ""}
       ${calls.map((c, i) => `<button class="btn docCall" data-i="${i}" ${call && call.pid === c.pid ? "disabled" : ""}>${esc(c.tool)}</button>`).join(" ")}</fieldset>` : ""}`;
   for (const b of $("docBody").querySelectorAll(".docCall")) b.onclick = () => documentCall(t, calls, calls[+b.dataset.i]);
   if ($("docWhole")) $("docWhole").onclick = () => documentTask(t);
@@ -412,7 +412,7 @@ function showDraft(t, d, calls, call) {
     const pick = (id) => [...$(id).querySelectorAll("input:checked")].map((x) => x.value);
     let text = publishLine(d, {inputs: pick("docIn"), outputs: pick("docOut"), cmd: $("docCmd").value.trim(), env: $("docEnv").value.trim()});
     const why = $("docWhy").value.trim();
-    if (why) text += `\n\n# Begründung (noch kein Claim-Template für "rationale"):\n# ${why.replace(/\n/g, "\n# ")}`;
+    if (why) text += `\n\n# Rationale (no claim template for "rationale" yet):\n# ${why.replace(/\n/g, "\n# ")}`;
     $("docOutText").textContent = text;
   };
   for (const el of $("docBody").querySelectorAll("input, textarea")) el.oninput = el.onchange = upd;
@@ -421,18 +421,18 @@ function showDraft(t, d, calls, call) {
 }
 async function documentChain(r) {
   docRepo = "";
-  const lines = [`# Kette für ${rel(r.target.path)}: ein publish pro Schritt, in dieser Reihenfolge.`,
-                 `# Vorausgewählt wie in den einzelnen Entwürfen; geänderte oder fehlende Dateien sind weggelassen.`];
+  const lines = [`# Chain for ${rel(r.target.path)}: one publish per step, in this order.`,
+                 `# Preselected as in the single drafts; changed or missing files are left out.`];
   for (const [i, s] of r.steps.entries()) {
     const d = await get(`api/draft?session=${enc(s.session)}&task=${enc(s.id)}`);
     if (!d) continue;
     docRepo = docRepo || d.repo;
-    lines.push(`\n# Schritt ${i + 1}: ${origin(s)}`);
+    lines.push(`\n# Step ${i + 1}: ${origin(s)}`);
     if ((d.notes || []).length) lines.push(`# ${d.notes.join("; ")}`);
     lines.push(publishLine(d));
   }
-  $("docTitle").textContent = "Alle Schritte dokumentieren";
-  $("docNote").textContent = "Eine Folge von cockpit publish-Aufrufen, ausgeführt von Hand. Diese Ansicht schreibt nichts.";
+  $("docTitle").textContent = "Document all steps";
+  $("docNote").textContent = "A sequence of cockpit publish calls, run by hand. This view writes nothing.";
   $("docBody").innerHTML = "";
   $("docOutText").textContent = lines.join("\n");
   $("doc").showModal();

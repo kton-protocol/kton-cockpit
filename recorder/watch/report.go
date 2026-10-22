@@ -21,9 +21,9 @@ func Report(w io.Writer, s *Session, tasks []*Task) {
 	for _, t := range tasks {
 		status := ""
 		if t.Status == "err" {
-			status = "  ⚠ Fehler"
+			status = "  ⚠ error"
 		}
-		fmt.Fprintf(w, "\n━━ Befehl %s  %s%s\n", t.ID, t.Expr, status)
+		fmt.Fprintf(w, "\n━━ Command %s  %s%s\n", t.ID, t.Expr, status)
 		for _, o := range t.Origins {
 			where := o.Kind
 			if o.File != "" {
@@ -49,22 +49,22 @@ func Report(w io.Writer, s *Session, tasks []*Task) {
 			fmt.Fprintf(w, "   gestartet  [pid %d] %s\n", c.PID, c.Cmdline)
 		}
 		for _, c := range t.Unrecorded {
-			fmt.Fprintf(w, "   NICHT AUFGEZEICHNET [pid %d] %s  ⚠ statisch gelinkt oder gescheitert\n", c.PID, c.Program)
+			fmt.Fprintf(w, "   NOT RECORDED [pid %d] %s  ⚠ statically linked or failed\n", c.PID, c.Program)
 		}
 		for _, in := range t.Inputs {
 			tag := ""
 			if in.Class == ClassOutside {
-				tag += "  (außerhalb des Projekts)"
+				tag += "  (outside the project)"
 			}
 			if in.Status != "observed" {
 				tag += "  ⚠ " + in.Status
 			}
 			from := ""
 			for _, r := range in.From {
-				from += fmt.Sprintf("  ← Befehl %s", r.Task)
+				from += fmt.Sprintf("  ← command %s", r.Task)
 			}
 			for _, r := range in.SameAs {
-				from += fmt.Sprintf("  (gleicher Inhalt wie %s aus Befehl %s)", rel(r.Path), r.Task)
+				from += fmt.Sprintf("  (same content as %s from command %s)", rel(r.Path), r.Task)
 			}
 			fmt.Fprintf(w, "   INPUT   %s  %s  (pid %d)%s%s\n", short(in.SHA256), rel(in.Path), in.PID, from, tag)
 		}
@@ -77,7 +77,7 @@ func Report(w io.Writer, s *Session, tasks []*Task) {
 		for _, o := range t.Outputs {
 			tag := ""
 			if o.Overwritten {
-				tag = "  ⚠ später überschrieben"
+				tag = "  ⚠ overwritten later"
 			}
 			if o.Status != "observed" {
 				tag += "  ⚠ " + o.Status
@@ -85,15 +85,15 @@ func Report(w io.Writer, s *Session, tasks []*Task) {
 			fmt.Fprintf(w, "   OUTPUT  %s  %s%s\n", short(o.SHA256), rel(o.Path), tag)
 		}
 		for _, p := range t.Temporary {
-			fmt.Fprintf(w, "   temporär %s\n", rel(p))
+			fmt.Fprintf(w, "   temporary %s\n", rel(p))
 		}
 		for _, n := range t.Network {
 			note := ""
 			if n.Class == "remote" {
-				note = "  ⚠ kein Foton – braucht einen Claim"
+				note = "  ⚠ not a foton – needs a claim"
 			}
 			fmt.Fprintf(w, "   NETZ    [pid %d] %s (%s)%s\n", n.PID, n.Address, n.Class, note)
 		}
-		fmt.Fprintf(w, "   (%d Dateien der Umgebung gelesen)\n", t.EnvFiles)
+		fmt.Fprintf(w, "   (%d environment files read)\n", t.EnvFiles)
 	}
 }

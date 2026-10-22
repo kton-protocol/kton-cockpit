@@ -44,5 +44,5 @@ for v in "$ROOT"/.build/*.vsix; do put "$v" "$PREFIX/share/kton/$(basename "$v")
 # the flow is kton-web's graph viewer: remember its checkout ($KTON_WEB, or next to kton-cockpit)
 WEB=${KTON_WEB:-$(cd "$ROOT/../.." && pwd)/kton-web}
 if [ -f "$WEB/viewers/graph/app.js" ]; then echo "$WEB" > "$PREFIX/share/kton/web"
-else echo "Hinweis: kein kton-web unter $WEB; ktonwatch serve braucht dann -web" >&2; fi
-echo "installiert nach $PREFIX: lib/kton/libktontrace.so, bin/ktonwatch, bin/kton-call, share/kton/"
+else echo "note: no kton-web at $WEB; ktonwatch serve then needs -web" >&2; fi
+echo "installed to $PREFIX: lib/kton/libktontrace.so, bin/ktonwatch, bin/kton-call, share/kton/"

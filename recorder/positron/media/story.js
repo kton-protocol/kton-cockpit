@@ -19,7 +19,7 @@
   function chapters() {
     const out = [];
     for (const s of S.steps) {
-      const where = s.where.replace(/^Chunk \S+ von /, "");
+      const where = s.where.replace(/^chunk \S+ of /, "");
       const last = out[out.length - 1];
       if (last && !s.hand && !last.hand && last.session === s.session && last.where === where) last.steps.push(s);
       else out.push({session: s.session, where, hand: !!s.hand, steps: [s]});
@@ -41,7 +41,7 @@
       for (const w of made) if ((later.has(w) || w === target) && !outs.includes(w)) outs.push(w);
       c.ins = ins; c.outs = outs;
       c.tools = [...new Set(c.path.flatMap((s) => s.tools || []))].filter((t) => t !== "Rscript");
-      c.warn = [...new Set(c.path.flatMap((s) => (s.warnings || []).filter((w) => !/lief, konnte aber nicht/.test(w))))];
+      c.warn = [...new Set(c.path.flatMap((s) => (s.warnings || []).filter((w) => !/ran but could not/.test(w))))];
       c.failed = c.steps.filter((s) => s.error).length;
       // a file is in kton when the step that wrote it is; the line when all it handed on is
       c.kton = new Set(c.path.filter((s) => published[skey(s)]).flatMap((s) => s.writes || []));
@@ -53,25 +53,25 @@
 
   const files = (xs, max, kton) => {
     max = max || 4;
-    const shown = xs.slice(0, max).map((x) => `<span class="f" title="${esc(x)}${kton && kton.has(x) ? " – schon in kton" : ""}">${esc(short(x))}${kton && kton.has(x) && !kton.all ? " ✓" : ""}</span>`).join("");
+    const shown = xs.slice(0, max).map((x) => `<span class="f" title="${esc(x)}${kton && kton.has(x) ? " – already in kton" : ""}">${esc(short(x))}${kton && kton.has(x) && !kton.all ? " ✓" : ""}</span>`).join("");
     return shown + (xs.length > max ? `<span class="more" title="${esc(xs.slice(max).join("\n"))}">+${xs.length - max}</span>` : "");
   };
 
   function headline(cs) {
     const v = S.verdict, hands = cs.filter((c) => c.hand).length;
-    const scripts = new Set(cs.filter((c) => !c.hand && c.where.startsWith("Skript ")).map((c) => c.where)).size;
-    const consoles = cs.filter((c) => c.where === "Konsole").length;
+    const scripts = new Set(cs.filter((c) => !c.hand && c.where.startsWith("script ")).map((c) => c.where)).size;
+    const consoles = cs.filter((c) => c.where === "console").length;
     const shell = cs.filter((c) => c.where.startsWith("$ ")).length;
     const parts = [];
-    if (scripts) parts.push(`${scripts} Skript${scripts > 1 ? "e" : ""}`);
-    if (consoles) parts.push(`${consoles}× Konsole`);
-    if (shell) parts.push(`${shell} Befehl${shell > 1 ? "e" : ""} in der Shell`);
-    if (hands) parts.push(`${hands} Handänderung${hands > 1 ? "en" : ""}`);
+    if (scripts) parts.push(`${scripts} script${scripts > 1 ? "s" : ""}`);
+    if (consoles) parts.push(`${consoles}× console`);
+    if (shell) parts.push(`${shell} command${shell > 1 ? "s" : ""} in the shell`);
+    if (hands) parts.push(`${hands} change${hands > 1 ? "s" : ""} by hand`);
     const how = {
-      "scripts": `Nachrechenbar mit <code>${esc(v.command || "")}</code>.`,
-      "scripts-with-gaps": hands ? "Nachrechenbar bis auf die Handänderung." : "Nachrechenbar, mit Lücken.",
-      "scripts-need-session": "Das Skript braucht, was vorher in der Sitzung lag.",
-      "interactive": "In der Konsole entstanden, ohne Skript.",
+      "scripts": `Recomputable with <code>${esc(v.command || "")}</code>.`,
+      "scripts-with-gaps": hands ? "Recomputable except for the change by hand." : "Recomputable, with gaps.",
+      "scripts-need-session": "The script needs what was in the session before.",
+      "interactive": "Made in the console, without a script.",
     }[v.kind] || "";
     return `${parts.join(", ")}. ${how}`;
   }
@@ -81,39 +81,39 @@
     const field = (f, ph) => `<div class="note ${note[f] ? "" : "empty"}" contenteditable="true" data-k="${esc(c.key)}" data-f="${f}" data-ph="${ph}">${esc(note[f])}</div>`;
     const cls = c.hand ? "hand" : c.inKton ? "done" : "";
     const what = c.hand
-      ? `<span class="f w">${esc(c.steps[0].reads[0])}</span> von Hand geändert <span class="muted">· nicht aufgezeichnet</span>`
-      : `${files(c.ins)} <span class="arrow">→</span>${c.tools.length ? ` <span class="tool">${esc(c.tools.join(", "))}</span> <span class="arrow">→</span>` : ""} ${c.outs.length ? files(c.outs, 4, c.kton) : '<span class="muted">nur Objekte in der Sitzung</span>'}`;
-    const flags = [c.inKton ? '<span class="ok" title="schon in kton">✓ in kton</span>' : "",
+      ? `<span class="f w">${esc(c.steps[0].reads[0])}</span> changed by hand <span class="muted">· not recorded</span>`
+      : `${files(c.ins)} <span class="arrow">→</span>${c.tools.length ? ` <span class="tool">${esc(c.tools.join(", "))}</span> <span class="arrow">→</span>` : ""} ${c.outs.length ? files(c.outs, 4, c.kton) : '<span class="muted">only objects in the session</span>'}`;
+    const flags = [c.inKton ? '<span class="ok" title="already in kton">✓ in kton</span>' : "",
       c.warn.length ? `<span class="warn" title="${esc(c.warn.join("\n"))}">⚠ ${c.warn.length}</span>` : "",
-      c.failed ? `<span class="muted" title="Fehlgeschlagene Befehle, ohne Folgen">${c.failed}× gescheitert</span>` : ""].filter(Boolean).join(" ");
+      c.failed ? `<span class="muted" title="failed commands, without effect">${c.failed}× failed</span>` : ""].filter(Boolean).join(" ");
     const details = open[c.key] ? `<div class="details">
         ${c.warn.map((w) => `<div class="warn">⚠ ${esc(w)}</div>`).join("")}
-        ${c.steps.map((s) => `<div class="cmd ${s.on_path ? "" : "off"}"><span class="when">${clock(s.when_ns)}</span> <code>${esc((s.code || s.sentence).split("\n")[0])}</code>${(s.writes || []).length ? ` → ${files(s.writes, 3)}` : ""}${s.error ? ' <span class="warn">scheitert</span>' : ""}</div>`).join("")}
+        ${c.steps.map((s) => `<div class="cmd ${s.on_path ? "" : "off"}"><span class="when">${clock(s.when_ns)}</span> <code>${esc((s.code || s.sentence).split("\n")[0])}</code>${(s.writes || []).length ? ` → ${files(s.writes, 3)}` : ""}${s.error ? ' <span class="warn">fails</span>' : ""}</div>`).join("")}
       </div>` : "";
     return `<li class="${cls}" data-k="${esc(c.key)}">
       <div class="t">${c.hand ? "✎" : clock(c.when)}</div>
       <div class="body">
-        <div class="head">${c.where.startsWith("$ ") ? `<code class="cmdline">${esc(c.where)}</code>` : `<b>${esc(c.hand ? "von Hand" : c.where.replace(/^Skript /, ""))}</b>`} ${what} ${flags}
-          ${c.hand ? "" : `<button class="link tog">${open[c.key] ? "weniger" : `${c.steps.length} Befehle`}</button>`}</div>
+        <div class="head">${c.where.startsWith("$ ") ? `<code class="cmdline">${esc(c.where)}</code>` : `<b>${esc(c.hand ? "by hand" : c.where.replace(/^script /, ""))}</b>`} ${what} ${flags}
+          ${c.hand ? "" : `<button class="link tog">${open[c.key] ? "less" : `${c.steps.length} commands`}</button>`}</div>
         ${details}
         <div class="notes ${c.inKton && !note.description && !note.rationale ? "quiet" : ""}">
-          <span class="nl">Beschreibung</span>${field("description", c.hand ? "Was hast du geändert?" : "Was wurde hier gemacht?")}
-          <span class="nl">Begründung</span>${field("rationale", c.hand ? "Warum war die Änderung nötig?" : "Warum so?")}
+          <span class="nl">Description</span>${field("description", c.hand ? "What did you change?" : "What was done here?")}
+          <span class="nl">Rationale</span>${field("rationale", c.hand ? "Why was the change needed?" : "Why this way?")}
         </div>
       </div></li>`;
   }
 
   function markdown(cs) {
-    let md = `# Wie ${targetRel()} entstanden ist\n\n${headline(cs).replace(/<\/?code>/g, "`")}\n\n`;
+    let md = `# How ${targetRel()} came about\n\n${headline(cs).replace(/<\/?code>/g, "`")}\n\n`;
     for (const c of cs) {
-      md += c.hand ? `- ✎ **${c.steps[0].reads[0]} von Hand geändert** (nicht aufgezeichnet)`
-        : `- ${clock(c.when)} **${c.where.replace(/^Skript /, "")}**: ${c.ins.join(", ")} → ${c.tools.length ? c.tools.join(", ") + " → " : ""}${c.outs.join(", ") || "–"}${c.inKton ? " ✓ in kton" : ""}`;
+      md += c.hand ? `- ✎ **${c.steps[0].reads[0]} changed by hand** (not recorded)`
+        : `- ${clock(c.when)} **${c.where.replace(/^script /, "")}**: ${c.ins.join(", ")} → ${c.tools.length ? c.tools.join(", ") + " → " : ""}${c.outs.join(", ") || "–"}${c.inKton ? " ✓ in kton" : ""}`;
       const n = noteOf(c.key);
       md += "\n";
-      if (n.description) md += `  - *Beschreibung:* ${n.description.replace(/\n/g, "\n    ")}\n`;
-      if (n.rationale) md += `  - *Begründung:* ${n.rationale.replace(/\n/g, "\n    ")}\n`;
+      if (n.description) md += `  - *Description:* ${n.description.replace(/\n/g, "\n    ")}\n`;
+      if (n.rationale) md += `  - *Rationale:* ${n.rationale.replace(/\n/g, "\n    ")}\n`;
     }
-    if ((S.gaps || []).length) md += `\n**Lücken:**\n${S.gaps.map((g) => "- " + g).join("\n")}\n`;
+    if ((S.gaps || []).length) md += `\n**Gaps:**\n${S.gaps.map((g) => "- " + g).join("\n")}\n`;
     return md;
   }
 
@@ -126,13 +126,13 @@
         <h1>${esc(targetRel())}</h1>
         <div class="sub">${headline(cs)} <span class="muted">${[...days].join(" – ")}</span></div>
         <div class="actions">
-          <button id="repro" title="Ausgangsdateien und Skripte in einen leeren Ordner, dort laufen lassen, Hash vergleichen">Reproduzieren</button>
-          <button id="publish" ${!cockpitRepo || !todo.length ? "disabled" : ""} title="${cockpitRepo ? "cockpit publish für jede Zeile ohne ✓, im Terminal, mit Beschreibung und Begründung als Kommentar" : "kein Cockpit-Repo (cockpit init)"}">In kton veröffentlichen${todo.length ? ` (${todo.length})` : ""}</button>
+          <button id="repro" title="source files and scripts into an empty folder, run there, compare the hash">Reproduce</button>
+          <button id="publish" ${!cockpitRepo || !todo.length ? "disabled" : ""} title="${cockpitRepo ? "cockpit publish for every line without ✓, in the terminal, with description and rationale as comments" : "no cockpit repo (cockpit init)"}">Publish to kton${todo.length ? ` (${todo.length})` : ""}</button>
           <button class="secondary" id="save">Markdown</button>
         </div>
       </header>
       <ol class="story">${cs.map(line).join("")}</ol>
-      ${(S.gaps || []).length ? `<details class="gaps"><summary>${S.gaps.length} Lücke${S.gaps.length > 1 ? "n" : ""} in der Aufzeichnung</summary>${S.gaps.map((g) => `<div class="warn">${esc(g)}</div>`).join("")}</details>` : ""}
+      ${(S.gaps || []).length ? `<details class="gaps"><summary>${S.gaps.length} gap${S.gaps.length > 1 ? "s" : ""} in the recording</summary>${S.gaps.map((g) => `<div class="warn">${esc(g)}</div>`).join("")}</details>` : ""}
     </main>`;
     for (const b of root.querySelectorAll("button.tog")) b.onclick = (e) => { const k = e.target.closest("li").dataset.k; open[k] = !open[k]; render(); };
     for (const n of root.querySelectorAll(".note")) {

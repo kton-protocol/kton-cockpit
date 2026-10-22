@@ -29,7 +29,7 @@ NONMEM 7.5 via `nmfe75`, bbi, PsN and pharmpy; Positron's Ark kernel over WSL.
 | `r/ktonrec/` | R package: writes `TASK` after each top-level command (status `err` when `geterrmessage()` changed — Ark reports `ok` even after errors), `SOURCE` for `source()`/`sys.source()`, `ENV` (R home, library paths, the working directory as the project), `VARS` (global variables a command created or changed: name, class, shape). |
 | `r/kton-trace.R`, `r/Rprofile-kton.R` | Load `ktonrec` without installing it; the profile is what Positron's `R_PROFILE_USER` points to. |
 | `r/kton-R` | Starts R or radian under the recorder. |
-| `positron/` | Positron extension: writes where each executed piece of code came from (`onDidExecuteCode`: file, lines; Quarto cells only name the file) into `positron-exec.jsonl`; command "kton: Beobachtungen öffnen". `pack.py` builds the `.vsix`. |
+| `positron/` | Positron extension: writes where each executed piece of code came from (`onDidExecuteCode`: file, lines; Quarto cells only name the file) into `positron-exec.jsonl`; command "kton: Open observations in a panel". `pack.py` builds the `.vsix`. |
 | `shimtest/` | Tests of the shim (build with gcc, run scenarios, check the log). |
 | `demo/` | `run_demo.sh` (Python stand-in session), `run_r_demo.sh` (real R). |
 

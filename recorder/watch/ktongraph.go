@@ -114,7 +114,7 @@ func participant(t *Task) string {
 			return filepath.Base(s.Path)
 		}
 	}
-	return "Konsole " + shortSession(t.Session)
+	return "console " + shortSession(t.Session)
 }
 
 func shortSession(id string) string {
@@ -127,7 +127,7 @@ func shortSession(id string) string {
 func stepLabel(t *Task) string {
 	c := firstLine(t.Code())
 	if c == "" {
-		c = "Befehl " + t.ID
+		c = "command " + t.ID
 	}
 	return c
 }

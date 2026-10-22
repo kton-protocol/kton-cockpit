@@ -50,7 +50,7 @@ func main() {
 	if os.Getenv("KTON_REUSE") != "0" {
 		if c, ok := reusable(argv, cwd); ok {
 			if err := putOutputs(c, cwd); err == nil {
-				fmt.Fprintf(os.Stderr, "kton: %s aus dem Speicher (Schlüssel %s…, gerechnet in Befehl %s)\n", c.Tool, short(c.Key), c.Task)
+				fmt.Fprintf(os.Stderr, "kton: %s from the store (key %s…, computed in command %s)\n", c.Tool, short(c.Key), c.Task)
 				os.Exit(0)
 			} else {
 				fmt.Fprintf(os.Stderr, "kton: Wiederverwendung abgebrochen, %v; rechne\n", err)
@@ -59,7 +59,7 @@ func main() {
 	}
 	real := realTool(tool)
 	if real == "" {
-		fmt.Fprintf(os.Stderr, "kton: %s ist hier nicht installiert, und kein aufbewahrter Aufruf passt\n", tool)
+		fmt.Fprintf(os.Stderr, "kton: %s is not installed here, and no kept call matches\n", tool)
 		os.Exit(127)
 	}
 	err := syscall.Exec(real, append([]string{real}, os.Args[1:]...), os.Environ())
@@ -102,7 +102,7 @@ func debugf(format string, a ...any) {
 
 func reusable(argv []string, cwd string) (watch.Call, bool) {
 	calls, ok := known(argv)
-	debugf("cwd %s argv %q: %d frühere Aufrufe (Abfrage ok=%v)", cwd, argv, len(calls), ok)
+	debugf("cwd %s argv %q: %d earlier calls (query ok=%v)", cwd, argv, len(calls), ok)
 	if !ok {
 		return watch.Call{}, false
 	}
@@ -121,12 +121,12 @@ func reusable(argv []string, cwd string) (watch.Call, bool) {
 				hashes[r.Rel] = h
 			}
 			if h == "" {
-				debugf("  %s/%s: %s fehlt hier", c.Session, c.Task, r.Rel)
+				debugf("  %s/%s: %s is missing here", c.Session, c.Task, r.Rel)
 				ok = false
 				break
 			}
 			if h != r.SHA256 {
-				debugf("  %s/%s: %s hat andere Bytes (%.12s statt %.12s)", c.Session, c.Task, r.Rel, h, r.SHA256)
+				debugf("  %s/%s: %s has other bytes (%.12s instead of %.12s)", c.Session, c.Task, r.Rel, h, r.SHA256)
 			}
 			inputs[r.Rel] = h
 		}
@@ -139,7 +139,7 @@ func reusable(argv []string, cwd string) (watch.Call, bool) {
 		}
 		for _, w := range c.Writes {
 			if !cas.Has(w.SHA256) {
-				debugf("  %s/%s: Output %s nicht im Speicher", c.Session, c.Task, w.Rel)
+				debugf("  %s/%s: output %s not in the store", c.Session, c.Task, w.Rel)
 				ok = false
 				break
 			}

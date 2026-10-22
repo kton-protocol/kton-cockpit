@@ -213,11 +213,11 @@ func producibleOf(calls []Call, has func(sum string) bool) []Producible {
 					}
 				}
 				if len(lost) == 0 {
-					p.State, p.Via, p.Lost = "producible", c.Tool+" (Befehl "+c.Task+")", nil
+					p.State, p.Via, p.Lost = "producible", c.Tool+" (command "+c.Task+")", nil
 					break
 				}
 				if p.Lost == nil {
-					p.Via, p.Lost = c.Tool+" (Befehl "+c.Task+")", lost
+					p.Via, p.Lost = c.Tool+" (command "+c.Task+")", lost
 				}
 			}
 		}

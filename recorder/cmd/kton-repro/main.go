@@ -78,15 +78,15 @@ func main() {
 	var plan watch.ReproPlan
 	q := url.Values{"project": {*project}, "path": {*path}, "sha": {*sha}}
 	if err := getJSON(*watchURL+"/api/reproplan?"+q.Encode(), &plan); err != nil {
-		fail("kein Plan: %v", err)
+		fail("no plan: %v", err)
 	}
 	if len(plan.Lost) > 0 {
-		fmt.Fprintf(os.Stderr, "kton-repro: %s lässt sich nicht herstellen, es fehlen: %s\n", plan.Target.Rel, strings.Join(plan.Lost, ", "))
+		fmt.Fprintf(os.Stderr, "kton-repro: %s cannot be made, missing: %s\n", plan.Target.Rel, strings.Join(plan.Lost, ", "))
 		os.Exit(3)
 	}
 	var calls []watch.Call
 	if err := getJSON(*watchURL+"/api/calls?"+url.Values{"project": {*project}}.Encode(), &calls); err != nil {
-		fail("keine Aufrufe: %v", err)
+		fail("no calls: %v", err)
 	}
 	stamp := time.Now().Format("20060102-150405")
 	dir := filepath.Join(*out, stamp+"-"+filepath.Base(*path))
@@ -111,7 +111,7 @@ func main() {
 		must(os.MkdirAll(filepath.Dir(dst), 0o755))
 		must(copyFile(cas.Path(f.SHA256), dst))
 	}
-	fmt.Printf("kton-repro: %s (sha256 %s) in %s\n  %d Dateien aus dem Speicher, %d Aufrufe\n", plan.Target.Rel, plan.Target.SHA256[:12], dir, len(plan.Put), len(plan.Run))
+	fmt.Printf("kton-repro: %s (sha256 %s) in %s\n  %d files from the store, %d calls\n", plan.Target.Rel, plan.Target.SHA256[:12], dir, len(plan.Put), len(plan.Run))
 
 	rep := report{Target: plan.Target.Rel, Recorded: plan.Target.SHA256, Dir: dir, Plan: plan}
 	targetKey := ""
@@ -158,10 +158,10 @@ func main() {
 			code = -1
 		}
 		res := runResult{Tool: r.Tool, Cwd: r.Cwd, Image: img, ImageID: imageID(img), Seconds: time.Since(t0).Seconds(), Exit: code,
-			Reused: strings.Contains(stderr.String(), "aus dem Speicher"), Target: r.Target}
+			Reused: strings.Contains(stderr.String(), "from the store"), Target: r.Target}
 		rep.Runs = append(rep.Runs, res)
 		if code != 0 {
-			fmt.Printf("    endete mit %d\n", code)
+			fmt.Printf("    exited with %d\n", code)
 			break
 		}
 	}
@@ -179,18 +179,18 @@ func main() {
 	must(os.WriteFile(filepath.Join(dir, "kton-repro.json"), jb, 0o644))
 	switch {
 	case rep.Reproduced == "":
-		fmt.Printf("= %s: nicht erzeugt\n", plan.Target.Rel)
+		fmt.Printf("= %s: not produced\n", plan.Target.Rel)
 		os.Exit(1)
 	case rep.Same:
 		fmt.Printf("= %s: reproduziert, dieselben Bytes ✓\n", plan.Target.Rel)
 	case rep.Compare != nil && rep.Compare.Verdict == "within":
-		fmt.Printf("= %s: andere Bytes, aber innerhalb der Toleranz %g (vorläufiger Vergleich): größte Abweichung %.2g, %s\n",
+		fmt.Printf("= %s: other bytes, but within the tolerance %g (provisional comparison): largest difference %.2g, %s\n",
 			plan.Target.Rel, *rtol, rep.Compare.MaxRel, rep.Compare.Where)
 	default:
 		fmt.Printf("= %s: abweichend, %s statt %s\n", plan.Target.Rel, rep.Reproduced[:12], plan.Target.SHA256[:12])
 		if c := rep.Compare; c != nil {
 			if c.Where != "" {
-				fmt.Printf("  %s; größte Abweichung %.2g, %s\n", c.Note, c.MaxRel, c.Where)
+				fmt.Printf("  %s; largest difference %.2g, %s\n", c.Note, c.MaxRel, c.Where)
 			} else {
 				fmt.Printf("  %s\n", c.Note)
 			}

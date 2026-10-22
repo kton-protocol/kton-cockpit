@@ -202,16 +202,16 @@ func verdictOf(r *Recipe, rel func(string) string) Verdict {
 		v.Kind = "scripts-need-session"
 	case handEdited:
 		v.Kind = "scripts-with-gaps"
-		v.Notes = append(v.Notes, "zwischen den Skripten wurde eine Datei von Hand geändert: die Skripte allein ergeben nicht dasselbe")
+		v.Notes = append(v.Notes, "a file was changed by hand between the scripts: the scripts alone do not give the same result")
 	}
 	var cmds []string
 	for _, s := range v.Scripts {
 		cmds = append(cmds, "Rscript "+rel(s.Path))
 		switch s.Now {
 		case NowChanged:
-			v.Notes = append(v.Notes, rel(s.Path)+" hat sich seit dem Lauf geändert: heute ausgeführt, rechnet es etwas anderes")
+			v.Notes = append(v.Notes, rel(s.Path)+" has changed since the run: run today, it computes something else")
 		case NowGone:
-			v.Notes = append(v.Notes, rel(s.Path)+" gibt es nicht mehr")
+			v.Notes = append(v.Notes, rel(s.Path)+" no longer exists")
 		}
 	}
 	if v.Kind == "scripts" || v.Kind == "scripts-with-gaps" {
@@ -325,17 +325,17 @@ func recipeOf(tasks []*Task, project, path, sum string) *Recipe {
 	for _, src := range r.Sources {
 		switch {
 		case src.Status == "changed-outside":
-			who := "ein Schritt"
+			who := "a step"
 			if w := before(src.Path, readAt[vkey(src.Path, src.SHA256)]); w != nil {
 				who = fmt.Sprintf("„%s“ (%s)", firstLine(w.Code()), sessionName(w))
 			}
-			r.Gaps = append(r.Gaps, fmt.Sprintf("%s wurde von Hand geändert, nachdem %s sie geschrieben hatte: diese Änderung ist nicht nachrechenbar, der Weg davor ist unterbrochen", rel(src.Path), who))
+			r.Gaps = append(r.Gaps, fmt.Sprintf("%s was changed by hand after %s wrote it: that change cannot be recomputed, the path before it is broken", rel(src.Path), who))
 		}
 		switch src.Now {
 		case NowChanged:
-			r.Gaps = append(r.Gaps, fmt.Sprintf("Ausgangsdatei %s hat heute einen anderen Inhalt als damals", rel(src.Path)))
+			r.Gaps = append(r.Gaps, fmt.Sprintf("source file %s has other content today than at the time", rel(src.Path)))
 		case NowGone:
-			r.Gaps = append(r.Gaps, fmt.Sprintf("Ausgangsdatei %s gibt es nicht mehr", rel(src.Path)))
+			r.Gaps = append(r.Gaps, fmt.Sprintf("source file %s no longer exists", rel(src.Path)))
 		}
 	}
 	var stepGaps []string
@@ -344,17 +344,17 @@ func recipeOf(tasks []*Task, project, path, sum string) *Recipe {
 		r := struct{ Gaps []string }{}
 		for _, nw := range t.Network {
 			if nw.Class == "remote" {
-				r.Gaps = append(r.Gaps, fmt.Sprintf("%s greift aufs Netz zu (%s): kein Foton, braucht einen Claim", n, nw.Address))
+				r.Gaps = append(r.Gaps, fmt.Sprintf("%s accesses the network (%s): not a foton, needs a claim", n, nw.Address))
 			}
 		}
 		for _, u := range t.Unrecorded {
-			r.Gaps = append(r.Gaps, fmt.Sprintf("%s startet %s, das nicht aufgezeichnet werden konnte: was es gelesen hat, fehlt hier", n, filepath.Base(u.Program)))
+			r.Gaps = append(r.Gaps, fmt.Sprintf("%s starts %s, which could not be recorded: what it read is missing here", n, filepath.Base(u.Program)))
 		}
 		if t.Code() == "" {
 			r.Gaps = append(r.Gaps, fmt.Sprintf("%s: Code unbekannt", n))
 		}
 		if t.Status == "err" {
-			r.Gaps = append(r.Gaps, fmt.Sprintf("%s endete mit einem Fehler", n))
+			r.Gaps = append(r.Gaps, fmt.Sprintf("%s ended with an error", n))
 		}
 		stepGaps = append(stepGaps, r.Gaps...)
 	}
@@ -367,15 +367,15 @@ func recipeOf(tasks []*Task, project, path, sum string) *Recipe {
 
 func script(r *Recipe, project string, rel func(string) string) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "# Rezept für %s (sha256 %s)\n", rel(r.Target.Path), short(r.Target.SHA256))
-	fmt.Fprintf(&b, "# aus %d aufgezeichneten Schritten; %d weitere Schritte in dieser Zeit gehörten nicht dazu\n", len(r.Steps), r.Detours)
+	fmt.Fprintf(&b, "# Recipe for %s (sha256 %s)\n", rel(r.Target.Path), short(r.Target.SHA256))
+	fmt.Fprintf(&b, "# from %d recorded steps; %d other steps in that time were not part of it\n", len(r.Steps), r.Detours)
 	b.WriteString("#\n# Ausgangsdaten:\n")
 	for _, s := range r.Sources {
-		state := map[string]string{NowSame: "unverändert", NowChanged: "HEUTE ANDERS", NowGone: "FEHLT"}[s.Now]
+		state := map[string]string{NowSame: "unchanged", NowChanged: "DIFFERENT TODAY", NowGone: "MISSING"}[s.Now]
 		fmt.Fprintf(&b, "#   %-40s sha256 %s  %s\n", rel(s.Path), short(s.SHA256), state)
 	}
 	if len(r.Gaps) > 0 {
-		b.WriteString("#\n# Lücken (nicht nachrechenbar oder nicht aufgezeichnet):\n")
+		b.WriteString("#\n# Gaps (cannot be recomputed, or not recorded):\n")
 		for _, g := range r.Gaps {
 			fmt.Fprintf(&b, "#   - %s\n", g)
 		}
@@ -390,7 +390,7 @@ func script(r *Recipe, project string, rel func(string) string) string {
 				where += " · Chunk " + o.Chunk
 			}
 		}
-		fmt.Fprintf(&b, "\n# --- Schritt %d · %s", i+1, time.Unix(0, t.End).Format("15:04"))
+		fmt.Fprintf(&b, "\n# --- Step %d · %s", i+1, time.Unix(0, t.End).Format("15:04"))
 		if where != "" {
 			b.WriteString(" · " + where)
 		}
@@ -476,7 +476,7 @@ func sessionName(t *Task) string {
 	if t.Script != "" {
 		return filepath.Base(t.Script)
 	}
-	return "Sitzung " + t.Session
+	return "session " + t.Session
 }
 
 // stepName: a step as the reader can find it again, its command and the time it ended.
@@ -486,7 +486,7 @@ func stepName(t *Task) string {
 		c = shellPlace(t)
 	}
 	if c == "" {
-		c = "Befehl " + t.ID
+		c = "command " + t.ID
 	}
 	return fmt.Sprintf("„%s“ (%s)", c, time.Unix(0, t.End).Format("15:04"))
 }
