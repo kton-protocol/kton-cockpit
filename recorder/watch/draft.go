@@ -112,6 +112,8 @@ func draftCmd(t *Task, repo string) string {
 	if len(t.Origins) > 0 && t.Origins[0].File != "" {
 		o := t.Origins[0]
 		switch {
+		case o.Language == "python" && o.StartLine == 0:
+			return "python3 " + shellJoin([]string{rel(o.File)}) // %run of a file
 		case o.Chunk != "":
 			return "chunk " + o.Chunk + " of " + rel(o.File)
 		case o.StartLine > 0 && !(strings.HasPrefix(strings.TrimSpace(o.Code), "source(")):

@@ -69,7 +69,35 @@ func TestOrigins_RecorderFormat(t *testing.T) {
 {"ts_ns":6,"kind":"interactive","language":"python","code":"print(1)"}
 `), 0o644)
 	o, err := ParseOrigins(jl)
-	if err != nil || len(o) != 1 || o[0].File != "/p/a.R" || o[0].StartLine != 3 || o[0].EndLine != 4 {
+	if err != nil || len(o) != 2 || o[0].File != "/p/a.R" || o[0].StartLine != 3 || o[0].EndLine != 4 ||
+		o[0].Language != "r" || o[1].Language != "python" {
 		t.Fatalf("%v %+v", err, o)
+	}
+}
+
+// A Python console session (ktonrec.py's ENV says lang=python) gets the Python executions the
+// extension logged, not the R console's, and its draft runs the script with python3.
+func TestOrigins_APythonSessionGetsPythonExecutions(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "positron-exec.jsonl")
+	os.WriteFile(f, []byte(`{"ts_ns":15,"kind":"script","language":"python","code":"%run -- \"py/02_nca.py\"","file":"/p/py/02_nca.py"}
+{"ts_ns":16,"kind":"script","language":"r","code":"source(\"R/03.R\")","file":"/p/R/03.R"}
+{"ts_ns":17,"kind":"x","language":"julia","code":"1"}
+`), 0o644)
+	all, err := ParseOrigins(f)
+	if err != nil || len(all) != 2 {
+		t.Fatalf("origins %+v %v: julia is skipped, R and Python kept", all, err)
+	}
+	s := NewSession("t", "/log.tsv", &Classifier{System: DefaultSystem, Temp: DefaultTemp})
+	s.Line("#ktontrace v3\thash=/p")
+	s.Line("10\t200\t0\tENV\t-\t/usr\t0\t0\t0\tproject=/p;lang=python")
+	s.Line("20\t200\t0\tTASK\tok\t1\t0\t0\t0\t%run -- \"py/02_nca.py\"")
+	AttachOrigins(s.Tasks, OriginsIn(all, s.Language))
+	t1 := s.Tasks[0]
+	if s.Language != "python" || len(t1.Origins) != 1 || t1.Origins[0].Language != "python" {
+		t.Fatalf("lang %q origins %+v", s.Language, t1.Origins)
+	}
+	if got := draftCmd(t1, "/p"); got != "python3 py/02_nca.py" {
+		t.Fatalf("cmd %q", got)
 	}
 }

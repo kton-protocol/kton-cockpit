@@ -12,7 +12,12 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/kton-protocol/kton-cockpit/recorder/watch"
 )
+
+// lastLog is the log of the latest run, for a test that reads it with the watcher.
+var lastLog string
 
 type event struct {
 	pid, op, mode, path, extra string
@@ -69,6 +74,7 @@ func run(t *testing.T, setup func(proj string), argv ...string) (string, []event
 		setup(proj)
 	}
 	logf := filepath.Join(t.TempDir(), "trace.tsv")
+	lastLog = logf
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Dir = proj
 	cmd.Env = append(os.Environ(), "LD_PRELOAD="+built.lib, "KTON_TRACE_LOG="+logf, "KTON_TRACE_HASH="+proj)
@@ -323,4 +329,50 @@ func TestShim_AnArgumentWithASpaceIsQuotedInTheExecLine(t *testing.T) {
 		}
 	}
 	t.Fatalf("no exec line: %+v", evs)
+}
+
+// The Python console's command boundaries (recorder/python/ktonrec.py): under the shim, each
+// execution becomes a task with the files it touched, and the session says it is Python.
+func TestShim_PythonConsoleCellsBecomeTasks(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("no python3")
+	}
+	py, _ := filepath.Abs("../python")
+	fake, _ := filepath.Abs("testdata/ipython_fake.py")
+	proj, _ := run(t, func(p string) { write(t, filepath.Join(p, "in.csv"), "a\n") }, "python3", "-I", "-B", fake, py)
+	logs, _ := filepath.Glob(filepath.Join(filepath.Dir(lastLog), "*.tsv"))
+	if len(logs) != 1 {
+		t.Fatalf("logs %v", logs)
+	}
+	b, _ := os.ReadFile(logs[0])
+	s := watch.NewSession("t", logs[0], &watch.Classifier{System: watch.DefaultSystem, Temp: watch.DefaultTemp})
+	for _, l := range strings.Split(strings.TrimRight(string(b), "\n"), "\n") {
+		s.Line(l)
+	}
+	if s.Language != "python" || s.Project != proj || len(s.Tasks) < 2 {
+		t.Fatalf("session lang %q project %q tasks %d", s.Language, s.Project, len(s.Tasks))
+	}
+	t1, t2 := s.Tasks[0], s.Tasks[1]
+	if t1.Expr != `%run -- "step1.py"` || len(t1.Inputs) != 1 || filepath.Base(t1.Inputs[0].Path) != "in.csv" ||
+		len(t1.Outputs) != 1 || filepath.Base(t1.Outputs[0].Path) != "mid.csv" {
+		t.Fatalf("cell 1: %q in %v out %v", t1.Expr, inPaths(t1.Inputs), outPaths(t1.Outputs))
+	}
+	if len(t2.Inputs) != 1 || filepath.Base(t2.Inputs[0].Path) != "mid.csv" || len(t2.Inputs[0].From) != 1 ||
+		len(t2.Outputs) != 1 || filepath.Base(t2.Outputs[0].Path) != "out.csv" {
+		t.Fatalf("cell 2: in %v out %v", inPaths(t2.Inputs), outPaths(t2.Outputs))
+	}
+}
+
+func inPaths(xs []*watch.Input) (out []string) {
+	for _, x := range xs {
+		out = append(out, x.Path)
+	}
+	return out
+}
+
+func outPaths(xs []*watch.Output) (out []string) {
+	for _, x := range xs {
+		out = append(out, x.Path)
+	}
+	return out
 }

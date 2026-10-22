@@ -21,6 +21,7 @@ type Session struct {
 	Closed      bool    `json:"closed"`
 	CloseReason string  `json:"close_reason,omitempty"` // end | timeout | eof
 	Script      string  `json:"script,omitempty"`       // the session is `R -f`/`Rscript` of this file
+	Language    string  `json:"language,omitempty"`     // of its markers: r (ktonrec) or python (ktonrec.py); "" = r
 	ScriptSHA   string  `json:"script_sha256,omitempty"`
 	Tasks       []*Task `json:"tasks"`
 
@@ -295,6 +296,9 @@ func (s *Session) Handle(e Event) {
 		}
 	case "ENV":
 		s.cls.AddEnv(strings.Split(e.Path, ",")...)
+		if l := e.KV("lang"); l != "" {
+			s.Language = l
+		}
 		if p := e.KV("project"); p != "" {
 			// the session says where it works; more specific than the broad hashed prefix
 			s.cls.Project, s.Project = p, p
