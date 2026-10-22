@@ -190,25 +190,70 @@ func relTo(dir, p string) string {
 }
 
 // NormArgv is normArgv for a command line given as its arguments (a stub's own os.Args).
-func NormArgv(args []string, cwd string) []string { return normArgv(strings.Join(args, " "), cwd) }
+func NormArgv(args []string, cwd string) []string { return normArgv(shellJoin(args), cwd) }
+
+// splitCmdline splits a command line as the shim writes it: arguments separated by spaces, an
+// argument with other characters in single quotes ('run 1.mod', 'it'\”s').
+func splitCmdline(s string) []string {
+	var out []string
+	var b strings.Builder
+	in, quoted := false, false
+	for i := 0; i < len(s); i++ {
+		switch c := s[i]; {
+		case quoted && c == '\'':
+			quoted = false
+		case quoted:
+			b.WriteByte(c)
+		case c == '\'':
+			quoted, in = true, true
+		case c == ' ' || c == '\t' || c == '\n':
+			if in {
+				out = append(out, b.String())
+				b.Reset()
+				in = false
+			}
+		case c == '\\' && i+1 < len(s) && s[i+1] == '\'':
+			b.WriteByte('\'') // the \' between two quoted parts of 'it'\''s'
+			i++
+			in = true
+		default:
+			b.WriteByte(c)
+			in = true
+		}
+	}
+	if in {
+		out = append(out, b.String())
+	}
+	return out
+}
 
 // normArgv: the command line as the key sees it. The program by name; an absolute path inside
-// the working directory's tree relative to it; any other absolute path (an installation, a
-// licence) by its file name, since it belongs to the environment. Also inside key=value.
+// the repository (RepoRoot of the working directory) relative to the working directory, with
+// ".." where it lies above; any other absolute path (an installation, a licence) by its file
+// name, since it belongs to the environment. Also inside key=value. The recorder and kton-call
+// both come here, so a call and its stub see the same command line.
 func normArgv(cmdline, cwd string) []string {
-	f := strings.Fields(cmdline)
+	f := splitCmdline(cmdline)
 	for len(f) > 1 && scriptRunners[filepath.Base(f[0])] && !strings.HasPrefix(f[1], "-") {
 		f = f[1:]
 	}
 	out := make([]string, len(f))
+	root := cwd
+	if cwd != "" {
+		root = RepoRoot(cwd)
+	}
 	norm := func(p string) string {
 		if !strings.HasPrefix(p, "/") {
 			return p
 		}
-		if cwd != "" {
-			if r, err := filepath.Rel(cwd, p); err == nil && !strings.HasPrefix(r, "..") {
-				return r
-			}
+		if cwd == "" {
+			return filepath.Base(p)
+		}
+		if r, err := filepath.Rel(root, p); err != nil || r == ".." || strings.HasPrefix(r, "../") {
+			return filepath.Base(p) // outside the repository: the environment
+		}
+		if r, err := filepath.Rel(cwd, p); err == nil {
+			return r
 		}
 		return filepath.Base(p)
 	}

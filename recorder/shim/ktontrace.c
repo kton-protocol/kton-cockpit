@@ -133,6 +133,24 @@ static void add_kv(char *buf, size_t n, const char *kv) {
     snprintf(buf + l, n - l, "%s", kv);
 }
 
+/* append one argument of a command line, shell-quoted unless it is made of safe characters
+ * only, so a reader can split the line again ('run 1.mod' stays one argument) */
+static void append_arg(char *buf, size_t n, size_t *l, const char *a, int first) {
+    static const char safe[] = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_./=:,+@%";
+    if (*l + 2 >= n) return;
+    if (!first) buf[(*l)++] = ' ';
+    int plain = *a != 0;
+    for (const char *p = a; *p; p++) if (!strchr(safe, *p)) { plain = 0; break; }
+    if (plain) { *l += (size_t)snprintf(buf + *l, n - *l, "%s", a); if (*l >= n) *l = n - 1; return; }
+    buf[(*l)++] = '\'';
+    for (const char *p = a; *p && *l + 5 < n; p++) {
+        if (*p == '\'') { memcpy(buf + *l, "'\\''", 4); *l += 4; }
+        else buf[(*l)++] = *p;
+    }
+    if (*l + 1 < n) buf[(*l)++] = '\'';
+    buf[*l] = 0;
+}
+
 /* ------------------------------------------------------------------ */
 /* SHA-256 (compact, public domain style)                              */
 typedef struct { unsigned int h[8]; unsigned long long len; unsigned char buf[64]; unsigned int n; } sha256_ctx;
@@ -381,12 +399,13 @@ __attribute__((constructor)) static void kton_init(void) {
     const char *hm = getenv("KTON_TRACE_HASH_MAX");
     if (hm && *hm) hash_max = atoll(hm);
 
-    char cmd[2048] = {0}, cwd[4096] = "-";
+    char raw[2048] = {0}, cmd[2048] = {0}, cwd[4096] = "-";
     int fd = (int)syscall(SYS_openat, AT_FDCWD, "/proc/self/cmdline", O_RDONLY | O_CLOEXEC);
     if (fd >= 0) {
-        ssize_t n = syscall(SYS_read, fd, cmd, sizeof cmd - 1);
+        ssize_t n = syscall(SYS_read, fd, raw, sizeof raw - 1);
         syscall(SYS_close, fd);
-        for (ssize_t i = 0; i < n - 1; i++) if (cmd[i] == 0) cmd[i] = ' ';
+        size_t l = 0;
+        for (ssize_t i = 0; i < n; i += (ssize_t)strlen(raw + i) + 1) append_arg(cmd, sizeof cmd, &l, raw + i, i == 0);
     }
     if (!getcwd(cwd, sizeof cwd)) strcpy(cwd, "-");
     in_hook = 1;
@@ -672,8 +691,8 @@ static void emit_spawn(const char *path, char *const argv[], pid_t child) {
     char extra[2048] = "";
     size_t l = 0;
     if (child > 0) l = (size_t)snprintf(extra, sizeof extra, "child=%d;", (int)child);
-    for (int i = 0; argv && argv[i] && l + 2 < sizeof extra; i++)
-        l += (size_t)snprintf(extra + l, sizeof extra - l, "%s%s", i ? " " : "argv=", argv[i]);
+    if (argv && argv[0]) l += (size_t)snprintf(extra + l, sizeof extra - l, "argv=");
+    for (int i = 0; argv && argv[i] && l + 2 < sizeof extra; i++) append_arg(extra, sizeof extra, &l, argv[i], i == 0);
     emit_line("spawn", "-", path, 0, 0, 0, extra);
     in_hook = 0;
 }

@@ -205,3 +205,23 @@ func TestShellJoin_QuotesWhatAShellWouldSplit(t *testing.T) {
 		t.Fatalf("%s", got)
 	}
 }
+
+// Review R1 of #12: a path inside the repository stays that path, relative to the call's
+// directory even above it; only a path outside the repository becomes its file name. Before,
+// all three rows lost their directory and the record named files that are not there.
+func TestNormArgv_RepoPathsKeepTheirPlaceOnlyOutsidePathsLoseIt(t *testing.T) {
+	r := testrepo.New(t)
+	r.Write(t, "models/run1/.keep", "")
+	r.Write(t, "analysis/.keep", "")
+	root, _ := filepath.EvalSymlinks(r.Root)
+	for _, row := range []struct{ cmdline, cwd, want string }{
+		{"/opt/nm/run/nmfe75 " + root + "/data/pk.mod run1.lst", root + "/models/run1", "nmfe75 ../../data/pk.mod run1.lst"},
+		{"Rscript " + root + "/R/fit.R", root + "/analysis", "Rscript ../R/fit.R"},
+		{"/usr/bin/execute run1.mod --data=" + root + "/data/pk.csv", root + "/models", "execute run1.mod --data=../data/pk.csv"},
+		{"/opt/nm/run/nmfe75 run1.mod -licfile=/opt/nm/license/nonmem.lic", root + "/models", "nmfe75 run1.mod -licfile=nonmem.lic"},
+	} {
+		if got := strings.Join(normArgv(row.cmdline, row.cwd), " "); got != row.want {
+			t.Errorf("%s (in %s):\n got  %s\n want %s", row.cmdline, row.cwd, got, row.want)
+		}
+	}
+}

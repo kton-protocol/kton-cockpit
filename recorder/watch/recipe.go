@@ -151,7 +151,7 @@ func scriptOf(t *Task) *Input {
 		if n := c.Name(); n != "Rscript" && n != "R" {
 			continue
 		}
-		for _, a := range strings.Fields(c.Cmdline)[1:] {
+		for _, a := range splitCmdline(c.Cmdline)[1:] {
 			a = strings.TrimPrefix(a, "--file=")
 			if !strings.HasSuffix(strings.ToLower(a), ".r") {
 				continue

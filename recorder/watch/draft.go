@@ -142,13 +142,18 @@ func nowNote(f *DraftFile, now string) {
 // needs such a record for every nmfe call an orchestrator makes; the recorder sees each one.
 // now says whether a file still has the observed bytes (Checker.State); nil skips the check.
 func CallDraft(c Call, repo string, now func(path, sum string) string) Draft {
-	cwd := "."
-	if r, err := filepath.Rel(repo, c.Cwd); err == nil && !strings.HasPrefix(r, "..") {
+	cwd, outside := ".", false
+	if r, err := filepath.Rel(repo, c.Cwd); err == nil && r != ".." && !strings.HasPrefix(r, "../") {
 		cwd = r
+	} else {
+		outside = true
 	}
 	d := Draft{Repo: repo, Cmd: shellJoin(c.Argv)}
 	if cwd != "." {
 		d.Cmd = "cd " + shellJoin([]string{cwd}) + " && " + d.Cmd
+	}
+	if outside {
+		d.Notes = append(d.Notes, "lief außerhalb des Repos in "+c.Cwd+": cmd gilt so nicht vom Repo aus, bitte prüfen")
 	}
 	file := func(f CallFile) DraftFile {
 		r, err := filepath.Rel(repo, f.Path)

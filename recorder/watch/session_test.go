@@ -433,3 +433,23 @@ func TestSession_CallsSeeOutsideHashesAndMissingFiles(t *testing.T) {
 		}
 	}
 }
+
+// Review R3 of #12: `sh run.sh` with `R -f x.R > log` in it. The shell opens log, R inherits it
+// and marks its commands: log is R's console, not an output of its first command.
+func TestSession_AWrappersRedirectIntoTheMarkingRIsItsConsole(t *testing.T) {
+	l := (&logb{}).
+		ev(100, "exec", "-", "/p", "sh run.sh").
+		ev(100, "open", "w", "/p/log", "new=1").
+		ev(101, "exec", "-", "/p", "R -f x.R").
+		ev(101, "inherit", "w", "/p/log", "").
+		ev(101, "ENV", "-", "/usr/lib/R", "project=/p").
+		ev(101, "open", "w", "/p/out.csv", "new=1").
+		ev(101, "closew", "w", "/p/out.csv", "sha256=out").
+		ev(101, "TASK", "ok", "1", "write.csv(d, 'out.csv')").
+		ev(101, "closew", "w", "/p/log", "sha256=log")
+	s := sess(t, l, map[string]string{"/p/log": "partial"})
+	t1 := task(t, s, "1")
+	if len(t1.Outputs) != 1 || t1.Outputs[0].Path != "/p/out.csv" {
+		t.Fatalf("task 1 outputs %+v: the console log is not one", t1.Outputs)
+	}
+}

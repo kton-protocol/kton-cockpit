@@ -320,7 +320,7 @@ var toolProg = regexp.MustCompile(`^(Rscript|R|nmfe\d*|execute|vpc|bootstrap|scm
 var scriptRunners = map[string]bool{"sh": true, "bash": true, "dash": true, "perl": true, "env": true}
 
 func toolCall(cmdline string) string {
-	f := strings.Fields(cmdline)
+	f := splitCmdline(cmdline)
 	for len(f) > 1 && scriptRunners[filepath.Base(f[0])] && !strings.HasPrefix(f[1], "-") {
 		f = f[1:]
 	}

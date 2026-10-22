@@ -306,3 +306,18 @@ func TestShim_PausedLogsNothing(t *testing.T) {
 		t.Fatalf("only the header may be written while paused:\n%s", b)
 	}
 }
+
+// Review R2 of #12: an argument with a space stays one argument in the exec line.
+func TestShim_AnArgumentWithASpaceIsQuotedInTheExecLine(t *testing.T) {
+	_, evs := run(t, nil, opsPath(t), "write", "run 1.lst", "x", "write", "it's", "y")
+	for _, e := range evs {
+		if e.op == "exec" {
+			// as logged: the v2 escaping doubles the backslash of '\''
+			if !strings.HasSuffix(e.extra, ` write 'run 1.lst' x write 'it'\\''s' y`) {
+				t.Fatalf("exec line %q", e.extra)
+			}
+			return
+		}
+	}
+	t.Fatalf("no exec line: %+v", evs)
+}
