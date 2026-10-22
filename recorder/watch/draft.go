@@ -194,6 +194,8 @@ func pyDraftCmd(o Origin, rel func(string) string) string {
 func pyNotes(o Origin) []string {
 	file, args, opts, ok := pyRun(o.Code)
 	switch {
+	case !ok && strings.HasPrefix(strings.TrimSpace(o.Code), "%run"):
+		return []string{"check cmd: a %run that python3 cannot repeat as is (-m, or an option with a value)"}
 	case !ok:
 		return []string{"check cmd: Python code from the console, not a program run"}
 	case len(opts) > 0:
