@@ -11,8 +11,8 @@ import (
 
 // ParseOrigins reads the JSON lines the Positron extension writes, one execution per line.
 // It accepts the recorder's own format and the raw format of the S6 probe
-// ({"ts": ms, "event": "executed", "payload": <onDidExecuteCode event>}). Lines that are
-// not R executions are skipped.
+// ({"ts": ms, "event": "executed", "payload": <onDidExecuteCode event>}). R and Python
+// executions are kept, each with its language; others are skipped.
 func ParseOrigins(path string) ([]Origin, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -73,10 +73,11 @@ func parseOriginLine(b []byte) (Origin, bool) {
 		return Origin{}, false
 	}
 	if r.Payload != nil {
-		if r.Event != "executed" || (r.Payload.LanguageID != "" && r.Payload.LanguageID != "r") {
+		lang, ok := originLanguage(r.Payload.LanguageID)
+		if r.Event != "executed" || !ok {
 			return Origin{}, false
 		}
-		o := Origin{Kind: r.Payload.Attribution.Source, Code: r.Payload.Code, TS: r.TS * 1_000_000}
+		o := Origin{Kind: r.Payload.Attribution.Source, Code: r.Payload.Code, TS: r.TS * 1_000_000, Language: lang}
 		if m := r.Payload.Attribution.Metadata; m != nil && m.CodeLocation != nil {
 			o.File = m.CodeLocation.URI.Path
 			s, e := m.CodeLocation.Range.Start.Line, m.CodeLocation.Range.End.Line
@@ -86,10 +87,37 @@ func parseOriginLine(b []byte) (Origin, bool) {
 		}
 		return o, true
 	}
-	if r.TSns == 0 || (r.Language != "" && r.Language != "r") {
+	lang, ok := originLanguage(r.Language)
+	if r.TSns == 0 || !ok {
 		return Origin{}, false
 	}
-	return Origin{Kind: r.Kind, File: r.File, StartLine: r.StartLine, EndLine: r.EndLine, Code: r.Code, TS: r.TSns}, true
+	return Origin{Kind: r.Kind, File: r.File, StartLine: r.StartLine, EndLine: r.EndLine, Code: r.Code, TS: r.TSns, Language: lang}, true
+}
+
+// originLanguage: "r" (also for a line that names none, as the first extension wrote them) or
+// "python"; ok is false for any other language.
+func originLanguage(l string) (string, bool) {
+	switch l {
+	case "", "r":
+		return "r", true
+	case "python":
+		return "python", true
+	}
+	return "", false
+}
+
+// OriginsIn keeps the executions of one language: a session's tasks get only its own console's.
+func OriginsIn(origins []Origin, lang string) []Origin {
+	if lang == "" {
+		lang = "r"
+	}
+	var out []Origin
+	for _, o := range origins {
+		if o.Language == lang {
+			out = append(out, o)
+		}
+	}
+	return out
 }
 
 // AttachOrigins gives each task the executions that were submitted while it was the current

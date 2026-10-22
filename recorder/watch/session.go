@@ -21,6 +21,7 @@ type Session struct {
 	Closed      bool    `json:"closed"`
 	CloseReason string  `json:"close_reason,omitempty"` // end | timeout | eof
 	Script      string  `json:"script,omitempty"`       // the session is `R -f`/`Rscript` of this file
+	Language    string  `json:"language,omitempty"`     // of its markers: r (ktonrec) or python (ktonrec.py); "" = r
 	ScriptSHA   string  `json:"script_sha256,omitempty"`
 	Tasks       []*Task `json:"tasks"`
 
@@ -295,20 +296,37 @@ func (s *Session) Handle(e Event) {
 		}
 	case "ENV":
 		s.cls.AddEnv(strings.Split(e.Path, ",")...)
+		if l := e.KV("lang"); l != "" {
+			s.Language = l
+		}
 		if p := e.KV("project"); p != "" {
 			// the session says where it works; more specific than the broad hashed prefix
 			s.cls.Project, s.Project = p, p
 		}
-		// what the runtime read before it could say where it lives was its environment too
+		// What the runtime read and wrote before it could say where it works is its start, and so
+		// environment unless it is in the project: the shell profile it came up through, its own
+		// bytecode cache, the connection file of the kernel supervisor. No user code ran yet.
 		kept := t.Inputs[:0]
 		for _, in := range t.Inputs {
-			if in.Class = s.cls.Class(in.Path); in.Class == ClassEnv {
+			if in.Class = s.cls.Class(in.Path); in.Class != ClassProject {
 				t.EnvFiles++
 				continue
 			}
 			kept = append(kept, in)
 		}
 		t.Inputs = kept
+		for p := range c.written {
+			if s.cls.Class(p) != ClassProject {
+				delete(c.written, p)
+			}
+		}
+		listed := t.Listings[:0]
+		for _, l := range t.Listings {
+			if s.cls.Class(l) == ClassProject {
+				listed = append(listed, l)
+			}
+		}
+		t.Listings = listed
 	case "VARS":
 		for _, kv := range strings.Split(e.Extra, ";") {
 			if n, d, ok := strings.Cut(kv, "="); ok && n != "" {
@@ -316,6 +334,14 @@ func (s *Session) Handle(e Event) {
 			}
 		}
 	case "TASK":
+		if e.Mode == "paused" {
+			// run while recording was off (ktonrec, ktonrec.py): the shim looks at PAUSED at
+			// most once a second and may have logged some of it. None of it is kept, not even
+			// for the store, and the next command does not inherit it.
+			s.forget(c)
+			s.cur = newTaskState(e.TS)
+			return
+		}
 		t.ID, t.Status, t.Expr, t.End = e.Path, e.Mode, e.Extra, e.TS
 		s.finish()
 		s.cur = newTaskState(e.TS)
@@ -461,6 +487,24 @@ func (s *Session) link(in *Input) {
 			in.SameAs = append(in.SameAs, r)
 		}
 	}
+}
+
+// forget drops what a paused command touched from the file versions waiting for the store.
+func (s *Session) forget(c *taskState) {
+	touched := map[string]bool{}
+	for p := range c.written {
+		touched[p] = true
+	}
+	for p := range c.firstRead {
+		touched[p] = true
+	}
+	kept := s.seenFiles[:0]
+	for _, o := range s.seenFiles {
+		if !touched[o.Path] {
+			kept = append(kept, o)
+		}
+	}
+	s.seenFiles = kept
 }
 
 func (s *Session) finish() {

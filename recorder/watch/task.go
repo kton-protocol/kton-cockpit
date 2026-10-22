@@ -109,4 +109,5 @@ type Origin struct {
 	Chunk     string `json:"chunk,omitempty"` // Quarto/Rmd chunk label or "#n"
 	Code      string `json:"code,omitempty"`
 	TS        int64  `json:"ts_ns"`
+	Language  string `json:"language,omitempty"` // r | python
 }

@@ -103,7 +103,7 @@ func single(args []string) {
 	}
 	if *origins != "" {
 		if o, err := watch.ParseOrigins(*origins); err == nil {
-			watch.AttachOrigins(s.Tasks, o)
+			watch.AttachOrigins(s.Tasks, watch.OriginsIn(o, s.Language))
 		}
 	}
 	watch.LinkVars(s.Tasks)

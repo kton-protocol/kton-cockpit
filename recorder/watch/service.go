@@ -160,7 +160,7 @@ func (sv *Service) Poll(now time.Time) {
 	}
 	for _, tr := range sv.sessions {
 		if tr.dirty {
-			AttachOrigins(tr.s.Tasks, sv.origins)
+			AttachOrigins(tr.s.Tasks, OriginsIn(sv.origins, tr.s.Language))
 			LinkVars(tr.s.Tasks)
 			if err := sv.save(tr.s); err != nil {
 				sv.logf("store %s: %v", tr.s.ID, err)

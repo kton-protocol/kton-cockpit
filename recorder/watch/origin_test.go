@@ -3,6 +3,7 @@ package watch
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -69,7 +70,69 @@ func TestOrigins_RecorderFormat(t *testing.T) {
 {"ts_ns":6,"kind":"interactive","language":"python","code":"print(1)"}
 `), 0o644)
 	o, err := ParseOrigins(jl)
-	if err != nil || len(o) != 1 || o[0].File != "/p/a.R" || o[0].StartLine != 3 || o[0].EndLine != 4 {
+	if err != nil || len(o) != 2 || o[0].File != "/p/a.R" || o[0].StartLine != 3 || o[0].EndLine != 4 ||
+		o[0].Language != "r" || o[1].Language != "python" {
 		t.Fatalf("%v %+v", err, o)
+	}
+}
+
+// A Python console session (ktonrec.py's ENV says lang=python) gets the Python executions the
+// extension logged, not the R console's, and its draft runs the script with python3.
+func TestOrigins_APythonSessionGetsPythonExecutions(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "positron-exec.jsonl")
+	os.WriteFile(f, []byte(`{"ts_ns":15,"kind":"script","language":"python","code":"%run -- \"py/02_nca.py\"","file":"/p/py/02_nca.py"}
+{"ts_ns":16,"kind":"script","language":"r","code":"source(\"R/03.R\")","file":"/p/R/03.R"}
+{"ts_ns":17,"kind":"x","language":"julia","code":"1"}
+`), 0o644)
+	all, err := ParseOrigins(f)
+	if err != nil || len(all) != 2 {
+		t.Fatalf("origins %+v %v: julia is skipped, R and Python kept", all, err)
+	}
+	s := NewSession("t", "/log.tsv", &Classifier{System: DefaultSystem, Temp: DefaultTemp})
+	s.Line("#ktontrace v3\thash=/p")
+	s.Line("10\t200\t0\tENV\t-\t/usr\t0\t0\t0\tproject=/p;lang=python")
+	s.Line("20\t200\t0\tTASK\tok\t1\t0\t0\t0\t%run -- \"py/02_nca.py\"")
+	AttachOrigins(s.Tasks, OriginsIn(all, s.Language))
+	t1 := s.Tasks[0]
+	if s.Language != "python" || len(t1.Origins) != 1 || t1.Origins[0].Language != "python" {
+		t.Fatalf("lang %q origins %+v", s.Language, t1.Origins)
+	}
+	if got := draftCmd(t1, "/p"); got != "python3 py/02_nca.py" {
+		t.Fatalf("cmd %q", got)
+	}
+}
+
+// Review P1 of #15: python3 only for a %run of a .py file, with its arguments; anything else is
+// where the code was or the code itself, never R's source(), and the draft says to check it.
+func TestDraftCmd_PythonRunsOnlyWhatPercentRunRan(t *testing.T) {
+	task := func(o Origin) *Task { o.Language = "python"; return &Task{ID: "1", Origins: []Origin{o}} }
+	for _, row := range []struct {
+		o    Origin
+		want string
+	}{
+		{Origin{Code: `%run -- "py/fit.py" --n 5`, File: "/p/py/fit.py"}, "python3 py/fit.py --n 5"},
+		{Origin{Code: `%run -i -- "py/fit.py"`, File: "/p/py/fit.py"}, "python3 py/fit.py"},
+		{Origin{Code: "x = 1", File: "/p/report.qmd"}, "x = 1"},
+		{Origin{Code: "%run -m pkg.tool", File: "/p/pkg/tool.py"}, "%run -m pkg.tool"},
+		{Origin{Code: "%run -t -N 5 fit.py", File: "/p/py/fit.py"}, "%run -t -N 5 fit.py"},
+		{Origin{Code: "x = 1", File: "/p/py/a.py", StartLine: 3, EndLine: 4}, "py/a.py:3-4"},
+		{Origin{Code: "x = 1", File: "/p/report.qmd", Chunk: "fit"}, "chunk fit of report.qmd"},
+	} {
+		if got := draftCmd(task(row.o), "/p"); got != row.want {
+			t.Errorf("%q: got %q, want %q", row.o.Code, got, row.want)
+		}
+	}
+	s := NewSession("t", "/log.tsv", &Classifier{})
+	for code, want := range map[string]string{
+		`%run -i -- "py/fit.py"`: "-i",                  // runs in the console's namespace, not as python3
+		"x = 1":                  "kein Programmaufruf", // console code
+		"%run fit.py $n *.csv":   "Muster",              // %run expands before the script sees them
+		`%run -- "py/fit.py" 5`:  "",                    // a plain run: nothing to check
+	} {
+		notes := strings.Join(MakeDraft(s, task(Origin{Code: code, File: "/p/py/fit.py"})).Notes, ";")
+		if (want == "") != (notes == "") || !strings.Contains(notes, want) {
+			t.Errorf("%q: notes %q, want %q", code, notes, want)
+		}
 	}
 }
