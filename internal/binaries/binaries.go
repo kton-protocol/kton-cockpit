@@ -64,10 +64,13 @@ type AuthorInput struct {
 	Located []string // "path=url" pairs for every input+output, from the backend's Locate
 	SignKey string   // absolute path to the plankton signing key
 
-	// Environment/EnvRef pin which execution environment produced this foton. Both are COVERED:
-	// they ride in the descriptor into the foton id, so two runs of the same command in different
-	// pinned environments are different fotons, and a reproduction commits to re-executing in the
-	// pinned one. Empty means unpinned — which is a weaker record, not an invalid one.
+	// Environment/EnvRef say which execution environment produced this foton. Environment, the
+	// class, is COVERED: it rides in the descriptor into the foton id. EnvRef, the exact image, is
+	// covered too when no class is declared, so two runs in different images are different fotons
+	// and a reproduction commits to re-executing in the pinned one. With a class declared (and
+	// foton/v1, -tags unreleased) it is CARRIED instead, as this producer's signed kton-env/v1
+	// statement beside the record, so runs in images of one class are one record (ADR-010).
+	// Empty means unpinned — which is a weaker record, not an invalid one.
 	Environment string // qualified env-spectrum id (sha256:...)
 	EnvRef      string // exact execution environment, e.g. oci://image@sha256:...
 }
@@ -119,11 +122,18 @@ func (r *Runner) Author(ctx context.Context, in AuthorInput) (Authored, error) {
 		return Authored{}, err
 	}
 
+	// The guards `plankton author` applies, since this path builds the descriptor itself (ADR-010).
+	if in.EnvRef != "" && strings.TrimSpace(in.EnvRef) == "" {
+		return Authored{}, fmt.Errorf("envRef is blank")
+	}
+	if err := config.ValidateSpectrum(in.Environment); err != nil {
+		return Authored{}, err
+	}
 	desc := map[string]any{"cmd": in.Cmd}
 	if in.Environment != "" {
 		desc["environment"] = in.Environment
 	}
-	if in.EnvRef != "" {
+	if in.EnvRef != "" && !envCarried(in) {
 		desc["envRef"] = in.EnvRef
 	}
 	spec := ffoton.Spec{
@@ -178,6 +188,11 @@ func (r *Runner) Author(ctx context.Context, in AuthorInput) (Authored, error) {
 	}
 	if err := attachLocators(reg, id, inputs, outputs, located, priv); err != nil {
 		return Authored{}, err
+	}
+	if envCarried(in) {
+		if err := attachEnv(reg, id, in.EnvRef, priv); err != nil {
+			return Authored{}, err
+		}
 	}
 	return Authored{ID: id, CoSigned: coSigned}, nil
 }
@@ -773,6 +788,22 @@ func (r *Runner) MaterialForClaim(ctx context.Context, claimID string) ([]Stored
 	return r.material(ctx, "nekton", claimID)
 }
 
+// unionMaterial is the plankton material about id in every registry of the union: own and every
+// source. The union itself holds records only, so a source producer's statement is read where it is.
+func (r *Runner) unionMaterial(ctx context.Context, id string) []pregistry.VerificationMaterial {
+	inputs, err := Inputs(ctx, r.cfg)
+	if err != nil {
+		return nil
+	}
+	var out []pregistry.VerificationMaterial
+	for _, in := range inputs {
+		if reg, err := pregistry.Open(in.PlanktonDir); err == nil {
+			out = append(out, reg.Material(id)...)
+		}
+	}
+	return out
+}
+
 func (r *Runner) material(ctx context.Context, bin, id string) ([]StoredMaterial, error) {
 	var out []StoredMaterial
 	if bin == "plankton" {
@@ -1075,14 +1106,24 @@ type FotonFile struct {
 // FILE hash, so given the id a publish just handed back, there was no way to ask what that run did
 // — while `plankton show` printed it in full, one layer down. Nothing was missing; it was unexposed.
 type FotonDetail struct {
-	ID          string      `json:"id"`
-	Cmd         string      `json:"cmd,omitempty"`
-	Kind        string      `json:"kind,omitempty"`
-	Environment string      `json:"environment,omitempty"`
-	EnvRef      string      `json:"envRef,omitempty"`
+	ID          string `json:"id"`
+	Cmd         string `json:"cmd,omitempty"`
+	Kind        string `json:"kind,omitempty"`
+	Environment string `json:"environment,omitempty"`
+	EnvRef      string `json:"envRef,omitempty"`
+	// RanIn is each trusted producer's own account of where it ran this record, when the record
+	// carries the concrete environment rather than covering it (ADR-010). EnvRef is then the
+	// account of SignerKeyID, and empty when that signer gave none.
+	RanIn       []RanIn     `json:"ranIn,omitempty"`
 	SignerKeyID string      `json:"signerKeyId,omitempty"`
 	Inputs      []FotonFile `json:"inputs"`
 	Outputs     []FotonFile `json:"outputs"`
+}
+
+// RanIn is one producer's signed account of the concrete environment it ran a record in.
+type RanIn struct {
+	EnvRef string `json:"envRef"`
+	Signer string `json:"signer"` // keyid of the key that signed both the record and this account
 }
 
 // Foton is the kernel's own foton for an id, read from the union like every other read.
@@ -1126,6 +1167,16 @@ func (r *Runner) FotonByID(ctx context.Context, id string) (*FotonDetail, error)
 		// reports no signer rather than reporting the signer it claims to have.
 		if keys, kerr := TrustKeys(r.cfg, ""); kerr == nil {
 			rec.SignerKeyID = core.VerifiedSignerKeyID(env, keys)
+			if rec.EnvRef == "" && rec.Environment != "" {
+				rec.RanIn = carriedEnv(env, r.unionMaterial(ctx, id), keys)
+				// EnvRef stands next to SignerKeyID wherever it is shown, so it is that signer's own
+				// account or nothing: another producer's image is in RanIn, under its own signer.
+				for _, ri := range rec.RanIn {
+					if ri.Signer == rec.SignerKeyID {
+						rec.EnvRef = ri.EnvRef
+					}
+				}
+			}
 		}
 	}
 	for _, in := range f.Inputs {

@@ -5,6 +5,7 @@ package binaries
 import (
 	"crypto/ed25519"
 
+	"kton.dev/plankton/core"
 	ffoton "kton.dev/plankton/foton"
 	pregistry "kton.dev/plankton/registry"
 )
@@ -20,5 +21,15 @@ func withStatement(*ffoton.Spec) {}
 
 func attachLocators(*pregistry.Registry, string, []ffoton.FileSpec, []ffoton.FileSpec,
 	map[string][]string, ed25519.PrivateKey) error {
+	return nil
+}
+
+// The published kernel has no kton-env/v1: envRef is always covered, in the descriptor.
+
+func envCarried(AuthorInput) bool { return false }
+
+func attachEnv(*pregistry.Registry, string, string, ed25519.PrivateKey) error { return nil }
+
+func carriedEnv(core.Envelope, []pregistry.VerificationMaterial, []ed25519.PublicKey) []RanIn {
 	return nil
 }

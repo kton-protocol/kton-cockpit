@@ -21,7 +21,15 @@ import (
 //
 // So it is checked against the binary rather than against a fixture. When the CLI is eventually
 // gone this test goes with it, and what replaces it is that there is only one implementation left.
+//
+// With an environment class it holds too: on foton/v1 both sides leave the image out of the record
+// and carry it beside (ADR-010); on the published kernel both keep it in.
 func TestAuthor_MatchesTheReferenceCLI(t *testing.T) {
+	t.Run("without a class", func(t *testing.T) { authorParity(t, "") })
+	t.Run("with a class", func(t *testing.T) { authorParity(t, class) })
+}
+
+func authorParity(t *testing.T, environment string) {
 	r := New(t)
 	r.Write(t, "data/in.csv", "id,value\n1,42\n")
 	r.Write(t, "data/analyse.py", "print('deterministic')\n")
@@ -52,6 +60,9 @@ func TestAuthor_MatchesTheReferenceCLI(t *testing.T) {
 		args = append(args, "--located", l)
 	}
 	args = append(args, statementArgs...)
+	if environment != "" {
+		args = append(args, "--environment", environment)
+	}
 	args = append(args, "--env-ref", envRef, "--cmd", cmd,
 		"--sign", "keys/"+SessionID+".key", "--add", "--registry", cliDir, "--print-id")
 	cli := exec.Command(filepath.Join(r.Root, "bin", "plankton"), args...)
@@ -67,7 +78,7 @@ func TestAuthor_MatchesTheReferenceCLI(t *testing.T) {
 	cfg := r.Config(t)
 	fromLib, err := binaries.New(cfg).Author(context.Background(), binaries.AuthorInput{
 		Inputs: inputs, Outputs: outputs, Cmd: cmd, Located: located,
-		SignKey: cfg.PlanktonKey, EnvRef: envRef,
+		SignKey: cfg.PlanktonKey, EnvRef: envRef, Environment: environment,
 	})
 	if err != nil {
 		t.Fatalf("linked author: %v", err)
