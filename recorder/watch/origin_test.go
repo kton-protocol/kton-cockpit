@@ -126,3 +126,41 @@ func TestDraftCmd_PythonRunsOnlyWhatPercentRunRan(t *testing.T) {
 		t.Fatalf("notes %q: %%run -i runs in the console's namespace, not as python3", d.Notes)
 	}
 }
+
+// From MH's Positron run: Ark reads the workspace's R files while the console waits (indexing
+// at start, a re-read after a file ran). With the execution's time from the extension, those
+// reads are not the command's; a file the command read itself stays.
+func TestAttachOrigins_ReadsWhileTheConsoleWaitedAreNotTheCommands(t *testing.T) {
+	const s = 1_000_000_000
+	l := &logb{}
+	at := func(ts int64, op, mode, path, extra string) {
+		l.ts = ts - 1
+		l.ev(100, op, mode, path, extra)
+	}
+	at(1*s, "ENV", "-", "/usr/lib/R", "project=/p")
+	at(2*s, "open", "r", "/p/R/05_plot.R", "sha256=plot") // indexing
+	at(2*s+1, "open", "r", "/p/R/01_clean.R", "sha256=clean")
+	at(5*s+2_000_000, "open", "r", "/p/R/01_clean.R", "sha256=clean") // the command
+	at(5*s+3_000_000, "open", "r", "/p/data/pk.csv", "sha256=pk")
+	at(5*s+4_000_000, "TASK", "ok", "1", "base::invisible(base::.ark_last_value)")
+	at(7*s, "open", "r", "/p/R/01_clean.R", "sha256=clean") // the re-read after it ran
+	at(9*s+2_000_000, "open", "r", "/p/R/03_summary.R", "sha256=sum")
+	at(9*s+3_000_000, "TASK", "ok", "2", "base::invisible(base::.ark_last_value)")
+	se := sess(t, l, nil)
+	AttachOrigins(se.Tasks, []Origin{
+		{TS: 5 * s, File: "/p/R/01_clean.R", Code: `source("R/01_clean.R")`, Language: "r"},
+		{TS: 9 * s, File: "/p/R/03_summary.R", Code: `source("R/03_summary.R")`, Language: "r"},
+	})
+	names := func(tk *Task) (out []string) {
+		for _, in := range tk.Inputs {
+			out = append(out, filepath.Base(in.Path))
+		}
+		return out
+	}
+	if got := strings.Join(names(task(t, se, "1")), ","); got != "01_clean.R,pk.csv" {
+		t.Fatalf("task 1 inputs %s", got)
+	}
+	if got := strings.Join(names(task(t, se, "2")), ","); got != "03_summary.R" {
+		t.Fatalf("task 2 inputs %s", got)
+	}
+}
