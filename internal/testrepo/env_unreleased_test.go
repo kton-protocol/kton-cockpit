@@ -61,9 +61,13 @@ func TestAuthor_WithAClassTheImageIsCarriedAndTwoImagesAreOneRecord(t *testing.T
 	if len(d.RanIn) != 2 || !got[img1] || !got[img2] {
 		t.Fatalf("trusting bob, both accounts count: %+v", d.RanIn)
 	}
+	own := ""
 	for _, ri := range d.RanIn {
-		if ri.Signer == d.SignerKeyID && ri.EnvRef != d.EnvRef {
-			t.Fatalf("envRef is not the account of the signer it reports: %+v", d)
+		if ri.Signer == d.SignerKeyID {
+			own = ri.EnvRef
 		}
+	}
+	if d.EnvRef != own {
+		t.Fatalf("envRef is not the account of the signer it reports (or empty): %+v", d)
 	}
 }

@@ -1113,7 +1113,7 @@ type FotonDetail struct {
 	EnvRef      string `json:"envRef,omitempty"`
 	// RanIn is each trusted producer's own account of where it ran this record, when the record
 	// carries the concrete environment rather than covering it (ADR-010). EnvRef is then the
-	// account of SignerKeyID, or the first one.
+	// account of SignerKeyID, and empty when that signer gave none.
 	RanIn       []RanIn     `json:"ranIn,omitempty"`
 	SignerKeyID string      `json:"signerKeyId,omitempty"`
 	Inputs      []FotonFile `json:"inputs"`
@@ -1169,8 +1169,10 @@ func (r *Runner) FotonByID(ctx context.Context, id string) (*FotonDetail, error)
 			rec.SignerKeyID = core.VerifiedSignerKeyID(env, keys)
 			if rec.EnvRef == "" && rec.Environment != "" {
 				rec.RanIn = carriedEnv(env, r.unionMaterial(ctx, id), keys)
-				for i, ri := range rec.RanIn {
-					if i == 0 || ri.Signer == rec.SignerKeyID {
+				// EnvRef stands next to SignerKeyID wherever it is shown, so it is that signer's own
+				// account or nothing: another producer's image is in RanIn, under its own signer.
+				for _, ri := range rec.RanIn {
+					if ri.Signer == rec.SignerKeyID {
 						rec.EnvRef = ri.EnvRef
 					}
 				}
