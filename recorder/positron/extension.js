@@ -188,9 +188,10 @@ async function reproduceInContainers(project, target, sum) {
   const dir = (lines.find((l) => l.startsWith('kton-repro: ') && l.includes(' in ')) || '').split(' in ').pop().trim();
   const verdict = (lines.filter((l) => l.startsWith('= ')).pop() || lines.filter((l) => l.trim()).pop() || '').replace(/^= /, '');
   const show = code === 0 ? vscode.window.showInformationMessage : vscode.window.showWarningMessage;
-  const pick = await show(`kton: ${verdict}`, ...(dir ? ['Open folder'] : []), 'Log');
-  if (pick === 'Open folder') vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(dir));
-  if (pick === 'Log') out.show();
+  show(`kton: ${verdict}`, ...(dir ? ['Open folder'] : []), 'Log').then((pick) => {
+    if (pick === 'Open folder') vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(dir));
+    if (pick === 'Log') out.show();
+  });
   return true;
 }
 
@@ -253,10 +254,32 @@ async function reproduce(project, target, sum) {
     : got === sum ? `reproduced ✓ the same bytes (sha256 ${sum.slice(0, 12)})`
     : `different: ${got.slice(0, 12)} instead of ${sum.slice(0, 12)}`;
   out.appendLine(`=== ${rel(target)}: ${msg}`);
+  // not awaited: whoever called (the story) refreshes now, not when the message is closed
   const show = got === sum ? vscode.window.showInformationMessage : vscode.window.showWarningMessage;
-  const pick = await show(`kton: ${rel(target)} ${msg}`, 'Open folder', 'Log');
-  if (pick === 'Open folder') vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(dir));
-  if (pick === 'Log') out.show();
+  show(`kton: ${rel(target)} ${msg}`, 'Open folder', 'Log').then((pick) => {
+    if (pick === 'Open folder') vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(dir));
+    if (pick === 'Log') out.show();
+  });
+}
+
+// a deviating output of a reproduction: the recorded bytes beside the reproduced ones. The
+// recorded version is the project's file if it still has those bytes, else the CAS's copy;
+// it is copied into the reproduction folder, so the diff never opens the CAS itself.
+const casFile = (sum) => path.join(process.env.XDG_CACHE_HOME || path.join(home, '.cache'), 'kton-cockpit', 'cas', 'sha256', sum.slice(0, 2), sum);
+async function diffReproduced(project, m) {
+  const rel = path.relative(project, m.path);
+  const reproduced = path.join(m.dir, rel);
+  let recorded = null;
+  if ((await sha256File(m.path)) === m.recorded) recorded = m.path;
+  else if (fs.existsSync(casFile(m.recorded))) recorded = casFile(m.recorded);
+  if (!recorded) { vscode.window.showWarningMessage(`kton: the recorded ${rel} (${m.recorded.slice(0, 12)}) is not kept, nothing to compare with`); return; }
+  if (!fs.existsSync(reproduced)) { vscode.window.showWarningMessage(`kton: the reproduction did not produce ${rel}`); return; }
+  const left = path.join(m.dir, '.kton-recorded', rel);
+  fs.mkdirSync(path.dirname(left), { recursive: true });
+  fs.rmSync(left, { force: true }); // a copy from the CAS is read-only: a second diff copies anew
+  fs.copyFileSync(recorded, left);
+  vscode.commands.executeCommand('vscode.diff', vscode.Uri.file(left), vscode.Uri.file(reproduced),
+    `${path.basename(rel)}: recorded ↔ reproduced`);
 }
 
 // ------------------------------------------------------------------ the side bar
@@ -447,6 +470,7 @@ async function openStory(context, project, file) {
     if (m.type === 'ready') send();
     else if (m.type === 'note') { const n = allNotes(); n[m.key] = m.note; await context.globalState.update(notesKey, n); }
     else if (m.type === 'reproduce') { await reproduce(project, file.path, file.sha256); send(); } // the result belongs in the story
+    else if (m.type === 'diff') diffReproduced(project, m);
     else if (m.type === 'save') {
       const to = await vscode.window.showSaveDialog({ defaultUri: vscode.Uri.file(path.join(story ? story.repo : project, path.basename(file.path) + '.story.md')), filters: { Markdown: ['md'] } });
       if (to) { fs.writeFileSync(to.fsPath, m.markdown); vscode.window.showTextDocument(to); }
