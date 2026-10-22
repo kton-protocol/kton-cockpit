@@ -12,7 +12,8 @@ tags: [architecture, execution, environment, reproducibility, security]
 ## Status
 
 **Accepted and implemented** (2026-09-02). Both open questions were settled by the operator; see
-"Open questions, as settled" below.
+"Open questions, as settled" below. For records that declare an environment class, ADR-010 makes `envRef`
+carried rather than covered; everything else here stands.
 
 ## Context
 
