@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -49,6 +50,8 @@ var indexHTML []byte
 //	GET /api/descendants?project=P&path=F[&sha=H] what became of F
 //	GET /api/calls?project=P                    the tool calls of a project, with their keys
 //	GET /api/calls?key=K                        every recorded call with this key, in any project
+//	GET /api/calls?session=ID&task=N           the tool calls of one task
+//	GET /api/calldraft?session=ID&task=N&pid=P  proposal for `cockpit publish` of one tool call
 //	GET /api/calls?argv=["nmfe75","run1.mod"]   recorded calls with this command line, newest first
 //	GET /api/producible?project=P               per file version of the calls: kept, producible again, or lost
 //	GET /api/reproplan?project=P&path=F[&sha=H] what to put in place and which calls to run to make F again
@@ -120,8 +123,16 @@ func (sv *Service) Handler() http.Handler {
 			out = sv.CallsByArgv(argv)
 		case q.Get("project") != "":
 			out = sv.ProjectCalls(q.Get("project"))
+		case q.Get("session") != "" && q.Get("task") != "":
+			sv.With(q.Get("session"), func(s *Session) {
+				for _, t := range s.Tasks {
+					if t.ID == q.Get("task") {
+						out = sv.callsOf(s.ID, t)
+					}
+				}
+			})
 		default:
-			http.Error(w, "project or key", http.StatusBadRequest)
+			http.Error(w, "project, key, argv, or session and task", http.StatusBadRequest)
 			return
 		}
 		if out == nil {
@@ -186,6 +197,30 @@ func (sv *Service) Handler() http.Handler {
 	}
 	mux.HandleFunc("GET /api/config", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]any{"web": sv.Web != ""})
+	})
+	// one tool call of a task as its own `cockpit publish` (ADR-010: a reference record per nmfe call)
+	mux.HandleFunc("GET /api/calldraft", func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		pid, _ := strconv.Atoi(q.Get("pid"))
+		var out *Draft
+		ok := sv.With(q.Get("session"), func(s *Session) {
+			for _, t := range s.Tasks {
+				if t.ID != q.Get("task") {
+					continue
+				}
+				for _, c := range sv.callsOf(s.ID, t) {
+					if c.PID == pid {
+						d := CallDraft(c, RepoRoot(s.Project), check.State)
+						out = &d
+					}
+				}
+			}
+		})
+		if !ok || out == nil {
+			http.NotFound(w, r)
+			return
+		}
+		writeJSON(w, out)
 	})
 	mux.HandleFunc("GET /api/draft", func(w http.ResponseWriter, r *http.Request) {
 		var out *Draft

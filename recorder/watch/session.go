@@ -29,6 +29,7 @@ type Session struct {
 	seq        int
 	owner      int              // pid whose markers count; others are an R a tool started underneath
 	console    map[string]bool  // files the session's stdout/stderr go to (`R -f x.R > log`)
+	redirects  map[int][]string // before any marker: write fds a process inherited from the session's own redirect
 	producedBy map[string][]Ref // content hash → outputs that had it
 	lastOutput map[string]*Output
 	seenFiles  []FileOp          // project file versions seen since the service last took them (for the CAS)
@@ -100,7 +101,7 @@ func NewSession(id, log string, cls *Classifier) *Session {
 	s := &Session{
 		ID: id, Log: log, cls: cls,
 		producedBy: map[string][]Ref{}, lastOutput: map[string]*Output{}, known: map[string]string{},
-		procs: map[int]bool{}, hashCache: map[string]string{}, console: map[string]bool{},
+		procs: map[int]bool{}, hashCache: map[string]string{}, console: map[string]bool{}, redirects: map[int][]string{},
 	}
 	s.Hash = s.hashFile
 	s.Project = cls.Project
@@ -181,6 +182,11 @@ func (s *Session) Handle(e Event) {
 	case "TASK", "END", "SOURCE", "ENV", "VARS":
 		if s.owner == 0 {
 			s.owner = e.PID
+			// a traced wrapper (`sh run.sh` with `R -f x.R > log` in it): the redirect the
+			// marking R received is its console, not an output of its first command
+			for _, p := range s.redirects[e.PID] {
+				s.console[p] = true
+			}
 		} else if e.PID != s.owner && s.procs[e.PID] {
 			// markers of a nested R session (one a tool started underneath): that R is itself a
 			// traced process. A marker from a process the shim never saw is the session's own,
@@ -356,8 +362,13 @@ func (s *Session) open(c *taskState, e Event) {
 	mode := strings.TrimSuffix(e.Mode, "d")
 	writes := strings.Contains(mode, "w")
 	if e.Op == "inherit" && s.owner == 0 && s.seq == 0 {
-		s.console[e.Path] = true // the session's own console log, before any command
-		return
+		if !c.written[e.Path] {
+			s.console[e.Path] = true // the session's own console log, before any command
+			return
+		}
+		// a file the session opened itself and handed to a child (`awk … > out.csv` in a
+		// script) is an output, unless that child turns out to be the marking R (see above)
+		s.redirects[e.PID] = append(s.redirects[e.PID], e.Path)
 	}
 	if e.Op == "inherit" || class == ClassTemp {
 		if writes {
@@ -522,7 +533,7 @@ func (s *Session) finish() {
 	// programs and scripts the task started are environment, not data (bash reads nmfe75)
 	progs := map[string]bool{}
 	for _, cm := range t.Commands {
-		for _, f := range strings.Fields(cm.Cmdline) {
+		for _, f := range splitCmdline(cm.Cmdline) {
 			if strings.HasPrefix(f, "/") {
 				progs[f] = true
 				if r, err := filepath.EvalSymlinks(f); err == nil {
@@ -588,7 +599,7 @@ func (c *taskState) rewrote(p string) bool {
 
 // rScriptArg: the file of `R -f x.R`, `R --file=x.R`, `Rscript x.R`, made absolute against cwd.
 func rScriptArg(cmdline, cwd string) string {
-	f := strings.Fields(cmdline)
+	f := splitCmdline(cmdline)
 	if len(f) == 0 {
 		return ""
 	}

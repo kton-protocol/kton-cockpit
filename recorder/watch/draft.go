@@ -111,13 +111,16 @@ func draftCmd(t *Task, repo string) string {
 			return `source("` + rel(s.Path) + `")`
 		}
 	}
-	if t.Expr != "" && !strings.HasPrefix(t.Expr, "base::") {
+	if t.Expr != "" && t.ID != "tail" && !strings.HasPrefix(t.Expr, "base::") {
 		return t.Expr // what the person typed, e.g. system("nmfe75 …")
 	}
 	for _, c := range t.Commands {
 		if toolCmd.MatchString(c.Cmdline) {
 			return c.Cmdline
 		}
+	}
+	if t.ID == "tail" && len(t.Commands) > 0 {
+		return t.Commands[0].Cmdline // no markers (a shell script): the command the session ran
 	}
 	return ""
 }
@@ -132,4 +135,74 @@ func nowNote(f *DraftFile, now string) {
 	case NowGone:
 		f.Use, f.Note = false, "nicht mehr vorhanden"
 	}
+}
+
+// CallDraft proposes a `cockpit publish` for one tool call (an nmfe run, a PsN vpc): exactly the
+// files the call read and left, and its command line run from its working directory. ADR-010
+// needs such a record for every nmfe call an orchestrator makes; the recorder sees each one.
+// now says whether a file still has the observed bytes (Checker.State); nil skips the check.
+func CallDraft(c Call, repo string, now func(path, sum string) string) Draft {
+	cwd, outside := ".", false
+	if r, err := filepath.Rel(repo, c.Cwd); err == nil && r != ".." && !strings.HasPrefix(r, "../") {
+		cwd = r
+	} else {
+		outside = true
+	}
+	d := Draft{Repo: repo, Cmd: shellJoin(c.Argv)}
+	if cwd != "." {
+		d.Cmd = "cd " + shellJoin([]string{cwd}) + " && " + d.Cmd
+	}
+	if outside {
+		d.Notes = append(d.Notes, "lief außerhalb des Repos in "+c.Cwd+": cmd gilt so nicht vom Repo aus, bitte prüfen")
+	}
+	file := func(f CallFile) DraftFile {
+		r, err := filepath.Rel(repo, f.Path)
+		if err != nil || strings.HasPrefix(r, "..") {
+			return DraftFile{Path: f.Path, Note: "nicht im Repo: cockpit publish nimmt heute nur Pfade im Repo"}
+		}
+		df := DraftFile{Path: r, Use: true}
+		if Scratch(f.Path) {
+			df.Use, df.Note = false, "Zwischendatei des Werkzeugs"
+		}
+		if now != nil && df.Use {
+			nowNote(&df, now(f.Path, f.SHA256))
+		}
+		return df
+	}
+	for _, f := range c.Reads {
+		if f.SHA256 != EmptySHA256 {
+			d.Inputs = append(d.Inputs, file(f))
+		}
+	}
+	for _, f := range c.Writes {
+		if f.SHA256 != EmptySHA256 {
+			d.Outputs = append(d.Outputs, file(f))
+		}
+	}
+	for _, f := range c.Outside {
+		d.Notes = append(d.Notes, "liest außerhalb des Projekts "+f.Path+": kein Foton-Input, gehört zur Umgebung oder braucht einen Claim")
+	}
+	for _, f := range c.Missing {
+		d.Notes = append(d.Notes, "suchte "+f.Rel+" und fand es nicht")
+	}
+	if c.Parent != 0 {
+		d.Notes = append(d.Notes, "läuft innerhalb eines anderen Aufrufs (pid "+itoa(c.Parent)+")")
+	}
+	if len(d.Outputs) == 0 {
+		d.Notes = append(d.Notes, "hinterlässt keine Datei: nichts zu veröffentlichen")
+	}
+	return d
+}
+
+// shellJoin quotes what a POSIX shell would split or expand.
+func shellJoin(args []string) string {
+	out := make([]string, len(args))
+	for i, a := range args {
+		if a != "" && strings.Trim(a, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_./=:,+@%") == "" {
+			out[i] = a
+		} else {
+			out[i] = "'" + strings.ReplaceAll(a, "'", `'\''`) + "'"
+		}
+	}
+	return strings.Join(out, " ")
 }

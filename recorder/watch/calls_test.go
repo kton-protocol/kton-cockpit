@@ -257,3 +257,15 @@ func TestCalls_ReuseIsBlockedWhenWhatTheKeyDoesNotCoverChanged(t *testing.T) {
 }
 
 func hexOf(s string) string { h := sha256.Sum256([]byte(s)); return hex.EncodeToString(h[:]) }
+
+// Review R2 of #12: the command line splits as the shim quotes it, the inverse of shellJoin.
+func TestSplitCmdline_UndoesTheShimsQuoting(t *testing.T) {
+	for _, args := range [][]string{{"nmfe75", "run 1.mod", "run 1.lst"}, {"R", "-e", "it's"}, {"x", "", "a'b'c"}, {"plain", "args"}} {
+		if got := splitCmdline(shellJoin(args)); strings.Join(got, "\x00") != strings.Join(args, "\x00") {
+			t.Errorf("%q → %q → %q", args, shellJoin(args), got)
+		}
+	}
+	if got := normArgv("/opt/nm/run/nmfe75 'run 1.mod' 'run 1.lst'", "/w"); len(got) != 3 || got[1] != "run 1.mod" {
+		t.Fatalf("argv %q", got)
+	}
+}
