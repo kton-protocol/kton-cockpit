@@ -127,6 +127,7 @@ func TestDraftCmd_PythonRunsOnlyWhatPercentRunRan(t *testing.T) {
 	for code, want := range map[string]string{
 		`%run -i -- "py/fit.py"`: "-i",                // runs in the console's namespace, not as python3
 		"x = 1":                  "not a program run", // console code
+		"%run -m pkg.tool":       "-m",                // a %run, not console code (review of #15)
 		"%run fit.py $n *.csv":   "patterns",          // %run expands before the script sees them
 		`%run -- "py/fit.py" 5`:  "",                  // a plain run: nothing to check
 	} {
