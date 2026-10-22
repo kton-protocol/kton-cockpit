@@ -128,16 +128,22 @@ async function openObservations() {
 async function publish(repo, text) {
   const calls = (text.match(/^cockpit publish /gm) || []).length;
   if (!calls) return;
+  const says = (text.match(/^cockpit describes /gm) || []).length;
   const ok = await vscode.window.showWarningMessage(
-    `Run ${calls} × cockpit publish in ${repo}? That signs, commits and pushes.`, { modal: true }, 'Run');
+    `Run ${calls} × cockpit publish${says ? ` and ${says} × cockpit say describes` : ''} in ${repo}? That signs, commits and pushes.`, { modal: true }, 'Run');
   if (ok !== 'Run') return;
   const cockpit = bin('cockpit');
   const term = vscode.window.terminals.find((t) => t.name === 'kton cockpit') ||
     vscode.window.createTerminal({ name: 'kton cockpit', cwd: repo });
   term.show();
   term.sendText(`cd ${JSON.stringify(repo)}`);
+  const c = JSON.stringify(cockpit);
+  // `cockpit describes '<fields>'` is ours: a say with the template "describes" about the foton
+  // the publish before it returned (its JSON answer, kept in KTON_OUT and shown)
+  const claim = "import json,sys; o=json.loads(sys.argv[1]); print(json.dumps({'template':'describes','subject':o['fotonId'],'fields':json.loads(sys.argv[2])}))";
   for (const line of text.split('\n')) {
-    if (line.startsWith('cockpit publish ')) term.sendText(JSON.stringify(cockpit) + line.slice('cockpit'.length));
+    if (line.startsWith('cockpit publish ')) term.sendText(`KTON_OUT=; KTON_OUT=$(${c}${line.slice('cockpit'.length)}) && printf '%s\\n' "$KTON_OUT"`);
+    else if (line.startsWith('cockpit describes ')) term.sendText(`[ -n "$KTON_OUT" ] && ${c} say "$(python3 -c ${sq(claim)} "$KTON_OUT" ${line.slice('cockpit describes '.length)})"`);
     else if (line.trim()) term.sendText(line); // comments: shown, ignored by the shell
   }
 }
@@ -410,8 +416,16 @@ function noteLines(n) {
 }
 
 // the lines handed to publish(): per step the person's words as comments, then the call
+// whether the repository allows a claim template (claims.allowedTemplates of its config)
+function allowsTemplate(repo, name) {
+  try { return (JSON.parse(fs.readFileSync(path.join(repo, 'cockpit.config.json'), 'utf8')).claims || {}).allowedTemplates.includes(name); } catch (e) { return false; }
+}
+
 async function publishText(story, file, steps) {
   const lines = [`# Story of ${path.relative(story.repo, file.path)}`];
+  // a step's description and rationale become a signed claim about its foton (template
+  // "describes") where the repository allows it; elsewhere they stay comments
+  const describes = allowsTemplate(story.repo, 'describes');
   for (const s of steps) {
     if (s.hand) { // not recorded, nothing to publish: the person's words stay with the story
       lines.push(`# ${s.sentence}`);
@@ -428,6 +442,12 @@ async function publishText(story, file, steps) {
       continue;
     }
     lines.push('cockpit publish ' + sq(JSON.stringify(req)));
+    const n = typeof s.note === 'string' ? { description: s.note } : (s.note || {});
+    if (describes && (n.description || '').trim()) {
+      const fields = { description: n.description.trim() };
+      if ((n.rationale || '').trim()) fields.rationale = n.rationale.trim();
+      lines.push('cockpit describes ' + sq(JSON.stringify(fields))); // see publish(): a say about the foton just published
+    }
   }
   return lines.join('\n');
 }

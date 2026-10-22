@@ -116,6 +116,7 @@ func TestDraftCmd_PythonRunsOnlyWhatPercentRunRan(t *testing.T) {
 		{Origin{Code: "x = 1", File: "/p/report.qmd"}, "x = 1"},
 		{Origin{Code: "%run -m pkg.tool", File: "/p/pkg/tool.py"}, "%run -m pkg.tool"},
 		{Origin{Code: "%run -t -N 5 fit.py", File: "/p/py/fit.py"}, "%run -t -N 5 fit.py"},
+		{Origin{Code: "%run py/ok.py\nprint(1)", File: "/p/py/ok.py"}, "%run py/ok.py\nprint(1)"}, // review of #18: two lines are console code
 		{Origin{Code: "x = 1", File: "/p/py/a.py", StartLine: 3, EndLine: 4}, "py/a.py:3-4"},
 		{Origin{Code: "x = 1", File: "/p/report.qmd", Chunk: "fit"}, "chunk fit of report.qmd"},
 	} {
@@ -205,6 +206,9 @@ func TestAttachOrigins_ALateOriginNeverDropsData(t *testing.T) {
 func TestPythonStep_RunsPythonFromTheRecipe(t *testing.T) {
 	if got := pythonStep(`%run -- "py/02_nca.py" --n 5`); got != `stopifnot(system2("python3", shQuote(c("py/02_nca.py", "--n", "5"))) == 0)  # %run -- "py/02_nca.py" --n 5`+"\n" {
 		t.Errorf("%%run: %q", got)
+	}
+	if got := pythonStep("%run py/ok.py\nprint(\"R ran this\")"); !strings.Contains(got, `shQuote(c("-c", `) || strings.Contains(got, "\nprint") {
+		t.Errorf("a multi-line %%run cell must run as Python code, its second line not as R: %q", got)
 	}
 	got := pythonStep("import csv\nprint('x')")
 	if !strings.Contains(got, `c("-c", "import csv\nprint('x')")`) || !strings.Contains(got, "without the console's variables") {
