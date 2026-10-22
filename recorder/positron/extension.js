@@ -169,6 +169,10 @@ async function reproduceInContainers(project, target, sum) {
   // made has none, and is reproduced from its recipe instead
   const q = `project=${encodeURIComponent(project)}&path=${encodeURIComponent(target)}&sha=${encodeURIComponent(sum)}`;
   try { await getJSON(`${viewerUrl()}api/reproplan?${q}`, 10000); } catch (e) {
+    if (!/^404 /.test(e.message)) { // ktonwatch failed: say so, do not quietly take the other path
+      vscode.window.showErrorMessage(`kton: no reproduction plan: ${e.message}`);
+      return true;
+    }
     out.appendLine(`\nkton: no recorded tool call wrote ${path.relative(project, target)}; reproducing it from its recipe instead`);
     return false;
   }
