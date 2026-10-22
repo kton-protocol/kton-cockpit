@@ -303,16 +303,30 @@ func (s *Session) Handle(e Event) {
 			// the session says where it works; more specific than the broad hashed prefix
 			s.cls.Project, s.Project = p, p
 		}
-		// what the runtime read before it could say where it lives was its environment too
+		// What the runtime read and wrote before it could say where it works is its start, and so
+		// environment unless it is in the project: the shell profile it came up through, its own
+		// bytecode cache, the connection file of the kernel supervisor. No user code ran yet.
 		kept := t.Inputs[:0]
 		for _, in := range t.Inputs {
-			if in.Class = s.cls.Class(in.Path); in.Class == ClassEnv {
+			if in.Class = s.cls.Class(in.Path); in.Class != ClassProject {
 				t.EnvFiles++
 				continue
 			}
 			kept = append(kept, in)
 		}
 		t.Inputs = kept
+		for p := range c.written {
+			if s.cls.Class(p) != ClassProject {
+				delete(c.written, p)
+			}
+		}
+		listed := t.Listings[:0]
+		for _, l := range t.Listings {
+			if s.cls.Class(l) == ClassProject {
+				listed = append(listed, l)
+			}
+		}
+		t.Listings = listed
 	case "VARS":
 		for _, kv := range strings.Split(e.Extra, ";") {
 			if n, d, ok := strings.Cut(kv, "="); ok && n != "" {

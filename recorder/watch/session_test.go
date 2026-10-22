@@ -453,3 +453,29 @@ func TestSession_AWrappersRedirectIntoTheMarkingRIsItsConsole(t *testing.T) {
 		t.Fatalf("task 1 outputs %+v: the console log is not one", t1.Outputs)
 	}
 }
+
+// From MH's Positron run: the kernel supervisor and Python came up through the shell profile,
+// wrote a connection file and a bytecode cache, then ktonrec.py's ENV. None of that is the first
+// command's: before ENV, everything outside the project is the runtime's start.
+func TestSession_WhatARuntimeTouchedBeforeENVIsItsStart(t *testing.T) {
+	l := (&logb{}).
+		ev(300, "open", "r", "/home/u/.profile", "sha256=prof").
+		ev(300, "open", "w", "/tmp/connection_python-1.json", "new=1").
+		ev(300, "closew", "w", "/tmp/connection_python-1.json", "sha256=conn").
+		ev(301, "open", "r", "/home/u/.ipython/profile_default/startup/50-kton.py", "sha256=st").
+		ev(301, "open", "w", "/home/u/.cache/pycache/ktonrec.pyc", "new=1").
+		ev(301, "closew", "w", "/home/u/.cache/pycache/ktonrec.pyc", "sha256=pyc").
+		ev(301, "ENV", "-", "/usr", "project=/p;lang=python").
+		ev(301, "open", "r", "/p/derived/pk_clean.csv", "sha256=clean").
+		ev(301, "open", "w", "/p/derived/nca.csv", "new=1").
+		ev(301, "closew", "w", "/p/derived/nca.csv", "sha256=nca").
+		ev(301, "TASK", "ok", "1", `%run -- "py/02_nca.py"`)
+	s := sess(t, l, nil)
+	t1 := task(t, s, "1")
+	if len(t1.Inputs) != 1 || t1.Inputs[0].Path != "/p/derived/pk_clean.csv" {
+		t.Fatalf("inputs %+v: the start's reads are not the command's", t1.Inputs)
+	}
+	if len(t1.Outputs) != 1 || t1.Outputs[0].Path != "/p/derived/nca.csv" {
+		t.Fatalf("outputs %+v: the start's writes are not the command's", t1.Outputs)
+	}
+}
