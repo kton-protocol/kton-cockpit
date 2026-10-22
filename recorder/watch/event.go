@@ -51,6 +51,10 @@ func ParseHeader(line string) (Header, bool) {
 // LF and CR as \\, \t, \n, \r). v1 wrote them as a space; that cannot be undone.
 func (h Header) Escaped() bool { return h.Version != "" && h.Version != "v1" }
 
+// Quoted reports whether exec and spawn lines quote their arguments (v3). Before, they were
+// joined by spaces, and a quote character in an argument was just a character.
+func (h Header) Quoted() bool { return h.Escaped() && h.Version != "v2" }
+
 // Escape writes a path or extra field the v2 way, for programs that add lines to a log.
 func Escape(s string) string {
 	return strings.NewReplacer(`\`, `\\`, "\t", `\t`, "\n", `\n`, "\r", `\r`).Replace(s)

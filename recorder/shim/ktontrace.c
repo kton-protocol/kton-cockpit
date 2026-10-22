@@ -6,9 +6,10 @@
  * exec'd children do not interleave). Nothing is interpreted here; ktonwatch does that.
  *
  * Line format (tab separated; the process that creates the log first writes
- * "#ktontrace v2<TAB>hash=<$KTON_TRACE_HASH>"):
+ * "#ktontrace v3<TAB>hash=<$KTON_TRACE_HASH>"):
  *   ts_ns pid ppid op mode path size mtime_ns ino extra
  * v2: in path and extra, a backslash, TAB, LF and CR are written as \\, \t, \n, \r (v1: a space).
+ * v3: exec and spawn quote an argument with other than safe characters ('run 1.mod'; v2: joined by spaces).
  *
  *   op        mode      path            extra
  *   exec      -         cwd             command line              (once per process image)
@@ -392,7 +393,7 @@ __attribute__((constructor)) static void kton_init(void) {
         log_dev = st.st_dev; log_ino = st.st_ino;
         if (st.st_size == 0) {
             char hdr[4200];
-            int n = snprintf(hdr, sizeof hdr, "#ktontrace v2\thash=%s\n", hash_prefixes);
+            int n = snprintf(hdr, sizeof hdr, "#ktontrace v3\thash=%s\n", hash_prefixes);
             if (n > 0) raw_write(hdr, (size_t)n < sizeof hdr ? (size_t)n : sizeof hdr - 1);
         }
     }

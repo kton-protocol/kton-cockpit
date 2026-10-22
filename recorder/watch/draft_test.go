@@ -225,3 +225,21 @@ func TestNormArgv_RepoPathsKeepTheirPlaceOnlyOutsidePathsLoseIt(t *testing.T) {
 		}
 	}
 }
+
+// Re-check of #12: a submodule's .git file does not end the repository; the parent's root counts.
+func TestRepoRoot_ASubmoduleIsPartOfItsParent(t *testing.T) {
+	root := t.TempDir()
+	for _, d := range []string{".git", "lib/sub/models"} {
+		os.MkdirAll(filepath.Join(root, d), 0o755)
+	}
+	os.WriteFile(filepath.Join(root, "lib/sub/.git"), []byte("gitdir: ../../.git/modules/sub\n"), 0o644)
+	if got := RepoRoot(filepath.Join(root, "lib/sub/models")); got != root {
+		t.Fatalf("root %q, want the parent %q", got, root)
+	}
+	lone := t.TempDir() // a worktree: a .git file and nothing above
+	os.MkdirAll(filepath.Join(lone, "a"), 0o755)
+	os.WriteFile(filepath.Join(lone, ".git"), []byte("gitdir: /elsewhere\n"), 0o644)
+	if got := RepoRoot(filepath.Join(lone, "a")); got != lone {
+		t.Fatalf("worktree root %q, want %q", got, lone)
+	}
+}
