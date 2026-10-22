@@ -19,9 +19,7 @@ import (
 	"strconv"
 	"strings"
 
-	nregistry "kton.dev/nekton/registry"
 	"kton.dev/plankton/core"
-	pregistry "kton.dev/plankton/registry"
 
 	"github.com/kton-protocol/kton-cockpit/internal/binaries"
 	"github.com/kton-protocol/kton-cockpit/internal/config"
@@ -193,26 +191,30 @@ func (d *Daemon) apply(ctx context.Context, layer, dir string, trusted []ed25519
 		}
 	}
 
+	// The cursor is a position the store has written down, never one a read-only open handed out in
+	// memory: records that arrived unnumbered get their lasting positions from the next writer, in its
+	// own order, and a cursor past them would skip one that sorts earlier (kton-review V1 on PR #11).
+	// Until a writer numbers them, objects differ while maxSeq does not, and they are read from 0.
 	var ps []projected
 	cursor := 0
 	if _, err := os.Stat(dir); err == nil {
 		switch layer {
 		case "plankton":
-			r, err := pregistry.Open(dir)
+			r, err := binaries.OpenPlanktonSource(dir)
 			if err != nil {
 				return false, err
 			}
 			if ps, err = projectPlankton(r, r.Records(since), keys); err != nil {
 				return false, err
 			}
-			cursor = r.MaxSeq()
+			cursor = min(r.MaxSeq(), pos.MaxSeq)
 		default:
-			r, err := nregistry.Open(dir)
+			r, err := binaries.OpenNektonSource(dir)
 			if err != nil {
 				return false, err
 			}
 			ps = projectNekton(r.Records(since), keys)
-			cursor = r.MaxSeq()
+			cursor = min(r.MaxSeq(), pos.MaxSeq)
 		}
 	} else if !os.IsNotExist(err) {
 		return false, err

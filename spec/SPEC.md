@@ -634,7 +634,9 @@ way a repo backend is registered (§5.5).
 
 - `ask`, the served and published union (§12.2) and search MUST read the union of the own registry
   and every source, joined by record id. Writes MUST go to the own registry only; a source is never
-  written to, and nothing is copied from a source into the own registry.
+  written to, and nothing is copied from a source into the own registry. Reading a source MUST NOT
+  change it either: it is opened read-only, so no numbering is persisted into it and no registry is
+  created where it has none. A source with no registry at all MUST be refused, not read as an empty one.
 - Every record entering the union MUST pass the registry's own checks. A source holding a record that
   does not, or one whose registry reports skipped records, MUST be named in the failure; a partial
   union MUST NOT pass for a whole one.
@@ -644,7 +646,8 @@ way a repo backend is registered (§5.5).
 - A source adds records, never signers: the configured trust tiers remain the ceiling (§9.1).
 - A kind that is not available in the build MUST be refused when the configuration is loaded.
 
-> **Checked by:** `TestFederation_ReadsTheUnionOfOwnAndSources`, `TestFederation_UnknownKindIsRefusedAtLoad`.
+> **Checked by:** `TestFederation_ReadsTheUnionOfOwnAndSources`, `TestFederation_UnknownKindIsRefusedAtLoad`,
+> `TestFederation_ReadingASourceLeavesItAsItWas`.
 
 ## 10 Execution *(optional)*
 

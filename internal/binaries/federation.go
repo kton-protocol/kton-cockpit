@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -46,7 +47,7 @@ func ReadDirs(ctx context.Context, cfg *config.Config) (planktonDir, nektonDir s
 		return "", "", err
 	}
 	add := func(name string, reg source.Registry) error {
-		if p, err := pregistry.Open(reg.PlanktonDir); err == nil {
+		if p, err := OpenPlanktonSource(reg.PlanktonDir); err == nil {
 			if n := p.Degraded(); n > 0 {
 				return fmt.Errorf("source %s: its plankton registry skipped %d record(s) on load", name, n)
 			}
@@ -55,16 +56,16 @@ func ReadDirs(ctx context.Context, cfg *config.Config) (planktonDir, nektonDir s
 					return fmt.Errorf("source %s: plankton %s: %w", name, rec.FotonID, err)
 				}
 			}
-		} else if !os.IsNotExist(err) {
+		} else if !errors.Is(err, os.ErrNotExist) {
 			return fmt.Errorf("source %s: %w", name, err)
 		}
-		if n, err := nregistry.Open(reg.NektonDir); err == nil {
+		if n, err := OpenNektonSource(reg.NektonDir); err == nil {
 			for _, rec := range n.Records(0) {
 				if _, _, err := nreg.Add(rec.Envelope); err != nil {
 					return fmt.Errorf("source %s: nekton %s: %w", name, rec.ClaimID, err)
 				}
 			}
-		} else if !os.IsNotExist(err) {
+		} else if !errors.Is(err, os.ErrNotExist) {
 			return fmt.Errorf("source %s: %w", name, err)
 		}
 		return nil
@@ -83,14 +84,18 @@ func ReadDirs(ctx context.Context, cfg *config.Config) (planktonDir, nektonDir s
 
 // Input is one registry a union is built from: the own one, or one a federation source brought.
 type Input struct {
-	Name string // "(own)", or the source's name
+	Name string // Own, or the source's name
 	source.Registry
 }
 
+// Own names the repository's own registries among the Inputs.
+const Own = "(own)"
+
 // Inputs are the registries the union of cfg is built from, in the order they are joined. A source
-// is fetched into its cache first, as the union does.
+// is fetched into its cache first, as the union does, and refused when it holds no registry at all.
+// The own registry is never refused: before the first publish there is none yet.
 func Inputs(ctx context.Context, cfg *config.Config) ([]Input, error) {
-	out := []Input{{"(own)", source.Registry{PlanktonDir: cfg.PlanktonDir, NektonDir: cfg.NektonDir}}}
+	out := []Input{{Own, source.Registry{PlanktonDir: cfg.PlanktonDir, NektonDir: cfg.NektonDir}}}
 	srcs := cfg.Raw.Federation.Sources
 	if len(srcs) == 0 {
 		return out, nil
@@ -110,6 +115,11 @@ func Inputs(ctx context.Context, cfg *config.Config) ([]Input, error) {
 			return nil, fmt.Errorf("federation source %s (%s): %w", s.Name, s.Kind, err)
 		}
 		for _, reg := range regs {
+			// A source with no registry at all is a wrong path, not an empty source; every reader of
+			// the union (the union itself, the index) gets the same refusal from here.
+			if !Exists(reg.PlanktonDir) && !Exists(reg.NektonDir) {
+				return nil, fmt.Errorf("source %s: there is no registry at %s or %s", s.Name, reg.PlanktonDir, reg.NektonDir)
+			}
 			out = append(out, Input{s.Name, reg})
 		}
 	}
@@ -187,3 +197,32 @@ func (r *Runner) read(ctx context.Context) (*Union, error) {
 
 // wrote drops the union after a write to the own registry: the next read opens it again.
 func (r *Runner) wrote() { r.held = nil }
+
+// Reading a registry the cockpit does not own must not change it. The kernel's Open is the writer's:
+// it numbers the store and persists that (.seq, a fresh epoch), and creates a directory that is not
+// there, so a read would write into a federation source and a mistyped path would become an empty
+// registry. A source is read with the kernel's read-only open (OpenUnion of one directory), which
+// numbers in memory only and never creates anything. (kton-review W1 on PR #10.)
+
+// OpenPlanktonSource opens a plankton registry read-only. A directory that is not there is
+// os.ErrNotExist: an empty layer, not one to create.
+func OpenPlanktonSource(dir string) (*pregistry.Registry, error) {
+	if !Exists(dir) {
+		return nil, fmt.Errorf("%s: %w", dir, os.ErrNotExist)
+	}
+	return pregistry.OpenUnion(dir)
+}
+
+// OpenNektonSource opens a nekton registry read-only, as OpenPlanktonSource does.
+func OpenNektonSource(dir string) (*nregistry.Registry, error) {
+	if !Exists(dir) {
+		return nil, fmt.Errorf("%s: %w", dir, os.ErrNotExist)
+	}
+	return nregistry.OpenUnion(dir)
+}
+
+// Exists says whether dir is a directory.
+func Exists(dir string) bool {
+	fi, err := os.Stat(dir)
+	return err == nil && fi.IsDir()
+}

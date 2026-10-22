@@ -23,9 +23,7 @@ import (
 	"github.com/kton-protocol/kton-cockpit/cockpit/source"
 	"github.com/kton-protocol/kton-cockpit/internal/binaries"
 	"github.com/kton-protocol/kton-cockpit/internal/config"
-	nregistry "kton.dev/nekton/registry"
 	"kton.dev/plankton/core"
-	pregistry "kton.dev/plankton/registry"
 )
 
 const federationUsage = "usage: cockpit federation add <name> <git-URL|checkout> [--path DIR] | list | pull [name] | remove <name>"
@@ -246,16 +244,16 @@ func describeSource(ctx context.Context, cfg *config.Config, name string) {
 	var fotons, fv, claims, cv int
 	signers := map[string]bool{}
 	for _, reg := range regs {
-		if _, err := os.Stat(reg.PlanktonDir); err == nil {
-			if p, err := pregistry.Open(reg.PlanktonDir); err == nil {
+		if binaries.Exists(reg.PlanktonDir) {
+			if p, err := binaries.OpenPlanktonSource(reg.PlanktonDir); err == nil {
 				for _, r := range p.Records(0) {
 					fotons++
 					fv += verifiedBy(r.Envelope, keys, signers)
 				}
 			}
 		}
-		if _, err := os.Stat(reg.NektonDir); err == nil {
-			if n, err := nregistry.Open(reg.NektonDir); err == nil {
+		if binaries.Exists(reg.NektonDir) {
+			if n, err := binaries.OpenNektonSource(reg.NektonDir); err == nil {
 				for _, r := range n.Records(0) {
 					claims++
 					cv += verifiedBy(r.Envelope, keys, signers)
