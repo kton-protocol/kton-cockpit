@@ -13,8 +13,8 @@ tags: [architecture, index, query, oxigraph, sparql, federation, performance]
 
 Proposed (2026-10-19). Builds on ADR-011 (the index is a port). Phase 0 (`none`) holds no state and changes no
 behaviour. Phase 1 (`memory`, 2026-10-20) brings the SPEC §13 amendment with it, and adds SPEC §12.4. Phase 2
-(`oxigraph`, 2026-10-20) stores views rather than records, for a reason in the kernel (section "Phase 2 as
-built").
+(`oxigraph`, 2026-10-20) stored views rather than records, for a reason in the kernel (section "Phase 2 as
+built"). Phase 3 (2026-10-22) stores records once, with kton#232 and kton#233 (section "Phase 3 as built").
 
 ## Context
 
@@ -50,7 +50,8 @@ The signed registries stay the only source of truth. The index:
 
 - **Location:** `<UserCacheDir>/kton-cockpit/index`.
 - **Records:** each record is stored once, by its content-addressed id, in its own named graph
-  `urn:kton:rec:<id>`. *(The target. Phase 2 stores views instead; see "Phase 2 as built".)*
+  `urn:kton:rec:<id>`. *(As built in phase 3, the graphs are the kernel's own: a foton's IRI, a claim's four
+  nanopublication graphs; see "Phase 3 as built".)*
 - **Registries:** each registry has a graph `urn:kton:reg:<identity>` listing the records it holds, together
   with its `(epoch, maxSeq)`. A repository, an aggregation and a federation source are sets of registry
   graphs.
@@ -146,7 +147,9 @@ anything changed. Decided for phase 1 (2026-10-20):
   kernel persists its numbering), which costs the same one extra open.
 - **No backend or git involved:** the stamp covers uncommitted writes too, which `Syncer.Head` would not.
 - **Later:** a kernel call that reports `(epoch, maxSeq)` without replaying would let `oxigraph` follow the
-  feed without re-opening. It is a kton issue to file before phase 2, not a precondition of phase 1.
+  feed without re-opening. It is a kton issue to file before phase 2, not a precondition of phase 1. It
+  landed as kton#233 (`registry.ReadPosition`), which `oxigraph` uses from phase 3 on; `memory` keeps its
+  stamp, since it holds opened registries and reads no feed.
 
 ## Phase 2 as built
 
@@ -192,6 +195,48 @@ is a kton proposal (requested via `active/kton`), together with a cheap `(epoch,
 change"). Until then, views are correct and the daemon still saves what it was for: a query against an
 unchanged registry projects nothing and starts no container.
 
+## Phase 3 as built
+
+With kton#232 (`rdf.Record`/`Attribution`, `nanopub.Record`/`Attribution`) and kton#233
+(`registry.ReadPosition`), the store holds what the target in section 2 asked for (store schema 2):
+
+- **Records once.** A record's own quads take no keys; they are loaded once into the kernel's graphs (a
+  foton's IRI, a claim's `#Head`, `#assertion`, `#provenance`, `#pubinfo`), whichever registries hold it.
+  Its attribution is one graph per key that verifies it (`https://kton.dev/attribution/<hex>/<keyid>`).
+- **Per registry directory**, `urn:kton:index` lists the records it holds, the public keys it was
+  attributed under, its cursor and its position. Before a query each registry of the union is checked: an
+  equal position reads nothing; otherwise `Records(cursor)`, or `Records(0)` when the epoch changed, when
+  objects changed with `maxSeq` unchanged (records a git merge brought, numbered by nobody), or when the
+  query trusts a key the registry was not attributed under yet. A file lock per registry makes two writers
+  take turns; readers do not wait for it. So a read only adds at first: new records and attribution go in,
+  what the registry no longer holds is removed after (on a full read), and the position, cursor and keys are
+  replaced together last. A registry half read is stale or a superset of what it was, never a subset
+  (`TestOxigraph_AReaderNeverSeesARegistryHalfRead`, found by kton-review on PR #8).
+- **Attribution is the registry's own.** Each registry lists the attribution graphs of the signatures in its
+  own copy of a record (`urn:kton:attests`), and a query selects attribution only through the registries it
+  reads. Another registry's copy of the same record may carry other signatures (a co-signature added after
+  a pull), and must not attribute this one (`TestOxigraph_AttributionIsTheRegistrysOwn`, also from that
+  review). A full read removes only attribution under the keys it read with; a key another configuration
+  added meanwhile is left to it.
+- **Known limits.** An incremental read never forgets a record that left the registry: stores are append-only,
+  so that takes a revert plus a new record before the next query (the next full read corrects it). Each query
+  names every graph of its dataset as a request parameter, so the request grows with the union; fine for
+  repositories, worth revisiting for aggregations of many thousands of records. Behind `index.url` there is
+  no lock: a full read working from an older snapshot can remove a record a concurrent writer just added and
+  write its older position. The next query reads the registry again and heals it; one answer in between can
+  lack that record.
+- **Trust chosen per query.** The dataset is computed for each query from `urn:kton:index`: the default
+  graph is every plankton record of the union plus its attribution to the trusted keys; the named graphs are
+  the claims a trusted key signed, plus that attribution. A container started for one query loads the same
+  dataset (`oxigraph.Dataset`), so the two answer alike by construction
+  (`TestQuery_TheIndexAnswersAsAContainerForTheQueryDoes`).
+- **What a query sees changed** from phase 2: no `nk:signerVerified false` and no `nk:claimedSigner` (no
+  attribution graph means unverified, kton#232), and a claim's attribution is in its own named graph,
+  not inside `#provenance`/`#pubinfo`. Nekton's feed includes deferred claims; they are in the store as they
+  were in the views.
+- A store written under schema 1 (views) is emptied when the cockpit next uses it; one behind `index.url` is
+  refused instead, since it is not the cockpit's to empty.
+
 ## Phases
 
 | phase | content | needs |
@@ -199,4 +244,4 @@ unchanged registry projects nothing and starts no container.
 | 0 | port + `none`; `ask` reads through it | nothing |
 | 1 | `memory`: the opened union kept per process, the file stamp before every answer; `ask` says `index`; SPEC §12.4, SPEC §13 amendment | done (2026-10-20) |
 | 2 | `oxigraph` daemon with views; vocabulary queries run on it; `cockpit index status\|start\|stop\|rebuild`; SPEC §12.4 | done (2026-10-20), `-tags unreleased` until kton 0.3.0 |
-| 3 | records stored once, attribution per verifying key; incremental by `Records(since)` | the kton proposal above |
+| 3 | records stored once, attribution per verifying key; incremental by `Records(since)` | done (2026-10-22), kton#232, kton#233 |

@@ -5,7 +5,7 @@
 // rebuilt from the registries through the kernel's projections, and deleting it changes no answer:
 // the next query projects again.
 //
-// This file is the daemon's life cycle, which needs no kernel; view.go is what goes into it.
+// This file is the daemon's life cycle, which needs no kernel; store.go is what goes into it.
 package oxigraph
 
 import (
@@ -28,9 +28,10 @@ import (
 	"github.com/kton-protocol/kton-cockpit/internal/config"
 )
 
-// Schema is the layout of what the cockpit writes into the store (graph names, the stamp). A daemon
-// whose store was written under another schema is not used: its graphs would be read wrongly.
-const Schema = 1
+// Schema is the layout of what the cockpit writes into the store (graph names, what urn:kton:index
+// says). A daemon started under another schema is not used, and a store written under another is
+// emptied before use: its graphs would be read wrongly. 2: records stored once (ADR-012 phase 3).
+const Schema = 2
 
 // Daemon is a reachable Oxigraph.
 type Daemon struct {
@@ -80,7 +81,8 @@ func Ensure(ctx context.Context, cfg *config.Config) (*Daemon, error) {
 		if err := d.ping(ctx); err != nil {
 			return nil, fmt.Errorf("index.url %s: %w", u, err)
 		}
-		return d, nil
+		// Not ours to empty: a store there under another schema is refused, not wiped.
+		return d, d.schema(ctx, false)
 	}
 	dir, err := Dir()
 	if err != nil {
@@ -100,7 +102,7 @@ func Ensure(ctx context.Context, cfg *config.Config) (*Daemon, error) {
 				return nil, fmt.Errorf("%w (%s, schema %d; this configuration wants %s, schema %d): "+
 					"cockpit index stop, then the next query starts the right one", ErrMismatch, l.Image, l.Schema, image, Schema)
 			}
-			return d, nil
+			return d, d.schema(ctx, true)
 		}
 	}
 	return start(ctx, cfg, dir, image)
@@ -161,6 +163,9 @@ func start(ctx context.Context, cfg *config.Config, dir, image string) (*Daemon,
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
+	if err := d.schema(ctx, true); err != nil {
+		return nil, err
+	}
 	b, _ := json.MarshalIndent(lock{Container: name, URL: d.URL, Image: image, Schema: Schema}, "", "  ")
 	return d, os.WriteFile(filepath.Join(dir, "daemon.json"), b, 0o644)
 }
@@ -195,9 +200,39 @@ func readLock(dir string) (lock, bool) {
 	return l, true
 }
 
-// Views counts the views the daemon holds.
-func (d *Daemon) Views(ctx context.Context) (int, error) {
-	q := `SELECT (COUNT(DISTINCT ?v) AS ?n) WHERE { GRAPH <urn:kton:index> { ?v <urn:kton:stamp> ?s } }`
+// schema makes sure the store is written under Schema. A store under another one (the views of
+// schema 1, say) is emptied when wipe allows, and refused otherwise; an empty store is marked.
+func (d *Daemon) schema(ctx context.Context, wipe bool) error {
+	body, err := d.request(ctx, "/query", "text/csv", "query",
+		`SELECT ?s (EXISTS { GRAPH ?g { ?a ?b ?c } } AS ?any) WHERE { OPTIONAL { GRAPH <urn:kton:index> { <urn:kton:index> <urn:kton:schema> ?s } } }`)
+	if err != nil {
+		return err
+	}
+	lines := strings.Split(strings.TrimSpace(string(body)), "\n")
+	var have, any string
+	if len(lines) == 2 {
+		f := strings.Split(strings.TrimSpace(lines[1]), ",")
+		have, any = f[0], f[len(f)-1]
+	}
+	if have == fmt.Sprint(Schema) {
+		return nil
+	}
+	if any == "true" {
+		if !wipe {
+			return fmt.Errorf("%w: the store at %s was written under schema %q", ErrMismatch, d.URL, have)
+		}
+		if _, err := d.request(ctx, "/update", "", "update", "DROP ALL"); err != nil {
+			return err
+		}
+	}
+	_, err = d.request(ctx, "/update", "", "update",
+		fmt.Sprintf(`INSERT DATA { GRAPH <urn:kton:index> { <urn:kton:index> <urn:kton:schema> "%d" } }`, Schema))
+	return err
+}
+
+// Registries counts the registry directories the store holds records of.
+func (d *Daemon) Registries(ctx context.Context) (int, error) {
+	q := `SELECT (COUNT(DISTINCT ?r) AS ?n) WHERE { GRAPH <urn:kton:index> { ?r <urn:kton:position> ?p } }`
 	body, err := d.request(ctx, "/query", "text/csv", "query", q)
 	if err != nil {
 		return 0, err
@@ -210,11 +245,13 @@ func (d *Daemon) Views(ctx context.Context) (int, error) {
 	return n, nil
 }
 
-// Clear empties the store. Nothing in it is authoritative: every view is projected again, from the
-// registries, at its next query.
+// Clear empties the store. Nothing in it is authoritative: every registry is read again, at the
+// next query that reads it.
 func (d *Daemon) Clear(ctx context.Context) error {
-	_, err := d.request(ctx, "/update", "", "update", "DROP ALL")
-	return err
+	if _, err := d.request(ctx, "/update", "", "update", "DROP ALL"); err != nil {
+		return err
+	}
+	return d.schema(ctx, true)
 }
 
 func (d *Daemon) request(ctx context.Context, path, accept, field, value string) ([]byte, error) {

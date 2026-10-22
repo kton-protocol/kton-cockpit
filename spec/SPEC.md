@@ -866,16 +866,24 @@ reading them, following symlinks), leaving out only the store's bookkeeping, whi
 > `TestIndex_AnAnswerSaysItCameFromTheMemoryIndex`.
 
 `oxigraph` reads records as `memory` does and evaluates vocabulary queries on one Oxigraph per machine,
-which the first such query starts. It keeps one view per repository and set of trusted keys: the kernel's
-projection of that union under those keys, rebuilt when the same stamp as `memory`'s changes. A query runs
-with exactly its view as the dataset, so what one configuration trusts never reaches another's answer, and
-its rows are the rows a container started for that query alone would return. The dataset of the request is
-the only wall between views, so a query that calls an endpoint (`SERVICE`, found as a SPARQL parser tokenizes
-the query) MUST be refused, on either path. The plankton part of a view holds every record of the union, with
-attribution only where a trusted key verifies; its claims are only those a trusted key signed. `query.image`
-MUST be pinned by digest, and a running daemon from another image or store schema is not used.
+which the first such query starts. It stores every record once, as the kernel projects it apart from any
+key (kton#232), with one attribution graph per key that verifies it; no trust tier is stored. Before a query
+it reads into the store what changed in each registry of the union, by the kernel's position (kton#233):
+an equal position reads nothing, otherwise the records since its cursor, or all of them when the epoch
+changed, when records arrived unnumbered, or when the query trusts a key the registry was not yet
+attributed under; a read only adds until it is done, so a concurrent answer never lacks a record the registry
+held. Attribution is kept per registry, as its own copy of a record carries it. A query's dataset is chosen
+per query: the default graph holds every plankton record of the union and its attribution to the keys the
+configuration trusts; the named graphs hold the claims such a
+key signed, and that attribution. So what one configuration trusts never reaches another's answer, and the
+rows are the rows a container started for that query alone would return, which reads the same dataset. The
+dataset of the request is the only wall between repositories, so a query that calls an endpoint
+(`SERVICE`, found as a SPARQL parser tokenizes the query) MUST be refused, on either path. `query.image`
+MUST be pinned by digest; a running daemon from another image or store schema is not used, and a store
+written under another schema is emptied first.
 
-> **Checked by:** `TestOxigraph_ViewsAreKeptWhileCurrentAndNeverSeeEachOther`,
+> **Checked by:** `TestOxigraph_RecordsAreStoredOnceAndTrustIsChosenPerQuery`,
+> `TestOxigraph_AttributionIsTheRegistrysOwn`, `TestOxigraph_AReaderNeverSeesARegistryHalfRead`,
 > `TestCheckQuery_RefusesServiceAndOnlyService`, `TestConfig_QueryImageIsPinnedByDigest`,
 > `TestQuery_TheIndexAnswersAsAContainerForTheQueryDoes` (both `-tags docker,unreleased`).
 

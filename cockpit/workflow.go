@@ -218,7 +218,7 @@ func (c *Cockpit) WorkflowExtract(ctx context.Context, in WorkflowExtractRequest
 type WorkflowListResult struct {
 	Query     string              `json:"query"` // where the query came from
 	Workflows []map[string]string `json:"workflows"`
-	// Index says the answer was read through the index daemon, and which view (ADR-012).
+	// Index says the answer was read through the index daemon, and how (ADR-012).
 	Index string `json:"index,omitempty"`
 }
 
