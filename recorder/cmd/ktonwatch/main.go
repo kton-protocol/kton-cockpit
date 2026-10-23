@@ -148,7 +148,10 @@ func serve(args []string) {
 			log.Fatal(err)
 		}
 	}()
-	srv := &http.Server{Addr: *listen, Handler: sv.Handler()}
+	mux := http.NewServeMux()
+	mux.Handle("/kton/reg/", registries(sv))
+	mux.Handle("/", sv.Handler())
+	srv := &http.Server{Addr: *listen, Handler: mux}
 	go func() { <-ctx.Done(); srv.Close() }()
 	log.Printf("ktonwatch: logs %s, observations %s, viewer http://%s/", *dir, *store, *listen)
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {

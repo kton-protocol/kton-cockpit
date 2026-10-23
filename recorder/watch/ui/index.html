@@ -146,11 +146,14 @@ const EMBEDDED = window.parent !== window;
 const toHost = (msg) => window.parent.postMessage(Object.assign({kton: true}, msg), "*");
 let docRepo = "";
 let focusNode = null;      // kton-web: open the graph on this node's ancestry
+let focusHash = null;      // … or on the file with these bytes (with a registry, recorded and signed joined)
+const registries = {};     // project → RegistryID of its cockpit repository
 const rel = (p) => project && p && p.startsWith(project + "/") ? p.slice(project.length + 1) : p;
 const stepKey = (t) => (t.session || (scope && scope.kind === "session" ? scope.id : "")) + "/" + t.id;
 
 async function nav() {
   const [projects, sessions] = await Promise.all([get("api/projects"), get("api/sessions")]);
+  for (const p of projects || []) if (p.registry) registries[p.path] = p.registry;
   let h = `<h3>Projects</h3>`;
   h += (projects || []).map((p) => `<button data-kind="project" data-id="${esc(p.path)}" class="${scope && scope.kind === "project" && scope.id === p.path ? "on" : ""}">
       <div class="id">${esc(p.path.split("/").pop())}</div><div class="meta">${esc(p.path)}</div>
@@ -161,7 +164,7 @@ async function nav() {
   $("nav").innerHTML = h;
   for (const b of $("nav").querySelectorAll("button")) b.onclick = () => {
     scope = {kind: b.dataset.kind, id: b.dataset.id, project: b.dataset.kind === "project" ? b.dataset.id : b.dataset.project};
-    picked = null; focusNode = null; kwebSrc = "";
+    picked = null; focusNode = null; focusHash = null; kwebSrc = "";
     nav(); render();
   };
 }
@@ -299,7 +302,7 @@ async function showRecipe() {
     <div class="section">As a script</div>
     <pre class="code script">${esc(r.script)}</pre>`;
   $("showWay").onclick = () => {
-    focusNode = r.node;
+    focusNode = r.node; focusHash = r.target && r.target.sha256;
     if (scope.kind !== "project") scope = {kind: "project", id: project, project};
     nav(); setTab("flow");
   };
@@ -370,16 +373,21 @@ function renderKtonWeb() {
     return;
   }
   const g = `/kton/graph.json?project=${enc(project)}`;
-  let src = `/web/viewers/graph/?graph=${enc(g)}`;
-  if (focusNode) src += `&focus=${enc(focusNode)}&mode=anc`;
+  const reg = registries[project];
+  // with a cockpit repository: its signed records and the observations in one graph, joined by
+  // file hash (recorded only / signed only / both); the focus is then the file, which kton-web
+  // finds whether a record or only a recorded step has it
+  let src = reg ? `/web/viewers/graph/?union=${enc(`/kton/reg/${reg}/data/union.json`)}&graph=${enc(g)}` : `/web/viewers/graph/?graph=${enc(g)}`;
+  if (reg && focusHash) src += `&focus=${enc("sha256:" + focusHash)}&mode=anc`;
+  else if (focusNode) src += `&focus=${enc(focusNode)}&mode=anc`;
   if (src === kwebSrc && $("kweb")) return;
   kwebSrc = src;
-  $("view").innerHTML = `<div class="bar" style="padding-top:0"><span class="h">kton-web graph · steps are fotons (unverified: none of it is signed), source files are sources.</span>
+  $("view").innerHTML = `<div class="bar" style="padding-top:0"><span class="h">kton-web graph · ${reg ? "recorded and signed together: signed records are verified here, recorded steps without a record stay unsigned" : "steps are fotons (unverified: none of it is signed), source files are sources"}.</span>
       <button class="btn" id="kwebReload">Reload</button><a class="btn" href="${esc(src)}" target="_blank" style="text-decoration:none">In its own window</a>
-      ${focusNode ? `<button class="btn" id="kwebAll">Whole graph</button>` : ""}</div>
+      ${focusNode || focusHash ? `<button class="btn" id="kwebAll">Whole graph</button>` : ""}</div>
     <iframe id="kweb" src="${esc(src)}"></iframe>`;
   $("kwebReload").onclick = () => { kwebSrc = ""; renderKtonWeb(); };
-  if ($("kwebAll")) $("kwebAll").onclick = () => { focusNode = null; renderKtonWeb(); };
+  if ($("kwebAll")) $("kwebAll").onclick = () => { focusNode = null; focusHash = null; renderKtonWeb(); };
 }
 
 // ------------------------------------------------------------------ documenting (by hand, with the cockpit's verbs)

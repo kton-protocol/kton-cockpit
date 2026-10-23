@@ -21,7 +21,6 @@ const path = require('path');
 const http = require('http');
 const crypto = require('crypto');
 const { spawn, execFile } = require('child_process');
-const net = require('net');
 
 const cfg = () => vscode.workspace.getConfiguration('kton.recorder');
 const home = os.homedir();
@@ -577,7 +576,7 @@ async function openStory(context, project, file) {
     else if (m.type === 'note') { const n = allNotes(); n[m.key] = m.note; await context.globalState.update(notesKey, n); }
     else if (m.type === 'reproduce') { await reproduce(project, file.path, file.sha256); send(); } // the result belongs in the story
     else if (m.type === 'diff') diffReproduced(project, m);
-    else if (m.type === 'inkton' && story) openInKton(story.repo, file.sha256, path.basename(file.path));
+    else if (m.type === 'inkton' && story) openInKton(project, story.repo, file.sha256, path.basename(file.path));
     else if (m.type === 'save') {
       const to = await vscode.window.showSaveDialog({ defaultUri: vscode.Uri.file(path.join(story ? story.repo : project, path.basename(file.path) + '.story.md')), filters: { Markdown: ['md'] } });
       if (to) { fs.writeFileSync(to.fsPath, m.markdown); vscode.window.showTextDocument(to); }
@@ -590,51 +589,24 @@ async function openStory(context, project, file) {
 }
 
 // ------------------------------------------------------------------ the file in kton (kton-web)
-// kton-web's graph viewer, in the editor, on this repository's signed records, centred on the record whose output
-// is the file. `cockpit show` serves the records and the repository's trust keys, and the viewer
-// verifies every record itself. One server per repository, on a free loopback port, for as long as
-// this window lives. Until the cockpit can select portions from its store (requested), it serves
-// the repository's own records whole.
-const shows = new Map(); // repo → {port, proc}
-const freePort = () => new Promise((resolve, reject) => {
-  const srv = net.createServer();
-  srv.listen(0, '127.0.0.1', () => { const { port } = srv.address(); srv.close(() => resolve(port)); });
-  srv.on('error', reject);
-});
-const ktonWeb = () => {
-  if (process.env.KTON_WEB) return process.env.KTON_WEB;
-  try { return fs.readFileSync(path.join(home, '.local', 'share', 'kton', 'web'), 'utf8').trim(); } catch (e) { return ''; }
-};
-async function cockpitShow(repo) {
-  const known = shows.get(repo);
-  if (known && known.proc.exitCode === null) return known.port;
-  const web = ktonWeb();
-  if (!web) { vscode.window.showErrorMessage('kton: no kton-web checkout known (KTON_WEB, or recorder/install.sh next to kton-web)'); return 0; }
-  const port = await freePort();
-  const proc = spawn(bin('cockpit'), ['show', `127.0.0.1:${port}`, '--web', web], { cwd: repo });
-  proc.stderr.on('data', (d) => out.append(d.toString()));
-  shows.set(repo, { port, proc });
-  for (let i = 0; i < 40; i++) {
-    await new Promise((r) => setTimeout(r, 250));
-    if (proc.exitCode !== null) break;
-    try { await getJSON(`http://127.0.0.1:${port}/data/keys.json`, 2000); return port; } catch (e) { /* not yet */ }
-  }
-  vscode.window.showErrorMessage(`kton: cockpit show in ${repo} does not answer (see the kton output)`);
-  out.show(true);
-  return 0;
-}
-// in the editor, beside the story: one tab per repository, centred anew on each file
+// kton-web's graph viewer, in the editor beside the story: the repository's signed records and the
+// project's observations in one graph, joined by file hash (recorded only / signed only / both),
+// centred on the file. ktonwatch serves all of it from one origin: kton-web (/web/), the recorder's
+// graph (/kton/graph.json) and the cockpit's data handler (/kton/reg/<id>/data/…: the records
+// through its index, and the trust tiers). kton-web verifies every record itself.
 const ktonPanels = new Map(); // repo → panel
-async function openInKton(repo, sum, name) {
-  const port = await cockpitShow(repo);
-  if (!port) return;
-  const local = `http://127.0.0.1:${port}/viewers/graph/?union=/data/union.json&focus=sha256:${sum}`;
-  const src = (await vscode.env.asExternalUri(vscode.Uri.parse(local))).toString(true);
+async function openInKton(project, repo, sum, name) {
+  if (!(await ensureService())) return;
+  const p0 = ((await getJSON(viewerUrl() + 'api/projects').catch(() => [])) || []).find((x) => x.path === project);
+  const reg = p0 && p0.registry;
+  const g = '/kton/graph.json?project=' + encodeURIComponent(project);
+  const q = (reg ? 'union=' + encodeURIComponent(`/kton/reg/${reg}/data/union.json`) + '&' : '') +
+    'graph=' + encodeURIComponent(g) + '&focus=' + encodeURIComponent('sha256:' + sum) + '&mode=anc';
+  const src = (await vscode.env.asExternalUri(vscode.Uri.parse(viewerUrl() + 'web/viewers/graph/?' + q))).toString(true);
   const originOf = new URL(src).origin;
   let p = ktonPanels.get(repo);
   if (!p) {
-    p = vscode.window.createWebviewPanel('ktonGraph', 'kton: ' + path.basename(repo), vscode.ViewColumn.Beside,
-      { enableScripts: true, retainContextWhenHidden: true });
+    p = vscode.window.createWebviewPanel('ktonGraph', 'kton', vscode.ViewColumn.Beside, { enableScripts: true, retainContextWhenHidden: true });
     ktonPanels.set(repo, p);
     p.onDidDispose(() => ktonPanels.delete(repo));
   } else p.reveal(vscode.ViewColumn.Beside);
@@ -643,6 +615,7 @@ async function openInKton(repo, sum, name) {
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; frame-src ${originOf}; style-src 'unsafe-inline';">
 <style>html,body,iframe{margin:0;padding:0;border:0;width:100%;height:100%;overflow:hidden}</style></head>
 <body><iframe src="${src.replace(/"/g, '&quot;')}"></iframe></body></html>`;
+  if (!reg) vscode.window.setStatusBarMessage('kton: no cockpit repository for this project: only what was recorded is shown', 5000);
 }
 
 async function openInBrowser() {
@@ -699,5 +672,5 @@ function activate(context) {
   }));
 }
 
-function deactivate() { for (const s of shows.values()) s.proc.kill(); }
+function deactivate() {}
 module.exports = { activate, deactivate, _test: { parseDoctor, parseDoctorJSON, cockpitRepoOf, reproduce, publishedSteps, publishText, Tree, setOut: (o) => { out = o; } } };

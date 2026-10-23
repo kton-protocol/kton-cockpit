@@ -1,6 +1,12 @@
 package watch
 
-import "sort"
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"os"
+	"path/filepath"
+	"sort"
+)
 
 // A working day is several sessions: the morning's R session writes a dataset, the
 // afternoon's reads it. Within a session the watcher links that itself; across sessions the
@@ -237,6 +243,7 @@ type ProjectSummary struct {
 	Sessions int    `json:"sessions"`
 	Tasks    int    `json:"tasks"`
 	Last     int64  `json:"last_ns"`
+	Registry string `json:"registry,omitempty"` // RegistryID of its cockpit repository, if it is in one
 }
 
 // Projects lists the projects that have sessions, most recent first.
@@ -262,10 +269,35 @@ func (sv *Service) Projects() []ProjectSummary {
 	}
 	var out []ProjectSummary
 	for _, p := range by {
+		if repo := RepoRoot(p.Path); isCockpitRepo(repo) {
+			p.Registry = RegistryID(repo)
+		}
 		out = append(out, *p)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Last > out[j].Last })
 	return out
+}
+
+// RegistryID names a cockpit repository in URLs (/kton/reg/<id>/data/…) without its path.
+func RegistryID(repo string) string {
+	h := sha256.Sum256([]byte(repo))
+	return hex.EncodeToString(h[:8])
+}
+
+func isCockpitRepo(dir string) bool {
+	_, err := os.Stat(filepath.Join(dir, "cockpit.config.json"))
+	return err == nil
+}
+
+// RegistryRepo is the cockpit repository with this RegistryID among the recorded projects'; ""
+// when none. Only those are served, so the id cannot reach an arbitrary directory.
+func (sv *Service) RegistryRepo(id string) string {
+	for _, p := range sv.Projects() {
+		if p.Registry == id {
+			return RepoRoot(p.Path)
+		}
+	}
+	return ""
 }
 
 func (sv *Service) projectView(check *Checker, project string, f Filter) map[string]any {
