@@ -195,7 +195,9 @@ async function publish(repo, text) {
   if (ok !== 'Run') return;
   const cockpit = bin('cockpit');
   // the lines below are POSIX shell: the terminal is bash, whatever the person's default is
-  const term = vscode.window.terminals.find((t) => t.name === 'kton cockpit') ||
+  // bash, whose quoting the publish lines are written for: a "kton cockpit" terminal an older
+  // version opened in another shell is not reused
+  const term = vscode.window.terminals.find((t) => t.name === 'kton cockpit' && (t.creationOptions || {}).shellPath === '/bin/bash') ||
     vscode.window.createTerminal({ name: 'kton cockpit', cwd: repo, shellPath: '/bin/bash' });
   term.show();
   term.sendText(`cd ${JSON.stringify(repo)}`);
