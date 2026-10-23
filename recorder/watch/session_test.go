@@ -514,3 +514,39 @@ func TestSession_FilesLookedForAtStartAreNotMissing(t *testing.T) {
 		t.Fatalf("missing %v", m)
 	}
 }
+
+// ddmanymore: one plain Rscript per model, no ktonrec (no ENV, no TASK). The log's hashed
+// prefixes were MH's default list — an unrelated folder first, then the broad /mnt/c/dev — so
+// every session was filed under the first prefix and /api/calls?project=<repo> found nothing.
+// The session goes to the repository its first command ran in, within a hashed prefix.
+func TestSession_APlainRunIsFiledUnderTheRepositoryItRanIn(t *testing.T) {
+	root := t.TempDir()
+	other, broad := filepath.Join(root, "kton-recorder-test"), filepath.Join(root, "dev")
+	repo := filepath.Join(broad, "workstreams", "ddmanymore")
+	os.MkdirAll(filepath.Join(repo, ".git"), 0o755)
+	os.MkdirAll(filepath.Join(repo, "pipeline"), 0o755)
+	os.MkdirAll(filepath.Join(broad, "loose", "dir"), 0o755)
+	place := func(cwd string) string {
+		s := NewSession("t", "/log.tsv", &Classifier{})
+		s.Line("#ktontrace v3\thash=" + other + ":" + broad)
+		s.Line(fmt.Sprintf("1\t10\t1\texec\tq\t%s\t0\t0\t0\tRscript extract.R", cwd))
+		return s.Project
+	}
+	if got := place(filepath.Join(repo, "pipeline")); got != repo {
+		t.Errorf("in the repository: %q, want %q", got, repo)
+	}
+	if got := place(filepath.Join(broad, "loose", "dir")); got != broad {
+		t.Errorf("no repository: %q, want the prefix %q", got, broad)
+	}
+	if got := place("/elsewhere"); got != other {
+		t.Errorf("outside every prefix: %q, want the first prefix %q (as before)", got, other)
+	}
+	// a session that says where it works keeps it
+	s := NewSession("t", "/log.tsv", &Classifier{})
+	s.Line("#ktontrace v3\thash=" + other + ":" + broad)
+	s.Line(fmt.Sprintf("1\t10\t1\texec\tq\t%s\t0\t0\t0\tR", filepath.Join(repo, "pipeline")))
+	s.Line("2\t10\t1\tENV\t-\t-\t0\t0\t0\tproject=" + other)
+	if s.Project != other {
+		t.Errorf("ENV project: %q", s.Project)
+	}
+}
