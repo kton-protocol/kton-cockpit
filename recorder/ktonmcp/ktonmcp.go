@@ -56,6 +56,7 @@ func Server(sv *watch.Service, version string) *mcp.Server {
 		mcpsurface.Handler(t.selection))
 	mcp.AddTool(s, &mcp.Tool{Name: "kton_copy", Description: "Copy a file (by its content hash, e.g. another analyst's script or dataset found with kton_ask or the graph) into a project. The person is asked in Positron and sees source and target first; nothing is overwritten without their yes. The bytes are checked against the hash."},
 		mcpsurface.Handler(t.copyFile))
+	mcp.AddTool(s, &mcp.Tool{Name: "kton_sparql", Description: sparqlHelp}, mcpsurface.Handler(t.sparql))
 	mcp.AddTool(s, &mcp.Tool{Name: "kton_note", Description: "Draft the description and the rationale of a recorded step (key \"session/task\" from kton_runs or kton_story). A draft only: the person sees it in the story, can change it, and signs it when publishing. Empty description and rationale remove the draft."},
 		mcpsurface.Handler(t.note))
 	return s
@@ -290,6 +291,86 @@ func (t *tools) ask(ctx context.Context, in AskIn) (*AskOut, error) {
 		return nil, err
 	}
 	return &AskOut{Answer: a}, nil
+}
+
+// ------------------------------------------------------------------ sparql
+
+// sparqlHelp teaches the dataset and gives worked examples (the cockpit's docs/sparql.md, where
+// each runs in a test; the two model-development ones follow the same rule for templates).
+const sparqlHelp = `A SPARQL SELECT or ASK of your own over kton, as the project's repository sees it: every step (foton) of the repository and its federation sources, attributed to a signer only where a key its trust tiers trust verified it; every claim a trusted key signed. The cockpit refuses anything but SELECT/ASK, SERVICE and FROM. Prefer kton_ask (producer, uses, lineage, about, record) for one file or record; use this for questions across many.
+
+Needs a cockpit built with SPARQL (kton's RDF projection; until kton 0.3 a build with -tags unreleased and an engine): otherwise the answer is a refusal "sparql.unavailable" — say so to the person and fall back to kton_ask.
+
+Prefixes: prov: <http://www.w3.org/ns/prov#> rdfs: <http://www.w3.org/2000/01/rdf-schema#> dct: <http://purl.org/dc/terms/> ep: <https://w3id.org/ep-plan#> np: <http://www.nanopub.org/nschema#> nk: <https://kton.dev/v/> xsd: <http://www.w3.org/2001/XMLSchema#>
+Nodes: a file or record sha256:<hex> is <https://kton.dev/o/<hex>>; a signer is <https://kton.dev/agent/<keyid>> (16 hex).
+A step (default graph): ?step a prov:Activity ; prov:used ?input ; nk:protocolRef ?hash ; prov:wasAttributedTo ?signer . ?output prov:wasGeneratedBy ?step ; prov:wasDerivedFrom ?input . ?file rdfs:label "data/in.csv" (the path the step named it by).
+A claim is a nanopublication in four graphs: GRAPH ?head { ?np np:hasAssertion ?assertion ; np:hasPublicationInfo ?pubinfo } GRAPH ?assertion { ?subject ?predicate ?o . ?o ?field ?value } GRAPH ?pubinfo { ?np dct:created ?when ; nk:scope ?scope } GRAPH ?attribution { ?np dct:creator ?signer }. describes is dct:description, rationale is ep:hasRationale, both with field nk:lab/value. Other templates under their own predicate with fields nk:lab/<field>: the model development is <https://kton.dev/v/pmx/parent-step> (field nk:lab/parent-step: the parent step's id as a string), pmx/based-on, pmx/key-step, pmx/base-model, pmx/final-model, pmx/qc-passed (field nk:lab/value, often nk:lab/why).
+Not in the dataset: a step's time and command text (match input paths; kton_ask record shows the command), a scope's parent (kton_ask about / the story's context), trust tiers (name signer keys).
+
+Examples (replace FILE, STEP, KEYID with hex):
+1. Every step that used a file, and who signed it:
+SELECT ?step ?signer WHERE { ?step prov:used <https://kton.dev/o/FILE> . OPTIONAL { ?step prov:wasAttributedTo ?signer } }
+2. Descriptions and rationales of a step:
+SELECT ?kind ?text ?signer ?when WHERE { VALUES (?predicate ?kind) { (dct:description "description") (ep:hasRationale "rationale") } GRAPH ?assertion { <https://kton.dev/o/STEP> ?predicate ?o . ?o <https://kton.dev/v/lab/value> ?text } GRAPH ?head { ?np np:hasAssertion ?assertion ; np:hasPublicationInfo ?pubinfo } GRAPH ?pubinfo { ?np dct:created ?when } GRAPH ?attribution { ?np dct:creator ?signer } } ORDER BY ?when
+3. What one signer said in a time window:
+SELECT ?claim ?when WHERE { GRAPH ?attribution { ?np dct:creator <https://kton.dev/agent/KEYID> } GRAPH ?pubinfo { ?np dct:created ?when ; prov:wasDerivedFrom ?claim } FILTER (?when >= "2026-01-01T00:00:00Z"^^xsd:dateTime) } ORDER BY ?when
+4. The claims in a scope, by its name (e.g. a study):
+SELECT ?claim ?subject ?predicate WHERE { GRAPH ?seedAssertion { ?s a nk:Scope ; rdfs:label "study-thp-101" } GRAPH ?seedHead { ?seed np:hasAssertion ?seedAssertion ; np:hasPublicationInfo ?seedInfo } GRAPH ?seedInfo { ?seed nk:genesis true ; nk:scope ?scope } GRAPH ?pubinfo { ?np nk:scope ?scope ; prov:wasDerivedFrom ?claim FILTER NOT EXISTS { ?np nk:genesis true } } GRAPH ?head { ?np np:hasAssertion ?assertion ; np:hasPublicationInfo ?pubinfo } GRAPH ?assertion { ?subject ?predicate ?o FILTER NOT EXISTS { ?any ?points ?subject } } }
+5. Files two independent signers produced:
+SELECT DISTINCT ?file ?path WHERE { ?file prov:wasGeneratedBy ?one, ?other . ?one prov:wasAttributedTo ?a . ?other prov:wasAttributedTo ?b . FILTER (?one != ?other && ?a != ?b) OPTIONAL { ?file rdfs:label ?path } }
+6. Steps that ran a script, by its path (how did others fit a model?):
+SELECT DISTINCT ?step ?path WHERE { ?step prov:used ?script ; prov:wasAttributedTo ?signer . ?script rdfs:label ?path . FILTER regex(?path, "fit|run0", "i") }
+7. Everything a file was derived from:
+SELECT DISTINCT ?source ?path WHERE { <https://kton.dev/o/FILE> prov:wasDerivedFrom+ ?source . OPTIONAL { ?source rdfs:label ?path } }
+8. Did a trusted key produce this file? ASK { <https://kton.dev/o/FILE> prov:wasGeneratedBy ?step . ?step prov:wasAttributedTo ?signer }
+9. Final and base models, and why (model development; same rule, not in the cockpit's tests):
+SELECT ?step ?kind ?model ?why ?signer WHERE { VALUES (?p ?kind) { (<https://kton.dev/v/pmx/final-model> "final") (<https://kton.dev/v/pmx/base-model> "base") } GRAPH ?assertion { ?step ?p ?o . ?o <https://kton.dev/v/lab/value> ?model OPTIONAL { ?o <https://kton.dev/v/lab/why> ?why } } GRAPH ?head { ?np np:hasAssertion ?assertion } GRAPH ?attribution { ?np dct:creator ?signer } }
+10. A model development: each step and the step it was developed from (same rule, not in the cockpit's tests):
+SELECT ?child ?parent ?why WHERE { GRAPH ?assertion { ?child <https://kton.dev/v/pmx/parent-step> ?o . ?o <https://kton.dev/v/lab/parent-step> ?parent OPTIONAL { ?o <https://kton.dev/v/lab/why> ?why } } }
+Write the PREFIX lines you use at the top of the query.`
+
+type SparqlIn struct {
+	Sparql         string `json:"sparql" jsonschema:"a SELECT or ASK, with its PREFIX lines"`
+	Project        string `json:"project" jsonschema:"whose repository asks: its federation and trust tiers decide what is seen (kton_projects)"`
+	Limit          int    `json:"limit,omitempty" jsonschema:"rows at most (cockpit default 1000, max 10000)"`
+	TimeoutSeconds int    `json:"timeoutSeconds,omitempty" jsonschema:"seconds at most (cockpit default 30, max 120)"`
+}
+
+// askJSON is how the tools ask the cockpit with any request (tests replace it).
+var askJSON = watch.CockpitAskJSON
+
+func (t *tools) sparql(ctx context.Context, in SparqlIn) (*AskOut, error) {
+	if strings.TrimSpace(in.Sparql) == "" || in.Project == "" {
+		return nil, fmt.Errorf("sparql and project are needed")
+	}
+	req := map[string]any{"query": "sparql", "sparql": in.Sparql}
+	if in.Limit > 0 {
+		req["limit"] = in.Limit
+	}
+	wait := 35 * time.Second
+	if in.TimeoutSeconds > 0 {
+		req["timeoutSeconds"] = in.TimeoutSeconds
+		wait = time.Duration(in.TimeoutSeconds+5) * time.Second
+	}
+	ctx, cancel := context.WithTimeout(ctx, wait)
+	defer cancel()
+	repo := watch.RepoRoot(in.Project)
+	b, err := askJSON(ctx, repo, req)
+	if err != nil {
+		if strings.Contains(err.Error(), `unknown field "sparql"`) || strings.Contains(err.Error(), "sparql.unavailable") {
+			return nil, fmt.Errorf("this cockpit cannot answer SPARQL yet (it needs ask sparql, kton-cockpit #38, built with kton's RDF projection); answer with kton_ask instead. The cockpit said: %v", err)
+		}
+		return nil, fmt.Errorf("cockpit ask sparql in %s: %v", repo, err)
+	}
+	var a struct {
+		Sparql any `json:"sparql"`
+	}
+	if err := json.Unmarshal(b, &a); err != nil || a.Sparql == nil {
+		var whole any
+		json.Unmarshal(b, &whole)
+		return &AskOut{Answer: whole}, nil
+	}
+	return &AskOut{Answer: a.Sparql}, nil
 }
 
 // ------------------------------------------------------------------ note

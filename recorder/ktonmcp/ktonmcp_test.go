@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -108,7 +109,7 @@ func TestTools_Listed(t *testing.T) {
 	for _, tl := range res.Tools {
 		names = append(names, tl.Name)
 	}
-	if strings.Join(names, " ") != "kton_ask kton_copy kton_note kton_open_graph kton_open_story kton_projects kton_runs kton_select kton_selection kton_story" {
+	if strings.Join(names, " ") != "kton_ask kton_copy kton_note kton_open_graph kton_open_story kton_projects kton_runs kton_select kton_selection kton_sparql kton_story" {
 		t.Fatalf("tools %v", names)
 	}
 }
@@ -290,5 +291,33 @@ func TestEditorTools_TheWindowGetsWhatItNeeds(t *testing.T) {
 	}
 	if e := errText(call(t, cs, "kton_copy", map[string]any{"hash": "sha256:" + strings.Repeat("b", 64), "to": "../outside.R", "project": project}, nil)); !strings.Contains(e, "inside the project") {
 		t.Fatalf("a target outside the project: %q", e)
+	}
+}
+
+func TestSparql_PassesTheQueryAndShowsTheAnswerOrTheRefusal(t *testing.T) {
+	sv, project := fixture(t)
+	cs := connect(t, sv)
+	var sent []byte
+	askJSON = func(_ context.Context, dir string, q any) ([]byte, error) {
+		sent, _ = json.Marshal(q)
+		if strings.Contains(string(sent), "SERVICE") {
+			return nil, errors.New("exit status 2: query.refused: SERVICE calls another endpoint")
+		}
+		return []byte(`{"query":"sparql","sparql":{"form":"SELECT","vars":["step"],"rows":[{"step":"https://kton.dev/o/ab"}],"limit":5}}`), nil
+	}
+	t.Cleanup(func() { askJSON = watch.CockpitAskJSON })
+	var out AskOut
+	call(t, cs, "kton_sparql", map[string]any{"sparql": "SELECT ?step WHERE { ?step a <http://www.w3.org/ns/prov#Activity> }", "project": project, "limit": 5}, &out)
+	if !strings.Contains(string(sent), `"limit":5`) || !strings.Contains(string(sent), `"query":"sparql"`) {
+		t.Fatalf("sent %s", sent)
+	}
+	if a, _ := out.Answer.(map[string]any); a == nil || a["form"] != "SELECT" {
+		t.Fatalf("answer %+v", out.Answer)
+	}
+	if e := errText(call(t, cs, "kton_sparql", map[string]any{"sparql": "SELECT * { SERVICE <x> { ?s ?p ?o } }", "project": project}, nil)); !strings.Contains(e, "query.refused") {
+		t.Fatalf("refusal: %q", e)
+	}
+	if e := errText(call(t, cs, "kton_sparql", map[string]any{"sparql": "SELECT 1"}, nil)); !strings.Contains(e, "project") {
+		t.Fatalf("no project: %q", e)
 	}
 }
