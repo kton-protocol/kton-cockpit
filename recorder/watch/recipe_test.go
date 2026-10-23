@@ -161,3 +161,23 @@ func TestRecipe_AllCommandsOfATaskInOrder(t *testing.T) {
 		t.Fatalf("story step where: %+v", st)
 	}
 }
+
+// A Python task with two commands: each its own python3, a %run as a file run, not as -c code
+func TestRecipe_PythonCommandsOfATaskOneByOne(t *testing.T) {
+	ts := []*Task{
+		{Session: "py", ID: "1", Start: 1, End: 5,
+			Origins: []Origin{{Kind: "interactive", Code: "import os", TS: 2, Language: "python"},
+				{Kind: "script", File: "/p/py/06.py", Code: `%run -- "py/06.py"`, TS: 4, Language: "python"}},
+			Inputs:  []*Input{{Path: "/p/py/06.py", SHA256: "py", Class: ClassProject, Now: NowSame}},
+			Outputs: []*Output{{Path: "/p/derived/cov.csv", SHA256: "cov", Class: ClassProject, Now: NowSame}}},
+	}
+	r := recipeOf(ts, "/p", "/p/derived/cov.csv", "")
+	for _, want := range []string{`shQuote(c("-c", "import os"))`, `shQuote(c("py/06.py"))`} {
+		if !strings.Contains(r.Script, want) {
+			t.Fatalf("script lacks %s:\n%s", want, r.Script)
+		}
+	}
+	if strings.Contains(r.Script, `"-c", "import os\n%run`) {
+		t.Fatalf("the two commands ran as one -c:\n%s", r.Script)
+	}
+}

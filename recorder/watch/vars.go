@@ -20,8 +20,6 @@ var (
 	rIdent   = regexp.MustCompile(`[A-Za-z.][A-Za-z0-9._]*`)
 )
 
-// Code is the code a task ran as far as it is known: what Positron sent, else the expression
-// R saw (not Ark's own `.ark_last_value`).
 // Origin is the command that names the task: the last one sent with a file (a script, a chunk),
 // else the last one. Earlier origins of the same task are commands that ran before it without a
 // task boundary in between; when the task began is the first origin's business (commandStart).
@@ -37,9 +35,10 @@ func (t *Task) Origin() *Origin {
 	return nil
 }
 
+// Code is the code a task ran as far as it is known: every command Positron sent in it, in the
+// order sent (a command that closed no task of its own, getwd() typed before a source(), ran
+// inside this one), else the expression R saw (not Ark's own `.ark_last_value`).
 func (t *Task) Code() string {
-	// every command the task saw, in the order they were sent: a command that did not close a task
-	// of its own (getwd() typed before a source()) ran inside this one
 	var codes []string
 	for _, o := range t.Origins {
 		if o.Code != "" {

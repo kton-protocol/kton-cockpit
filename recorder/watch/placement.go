@@ -26,7 +26,7 @@ import (
 type Level struct {
 	Name   string `json:"name"`   // the seed's name: "study-thp-101"
 	Scope  string `json:"scope"`  // the seed's id
-	Source string `json:"source"` // where the seed was found: a federation source name, or "self"
+	Source string `json:"source"` // the trust tier that verified the seed (older cockpits: the source it was found in)
 }
 
 // Placement is where one source of a story resides.
@@ -79,6 +79,9 @@ func cockpitAsk(ctx context.Context, dir string, q map[string]string) ([]byte, e
 	b, _ := json.Marshal(q)
 	cmd := exec.CommandContext(ctx, exe, "ask", string(b))
 	cmd.Dir = dir
+	// the context kills the cockpit, not its children (git, docker); one of them holding stdout
+	// open must not hold the story
+	cmd.WaitDelay = time.Second
 	return cmd.Output()
 }
 
@@ -101,6 +104,7 @@ type Placer struct {
 	seals  map[string]*seal     // scope id → seal
 	missed map[string]time.Time // scope id → when it was not found
 	placed map[string]placedAt  // repo \x00 sha256 → placement
+	chains map[string][]Level   // scope id → its whole, trusted chain
 }
 
 type placedAt struct {
@@ -110,7 +114,7 @@ type placedAt struct {
 
 func NewPlacer(ask Asker) *Placer {
 	return &Placer{Ask: ask, Now: time.Now, Keep: time.Minute, Budget: 10 * time.Second,
-		seals: map[string]*seal{}, missed: map[string]time.Time{}, placed: map[string]placedAt{}}
+		seals: map[string]*seal{}, missed: map[string]time.Time{}, placed: map[string]placedAt{}, chains: map[string][]Level{}}
 }
 
 // dirSources are the repository itself and the federation sources of kind dir, in config order.
@@ -253,6 +257,14 @@ func (pl *Placer) place(ctx context.Context, repo, path, sum string) Placement {
 		if !ok[c.ID] || c.Scope == "" {
 			continue
 		}
+		if levels, note, done := pl.chainOf(ctx, repo, c.Scope); done {
+			p.Levels, p.Note = levels, note
+			if len(p.Levels) > 0 {
+				break
+			}
+			continue
+		}
+		// a cockpit before SPEC §9.6's federated ask scope: ask each dir source in turn
 		seen := map[string]bool{}
 		for scope := c.Scope; scope != "" && !seen[scope] && len(seen) < 12; {
 			seen[scope] = true
@@ -275,6 +287,67 @@ func (pl *Placer) place(ctx context.Context, repo, path, sum string) Placement {
 		p.Note = "published by " + p.PublishedBy + ", but no verified claim about it names a scope"
 	}
 	return p
+}
+
+// chainOf asks the cockpit once for a scope and its parents (SPEC §9.6, kton-cockpit 40127a8): the
+// seed and its context are read over the union of the repository and its federation sources, and
+// verified against the repository's own trust tiers. done is false when the cockpit does not
+// answer that way (an older one, or no seed anywhere); the caller then walks the sources itself.
+func (pl *Placer) chainOf(ctx context.Context, repo, scope string) (levels []Level, note string, done bool) {
+	pl.mu.Lock()
+	c, known := pl.chains[scope]
+	when, refused := pl.missed["chain:"+scope]
+	pl.mu.Unlock()
+	if known {
+		return c, "", true
+	}
+	if refused && pl.Now().Sub(when) < pl.Keep {
+		return nil, "", false
+	}
+	notFederated := func() ([]Level, string, bool) {
+		if ctx.Err() == nil {
+			pl.mu.Lock()
+			pl.missed["chain:"+scope] = pl.Now()
+			pl.mu.Unlock()
+		}
+		return nil, "", false
+	}
+	b, err := pl.Ask(ctx, repo, map[string]string{"query": "scope", "ref": scope})
+	if err != nil {
+		return notFederated()
+	}
+	var a struct {
+		Seal *struct {
+			Name     string
+			SeedTier *string `json:"seedTier"`
+			Context  []struct {
+				Scope, Name, Tier string
+				Missing           bool
+			}
+		}
+	}
+	if json.Unmarshal(b, &a) != nil || a.Seal == nil || a.Seal.SeedTier == nil {
+		return notFederated()
+	}
+	at := short(strings.TrimPrefix(scope, "sha256:"))
+	if *a.Seal.SeedTier == "" {
+		return nil, fmt.Sprintf("scope %s: its seed is signed by no key trusted here", at), true
+	}
+	levels = []Level{{Name: a.Seal.Name, Scope: scope, Source: *a.Seal.SeedTier}}
+	for _, l := range a.Seal.Context {
+		at = short(strings.TrimPrefix(l.Scope, "sha256:"))
+		switch {
+		case l.Missing:
+			return levels, fmt.Sprintf("the chain stops at scope %s: no federated source holds its seed", at), true
+		case l.Tier == "":
+			return levels, fmt.Sprintf("the chain stops at scope %s: its seed is signed by no key trusted here", at), true
+		}
+		levels = append(levels, Level{Name: l.Name, Scope: l.Scope, Source: l.Tier})
+	}
+	pl.mu.Lock() // a whole chain stays whole: seeds never change
+	pl.chains[scope] = levels
+	pl.mu.Unlock()
+	return levels, "", true
 }
 
 // placeSources places a story's sources from the project and from outside it, the placed ones

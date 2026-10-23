@@ -400,7 +400,12 @@ func script(r *Recipe, project string, rel func(string) string) string {
 		case code == "":
 			b.WriteString("# (code unknown)\n")
 		case t.Origin() != nil && t.Origin().Language == "python":
-			b.WriteString(pythonStep(code))
+			// one python3 per command: a %run is not Python, and two commands are not one -c
+			for _, o := range t.Origins {
+				if o.Code != "" {
+					b.WriteString(pythonStep(o.Code))
+				}
+			}
 		default:
 			b.WriteString(strings.TrimRight(code, "\n") + "\n")
 		}

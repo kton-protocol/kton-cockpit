@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -19,6 +20,8 @@ type fakeCockpit struct {
 	included map[string]bool              // verified claim ids
 	tier     map[string]string            // claim id → tier that verified it
 	hang     bool                         // answer nothing until asked to stop
+	union    bool                         // ask scope over the federation, verified here (SPEC §9.6)
+	distrust map[string]bool              // scope → its seed's key is in no tier here
 	seeds    map[string]map[string]string // source name → scope → parent ("" none)
 	names    map[string]string            // scope → seed name
 	asked    map[string]int               // query → times asked
@@ -55,6 +58,9 @@ func (f *fakeCockpit) ask(ctx context.Context, dir string, q map[string]string) 
 		}
 		return json.Marshal(map[string]any{"claims": f.claims[q["ref"]], "included": inc, "records": recs})
 	case "scope":
+		if f.union {
+			return f.unionScope(q["ref"])
+		}
 		parent, ok := f.seeds[src][q["ref"]]
 		if !ok {
 			return nil, errors.New("no readable scope seed")
@@ -62,6 +68,40 @@ func (f *fakeCockpit) ask(ctx context.Context, dir string, q map[string]string) 
 		return json.Marshal(map[string]any{"seal": map[string]any{"scope": q["ref"], "name": f.names[q["ref"]], "parent": parent}})
 	}
 	return nil, errors.New("unknown question")
+}
+
+func (f *fakeCockpit) unionScope(scope string) ([]byte, error) {
+	find := func(sc string) (string, string, bool) {
+		for src, seeds := range f.seeds {
+			if parent, ok := seeds[sc]; ok {
+				return src, parent, true
+			}
+		}
+		return "", "", false
+	}
+	src, parent, ok := find(scope)
+	if !ok {
+		return nil, errors.New("no seed for it in this repository or its federation sources")
+	}
+	if f.distrust[scope] {
+		return json.Marshal(map[string]any{"seal": map[string]any{"scope": scope, "seedTier": ""}})
+	}
+	var ctx []map[string]any
+	for sc := parent; sc != ""; {
+		s, p, ok := find(sc)
+		switch {
+		case !ok:
+			ctx = append(ctx, map[string]any{"scope": sc, "missing": true})
+		case f.distrust[sc]:
+			ctx = append(ctx, map[string]any{"scope": sc, "tier": ""})
+		default:
+			ctx = append(ctx, map[string]any{"scope": sc, "name": f.names[sc], "tier": s})
+			sc = p
+			continue
+		}
+		break
+	}
+	return json.Marshal(map[string]any{"seal": map[string]any{"scope": scope, "name": f.names[scope], "parent": parent, "seedTier": src, "context": ctx}})
 }
 
 func programme(t *testing.T) (string, *fakeCockpit) {
@@ -279,5 +319,56 @@ func TestCockpitAsk_OneAtATimePerRepository(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, "overlapped")); err == nil {
 		t.Fatal("two asks ran at once in one repository")
+	}
+}
+
+// SPEC §9.6: one ask scope in the repository gives the whole chain, verified against its tiers
+func TestPlace_OneFederatedAskGivesTheChain(t *testing.T) {
+	repo, f := programme(t)
+	f.union = true
+	p := NewPlacer(f.ask).Place(context.Background(), repo, "data/thp101_pk.csv", "aaa")
+	if len(p.Levels) != 3 || p.Levels[0].Name != "study-thp-101" || p.Levels[2].Name != "program-respiratory" || p.Levels[1].Source != "project-theophylline" || p.Note != "" {
+		t.Fatalf("placement %+v", p)
+	}
+	if f.asked["scope"] != 1 {
+		t.Errorf("asked scope %d times, want once", f.asked["scope"])
+	}
+}
+
+func TestPlace_FederatedChainStopsAtAMissingOrUntrustedSeed(t *testing.T) {
+	repo, f := programme(t)
+	f.union = true
+	f.distrust = map[string]bool{"sha256:programme": true}
+	p := NewPlacer(f.ask).Place(context.Background(), repo, "a.csv", "aaa")
+	if len(p.Levels) != 2 || !strings.Contains(p.Note, "no key trusted here") {
+		t.Fatalf("untrusted programme: %+v", p)
+	}
+	f.distrust = nil
+	delete(f.seeds, "program-respiratory")
+	p = NewPlacer(f.ask).Place(context.Background(), repo, "a.csv", "aaa")
+	if len(p.Levels) != 2 || !strings.Contains(p.Note, "no federated source holds its seed") {
+		t.Fatalf("missing programme: %+v", p)
+	}
+	f.distrust = map[string]bool{"sha256:study": true}
+	p = NewPlacer(f.ask).Place(context.Background(), repo, "a.csv", "aaa")
+	if len(p.Levels) != 0 || !strings.Contains(p.Note, "no key trusted here") {
+		t.Fatalf("untrusted study: %+v", p)
+	}
+}
+
+// review of #23, C1: a child of the cockpit that keeps stdout open is not waited for
+func TestCockpitAsk_AChildHoldingStdoutIsNotWaitedFor(t *testing.T) {
+	dir := t.TempDir()
+	exe := filepath.Join(dir, "cockpit")
+	os.WriteFile(exe, []byte("#!/bin/sh\nsleep 30\n"), 0o755)
+	t.Setenv("KTON_COCKPIT", exe)
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	if _, err := CockpitAsk(ctx, dir, map[string]string{"query": "producer"}); err == nil {
+		t.Fatal("a cockpit that never answered gave no error")
+	}
+	if d := time.Since(start); d > 5*time.Second {
+		t.Fatalf("waited %v", d)
 	}
 }

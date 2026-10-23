@@ -102,6 +102,9 @@ func MakeDraft(s *Session, t *Task) Draft {
 	if o := t.Origin(); o != nil && o.Language == "python" {
 		d.Notes = append(d.Notes, pyNotes(*o)...)
 	}
+	if n := len(t.Origins); n > 1 {
+		d.Notes = append(d.Notes, "this step ran "+itoa(n)+" commands without a boundary between them; the command names the last of them, the files are all of theirs")
+	}
 	return d
 }
 
