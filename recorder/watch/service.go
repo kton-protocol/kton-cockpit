@@ -11,7 +11,6 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 )
 
@@ -197,10 +196,7 @@ func (sv *Service) read(tr *tracked) bool {
 
 func anyAlive(pids []int) bool {
 	for _, p := range pids {
-		if p <= 0 {
-			continue
-		}
-		if err := syscall.Kill(p, 0); err == nil || errors.Is(err, syscall.EPERM) {
+		if p > 0 && alive(p) {
 			return true
 		}
 	}

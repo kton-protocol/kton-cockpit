@@ -33,7 +33,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/kton-protocol/kton-cockpit/recorder/watch"
@@ -62,7 +61,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "kton: %s is not installed here, and no kept call matches\n", tool)
 		os.Exit(127)
 	}
-	err := syscall.Exec(real, append([]string{real}, os.Args[1:]...), os.Environ())
+	err := execTool(real, append([]string{real}, os.Args[1:]...), os.Environ())
 	fmt.Fprintf(os.Stderr, "kton: %s: %v\n", real, err)
 	os.Exit(126)
 }

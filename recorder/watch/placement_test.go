@@ -297,31 +297,6 @@ func TestPlaceSources_FromTheProjectAndOutsidePlacedFirst(t *testing.T) {
 	}
 }
 
-// Concurrent `cockpit ask`s in one repository with federation sources tear down each other's
-// union cache: CockpitAsk asks one at a time per directory. The fake cockpit fails on overlap.
-func TestCockpitAsk_OneAtATimePerRepository(t *testing.T) {
-	dir := t.TempDir()
-	exe := filepath.Join(dir, "cockpit")
-	// an overlap is written down, not only failed: the retry would hide a failure
-	os.WriteFile(exe, []byte("#!/bin/sh\nmkdir \"$PWD/busy\" 2>/dev/null || { touch \"$PWD/overlapped\"; exit 3; }\nsleep 0.05\nrmdir \"$PWD/busy\"\necho '{}'\n"), 0o755)
-	t.Setenv("KTON_COCKPIT", exe)
-	errs := make(chan error, 8)
-	for i := 0; i < 8; i++ {
-		go func() {
-			_, err := CockpitAsk(context.Background(), dir, map[string]string{"query": "producer", "ref": "sha256:x"})
-			errs <- err
-		}()
-	}
-	for i := 0; i < 8; i++ {
-		if err := <-errs; err != nil {
-			t.Fatalf("an ask failed: %v", err)
-		}
-	}
-	if _, err := os.Stat(filepath.Join(dir, "overlapped")); err == nil {
-		t.Fatal("two asks ran at once in one repository")
-	}
-}
-
 // SPEC §9.6: one ask scope in the repository gives the whole chain, verified against its tiers
 func TestPlace_OneFederatedAskGivesTheChain(t *testing.T) {
 	repo, f := programme(t)

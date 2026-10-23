@@ -464,22 +464,13 @@ async function recordedFile(uri) {
 // ------------------------------------------------------------------ what kton already has
 // A step is in kton when the cockpit knows a producer for every file it wrote (verified records
 // only, the cockpit's own rule). Asked per hash, in the repository the story belongs to.
-// One question at a time per repository: with federation sources, concurrent `cockpit ask`s in
-// one repository tear down each other's union cache and fail (reported to kton-cockpit). A
-// failed one is asked once more, since ktonwatch may have asked at the same moment.
-const askQueue = new Map(); // repo → the last question's promise
-const askOnce = (repo, q) => new Promise((resolve) => {
+// concurrent asks in one federated repository need cockpit v0.3.0 (SPEC §9.8)
+const askCockpit = (repo, q) => new Promise((resolve) => {
   execFile(bin('cockpit'), ['ask', JSON.stringify(q)], { cwd: repo, timeout: 15000 }, (err, stdout) => {
     if (err) return resolve(null);
     try { resolve(JSON.parse(stdout)); } catch (e) { resolve(null); }
   });
 });
-function askCockpit(repo, q) {
-  const next = (askQueue.get(repo) || Promise.resolve()).then(async () =>
-    (await askOnce(repo, q)) || (await new Promise((r) => setTimeout(r, 300)), await askOnce(repo, q)));
-  askQueue.set(repo, next.catch(() => null));
-  return next;
-}
 const askProducer = async (repo, sum) => {
   const a = await askCockpit(repo, { query: 'producer', ref: 'sha256:' + sum });
   return !!a && (a.included || []).length > 0;
@@ -489,7 +480,7 @@ async function publishedSteps(story) {
   if (!fs.existsSync(path.join(story.repo, 'cockpit.config.json'))) return done;
   const sums = [...new Set(story.steps.flatMap((s) => s.hashes || []))];
   const known = {};
-  for (const h of sums) known[h] = await askProducer(story.repo, h);
+  await Promise.all(sums.map(async (h) => { known[h] = await askProducer(story.repo, h); }));
   for (const s of story.steps) if ((s.hashes || []).length && s.hashes.every((h) => known[h])) done[s.session + '/' + s.task] = true;
   return done;
 }
