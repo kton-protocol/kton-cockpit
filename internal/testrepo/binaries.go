@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -46,8 +47,14 @@ func resolveBinaries(t *testing.T) (plankton, nekton, kton string) {
 		{kton, "kton.dev/kton", "kton.dev/kton/cmd/kton"},
 	}
 	for _, b := range bins {
+		// A binary built from a workspace (go.work) says (devel), which no go.mod requires, so it is
+		// built once per test process rather than before every test.
+		if _, done := builtHere.Load(b.out); done && exists(b.out) {
+			continue
+		}
 		want := RequiredKernel(t, b.mod)
 		if exists(b.out) && KernelOf(b.out, b.mod) == want {
+			builtHere.Store(b.out, true)
 			continue
 		}
 		if exists(b.out) {
@@ -58,9 +65,13 @@ func resolveBinaries(t *testing.T) (plankton, nekton, kton string) {
 			t.Fatal(err)
 		}
 		build(t, root, b.out, b.pkg)
+		builtHere.Store(b.out, true)
 	}
 	return plankton, nekton, kton
 }
+
+// builtHere holds the kernel binaries this test process has built or found current.
+var builtHere sync.Map
 
 // RequiredKernel is the version of a kton module this repository's go.mod requires, as Go resolves
 // it — a replace directive included, so a local override is reported as what it is.

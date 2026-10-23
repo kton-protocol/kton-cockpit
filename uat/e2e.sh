@@ -168,14 +168,19 @@ require "participant 1's result stands on one signature so far" test "$N" = "1"
 # ---------------------------------------------------------------------------------------------
 echo ""
 echo "== the correction, which is a lookup and not a judgement call =="
-# Participant 2 does not guess why the bytes differ. The foton names its own inputs by hash and
-# carries a commit-pinned locator for each, so the exact script that produced participant 1's
+# Participant 2 does not guess why the bytes differ. The foton names its own inputs by hash, and
+# participant 1 signed a commit-pinned locator for each beside it (kton-locator/v1), so the exact
+# script that produced participant 1's
 # result is fetchable. Here the locator's host is github.com and these repos are local, so the
 # bytes come from the commit the locator names in participant 1's own origin — the same operation.
-LOCATOR=$(PLANKTON_DIR="$FED/registry/plankton" "$FED/bin/plankton" show "$P1_FOTON" --json \
-  | python3 -c 'import json,sys
-d=json.load(sys.stdin)
-print(next(i["uri"][0] for i in d["inputs"] if i["path"].endswith("clean.py")))')
+LOCATOR=$(python3 -c 'import base64,json,sys
+for line in open(sys.argv[1]):
+    m = json.loads(line)
+    if m["subject"] != sys.argv[2] or m["scheme"] != "kton-locator/v1":
+        continue
+    st = json.loads(base64.b64decode(json.loads(base64.b64decode(m["material"]))["payload"]))
+    print(next(s["uri"][0] for s in st["subject"] if s["name"].endswith("clean.py")))
+    break' "$FED/registry/plankton/objects/material.jsonl" "$P1_FOTON")
 SHA=$(sed -E 's#.*/([0-9a-f]{40})/.*#\1#' <<<"$LOCATOR")
 require "participant 1's script is named by a commit-pinned locator" test "${#SHA}" = "40"
 git -C "$WORK/p1/origin.git" show "$SHA:session-1/clean.py" > session-1/theirs.py
