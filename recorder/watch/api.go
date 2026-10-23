@@ -195,6 +195,32 @@ func (sv *Service) Handler() http.Handler {
 	if sv.Web != "" { // a kton-web checkout, served as it is (cockpit show --web does the same)
 		mux.Handle("GET /web/", http.StripPrefix("/web/", http.FileServer(http.Dir(sv.Web))))
 	}
+	// the drafts of descriptions and rationales: GET ?prefix=<session>/ (repeatable), PUT {key, description, rationale, by}
+	mux.HandleFunc("GET /api/notes", func(w http.ResponseWriter, r *http.Request) {
+		if sv.Notes == nil {
+			writeJSON(w, map[string]Note{})
+			return
+		}
+		writeJSON(w, sv.Notes.All(r.URL.Query()["prefix"]...))
+	})
+	mux.HandleFunc("PUT /api/notes", func(w http.ResponseWriter, r *http.Request) {
+		var in struct {
+			Key string `json:"key"`
+			Note
+		}
+		if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&in); err != nil || in.Key == "" || sv.Notes == nil {
+			http.Error(w, "want {key, description, rationale, by}", http.StatusBadRequest)
+			return
+		}
+		if in.By == "" {
+			in.By = "you"
+		}
+		if err := sv.Notes.Put(in.Key, in.Note); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, map[string]bool{"ok": true})
+	})
 	mux.HandleFunc("GET /api/config", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]any{"web": sv.Web != ""})
 	})

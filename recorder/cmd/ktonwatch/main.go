@@ -25,6 +25,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kton-protocol/kton-cockpit/recorder/ktonmcp"
 	"github.com/kton-protocol/kton-cockpit/recorder/watch"
 )
 
@@ -123,6 +124,7 @@ func serve(args []string) {
 	env := fs.String("env", "", "extra environment prefixes")
 	cas := fs.String("cas", cacheDir("cas"), "directory the inputs and outputs of tool calls are kept in, by hash (empty: keep nothing)")
 	casMax := fs.Int64("cas-max", 1<<30, "largest file kept in the cas, in bytes")
+	mcpOn := fs.Bool("mcp", true, "serve the MCP tools at /mcp for an assistant (bearer token in ~/.config/kton/mcp-token)")
 	place := fs.Bool("place", true, "find where a story's sources reside by asking the cockpit (cockpit ask producer/about/scope)")
 	web := fs.String("web", defaultWeb(), "the kton-web checkout whose graph viewer draws the flow (default: $KTON_WEB, else what install.sh recorded)")
 	fs.Parse(args)
@@ -150,6 +152,14 @@ func serve(args []string) {
 	}()
 	mux := http.NewServeMux()
 	mux.Handle("/kton/reg/", registries(sv))
+	if *mcpOn {
+		home, _ := os.UserHomeDir()
+		tok, err := ktonmcp.Token(filepath.Join(home, ".config", "kton", "mcp-token"))
+		if err != nil {
+			log.Fatalf("mcp token: %v", err)
+		}
+		mux.Handle("/mcp", ktonmcp.Handler(ktonmcp.Server(sv, "recorder"), tok))
+	}
 	mux.Handle("/", sv.Handler())
 	srv := &http.Server{Addr: *listen, Handler: mux}
 	go func() { <-ctx.Done(); srv.Close() }()
