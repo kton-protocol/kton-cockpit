@@ -27,6 +27,9 @@
     }
     for (const c of out) {
       c.key = c.hand ? skey(c.steps[0]) : c.session + "/" + c.where;
+      // a line's note: kept per step (session/task, as the MCP tools write it); a line written
+      // before that kept it under the line's own key. Read from wherever it is, written back there.
+      c.noteKey = [...c.steps.map(skey), c.key].find((k) => notes[k]) || skey(c.steps[0]);
       c.path = c.steps.filter((s) => s.on_path);
       c.when = c.steps[0].when_ns;
     }
@@ -92,8 +95,8 @@
   }
 
   function line(c) {
-    const note = noteOf(c.key);
-    const field = (f, ph) => `<div class="note ${note[f] ? "" : "empty"}" contenteditable="true" data-k="${esc(c.key)}" data-f="${f}" data-ph="${ph}">${esc(note[f])}</div>`;
+    const note = noteOf(c.noteKey);
+    const field = (f, ph) => `<div class="note ${note[f] ? "" : "empty"}" contenteditable="true" data-k="${esc(c.noteKey)}" data-f="${f}" data-ph="${ph}">${esc(note[f])}</div>`;
     // the dot: blue, green when in kton, orange for a hand edit, the warning colour when the step
     // has a warning (a file it used was changed or overwritten since), also over green
     const cls = [c.hand ? "hand" : c.inKton ? "done" : "", c.warn.length ? "warned" : ""].filter(Boolean).join(" ");
@@ -146,7 +149,7 @@
     for (const c of cs) {
       md += c.hand ? `- ✎ **${c.steps[0].reads[0]} changed by hand** (not recorded)`
         : `- ${clock(c.when)} **${c.where.replace(/^script /, "")}**: ${c.ins.join(", ")} → ${c.tools.length ? c.tools.join(", ") + " → " : ""}${c.outs.join(", ") || "–"}${c.inKton ? " ✓ in kton" : c.sameResult ? " = same result as in kton, from other inputs" : ""}`;
-      const n = noteOf(c.key);
+      const n = noteOf(c.noteKey);
       md += "\n";
       if (n.description) md += `  - *Description:* ${n.description.replace(/\n/g, "\n    ")}\n`;
       if (n.rationale) md += `  - *Rationale:* ${n.rationale.replace(/\n/g, "\n    ")}\n`;
@@ -214,9 +217,9 @@
       const steps = [];
       for (const c of cs) {
         if (c.inKton) continue;
-        if (c.hand) { steps.push({hand: true, sentence: c.steps[0].sentence, note: noteOf(c.key)}); continue; }
+        if (c.hand) { steps.push({hand: true, sentence: c.steps[0].sentence, note: noteOf(c.noteKey)}); continue; }
         c.path.filter((s) => (s.writes || []).length && !published[skey(s)]).forEach((s, i) =>
-          steps.push({session: s.session, task: s.task, where: s.where, sentence: s.sentence, note: i === 0 ? noteOf(c.key) : null}));
+          steps.push({session: s.session, task: s.task, where: s.where, sentence: s.sentence, note: i === 0 ? noteOf(c.noteKey) : null}));
       }
       vscode.postMessage({type: "publish", steps});
     };
