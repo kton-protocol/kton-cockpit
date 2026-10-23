@@ -471,18 +471,39 @@ const askCockpit = (repo, q) => new Promise((resolve) => {
     try { resolve(JSON.parse(stdout)); } catch (e) { resolve(null); }
   });
 });
-const askProducer = async (repo, sum) => {
+// the verified records whose output these bytes are
+const producersOf = async (repo, sum) => {
   const a = await askCockpit(repo, { query: 'producer', ref: 'sha256:' + sum });
-  return !!a && (a.included || []).length > 0;
+  return (a && a.included) || [];
 };
+// the input hashes a record names
+const recordInputs = async (repo, id) => {
+  const a = await askCockpit(repo, { query: 'record', ref: id });
+  return new Set(((a && a.record && a.record.inputs) || []).map((i) => String(i.hash || '').replace(/^sha256:/, '')));
+};
+// A step is in kton when, for each file it wrote, a verified record has those bytes as output AND
+// names only inputs this step read with the same bytes: the same computation, not only the same
+// result. Same output bytes from other inputs (a changed script whose change did not reach this
+// file) are told apart: "same" (the result is in kton, this run of it is not).
 async function publishedSteps(story) {
-  const done = {};
-  if (!fs.existsSync(path.join(story.repo, 'cockpit.config.json'))) return done;
+  const done = {}, same = {};
+  if (!fs.existsSync(path.join(story.repo, 'cockpit.config.json'))) return { done, same };
   const sums = [...new Set(story.steps.flatMap((s) => s.hashes || []))];
-  const known = {};
-  await Promise.all(sums.map(async (h) => { known[h] = await askProducer(story.repo, h); }));
-  for (const s of story.steps) if ((s.hashes || []).length && s.hashes.every((h) => known[h])) done[s.session + '/' + s.task] = true;
-  return done;
+  const producers = {};
+  await Promise.all(sums.map(async (h) => { producers[h] = await producersOf(story.repo, h); }));
+  const ids = [...new Set(Object.values(producers).flat())];
+  const inputs = {};
+  await Promise.all(ids.map(async (id) => { inputs[id] = await recordInputs(story.repo, id); }));
+  for (const s of story.steps) {
+    const outs = s.hashes || [];
+    if (!outs.length || !outs.every((h) => producers[h].length)) continue;
+    const key = s.session + '/' + s.task;
+    if (!s.in_hashes) { done[key] = true; continue; } // an older ktonwatch says nothing about inputs: outputs only, as before
+    const read = new Set(s.in_hashes);
+    if (outs.every((h) => producers[h].some((id) => [...inputs[id]].every((x) => read.has(x))))) done[key] = true;
+    else same[key] = true;
+  }
+  return { done, same };
 }
 
 // ------------------------------------------------------------------ the story, as an editor tab
@@ -569,7 +590,8 @@ async function openStory(context, project, file) {
     const n = allNotes(), mine = {}, sessions = new Set(story.steps.map((s) => s.session));
     for (const [k, v] of Object.entries(n)) if (sessions.has(k.split('/')[0]) && v && (typeof v === 'string' || v.description !== undefined)) mine[k] = v;
     const cockpitRepo = fs.existsSync(path.join(story.repo, 'cockpit.config.json'));
-    w.postMessage({ type: 'story', story, notes: mine, cockpitRepo, published: await publishedSteps(story) });
+    const ps = await publishedSteps(story);
+    w.postMessage({ type: 'story', story, notes: mine, cockpitRepo, published: ps.done, sameResult: ps.same });
   };
   w.onDidReceiveMessage(async (m) => {
     if (m.type === 'ready') send();
@@ -583,7 +605,7 @@ async function openStory(context, project, file) {
     } else if (m.type === 'publish' && story) {
       await publish(story.repo, await publishText(story, file, m.steps));
       // the terminal does the work; look again a few times so the story catches up
-      for (const ms of [5000, 15000, 40000]) setTimeout(async () => { if (stories.has(id)) w.postMessage({ type: 'published', published: await publishedSteps(story) }); }, ms);
+      for (const ms of [5000, 15000, 40000]) setTimeout(async () => { if (stories.has(id)) { const ps = await publishedSteps(story); w.postMessage({ type: 'published', published: ps.done, sameResult: ps.same }); } }, ms);
     }
   });
 }

@@ -22,9 +22,10 @@ type StoryStep struct {
 	Where    string     `json:"where"`    // "script 02_nca.R", "console", "chunk #1 of step3.qmd"
 	Sentence string     `json:"sentence"` // what happened, in words
 	Code     string     `json:"code,omitempty"`
-	Reads    []string   `json:"reads,omitempty"`  // project-relative
-	Writes   []string   `json:"writes,omitempty"` // project-relative
-	Hashes   []string   `json:"hashes,omitempty"` // sha256 of the writes, for asking kton
+	Reads    []string   `json:"reads,omitempty"`     // project-relative
+	Writes   []string   `json:"writes,omitempty"`    // project-relative
+	Hashes   []string   `json:"hashes,omitempty"`    // sha256 of the writes, for asking kton
+	InHashes []string   `json:"in_hashes,omitempty"` // sha256 of everything it read, scripts too: kton has the step only with these inputs
 	Uses     []string   `json:"uses,omitempty"`
 	Makes    []string   `json:"makes,omitempty"` // variables it left
 	OnPath   bool       `json:"on_path"`
@@ -185,6 +186,9 @@ func storyOf(tasks []*Task, project, path, sum string) *Story {
 		var handEdited []string
 		for _, in := range t.Inputs {
 			p := rel(in.Path)
+			if in.SHA256 != "" {
+				s.InHashes = append(s.InHashes, in.SHA256)
+			}
 			if isCodeFile(in.Path) && (contains(srcs, p) || t.Script == in.Path) {
 				continue // the script itself is the "where", not something it read
 			}

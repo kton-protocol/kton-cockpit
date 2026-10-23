@@ -56,3 +56,4 @@ details.gaps summary { cursor: pointer; color: var(--vscode-descriptionForegroun
 .head code.cmdline { font-weight: 600; margin-right: 4px; }
 .ctx { margin: -4px 0 8px; }
 .ctx .lvl { font-weight: 600; }
+.same { color: var(--vscode-charts-blue); white-space: nowrap; }
