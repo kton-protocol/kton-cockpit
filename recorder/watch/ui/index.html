@@ -380,7 +380,7 @@ function renderKtonWeb() {
   // a file in focus: only the portion of the store around it (?select=, expandable in the viewer);
   // the whole project: the repository's records whole (?union=)
   let src = !reg ? `/web/viewers/graph/?graph=${enc(g)}`
-    : focusHash ? `/web/viewers/graph/?select=${enc(`/kton/reg/${reg}/data/select`)}&graph=${enc(g)}`
+    : focusHash ? `/web/viewers/graph/?select=${enc(`/kton/reg/${reg}/data/select`)}`  // + &graph= once kton-web boots select+graph right
     : `/web/viewers/graph/?union=${enc(`/kton/reg/${reg}/data/union.json`)}&graph=${enc(g)}`;
   if (reg && focusHash) src += `&focus=${enc("sha256:" + focusHash)}&mode=anc`;
   else if (focusNode) src += `&focus=${enc(focusNode)}&mode=anc`;
