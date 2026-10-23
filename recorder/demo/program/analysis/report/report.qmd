@@ -1,0 +1,48 @@
+---
+title: "THP-101: population PK of theophylline"
+subtitle: "Project Theophylline · Programme Respiratory (fictional example)"
+format:
+  html:
+    embed-resources: true
+execute:
+  echo: false
+---
+
+Every chunk reads what the analysis steps left in `derived/` and `figures/`, and computes only what
+the report shows. Rendered in the jam-r image (Quarto with knitr).
+
+```{r}
+#| label: setup
+nca <- read.csv("../derived/nca.csv")
+cmp <- read.csv("../derived/model_comparison.csv")
+pop <- read.csv("../derived/fit_population.csv")
+ex <- read.csv("../derived/exposure_vs_tpp.csv")
+```
+
+## Exposure after a single dose
+
+```{r}
+#| label: nca-summary
+knitr::kable(data.frame(statistic = c("Cmax (mg/L)", "Tmax (h)", "AUC0-24 (mg·h/L)"),
+  median = c(median(nca$Cmax), median(nca$Tmax), median(nca$AUC)),
+  range = c(paste(range(nca$Cmax), collapse = "–"), paste(range(nca$Tmax), collapse = "–"), paste(range(nca$AUC), collapse = "–"))))
+```
+
+## Model
+
+```{r}
+#| label: models
+knitr::kable(cmp)
+knitr::kable(transform(pop, value = round(ifelse(grepl("^l", parameter), exp(estimate), estimate), 4)))
+```
+
+![Goodness of fit](../figures/gof.png)
+
+## Planned doses against the target product profile
+
+```{r}
+#| label: exposure
+knitr::kable(ex, digits = 2)
+```
+
+![Steady state at the planned doses](../figures/exposure.png)
