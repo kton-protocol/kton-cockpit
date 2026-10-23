@@ -77,7 +77,7 @@ study() { # study DIR NAME PARENT DATAFILE DOCS... (doc:description pairs follow
   s=$(seed "$d" "$name" "$parent")
   for pair in "$@"; do doc "$d" "${pair%%|*}" "$name" "${pair#*|}"; done
   mkdir -p "$d/data" && cp "$DATA/$data" "$d/data/$data"
-  put "$d" "data/$data" "$name" "Study ${name#study-}: the PK dataset, one row per sample"
+  put "$d" "data/$data" "$name" "Study $(echo "${name#study-}" | tr a-z A-Z): the PK dataset, one row per sample"
 }
 study "$THP/study-thp-101" study-thp-101 "$J" thp101_pk.csv \
   "thp-101-protocol.md|Study THP-101: protocol synopsis" "thp-101-sap.md|Study THP-101: statistical analysis plan"
