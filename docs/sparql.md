@@ -12,8 +12,8 @@ Over MCP, `cockpit_ask` takes the same `{"query":"sparql","sparql":…}`. The an
 `{"form","vars","rows","boolean","truncated","limit","via"}`. Each row binds the variables by name, and
 each value is in its lexical form.
 
-It needs a SPARQL engine (`query.image`, or `index.kind: oxigraph`) and a cockpit built with
-`-tags unreleased`, because the projection below is kton's K8 and is not in a released kernel yet.
+It needs a SPARQL engine: `query.image`, or `index.kind: oxigraph`. The projection below is kton's
+K8, released in kton 0.3.0.
 
 ## What is in the dataset
 

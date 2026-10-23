@@ -26,6 +26,7 @@ import (
 	"github.com/kton-protocol/kton-cockpit/cockpit/backend"
 	"github.com/kton-protocol/kton-cockpit/internal/binaries"
 	"github.com/kton-protocol/kton-cockpit/internal/config"
+	"github.com/kton-protocol/kton-cockpit/internal/verify"
 	"kton.dev/plankton/core"
 )
 
@@ -36,13 +37,21 @@ func runNewFromFoton(ctx context.Context, slug, id string) error {
 	if err != nil {
 		return err
 	}
-	rec, err := binaries.New(cfg).FotonByID(ctx, id)
+	r := binaries.New(cfg)
+	rec, err := r.FotonByID(ctx, id)
 	if err != nil {
 		return fmt.Errorf("%v — a peer's records are read through federation.sources", err)
 	}
 	if rec.SignerKeyID == "" {
 		return fmt.Errorf("%s is signed by no key in this repository's trust tiers — take the peer's keys in first: cockpit trust add <tier> <peer>", id)
 	}
+	// A foton/v1 record names no locators itself: they are signed beside it (kton-locator/v1), and
+	// only those a key of the trust tiers signed are tried.
+	locs, err := verify.Locators(ctx, r, cfg, id)
+	if err != nil {
+		return fmt.Errorf("reading the locators of %s: %w", id, err)
+	}
+	addLocators(rec, locs)
 	dst := filepath.Join(cfg.RepoRoot, runsDir, slug)
 	if _, serr := os.Stat(dst); serr == nil {
 		return fmt.Errorf("%s/%s already exists", runsDir, slug)
@@ -97,6 +106,17 @@ func runNewFromFoton(ctx context.Context, slug, id string) error {
 	}
 	fmt.Printf("\n  then:  cockpit run %s\n", slug)
 	return nil
+}
+
+// addLocators adds to each input of rec the signed locators of its bytes.
+func addLocators(rec *binaries.FotonDetail, locs []verify.Locator) {
+	for i, in := range rec.Inputs {
+		for _, l := range locs {
+			if l.Hash == in.Hash && (l.Path == "" || l.Path == in.Path) {
+				rec.Inputs[i].URI = append(rec.Inputs[i].URI, l.URI...)
+			}
+		}
+	}
 }
 
 type placed struct {

@@ -1,5 +1,3 @@
-//go:build unreleased
-
 package testrepo
 
 import (

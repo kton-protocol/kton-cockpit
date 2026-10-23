@@ -1,5 +1,3 @@
-//go:build unreleased
-
 package oxigraph_test
 
 import (

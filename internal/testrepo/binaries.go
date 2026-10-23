@@ -1,6 +1,7 @@
 package testrepo
 
 import (
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -99,10 +100,18 @@ func KernelOf(bin, mod string) string {
 func build(t *testing.T, dir, out, pkg string) {
 	t.Helper()
 	t.Logf("building %s into %s", pkg, out)
-	cmd := exec.Command("go", "build", "-o", out, pkg)
+	// Packages test in parallel and share bin/: built aside and renamed into place, a binary another
+	// package runs is never half written.
+	tmp := fmt.Sprintf("%s.build-%d", out, os.Getpid())
+	cmd := exec.Command("go", "build", "-o", tmp, pkg)
 	cmd.Dir = dir
 	if b, err := cmd.CombinedOutput(); err != nil {
+		os.Remove(tmp)
 		t.Fatalf("go build %s in %s: %v\n%s", pkg, dir, err, b)
+	}
+	if err := os.Rename(tmp, out); err != nil {
+		os.Remove(tmp)
+		t.Fatal(err)
 	}
 }
 
