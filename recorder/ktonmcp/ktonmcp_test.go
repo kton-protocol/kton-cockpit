@@ -384,3 +384,31 @@ func TestEditorTools_AGraphOfAnExploreRepository(t *testing.T) {
 		t.Fatalf("a plain directory: %q", e)
 	}
 }
+
+// "~/kton-programme/explore", as a person (and the tour) writes it: MH's searches found nothing
+// because the cockpit was asked in a directory literally named "~".
+func TestPaths_TheHomeDirectoryIsExpanded(t *testing.T) {
+	h := t.TempDir()
+	t.Setenv("HOME", h)
+	explore := filepath.Join(h, "kton-programme", "explore")
+	os.MkdirAll(explore, 0o755)
+	os.WriteFile(filepath.Join(explore, "cockpit.config.json"), []byte("{}"), 0o644)
+	if got := home("~/kton-programme/explore/"); got != explore {
+		t.Fatalf("home: %q", got)
+	}
+	if home("sha256:abc") != "sha256:abc" || home("derived/fit.csv") != "derived/fit.csv" || home("") != "" {
+		t.Fatal("home changed what is not a home path")
+	}
+	sv, _ := fixture(t)
+	cs := connect(t, sv)
+	var dir string
+	askJSON = func(_ context.Context, d string, q any) ([]byte, error) {
+		dir = d
+		return []byte(`{"sparql":{"form":"SELECT","vars":[],"rows":[]}}`), nil
+	}
+	t.Cleanup(func() { askJSON = watch.CockpitAskJSON })
+	call(t, cs, "kton_sparql", map[string]any{"sparql": "SELECT * {}", "project": "~/kton-programme/explore"}, nil)
+	if dir != explore {
+		t.Fatalf("asked in %q, want %q", dir, explore)
+	}
+}
