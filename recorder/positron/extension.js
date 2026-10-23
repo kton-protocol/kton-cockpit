@@ -589,33 +589,101 @@ async function openStory(context, project, file) {
 }
 
 // ------------------------------------------------------------------ the file in kton (kton-web)
-// kton-web's graph viewer, in the editor beside the story: the repository's signed records and the
-// project's observations in one graph, joined by file hash (recorded only / signed only / both),
-// centred on the file. ktonwatch serves all of it from one origin: kton-web (/web/), the recorder's
-// graph (/kton/graph.json) and the cockpit's data handler (/kton/reg/<id>/data/…: the records
-// through its index, and the trust tiers). kton-web verifies every record itself.
-const ktonPanels = new Map(); // repo → panel
+// kton-web's graph viewer, in the editor beside the story, in its editor profile (?view=extension):
+// the graph, each step's command, description and rationale, inputs and outputs without hashes,
+// and the file actions below. Its records come as a portion of the cockpit's store around the file
+// (?select=, expandable on click), joined by file hash with the project's recorded graph
+// (?graph=): recorded only, signed only, both. ktonwatch serves all of it from one origin: kton-web
+// (/web/), the recorded graph (/kton/graph.json) and the cockpit's data handler
+// (/kton/reg/<id>/data/select: through its index, with the trust tiers). kton-web verifies every
+// record itself. A second file of the same project re-centres the tab instead of reloading it.
+const ktonPanels = new Map(); // repo → {panel, project}
+const FILE_ACTIONS = [
+  { id: 'open', label: 'Open', on: 'both' },
+  { id: 'story', label: 'Story', on: 'output' },
+  { id: 'today', label: 'Compare with today', on: 'both' },
+];
 async function openInKton(project, repo, sum, name) {
   if (!(await ensureService())) return;
+  const shown = ktonPanels.get(repo);
+  if (shown && shown.project === project) { // the viewer finds the file, asking the store if it must
+    shown.panel.reveal(vscode.ViewColumn.Beside);
+    shown.panel.title = `kton: ${name || path.basename(repo)}`;
+    shown.panel.webview.postMessage({ type: 'refocus', focus: 'sha256:' + sum });
+    return;
+  }
   const p0 = ((await getJSON(viewerUrl() + 'api/projects').catch(() => [])) || []).find((x) => x.path === project);
   const reg = p0 && p0.registry;
   const g = '/kton/graph.json?project=' + encodeURIComponent(project);
-  const q = (reg ? 'union=' + encodeURIComponent(`/kton/reg/${reg}/data/union.json`) + '&' : '') +
-    'graph=' + encodeURIComponent(g) + '&focus=' + encodeURIComponent('sha256:' + sum) + '&mode=anc';
+  const q = (reg ? 'select=' + encodeURIComponent(`/kton/reg/${reg}/data/select`) + '&' : '') +
+    'graph=' + encodeURIComponent(g) + '&focus=' + encodeURIComponent('sha256:' + sum) + '&mode=anc&view=extension';
   const src = (await vscode.env.asExternalUri(vscode.Uri.parse(viewerUrl() + 'web/viewers/graph/?' + q))).toString(true);
   const originOf = new URL(src).origin;
-  let p = ktonPanels.get(repo);
-  if (!p) {
-    p = vscode.window.createWebviewPanel('ktonGraph', 'kton', vscode.ViewColumn.Beside, { enableScripts: true, retainContextWhenHidden: true });
-    ktonPanels.set(repo, p);
-    p.onDidDispose(() => ktonPanels.delete(repo));
-  } else p.reveal(vscode.ViewColumn.Beside);
-  p.title = `kton: ${name || path.basename(repo)}`;
-  p.webview.html = `<!doctype html><html><head><meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; frame-src ${originOf}; style-src 'unsafe-inline';">
+  let panel = shown && shown.panel;
+  if (!panel) {
+    panel = vscode.window.createWebviewPanel('ktonGraph', 'kton', vscode.ViewColumn.Beside, { enableScripts: true, retainContextWhenHidden: true });
+    panel.onDidDispose(() => ktonPanels.delete(repo));
+    panel.webview.onDidReceiveMessage((m) => ktonIntent(project, m));
+  } else panel.reveal(vscode.ViewColumn.Beside);
+  ktonPanels.set(repo, { panel, project });
+  panel.title = `kton: ${name || path.basename(repo)}`;
+  const nonce = crypto.randomBytes(16).toString('hex');
+  // the viewer takes messages from its own origin and from ?host=, the webview's, which only the
+  // webview knows: so the iframe's address is completed in here
+  panel.webview.html = `<!doctype html><html><head><meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; frame-src ${originOf}; script-src 'nonce-${nonce}'; style-src 'unsafe-inline';">
 <style>html,body,iframe{margin:0;padding:0;border:0;width:100%;height:100%;overflow:hidden}</style></head>
-<body><iframe src="${src.replace(/"/g, '&quot;')}"></iframe></body></html>`;
+<body><iframe id="kweb"></iframe>
+<script nonce="${nonce}">
+  const vscode = acquireVsCodeApi(), viewer = ${JSON.stringify(originOf)}, frame = document.getElementById('kweb');
+  const set = (state) => frame.contentWindow.postMessage({type: 'kton:set', state}, viewer);
+  const actions = () => set({view: {actions: ${JSON.stringify(FILE_ACTIONS)}}});
+  frame.src = ${JSON.stringify(src)} + '&host=' + encodeURIComponent(window.origin);
+  window.addEventListener('message', (e) => {
+    if (e.origin === viewer && e.data && e.data.type === 'kton:ready') actions();                       // the editor's file actions
+    else if (e.origin === viewer && e.data && /^kton:/.test(e.data.type || '')) vscode.postMessage(e.data); // intents, state, refusals
+    else if (e.data && e.data.type === 'refocus') set({focus: e.data.focus});                        // from the extension
+  });
+</script></body></html>`;
   if (!reg) vscode.window.setStatusBarMessage('kton: no cockpit repository for this project: only what was recorded is shown', 5000);
+}
+
+// what the viewer asks the editor to do (kton-web core/host.js): {type:'kton:intent', intent:{type:'act',
+// action, file:{name, hash, role}, node}} for a file action; a link comes as an intent with a uri
+async function ktonIntent(project, m) {
+  if (m.type === 'kton:refused') { vscode.window.setStatusBarMessage(`kton: the viewer cannot ${m.what || 'do that'}${m.why ? ': ' + m.why : ''}`, 6000); return; }
+  if (m.type !== 'kton:intent' || !m.intent) return;
+  const it = m.intent;
+  if (!(it.type === 'act' && it.file && it.file.hash)) { if (it.uri) vscode.env.openExternal(vscode.Uri.parse(it.uri)); return; }
+  const sum = String(it.file.hash).replace(/^sha256:/, '');
+  // the file of this project with these bytes, as recorded; else one by its name
+  const files = (await getJSON(`${viewerUrl()}api/files?project=${encodeURIComponent(project)}`, 10000).catch(() => [])) || [];
+  const f = files.find((x) => x.sha256 === sum) || files.find((x) => x.path === path.join(project, it.file.name || ''));
+  const onDisk = f && fs.existsSync(f.path) && (await sha256File(f.path)) === sum;
+  const kept = fs.existsSync(casFile(sum)) ? casFile(sum) : null;
+  // the recorded bytes as a file the editor can show, named like the original
+  const recordedCopy = () => {
+    const to = path.join(reproRoot(), '.kton-recorded', sum.slice(0, 12), path.basename(it.file.name || sum));
+    fs.mkdirSync(path.dirname(to), { recursive: true });
+    if (!fs.existsSync(to)) fs.copyFileSync(kept, to);
+    return to;
+  };
+  switch (it.action) {
+    case 'open':
+      if (onDisk) return vscode.commands.executeCommand('vscode.open', vscode.Uri.file(f.path));
+      if (kept) { vscode.commands.executeCommand('vscode.open', vscode.Uri.file(recordedCopy())); vscode.window.setStatusBarMessage('kton: the recorded version (the file has other bytes today, or is elsewhere)', 5000); return; }
+      return vscode.window.showWarningMessage(`kton: ${it.file.name} with these bytes is not here, and no copy is kept`);
+    case 'story':
+      if (f && f.produced_by) return openStory(extContext, project, f);
+      return vscode.window.showWarningMessage(`kton: no recorded step of this project wrote ${it.file.name}`);
+    case 'today': {
+      const now = f && fs.existsSync(f.path) ? f.path : null;
+      if (!now) return vscode.window.showWarningMessage(`kton: ${it.file.name} is not in this project today`);
+      if (onDisk) return vscode.window.setStatusBarMessage(`kton: ${it.file.name} has the same bytes today`, 5000);
+      if (!kept) return vscode.window.showWarningMessage(`kton: the version in the graph (${sum.slice(0, 12)}) is not kept, nothing to compare with`);
+      return vscode.commands.executeCommand('vscode.diff', vscode.Uri.file(recordedCopy()), vscode.Uri.file(now), `${path.basename(now)}: in the graph ↔ today`);
+    }
+  }
 }
 
 async function openInBrowser() {
@@ -624,7 +692,9 @@ async function openInBrowser() {
 }
 
 // ------------------------------------------------------------------ activation
+let extContext; // for what opens a story from outside one (the viewer's actions)
 function activate(context) {
+  extContext = context;
   out = vscode.window.createOutputChannel('kton');
   status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
   status.command = 'kton.toggleRecording';
@@ -673,4 +743,4 @@ function activate(context) {
 }
 
 function deactivate() {}
-module.exports = { activate, deactivate, _test: { parseDoctor, parseDoctorJSON, cockpitRepoOf, reproduce, publishedSteps, publishText, Tree, setOut: (o) => { out = o; } } };
+module.exports = { activate, deactivate, _test: { ktonIntent, parseDoctor, parseDoctorJSON, cockpitRepoOf, reproduce, publishedSteps, publishText, Tree, setOut: (o) => { out = o; } } };
