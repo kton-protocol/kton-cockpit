@@ -43,8 +43,28 @@ type Placement struct {
 // Asker asks the cockpit in dir and returns its JSON answer; it gives up when ctx ends.
 type Asker func(ctx context.Context, dir string, q map[string]string) ([]byte, error)
 
-// CockpitAsk runs `cockpit ask` (KTON_COCKPIT, else ~/.local/bin/cockpit, else cockpit on PATH).
+// CockpitAsk runs `cockpit ask` (KTON_COCKPIT, else ~/.local/bin/cockpit, else cockpit on PATH),
+// one at a time per directory: with federation sources, concurrent asks in one repository tear
+// down each other's union cache. A failed ask is tried once more (another process, the Positron
+// extension, may have asked at the same moment).
 func CockpitAsk(ctx context.Context, dir string, q map[string]string) ([]byte, error) {
+	l, _ := askLocks.LoadOrStore(dir, &sync.Mutex{})
+	l.(*sync.Mutex).Lock()
+	defer l.(*sync.Mutex).Unlock()
+	b, err := cockpitAsk(ctx, dir, q)
+	if err != nil && ctx.Err() == nil {
+		select {
+		case <-ctx.Done():
+		case <-time.After(300 * time.Millisecond):
+			b, err = cockpitAsk(ctx, dir, q)
+		}
+	}
+	return b, err
+}
+
+var askLocks sync.Map // dir → *sync.Mutex
+
+func cockpitAsk(ctx context.Context, dir string, q map[string]string) ([]byte, error) {
 	exe := os.Getenv("KTON_COCKPIT")
 	if exe == "" {
 		if home, err := os.UserHomeDir(); err == nil {
