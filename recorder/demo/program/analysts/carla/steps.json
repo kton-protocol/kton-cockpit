@@ -1,0 +1,20 @@
+{
+  "repo": "analysis-thp102-carla", "signer": "carla", "study": "study-thp-102", "dataset": "thp102_pk.csv",
+  "steps": [
+    {"id": "01", "cmd": "Rscript R/01_prepare.R", "in": ["R/01_prepare.R", "data/thp102_pk.csv"], "out": ["derived/pk.csv", "derived/subjects.csv"],
+     "describes": "Prepares the THP-102 crossover data: absolute dose in mg, food and period as factors.",
+     "rationale": "Adapted from the THP-101 prepare script so that both studies' pk.csv read the same way.",
+     "claims": [{"template": "based-on", "file": "../../analysis/R/01_prepare.R", "why": "prepare script adapted from the THP-101 analysis"}]},
+    {"id": "02", "cmd": "Rscript R/02_nca_period.R", "in": ["R/02_nca_period.R", "derived/pk.csv"], "out": ["derived/nca_period.csv"],
+     "describes": "NCA per subject and period: Cmax, Tmax, AUC to the last sample (linear trapezoid).",
+     "rationale": "The food effect is judged on AUC and Cmax per period, as the protocol says."},
+    {"id": "03", "cmd": "Rscript R/03_food_effect.R", "in": ["R/03_food_effect.R", "derived/nca_period.csv"], "out": ["derived/food_effect.csv"],
+     "describes": "Food effect: geometric mean ratio fed/fasted of AUClast and Cmax with 90 % confidence intervals.",
+     "rationale": "Within-subject log differences of the crossover; 90 % intervals as for a bioequivalence judgement (0.80–1.25).",
+     "claims": [{"template": "key-step", "value": "result", "why": "AUC unchanged by food (GMR 0.98, 0.95–1.01); Cmax 9 % lower (0.91, 0.86–0.96)"}]},
+    {"id": "04", "cmd": "Rscript R/04_pop_food.R", "in": ["R/04_pop_food.R", "derived/pk.csv"], "out": ["derived/pop_food.csv"],
+     "describes": "Population model of both periods: one compartment (SSfol) with food on the absorption rate.",
+     "rationale": "Explains the lower Cmax: food slows absorption (Ka fed/fasted 0.47) without changing clearance.",
+     "claims": [{"template": "final-model", "value": "pop-food-on-ka", "why": "food on Ka explains the Cmax difference"}]}
+  ]
+}

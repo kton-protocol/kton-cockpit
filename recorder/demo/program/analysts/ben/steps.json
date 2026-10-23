@@ -1,0 +1,25 @@
+{
+  "repo": "analysis-thp101-ben", "signer": "ben", "study": "study-thp-101", "dataset": "thp101_pk.csv",
+  "copy": [["../../analysis/R/01_prepare.R", "R/01_prepare.R"]],
+  "steps": [
+    {"id": "01", "cmd": "Rscript R/01_prepare.R", "in": ["R/01_prepare.R", "data/thp101_pk.csv"], "out": ["derived/pk.csv", "derived/subjects.csv"],
+     "describes": "Prepares the THP-101 data: absolute dose in mg, one row per sample, one row per subject.",
+     "rationale": "The project's prepare script unchanged, so the population model starts from the same pk.csv as the other THP-101 analysis."},
+    {"id": "02", "cmd": "Rscript R/02_nca_logdown.R", "in": ["R/02_nca_logdown.R", "derived/pk.csv"], "out": ["derived/nca_logdown.csv"],
+     "describes": "NCA per subject with the linear-up / log-down trapezoid; terminal half-life from the last three samples.",
+     "rationale": "The decline is exponential: the log-down trapezoid does not overestimate the AUC there as the linear one does."},
+    {"id": "run001", "cmd": "Rscript R/run001_1cmt.R", "in": ["R/run001_1cmt.R", "derived/pk.csv"], "out": ["derived/run001.rds", "derived/run001.csv"],
+     "describes": "run001: one compartment, first-order absorption and elimination (SSfol), random effects on Ka and Cl.",
+     "rationale": "The structural model the SAP names; the base for any covariate.",
+     "claims": [{"template": "key-step", "value": "base"},
+                {"template": "base-model", "value": "run001-1cmt", "why": "structural model accepted: run001-1cmt"}]},
+    {"id": "run002", "cmd": "Rscript R/run002_1cmt_allo.R", "in": ["R/run002_1cmt_allo.R", "derived/pk.csv", "derived/run001.csv"], "out": ["derived/run002.rds", "derived/run002.csv"],
+     "describes": "run002: run001 with weight as an allometric covariate on clearance, CL = CL70·(WT/70)^0.75, on the absolute dose.",
+     "rationale": "Weight on clearance is the question of the development plan; allometric scaling with a fixed exponent instead of the linear regression of individual clearances.",
+     "claims": [{"template": "parent-step", "ref_step": "run001", "why": "developed from run001-1cmt"}]},
+    {"id": "03", "cmd": "Rscript R/03_gof_run001.R", "in": ["R/03_gof_run001.R", "derived/run001.rds", "derived/pk.csv"], "out": ["figures/gof_run001.png"],
+     "describes": "Goodness of fit of the final model run001: observed against individual prediction, normalised residuals over time.",
+     "rationale": "run002 did not improve the fit (AIC 383.9 against 366.0): run001 stays the final model.",
+     "claims": [{"template": "final-model", "about": "run001", "value": "run001-1cmt", "why": "allometric weight (run002) did not improve the AIC: 383.9 vs 366.0"}]}
+  ]
+}

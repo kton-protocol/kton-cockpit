@@ -1,0 +1,9 @@
+{
+  "name": "based-on",
+  "target": "either",
+  "predicate": "https://kton.dev/v/pmx/based-on",
+  "fields": {
+    "based-on": {"type": "ref", "required": true},
+    "why": {"type": "string", "required": false}
+  }
+}

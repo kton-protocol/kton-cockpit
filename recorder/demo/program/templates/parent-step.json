@@ -1,0 +1,9 @@
+{
+  "name": "parent-step",
+  "target": "either",
+  "predicate": "https://kton.dev/v/pmx/parent-step",
+  "fields": {
+    "parent-step": {"type": "ref", "required": true},
+    "why": {"type": "string", "required": false}
+  }
+}

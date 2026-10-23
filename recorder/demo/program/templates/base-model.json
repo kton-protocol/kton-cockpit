@@ -1,0 +1,9 @@
+{
+  "name": "base-model",
+  "target": "foton",
+  "predicate": "https://kton.dev/v/pmx/base-model",
+  "fields": {
+    "value": {"type": "string", "required": true},
+    "why": {"type": "string", "required": false}
+  }
+}

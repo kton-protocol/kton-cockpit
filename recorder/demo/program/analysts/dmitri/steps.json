@@ -1,0 +1,28 @@
+{
+  "repo": "analysis-cx201-dmitri", "signer": "dmitri", "study": "study-cx-201", "dataset": "cx201_pk.csv",
+  "steps": [
+    {"id": "01", "cmd": "Rscript R/01_prepare.R", "in": ["R/01_prepare.R", "data/cx201_pk.csv"], "out": ["derived/pk.csv"],
+     "describes": "Prepares the CX-201 data with the protocol's dose (25 mg IV bolus).",
+     "rationale": "The data file has no dose column; the protocol fixes it."},
+    {"id": "02", "cmd": "Rscript R/02_nca_iv.R", "in": ["R/02_nca_iv.R", "derived/pk.csv"], "out": ["derived/nca.csv"],
+     "describes": "NCA after the IV bolus: AUC (back-extrapolated to 0), terminal half-life, AUC to infinity, clearance.",
+     "rationale": "Clearance and half-life answer the development plan's question directly."},
+    {"id": "run001", "cmd": "Rscript R/run001_biexp.R", "in": ["R/run001_biexp.R", "derived/pk.csv"], "out": ["derived/run001.csv"],
+     "describes": "run001: two compartments after an IV bolus (SSbiexp), random effects on both amplitudes.",
+     "rationale": "Two phases are visible in every subject; one compartment would miss the distribution phase.",
+     "claims": [{"template": "key-step", "value": "base"},
+                {"template": "base-model", "value": "run001-biexp"},
+                {"template": "final-model", "value": "run001-biexp", "why": "no covariates in six subjects"}]},
+    {"id": "04", "cmd": "Rscript R/04_simulate_qd.R", "in": ["R/04_simulate_qd.R", "derived/run001.csv"], "out": ["derived/sim_qd.csv"],
+     "describes": "Once-daily dosing at 25, 50 and 100 mg simulated to steady state from run001.",
+     "rationale": "The development plan asks whether once daily is plausible: the trough at 100 mg is near zero, so it is not."},
+    {"id": "qc102", "cmd": "cd qc && Rscript R/03_food_effect.R",
+     "copy_repo": [["../analysis-thp102-carla/R/03_food_effect.R", "qc/R/03_food_effect.R"], ["../analysis-thp102-carla/derived/nca_period.csv", "qc/derived/nca_period.csv"]],
+     "in": ["qc/R/03_food_effect.R", "qc/derived/nca_period.csv"], "out": ["qc/derived/food_effect.csv"],
+     "describes": "Independent rerun of Carla's THP-102 food-effect step on her NCA table.",
+     "rationale": "QC of the THP-102 result before it goes into the project report.",
+     "claims": [{"template": "based-on", "file": "../carla/R/03_food_effect.R", "why": "Carla's script, run unchanged"},
+                {"template": "reproduces", "about": "carla:03", "level": "L0", "why": "independent rerun, identical bytes"},
+                {"template": "qc-passed", "about": "carla:01", "value": "no blocking findings", "why": "independent QC of the THP-102 analysis dataset"}]}
+  ]
+}
