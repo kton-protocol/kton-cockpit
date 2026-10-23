@@ -181,3 +181,17 @@ func TestRecipe_PythonCommandsOfATaskOneByOne(t *testing.T) {
 		t.Fatalf("the two commands ran as one -c:\n%s", r.Script)
 	}
 }
+
+// A story step names the bytes of everything it read, the script too: kton has the step only when a
+// record of its outputs names these inputs (a changed script whose change did not reach the
+// output gives the same bytes from other inputs).
+func TestStory_StepsCarryTheirInputHashes(t *testing.T) {
+	ts := []*Task{{Session: "p", ID: "1", Start: 1, End: 5, Script: "/p/R/09_gof.R", ScriptSHA: "gofR",
+		Inputs: []*Input{{Path: "/p/R/09_gof.R", SHA256: "gofR", Class: ClassProject, Now: NowSame},
+			{Path: "/p/derived/pk.csv", SHA256: "pk2", Class: ClassProject, Now: NowSame}},
+		Outputs: []*Output{{Path: "/p/figures/gof.png", SHA256: "png", Class: ClassProject, Now: NowSame}}}}
+	st := storyOf(ts, "/p", "/p/figures/gof.png", "")
+	if st == nil || strings.Join(st.Steps[0].InHashes, " ") != "gofR pk2" || strings.Join(st.Steps[0].Reads, " ") != "derived/pk.csv" {
+		t.Fatalf("step %+v", st.Steps[0])
+	}
+}

@@ -353,7 +353,7 @@ func recipeOf(tasks []*Task, project, path, sum string) *Recipe {
 			r.Gaps = append(r.Gaps, fmt.Sprintf("%s starts %s, which could not be recorded: what it read is missing here", n, filepath.Base(u.Program)))
 		}
 		if t.Code() == "" {
-			r.Gaps = append(r.Gaps, fmt.Sprintf("%s: Code unbekannt", n))
+			r.Gaps = append(r.Gaps, fmt.Sprintf("%s: its code is not known", n))
 		}
 		if t.Status == "err" {
 			r.Gaps = append(r.Gaps, fmt.Sprintf("%s ended with an error", n))

@@ -4,7 +4,7 @@
 (function () {
   const vscode = acquireVsCodeApi();
   const root = document.getElementById("root");
-  let S = null, published = {}, notes = {}, cockpitRepo = false, open = {};
+  let S = null, published = {}, sameResult = {}, notes = {}, cockpitRepo = false, open = {};
 
   const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
   const clock = (ns) => new Date(ns / 1e6).toLocaleTimeString(undefined, {hour: "2-digit", minute: "2-digit"});
@@ -58,6 +58,9 @@
       // a file is in kton when the step that wrote it is; the line when all it handed on is
       c.kton = new Set(c.path.filter((s) => published[skey(s)]).flatMap((s) => s.writes || []));
       c.inKton = c.outs.length > 0 && c.outs.every((w) => c.kton.has(w));
+      // the same result is in kton, but computed from other inputs: this run of it is not
+      c.sameResult = !c.inKton && c.path.some((s) => sameResult[skey(s)]) &&
+        c.path.filter((s) => (s.writes || []).length).every((s) => published[skey(s)] || sameResult[skey(s)]);
       c.kton.all = c.inKton;
     });
     return out.filter((c) => c.hand || c.path.length);
@@ -99,6 +102,7 @@
       : `${files(c.ins)} <span class="arrow">→</span>${c.tools.length ? ` <span class="tool">${esc(c.tools.join(", "))}</span> <span class="arrow">→</span>` : ""} ${c.outs.length ? files(c.outs, 4, c.kton) : '<span class="muted">only objects in the session</span>'}`;
     const rp = c.repro;
     const flags = [c.inKton ? '<span class="ok" title="already in kton">✓ in kton</span>' : "",
+      c.sameResult ? '<span class="same" title="kton has these output bytes, but from a run with other inputs: the change upstream did not reach this result. This run is not in kton yet.">= same result as in kton</span>' : "",
       rp ? (rp.same ? `<span class="ok" title="the reproduction of ${esc(stamp(rp.when))} gave the same bytes">✓ reproduced</span>`
         : `<span class="warn" title="reproduction of ${esc(stamp(rp.when))}">≠ ${esc([...rp.different.map(short), ...rp.notProduced.map((f) => short(f) + " missing")].join(", "))}</span>`) : "",
       c.warn.length ? `<span class="warn" title="${esc(c.warn.join("\n"))}">⚠ ${c.warn.length}</span>` : "",
@@ -141,7 +145,7 @@
     for (const ps of chains()) md += `In ${ps[0].levels.map((l) => l.name).join(" › ")}, from ${ps.map((p) => short(p.path) + " (" + p.foton + ")").join(", ")}\n\n`;
     for (const c of cs) {
       md += c.hand ? `- ✎ **${c.steps[0].reads[0]} changed by hand** (not recorded)`
-        : `- ${clock(c.when)} **${c.where.replace(/^script /, "")}**: ${c.ins.join(", ")} → ${c.tools.length ? c.tools.join(", ") + " → " : ""}${c.outs.join(", ") || "–"}${c.inKton ? " ✓ in kton" : ""}`;
+        : `- ${clock(c.when)} **${c.where.replace(/^script /, "")}**: ${c.ins.join(", ")} → ${c.tools.length ? c.tools.join(", ") + " → " : ""}${c.outs.join(", ") || "–"}${c.inKton ? " ✓ in kton" : c.sameResult ? " = same result as in kton, from other inputs" : ""}`;
       const n = noteOf(c.key);
       md += "\n";
       if (n.description) md += `  - *Description:* ${n.description.replace(/\n/g, "\n    ")}\n`;
@@ -220,8 +224,8 @@
 
   window.addEventListener("message", (e) => {
     const m = e.data;
-    if (m.type === "story") { S = m.story; published = m.published || {}; notes = m.notes || {}; cockpitRepo = m.cockpitRepo; render(); }
-    if (m.type === "published") { published = m.published || {}; render(); }
+    if (m.type === "story") { S = m.story; published = m.published || {}; sameResult = m.sameResult || {}; notes = m.notes || {}; cockpitRepo = m.cockpitRepo; render(); }
+    if (m.type === "published") { published = m.published || {}; sameResult = m.sameResult || {}; render(); }
   });
   vscode.postMessage({type: "ready"});
 })();
