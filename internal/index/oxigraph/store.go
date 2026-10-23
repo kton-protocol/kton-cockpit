@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/kton-protocol/kton-cockpit/internal/flock"
 	"io"
 	"net/http"
 	"net/url"
@@ -157,7 +158,7 @@ func (d *Daemon) apply(ctx context.Context, layer, dir string, trusted []ed25519
 		return false, err
 	}
 	if d.Dir != "" { // two cockpits reading the same registry take turns; the second finds it current
-		unlock, err := flock(filepath.Join(d.Dir, strings.TrimPrefix(reg, kNS+"reg:")+".lock"))
+		unlock, err := flock.Lock(filepath.Join(d.Dir, strings.TrimPrefix(reg, kNS+"reg:")+".lock"))
 		if err != nil {
 			return false, err
 		}

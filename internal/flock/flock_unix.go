@@ -1,15 +1,15 @@
 //go:build !windows
 
-package oxigraph
+package flock
 
 import (
 	"os"
 	"syscall"
 )
 
-// flock holds an exclusive lock on path until the returned function is called. Two cockpits
+// Lock holds an exclusive lock on path until the returned function is called. Two cockpits
 // starting the daemon, or reading one registry into it, take turns.
-func flock(path string) (func(), error) {
+func Lock(path string) (func(), error) {
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o644)
 	if err != nil {
 		return nil, err

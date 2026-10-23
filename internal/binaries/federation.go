@@ -9,9 +9,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
+	"time"
 
 	"github.com/kton-protocol/kton-cockpit/cockpit/source"
 	"github.com/kton-protocol/kton-cockpit/internal/config"
+	"github.com/kton-protocol/kton-cockpit/internal/flock"
 	nregistry "kton.dev/nekton/registry"
 	pregistry "kton.dev/plankton/registry"
 )
@@ -19,9 +22,9 @@ import (
 // ReadDirs are the registries a READ goes to: this repository's own, or — when the configuration
 // names federated sources — the union of it and every source, joined by record id.
 //
-// Writes never come here. A publish, a claim, a seal goes to the own registry, and the union is
-// rebuilt from it on the next read, so a record written a moment ago is never missing from what is
-// read next. Every record entering the union passes the registry's own checks on Add; a source that
+// Writes never come here. A publish, a claim, a seal goes to the own registry, which changes the
+// stamp the union is kept under, so the next read builds a new one and a record written a moment
+// ago is never missing from what is read next. Every record entering the union passes the registry's own checks on Add; a source that
 // holds one that does not is named, not skipped — a partial union must not pass for a whole one.
 // Trust does not widen: the configured tiers stay the ceiling for every answer.
 func ReadDirs(ctx context.Context, cfg *config.Config) (planktonDir, nektonDir string, err error) {
@@ -33,18 +36,80 @@ func ReadDirs(ctx context.Context, cfg *config.Config) (planktonDir, nektonDir s
 	if err != nil {
 		return "", "", err
 	}
-	union := filepath.Join(base, "union")
-	if err := os.RemoveAll(union); err != nil {
+	// Two cockpits reading one repository — an editor and a watcher, or fifteen asks at once — take
+	// turns fetching sources and building, and a union once built is never touched again: it lives
+	// under the stamp of what it was built from, so a reader holding one keeps reading it while the
+	// next one is built beside it.
+	if err := os.MkdirAll(base, 0o755); err != nil {
 		return "", "", err
 	}
-	pdir, ndir := filepath.Join(union, "plankton"), filepath.Join(union, "nekton")
-	preg, err := pregistry.Open(pdir)
+	unlock, err := flock.Lock(filepath.Join(base, "union.lock"))
+	if err != nil {
+		return "", "", fmt.Errorf("locking the union cache: %w", err)
+	}
+	defer unlock()
+	inputs, err := Inputs(ctx, cfg)
 	if err != nil {
 		return "", "", err
+	}
+	stamp, err := Stamp(inputs)
+	if err != nil {
+		return "", "", err
+	}
+	union := filepath.Join(base, "union-"+stamp[:32])
+	defer sweepUnions(base, union)
+	if _, err := os.Stat(union); err == nil {
+		now := time.Now()
+		_ = os.Chtimes(union, now, now) // in use: the sweep goes by when a union was last read
+		return filepath.Join(union, "plankton"), filepath.Join(union, "nekton"), nil
+	}
+	build, err := os.MkdirTemp(base, "union-build-")
+	if err != nil {
+		return "", "", err
+	}
+	if err := buildUnion(build, inputs); err != nil {
+		os.RemoveAll(build)
+		return "", "", err
+	}
+	if err := os.Rename(build, union); err != nil {
+		os.RemoveAll(build)
+		return "", "", err
+	}
+	return filepath.Join(union, "plankton"), filepath.Join(union, "nekton"), nil
+}
+
+// unionTTL is how long a union nobody has read is kept once it is no longer the current one.
+const unionTTL = time.Hour
+
+// sweepUnions removes unions and abandoned builds nobody has read for unionTTL, except current,
+// and the single union directory older cockpits rebuilt in place.
+func sweepUnions(base, current string) {
+	_ = os.RemoveAll(filepath.Join(base, "union"))
+	ents, err := os.ReadDir(base)
+	if err != nil {
+		return
+	}
+	for _, e := range ents {
+		p := filepath.Join(base, e.Name())
+		if !e.IsDir() || p == current || !strings.HasPrefix(e.Name(), "union-") {
+			continue
+		}
+		if fi, err := e.Info(); err == nil && time.Since(fi.ModTime()) > unionTTL {
+			_ = os.RemoveAll(p)
+		}
+	}
+}
+
+// buildUnion joins inputs into fresh registries under dir.
+func buildUnion(dir string, inputs []Input) error {
+	pdir, ndir := filepath.Join(dir, "plankton"), filepath.Join(dir, "nekton")
+	preg, err := pregistry.Open(pdir)
+	if err != nil {
+		return err
 	}
 	nreg, err := nregistry.Open(ndir)
 	if err != nil {
-		return "", "", err
+		return err
 	}
 	add := func(name string, reg source.Registry) error {
 		if p, err := OpenPlanktonSource(reg.PlanktonDir); err == nil {
@@ -70,16 +135,12 @@ func ReadDirs(ctx context.Context, cfg *config.Config) (planktonDir, nektonDir s
 		}
 		return nil
 	}
-	inputs, err := Inputs(ctx, cfg)
-	if err != nil {
-		return "", "", err
-	}
 	for _, in := range inputs {
 		if err := add(in.Name, in.Registry); err != nil {
-			return "", "", err
+			return err
 		}
 	}
-	return pdir, ndir, nil
+	return nil
 }
 
 // Input is one registry a union is built from: the own one, or one a federation source brought.
@@ -165,6 +226,19 @@ func OpenUnion(ctx context.Context, cfg *config.Config) (*Union, error) {
 	pdir, ndir, err := ReadDirs(ctx, cfg)
 	if err != nil {
 		return nil, err
+	}
+	if len(cfg.Raw.Federation.Sources) > 0 {
+		// A union is shared by every reader of this repository, so it is read the way a source is:
+		// opening it writably would have the kernel persist its numbering into it under the others.
+		preg, err := OpenPlanktonSource(pdir)
+		if err != nil {
+			return nil, fmt.Errorf("opening the plankton union: %w", err)
+		}
+		nreg, err := OpenNektonSource(ndir)
+		if err != nil {
+			return nil, fmt.Errorf("opening the nekton union: %w", err)
+		}
+		return &Union{Plankton: preg, Nekton: nreg}, nil
 	}
 	preg, err := pregistry.Open(pdir)
 	if err != nil {
