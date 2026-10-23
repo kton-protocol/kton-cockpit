@@ -629,6 +629,19 @@ emits none.
 > `TestScope_AnUntrustedWriterIsReportedButExcluded`,
 > `TestScope_SealRecordsTheHeadInTheParent`, `TestScope_ASealedScopeSaysWhatItCanBeCheckedAgainst`.
 
+A scope is read over the union of sources (§9.8), like any record: its seed, its chain and its head,
+so the tip a claim chains onto (§8.5) is the head over everything held. The seed MUST be verified
+against this repository's tiers, wherever it was read from, and its tier reported. What an
+unverified seed says — its name, its signer, its parent, its `responsible` — MUST NOT reach the
+answer (§9.4), and its parent MUST NOT be followed.
+
+The answer MUST carry the scope's context: its parents, nearest first, each verified the same way.
+The walk ends at a seed with no parent, at one no source holds (reported as missing: the chain goes
+on, but not here), at one that does not verify, or at a seed already on the path.
+
+> **Checked by:** `TestScope_ASeedFromASourceIsVerifiedAndCarriesItsContext`,
+> `TestScope_AnUntrustedSeedFromASourceSaysNothingItClaims`.
+
 ### 9.3 Counting reproductions
 
 `reproductions` MUST be answered over the configured trust keys. If the substrate reports a

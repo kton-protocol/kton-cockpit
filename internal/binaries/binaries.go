@@ -862,13 +862,13 @@ type ScopeHead struct {
 // cached it would be keeping mutable state about the chain (kton §13 forbids that), and would
 // chain onto a stale tip the moment a mirror brought in a peer's claim.
 func (r *Runner) Head(ctx context.Context, scopeID string) (*ScopeHead, error) {
-	reg, err := nregistry.Open(r.cfg.NektonDir)
+	reg, err := r.scopes(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("opening the nekton registry: %w", err)
+		return nil, err
 	}
 	heads, chainLen, ok := reg.Heads(scopeID)
 	if !ok {
-		return nil, fmt.Errorf("no such scope %s (not a seed ingested in %s)", scopeID, r.cfg.NektonDir)
+		return nil, fmt.Errorf("no such scope %s (no seed for it in this repository or its federation sources)", scopeID)
 	}
 	if len(heads) == 0 {
 		return nil, fmt.Errorf("the registry reported scope %s with no head at all; refusing to guess one", scopeID)
@@ -887,9 +887,9 @@ func (r *Runner) Head(ctx context.Context, scopeID string) (*ScopeHead, error) {
 // are the separate, independently checkable statement about what each writer believed preceded
 // them. Keeping the two apart is what makes a disagreement between them visible at all.
 func (r *Runner) ScopeChain(ctx context.Context, scopeID string) ([]ScopeClaim, error) {
-	reg, err := nregistry.Open(r.cfg.NektonDir)
+	reg, err := r.scopes(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("opening the nekton registry: %w", err)
+		return nil, err
 	}
 	recs := reg.Records(0)
 	all, err := claimsFrom(recs)
@@ -930,13 +930,13 @@ type ScopeClaim struct {
 // where "who was supposed to write here" is written down; the kernel stores it and interprets none
 // of it, and the reference implementation emits no `responsible` at all.
 func (r *Runner) Seed(ctx context.Context, scopeID string) (*ScopeSeed, error) {
-	reg, err := nregistry.Open(r.cfg.NektonDir)
+	reg, err := r.scopes(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("opening the nekton registry: %w", err)
+		return nil, err
 	}
 	rec, ok := reg.Claim(scopeID)
 	if !ok {
-		return nil, fmt.Errorf("no such scope %s (not a seed ingested in %s)", scopeID, r.cfg.NektonDir)
+		return nil, fmt.Errorf("no such scope %s (no seed for it in this repository or its federation sources)", scopeID)
 	}
 	st, _, perr := nclaim.ParseEnvelope(rec.Envelope)
 	if perr != nil {
@@ -956,10 +956,26 @@ func (r *Runner) Seed(ctx context.Context, scopeID string) (*ScopeSeed, error) {
 	if !body.Genesis {
 		return nil, fmt.Errorf("%s is not a scope seed: its statement does not carry genesis", scopeID)
 	}
+	env, merr := json.Marshal(rec.Envelope)
+	if merr != nil {
+		return nil, merr
+	}
 	return &ScopeSeed{
 		ID: scopeID, Name: body.Scope, By: body.By, When: body.When,
-		Parent: body.Parent.Hash, Responsible: body.Responsible,
+		Parent: body.Parent.Hash, Responsible: body.Responsible, Envelope: env,
 	}, nil
+}
+
+// scopes is the nekton side of the union: a scope is read over every source this repository
+// federates, like any other record, so a seed or a claim a source brought in is found — and so the
+// tip a claim chains onto is the head over everything held, not over the own registry alone. Trust
+// does not widen with it: whoever reads a seed or a claim from here verifies it against the tiers.
+func (r *Runner) scopes(ctx context.Context) (*nregistry.Registry, error) {
+	u, err := r.read(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("opening the nekton registries: %w", err)
+	}
+	return u.Nekton, nil
 }
 
 // ScopeSeed is a scope's genesis statement: the one place its membership is defined.
@@ -970,6 +986,9 @@ type ScopeSeed struct {
 	When        string   `json:"when,omitempty"`
 	Parent      string   `json:"parent,omitempty"`
 	Responsible []string `json:"responsible,omitempty"`
+	// Envelope is the seed's signed bytes, so a reader can verify who seeded it against its own
+	// tiers; a seed from a federation source is otherwise anybody's word.
+	Envelope json.RawMessage `json:"-"`
 }
 
 // SealPredicate is the term a seal claim uses: the child scope is the subject, the head it was
