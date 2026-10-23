@@ -75,6 +75,22 @@ func (st *Story) sourcesOrNil() []*Input {
 	return st.sources
 }
 
+// StepWhere is where a step happened, in the story's words: "chunk #1 of report.qmd",
+// "script R/02_nca.R", "R/04_fit.R" (lines sent from it), "$ Rscript …", or "console".
+func StepWhere(t *Task, rel func(string) string) string {
+	switch {
+	case t.Origin() != nil && t.Origin().Chunk != "":
+		return "chunk " + t.Origin().Chunk + " of " + rel(t.Origin().File)
+	case t.Script != "":
+		return "script " + rel(t.Script)
+	case t.Origin() != nil && t.Origin().File != "":
+		return rel(t.Origin().File)
+	case shellSession(t.Session):
+		return "$ " + shellPlace(t)
+	}
+	return "console"
+}
+
 var toolNames = []struct{ match, name string }{
 	{"nmfe", "NONMEM (nmfe)"}, {"execute", "PsN execute"}, {"bbi", "bbi"}, {"quarto", "Quarto"},
 	{"pharmpy", "pharmpy"}, {"summarise.py", "Python"}, {"Rscript", "Rscript"},
@@ -165,18 +181,7 @@ func storyOf(tasks []*Task, project, path, sum string) *Story {
 	sort.SliceStable(picked, func(i, j int) bool { return picked[i].End < picked[j].End })
 	for _, t := range picked {
 		s := StoryStep{Session: t.Session, Task: t.ID, When: t.End, Code: t.Code(), OnPath: on[stepKey(t)], Error: t.Status == "err"}
-		switch {
-		case t.Origin() != nil && t.Origin().Chunk != "":
-			s.Where = "chunk " + t.Origin().Chunk + " of " + rel(t.Origin().File)
-		case t.Script != "":
-			s.Where = "script " + rel(t.Script)
-		case t.Origin() != nil && t.Origin().File != "":
-			s.Where = rel(t.Origin().File)
-		case shellSession(t.Session):
-			s.Where = "$ " + shellPlace(t)
-		default:
-			s.Where = "console"
-		}
+		s.Where = StepWhere(t, rel)
 		var srcs []string
 		for _, x := range t.Sources {
 			if x.Class == ClassProject {

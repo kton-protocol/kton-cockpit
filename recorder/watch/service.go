@@ -31,6 +31,9 @@ type Service struct {
 	// Placer, when set, finds where a story's sources reside (asks the cockpit).
 	Placer *Placer
 
+	// Notes are the drafts of descriptions and rationales per story step (Load opens them).
+	Notes *Notes
+
 	mu       sync.RWMutex
 	archived map[string]bool // session\x00task whose call files were handed to the CAS
 	callMemo sync.Map        // the calls of a task, until it grows (callsOf)
@@ -65,6 +68,9 @@ func (sv *Service) Load() error {
 	defer sv.mu.Unlock()
 	if sv.sessions == nil {
 		sv.sessions = map[string]*tracked{}
+	}
+	if sv.Notes == nil && sv.Store != "" {
+		sv.Notes = OpenNotes(filepath.Join(sv.Store, "notes")) // not *.json beside the sessions: those are read as sessions
 	}
 	files, _ := filepath.Glob(filepath.Join(sv.Store, "*.json"))
 	for _, f := range files {

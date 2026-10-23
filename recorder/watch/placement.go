@@ -82,11 +82,12 @@ type Placer struct {
 	Keep   time.Duration // how long a missing seed and a placement are believed
 	Budget time.Duration // the most a story's placements may take
 
-	mu     sync.Mutex
-	seals  map[string]*seal     // scope id → seal
-	missed map[string]time.Time // scope id → when it was not found
-	placed map[string]placedAt  // repo \x00 sha256 → placement
-	chains map[string][]Level   // scope id → its whole, trusted chain
+	mu      sync.Mutex
+	seals   map[string]*seal           // scope id → seal
+	missed  map[string]time.Time       // scope id → when it was not found
+	placed  map[string]placedAt        // repo \x00 sha256 → placement
+	chains  map[string][]Level         // scope id → its whole, trusted chain
+	records map[string]map[string]bool // record id → the input hashes it names (records never change)
 }
 
 type placedAt struct {
@@ -96,7 +97,7 @@ type placedAt struct {
 
 func NewPlacer(ask Asker) *Placer {
 	return &Placer{Ask: ask, Now: time.Now, Keep: time.Minute, Budget: 10 * time.Second,
-		seals: map[string]*seal{}, missed: map[string]time.Time{}, placed: map[string]placedAt{}, chains: map[string][]Level{}}
+		seals: map[string]*seal{}, missed: map[string]time.Time{}, placed: map[string]placedAt{}, chains: map[string][]Level{}, records: map[string]map[string]bool{}}
 }
 
 // dirSources are the repository itself and the federation sources of kind dir, in config order.

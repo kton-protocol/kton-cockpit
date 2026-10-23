@@ -155,6 +155,46 @@ function getJSON(url, timeout) {
     req.on('error', reject);
   });
 }
+// a JSON body to ktonwatch (PUT/POST)
+function sendJSON(method, url, body, timeout) {
+  return new Promise((resolve, reject) => {
+    const data = JSON.stringify(body);
+    const req = http.request(url, { method, timeout: timeout || 5000, headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data) } }, (res) => {
+      let b = ''; res.on('data', (c) => b += c);
+      res.on('end', () => res.statusCode === 200 ? resolve(b ? JSON.parse(b) : null) : reject(new Error(`${res.statusCode} ${b.trim()}`)));
+    });
+    req.on('timeout', () => req.destroy(new Error('timeout')));
+    req.on('error', reject);
+    req.end(data);
+  });
+}
+
+// ------------------------------------------------------------------ notes: drafts of description and rationale
+// Kept by ktonwatch (/api/notes), so the story and the MCP tools (Claude drafting for the person)
+// see the same drafts. Earlier extensions kept them in this window's globalState: moved over once.
+const noteOf = (v) => (typeof v === 'string' ? { description: v } : v || {});
+async function notesFor(sessions) {
+  const q = [...sessions, 'hand'].map((s) => 'prefix=' + encodeURIComponent(s + '/')).join('&');
+  return (await getJSON(`${viewerUrl()}api/notes?${q}`, 5000).catch(() => ({}))) || {};
+}
+const putNote = (key, note) => sendJSON('PUT', viewerUrl() + 'api/notes', Object.assign({ key, by: 'you' }, noteOf(note)));
+async function moveOldNotes(context) {
+  if (context.globalState.get('kton.notesMoved')) return;
+  const old = context.globalState.get('kton.notes', {});
+  if (!Object.keys(old).length) { await context.globalState.update('kton.notesMoved', true); return; }
+  if (!(await ensureService())) return; // next time
+  const have = (await getJSON(viewerUrl() + 'api/notes', 5000).catch(() => null));
+  if (!have) return;
+  let moved = 0;
+  for (const [k, v] of Object.entries(old)) {
+    const n = noteOf(v);
+    if (have[k] || !(n.description || n.rationale)) continue;
+    try { await putNote(k, n); moved++; } catch (e) { out.appendLine(`kton: note ${k} not moved: ${e.message}`); return; }
+  }
+  await context.globalState.update('kton.notesMoved', true);
+  if (moved) out.appendLine(`kton: ${moved} notes moved to ktonwatch (/api/notes)`);
+}
+
 async function ensureService() {
   try { await getJSON(viewerUrl() + 'api/config'); return true; } catch (e) { /* not running */ }
   const exe = bin('ktonwatch');
@@ -577,8 +617,6 @@ async function openStory(context, project, file) {
 <body><div id="root"><main><p class="muted">Putting the story together …</p></main></div>
 <script nonce="${nonce}" src="${w.asWebviewUri(vscode.Uri.joinPath(media, 'story.js'))}"></script></body></html>`;
   let story = null;
-  const notesKey = 'kton.notes';
-  const allNotes = () => context.globalState.get(notesKey, {});
   const send = async () => {
     try {
       story = await getJSON(`${viewerUrl()}api/story?project=${encodeURIComponent(project)}&path=${encodeURIComponent(file.path)}&sha=${encodeURIComponent(file.sha256)}`, 20000);
@@ -586,16 +624,17 @@ async function openStory(context, project, file) {
       w.html = `<!doctype html><body style="font-family:sans-serif;padding:20px">No story for ${path.basename(file.path)}: ${String(e.message).replace(/</g, '&lt;')}</body>`;
       return;
     }
-    // notes are kept per line of the story: session/script, or hand/<file>@<hash>
-    const n = allNotes(), mine = {}, sessions = new Set(story.steps.map((s) => s.session));
-    for (const [k, v] of Object.entries(n)) if (sessions.has(k.split('/')[0]) && v && (typeof v === 'string' || v.description !== undefined)) mine[k] = v;
+    // notes are kept per line of the story: session/task, or hand/<file>@<hash>
+    const mine = await notesFor(new Set(story.steps.map((s) => s.session)));
     const cockpitRepo = fs.existsSync(path.join(story.repo, 'cockpit.config.json'));
     const ps = await publishedSteps(story);
     w.postMessage({ type: 'story', story, notes: mine, cockpitRepo, published: ps.done, sameResult: ps.same });
   };
+  // back in view: read again, so drafts Claude wrote meanwhile (kton_note) show
+  p.onDidChangeViewState((e) => { if (e.webviewPanel.visible && story) send(); });
   w.onDidReceiveMessage(async (m) => {
     if (m.type === 'ready') send();
-    else if (m.type === 'note') { const n = allNotes(); n[m.key] = m.note; await context.globalState.update(notesKey, n); }
+    else if (m.type === 'note') putNote(m.key, m.note).catch((e) => vscode.window.showWarningMessage(`kton: the note was not kept: ${e.message}`));
     else if (m.type === 'reproduce') { await reproduce(project, file.path, file.sha256); send(); } // the result belongs in the story
     else if (m.type === 'diff') diffReproduced(project, m);
     else if (m.type === 'inkton' && story) openInKton(project, story.repo, file.sha256, path.basename(file.path));
@@ -708,6 +747,21 @@ async function ktonIntent(project, m) {
   }
 }
 
+// ------------------------------------------------------------------ Claude
+// The Claude extension in Positron is Claude Code: it reads Claude Code's MCP configuration. This
+// adds ktonwatch's MCP tools there, in a visible terminal; the token is read from its file by the
+// shell, so it does not show on screen.
+function connectClaude() {
+  const tokenFile = path.join(home, '.config', 'kton', 'mcp-token');
+  if (!fs.existsSync(tokenFile)) { vscode.window.showErrorMessage(`kton: no ${tokenFile} yet: ktonwatch serve makes it (restart it, or open the kton side bar)`); return; }
+  const url = viewerUrl() + 'mcp';
+  const term = vscode.window.createTerminal({ name: 'kton: connect Claude', shellPath: '/bin/bash' });
+  term.show();
+  term.sendText('claude mcp remove kton --scope user >/dev/null 2>&1; ' +
+    `claude mcp add --scope user --transport http kton ${url} --header "Authorization: Bearer $(cat ${tokenFile})" && ` +
+    'echo && echo "kton is connected: start a new Claude conversation, then ask e.g. \"which of my recorded steps have no description?\""');
+}
+
 async function openInBrowser() {
   if (!(await ensureService())) return;
   vscode.env.openExternal(await vscode.env.asExternalUri(vscode.Uri.parse(viewerUrl())));
@@ -730,7 +784,9 @@ function activate(context) {
   context.subscriptions.push(doctor, cfgWatch, cfgWatch.onDidChange(again), cfgWatch.onDidCreate(again), cfgWatch.onDidDelete(again),
     vscode.window.onDidChangeActiveTextEditor(() => runDoctor(false)),
     vscode.workspace.onDidChangeWorkspaceFolders(again),
-    vscode.commands.registerCommand('kton.doctor', showDoctor));
+    vscode.commands.registerCommand('kton.doctor', showDoctor),
+    vscode.commands.registerCommand('kton.connectClaude', connectClaude));
+  moveOldNotes(context);
   runDoctor(true);
   context.subscriptions.push(
     vscode.commands.registerCommand('kton.toggleRecording', toggleRecording),
