@@ -88,6 +88,10 @@ func (d *Daemon) prepare(ctx context.Context, cfg *config.Config, keys []ed25519
 	if err != nil {
 		return nil, err
 	}
+	key := datasetKey(inputs, keys)
+	if ds, ok := d.keptDataset(key); ok {
+		return ds, nil
+	}
 	kept := true
 	var regs []string
 	for _, in := range inputs {
@@ -104,7 +108,9 @@ func (d *Daemon) prepare(ctx context.Context, cfg *config.Config, keys []ed25519
 	if err != nil {
 		return nil, err
 	}
-	return &prepared{def: def, named: named, registries: len(regs), kept: kept}, nil
+	ds := &prepared{def: def, named: named, registries: len(regs), kept: kept}
+	d.keepDataset(key, ds)
+	return ds, nil
 }
 
 // regIRI names a registry directory. The index belongs to one machine, so its path names it.
