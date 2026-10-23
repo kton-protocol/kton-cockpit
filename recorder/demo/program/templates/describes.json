@@ -1,0 +1,8 @@
+{
+  "name": "describes",
+  "target": "either",
+  "predicate": "http://purl.org/dc/terms/description",
+  "fields": {
+    "value": {"type": "string", "required": true}
+  }
+}
