@@ -59,7 +59,9 @@ jobs:
         working-directory: cockpit
         run: |
           if ! go test -count=1 -v ./... > /tmp/test.log 2>&1; then
-            grep -E "^(--- FAIL|FAIL|panic:)" -A15 /tmp/test.log | head -300; tail -30 /tmp/test.log; exit 1
+            # A failing test's own lines come before its --- FAIL, between it and its === RUN.
+            awk '/^=== RUN/{buf=""} {buf=buf $0 "\n"} /^ *--- FAIL/{printf "%s", buf; buf=""} /^(FAIL|panic:)/{print}' /tmp/test.log | head -300
+            tail -30 /tmp/test.log; exit 1
           fi
           if grep -q "^--- SKIP" /tmp/test.log; then
             echo "the default suite skipped something:"; grep -A2 "^--- SKIP" /tmp/test.log; exit 1

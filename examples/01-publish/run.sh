@@ -31,13 +31,13 @@ HASH=$(echo "$OUT" | python3 -c 'import json,sys; print(json.load(sys.stdin)["ou
 
 echo ""
 echo "== what the cockpit did on the caller's behalf =="
-# publish makes TWO commits — the files first, then the signed registry entry, because the foton
-# cannot be authored until the permalinks it embeds exist. Two shas therefore exist, and they mean
-# different things:
+# publish makes TWO commits — the files first, then the signed registry entry, because the
+# locators signed beside the foton cannot be written until the permalinks they name exist. Two shas
+# therefore exist, and they mean different things:
 #
 #   revision (returned)   the repo's real final state after this call. Reporting the first would be
 #                         stale the moment publish returned.
-#   the foton's OWN uri   pinned to the first commit, unavoidably: authoring happens between the
+#   the signed locator    pinned to the first commit, unavoidably: signing happens between the
 #                         two. Both resolve — the files' bytes are identical in either.
 DATA_SHA=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["revision"])' <<<"$OUT")
 require "the output is committed"        test -n "$(git log --oneline -- work/sum.csv)"
@@ -45,10 +45,12 @@ require "everything was pushed"          test "$(git rev-parse HEAD)" = "$(git -
 require "the reported sha IS the repo's final state" test "$DATA_SHA" = "$(git rev-parse HEAD)"
 require "and the returned permalink pins it" grep -q "$DATA_SHA/work/sum.csv" <<<"$OUT"
 
-# The foton's embedded locator is a different sha, and this is the assertion that shows it rather
-# than the comment above claiming it.
-EMBEDDED=$(PLANKTON_DIR="$PWD/registry/plankton" ./bin/plankton show "$FOTON" --json \
-  | python3 -c 'import json,sys; print(json.load(sys.stdin)["outputs"][0]["uri"][0])')
+# The locator signed beside the foton (kton-locator/v1; a foton/v1 record carries none itself) is a
+# different sha, and this is the assertion that shows it rather than the comment above claiming it.
+# ask returns it only once a key of this repo's trust tiers verified it.
+EMBEDDED=$(cockpit ask '{"query":"producer","ref":"'"$HASH"'"}' | python3 -c 'import json,sys
+d=json.load(sys.stdin)
+print(next(u for r in d["records"] for l in r.get("locators", []) if l["path"] == "work/sum.csv" for u in l["uri"]))')
 EMBEDDED_SHA=$(sed -E 's#.*/([0-9a-f]{40})/.*#\1#' <<<"$EMBEDDED")
 require "the foton's locator carries a real commit sha" test "${#EMBEDDED_SHA}" = "40"
 require "which is NOT the one publish returned"         test "$EMBEDDED_SHA" != "$DATA_SHA"

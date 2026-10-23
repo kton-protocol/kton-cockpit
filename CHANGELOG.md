@@ -2,10 +2,22 @@
 
 ## Unreleased
 
+Tracks kton v0.3.0. What waited for the kernel is in the default build now; `-tags unreleased`
+is left for what needs ktonpkg, which is not published (install, workflow, ray, the vocabulary
+queries).
+
+### Breaking
+
+- **Records are `foton/v1`** (kton §6.6.1): a record no longer carries its files' locators or a
+  concrete environment in its signed bytes. Both are signed separately and attached beside it
+  (`kton-locator/v1`, `kton-env/v1`, ADR-010).
+
+### The tool
+
 - **`ask sparql`** (SPEC §9.9): a SELECT or ASK of one's own over the trusted dataset, from MCP
-  (`{"query":"sparql","sparql":…}`) or `cockpit ask sparql <query.rq|->`. It needs `-tags unreleased`
-  until the kernel's RDF projection is released. The vocabulary and tested examples are in
-  `docs/sparql.md`.
+  (`{"query":"sparql","sparql":…}`) or `cockpit ask sparql <query.rq|->`. The vocabulary and tested
+  examples are in `docs/sparql.md`.
+- **`index.kind: oxigraph`** (ADR-012) is in the default build.
 
 ## v0.3.0 — 2026-10-23
 

@@ -56,9 +56,9 @@ cockpit version            # the binary, the commit it was built from, and the k
 ```
 
 Needs Go and git; Docker (or another engine, `execution.engine`) to run commands in a pinned image.
-The default build uses only published modules (kton v0.2.1). Work that needs kernel API not yet
-released — package installation, workflows, ray extraction, SPARQL queries, foton/v1 locators — is
-behind `-tags unreleased` and needs those modules locally.
+The default build uses only published modules (kton v0.3.0). Work that needs ktonpkg, which is not
+published (package installation, workflows, ray extraction, the vocabulary queries), is behind
+`-tags unreleased` and needs it locally.
 
 ## Set up a repository
 
@@ -139,7 +139,7 @@ cockpit ask about data/sensor.csv              # the claims about it
 cockpit ask by signer me                       # what I have claimed
 cockpit ask by predicate working-on            # every claim of one kind
 cockpit ask reproductions <file> --min 2       # how many independent parties produced these bytes
-cockpit ask sparql query.rq                    # a SELECT of your own (docs/sparql.md; -tags unreleased)
+cockpit ask sparql query.rq                    # a SELECT of your own (docs/sparql.md)
 ```
 
 Only records a key in your trust tiers verifies are answered; the rest are counted, never shown.

@@ -1,12 +1,14 @@
 package testrepo
 
 import (
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -45,8 +47,14 @@ func resolveBinaries(t *testing.T) (plankton, nekton, kton string) {
 		{kton, "kton.dev/kton", "kton.dev/kton/cmd/kton"},
 	}
 	for _, b := range bins {
+		// A binary built from a workspace (go.work) says (devel), which no go.mod requires, so it is
+		// built once per test process rather than before every test.
+		if _, done := builtHere.Load(b.out); done && exists(b.out) {
+			continue
+		}
 		want := RequiredKernel(t, b.mod)
 		if exists(b.out) && KernelOf(b.out, b.mod) == want {
+			builtHere.Store(b.out, true)
 			continue
 		}
 		if exists(b.out) {
@@ -57,9 +65,13 @@ func resolveBinaries(t *testing.T) (plankton, nekton, kton string) {
 			t.Fatal(err)
 		}
 		build(t, root, b.out, b.pkg)
+		builtHere.Store(b.out, true)
 	}
 	return plankton, nekton, kton
 }
+
+// builtHere holds the kernel binaries this test process has built or found current.
+var builtHere sync.Map
 
 // RequiredKernel is the version of a kton module this repository's go.mod requires, as Go resolves
 // it — a replace directive included, so a local override is reported as what it is.
@@ -99,10 +111,18 @@ func KernelOf(bin, mod string) string {
 func build(t *testing.T, dir, out, pkg string) {
 	t.Helper()
 	t.Logf("building %s into %s", pkg, out)
-	cmd := exec.Command("go", "build", "-o", out, pkg)
+	// Packages test in parallel and share bin/: built aside and renamed into place, a binary another
+	// package runs is never half written.
+	tmp := fmt.Sprintf("%s.build-%d", out, os.Getpid())
+	cmd := exec.Command("go", "build", "-o", tmp, pkg)
 	cmd.Dir = dir
 	if b, err := cmd.CombinedOutput(); err != nil {
+		os.Remove(tmp)
 		t.Fatalf("go build %s in %s: %v\n%s", pkg, dir, err, b)
+	}
+	if err := os.Rename(tmp, out); err != nil {
+		os.Remove(tmp)
+		t.Fatal(err)
 	}
 }
 

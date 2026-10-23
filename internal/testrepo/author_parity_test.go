@@ -23,7 +23,7 @@ import (
 // gone this test goes with it, and what replaces it is that there is only one implementation left.
 //
 // With an environment class it holds too: on foton/v1 both sides leave the image out of the record
-// and carry it beside (ADR-010); on the published kernel both keep it in.
+// and carry it beside (ADR-010).
 func TestAuthor_MatchesTheReferenceCLI(t *testing.T) {
 	t.Run("without a class", func(t *testing.T) { authorParity(t, "") })
 	t.Run("with a class", func(t *testing.T) { authorParity(t, class) })

@@ -294,6 +294,7 @@ execution:      not configured — cockpit_publish RECORDS the command, does not
       <div class="meta"><span class="chip free">no prerequisites</span></div>
       <div class="calls">
         <div class="call"><span class="dollar">$</span>cockpit publish '{ "cmd": "sum data/in.csv &gt; work/sum.csv", "inputs": ["data/in.csv"], "outputs": ["work/sum.csv"] }'</div>
+        <div class="call"><span class="dollar">$</span>cockpit ask '{"query":"producer","ref":"'</div>
         <div class="call"><span class="dollar">$</span>cockpit ask '{"query": "producer", "ref": "$HASH"}'</div>
       </div>
       <ul class="out">

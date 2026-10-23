@@ -533,18 +533,6 @@ func loadPrivate(path string) (ed25519.PrivateKey, error) {
 	return ed25519.NewKeyFromSeed(seed), nil
 }
 
-func loadPublic(path string) (ed25519.PublicKey, error) {
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	raw, err := hex.DecodeString(strings.TrimSpace(string(b)))
-	if err != nil || len(raw) != ed25519.PublicKeySize {
-		return nil, fmt.Errorf("%s is not a public key", path)
-	}
-	return ed25519.PublicKey(raw), nil
-}
-
 var _ = sort.Strings
 
 // ---- trace -----------------------------------------------------------------------------------------

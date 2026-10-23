@@ -65,9 +65,9 @@ separately and served from `kton.dev`, so they are required like any other depen
 `replace`, no sibling checkout, no vendored copy:
 
 ```
-require kton.dev/plankton v0.2.1
-require kton.dev/nekton   v0.2.1
-require kton.dev/kton     v0.2.1
+require kton.dev/plankton v0.3.0
+require kton.dev/nekton   v0.3.0
+require kton.dev/kton     v0.3.0
 ```
 
 Moving the kernel is `go get kton.dev/plankton@vX kton.dev/nekton@vX kton.dev/kton@vX`, a green

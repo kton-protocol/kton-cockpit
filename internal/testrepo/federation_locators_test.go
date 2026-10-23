@@ -3,6 +3,7 @@ package testrepo
 import (
 	"context"
 	"encoding/json"
+	"path/filepath"
 	"testing"
 
 	"github.com/kton-protocol/kton-cockpit/cockpit/source"
@@ -19,7 +20,8 @@ func TestFederation_LocatorsOfAFederatedRecord(t *testing.T) {
 	theirs.Write(t, "data/out.csv", "id,result\n1,84\n")
 	tc := theirs.Config(t)
 	a, err := binaries.New(tc).Author(context.Background(), binaries.AuthorInput{Inputs: []string{"data/in.csv"},
-		Outputs: []string{"data/out.csv"}, Cmd: "double data/in.csv > data/out.csv", SignKey: tc.PlanktonKey})
+		Outputs: []string{"data/out.csv"}, Cmd: "double data/in.csv > data/out.csv", SignKey: tc.PlanktonKey,
+		Located: []string{"data/in.csv=https://example.test/theirs/data/in.csv"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -36,7 +38,14 @@ func TestFederation_LocatorsOfAFederatedRecord(t *testing.T) {
 		t.Fatal(err)
 	}
 	oc.Raw.Federation.Sources = []source.Spec{spec}
-	if _, err := verify.Locators(context.Background(), run, oc, a.ID); err != nil {
-		t.Fatalf("the locators of a federated record: %v", err)
+	// Theirs are signed by a key of theirs, so only once ours trusts it are they passed on.
+	if locs, err := verify.Locators(context.Background(), run, oc, a.ID); err != nil || len(locs) != 0 {
+		t.Fatalf("locators signed by a key no tier names: %v %+v", err, locs)
+	}
+	oc.Raw.Trust.Tiers["peer"] = []string{filepath.Join(tc.RepoRoot, "registry", "keys", SessionID+".pub")}
+	locs, err := verify.Locators(context.Background(), run, oc, a.ID)
+	if err != nil || len(locs) != 1 || locs[0].Path != "data/in.csv" || locs[0].Tier != "peer" ||
+		len(locs[0].URI) != 1 || locs[0].URI[0] != "https://example.test/theirs/data/in.csv" {
+		t.Fatalf("the locators of a federated record, signed by a trusted peer: %v %+v", err, locs)
 	}
 }

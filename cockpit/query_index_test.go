@@ -1,4 +1,4 @@
-//go:build docker && unreleased
+//go:build docker
 
 package cockpit
 

@@ -783,8 +783,22 @@ func (r *Runner) attach(ctx context.Context, bin, id, scheme, mediaType, file st
 
 // MaterialForFoton reads back everything attached to a foton; MaterialForClaim does the same for a
 // claim. An empty result is a normal answer, not an error: most records carry no material.
+//
+// A foton's material is read in every registry of the union, as the foton is: a federated record's
+// locators (kton-locator/v1) are attached where its producer wrote it, not in the own registry.
 func (r *Runner) MaterialForFoton(ctx context.Context, fotonID string) ([]StoredMaterial, error) {
-	return r.material(ctx, "plankton", fotonID)
+	if len(r.cfg.Raw.Federation.Sources) == 0 {
+		return r.material(ctx, "plankton", fotonID)
+	}
+	var out []StoredMaterial
+	seen := map[string]bool{}
+	for _, m := range r.unionMaterial(ctx, fotonID) {
+		if k := m.Scheme + "\x00" + m.Material; !seen[k] {
+			seen[k] = true
+			out = append(out, StoredMaterial{Subject: m.Subject, Scheme: m.Scheme, MediaType: m.MediaType, Material: m.Material})
+		}
+	}
+	return out, nil
 }
 
 func (r *Runner) MaterialForClaim(ctx context.Context, claimID string) ([]StoredMaterial, error) {
