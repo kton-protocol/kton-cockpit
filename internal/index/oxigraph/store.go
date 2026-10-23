@@ -324,10 +324,16 @@ func (d *Daemon) dataset(ctx context.Context, regs []string, trusted map[string]
 	for i, r := range regs {
 		vals[i] = "<" + r + ">"
 	}
-	q := fmt.Sprintf(`SELECT DISTINCT ?rec ?layer ?ag ?kid WHERE { GRAPH <%s> {
-  VALUES ?reg { %s } ?reg <%sholds> ?rec . ?rec <%slayer> ?layer .
-  OPTIONAL { ?reg <%sattests> ?ag . ?ag <%sof> ?rec ; <%skeyid> ?kid } } }`, indexGraph, strings.Join(vals, " "), kNS, kNS, kNS, kNS, kNS)
-	rows, err := d.selectCSV(ctx, url.Values{"query": {q}})
+	// Two queries joined here rather than one with an OPTIONAL: the engine evaluates that OPTIONAL
+	// against every attestation of the registry for each record it holds, which on a union of a few
+	// thousand records took 20 s where these take milliseconds.
+	held, err := d.selectCSV(ctx, url.Values{"query": {fmt.Sprintf(`SELECT DISTINCT ?reg ?rec ?layer WHERE { GRAPH <%s> {
+  VALUES ?reg { %s } ?reg <%sholds> ?rec . ?rec <%slayer> ?layer } }`, indexGraph, strings.Join(vals, " "), kNS, kNS)}})
+	if err != nil {
+		return nil, nil, err
+	}
+	attested, err := d.selectCSV(ctx, url.Values{"query": {fmt.Sprintf(`SELECT DISTINCT ?reg ?rec ?ag ?kid WHERE { GRAPH <%s> {
+  VALUES ?reg { %s } ?reg <%sattests> ?ag . ?ag <%sof> ?rec ; <%skeyid> ?kid } }`, indexGraph, strings.Join(vals, " "), kNS, kNS, kNS)}})
 	if err != nil {
 		return nil, nil, err
 	}
@@ -336,13 +342,19 @@ func (d *Daemon) dataset(ctx context.Context, regs []string, trusted map[string]
 		attr  []string
 	}
 	recs := map[string]*rec{}
-	for _, r := range rows {
-		x := recs[r["rec"]]
-		if x == nil {
-			x = &rec{layer: r["layer"]}
-			recs[r["rec"]] = x
+	holds := map[[2]string]bool{}
+	for _, r := range held {
+		if recs[r["rec"]] == nil {
+			recs[r["rec"]] = &rec{layer: r["layer"]}
 		}
-		if r["ag"] != "" && trusted[r["kid"]] {
+		holds[[2]string{r["reg"], r["rec"]}] = true
+	}
+	// Attribution is the registry's own: an attestation counts where the registry that attests
+	// it also holds the record, as the single query joined them.
+	seen := map[string]bool{}
+	for _, r := range attested {
+		if x := recs[r["rec"]]; x != nil && trusted[r["kid"]] && holds[[2]string{r["reg"], r["rec"]}] && !seen[r["ag"]] {
+			seen[r["ag"]] = true
 			x.attr = append(x.attr, r["ag"])
 		}
 	}
