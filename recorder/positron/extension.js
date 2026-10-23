@@ -21,6 +21,7 @@ const path = require('path');
 const http = require('http');
 const crypto = require('crypto');
 const { spawn, execFile } = require('child_process');
+const net = require('net');
 
 const cfg = () => vscode.workspace.getConfiguration('kton.recorder');
 const home = os.homedir();
@@ -576,6 +577,7 @@ async function openStory(context, project, file) {
     else if (m.type === 'note') { const n = allNotes(); n[m.key] = m.note; await context.globalState.update(notesKey, n); }
     else if (m.type === 'reproduce') { await reproduce(project, file.path, file.sha256); send(); } // the result belongs in the story
     else if (m.type === 'diff') diffReproduced(project, m);
+    else if (m.type === 'inkton' && story) openInKton(story.repo, file.sha256);
     else if (m.type === 'save') {
       const to = await vscode.window.showSaveDialog({ defaultUri: vscode.Uri.file(path.join(story ? story.repo : project, path.basename(file.path) + '.story.md')), filters: { Markdown: ['md'] } });
       if (to) { fs.writeFileSync(to.fsPath, m.markdown); vscode.window.showTextDocument(to); }
@@ -585,6 +587,47 @@ async function openStory(context, project, file) {
       for (const ms of [5000, 15000, 40000]) setTimeout(async () => { if (stories.has(id)) w.postMessage({ type: 'published', published: await publishedSteps(story) }); }, ms);
     }
   });
+}
+
+// ------------------------------------------------------------------ the file in kton (kton-web)
+// kton-web's graph viewer on this repository's signed records, centred on the record whose output
+// is the file. `cockpit show` serves the records and the repository's trust keys, and the viewer
+// verifies every record itself. One server per repository, on a free loopback port, for as long as
+// this window lives. Until the cockpit can select portions from its store (requested), it serves
+// the repository's own records whole.
+const shows = new Map(); // repo → {port, proc}
+const freePort = () => new Promise((resolve, reject) => {
+  const srv = net.createServer();
+  srv.listen(0, '127.0.0.1', () => { const { port } = srv.address(); srv.close(() => resolve(port)); });
+  srv.on('error', reject);
+});
+const ktonWeb = () => {
+  if (process.env.KTON_WEB) return process.env.KTON_WEB;
+  try { return fs.readFileSync(path.join(home, '.local', 'share', 'kton', 'web'), 'utf8').trim(); } catch (e) { return ''; }
+};
+async function cockpitShow(repo) {
+  const known = shows.get(repo);
+  if (known && known.proc.exitCode === null) return known.port;
+  const web = ktonWeb();
+  if (!web) { vscode.window.showErrorMessage('kton: no kton-web checkout known (KTON_WEB, or recorder/install.sh next to kton-web)'); return 0; }
+  const port = await freePort();
+  const proc = spawn(bin('cockpit'), ['show', `127.0.0.1:${port}`, '--web', web], { cwd: repo });
+  proc.stderr.on('data', (d) => out.append(d.toString()));
+  shows.set(repo, { port, proc });
+  for (let i = 0; i < 40; i++) {
+    await new Promise((r) => setTimeout(r, 250));
+    if (proc.exitCode !== null) break;
+    try { await getJSON(`http://127.0.0.1:${port}/data/keys.json`, 2000); return port; } catch (e) { /* not yet */ }
+  }
+  vscode.window.showErrorMessage(`kton: cockpit show in ${repo} does not answer (see the kton output)`);
+  out.show(true);
+  return 0;
+}
+async function openInKton(repo, sum) {
+  const port = await cockpitShow(repo);
+  if (!port) return;
+  const url = `http://127.0.0.1:${port}/viewers/graph/?union=/data/union.json&focus=sha256:${sum}`;
+  vscode.env.openExternal(await vscode.env.asExternalUri(vscode.Uri.parse(url)));
 }
 
 async function openInBrowser() {
@@ -641,5 +684,5 @@ function activate(context) {
   }));
 }
 
-function deactivate() {}
+function deactivate() { for (const s of shows.values()) s.proc.kill(); }
 module.exports = { activate, deactivate, _test: { parseDoctor, parseDoctorJSON, cockpitRepoOf, reproduce, publishedSteps, publishText, Tree, setOut: (o) => { out = o; } } };

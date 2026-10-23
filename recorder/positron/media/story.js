@@ -184,6 +184,7 @@
         <div class="actions">
           <button id="repro" title="source files and scripts into an empty folder, run there, compare the hash">Reproduce</button>
           <button id="publish" ${!cockpitRepo || !todo.length ? "disabled" : ""} title="${cockpitRepo ? "cockpit publish for every line without ✓, in the terminal, with description and rationale as comments" : "no cockpit repo (cockpit init)"}">Publish to kton${todo.length ? ` (${todo.length})` : ""}</button>
+          <button class="secondary" id="inkton" ${cockpitRepo ? "" : "disabled"} title="${cockpitRepo ? "kton-web on this repository's signed records, centred on this file's record (cockpit show; verified in the browser)" : "no cockpit repo (cockpit init)"}">In kton</button>
           <button class="secondary" id="save">Markdown</button>
         </div>
       </header>
@@ -204,6 +205,7 @@
     }
     document.getElementById("repro").onclick = () => vscode.postMessage({type: "reproduce"});
     document.getElementById("save").onclick = () => vscode.postMessage({type: "save", markdown: markdown(cs)});
+    document.getElementById("inkton").onclick = () => vscode.postMessage({type: "inkton"});
     document.getElementById("publish").onclick = () => {
       const steps = [];
       for (const c of cs) {
