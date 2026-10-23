@@ -666,7 +666,8 @@ const FILE_ACTIONS = [
   { id: 'copy', label: 'Copy into my project', on: 'both' },
 ];
 const panelOf = (project) => [...ktonPanels.values()].find((x) => !project || x.project === project);
-async function openInKton(project, repo, sum, name) {
+async function openInKton(project, repo, sum, name, opts) {
+  opts = opts || {};
   if (!(await ensureService())) return;
   const shown = ktonPanels.get(repo);
   if (shown && shown.project === project) { // the viewer finds the file, asking the store if it must
@@ -675,11 +676,12 @@ async function openInKton(project, repo, sum, name) {
     shown.panel.webview.postMessage({ type: 'set', state: { focus: 'sha256:' + sum } });
     return shown;
   }
-  const p0 = ((await getJSON(viewerUrl() + 'api/projects').catch(() => [])) || []).find((x) => x.path === project);
-  const reg = p0 && p0.registry;
+  // a repository the MCP tools admitted (an explore repository): its signed records only, nothing recorded
+  const p0 = opts.registry ? null : ((await getJSON(viewerUrl() + 'api/projects').catch(() => [])) || []).find((x) => x.path === project);
+  const reg = opts.registry || (p0 && p0.registry);
   const g = '/kton/graph.json?project=' + encodeURIComponent(project);
   const q = (reg ? 'select=' + encodeURIComponent(`/kton/reg/${reg}/data/select`) + '&' : '') +
-    'graph=' + encodeURIComponent(g) + '&focus=' + encodeURIComponent('sha256:' + sum) + '&mode=anc&view=extension';
+    (opts.registry ? '' : 'graph=' + encodeURIComponent(g) + '&') + 'focus=' + encodeURIComponent('sha256:' + sum) + '&mode=anc&view=extension';
   const src = (await vscode.env.asExternalUri(vscode.Uri.parse(viewerUrl() + 'web/viewers/graph/?' + q))).toString(true);
   const originOf = new URL(src).origin;
   let panel = shown && shown.panel;
@@ -859,7 +861,7 @@ async function uiDo(context, ev) {
     }
     case 'open_graph': {
       const repo = repoOfProject(a.project) || a.project;
-      const e = await openInKton(a.project, repo, a.sha256, a.path ? path.basename(a.path) : a.sha256.slice(0, 12));
+      const e = await openInKton(a.project, repo, a.sha256, a.title || (a.path ? path.basename(a.path) : a.sha256.slice(0, 12)), { registry: a.registry });
       return e ? { ok: true, message: 'the graph shows it' } : { ok: false, message: 'the graph could not be opened' };
     }
     case 'select': {

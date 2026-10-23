@@ -58,6 +58,7 @@ func Server(sv *watch.Service, version string) *mcp.Server {
 	mcp.AddTool(s, &mcp.Tool{Name: "kton_copy", Description: "Copy a file (by its content hash, e.g. another analyst's script or dataset found with kton_ask or the graph) into a project. The person is asked in Positron and sees source and target first; nothing is overwritten without their yes. The bytes are checked against the hash."},
 		mcpsurface.Handler(t.copyFile))
 	mcp.AddTool(s, &mcp.Tool{Name: "kton_sparql", Description: sparqlHelp}, mcpsurface.Handler(t.sparql))
+	addTour(s)
 	mcp.AddTool(s, &mcp.Tool{Name: "kton_note", Description: "Draft the description and the rationale of a recorded step (key \"session/task\" from kton_runs or kton_story). A draft only: the person sees it in the story, can change it, and signs it when publishing. Empty description and rationale remove the draft."},
 		mcpsurface.Handler(t.note))
 	return s
@@ -471,9 +472,22 @@ type OpenGraphIn struct {
 	Path    string `json:"path,omitempty" jsonschema:"the file to centre on, absolute or relative to the project"`
 	Hash    string `json:"hash,omitempty" jsonschema:"or a file hash / record id (sha256:…) to centre on"`
 	Project string `json:"project,omitempty" jsonschema:"the project whose graph; needed with hash"`
+	Repo    string `json:"repo,omitempty" jsonschema:"instead of a project: a cockpit repository to show (e.g. an explore repository that reads everything), with hash; only signed records, no recording"`
+	Title   string `json:"title,omitempty" jsonschema:"the tab's title, e.g. what is shown"`
 }
 
 func (t *tools) openGraph(ctx context.Context, in OpenGraphIn) (*EditorOut, error) {
+	if in.Repo != "" {
+		if in.Hash == "" {
+			return nil, fmt.Errorf("repo needs hash (a file hash or record id to centre on)")
+		}
+		id, err := t.sv.AllowRegistry(in.Repo)
+		if err != nil {
+			return nil, err
+		}
+		return t.editor(ctx, 30*time.Second, "open_graph", map[string]any{"project": in.Repo, "registry": id,
+			"sha256": strings.TrimPrefix(in.Hash, "sha256:"), "title": in.Title})
+	}
 	var args map[string]any
 	switch {
 	case in.Path != "":
@@ -491,7 +505,7 @@ func (t *tools) openGraph(ctx context.Context, in OpenGraphIn) (*EditorOut, erro
 }
 
 type SelectIn struct {
-	Project string   `json:"project" jsonschema:"the project whose graph"`
+	Project string   `json:"project" jsonschema:"the project whose graph, or the repo a graph was opened on (kton_open_graph repo)"`
 	Items   []string `json:"items" jsonschema:"files (paths relative to the project or absolute), file hashes or record ids (sha256:…); empty clears"`
 }
 

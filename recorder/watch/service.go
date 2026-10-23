@@ -37,6 +37,9 @@ type Service struct {
 	// UI passes what the MCP tools ask of the editor to the listening windows (Load makes it).
 	UI *UIHub
 
+	allowedMu sync.Mutex
+	allowed   map[string]string // registry id → a repository the MCP tools admitted (AllowRegistry)
+
 	mu       sync.RWMutex
 	archived map[string]bool // session\x00task whose call files were handed to the CAS
 	callMemo sync.Map        // the calls of a task, until it grows (callsOf)

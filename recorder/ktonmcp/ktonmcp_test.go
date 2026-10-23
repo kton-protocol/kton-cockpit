@@ -339,3 +339,48 @@ func TestNotes_AnOldLineKeyIsFoundForItsStep(t *testing.T) {
 		t.Fatalf("story: %+v", st.Steps[0])
 	}
 }
+
+func TestTour_APromptWithItsExploreRepository(t *testing.T) {
+	sv, _ := fixture(t)
+	cs := connect(t, sv)
+	ps, err := cs.ListPrompts(context.Background(), nil)
+	if err != nil || len(ps.Prompts) != 1 || ps.Prompts[0].Name != "pmx_tour" {
+		t.Fatalf("prompts %+v %v", ps, err)
+	}
+	r, err := cs.GetPrompt(context.Background(), &mcp.GetPromptParams{Name: "pmx_tour", Arguments: map[string]string{"explore": "/x/explore"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := r.Messages[0].Content.(*mcp.TextContent).Text
+	if !strings.Contains(text, `project = "/x/explore"`) || strings.Contains(text, "EXPLORE") || !strings.Contains(text, "PREFIX pmx:") {
+		t.Fatalf("tour text: %.300s", text)
+	}
+}
+
+// kton_open_graph on a repository that is no recorded project (an explore repository): the MCP
+// admits it to /kton/reg/<id>, and the editor is asked to open it by that id.
+func TestEditorTools_AGraphOfAnExploreRepository(t *testing.T) {
+	sv, _ := fixture(t)
+	cs := connect(t, sv)
+	explore := t.TempDir()
+	os.WriteFile(filepath.Join(explore, "cockpit.config.json"), []byte("{}"), 0o644)
+	var got []watch.UIEvent
+	fakeEditor(t, sv, func(ev watch.UIEvent) watch.UIAnswer {
+		got = append(got, ev)
+		return watch.UIAnswer{OK: true, Message: "the graph shows it"}
+	})
+	if sv.RegistryRepo(watch.RegistryID(explore)) != "" {
+		t.Fatal("admitted before it was asked for")
+	}
+	var out EditorOut
+	call(t, cs, "kton_open_graph", map[string]any{"repo": explore, "hash": "sha256:" + strings.Repeat("c", 64), "title": "PMX-02"}, &out)
+	if !out.OK || got[0].Args["registry"] != watch.RegistryID(explore) || got[0].Args["title"] != "PMX-02" {
+		t.Fatalf("%+v %+v", out, got)
+	}
+	if sv.RegistryRepo(watch.RegistryID(explore)) != explore {
+		t.Fatal("not admitted to /kton/reg")
+	}
+	if e := errText(call(t, cs, "kton_open_graph", map[string]any{"repo": t.TempDir(), "hash": "sha256:" + strings.Repeat("c", 64)}, nil)); !strings.Contains(e, "not a cockpit repository") {
+		t.Fatalf("a plain directory: %q", e)
+	}
+}

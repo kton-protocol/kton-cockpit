@@ -3,6 +3,7 @@ package watch
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -297,7 +298,26 @@ func (sv *Service) RegistryRepo(id string) string {
 			return RepoRoot(p.Path)
 		}
 	}
-	return ""
+	sv.allowedMu.Lock()
+	defer sv.allowedMu.Unlock()
+	return sv.allowed[id]
+}
+
+// AllowRegistry admits a cockpit repository that is no recorded project's (an "explore"
+// repository that reads everything) to /kton/reg/<id>: the MCP tools do, behind their token, when
+// the person asks to see it. Its id is returned.
+func (sv *Service) AllowRegistry(repo string) (string, error) {
+	if !isCockpitRepo(repo) {
+		return "", fmt.Errorf("%s is not a cockpit repository (no cockpit.config.json)", repo)
+	}
+	id := RegistryID(repo)
+	sv.allowedMu.Lock()
+	defer sv.allowedMu.Unlock()
+	if sv.allowed == nil {
+		sv.allowed = map[string]string{}
+	}
+	sv.allowed[id] = repo
+	return id, nil
 }
 
 func (sv *Service) projectView(check *Checker, project string, f Filter) map[string]any {
