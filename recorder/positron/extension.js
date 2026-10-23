@@ -639,6 +639,10 @@ async function openInKton(project, repo, sum, name) {
   const set = (state) => frame.contentWindow.postMessage({type: 'kton:set', state}, viewer);
   const actions = () => set({view: {actions: ${JSON.stringify(FILE_ACTIONS)}}});
   frame.src = ${JSON.stringify(src)} + '&host=' + encodeURIComponent(window.origin);
+  // kton-web sizes its canvas only when it fits the view, so a tab dragged into a bigger editor shows
+  // the old picture stretched, and clicks miss the nodes it draws. Handing over the view again makes
+  // it fit (reported to kton-web; this goes once the viewer follows its size itself).
+  let fitting; window.addEventListener('resize', () => { clearTimeout(fitting); fitting = setTimeout(actions, 200); });
   window.addEventListener('message', (e) => {
     if (e.origin === viewer && e.data && e.data.type === 'kton:ready') actions();                       // the editor's file actions
     else if (e.origin === viewer && e.data && /^kton:/.test(e.data.type || '')) vscode.postMessage(e.data); // intents, state, refusals
