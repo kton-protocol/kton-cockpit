@@ -47,7 +47,7 @@ type Reader interface {
 	MaterialForFoton(ctx context.Context, fotonID string) ([]binaries.StoredMaterial, error)
 	MaterialForClaim(ctx context.Context, claimID string) ([]binaries.StoredMaterial, error)
 
-	// Scopes, in the own nekton registry.
+	// Scopes, over the union of sources (SPEC §9.6).
 	Head(ctx context.Context, scopeID string) (*binaries.ScopeHead, error)
 	ScopeChain(ctx context.Context, scopeID string) ([]binaries.ScopeClaim, error)
 	Seed(ctx context.Context, scopeID string) (*binaries.ScopeSeed, error)

@@ -48,6 +48,14 @@ type Verdict struct {
 	// convention, not kernel — reported as written, never enforced. Empty is the common case: the
 	// reference implementation emits none.
 	Responsible []string `json:"responsible,omitempty"`
+	// SeedTier is the trust tier of the key that signed the seed, resolved here. A seed is read
+	// over the federation sources too, so it is anybody's word until it verifies: one no tier holds
+	// reports only its id, never its name, signer, parent or responsible.
+	SeedTier string `json:"seedTier"`
+	// Context is the scope's parents, nearest first (study → project → programme), each verified
+	// the same way. It ends at a seed with no parent, one no source holds, one that does not
+	// verify, or a seed already on the path.
+	Context []Ancestor `json:"context,omitempty"`
 
 	// Complete is the seal verdict: every claim naming this scope resolves back to the seed, and
 	// exactly one head carries all of them.
@@ -70,6 +78,20 @@ type Verdict struct {
 	// `by` each statement declares about itself.
 	Writers []Writer `json:"writers,omitempty"`
 }
+
+// Ancestor is one scope above another in the parent chain.
+type Ancestor struct {
+	Scope      string `json:"scope"`
+	Name       string `json:"name,omitempty"`
+	SeededBy   string `json:"seededBy,omitempty"`
+	SeededWhen string `json:"seededWhen,omitempty"`
+	Tier       string `json:"tier"`
+	// Missing is a parent no source holds a seed for: the chain goes on, but not here.
+	Missing bool `json:"missing,omitempty"`
+}
+
+// maxContext bounds the parent walk; a real hierarchy is a handful deep.
+const maxContext = 32
 
 // ScopeWriter is one signing identity that has written into a scope, and what this repo makes of it.
 type Writer struct {
@@ -116,13 +138,29 @@ func Describe(ctx context.Context, cfg *config.Config, r index.Reader, scopeID s
 		return nil, nil, fmt.Errorf("reading the claims of scope %s failed: %w", scopeID, err)
 	}
 
+	dir, derr := os.MkdirTemp("", "cockpit-scope-")
+	if derr != nil {
+		return nil, nil, derr
+	}
+	defer os.RemoveAll(dir)
+
+	seedTier, err := seedTierOf(ctx, cfg, r, dir, seed)
+	if err != nil {
+		return nil, nil, err
+	}
 	v := &Verdict{
-		Scope: scopeID, Name: seed.Name, SeededBy: seed.By, SeededWhen: seed.When,
-		Parent: seed.Parent, Responsible: seed.Responsible,
+		Scope: scopeID, SeedTier: seedTier,
 		Heads: head.Heads, ChainLength: head.ChainLength,
 		Gaps: head.Unresolved, Limit: tailLimit,
 	}
-	if seed.Parent != "" {
+	if seedTier != verify.Untrusted {
+		v.Name, v.SeededBy, v.SeededWhen = seed.Name, seed.By, seed.When
+		v.Parent, v.Responsible = seed.Parent, seed.Responsible
+		if v.Context, err = ancestors(ctx, cfg, r, dir, scopeID, seed.Parent); err != nil {
+			return nil, nil, err
+		}
+	}
+	if v.Parent != "" {
 		v.Limit = tailLimitSealed
 	}
 
@@ -146,12 +184,6 @@ func Describe(ctx context.Context, cfg *config.Config, r index.Reader, scopeID s
 		v.Reason = fmt.Sprintf("every claim resolves back to the seed and one head (%s) carries all %d of them",
 			head.Heads[0], head.ChainLength)
 	}
-
-	dir, derr := os.MkdirTemp("", "cockpit-scope-")
-	if derr != nil {
-		return nil, nil, derr
-	}
-	defer os.RemoveAll(dir)
 
 	byKey := map[string]*Writer{}
 	verified := make([]ClaimVerification, 0, len(claims))
@@ -187,6 +219,48 @@ func Describe(ctx context.Context, cfg *config.Config, r index.Reader, scopeID s
 	return v, verified, nil
 }
 
+// seedTierOf verifies a seed through its envelope, as Describe verifies a claim: against this
+// repository's tiers, wherever the seed was read from.
+func seedTierOf(ctx context.Context, cfg *config.Config, r index.Reader, dir string, seed *binaries.ScopeSeed) (string, error) {
+	envPath := filepath.Join(dir, "seed-"+strings.TrimPrefix(seed.ID, "sha256:")+".dsse.json")
+	if err := os.WriteFile(envPath, seed.Envelope, 0o600); err != nil {
+		return "", err
+	}
+	tier, _, err := verify.ResolveTier(ctx, r, cfg, envPath, verify.Claim)
+	if err != nil {
+		return "", fmt.Errorf("verifying the seed of %s failed: %w", seed.ID, err)
+	}
+	return tier, nil
+}
+
+// ancestors walks the parent chain from parent upward. Each step is a seed read over the union and
+// verified here; what an unverified seed says, including its parent, is not followed.
+func ancestors(ctx context.Context, cfg *config.Config, r index.Reader, dir, from, parent string) ([]Ancestor, error) {
+	var out []Ancestor
+	seen := map[string]bool{from: true}
+	for parent != "" && !seen[parent] && len(out) < maxContext {
+		seen[parent] = true
+		seed, err := r.Seed(ctx, parent)
+		if err != nil {
+			out = append(out, Ancestor{Scope: parent, Missing: true})
+			break
+		}
+		tier, err := seedTierOf(ctx, cfg, r, dir, seed)
+		if err != nil {
+			return nil, err
+		}
+		a := Ancestor{Scope: parent, Tier: tier}
+		if tier == verify.Untrusted {
+			out = append(out, a)
+			break
+		}
+		a.Name, a.SeededBy, a.SeededWhen = seed.Name, seed.By, seed.When
+		out = append(out, a)
+		parent = seed.Parent
+	}
+	return out, nil
+}
+
 // Line renders the verdict for a human.
 func (v *Verdict) Line() string {
 	var b strings.Builder
@@ -199,8 +273,18 @@ func (v *Verdict) Line() string {
 		fmt.Fprintf(&b, " (%q)", v.Name)
 	}
 	fmt.Fprintf(&b, "\nseal:    %s — %s\n", state, v.Reason)
-	if v.Parent != "" {
-		fmt.Fprintf(&b, "parent:  %s\n", v.Parent)
+	if v.SeedTier == verify.Untrusted {
+		fmt.Fprintf(&b, "seed:    signed by a key no trust tier here holds — its name and parent are not shown\n")
+	}
+	for _, a := range v.Context {
+		switch {
+		case a.Missing:
+			fmt.Fprintf(&b, "in:      %s  [no source holds its seed]\n", a.Scope)
+		case a.Tier == verify.Untrusted:
+			fmt.Fprintf(&b, "in:      %s  [seed not trusted here]\n", a.Scope)
+		default:
+			fmt.Fprintf(&b, "in:      %s (%q)  [%s]\n", a.Scope, a.Name, a.Tier)
+		}
 	}
 	for _, w := range v.Writers {
 		tier := w.Tier
