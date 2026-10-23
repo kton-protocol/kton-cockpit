@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -172,7 +173,7 @@ func (t *tools) runs(_ context.Context, in RunsIn) (*RunsOut, error) {
 						st.Writes = append(st.Writes, rel(o.Path))
 					}
 				}
-				st.Note = t.noteOf(st.Key)
+				st.Note = t.stepNote(sess.ID, tk.ID, st.Where)
 				run.Steps = append(run.Steps, st)
 			}
 		})
@@ -237,7 +238,7 @@ func (t *tools) story(ctx context.Context, in StoryIn) (*StoryOut, error) {
 	for _, s := range st.Steps {
 		key := s.Session + "/" + s.Task // a change by hand: hand/<file>@<sha256 prefix>, as the story tab keys it
 		out.Steps = append(out.Steps, StoryStep{Key: key, When: stamp(s.When), Where: s.Where, Sentence: s.Sentence,
-			Code: clip(s.Code, 600), OnPath: s.OnPath, InKton: states[s.Session+"/"+s.Task], Hand: s.Hand, Warnings: s.Warnings, Note: t.noteOf(key)})
+			Code: clip(s.Code, 600), OnPath: s.OnPath, InKton: states[s.Session+"/"+s.Task], Hand: s.Hand, Warnings: s.Warnings, Note: t.stepNote(s.Session, s.Task, s.Where)})
 	}
 	return out, nil
 }
@@ -556,6 +557,17 @@ func (t *tools) noteOf(key string) *watch.Note {
 		return &n
 	}
 	return nil
+}
+
+// stepNote is a step's draft: under its key (session/task), else where a story line written before
+// keys were per step kept it: session/<where>, a chunk's "chunk #n of " left out (story.js chapters).
+var chunkOf = regexp.MustCompile(`^chunk \S+ of `)
+
+func (t *tools) stepNote(session, task, where string) *watch.Note {
+	if n := t.noteOf(session + "/" + task); n != nil {
+		return n
+	}
+	return t.noteOf(session + "/" + chunkOf.ReplaceAllString(where, ""))
 }
 
 // locate: the project a path belongs to and the path made absolute

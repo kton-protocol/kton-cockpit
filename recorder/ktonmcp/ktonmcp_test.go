@@ -321,3 +321,21 @@ func TestSparql_PassesTheQueryAndShowsTheAnswerOrTheRefusal(t *testing.T) {
 		t.Fatalf("no project: %q", e)
 	}
 }
+
+// The story tab once kept a line's note under session/<where>; the tools keep it per step
+// (session/task). Each side finds the other's.
+func TestNotes_AnOldLineKeyIsFoundForItsStep(t *testing.T) {
+	sv, project := fixture(t)
+	sv.Notes.Put("positron-1/R/01_prepare.R", watch.Note{Description: "written in the story before", By: "you"})
+	cs := connect(t, sv)
+	var runs RunsOut
+	call(t, cs, "kton_runs", map[string]any{"project": project}, &runs)
+	if n := runs.Runs[0].Steps[0].Note; n == nil || n.Description != "written in the story before" {
+		t.Fatalf("runs: %+v", runs.Runs[0].Steps[0])
+	}
+	var st StoryOut
+	call(t, cs, "kton_story", map[string]any{"path": "derived/fit.csv", "project": project}, &st)
+	if n := st.Steps[0].Note; n == nil || n.Description != "written in the story before" {
+		t.Fatalf("story: %+v", st.Steps[0])
+	}
+}
