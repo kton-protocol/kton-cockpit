@@ -615,11 +615,8 @@ async function openInKton(project, repo, sum, name) {
   const p0 = ((await getJSON(viewerUrl() + 'api/projects').catch(() => [])) || []).find((x) => x.path === project);
   const reg = p0 && p0.registry;
   const g = '/kton/graph.json?project=' + encodeURIComponent(project);
-  // ?select= with ?graph= takes kton-web's recorded-only boot path today (its `graph && !union`
-  // check misses `select`), so the focus never lands: the recorded graph joins again once that is
-  // fixed (reported to kton-web). Until then a select view shows the signed records only.
-  const q = (reg ? 'select=' + encodeURIComponent(`/kton/reg/${reg}/data/select`) : 'graph=' + encodeURIComponent(g)) +
-    '&focus=' + encodeURIComponent('sha256:' + sum) + '&mode=anc&view=extension';
+  const q = (reg ? 'select=' + encodeURIComponent(`/kton/reg/${reg}/data/select`) + '&' : '') +
+    'graph=' + encodeURIComponent(g) + '&focus=' + encodeURIComponent('sha256:' + sum) + '&mode=anc&view=extension';
   const src = (await vscode.env.asExternalUri(vscode.Uri.parse(viewerUrl() + 'web/viewers/graph/?' + q))).toString(true);
   const originOf = new URL(src).origin;
   let panel = shown && shown.panel;
