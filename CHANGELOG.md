@@ -1,5 +1,55 @@
 # Changelog
 
+## v0.3.0 — 2026-10-23
+
+Tracks kton v0.2.1 (`kton.dev/plankton`, `nekton`, `kton` by `require`, no vendoring). What needs
+the kernel's unreleased surfaces is built with `-tags unreleased` against kton `main` and stays out
+of a default build until kton 0.3.0 is tagged.
+
+### Breaking
+
+- **The `git` configuration block is now `persist`**: `git.commit` → `persist.commit`, `git.push` →
+  `persist.share`. The cockpit no longer speaks of git outside a backend (ADR-011), and
+  `cockpit_publish` reports `persisted`/`shared` instead of `committed`/`pushed`.
+- **`environment.spectrum` must be a canonical content hash** (`sha256:` and 64 lowercase hex), and
+  **`query.image` must be pinned by digest**.
+- **`cockpit doctor` exits 3** while a step marked `!` is left; it used to exit 0.
+
+### The tool
+
+- **Ports and backends (ADR-011).** `cockpit/backend` (where records persist: git, local; an
+  extension registers more, e.g. improve), `cockpit/executor` (what runs a command: the pinned
+  container by default) and `cockpit/source` (where federated records come from). Importable, so a
+  binary that adds a backend is the same program with one more import.
+- **Federation.** `federation.sources` names registries read together with the own one (`dir`,
+  `git`). Sources are read read-only, a source with no registry is refused, and trust does not
+  widen: the configured tiers stay the ceiling. `ask scope` reads over the sources too, verifies
+  each seed against this repository's tiers, and answers with the scope's parent chain.
+- **A derived index (ADR-012).** `index.kind`: `none` (default), `memory` (the MCP server keeps the
+  opened registries until a file changes) and, with `-tags unreleased`, `oxigraph` — one daemon per
+  machine, records stored once, trust chosen per query, `SERVICE` refused. `cockpit index
+  status|start|stop|rebuild`.
+- **`publish --base`** (SPEC §7.8): paths and the command are relative to a base, so the same call
+  in another checkout is the same computation. A path or a command reaching above the base is
+  refused.
+- **The cache key on the environment class (ADR-010)**, behind `-tags unreleased`: with a spectrum
+  set, `envRef` is carried as signed `kton-env/v1` material beside the record.
+- **Claim templates `describes` and `rationale`** (SPEC §8.6): `dcterms:description` and EP-Plan's
+  `hasRationale`, one field `value` each; `cockpit init` admits both.
+- **`cockpit doctor --json`** for a program to read: `ready`, `steps`, `fields`.
+- **Operator commands** `trust`, `federation`, `sync`, `config`, `pin`, `keygen`, `install`,
+  `workflow`, `run`.
+- **The recorder** (`recorder/`): watches a session's consoles and drafts the `cockpit publish` calls
+  that record it, with an editor extension.
+- **New verbs are allowed (ADR-009)** when they have CLI, MCP and Go implementations, sit under the
+  configuration ceiling, are specified and tested. None has been added.
+
+### Fixed
+
+- Concurrent readers of a federated repository tore down each other's union cache. A union now
+  lives under the stamp of what it was built from, is built aside and never changed after, and
+  building takes turns under a lock.
+
 ## v0.2.0 — 2026-09-17
 
 First release under the name **kton-cockpit**, in `kton-protocol`. Tracks kton 0.2.
