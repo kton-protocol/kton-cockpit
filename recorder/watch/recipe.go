@@ -385,8 +385,7 @@ func script(r *Recipe, project string, rel func(string) string) string {
 	fmt.Fprintf(&b, "\nsetwd(%q)\n", project)
 	for i, t := range r.Steps {
 		where := ""
-		if len(t.Origins) > 0 && t.Origins[0].File != "" {
-			o := t.Origins[0]
+		if o := t.Origin(); o != nil && o.File != "" {
 			where = rel(o.File)
 			if o.Chunk != "" {
 				where += " · chunk " + o.Chunk
@@ -400,7 +399,7 @@ func script(r *Recipe, project string, rel func(string) string) string {
 		switch code := t.Code(); {
 		case code == "":
 			b.WriteString("# (code unknown)\n")
-		case len(t.Origins) > 0 && t.Origins[0].Language == "python":
+		case t.Origin() != nil && t.Origin().Language == "python":
 			b.WriteString(pythonStep(code))
 		default:
 			b.WriteString(strings.TrimRight(code, "\n") + "\n")

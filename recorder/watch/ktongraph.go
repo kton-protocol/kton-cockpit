@@ -106,8 +106,8 @@ func participant(t *Task) string {
 	if t.Script != "" {
 		return filepath.Base(t.Script)
 	}
-	if len(t.Origins) > 0 && t.Origins[0].File != "" {
-		return filepath.Base(t.Origins[0].File)
+	if o := t.Origin(); o != nil && o.File != "" {
+		return filepath.Base(o.File)
 	}
 	for _, s := range t.Sources {
 		if s.Class == ClassProject {

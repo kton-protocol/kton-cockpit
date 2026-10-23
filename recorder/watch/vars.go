@@ -22,11 +22,32 @@ var (
 
 // Code is the code a task ran as far as it is known: what Positron sent, else the expression
 // R saw (not Ark's own `.ark_last_value`).
+// Origin is the command that names the task: the last one sent with a file (a script, a chunk),
+// else the last one. Earlier origins of the same task are commands that ran before it without a
+// task boundary in between; when the task began is the first origin's business (commandStart).
+func (t *Task) Origin() *Origin {
+	for i := len(t.Origins) - 1; i >= 0; i-- {
+		if t.Origins[i].File != "" {
+			return &t.Origins[i]
+		}
+	}
+	if len(t.Origins) > 0 {
+		return &t.Origins[len(t.Origins)-1]
+	}
+	return nil
+}
+
 func (t *Task) Code() string {
+	// every command the task saw, in the order they were sent: a command that did not close a task
+	// of its own (getwd() typed before a source()) ran inside this one
+	var codes []string
 	for _, o := range t.Origins {
 		if o.Code != "" {
-			return o.Code
+			codes = append(codes, strings.TrimRight(o.Code, "\n"))
 		}
+	}
+	if len(codes) > 0 {
+		return strings.Join(codes, "\n")
 	}
 	if strings.HasPrefix(t.Expr, "base::") {
 		return ""

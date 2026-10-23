@@ -165,12 +165,12 @@ func storyOf(tasks []*Task, project, path, sum string) *Story {
 	for _, t := range picked {
 		s := StoryStep{Session: t.Session, Task: t.ID, When: t.End, Code: t.Code(), OnPath: on[stepKey(t)], Error: t.Status == "err"}
 		switch {
-		case len(t.Origins) > 0 && t.Origins[0].Chunk != "":
-			s.Where = "chunk " + t.Origins[0].Chunk + " of " + rel(t.Origins[0].File)
+		case t.Origin() != nil && t.Origin().Chunk != "":
+			s.Where = "chunk " + t.Origin().Chunk + " of " + rel(t.Origin().File)
 		case t.Script != "":
 			s.Where = "script " + rel(t.Script)
-		case len(t.Origins) > 0 && t.Origins[0].File != "":
-			s.Where = rel(t.Origins[0].File)
+		case t.Origin() != nil && t.Origin().File != "":
+			s.Where = rel(t.Origin().File)
 		case shellSession(t.Session):
 			s.Where = "$ " + shellPlace(t)
 		default:

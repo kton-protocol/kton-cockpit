@@ -3,6 +3,7 @@ package watch
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 // Someone sends data.csv. Morning: play around (a dead end), afternoon: the real analysis
@@ -133,5 +134,30 @@ func TestRecipe_HandEditGapNamesTheWriterBefore(t *testing.T) {
 	r := recipeOf(ts, "/p", "/p/out.csv", "")
 	if len(r.Gaps) == 0 || !strings.Contains(r.Gaps[0], "01.R") {
 		t.Fatalf("gaps %v", r.Gaps)
+	}
+}
+
+// A command typed before a source() without a task boundary in between (getwd() in Positron)
+// lands in the same task: the recipe runs both, in order, and the step is the script's.
+func TestRecipe_AllCommandsOfATaskInOrder(t *testing.T) {
+	ts := []*Task{
+		{Session: "p", ID: "3", Start: 1, End: 5, Expr: "base::invisible(base::.ark_last_value)",
+			Origins: []Origin{{Kind: "interactive", Code: "getwd()", TS: 2, Language: "r"},
+				{Kind: "script", File: "/p/R/01_prepare.R", StartLine: 1, EndLine: 1, Code: `source("R/01_prepare.R", echo = TRUE)`, TS: 4, Language: "r"}},
+			Sources: []Source{{Path: "/p/R/01_prepare.R", Class: ClassProject}},
+			Inputs: []*Input{{Path: "/p/R/01_prepare.R", SHA256: "prep", Class: ClassProject, Now: NowSame},
+				{Path: "/p/data/pk.csv", SHA256: "raw", Class: ClassProject, Now: NowSame}},
+			Outputs: []*Output{{Path: "/p/derived/pk.csv", SHA256: "pk", Class: ClassProject, Now: NowSame}}},
+	}
+	r := recipeOf(ts, "/p", "/p/derived/pk.csv", "")
+	want := "# --- Step 1 · " + time.Unix(0, 5).Format("15:04") + " · R/01_prepare.R\ngetwd()\nsource(\"R/01_prepare.R\", echo = TRUE)\n"
+	if !strings.Contains(r.Script, want) {
+		t.Fatalf("script lacks\n%s\nin\n%s", want, r.Script)
+	}
+	if o := ts[0].Origin(); o == nil || o.File != "/p/R/01_prepare.R" {
+		t.Fatalf("the task's origin %+v", o)
+	}
+	if st := storyOf(ts, "/p", "/p/derived/pk.csv", ""); st == nil || st.Steps[0].Where != "R/01_prepare.R" {
+		t.Fatalf("story step where: %+v", st)
 	}
 }
