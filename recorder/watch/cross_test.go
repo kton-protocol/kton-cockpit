@@ -291,3 +291,33 @@ func TestService_TheStoryCarriesReproductions(t *testing.T) {
 		t.Errorf("step 2: %+v, want b.csv different (the file says same, the hashes say no: review R2 of #19)", r)
 	}
 }
+
+// Only the cockpit repositories of recorded projects get a registry id, and only an id of one of
+// them leads anywhere: /kton/reg/<id> cannot reach an arbitrary directory.
+func TestRegistryRepo_OnlyRecordedProjectsInACockpitRepository(t *testing.T) {
+	repo, plain := t.TempDir(), t.TempDir()
+	os.WriteFile(filepath.Join(repo, "cockpit.config.json"), []byte("{}"), 0o644)
+	sv := &Service{sessions: map[string]*tracked{
+		"a": {s: &Session{ID: "a", Project: filepath.Join(repo, "analysis")}},
+		"b": {s: &Session{ID: "b", Project: plain}},
+	}}
+	os.MkdirAll(filepath.Join(repo, "analysis"), 0o755)
+	var reg string
+	for _, p := range sv.Projects() {
+		if p.Path == plain && p.Registry != "" {
+			t.Fatalf("a project outside any cockpit repository got a registry: %+v", p)
+		}
+		if p.Path == filepath.Join(repo, "analysis") {
+			reg = p.Registry
+		}
+	}
+	if reg != RegistryID(repo) {
+		t.Fatalf("registry %q, want the repository's %q", reg, RegistryID(repo))
+	}
+	if got := sv.RegistryRepo(reg); got != repo {
+		t.Fatalf("RegistryRepo(%s) = %q, want %q", reg, got, repo)
+	}
+	if got := sv.RegistryRepo(RegistryID(t.TempDir())); got != "" {
+		t.Fatalf("an unrecorded directory was found: %q", got)
+	}
+}
