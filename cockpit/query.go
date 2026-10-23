@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/kton-protocol/kton-cockpit/internal/binaries"
 	"github.com/kton-protocol/kton-cockpit/internal/config"
@@ -81,28 +82,9 @@ func runQuery(ctx context.Context, cfg *config.Config, name string) (*queryAnswe
 		// it was before the daemon existed.
 		via = "not the index: " + err.Error()
 	}
-	dir, err := os.MkdirTemp("", "cockpit-query-")
+	res, err := inContainer(ctx, cfg, keys, q, "csv", 0)
 	if err != nil {
-		return nil, refuse("io", "", "%v", err)
-	}
-	defer os.RemoveAll(dir)
-	if err := projectRegistries(ctx, cfg, keys, dir); err != nil {
-		return nil, refuse("kernel", "", "projecting the registries: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "query.rq"), q, 0o644); err != nil {
-		return nil, refuse("io", "", "%v", err)
-	}
-	if err := os.Mkdir(filepath.Join(dir, "store"), 0o755); err != nil {
-		return nil, refuse("io", "", "%v", err)
-	}
-	if _, err := container.RunTool(ctx, cfg, cfg.Raw.Query.Image, dir, "load", "--location", "/q/store",
-		"--file", "/q/default.nt", "--file", "/q/named.nq"); err != nil {
-		return nil, refuse("query.failed", "", "%v", err)
-	}
-	res, err := container.RunTool(ctx, cfg, cfg.Raw.Query.Image, dir, "query", "--location", "/q/store",
-		"--query-file", "/q/query.rq", "--results-format", "csv")
-	if err != nil {
-		return nil, refuse("query.failed", "", "%v", err)
+		return nil, err
 	}
 	rows, err := csv.NewReader(strings.NewReader(res)).ReadAll()
 	if err != nil {
@@ -122,6 +104,44 @@ func runQuery(ctx context.Context, cfg *config.Config, name string) (*queryAnswe
 		out = append(out, m)
 	}
 	return &queryAnswer{rows: shortIDs(out), from: from, via: via}, nil
+}
+
+// inContainer evaluates q in a container started for it alone, over the dataset projected for keys,
+// and returns the engine's answer in format. A timeout above zero bounds the evaluation.
+func inContainer(ctx context.Context, cfg *config.Config, keys []ed25519.PublicKey, q []byte, format string, timeout time.Duration) (string, error) {
+	dir, err := os.MkdirTemp("", "cockpit-query-")
+	if err != nil {
+		return "", refuse("io", "", "%v", err)
+	}
+	defer os.RemoveAll(dir)
+	if err := projectRegistries(ctx, cfg, keys, dir); err != nil {
+		return "", refuse("kernel", "", "projecting the registries: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "query.rq"), q, 0o644); err != nil {
+		return "", refuse("io", "", "%v", err)
+	}
+	if err := os.Mkdir(filepath.Join(dir, "store"), 0o755); err != nil {
+		return "", refuse("io", "", "%v", err)
+	}
+	if _, err := container.RunTool(ctx, cfg, cfg.Raw.Query.Image, dir, "load", "--location", "/q/store",
+		"--file", "/q/default.nt", "--file", "/q/named.nq"); err != nil {
+		return "", refuse("query.failed", "", "%v", err)
+	}
+	qctx := ctx
+	if timeout > 0 {
+		var cancel context.CancelFunc
+		qctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
+	res, err := container.RunTool(qctx, cfg, cfg.Raw.Query.Image, dir, "query", "--location", "/q/store",
+		"--query-file", "/q/query.rq", "--results-format", format)
+	if qctx.Err() == context.DeadlineExceeded {
+		return "", refuse("query.timeout", "", "the query ran longer than %s", timeout)
+	}
+	if err != nil {
+		return "", refuse("query.failed", "", "%v", err)
+	}
+	return res, nil
 }
 
 // shortIDs writes a content node (https://kton.dev/o/<hex>) as the id it is, sha256:<hex>.

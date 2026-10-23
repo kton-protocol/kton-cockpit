@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- **`ask sparql`** (SPEC §9.9): a SELECT or ASK of one's own over the trusted dataset, from MCP
+  (`{"query":"sparql","sparql":…}`) or `cockpit ask sparql <query.rq|->`. It needs `-tags unreleased`
+  until the kernel's RDF projection is released. The vocabulary and tested examples are in
+  `docs/sparql.md`.
+
 ## v0.3.0 — 2026-10-23
 
 Tracks kton v0.2.1 (`kton.dev/plankton`, `nekton`, `kton` by `require`, no vendoring). What needs

@@ -49,3 +49,38 @@ SERVICE'''' }`,
 		}
 	}
 }
+
+// A query someone wrote is answered when it is a SELECT or an ASK over the dataset the cockpit
+// chooses: not an update, not a graph-building form, not one that names its own dataset.
+func TestCheckFreeQuery_TakesSelectAndAskOverTheCockpitsDataset(t *testing.T) {
+	for q, want := range map[string]string{
+		`SELECT * { ?s ?p ?o }`: "SELECT",
+		"PREFIX prov: <http://www.w3.org/ns/prov#>\nBASE <http://x/>\nselect ?a { ?a a prov:Activity }": "SELECT",
+		`PREFIX ask: <http://x/> ASK { ?s ask:p ?o }`:                                                   "ASK",
+		`# CONSTRUCT { } FROM <http://x/>` + "\nASK { ?s ?p \"FROM\" }":                                 "ASK",
+		`SELECT ?from { ?s <http://x/from> ?from }`:                                                     "SELECT",
+		`SELECT * { { SELECT ?s { ?s ?p ?o } LIMIT 3 } }`:                                               "SELECT",
+	} {
+		if got, err := index.CheckFreeQuery(q); err != nil || got != want {
+			t.Errorf("%q: got %q, %v; want %s", q, got, err, want)
+		}
+	}
+	for _, q := range []string{
+		`CONSTRUCT { ?s ?p ?o } WHERE { ?s ?p ?o }`,
+		`DESCRIBE <http://x/>`,
+		`INSERT DATA { <http://x/a> <http://x/b> <http://x/c> }`,
+		`PREFIX ex: <http://x/> DELETE WHERE { ?s ex:p ?o }`,
+		`SELECT * FROM <https://kton.dev/o/00> { ?s ?p ?o }`,
+		`SELECT * FROM NAMED <https://kton.dev/np/00.#assertion> { GRAPH ?g { ?s ?p ?o } }`,
+		`SELECT * { SERVICE <http://x/> { ?s ?p ?o } }`,
+		`PREFIX ex: <http://x/>`,
+		``,
+	} {
+		if form, err := index.CheckFreeQuery(q); err == nil {
+			t.Errorf("answered as %s: %q", form, q)
+		}
+	}
+	if _, err := index.CheckFreeQuery(`SELECT * FROM <http://x/> { }`); !errors.Is(err, index.ErrFrom) {
+		t.Errorf("FROM refused for the wrong reason: %v", err)
+	}
+}
