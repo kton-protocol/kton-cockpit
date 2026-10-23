@@ -577,7 +577,7 @@ async function openStory(context, project, file) {
     else if (m.type === 'note') { const n = allNotes(); n[m.key] = m.note; await context.globalState.update(notesKey, n); }
     else if (m.type === 'reproduce') { await reproduce(project, file.path, file.sha256); send(); } // the result belongs in the story
     else if (m.type === 'diff') diffReproduced(project, m);
-    else if (m.type === 'inkton' && story) openInKton(story.repo, file.sha256);
+    else if (m.type === 'inkton' && story) openInKton(story.repo, file.sha256, path.basename(file.path));
     else if (m.type === 'save') {
       const to = await vscode.window.showSaveDialog({ defaultUri: vscode.Uri.file(path.join(story ? story.repo : project, path.basename(file.path) + '.story.md')), filters: { Markdown: ['md'] } });
       if (to) { fs.writeFileSync(to.fsPath, m.markdown); vscode.window.showTextDocument(to); }
@@ -590,7 +590,7 @@ async function openStory(context, project, file) {
 }
 
 // ------------------------------------------------------------------ the file in kton (kton-web)
-// kton-web's graph viewer on this repository's signed records, centred on the record whose output
+// kton-web's graph viewer, in the editor, on this repository's signed records, centred on the record whose output
 // is the file. `cockpit show` serves the records and the repository's trust keys, and the viewer
 // verifies every record itself. One server per repository, on a free loopback port, for as long as
 // this window lives. Until the cockpit can select portions from its store (requested), it serves
@@ -623,11 +623,26 @@ async function cockpitShow(repo) {
   out.show(true);
   return 0;
 }
-async function openInKton(repo, sum) {
+// in the editor, beside the story: one tab per repository, centred anew on each file
+const ktonPanels = new Map(); // repo → panel
+async function openInKton(repo, sum, name) {
   const port = await cockpitShow(repo);
   if (!port) return;
-  const url = `http://127.0.0.1:${port}/viewers/graph/?union=/data/union.json&focus=sha256:${sum}`;
-  vscode.env.openExternal(await vscode.env.asExternalUri(vscode.Uri.parse(url)));
+  const local = `http://127.0.0.1:${port}/viewers/graph/?union=/data/union.json&focus=sha256:${sum}`;
+  const src = (await vscode.env.asExternalUri(vscode.Uri.parse(local))).toString(true);
+  const originOf = new URL(src).origin;
+  let p = ktonPanels.get(repo);
+  if (!p) {
+    p = vscode.window.createWebviewPanel('ktonGraph', 'kton: ' + path.basename(repo), vscode.ViewColumn.Beside,
+      { enableScripts: true, retainContextWhenHidden: true });
+    ktonPanels.set(repo, p);
+    p.onDidDispose(() => ktonPanels.delete(repo));
+  } else p.reveal(vscode.ViewColumn.Beside);
+  p.title = `kton: ${name || path.basename(repo)}`;
+  p.webview.html = `<!doctype html><html><head><meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; frame-src ${originOf}; style-src 'unsafe-inline';">
+<style>html,body,iframe{margin:0;padding:0;border:0;width:100%;height:100%;overflow:hidden}</style></head>
+<body><iframe src="${src.replace(/"/g, '&quot;')}"></iframe></body></html>`;
 }
 
 async function openInBrowser() {

@@ -184,7 +184,7 @@
         <div class="actions">
           <button id="repro" title="source files and scripts into an empty folder, run there, compare the hash">Reproduce</button>
           <button id="publish" ${!cockpitRepo || !todo.length ? "disabled" : ""} title="${cockpitRepo ? "cockpit publish for every line without ✓, in the terminal, with description and rationale as comments" : "no cockpit repo (cockpit init)"}">Publish to kton${todo.length ? ` (${todo.length})` : ""}</button>
-          <button class="secondary" id="inkton" ${cockpitRepo ? "" : "disabled"} title="${cockpitRepo ? "kton-web on this repository's signed records, centred on this file's record (cockpit show; verified in the browser)" : "no cockpit repo (cockpit init)"}">In kton</button>
+          <button class="secondary" id="inkton" ${cockpitRepo ? "" : "disabled"} title="${cockpitRepo ? "kton-web beside the story: this repository's signed records, centred on this file's record (cockpit show; kton-web verifies them)" : "no cockpit repo (cockpit init)"}">In kton</button>
           <button class="secondary" id="save">Markdown</button>
         </div>
       </header>
