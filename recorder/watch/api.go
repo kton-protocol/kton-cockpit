@@ -221,6 +221,21 @@ func (sv *Service) Handler() http.Handler {
 		}
 		writeJSON(w, map[string]bool{"ok": true})
 	})
+	// the editor windows: events the MCP tools post, and the windows' answers (ui.go)
+	mux.HandleFunc("GET /api/ui/events", func(w http.ResponseWriter, r *http.Request) {
+		if sv.UI == nil {
+			http.Error(w, "no ui hub", http.StatusServiceUnavailable)
+			return
+		}
+		sv.UI.serveEvents(w, r)
+	})
+	mux.HandleFunc("POST /api/ui/answer", func(w http.ResponseWriter, r *http.Request) {
+		if sv.UI == nil {
+			http.Error(w, "no ui hub", http.StatusServiceUnavailable)
+			return
+		}
+		sv.UI.serveAnswer(w, r)
+	})
 	mux.HandleFunc("GET /api/config", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]any{"web": sv.Web != ""})
 	})
