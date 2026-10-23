@@ -711,9 +711,13 @@ way a repo backend is registered (§5.5).
   is copied into another.
 - A source adds records, never signers: the configured trust tiers remain the ceiling (§9.1).
 - A kind that is not available in the build MUST be refused when the configuration is loaded.
+- Readers of one repository MUST be able to run at once — an editor, a watcher and a script are
+  separate processes. A union, once built, MUST NOT change under a reader: it is kept under the
+  stamp of the registries it was built from, built aside and moved into place, and fetching and
+  building take turns under a lock.
 
 > **Checked by:** `TestFederation_ReadsTheUnionOfOwnAndSources`, `TestFederation_UnknownKindIsRefusedAtLoad`,
-> `TestFederation_ReadingASourceLeavesItAsItWas`.
+> `TestFederation_ReadingASourceLeavesItAsItWas`, `TestFederation_ConcurrentReadersAllAnswerWhileTheSourceChanges`.
 
 ## 10 Execution *(optional)*
 

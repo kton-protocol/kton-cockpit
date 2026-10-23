@@ -1,6 +1,6 @@
 //go:build windows
 
-package oxigraph
+package flock
 
 import (
 	"os"
@@ -8,8 +8,8 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// flock holds an exclusive lock on path until the returned function is called.
-func flock(path string) (func(), error) {
+// Lock holds an exclusive lock on path until the returned function is called.
+func Lock(path string) (func(), error) {
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o644)
 	if err != nil {
 		return nil, err

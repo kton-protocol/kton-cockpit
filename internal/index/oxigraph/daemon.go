@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/kton-protocol/kton-cockpit/internal/flock"
 	"io"
 	"net/http"
 	"net/url"
@@ -88,7 +89,7 @@ func Ensure(ctx context.Context, cfg *config.Config) (*Daemon, error) {
 	if err != nil {
 		return nil, err
 	}
-	unlock, err := flock(filepath.Join(dir, "daemon.lock"))
+	unlock, err := flock.Lock(filepath.Join(dir, "daemon.lock"))
 	if err != nil {
 		return nil, err
 	}
@@ -176,7 +177,7 @@ func Stop(ctx context.Context, cfg *config.Config) error {
 	if err != nil {
 		return err
 	}
-	unlock, err := flock(filepath.Join(dir, "daemon.lock"))
+	unlock, err := flock.Lock(filepath.Join(dir, "daemon.lock"))
 	if err != nil {
 		return err
 	}
