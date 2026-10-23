@@ -215,3 +215,30 @@ func TestPythonStep_RunsPythonFromTheRecipe(t *testing.T) {
 		t.Errorf("console code: %q", got)
 	}
 }
+
+// MH's session (positron-59277): R logged the source of 03 inside step 3, but its line and the
+// Positron origin were stamped 0.1 s after step 3's end (the clocks disagree by tenths of a second
+// in WSL). By time alone the origin went to step 4, which then had two commands, and step 3 none.
+func TestAttachOrigins_AScriptGoesToTheStepThatSourcedIt(t *testing.T) {
+	const s = int64(1_000_000_000)
+	f03, f04 := "/p/R/03_fit_individual.R", "/p/R/04_fit_population.R"
+	t3 := &Task{ID: "3", Start: 263_020 * s / 1000, End: 268_110 * s / 1000, Sources: []Source{{Path: f03, Class: ClassProject}},
+		Inputs: []*Input{{Path: f03, SHA256: "a", LastRead: 268_210 * s / 1000}, {Path: "/p/R/02_nca.R", SHA256: "b", LastRead: 265_890 * s / 1000}}}
+	t4 := &Task{ID: "4", Start: 268_110 * s / 1000, End: 273_090 * s / 1000, Sources: []Source{{Path: f04, Class: ClassProject}}}
+	AttachOrigins([]*Task{t3, t4}, []Origin{
+		{Kind: "script", File: f03, Code: `source("R/03_fit_individual.R", echo = TRUE)`, TS: 268_210 * s / 1000},
+		{Kind: "script", File: f04, Code: `source("R/04_fit_population.R", echo = TRUE)`, TS: 273_010 * s / 1000},
+	})
+	if len(t3.Origins) != 1 || t3.Origins[0].File != f03 {
+		t.Fatalf("step 3 origins %+v", t3.Origins)
+	}
+	if len(t4.Origins) != 1 || t4.Origins[0].File != f04 {
+		t.Fatalf("step 4 origins %+v", t4.Origins)
+	}
+	// Ark's indexing read of 02_nca.R while the console waited is still not step 3's input
+	for _, in := range t3.Inputs {
+		if strings.HasSuffix(in.Path, "02_nca.R") {
+			t.Fatalf("Ark's read kept: %+v", t3.Inputs)
+		}
+	}
+}
