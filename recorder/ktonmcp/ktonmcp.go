@@ -142,6 +142,7 @@ type RunsOut struct {
 }
 
 func (t *tools) runs(_ context.Context, in RunsIn) (*RunsOut, error) {
+	in.Project = home(in.Project)
 	if in.Project == "" {
 		return nil, fmt.Errorf("project is needed (kton_projects lists them)")
 	}
@@ -220,6 +221,8 @@ type StoryOut struct {
 }
 
 func (t *tools) story(ctx context.Context, in StoryIn) (*StoryOut, error) {
+	in.Project = home(in.Project)
+	in.Path = home(in.Path)
 	project, abs, err := t.locate(in.Project, in.Path)
 	if err != nil {
 		return nil, err
@@ -258,6 +261,8 @@ type AskOut struct {
 var askable = map[string]bool{"producer": true, "uses": true, "lineage": true, "about": true, "record": true, "reproductions": true}
 
 func (t *tools) ask(ctx context.Context, in AskIn) (*AskOut, error) {
+	in.Project = home(in.Project)
+	in.Ref = home(in.Ref)
 	if !askable[in.Query] {
 		return nil, fmt.Errorf("query %q: one of producer, uses, lineage, about, record, reproductions", in.Query)
 	}
@@ -344,6 +349,7 @@ type SparqlIn struct {
 var askJSON = watch.CockpitAskJSON
 
 func (t *tools) sparql(ctx context.Context, in SparqlIn) (*AskOut, error) {
+	in.Project = home(in.Project)
 	if strings.TrimSpace(in.Sparql) == "" || in.Project == "" {
 		return nil, fmt.Errorf("sparql and project are needed")
 	}
@@ -461,6 +467,8 @@ type OpenStoryIn struct {
 }
 
 func (t *tools) openStory(ctx context.Context, in OpenStoryIn) (*EditorOut, error) {
+	in.Project = home(in.Project)
+	in.Path = home(in.Path)
 	args, err := t.fileArgs(in.Project, in.Path, in.SHA256)
 	if err != nil {
 		return nil, err
@@ -477,6 +485,9 @@ type OpenGraphIn struct {
 }
 
 func (t *tools) openGraph(ctx context.Context, in OpenGraphIn) (*EditorOut, error) {
+	in.Project = home(in.Project)
+	in.Path = home(in.Path)
+	in.Repo = home(in.Repo)
 	if in.Repo != "" {
 		if in.Hash == "" {
 			return nil, fmt.Errorf("repo needs hash (a file hash or record id to centre on)")
@@ -510,6 +521,7 @@ type SelectIn struct {
 }
 
 func (t *tools) selectSteps(ctx context.Context, in SelectIn) (*EditorOut, error) {
+	in.Project = home(in.Project)
 	if in.Project == "" {
 		return nil, fmt.Errorf("project is needed")
 	}
@@ -537,6 +549,7 @@ type SelectionIn struct {
 }
 
 func (t *tools) selection(ctx context.Context, in SelectionIn) (*EditorOut, error) {
+	in.Project = home(in.Project)
 	return t.editor(ctx, 15*time.Second, "get_selection", map[string]any{"project": in.Project})
 }
 
@@ -548,6 +561,7 @@ type CopyIn struct {
 }
 
 func (t *tools) copyFile(ctx context.Context, in CopyIn) (*EditorOut, error) {
+	in.Project = home(in.Project)
 	sum := strings.TrimPrefix(in.Hash, "sha256:")
 	if len(sum) != 64 || in.Project == "" {
 		return nil, fmt.Errorf("hash (sha256:<64 hex>) and project are needed")
@@ -610,6 +624,21 @@ func (t *tools) locate(project, path string) (string, string, error) {
 		return "", "", fmt.Errorf("%s is in no recorded project", path)
 	}
 	return best, path, nil
+}
+
+// home: a path as a person writes it: "~/kton-programme/explore" is under their home directory,
+// a trailing slash means nothing. A hash or record id (sha256:…) stays as it is.
+func home(p string) string {
+	p = strings.TrimSpace(p)
+	if p == "" || strings.HasPrefix(p, "sha256:") {
+		return p
+	}
+	if p == "~" || strings.HasPrefix(p, "~/") {
+		if h, err := os.UserHomeDir(); err == nil {
+			p = filepath.Join(h, strings.TrimPrefix(p, "~"))
+		}
+	}
+	return filepath.Clean(p)
 }
 
 func relTo(project string) func(string) string {
