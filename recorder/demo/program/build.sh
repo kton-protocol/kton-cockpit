@@ -15,6 +15,8 @@
 #                                                others' analyses, run and published here: similar to
 #                                                yours, not the same, with their model development
 #                                                (parent-step, base/final model, a reproduction, a QC)
+# DIR/explore/                                   reads and trusts all of it, for search across everything
+#                                                (and pmx: KTON_PMX=<kton-web>/data/pmx-cockpit build.sh …)
 #
 # Every level is a cockpit repository in local mode. Its claims are chained into a scope whose
 # seed names the level above as parent (cockpit scope seed --parent): that is the only structure,
@@ -135,6 +137,21 @@ cp -r "$HERE/analysis/." "$ANA/"
 mkdir -p "$ANA/data" "$ANA/derived" "$ANA/figures"
 federate "$ANA" $CONTEXT "$DIR/analysis-thp101-ben" "$DIR/analysis-thp102-carla" "$DIR/analysis-cx201-dmitri"
 echo "  federated and trusted: the programme, its projects and studies, Ben's, Carla's and Dmitri's analyses"
+
+# explore: one repository that reads everything, for questions across all of it (kton_ask,
+# kton_sparql with project=explore). The working analysis stays fast: a big source in a
+# repository's federation makes every ask of it slower.
+say "explore: everything, for search"
+X=$DIR/explore
+repo "$X" explorer
+federate "$X" $CONTEXT "$ANA" "$DIR/analysis-thp101-ben" "$DIR/analysis-thp102-carla" "$DIR/analysis-cx201-dmitri"
+if [ -n "${KTON_PMX:-}" ]; then
+  [ -f "$KTON_PMX/cockpit.config.json" ] || { echo "KTON_PMX=$KTON_PMX is not a cockpit repository (kton-web: tools/pmx-cockpit.sh)" >&2; exit 1; }
+  cp -r "$KTON_PMX" "$DIR/pmx"   # on this filesystem: read from /mnt/c, every ask would take seconds
+  federate "$X" "$DIR/pmx"
+  echo "  pmx: $(find "$DIR/pmx/registry" -type f | wc -l) files, linked and trusted"
+fi
+echo "  linked and trusted: the programme, its studies, the four analyses"
 
 say "done"
 echo "$DIR"
