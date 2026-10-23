@@ -88,8 +88,8 @@ func (d *Daemon) prepare(ctx context.Context, cfg *config.Config, keys []ed25519
 	if err != nil {
 		return nil, err
 	}
-	key := datasetKey(inputs, keys)
-	if ds, ok := d.keptDataset(key); ok {
+	slot, key := datasetKey(inputs, keys)
+	if ds, ok := d.keptDataset(ctx, slot, key); ok {
 		return ds, nil
 	}
 	kept := true
@@ -108,8 +108,11 @@ func (d *Daemon) prepare(ctx context.Context, cfg *config.Config, keys []ed25519
 	if err != nil {
 		return nil, err
 	}
-	ds := &prepared{def: def, named: named, registries: len(regs), kept: kept}
-	d.keepDataset(key, ds)
+	if err := d.makeView(ctx, slot, key, def); err != nil {
+		return nil, fmt.Errorf("writing the index's view of the trusted records: %w", err)
+	}
+	ds := &prepared{def: []string{viewIRI(slot)}, named: named, registries: len(regs), kept: kept}
+	d.keepDataset(slot, key, ds)
 	return ds, nil
 }
 
