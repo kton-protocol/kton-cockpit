@@ -17,7 +17,7 @@ r = slope * (sxx / sum((y - my) ** 2 for y in ys)) ** 0.5
 
 def t_sf2(t, df, steps=20000):
     """two-sided p of Student's t, by integrating the density from 0 to |t| (no scipy needed)"""
-    c = math.gamma((df + 1) / 2) / (math.sqrt(df * math.pi) * math.gamma(df / 2))
+    c = math.exp(math.lgamma((df + 1) / 2) - math.lgamma(df / 2)) / math.sqrt(df * math.pi)  # gamma overflows from df ~ 343
     f = lambda x: c * (1 + x * x / df) ** (-(df + 1) / 2)
     h = abs(t) / steps
     area = h / 3 * (f(0) + f(abs(t)) + sum((4 if i % 2 else 2) * f(i * h) for i in range(1, steps)))
