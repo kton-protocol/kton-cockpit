@@ -2,7 +2,7 @@
   "name": "kton-recorder",
   "displayName": "kton recorder",
   "description": "Records where each piece of R code came from, switches recording on and off, shows each result's story step by step, and runs publish and reproduction from there.",
-  "version": "0.3.3",
+  "version": "0.3.7",
   "publisher": "kton",
   "license": "MIT",
   "engines": {

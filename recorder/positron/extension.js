@@ -128,16 +128,26 @@ async function openObservations() {
 async function publish(repo, text) {
   const calls = (text.match(/^cockpit publish /gm) || []).length;
   if (!calls) return;
+  const says = (text.match(/^cockpit claim /gm) || []).length;
   const ok = await vscode.window.showWarningMessage(
-    `Run ${calls} × cockpit publish in ${repo}? That signs, commits and pushes.`, { modal: true }, 'Run');
+    `Run ${calls} × cockpit publish${says ? ` and ${says} × cockpit say (description, rationale)` : ''} in ${repo}? That signs, commits and pushes.`, { modal: true }, 'Run');
   if (ok !== 'Run') return;
   const cockpit = bin('cockpit');
+  // the lines below are POSIX shell: the terminal is bash, whatever the person's default is
   const term = vscode.window.terminals.find((t) => t.name === 'kton cockpit') ||
-    vscode.window.createTerminal({ name: 'kton cockpit', cwd: repo });
+    vscode.window.createTerminal({ name: 'kton cockpit', cwd: repo, shellPath: '/bin/bash' });
   term.show();
   term.sendText(`cd ${JSON.stringify(repo)}`);
+  const c = JSON.stringify(cockpit);
+  // `cockpit claim <template> '<text>'` is ours: a say with that template, its field "value",
+  // about the foton the publish before it returned (its JSON answer, kept in KTON_OUT and shown)
+  const claim = "import json,sys; o=json.loads(sys.argv[1]); print(json.dumps({'template':sys.argv[2],'subject':o['fotonId'],'fields':{'value':json.loads(sys.argv[3])}}))";
   for (const line of text.split('\n')) {
-    if (line.startsWith('cockpit publish ')) term.sendText(JSON.stringify(cockpit) + line.slice('cockpit'.length));
+    if (line.startsWith('cockpit publish ')) term.sendText(`KTON_OUT=; KTON_OUT=$(${c}${line.slice('cockpit'.length)}) && printf '%s\\n' "$KTON_OUT"`);
+    else if (line.startsWith('cockpit claim ')) {
+      const [, template, text] = line.match(/^cockpit claim (\S+) (.*)$/s);
+      term.sendText(`[ -n "$KTON_OUT" ] && ${c} say "$(python3 -c ${sq(claim)} "$KTON_OUT" ${template} ${text})"`);
+    }
     else if (line.trim()) term.sendText(line); // comments: shown, ignored by the shell
   }
 }
@@ -188,9 +198,10 @@ async function reproduceInContainers(project, target, sum) {
   const dir = (lines.find((l) => l.startsWith('kton-repro: ') && l.includes(' in ')) || '').split(' in ').pop().trim();
   const verdict = (lines.filter((l) => l.startsWith('= ')).pop() || lines.filter((l) => l.trim()).pop() || '').replace(/^= /, '');
   const show = code === 0 ? vscode.window.showInformationMessage : vscode.window.showWarningMessage;
-  const pick = await show(`kton: ${verdict}`, ...(dir ? ['Open folder'] : []), 'Log');
-  if (pick === 'Open folder') vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(dir));
-  if (pick === 'Log') out.show();
+  show(`kton: ${verdict}`, ...(dir ? ['Open folder'] : []), 'Log').then((pick) => {
+    if (pick === 'Open folder') vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(dir));
+    if (pick === 'Log') out.show();
+  });
   return true;
 }
 
@@ -234,16 +245,52 @@ async function reproduce(project, target, sum) {
     }
   });
   const got = await sha256File(path.join(dir, rel(target)));
-  const result = { target: rel(target), recorded: sum, reproduced: got, same: got === sum, dir, seconds: Math.round((Date.now() - t0) / 1000), notes, verdict: v.kind };
+  // every step's outputs, not only the target: the story shows which step gave the same bytes
+  const steps = [];
+  for (const st of r.steps || []) {
+    const outputs = [];
+    for (const o of st.outputs || []) {
+      if (!inside(o.path)) continue;
+      const g = await sha256File(path.join(dir, rel(o.path)));
+      outputs.push({ path: o.path, recorded: o.sha256, reproduced: g || '', same: g === o.sha256 });
+    }
+    steps.push({ session: st.session, task: st.id, outputs });
+  }
+  const result = { project, target, recorded: sum, reproduced: got || '', same: got === sum, when: new Date().toISOString(), dir,
+    seconds: Math.round((Date.now() - t0) / 1000), notes, verdict: v.kind, steps };
   fs.writeFileSync(path.join(dir, 'kton-repro.json'), JSON.stringify(result, null, 1));
+  for (const s of steps) for (const o of s.outputs) if (!o.same) out.appendLine(`  ${rel(o.path)}: ${o.reproduced ? 'different bytes' : 'not produced'}`);
   const msg = got === null ? `not produced: the recipe did not write ${rel(target)}`
     : got === sum ? `reproduced ✓ the same bytes (sha256 ${sum.slice(0, 12)})`
     : `different: ${got.slice(0, 12)} instead of ${sum.slice(0, 12)}`;
   out.appendLine(`=== ${rel(target)}: ${msg}`);
+  // not awaited: whoever called (the story) refreshes now, not when the message is closed
   const show = got === sum ? vscode.window.showInformationMessage : vscode.window.showWarningMessage;
-  const pick = await show(`kton: ${rel(target)} ${msg}`, 'Open folder', 'Log');
-  if (pick === 'Open folder') vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(dir));
-  if (pick === 'Log') out.show();
+  show(`kton: ${rel(target)} ${msg}`, 'Open folder', 'Log').then((pick) => {
+    if (pick === 'Open folder') vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(dir));
+    if (pick === 'Log') out.show();
+  });
+}
+
+// a deviating output of a reproduction: the recorded bytes beside the reproduced ones. The
+// recorded version is the project's file if it still has those bytes, else the CAS's copy;
+// it is copied into the reproduction folder, so the diff never opens the CAS itself.
+const casFile = (sum) => path.join(process.env.XDG_CACHE_HOME || path.join(home, '.cache'), 'kton-cockpit', 'cas', 'sha256', sum.slice(0, 2), sum);
+async function diffReproduced(project, m) {
+  const rel = path.relative(project, m.path);
+  if (rel.startsWith('..') || path.isAbsolute(rel)) { vscode.window.showWarningMessage(`kton: ${m.path} is not in the project`); return; }
+  const reproduced = path.join(m.dir, rel);
+  let recorded = null;
+  if ((await sha256File(m.path)) === m.recorded) recorded = m.path;
+  else if (fs.existsSync(casFile(m.recorded))) recorded = casFile(m.recorded);
+  if (!recorded) { vscode.window.showWarningMessage(`kton: the recorded ${rel} (${m.recorded.slice(0, 12)}) is not kept, nothing to compare with`); return; }
+  if (!fs.existsSync(reproduced)) { vscode.window.showWarningMessage(`kton: the reproduction did not produce ${rel}`); return; }
+  const left = path.join(m.dir, '.kton-recorded', rel);
+  fs.mkdirSync(path.dirname(left), { recursive: true });
+  fs.rmSync(left, { force: true }); // a copy from the CAS is read-only: a second diff copies anew
+  fs.copyFileSync(recorded, left);
+  vscode.commands.executeCommand('vscode.diff', vscode.Uri.file(left), vscode.Uri.file(reproduced),
+    `${path.basename(rel)}: recorded ↔ reproduced`);
 }
 
 // ------------------------------------------------------------------ the side bar
@@ -374,8 +421,17 @@ function noteLines(n) {
 }
 
 // the lines handed to publish(): per step the person's words as comments, then the call
+// whether the repository allows a claim template (claims.allowedTemplates of its config)
+function allowsTemplate(repo, name) {
+  try { return (JSON.parse(fs.readFileSync(path.join(repo, 'cockpit.config.json'), 'utf8')).claims || {}).allowedTemplates.includes(name); } catch (e) { return false; }
+}
+
 async function publishText(story, file, steps) {
   const lines = [`# Story of ${path.relative(story.repo, file.path)}`];
+  // a step's description and rationale become signed claims about its foton (templates
+  // "describes" and "rationale", as cockpit init writes them) where the repository allows
+  // them; elsewhere they stay comments
+  const allowed = { describes: allowsTemplate(story.repo, 'describes'), rationale: allowsTemplate(story.repo, 'rationale') };
   for (const s of steps) {
     if (s.hand) { // not recorded, nothing to publish: the person's words stay with the story
       lines.push(`# ${s.sentence}`);
@@ -392,6 +448,11 @@ async function publishText(story, file, steps) {
       continue;
     }
     lines.push('cockpit publish ' + sq(JSON.stringify(req)));
+    const n = typeof s.note === 'string' ? { description: s.note } : (s.note || {});
+    // see publish(): a say about the foton just published, one per template
+    // the text as JSON: one line, whatever it holds (the script is sent line by line)
+    if (allowed.describes && (n.description || '').trim()) lines.push('cockpit claim describes ' + sq(JSON.stringify(n.description.trim())));
+    if (allowed.rationale && (n.rationale || '').trim()) lines.push('cockpit claim rationale ' + sq(JSON.stringify(n.rationale.trim())));
   }
   return lines.join('\n');
 }
@@ -408,7 +469,7 @@ async function openStory(context, project, file) {
   p.onDidDispose(() => stories.delete(id));
   const nonce = crypto.randomBytes(16).toString('hex');
   const w = p.webview;
-  w.html = `<!doctype html><html lang="de"><head><meta charset="utf-8">
+  w.html = `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${w.cspSource}; script-src 'nonce-${nonce}';">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="stylesheet" href="${w.asWebviewUri(vscode.Uri.joinPath(media, 'story.css'))}"></head>
@@ -433,9 +494,10 @@ async function openStory(context, project, file) {
   w.onDidReceiveMessage(async (m) => {
     if (m.type === 'ready') send();
     else if (m.type === 'note') { const n = allNotes(); n[m.key] = m.note; await context.globalState.update(notesKey, n); }
-    else if (m.type === 'reproduce') reproduce(project, file.path, file.sha256);
+    else if (m.type === 'reproduce') { await reproduce(project, file.path, file.sha256); send(); } // the result belongs in the story
+    else if (m.type === 'diff') diffReproduced(project, m);
     else if (m.type === 'save') {
-      const to = await vscode.window.showSaveDialog({ defaultUri: vscode.Uri.file(path.join(story ? story.repo : project, path.basename(file.path) + '.geschichte.md')), filters: { Markdown: ['md'] } });
+      const to = await vscode.window.showSaveDialog({ defaultUri: vscode.Uri.file(path.join(story ? story.repo : project, path.basename(file.path) + '.story.md')), filters: { Markdown: ['md'] } });
       if (to) { fs.writeFileSync(to.fsPath, m.markdown); vscode.window.showTextDocument(to); }
     } else if (m.type === 'publish' && story) {
       await publish(story.repo, await publishText(story, file, m.steps));

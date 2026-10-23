@@ -109,7 +109,11 @@ func MakeDraft(s *Session, t *Task) Draft {
 // Python file is run in the console. ok is false for anything else (a Quarto cell, typed code);
 // options (-i, -e, -t …) change how the file runs, so a draft with them needs a look.
 func pyRun(code string) (file string, args, opts []string, ok bool) {
-	rest, found := strings.CutPrefix(strings.TrimSpace(code), "%run ")
+	code = strings.TrimSpace(code)
+	if strings.Contains(code, "\n") { // a cell that does more than %run: console code, as a whole
+		return "", nil, nil, false
+	}
+	rest, found := strings.CutPrefix(code, "%run ")
 	if !found {
 		return "", nil, nil, false
 	}

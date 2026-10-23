@@ -13,7 +13,8 @@
   const base = (p) => p.split("/").pop();
   const short = (p) => (p.startsWith("/") ? base(p) : p);
   const noteOf = (k) => { const n = notes[k]; return typeof n === "string" ? {description: n, rationale: ""} : {description: (n && n.description) || "", rationale: (n && n.rationale) || ""}; };
-  const targetRel = () => (S.target.path.startsWith(S.repo + "/") ? S.target.path.slice(S.repo.length + 1) : S.target.path);
+  const relp = (p) => (p.startsWith(S.repo + "/") ? p.slice(S.repo.length + 1) : p);
+  const targetRel = () => relp(S.target.path);
 
   // chapters: consecutive steps of the same script (or console) in the same session
   function chapters() {
@@ -43,6 +44,17 @@
       c.tools = [...new Set(c.path.flatMap((s) => s.tools || []))].filter((t) => t !== "Rscript");
       c.warn = [...new Set(c.path.flatMap((s) => (s.warnings || []).filter((w) => !/ran but could not/.test(w))))];
       c.failed = c.steps.filter((s) => s.error).length;
+      // what the latest reproduction gave for the chapter's steps; a deviation is a warning
+      const rs = c.path.map((s) => s.repro).filter(Boolean);
+      c.repro = rs.length ? {when: rs[0].when, same: rs.every((r) => r.same),
+        different: [...new Set(rs.flatMap((r) => r.different || []))], notProduced: [...new Set(rs.flatMap((r) => r.not_produced || []))]} : null;
+      // the deviating outputs of the latest reproduction, with what a diff needs
+      const last = (S.reproductions || [])[0];
+      const mine = new Set(c.path.map(skey));
+      c.devs = last ? (last.steps || []).filter((s) => mine.has(s.session + "/" + s.task))
+        .flatMap((s) => (s.outputs || []).filter((o) => !o.same).map((o) => ({...o, dir: last.dir}))) : [];
+      if (c.repro) for (const f of c.repro.different) c.warn.push(`${f} came out with other bytes in the reproduction`);
+      if (c.repro) for (const f of c.repro.notProduced) c.warn.push(`${f} was not produced in the reproduction`);
       // a file is in kton when the step that wrote it is; the line when all it handed on is
       c.kton = new Set(c.path.filter((s) => published[skey(s)]).flatMap((s) => s.writes || []));
       c.inKton = c.outs.length > 0 && c.outs.every((w) => c.kton.has(w));
@@ -85,24 +97,43 @@
     const what = c.hand
       ? `<span class="f w">${esc(c.steps[0].reads[0])}</span> changed by hand <span class="muted">· not recorded</span>`
       : `${files(c.ins)} <span class="arrow">→</span>${c.tools.length ? ` <span class="tool">${esc(c.tools.join(", "))}</span> <span class="arrow">→</span>` : ""} ${c.outs.length ? files(c.outs, 4, c.kton) : '<span class="muted">only objects in the session</span>'}`;
+    const rp = c.repro;
     const flags = [c.inKton ? '<span class="ok" title="already in kton">✓ in kton</span>' : "",
+      rp ? (rp.same ? `<span class="ok" title="the reproduction of ${esc(stamp(rp.when))} gave the same bytes">✓ reproduced</span>`
+        : `<span class="warn" title="reproduction of ${esc(stamp(rp.when))}">≠ ${esc([...rp.different.map(short), ...rp.notProduced.map((f) => short(f) + " missing")].join(", "))}</span>`) : "",
       c.warn.length ? `<span class="warn" title="${esc(c.warn.join("\n"))}">⚠ ${c.warn.length}</span>` : "",
       c.failed ? `<span class="muted" title="failed commands, without effect">${c.failed}× failed</span>` : ""].filter(Boolean).join(" ");
     const details = open[c.key] ? `<div class="details">
         ${c.warn.map((w) => `<div class="warn">⚠ ${esc(w)}</div>`).join("")}
         ${c.steps.map((s) => `<div class="cmd ${s.on_path ? "" : "off"}"><span class="when">${clock(s.when_ns)}</span> <code>${esc((s.code || s.sentence).split("\n")[0])}</code>${(s.writes || []).length ? ` → ${files(s.writes, 3)}` : ""}${s.error ? ' <span class="warn">fails</span>' : ""}</div>`).join("")}
       </div>` : "";
+    // deviating outputs, each with a diff when both versions exist
+    const devs = (c.devs || []).length ? `<div class="devs">${c.devs.map((o, i) => `<div class="dev"><span class="warn">≠</span> <span class="f">${esc(relp(o.path))}</span>
+      ${o.reproduced ? `<span class="muted">${esc(o.recorded.slice(0, 8))} → ${esc(o.reproduced.slice(0, 8))}</span> <button class="link diff" data-k="${esc(c.key)}" data-i="${i}">open diff</button>` : '<span class="muted">not produced</span>'}</div>`).join("")}</div>` : "";
     return `<li class="${cls}" data-k="${esc(c.key)}">
       <div class="t">${c.hand ? "✎" : clock(c.when)}</div>
       <div class="body">
         <div class="head">${c.where.startsWith("$ ") ? `<code class="cmdline">${esc(c.where)}</code>` : `<b>${esc(c.hand ? "by hand" : c.where.replace(/^script /, ""))}</b>`} ${what} ${flags}
           ${c.hand ? "" : `<button class="link tog">${open[c.key] ? "less" : `${c.steps.length} commands`}</button>`}</div>
+        ${devs}
         ${details}
         <div class="notes ${c.inKton && !note.description && !note.rationale ? "quiet" : ""}">
           <span class="nl">Description</span>${field("description", c.hand ? "What did you change?" : "What was done here?")}
           <span class="nl">Rationale</span>${field("rationale", c.hand ? "Why was the change needed?" : "Why this way?")}
         </div>
       </div></li>`;
+  }
+
+  // a reproduction is an event of the story: its own line, at its date, after the steps
+  const stamp = (iso) => new Date(iso).toLocaleString(undefined, {day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"});
+  function reproLine(r) {
+    const bad = (r.steps || []).filter((s) => (s.outputs || []).some((o) => !o.same)).length;
+    const what = r.same ? `the same bytes${bad ? `, though ${bad} step${bad > 1 ? "s" : ""} on the way deviated` : ""}`
+      : r.reproduced ? `other bytes (${esc(r.reproduced.slice(0, 12))} instead of ${esc(r.recorded.slice(0, 12))}), ${bad} step${bad === 1 ? "" : "s"} deviated`
+      : "not produced";
+    return `<li class="${r.same && !bad ? "repro" : "repro warned"}">
+      <div class="t">${esc(stamp(r.when))}</div>
+      <div class="body"><div class="head"><b>Reproduced</b> in an empty folder: ${what} <span class="muted">· ${r.seconds} s</span></div></div></li>`;
   }
 
   function markdown(cs) {
@@ -114,6 +145,10 @@
       md += "\n";
       if (n.description) md += `  - *Description:* ${n.description.replace(/\n/g, "\n    ")}\n`;
       if (n.rationale) md += `  - *Rationale:* ${n.rationale.replace(/\n/g, "\n    ")}\n`;
+    }
+    for (const r of (S.reproductions || []).slice(0, 1)) {
+      md += `- ${stamp(r.when)} **Reproduced** in an empty folder: ${r.same ? "the same bytes" : r.reproduced ? "other bytes" : "not produced"}\n`;
+      for (const s of r.steps || []) for (const o of s.outputs || []) if (!o.same) md += `  - ${short(o.path)}: ${o.reproduced ? "other bytes" : "not produced"}\n`;
     }
     if ((S.gaps || []).length) md += `\n**Gaps:**\n${S.gaps.map((g) => "- " + g).join("\n")}\n`;
     return md;
@@ -133,9 +168,13 @@
           <button class="secondary" id="save">Markdown</button>
         </div>
       </header>
-      <ol class="story">${cs.map(line).join("")}</ol>
+      <ol class="story">${cs.map(line).join("")}${(S.reproductions || []).slice(0, 1).map(reproLine).join("")}</ol>
       ${(S.gaps || []).length ? `<details class="gaps"><summary>${S.gaps.length} gap${S.gaps.length > 1 ? "s" : ""} in the recording</summary>${S.gaps.map((g) => `<div class="warn">${esc(g)}</div>`).join("")}</details>` : ""}
     </main>`;
+    for (const b of root.querySelectorAll("button.diff")) b.onclick = () => {
+      const c = cs.find((x) => x.key === b.dataset.k), o = c && c.devs[+b.dataset.i];
+      if (o) vscode.postMessage({type: "diff", path: o.path, recorded: o.recorded, reproduced: o.reproduced, dir: o.dir});
+    };
     for (const b of root.querySelectorAll("button.tog")) b.onclick = (e) => { const k = e.target.closest("li").dataset.k; open[k] = !open[k]; render(); };
     for (const n of root.querySelectorAll(".note")) {
       n.oninput = () => {
