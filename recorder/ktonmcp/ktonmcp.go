@@ -34,7 +34,9 @@ func Server(sv *watch.Service, version string) *mcp.Server {
 		Instructions: "What the kton recorder saw in R, Python and terminal sessions: projects, runs, a file's story " +
 			"(how it came about, step by step), and what kton holds about a file. Step keys are \"session/task\". " +
 			"kton_note writes a DRAFT description and rationale for a step; the person reviews and signs it in the " +
-			"story when publishing. Nothing here signs or publishes.",
+			"story when publishing. Nothing here signs or publishes. kton_open_story, kton_open_graph and kton_select " +
+			"show the person what you mean in their Positron; kton_selection reads what they selected; kton_copy " +
+			"copies a file over only after they agree.",
 	})
 	mcp.AddTool(s, &mcp.Tool{Name: "kton_projects", Description: "The projects the recorder has sessions for, most recent first, with their cockpit repository (registry) if they are in one."},
 		mcpsurface.Handler(t.projects))
@@ -44,6 +46,16 @@ func Server(sv *watch.Service, version string) *mcp.Server {
 		mcpsurface.Handler(t.story))
 	mcp.AddTool(s, &mcp.Tool{Name: "kton_ask", Description: "Ask kton (the cockpit, through the project's repository and its federation sources, verified against its trust tiers) about a file or a record: producer (who made these bytes), uses (who used them), lineage (the chain behind them), about (the claims: descriptions, rationales), record (what a record says), reproductions."},
 		mcpsurface.Handler(t.ask))
+	mcp.AddTool(s, &mcp.Tool{Name: "kton_open_story", Description: "Open a file's story in the person's Positron, as an editor tab: how it came about step by step, with the drafts. Use it to show what you are talking about."},
+		mcpsurface.Handler(t.openStory))
+	mcp.AddTool(s, &mcp.Tool{Name: "kton_open_graph", Description: "Open kton's graph in the person's Positron, beside the story, centred on a file (its producing step and ancestors): what was recorded and what is signed, joined by file hash, including other analysts' work on the same data. A graph already open for the project is re-centred."},
+		mcpsurface.Handler(t.openGraph))
+	mcp.AddTool(s, &mcp.Tool{Name: "kton_select", Description: "Select steps in the open graph (opening it if needed): each entry a file (its producing step), a file hash, or a record id (sha256:…). Replaces the selection; an empty list clears it. Use it to point at the steps you mean."},
+		mcpsurface.Handler(t.selectSteps))
+	mcp.AddTool(s, &mcp.Tool{Name: "kton_selection", Description: "The steps the person has selected in the open graph (Ctrl/Shift-click): record id, command, outputs. Use it for \"these steps\" in what the person asks."},
+		mcpsurface.Handler(t.selection))
+	mcp.AddTool(s, &mcp.Tool{Name: "kton_copy", Description: "Copy a file (by its content hash, e.g. another analyst's script or dataset found with kton_ask or the graph) into a project. The person is asked in Positron and sees source and target first; nothing is overwritten without their yes. The bytes are checked against the hash."},
+		mcpsurface.Handler(t.copyFile))
 	mcp.AddTool(s, &mcp.Tool{Name: "kton_note", Description: "Draft the description and the rationale of a recorded step (key \"session/task\" from kton_runs or kton_story). A draft only: the person sees it in the story, can change it, and signs it when publishing. Empty description and rationale remove the draft."},
 		mcpsurface.Handler(t.note))
 	return s
@@ -319,6 +331,138 @@ func (t *tools) note(_ context.Context, in NoteIn) (*NoteOut, error) {
 	}
 	got, _ := t.sv.Notes.Get(in.Key)
 	return &NoteOut{Key: in.Key, Note: got, Was: was}, nil
+}
+
+// ------------------------------------------------------------------ the editor (watch/ui.go)
+
+type EditorOut struct {
+	OK      bool           `json:"ok"`
+	Message string         `json:"message"`
+	Data    map[string]any `json:"data,omitempty"`
+}
+
+func (t *tools) editor(ctx context.Context, wait time.Duration, action string, args map[string]any) (*EditorOut, error) {
+	if t.sv.UI == nil {
+		return nil, watch.ErrNoEditor
+	}
+	ctx, cancel := context.WithTimeout(ctx, wait)
+	defer cancel()
+	a, err := t.sv.UI.Do(ctx, action, args)
+	if err != nil {
+		return nil, err
+	}
+	return &EditorOut{OK: a.OK, Message: a.Message, Data: a.Data}, nil
+}
+
+// fileArgs: project, absolute path and version of a file named by path (and optional sha)
+func (t *tools) fileArgs(project, path, sha string) (map[string]any, error) {
+	project, abs, err := t.locate(project, path)
+	if err != nil {
+		return nil, err
+	}
+	sum := strings.TrimPrefix(sha, "sha256:")
+	if sum == "" {
+		if sum, err = fileHash(abs); err != nil {
+			return nil, fmt.Errorf("%s: %v (give sha256 for a version that is gone)", path, err)
+		}
+	}
+	return map[string]any{"project": project, "path": abs, "sha256": sum}, nil
+}
+
+type OpenStoryIn struct {
+	Path    string `json:"path" jsonschema:"the file, absolute or relative to the project"`
+	Project string `json:"project,omitempty"`
+	SHA256  string `json:"sha256,omitempty" jsonschema:"a version; the bytes on disk today when left out"`
+}
+
+func (t *tools) openStory(ctx context.Context, in OpenStoryIn) (*EditorOut, error) {
+	args, err := t.fileArgs(in.Project, in.Path, in.SHA256)
+	if err != nil {
+		return nil, err
+	}
+	return t.editor(ctx, 30*time.Second, "open_story", args)
+}
+
+type OpenGraphIn struct {
+	Path    string `json:"path,omitempty" jsonschema:"the file to centre on, absolute or relative to the project"`
+	Hash    string `json:"hash,omitempty" jsonschema:"or a file hash / record id (sha256:…) to centre on"`
+	Project string `json:"project,omitempty" jsonschema:"the project whose graph; needed with hash"`
+}
+
+func (t *tools) openGraph(ctx context.Context, in OpenGraphIn) (*EditorOut, error) {
+	var args map[string]any
+	switch {
+	case in.Path != "":
+		a, err := t.fileArgs(in.Project, in.Path, "")
+		if err != nil {
+			return nil, err
+		}
+		args = a
+	case in.Hash != "" && in.Project != "":
+		args = map[string]any{"project": in.Project, "sha256": strings.TrimPrefix(in.Hash, "sha256:")}
+	default:
+		return nil, fmt.Errorf("path, or hash and project")
+	}
+	return t.editor(ctx, 30*time.Second, "open_graph", args)
+}
+
+type SelectIn struct {
+	Project string   `json:"project" jsonschema:"the project whose graph"`
+	Items   []string `json:"items" jsonschema:"files (paths relative to the project or absolute), file hashes or record ids (sha256:…); empty clears"`
+}
+
+func (t *tools) selectSteps(ctx context.Context, in SelectIn) (*EditorOut, error) {
+	if in.Project == "" {
+		return nil, fmt.Errorf("project is needed")
+	}
+	sel := []string{}
+	for _, it := range in.Items {
+		if strings.HasPrefix(it, "sha256:") {
+			sel = append(sel, it)
+			continue
+		}
+		_, abs, err := t.locate(in.Project, it)
+		if err != nil {
+			return nil, err
+		}
+		sum, err := fileHash(abs)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %v", it, err)
+		}
+		sel = append(sel, "sha256:"+sum)
+	}
+	return t.editor(ctx, 30*time.Second, "select", map[string]any{"project": in.Project, "selection": sel})
+}
+
+type SelectionIn struct {
+	Project string `json:"project,omitempty" jsonschema:"the project whose graph; the one open when left out"`
+}
+
+func (t *tools) selection(ctx context.Context, in SelectionIn) (*EditorOut, error) {
+	return t.editor(ctx, 15*time.Second, "get_selection", map[string]any{"project": in.Project})
+}
+
+type CopyIn struct {
+	Hash    string `json:"hash" jsonschema:"the file's content hash, sha256:…"`
+	Name    string `json:"name,omitempty" jsonschema:"its name where it comes from (e.g. R/04_fit_population.R), for the person and as the default target"`
+	Project string `json:"project" jsonschema:"the project to copy into"`
+	To      string `json:"to,omitempty" jsonschema:"the target path relative to the project; the name when left out"`
+}
+
+func (t *tools) copyFile(ctx context.Context, in CopyIn) (*EditorOut, error) {
+	sum := strings.TrimPrefix(in.Hash, "sha256:")
+	if len(sum) != 64 || in.Project == "" {
+		return nil, fmt.Errorf("hash (sha256:<64 hex>) and project are needed")
+	}
+	to := in.To
+	if to == "" {
+		to = in.Name
+	}
+	if to == "" || filepath.IsAbs(to) || strings.HasPrefix(filepath.Clean(to), "..") {
+		return nil, fmt.Errorf("to: a path inside the project (or name)")
+	}
+	// the person decides: up to three minutes
+	return t.editor(ctx, 3*time.Minute, "copy", map[string]any{"project": in.Project, "sha256": sum, "name": in.Name, "to": to})
 }
 
 // ------------------------------------------------------------------ helpers

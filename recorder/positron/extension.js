@@ -658,20 +658,22 @@ async function openStory(context, project, file) {
 // (/web/), the recorded graph (/kton/graph.json) and the cockpit's data handler
 // (/kton/reg/<id>/data/select: through its index, with the trust tiers). kton-web verifies every
 // record itself. A second file of the same project re-centres the tab instead of reloading it.
-const ktonPanels = new Map(); // repo → {panel, project}
+const ktonPanels = new Map(); // repo → {panel, project, selection}
 const FILE_ACTIONS = [
   { id: 'open', label: 'Open', on: 'both' },
   { id: 'story', label: 'Story', on: 'output' },
   { id: 'today', label: 'Compare with today', on: 'both' },
+  { id: 'copy', label: 'Copy into my project', on: 'both' },
 ];
+const panelOf = (project) => [...ktonPanels.values()].find((x) => !project || x.project === project);
 async function openInKton(project, repo, sum, name) {
   if (!(await ensureService())) return;
   const shown = ktonPanels.get(repo);
   if (shown && shown.project === project) { // the viewer finds the file, asking the store if it must
     shown.panel.reveal(vscode.ViewColumn.Beside);
     shown.panel.title = `kton: ${name || path.basename(repo)}`;
-    shown.panel.webview.postMessage({ type: 'refocus', focus: 'sha256:' + sum });
-    return;
+    shown.panel.webview.postMessage({ type: 'set', state: { focus: 'sha256:' + sum } });
+    return shown;
   }
   const p0 = ((await getJSON(viewerUrl() + 'api/projects').catch(() => [])) || []).find((x) => x.path === project);
   const reg = p0 && p0.registry;
@@ -684,9 +686,14 @@ async function openInKton(project, repo, sum, name) {
   if (!panel) {
     panel = vscode.window.createWebviewPanel('ktonGraph', 'kton', vscode.ViewColumn.Beside, { enableScripts: true, retainContextWhenHidden: true });
     panel.onDidDispose(() => ktonPanels.delete(repo));
-    panel.webview.onDidReceiveMessage((m) => ktonIntent(project, m));
+    panel.webview.onDidReceiveMessage((m) => {
+      // the viewer reports every change of state: keep what the person selected (kton_selection)
+      if (m.type === 'kton:state' && m.state && ktonPanels.get(repo)) ktonPanels.get(repo).selection = m.state.selection || [];
+      ktonIntent(project, m);
+    });
   } else panel.reveal(vscode.ViewColumn.Beside);
-  ktonPanels.set(repo, { panel, project });
+  const entry = { panel, project, selection: [] };
+  ktonPanels.set(repo, entry);
   panel.title = `kton: ${name || path.basename(repo)}`;
   const nonce = crypto.randomBytes(16).toString('hex');
   // the viewer takes messages from its own origin and from ?host=, the webview's, which only the
@@ -697,16 +704,22 @@ async function openInKton(project, repo, sum, name) {
 <body><iframe id="kweb"></iframe>
 <script nonce="${nonce}">
   const vscode = acquireVsCodeApi(), viewer = ${JSON.stringify(originOf)}, frame = document.getElementById('kweb');
-  const set = (state) => frame.contentWindow.postMessage({type: 'kton:set', state}, viewer);
-  const actions = () => set({view: {actions: ${JSON.stringify(FILE_ACTIONS)}}});
+  // until the viewer is ready, what the extension sends waits
+  let ready = false; const waiting = [];
+  const post = (state) => frame.contentWindow.postMessage({type: 'kton:set', state}, viewer);
+  const set = (state) => ready ? post(state) : waiting.push(state);
   frame.src = ${JSON.stringify(src)} + '&host=' + encodeURIComponent(window.origin);
   window.addEventListener('message', (e) => {
-    if (e.origin === viewer && e.data && e.data.type === 'kton:ready') actions();                       // the editor's file actions
-    else if (e.origin === viewer && e.data && /^kton:/.test(e.data.type || '')) vscode.postMessage(e.data); // intents, state, refusals
-    else if (e.data && e.data.type === 'refocus') set({focus: e.data.focus});                        // from the extension
+    if (e.origin === viewer && e.data && e.data.type === 'kton:ready') {
+      ready = true;
+      post({view: {actions: ${JSON.stringify(FILE_ACTIONS)}, select: {multi: true}}});              // the editor's file actions; multi-select
+      while (waiting.length) post(waiting.shift());
+    } else if (e.origin === viewer && e.data && /^kton:/.test(e.data.type || '')) vscode.postMessage(e.data); // intents, state, refusals
+    else if (e.data && e.data.type === 'set') set(e.data.state);                                     // from the extension
   });
 </script></body></html>`;
   if (!reg) vscode.window.setStatusBarMessage('kton: no cockpit repository for this project: only what was recorded is shown', 5000);
+  return entry;
 }
 
 // what the viewer asks the editor to do (kton-web core/host.js): {type:'kton:intent', intent:{type:'act',
@@ -737,6 +750,11 @@ async function ktonIntent(project, m) {
     case 'story':
       if (f && f.produced_by) return openStory(extContext, project, f);
       return vscode.window.showWarningMessage(`kton: no recorded step of this project wrote ${it.file.name}`);
+    case 'copy': {
+      const r = await copyIntoProject(project, sum, it.file.name, it.file.name);
+      if (!r.ok && r.message !== 'declined') vscode.window.showWarningMessage('kton: ' + r.message);
+      return;
+    }
     case 'today': {
       const now = f && fs.existsSync(f.path) ? f.path : null;
       if (!now) return vscode.window.showWarningMessage(`kton: ${it.file.name} is not in this project today`);
@@ -760,6 +778,138 @@ function connectClaude() {
   term.sendText('claude mcp remove kton --scope user >/dev/null 2>&1; ' +
     `claude mcp add --scope user --transport http kton ${url} --header "Authorization: Bearer $(cat ${tokenFile})" && ` +
     'echo && echo "kton is connected: start a new Claude conversation, then ask e.g. \"which of my recorded steps have no description?\""');
+}
+
+// the cockpit repository a project is in (cockpitRepoOf takes a file and starts in its folder)
+const repoOfProject = (project) => cockpitRepoOf(path.join(project, '.kton-probe'));
+
+// ------------------------------------------------------------------ copy a file over
+// The bytes of a file by its hash: kept in the CAS, or a file of a recorded project with these
+// bytes, or the file a record of the repository's federation names (another analyst's script or
+// dataset) in that source's folder. Always checked against the hash.
+async function findBytes(project, sum) {
+  if (fs.existsSync(casFile(sum)) && (await sha256File(casFile(sum))) === sum) return { file: casFile(sum), from: 'the recorder\'s copy' };
+  for (const p of (await getJSON(viewerUrl() + 'api/projects').catch(() => [])) || []) {
+    const files = (await getJSON(`${viewerUrl()}api/files?project=${encodeURIComponent(p.path)}`, 10000).catch(() => [])) || [];
+    for (const f of files) if (f.sha256 === sum && fs.existsSync(f.path) && (await sha256File(f.path)) === sum) return { file: f.path, from: f.path };
+  }
+  // the target's repository first, then those of the other recorded projects: each asks kton
+  // through its own federation and trust tiers
+  const repos = [...new Set([repoOfProject(project),
+    ...((await getJSON(viewerUrl() + 'api/projects').catch(() => [])) || []).map((p) => repoOfProject(p.path))].filter(Boolean))];
+  for (const repo of repos) {
+    const found = await findInRepo(repo, sum);
+    if (found) return found;
+  }
+  return null;
+}
+async function findInRepo(repo, sum) {
+  let cfg = {};
+  try { cfg = JSON.parse(fs.readFileSync(path.join(repo, 'cockpit.config.json'), 'utf8')); } catch (e) { return null; }
+  const dirs = [repo, ...(((cfg.federation || {}).sources) || []).filter((x) => x.kind === 'dir' && x.path).map((x) => path.isAbsolute(x.path) ? x.path : path.join(repo, x.path))];
+  const ids = new Set();
+  for (const q of ['producer', 'uses']) {
+    const a = await askCockpit(repo, { query: q, ref: 'sha256:' + sum });
+    for (const id of (a && a.included) || []) ids.add(id);
+  }
+  for (const id of ids) {
+    const a = await askCockpit(repo, { query: 'record', ref: id });
+    const rec = (a && a.record) || {};
+    for (const f of [...(rec.inputs || []), ...(rec.outputs || [])]) {
+      if (String(f.hash || '').replace(/^sha256:/, '') !== sum || !f.path) continue;
+      for (const d of dirs) {
+        const cand = path.join(d, f.path);
+        if (fs.existsSync(cand) && (await sha256File(cand)) === sum) return { file: cand, from: cand };
+      }
+    }
+  }
+  return null;
+}
+async function copyIntoProject(project, sum, name, to) {
+  const target = path.join(project, to || name || sum.slice(0, 12));
+  const rel = path.relative(project, target);
+  if (rel.startsWith('..') || path.isAbsolute(rel)) return { ok: false, message: `${to} is not inside the project` };
+  const src = await findBytes(project, sum);
+  if (!src) return { ok: false, message: `no copy of ${name || sum.slice(0, 12)} (sha256 ${sum.slice(0, 12)}) is reachable here: not kept, not in a recorded project, not in a federated source's folder` };
+  const exists = fs.existsSync(target);
+  if (exists && (await sha256File(target)) === sum) return { ok: true, message: `${rel} has these bytes already` };
+  const pick = await vscode.window.showInformationMessage(
+    `Copy ${name || 'the file'} (sha256 ${sum.slice(0, 12)}) from ${src.from} into ${path.basename(project)}/${rel}?` +
+    (exists ? ` ${rel} exists with other content and will be replaced.` : ''), { modal: true }, exists ? 'Replace' : 'Copy');
+  if (!pick) return { ok: false, message: 'declined' };
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  fs.copyFileSync(src.file, target);
+  fs.chmodSync(target, 0o644); // a copy from the CAS is read-only
+  vscode.window.setStatusBarMessage(`kton: copied into ${rel}`, 5000);
+  return { ok: true, message: `copied into ${rel} (from ${src.from})`, data: { path: target } };
+}
+
+// ------------------------------------------------------------------ the assistant's requests (ktonwatch /api/ui/events)
+// What an assistant asks through the MCP tools and only the editor can do. One subscription per
+// window, again after ktonwatch restarts; each event is answered (POST /api/ui/answer).
+async function uiDo(context, ev) {
+  const a = ev.args || {};
+  switch (ev.action) {
+    case 'open_story': {
+      const files = (await getJSON(`${viewerUrl()}api/files?project=${encodeURIComponent(a.project)}`, 10000).catch(() => [])) || [];
+      const f = files.find((x) => x.path === a.path && x.sha256 === a.sha256 && x.produced_by);
+      if (!f) return { ok: false, message: `no recorded step wrote ${path.relative(a.project, a.path)} with these bytes` };
+      await openStory(context, a.project, f);
+      return { ok: true, message: `opened the story of ${path.relative(a.project, a.path)}` };
+    }
+    case 'open_graph': {
+      const repo = repoOfProject(a.project) || a.project;
+      const e = await openInKton(a.project, repo, a.sha256, a.path ? path.basename(a.path) : a.sha256.slice(0, 12));
+      return e ? { ok: true, message: 'the graph shows it' } : { ok: false, message: 'the graph could not be opened' };
+    }
+    case 'select': {
+      let e = panelOf(a.project);
+      if (!e) {
+        const first = (a.selection || [])[0];
+        if (!first) return { ok: true, message: 'no graph open, nothing to clear' };
+        e = await openInKton(a.project, repoOfProject(a.project) || a.project, first.replace(/^sha256:/, ''), 'selection');
+        if (!e) return { ok: false, message: 'the graph could not be opened' };
+      }
+      e.panel.reveal(vscode.ViewColumn.Beside);
+      e.panel.webview.postMessage({ type: 'set', state: { view: { select: { multi: true } }, selection: a.selection || [] } });
+      return { ok: true, message: `${(a.selection || []).length} selected` };
+    }
+    case 'get_selection': {
+      const e = panelOf(a.project);
+      if (!e) return { ok: false, message: 'no graph is open' };
+      return { ok: true, message: `${(e.selection || []).length} step(s) selected`, data: { project: e.project, selection: e.selection || [] } };
+    }
+    case 'copy':
+      return copyIntoProject(a.project, a.sha256, a.name, a.to);
+  }
+  return { ok: false, message: 'unknown action ' + ev.action };
+}
+function listenUI(context) {
+  let stopped = false, req;
+  const connect = () => {
+    if (stopped) return;
+    req = http.get(viewerUrl() + 'api/ui/events', (res) => {
+      if (res.statusCode !== 200) { res.resume(); return setTimeout(connect, 10000); }
+      let buf = '';
+      res.on('data', (c) => {
+        buf += c;
+        let i;
+        while ((i = buf.indexOf('\n\n')) >= 0) {
+          const chunk = buf.slice(0, i); buf = buf.slice(i + 2);
+          const line = chunk.split('\n').find((l) => l.startsWith('data: '));
+          if (!line) continue;
+          let ev; try { ev = JSON.parse(line.slice(6)); } catch (e) { continue; }
+          uiDo(context, ev).catch((e) => ({ ok: false, message: String(e.message || e) }))
+            .then((ans) => sendJSON('POST', viewerUrl() + 'api/ui/answer', Object.assign({ id: ev.id }, ans)).catch(() => { /* another window answered */ }));
+        }
+      });
+      res.on('end', () => setTimeout(connect, 3000));
+      res.on('error', () => setTimeout(connect, 3000));
+    });
+    req.on('error', () => setTimeout(connect, 10000));
+  };
+  connect();
+  context.subscriptions.push({ dispose: () => { stopped = true; if (req) req.destroy(); } });
 }
 
 async function openInBrowser() {
@@ -787,6 +937,7 @@ function activate(context) {
     vscode.commands.registerCommand('kton.doctor', showDoctor),
     vscode.commands.registerCommand('kton.connectClaude', connectClaude));
   moveOldNotes(context);
+  ensureService().then(() => listenUI(context));
   runDoctor(true);
   context.subscriptions.push(
     vscode.commands.registerCommand('kton.toggleRecording', toggleRecording),
@@ -821,4 +972,4 @@ function activate(context) {
 }
 
 function deactivate() {}
-module.exports = { activate, deactivate, _test: { ktonIntent, parseDoctor, parseDoctorJSON, cockpitRepoOf, reproduce, publishedSteps, publishText, Tree, setOut: (o) => { out = o; } } };
+module.exports = { activate, deactivate, _test: { listenUI, findBytes, copyIntoProject, ktonIntent, parseDoctor, parseDoctorJSON, cockpitRepoOf, reproduce, publishedSteps, publishText, Tree, setOut: (o) => { out = o; } } };

@@ -1,6 +1,7 @@
 package ktonmcp
 
 import (
+	"bufio"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -11,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kton-protocol/kton-cockpit/recorder/watch"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -106,7 +108,7 @@ func TestTools_Listed(t *testing.T) {
 	for _, tl := range res.Tools {
 		names = append(names, tl.Name)
 	}
-	if strings.Join(names, " ") != "kton_ask kton_note kton_projects kton_runs kton_story" {
+	if strings.Join(names, " ") != "kton_ask kton_copy kton_note kton_open_graph kton_open_story kton_projects kton_runs kton_select kton_selection kton_story" {
 		t.Fatalf("tools %v", names)
 	}
 }
@@ -215,5 +217,78 @@ func TestToken_MadeOnceReadableByTheOwnerOnly(t *testing.T) {
 	fi, err := os.Stat(p)
 	if err != nil || a != b || fi.Mode().Perm() != 0o600 {
 		t.Fatalf("%q %q %v %v", a, b, err, fi.Mode())
+	}
+}
+
+// fakeEditor is a Positron window: it listens to ktonwatch's events and answers each with do.
+func fakeEditor(t *testing.T, sv *watch.Service, do func(watch.UIEvent) watch.UIAnswer) {
+	t.Helper()
+	srv := httptest.NewServer(sv.Handler())
+	t.Cleanup(srv.Close)
+	res, err := http.Get(srv.URL + "/api/ui/events")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { res.Body.Close() })
+	go func() {
+		sc := bufio.NewScanner(res.Body)
+		for sc.Scan() {
+			if line := sc.Text(); strings.HasPrefix(line, "data: ") {
+				var ev watch.UIEvent
+				json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &ev)
+				a := do(ev)
+				a.ID = ev.ID
+				b, _ := json.Marshal(a)
+				http.Post(srv.URL+"/api/ui/answer", "application/json", strings.NewReader(string(b)))
+			}
+		}
+	}()
+	for i := 0; sv.UI.Listening() == 0 && i < 200; i++ {
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func TestEditorTools_SayWhenNoWindowListens(t *testing.T) {
+	sv, project := fixture(t)
+	cs := connect(t, sv)
+	e := errText(call(t, cs, "kton_open_story", map[string]any{"path": "derived/fit.csv", "project": project}, nil))
+	if !strings.Contains(e, "no Positron window") {
+		t.Fatalf("%q", e)
+	}
+}
+
+func TestEditorTools_TheWindowGetsWhatItNeeds(t *testing.T) {
+	sv, project := fixture(t)
+	cs := connect(t, sv)
+	var got []watch.UIEvent
+	fakeEditor(t, sv, func(ev watch.UIEvent) watch.UIAnswer {
+		got = append(got, ev)
+		switch ev.Action {
+		case "get_selection":
+			return watch.UIAnswer{OK: true, Message: "1 step selected", Data: map[string]any{"selection": []any{map[string]any{"id": "sha256:abc"}}}}
+		case "copy":
+			return watch.UIAnswer{OK: false, Message: "declined"}
+		}
+		return watch.UIAnswer{OK: true, Message: "opened"}
+	})
+	var out EditorOut
+	call(t, cs, "kton_open_story", map[string]any{"path": "derived/fit.csv", "project": project}, &out)
+	if !out.OK || got[0].Action != "open_story" || got[0].Args["path"] != filepath.Join(project, "derived/fit.csv") || len(got[0].Args["sha256"].(string)) != 64 {
+		t.Fatalf("open_story: %+v %+v", out, got[0])
+	}
+	call(t, cs, "kton_select", map[string]any{"project": project, "items": []string{"derived/pk.csv", "sha256:" + strings.Repeat("a", 64)}}, &out)
+	if sel := got[1].Args["selection"].([]any); len(sel) != 2 || !strings.HasPrefix(sel[0].(string), "sha256:") || len(sel[0].(string)) != 71 {
+		t.Fatalf("select: %+v", got[1])
+	}
+	call(t, cs, "kton_selection", map[string]any{}, &out)
+	if out.Data["selection"] == nil {
+		t.Fatalf("selection: %+v", out)
+	}
+	call(t, cs, "kton_copy", map[string]any{"hash": "sha256:" + strings.Repeat("b", 64), "name": "R/04_fit_population.R", "project": project}, &out)
+	if out.OK || out.Message != "declined" || got[3].Args["to"] != "R/04_fit_population.R" {
+		t.Fatalf("copy: %+v %+v", out, got[3])
+	}
+	if e := errText(call(t, cs, "kton_copy", map[string]any{"hash": "sha256:" + strings.Repeat("b", 64), "to": "../outside.R", "project": project}, nil)); !strings.Contains(e, "inside the project") {
+		t.Fatalf("a target outside the project: %q", e)
 	}
 }

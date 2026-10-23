@@ -34,6 +34,9 @@ type Service struct {
 	// Notes are the drafts of descriptions and rationales per story step (Load opens them).
 	Notes *Notes
 
+	// UI passes what the MCP tools ask of the editor to the listening windows (Load makes it).
+	UI *UIHub
+
 	mu       sync.RWMutex
 	archived map[string]bool // session\x00task whose call files were handed to the CAS
 	callMemo sync.Map        // the calls of a task, until it grows (callsOf)
@@ -68,6 +71,9 @@ func (sv *Service) Load() error {
 	defer sv.mu.Unlock()
 	if sv.sessions == nil {
 		sv.sessions = map[string]*tracked{}
+	}
+	if sv.UI == nil {
+		sv.UI = NewUIHub()
 	}
 	if sv.Notes == nil && sv.Store != "" {
 		sv.Notes = OpenNotes(filepath.Join(sv.Store, "notes")) // not *.json beside the sessions: those are read as sessions
