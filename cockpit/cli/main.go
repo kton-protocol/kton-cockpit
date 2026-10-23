@@ -48,7 +48,7 @@ func Main() {
 	case "show":
 		err = runShow(ctx, os.Args[2:])
 	case "doctor":
-		err = runDoctor(ctx)
+		err = runDoctor(ctx, os.Args[2:])
 	case "scope":
 		err = runScope(ctx, os.Args[2:])
 	case "publish", "say", "ask":
@@ -82,6 +82,10 @@ func Main() {
 		usage()
 		os.Exit(2)
 	}
+	if errors.Is(err, errNotReady) {
+		// Doctor ran and said what is missing; the exit code says it to a script.
+		os.Exit(exitNotReady)
+	}
 	if err != nil {
 		// Configuration errors carry the prefix themselves, for the MCP surface; once is enough.
 		fmt.Fprintln(os.Stderr, "cockpit:", strings.TrimPrefix(err.Error(), "cockpit: "))
@@ -113,7 +117,8 @@ usage:
   cockpit version  what this binary is, and which kernel is compiled into it
   cockpit mcp      start the MCP stdio server (cockpit_publish/cockpit_say/cockpit_ask)
   cockpit init     scaffold cockpit.config.json in the current git repo
-  cockpit doctor   validate cockpit.config.json + the repo binding
+  cockpit doctor   validate cockpit.config.json + the repo binding; --json for a program,
+                   exit 3 while a step marked ! is left
   cockpit show     serve this repo's records to a kton-web viewer
                    [addr] [--web <kton-web checkout>|$KTON_WEB]
 
@@ -276,7 +281,14 @@ func displayAddr(addr string) string {
 	return addr
 }
 
-func runDoctor(ctx context.Context) error {
+func runDoctor(ctx context.Context, args []string) error {
+	asJSON := false
+	for _, a := range args {
+		if a != "--json" {
+			return fmt.Errorf("doctor takes no argument but --json, not %q", a)
+		}
+		asJSON = true
+	}
 	cwd, err := os.Getwd()
 	if err != nil {
 		return err
@@ -285,7 +297,9 @@ func runDoctor(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	defer printReadiness(ctx, cfg)
+	if asJSON {
+		return printDoctorJSON(ctx, cfg)
+	}
 
 	fmt.Printf("repo root:      %s\n", cfg.RepoRoot)
 	if cfg.Raw.Repo.IsLocal() {
@@ -426,11 +440,12 @@ func runDoctor(ctx context.Context) error {
 		if cfg.Raw.Environment.EnvRef != "" {
 			fmt.Printf("                (environment.envRef is set, so the pinned environment is asserted, not observed)\n")
 		}
-		return nil
+		return printReadiness(ctx, cfg)
 	}
 	fmt.Printf("execution:      %s in %s\n", cfg.Raw.Execution.EngineOrDefault(), cfg.Raw.Execution.Image)
 	ver, verr := container.Version(ctx, cfg)
 	if verr != nil {
+		_ = printReadiness(ctx, cfg) // still said: the steps are as true as before; the engine error wins
 		return fmt.Errorf("execution is configured but the engine is unusable: %w", verr)
 	}
 	fmt.Printf("engine ver:     %s\n", ver)
@@ -439,11 +454,11 @@ func runDoctor(ctx context.Context) error {
 	} else {
 		fmt.Printf("network:        isolated (--network none)\n")
 	}
-	return nil
+	return printReadiness(ctx, cfg)
 }
 
 func checkPath(p string) string {
-	if _, err := os.Stat(p); err != nil {
+	if pathState(p) != stateOK {
 		return p + "  [MISSING]"
 	}
 	return p + "  [ok]"

@@ -192,6 +192,13 @@ reachable over the tool transport.
 > `TestSay_RefusesATemplateOutsideTheConfiguredCeiling`,
 > `TestVerbs_TheGuardsApplyAtTheCommandLineToo`.
 
+`doctor` ends by saying whether the repository is ready for the verbs, and which steps are left. It
+MUST say so in its exit code as well as in its text: exit 3 while a step the verbs need is left, so a
+script does not have to parse prose to learn it. `doctor --json` MUST print the same readiness and
+steps as one JSON object (`ready`, `steps[]{must, text}`, `fields`) and nothing else.
+
+> **Checked by:** `TestDoctorJSON_SaysReadyAndWhatIsMissing`.
+
 ### 6.1 Which kernel
 
 A cockpit MUST NOT reimplement kernel logic, and MUST NOT let which kernel build it runs against be
