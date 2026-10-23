@@ -3,7 +3,9 @@
 # the cockpit whose record these bytes are (the study's, through federation).
 #   ./checkout.sh <study-repo> <file in it>      e.g. ../study-thp-101 data/thp101_pk.csv
 set -e
+[ $# -eq 2 ] || { echo "usage: ./checkout.sh <study-repo> <file in it>   e.g. ./checkout.sh ../program-respiratory/project-theophylline/study-thp-101 data/thp101_pk.csv" >&2; exit 2; }
 src=$1; file=$2
+[ -f "$src/$file" ] || { echo "no file $file in $src" >&2; exit 1; }
 mkdir -p data
 cp "$src/$file" "data/$(basename "$file")"
 sum=$(sha256sum "data/$(basename "$file")" | cut -d' ' -f1)
