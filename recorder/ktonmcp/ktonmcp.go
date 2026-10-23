@@ -281,7 +281,9 @@ func (t *tools) ask(ctx context.Context, in AskIn) (*AskOut, error) {
 	if t.sv.Placer != nil {
 		ask = t.sv.Placer.Ask
 	}
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	// a repository reading big sources answers slowly today (an ask about one record of kton-web's
+	// pmx corpus took 50 s); two minutes, the cockpit's own ceiling for a query
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 	b, err := ask(ctx, repo, map[string]string{"query": in.Query, "ref": ref})
 	if err != nil {
@@ -298,7 +300,7 @@ func (t *tools) ask(ctx context.Context, in AskIn) (*AskOut, error) {
 
 // sparqlHelp teaches the dataset and gives worked examples (the cockpit's docs/sparql.md, where
 // each runs in a test; the two model-development ones follow the same rule for templates).
-const sparqlHelp = `A SPARQL SELECT or ASK of your own over kton, as the project's repository sees it: every step (foton) of the repository and its federation sources, attributed to a signer only where a key its trust tiers trust verified it; every claim a trusted key signed. The cockpit refuses anything but SELECT/ASK, SERVICE and FROM. Prefer kton_ask (producer, uses, lineage, about, record) for one file or record; use this for questions across many.
+const sparqlHelp = `A SPARQL SELECT or ASK of your own over kton, as the project's repository sees it: every step (foton) of the repository and its federation sources, attributed to a signer only where a key its trust tiers trust verified it; every claim a trusted key signed. The cockpit refuses anything but SELECT/ASK, SERVICE and FROM. Prefer kton_ask (producer, uses, lineage, about, record) for one file or record; use this for questions across many. This is for EXPLORING: orienting, finding, comparing. Nothing signed rests on its answer. A result someone relies on (evidence, a check, a number in a report) is a SPARQL step in plankton instead: the query and its input as files, its answer an output file, run without cache and published like any step; propose that to the person when an answer matters.
 
 Needs a cockpit built with SPARQL (kton's RDF projection; until kton 0.3 a build with -tags unreleased and an engine): otherwise the answer is a refusal "sparql.unavailable" — say so to the person and fall back to kton_ask.
 
@@ -348,7 +350,7 @@ func (t *tools) sparql(ctx context.Context, in SparqlIn) (*AskOut, error) {
 	if in.Limit > 0 {
 		req["limit"] = in.Limit
 	}
-	wait := 35 * time.Second
+	wait := 2 * time.Minute // the cockpit's default is 30 s for the query, but the work around it can take longer
 	if in.TimeoutSeconds > 0 {
 		req["timeoutSeconds"] = in.TimeoutSeconds
 		wait = time.Duration(in.TimeoutSeconds+5) * time.Second
