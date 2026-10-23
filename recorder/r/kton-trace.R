@@ -22,5 +22,5 @@ local({
   sys.source(file.path(here, "ktonrec", "R", "ktonrec.R"), envir = ns, keep.source = FALSE)
   ns$start()
   assign(".ktonrec_ns", ns, envir = globalenv())  # keeps the functions reachable (stop_recording)
-  message("kton-trace aktiv: ", Sys.getenv("KTON_TRACE_LOG"))
+  message("kton-trace on: ", Sys.getenv("KTON_TRACE_LOG"))
 })

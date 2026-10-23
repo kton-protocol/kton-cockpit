@@ -99,8 +99,11 @@ func MakeDraft(s *Session, t *Task) Draft {
 	for _, u := range t.Unrecorded {
 		d.Notes = append(d.Notes, "program not recorded "+u.Program+": its files are missing from the selection")
 	}
-	if len(t.Origins) > 0 && t.Origins[0].Language == "python" {
-		d.Notes = append(d.Notes, pyNotes(t.Origins[0])...)
+	if o := t.Origin(); o != nil && o.Language == "python" {
+		d.Notes = append(d.Notes, pyNotes(*o)...)
+	}
+	if n := len(t.Origins); n > 1 {
+		d.Notes = append(d.Notes, "this step ran "+itoa(n)+" commands without a boundary between them; the command names the last of them, the files are all of theirs")
 	}
 	return d
 }
@@ -220,10 +223,9 @@ func draftCmd(t *Task, repo string) string {
 		}
 		return p
 	}
-	if len(t.Origins) > 0 && t.Origins[0].File != "" {
-		o := t.Origins[0]
+	if o := t.Origin(); o != nil && o.File != "" {
 		if o.Language == "python" {
-			return pyDraftCmd(o, rel)
+			return pyDraftCmd(*o, rel)
 		}
 		switch {
 		case o.Chunk != "":

@@ -54,3 +54,5 @@ li:hover .notes.quiet { display: grid; }
 details.gaps { margin-top: 12px; }
 details.gaps summary { cursor: pointer; color: var(--vscode-descriptionForeground); }
 .head code.cmdline { font-weight: 600; margin-right: 4px; }
+.ctx { margin: -4px 0 8px; }
+.ctx .lvl { font-weight: 600; }

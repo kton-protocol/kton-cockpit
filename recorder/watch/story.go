@@ -45,11 +45,14 @@ type Story struct {
 	Repo    string      `json:"repo"`
 	// Reproductions of the target, newest first (kton-repro.json of the extension's runs)
 	Reproductions []Reproduction `json:"reproductions,omitempty"`
+	// Where its sources reside: the scope chain of the repository that published their bytes
+	Context []Placement `json:"context,omitempty"`
+
+	sources []*Input // the recipe's sources, for placing them
 }
 
 func (sv *Service) Story(project, path, sum string) *Story {
 	sv.mu.RLock()
-	defer sv.mu.RUnlock()
 	st := storyOf(sv.projectTasks(NewChecker(), project), project, path, sum)
 	if st != nil {
 		attachRepro(st, sv.Reproductions(project, path), func(p string) string {
@@ -59,7 +62,16 @@ func (sv *Service) Story(project, path, sum string) *Story {
 			return p
 		})
 	}
+	sv.mu.RUnlock()
+	sv.Placer.placeSources(st, project, st.sourcesOrNil()) // asks the cockpit: not under the lock
 	return st
+}
+
+func (st *Story) sourcesOrNil() []*Input {
+	if st == nil {
+		return nil
+	}
+	return st.sources
 }
 
 var toolNames = []struct{ match, name string }{
@@ -142,7 +154,7 @@ func storyOf(tasks []*Task, project, path, sum string) *Story {
 		}
 	}
 	end := r.Target.When
-	st := &Story{Target: r.Target, Verdict: r.Verdict, Gaps: r.Gaps, Script: r.Script, Repo: RepoRoot(project)}
+	st := &Story{Target: r.Target, Verdict: r.Verdict, Gaps: r.Gaps, Script: r.Script, Repo: RepoRoot(project), sources: r.Sources}
 	var picked []*Task
 	for _, t := range tasks {
 		if sessions[t.Session] && t.End <= end && (on[stepKey(t)] || Effect(t) || len(t.Vars) > 0 || t.Status == "err") {
@@ -153,12 +165,12 @@ func storyOf(tasks []*Task, project, path, sum string) *Story {
 	for _, t := range picked {
 		s := StoryStep{Session: t.Session, Task: t.ID, When: t.End, Code: t.Code(), OnPath: on[stepKey(t)], Error: t.Status == "err"}
 		switch {
-		case len(t.Origins) > 0 && t.Origins[0].Chunk != "":
-			s.Where = "chunk " + t.Origins[0].Chunk + " of " + rel(t.Origins[0].File)
+		case t.Origin() != nil && t.Origin().Chunk != "":
+			s.Where = "chunk " + t.Origin().Chunk + " of " + rel(t.Origin().File)
 		case t.Script != "":
 			s.Where = "script " + rel(t.Script)
-		case len(t.Origins) > 0 && t.Origins[0].File != "":
-			s.Where = rel(t.Origins[0].File)
+		case t.Origin() != nil && t.Origin().File != "":
+			s.Where = rel(t.Origin().File)
 		case shellSession(t.Session):
 			s.Where = "$ " + shellPlace(t)
 		default:

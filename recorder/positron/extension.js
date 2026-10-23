@@ -98,6 +98,16 @@ function parseDoctor(text, code) {
   if (code !== 0) r.error = text.trim().split('\n').pop();
   return r;
 }
+// `cockpit doctor --json` (kton-cockpit SPEC §6): {ready, steps:[{must,text}], fields}; exit 3 is
+// "ran, not ready". null when the cockpit is older and does not know --json.
+function parseDoctorJSON(stdout, code) {
+  let j;
+  try { j = JSON.parse(stdout); } catch (e) { return null; }
+  if (!j || typeof j.ready !== 'boolean' || (code !== 0 && code !== 3)) return null;
+  return { state: j.ready ? 'ready' : 'not-ready', steps: (j.steps || []).map((x) => ({ must: !!x.must, text: String(x.text || '') })) };
+}
+const doctorRun = (repo, args) => new Promise((resolve) => execFile(bin('cockpit'), ['doctor', ...args], { cwd: repo, timeout: 15000 }, (err, stdout, stderr) =>
+  resolve({ stdout: String(stdout || ''), stderr: String(stderr || ''), code: err ? (typeof err.code === 'number' ? err.code : 1) : 0 })));
 let doctorRepo = null, doctorLast = null;
 async function runDoctor(force) {
   const ed = vscode.window.activeTextEditor;
@@ -107,8 +117,9 @@ async function runDoctor(force) {
   if (!repo) { doctorRepo = null; doctor.hide(); return; }
   if (repo === doctorRepo && !force) return;
   doctorRepo = repo;
-  const d = await new Promise((resolve) => execFile(bin('cockpit'), ['doctor'], { cwd: repo, timeout: 15000 }, (err, stdout, stderr) =>
-    resolve(parseDoctor(String(stdout || '') + String(stderr || ''), err ? (typeof err.code === 'number' ? err.code : 1) : 0))));
+  const j = await doctorRun(repo, ['--json']);
+  let d = parseDoctorJSON(j.stdout, j.code);
+  if (!d) { const r = await doctorRun(repo, []); d = parseDoctor(r.stdout + r.stderr, r.code === 3 ? 0 : r.code); }
   if (repo !== doctorRepo) return; // another file came to the front meanwhile
   doctorLast = Object.assign(d, { repo });
   const must = d.steps.filter((s) => s.must).length;
@@ -123,11 +134,12 @@ async function runDoctor(force) {
   doctor.tooltip = tip;
   doctor.show();
 }
-function showDoctor() {
+async function showDoctor() {
   if (!doctorLast) return;
+  const r = await doctorRun(doctorLast.repo, []); // the report as a person reads it
   out.clear();
   out.appendLine(`$ (${doctorLast.repo}) cockpit doctor`);
-  out.append(doctorLast.text);
+  out.append(r.stdout + r.stderr);
   out.show(true);
   runDoctor(true); // and look again: the report may be older than the last change
 }
@@ -195,7 +207,9 @@ async function publish(repo, text) {
   if (ok !== 'Run') return;
   const cockpit = bin('cockpit');
   // the lines below are POSIX shell: the terminal is bash, whatever the person's default is
-  const term = vscode.window.terminals.find((t) => t.name === 'kton cockpit') ||
+  // bash, whose quoting the publish lines are written for: a "kton cockpit" terminal an older
+  // version opened in another shell is not reused
+  const term = vscode.window.terminals.find((t) => t.name === 'kton cockpit' && (t.creationOptions || {}).shellPath === '/bin/bash') ||
     vscode.window.createTerminal({ name: 'kton cockpit', cwd: repo, shellPath: '/bin/bash' });
   term.show();
   term.sendText(`cd ${JSON.stringify(repo)}`);
@@ -450,12 +464,17 @@ async function recordedFile(uri) {
 // ------------------------------------------------------------------ what kton already has
 // A step is in kton when the cockpit knows a producer for every file it wrote (verified records
 // only, the cockpit's own rule). Asked per hash, in the repository the story belongs to.
-const askProducer = (repo, sum) => new Promise((resolve) => {
-  execFile(bin('cockpit'), ['ask', JSON.stringify({ query: 'producer', ref: 'sha256:' + sum })], { cwd: repo, timeout: 15000 }, (err, stdout) => {
-    if (err) return resolve(false);
-    try { resolve((JSON.parse(stdout).included || []).length > 0); } catch (e) { resolve(false); }
+// concurrent asks in one federated repository need cockpit v0.3.0 (SPEC §9.8)
+const askCockpit = (repo, q) => new Promise((resolve) => {
+  execFile(bin('cockpit'), ['ask', JSON.stringify(q)], { cwd: repo, timeout: 15000 }, (err, stdout) => {
+    if (err) return resolve(null);
+    try { resolve(JSON.parse(stdout)); } catch (e) { resolve(null); }
   });
 });
+const askProducer = async (repo, sum) => {
+  const a = await askCockpit(repo, { query: 'producer', ref: 'sha256:' + sum });
+  return !!a && (a.included || []).length > 0;
+};
 async function publishedSteps(story) {
   const done = {};
   if (!fs.existsSync(path.join(story.repo, 'cockpit.config.json'))) return done;
@@ -623,4 +642,4 @@ function activate(context) {
 }
 
 function deactivate() {}
-module.exports = { activate, deactivate, _test: { parseDoctor, cockpitRepoOf, reproduce, publishedSteps, publishText, Tree, setOut: (o) => { out = o; } } };
+module.exports = { activate, deactivate, _test: { parseDoctor, parseDoctorJSON, cockpitRepoOf, reproduce, publishedSteps, publishText, Tree, setOut: (o) => { out = o; } } };
