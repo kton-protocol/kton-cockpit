@@ -15,9 +15,7 @@ type VarUse struct {
 }
 
 var (
-	rString  = regexp.MustCompile(`"(\\.|[^"\\])*"|'(\\.|[^'\\])*'|` + "`[^`]*`")
-	rComment = regexp.MustCompile(`#[^\n]*`)
-	rIdent   = regexp.MustCompile(`[A-Za-z.][A-Za-z0-9._]*`)
+	rIdent = regexp.MustCompile(`[A-Za-z.][A-Za-z0-9._]*`)
 )
 
 // Origin is the command that names the task: the last one sent with a file (a script, a chunk),
@@ -54,20 +52,99 @@ func (t *Task) Code() string {
 	return t.Expr
 }
 
-// identifiers in R code, without strings, comments, `$col`, `@slot` and `pkg::fun`
-func identifiers(code string) map[string]bool {
-	code = rString.ReplaceAllString(code, `""`)
-	code = rComment.ReplaceAllString(code, "")
-	out := map[string]bool{}
+// usedNames: the names R code reads as variables (strings, comments, `$col`, `@slot` and
+// `pkg::fun` aside). Not a call (`c(...)` is the function, whatever
+// a session left in a variable called c), not a name the code assigns before it reads it
+// (`pop <- read.csv(...)` in a script is the script's own pop), not a named argument (`f(x = 1)`),
+// not a function's parameter. A name changed in place (`x$y <- 1`, `x[1] <- 2`) is read: it must
+// exist already.
+var rFunctionParams = regexp.MustCompile(`function\s*\(([^)]*)\)`)
+
+// stripRCode: R code without its comments, and with every string literal emptied (""), read in one
+// pass as R reads it: a quote inside a comment opens nothing ("the fit's own data"), a # inside a
+// string starts no comment. Backquoted names stay: `my var` is a name.
+func stripRCode(code string) string {
+	var b strings.Builder
+	for i := 0; i < len(code); i++ {
+		switch c := code[i]; c {
+		case '#':
+			for i < len(code) && code[i] != '\n' {
+				i++
+			}
+			if i < len(code) {
+				b.WriteByte('\n')
+			}
+		case '"', '\'':
+			for i++; i < len(code) && code[i] != c; i++ {
+				if code[i] == '\\' {
+					i++
+				}
+			}
+			b.WriteString(`""`)
+		default:
+			b.WriteByte(c)
+		}
+	}
+	return b.String()
+}
+
+// R's reserved words and constants: never a variable
+var rReserved = map[string]bool{"if": true, "else": true, "for": true, "while": true, "repeat": true, "in": true,
+	"next": true, "break": true, "function": true, "TRUE": true, "FALSE": true, "NULL": true, "NA": true, "NaN": true,
+	"Inf": true, "NA_integer_": true, "NA_real_": true, "NA_character_": true, "T": true, "F": true}
+
+func usedNames(code string) map[string]bool {
+	code = stripRCode(code)
+	params := map[string]bool{}
+	for _, m := range rFunctionParams.FindAllStringSubmatch(code, -1) {
+		for _, p := range strings.Split(m[1], ",") {
+			if name, _, _ := strings.Cut(p, "="); strings.TrimSpace(name) != "" {
+				params[strings.TrimSpace(name)] = true
+			}
+		}
+	}
+	depth := make([]int, len(code)+1) // parentheses open at each position
+	for i, d := 0, 0; i < len(code); i++ {
+		depth[i] = d
+		switch code[i] {
+		case '(':
+			d++
+		case ')':
+			if d > 0 {
+				d--
+			}
+		}
+	}
+	used, local := map[string]bool{}, map[string]bool{}
 	for _, m := range rIdent.FindAllStringIndex(code, -1) {
 		if m[0] > 0 {
 			if p := code[m[0]-1]; p == '$' || p == '@' || p == ':' {
 				continue
 			}
 		}
-		out[code[m[0]:m[1]]] = true
+		name := code[m[0]:m[1]]
+		if params[name] || rReserved[name] {
+			continue
+		}
+		rest := strings.TrimLeft(code[m[1]:], " \t")
+		before := strings.TrimRight(code[:m[0]], " \t")
+		switch {
+		case strings.HasPrefix(rest, "("):
+			continue // a call
+		case strings.HasPrefix(rest, "<-") || strings.HasPrefix(rest, "<<-") || strings.HasSuffix(before, "->"),
+			strings.HasPrefix(rest, "=") && !strings.HasPrefix(rest, "==") && depth[m[0]] == 0:
+			if !used[name] {
+				local[name] = true // assigned before any read: the code's own
+			}
+			continue
+		case strings.HasPrefix(rest, "=") && !strings.HasPrefix(rest, "=="):
+			continue // a named argument
+		}
+		if !local[name] {
+			used[name] = true
+		}
 	}
-	return out
+	return used
 }
 
 // LinkVars fills Uses for the tasks of one session, in order. A heuristic: a name that
@@ -89,7 +166,7 @@ func LinkVars(tasks []*Task) {
 			}
 		}
 		if code != "" {
-			for name := range identifiers(code) {
+			for name := range usedNames(code) {
 				if def, ok := lastDef[name]; ok && def != t.ID {
 					t.Uses = append(t.Uses, VarUse{Name: name, Task: def})
 				}
