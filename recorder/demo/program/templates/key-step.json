@@ -1,0 +1,9 @@
+{
+  "name": "key-step",
+  "target": "foton",
+  "predicate": "https://kton.dev/v/pmx/key-step",
+  "fields": {
+    "value": {"type": "string", "required": true},
+    "why": {"type": "string", "required": false}
+  }
+}

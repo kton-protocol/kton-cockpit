@@ -1,0 +1,9 @@
+{
+  "name": "final-model",
+  "target": "foton",
+  "predicate": "https://kton.dev/v/pmx/final-model",
+  "fields": {
+    "value": {"type": "string", "required": true},
+    "why": {"type": "string", "required": false}
+  }
+}

@@ -1,0 +1,11 @@
+# Once-daily dosing at 25, 50 and 100 mg: the run001 curve per 25 mg, superposed to steady state
+# over 24 h (linear kinetics assumed): is once daily plausible at all? (development plan)
+run <- read.csv("derived/run001.csv")
+e <- setNames(run$estimate, run$parameter)
+curve <- function(t) e[["A1"]] * exp(-exp(e[["lrc1"]]) * t) + e[["A2"]] * exp(-exp(e[["lrc2"]]) * t)
+t <- seq(0, 24, by = 0.5)
+ss <- function(t) sum(sapply(0:30, function(k) curve(t + 24 * k)))
+sim <- do.call(rbind, lapply(c(25, 50, 100), function(dose)
+  data.frame(dose_mg = dose, time_h = t, conc = round(dose / 25 * sapply(t, ss), 4))))
+write.csv(sim, "derived/sim_qd.csv", row.names = FALSE)
+cat("trough at 100 mg:", tail(sim$conc[sim$dose_mg == 100], 1), "\n")

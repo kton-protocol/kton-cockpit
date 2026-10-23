@@ -33,6 +33,20 @@ report/report.qmd: labelled R chunks over derived/ and figures/ (rendered with k
 
 All at once from a terminal: `./run_all.sh` (after step 1).
 
+## The others
+
+Three more analyses sit beside yours, each its own repository, run and published by `build.sh` with their
+descriptions, rationales and model development, signed by their analysts. This repository reads and trusts them.
+
+| | Study | Like yours | Not like yours |
+|---|---|---|---|
+| `analysis-thp101-ben` | THP-101 | the same dataset and `01_prepare.R`: the same `pk.csv` | log-down NCA; run001 (base, final) → run002 with allometric weight (parent-step), rejected by AIC |
+| `analysis-thp102-carla` | THP-102 | her prepare script is based on yours | NCA per period, food effect with 90 % CI, food on Ka; her dataset was corrected after her analysis (v2) |
+| `analysis-cx201-dmitri` | CX-201 | NCA | IV, two compartments (SSbiexp); reproduced Carla's food effect and QC-passed her dataset |
+
+From your `pk.csv`: `cockpit ask '{"query":"uses","ref":"derived/pk.csv"}'` names Ben's steps, the "In kton" tab shows
+them beside yours, and "Copy into my project" takes one of their files over.
+
 ## Later
 
 - **Study THP-102** (fed vs fasted) can run through the same steps: the place where a workflow

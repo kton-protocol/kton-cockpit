@@ -11,6 +11,10 @@
 #      project-compound-x/
 #        study-cx-201/
 # DIR/analysis-thp-poppk/                        where you work: scripts, federated to the above
+# DIR/analysis-thp101-ben/  …-thp102-carla/  …-cx201-dmitri/
+#                                                others' analyses, run and published here: similar to
+#                                                yours, not the same, with their model development
+#                                                (parent-step, base/final model, a reproduction, a QC)
 #
 # Every level is a cockpit repository in local mode. Its claims are chained into a scope whose
 # seed names the level above as parent (cockpit scope seed --parent): that is the only structure,
@@ -29,7 +33,7 @@ repo() {
     cockpit init >/dev/null &&
     cockpit keygen "$2" >/dev/null &&
     for t in "$HERE"/templates/*.json; do [ -e "templates/$(basename "$t")" ] || cp "$t" templates/; done &&
-    cockpit config claims.allowedTemplates '["reproduces","working-on","describes","rationale"]' >/dev/null)
+    cockpit config claims.allowedTemplates '["reproduces","working-on","describes","rationale","parent-step","based-on","key-step","base-model","final-model","qc-passed"]' >/dev/null)
 }
 # seed DIR NAME [PARENT-ID]: a scope for the repository's claims; prints the scope id
 seed() {
@@ -46,6 +50,13 @@ put() {
     printf '  %-34s %s\n' "$2" "$foton")
 }
 doc() { mkdir -p "$1/docs" && cp "$HERE/docs/$2" "$1/docs/$2"; put "$1" "docs/$2" "$3" "$4"; }
+# federate DIR SRC...: the repository reads the sources and trusts their signers
+federate() {
+  d=$1; shift
+  for src in "$@"; do
+    (cd "$d" && n=$(basename "$src") && cockpit federation add "$n" "$src" >/dev/null && cockpit trust add "$n" "$src" --yes >/dev/null)
+  done
+}
 
 PROG=$DIR/program-respiratory
 THP=$PROG/project-theophylline
@@ -75,6 +86,7 @@ study() { # study DIR NAME PARENT DATAFILE DOCS... (doc:description pairs follow
   say "study $name"
   repo "$d" "$name"
   s=$(seed "$d" "$name" "$parent")
+  eval "SCOPE_$(echo "$name" | tr - _)=\$s"   # the analyses below name it as their parent
   for pair in "$@"; do doc "$d" "${pair%%|*}" "$name" "${pair#*|}"; done
   mkdir -p "$d/data" && cp "$DATA/$data" "$d/data/$data"
   put "$d" "data/$data" "$name" "Study $(echo "${name#study-}" | tr a-z A-Z): the PK dataset, one row per sample"
@@ -85,17 +97,44 @@ study "$THP/study-thp-102" study-thp-102 "$J" thp102_pk.csv "thp-102-protocol.md
 study "$CX/study-cx-201" study-cx-201 "$X" cx201_pk.csv "cx-201-protocol.md|Study CX-201: protocol synopsis"
 rm -r "$DATA"
 
-say "analysis THP-101 population PK"
+CONTEXT="$PROG $THP $CX $THP/study-thp-101 $THP/study-thp-102 $CX/study-cx-201"
+
+# the others: each analyst's repository, the study's dataset checked out, the steps run and
+# published with their description, rationale and model-development claims, signed by them
+FOTONS=$DIR/.fotons.json
+analyst() { # analyst NAME STUDY-DIR
+  spec="$HERE/analysts/$1/steps.json"
+  r=$(python3 -c 'import json,sys; s=json.load(open(sys.argv[1])); print(s["repo"], s["signer"], s["study"], s["dataset"])' "$spec")
+  set -- "$1" "$2" $r
+  a=$DIR/$3
+  say "analysis $3 ($4)"
+  repo "$a" "$4"
+  cp -r "$HERE/analysts/$1/R" "$a/R"
+  mkdir -p "$a/data" && cp "$2/data/$6" "$a/data/$6"
+  sc=$(seed "$a" "$3" "$(eval echo \$SCOPE_$(echo "$5" | tr - _))")
+  federate "$a" $CONTEXT
+  python3 "$HERE/publish_analyst.py" "$spec" "$a" "$3" "$FOTONS"
+}
+analyst ben "$THP/study-thp-101"
+analyst carla "$THP/study-thp-102"
+analyst dmitri "$CX/study-cx-201"
+rm -f "$FOTONS"
+
+# THP-102's dataset is corrected after Carla's analysis: her results now rest on version 1
+say "study THP-102: dataset version 2"
+Rscript -e 'f <- commandArgs(TRUE)[1]; d <- read.csv(f)
+  i <- d$Subject == 3 & d$Food == "fed" & d$Time == 7   # a transcription error had doubled it
+  d$conc[i] <- round(d$conc[i] / 2, 2); write.csv(d, f, row.names = FALSE)' "$THP/study-thp-102/data/thp102_pk.csv"
+put "$THP/study-thp-102" data/thp102_pk.csv study-thp-102 "Study THP-102: the PK dataset, version 2: subject 3, fed, 7 h corrected (a transcription error had doubled it)"
+
+say "analysis THP-101 population PK (yours)"
 ANA=$DIR/analysis-thp-poppk
 repo "$ANA" analyst
+seed "$ANA" analysis-thp-poppk "$SCOPE_study_thp_101" >/dev/null
 cp -r "$HERE/analysis/." "$ANA/"
 mkdir -p "$ANA/data" "$ANA/derived" "$ANA/figures"
-(cd "$ANA" && for src in "$PROG" "$THP" "$CX" "$THP/study-thp-101" "$THP/study-thp-102" "$CX/study-cx-201"; do
-  n=$(basename "$src")
-  cockpit federation add "$n" "$src" >/dev/null
-  cockpit trust add "$n" "$src" --yes >/dev/null
-  echo "  federated and trusted: $n"
-done)
+federate "$ANA" $CONTEXT "$DIR/analysis-thp101-ben" "$DIR/analysis-thp102-carla" "$DIR/analysis-cx201-dmitri"
+echo "  federated and trusted: the programme, its projects and studies, Ben's, Carla's and Dmitri's analyses"
 
 say "done"
 echo "$DIR"

@@ -1,0 +1,9 @@
+{
+  "name": "qc-passed",
+  "target": "foton",
+  "predicate": "https://kton.dev/v/pmx/qc-passed",
+  "fields": {
+    "value": {"type": "string", "required": true},
+    "why": {"type": "string", "required": false}
+  }
+}
