@@ -226,6 +226,8 @@ func (d *Daemon) schema(ctx context.Context, wipe bool) error {
 			return err
 		}
 	}
+	// A store being started under this schema holds nothing a kept dataset names.
+	d.forgetDatasets()
 	_, err = d.request(ctx, "/update", "", "update",
 		fmt.Sprintf(`INSERT DATA { GRAPH <urn:kton:index> { <urn:kton:index> <urn:kton:schema> "%d" } }`, Schema))
 	return err
@@ -249,6 +251,7 @@ func (d *Daemon) Registries(ctx context.Context) (int, error) {
 // Clear empties the store. Nothing in it is authoritative: every registry is read again, at the
 // next query that reads it.
 func (d *Daemon) Clear(ctx context.Context) error {
+	d.forgetDatasets()
 	if _, err := d.request(ctx, "/update", "", "update", "DROP ALL"); err != nil {
 		return err
 	}
