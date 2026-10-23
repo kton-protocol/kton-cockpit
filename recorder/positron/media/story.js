@@ -138,6 +138,7 @@
 
   function markdown(cs) {
     let md = `# How ${targetRel()} came about\n\n${headline(cs).replace(/<\/?code>/g, "`")}\n\n`;
+    for (const ps of chains()) md += `In ${ps[0].levels.map((l) => l.name).join(" › ")}, from ${ps.map((p) => short(p.path) + " (" + p.foton + ")").join(", ")}\n\n`;
     for (const c of cs) {
       md += c.hand ? `- ✎ **${c.steps[0].reads[0]} changed by hand** (not recorded)`
         : `- ${clock(c.when)} **${c.where.replace(/^script /, "")}**: ${c.ins.join(", ")} → ${c.tools.length ? c.tools.join(", ") + " → " : ""}${c.outs.join(", ") || "–"}${c.inKton ? " ✓ in kton" : ""}`;
@@ -154,6 +155,23 @@
     return md;
   }
 
+  // where the story's sources reside: per scope chain the sources whose bytes a federated
+  // repository published (innermost first); the rest folded into one line
+  function chains() {
+    const by = {};
+    for (const p of S.context || []) if ((p.levels || []).length) (by[p.levels.map((l) => l.name).join(" › ")] = by[p.levels.map((l) => l.name).join(" › ")] || []).push(p);
+    return Object.values(by);
+  }
+  function contextLine() {
+    const ctx = S.context || [], ch = chains(), others = ctx.filter((p) => !(p.levels || []).length);
+    if (!ctx.length) return "";
+    const rows = ch.map((ps) => `<div class="ctx"><span class="muted">in</span> ${ps[0].levels.map((l) =>
+      `<span class="lvl" title="scope ${esc(l.scope)}, seed found in ${esc(l.source)}">${esc(l.name)}</span>`).join(' <span class="muted">›</span> ')}
+      <span class="muted">· from ${ps.map((p) => `<span title="published by ${esc(p.published_by)} as ${esc(p.foton)}">${esc(short(p.path))}</span>`).join(", ")}</span></div>`);
+    if (others.length) rows.push(`<div class="ctx muted" title="${esc(others.map((p) => short(p.path) + ": " + (p.note || "")).join("\n"))}">${ch.length ? "other sources" : "sources"}: ${others.length} not placed in a context</div>`);
+    return rows.join("");
+  }
+
   function render() {
     const cs = chapters();
     const days = new Set(cs.map((c) => day(c.when)));
@@ -162,6 +180,7 @@
       <header>
         <h1>${esc(targetRel())}</h1>
         <div class="sub">${headline(cs)} <span class="muted">${[...days].join(" – ")}</span></div>
+        ${contextLine()}
         <div class="actions">
           <button id="repro" title="source files and scripts into an empty folder, run there, compare the hash">Reproduce</button>
           <button id="publish" ${!cockpitRepo || !todo.length ? "disabled" : ""} title="${cockpitRepo ? "cockpit publish for every line without ✓, in the terminal, with description and rationale as comments" : "no cockpit repo (cockpit init)"}">Publish to kton${todo.length ? ` (${todo.length})` : ""}</button>

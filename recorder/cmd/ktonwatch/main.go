@@ -123,6 +123,7 @@ func serve(args []string) {
 	env := fs.String("env", "", "extra environment prefixes")
 	cas := fs.String("cas", cacheDir("cas"), "directory the inputs and outputs of tool calls are kept in, by hash (empty: keep nothing)")
 	casMax := fs.Int64("cas-max", 1<<30, "largest file kept in the cas, in bytes")
+	place := fs.Bool("place", true, "find where a story's sources reside by asking the cockpit (cockpit ask producer/about/scope)")
 	web := fs.String("web", defaultWeb(), "the kton-web checkout whose graph viewer draws the flow (default: $KTON_WEB, else what install.sh recorded)")
 	fs.Parse(args)
 
@@ -133,6 +134,9 @@ func serve(args []string) {
 	}
 	if *cas != "" {
 		sv.CAS = &watch.CAS{Dir: *cas, MaxSize: *casMax}
+	}
+	if *place {
+		sv.Placer = watch.NewPlacer(watch.CockpitAsk)
 	}
 	if err := sv.Load(); err != nil {
 		log.Fatal(err)

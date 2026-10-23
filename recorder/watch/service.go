@@ -29,6 +29,9 @@ type Service struct {
 	// CAS, when set, keeps the inputs and outputs of every tool call by their hash.
 	CAS *CAS
 
+	// Placer, when set, finds where a story's sources reside (asks the cockpit).
+	Placer *Placer
+
 	mu       sync.RWMutex
 	archived map[string]bool // session\x00task whose call files were handed to the CAS
 	callMemo sync.Map        // the calls of a task, until it grows (callsOf)
