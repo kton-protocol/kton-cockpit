@@ -99,7 +99,7 @@
     const cls = [c.hand ? "hand" : c.inKton ? "done" : "", c.warn.length ? "warned" : ""].filter(Boolean).join(" ");
     const what = c.hand
       ? `<span class="f w">${esc(c.steps[0].reads[0])}</span> changed by hand <span class="muted">· not recorded</span>`
-      : `${files(c.ins)} <span class="arrow">→</span>${c.tools.length ? ` <span class="tool">${esc(c.tools.join(", "))}</span> <span class="arrow">→</span>` : ""} ${c.outs.length ? files(c.outs, 4, c.kton) : '<span class="muted">only objects in the session</span>'}`;
+      : `${files(c.ins)} <span class="arrow">→</span>${c.tools.length ? ` <span class="tool">${esc(c.tools.join(", "))}</span> <span class="arrow">→</span>` : ""} ${c.outs.length ? files(c.outs, 4, c.kton) : '<span class="muted" title="this step wrote no file that a later step of this story read: whatever it handed on stayed in the R session (objects), or nothing at all">no files handed on</span>'}`;
     const rp = c.repro;
     const flags = [c.inKton ? '<span class="ok" title="already in kton">✓ in kton</span>' : "",
       c.sameResult ? '<span class="same" title="kton has these output bytes, but from a run with other inputs: the change upstream did not reach this result. This run is not in kton yet.">= same result as in kton</span>' : "",

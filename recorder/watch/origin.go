@@ -132,17 +132,53 @@ func OriginsIn(origins []Origin, lang string) []Origin {
 // Ark reads, though: the extension notes the time only after the command was handed over, so a
 // command's own first reads can lie before it, and a data file is never dropped for that.
 func AttachOrigins(tasks []*Task, origins []Origin) {
-	i := 0
 	for _, t := range tasks {
 		t.Origins = nil
+	}
+	// A sourced script is matched by its file first: R names it in the step that ran it, in the
+	// log's order, while the clocks may disagree by tenths of a second (seen in WSL: the source
+	// line stamped 0.1 s after the step's own end), which put the command into the next step.
+	placed := make([]bool, len(origins))
+	for k, o := range origins {
+		if o.File == "" {
+			continue
+		}
+		var best *Task
+		var bestD int64
+		for _, t := range tasks {
+			if !sourced(t, o.File) || o.TS < t.Start-sourceSlack || o.TS > t.End+sourceSlack || hasOriginOf(t, o.File) {
+				continue
+			}
+			d := int64(0)
+			if o.TS < t.Start {
+				d = t.Start - o.TS
+			} else if o.TS > t.End {
+				d = o.TS - t.End
+			}
+			if best == nil || d < bestD {
+				best, bestD = t, d
+			}
+		}
+		if best != nil {
+			resolveChunk(&o)
+			best.Origins = append(best.Origins, o)
+			placed[k] = true
+		}
+	}
+	// everything else by time: the step that was running when it was sent
+	i := 0
+	for _, t := range tasks {
 		for i < len(origins) && origins[i].TS <= t.End {
-			if origins[i].TS >= t.Start {
+			if !placed[i] && origins[i].TS >= t.Start {
 				o := origins[i]
 				resolveChunk(&o)
 				t.Origins = append(t.Origins, o)
 			}
 			i++
 		}
+		sort.SliceStable(t.Origins, func(a, b int) bool { return t.Origins[a].TS < t.Origins[b].TS })
+	}
+	for _, t := range tasks {
 		if len(t.Origins) > 0 {
 			sent := t.Origins[0].TS - idleSlack
 			kept := t.Inputs[:0]
@@ -154,6 +190,27 @@ func AttachOrigins(tasks []*Task, origins []Origin) {
 			t.Inputs = kept
 		}
 	}
+}
+
+// sourceSlack: how far a script's origin may lie outside the step that sourced it.
+const sourceSlack = 2_000_000_000
+
+func sourced(t *Task, file string) bool {
+	for _, s := range t.Sources {
+		if s.Path == file {
+			return true
+		}
+	}
+	return t.Script == file
+}
+
+func hasOriginOf(t *Task, file string) bool {
+	for _, o := range t.Origins {
+		if o.File == file {
+			return true
+		}
+	}
+	return false
 }
 
 // indexedByArk: the files Ark's language server reads while the console waits: R and Quarto
