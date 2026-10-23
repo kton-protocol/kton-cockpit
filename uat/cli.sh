@@ -52,6 +52,7 @@ show cockpit init
 show cockpit keygen alice
 show cockpit pin "$IMAGE"
 require "doctor says ready"                   bash -c 'cockpit doctor | grep -q "^ready:"'
+require "and says it as JSON"                  bash -c 'cockpit doctor --json | grep -q "\"ready\": true"'
 require "and asks for what it must persist"    bash -c 'cockpit doctor | grep -q "not persisted yet"'
 git add -A && git commit -qm "cockpit init" && git push -q origin main
 require "nothing is left to do"                bash -c '! cockpit doctor | grep -qE "^  . [0-9]+\. (not persisted|no signing)"'

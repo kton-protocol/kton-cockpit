@@ -90,12 +90,10 @@ func readiness(ctx context.Context, cfg *config.Config) []nextStep {
 	return steps
 }
 
-func printReadiness(ctx context.Context, cfg *config.Config) {
+// printReadiness ends the text output, and returns errNotReady when a step marked ! is left.
+func printReadiness(ctx context.Context, cfg *config.Config) error {
 	steps := readiness(ctx, cfg)
-	blocking := false
-	for _, s := range steps {
-		blocking = blocking || s.must
-	}
+	blocking := blocked(steps)
 	if !blocking {
 		fmt.Printf("\nready:          publish · say · ask\n")
 	} else {
@@ -108,6 +106,19 @@ func printReadiness(ctx context.Context, cfg *config.Config) {
 		}
 		fmt.Printf("  %s %d. %s\n", mark, i+1, s.text)
 	}
+	if blocking {
+		return errNotReady
+	}
+	return nil
+}
+
+func blocked(steps []nextStep) bool {
+	for _, s := range steps {
+		if s.must {
+			return true
+		}
+	}
+	return false
 }
 
 // publicOf is the hex public key of a private key file in the form the kernel reads (a hex seed).
@@ -154,7 +165,7 @@ func privateKeyFiles(cfg *config.Config) []string {
 
 // checkMadePath is checkPath for a directory publish or say creates when it first writes.
 func checkMadePath(p string) string {
-	if _, err := os.Stat(p); err != nil {
+	if pathState(p) != stateOK {
 		return p + "  [made on first write]"
 	}
 	return p + "  [ok]"
