@@ -719,6 +719,33 @@ way a repo backend is registered (§5.5).
 > **Checked by:** `TestFederation_ReadsTheUnionOfOwnAndSources`, `TestFederation_UnknownKindIsRefusedAtLoad`,
 > `TestFederation_ReadingASourceLeavesItAsItWas`, `TestFederation_ConcurrentReadersAllAnswerWhileTheSourceChanges`.
 
+### 9.9 A query of one's own *(optional)*
+
+`ask` MAY answer a SPARQL query the caller wrote (`query: "sparql"`, the query in `sparql`). It reads the
+dataset a vocabulary query reads (§12.4): every plankton record of the union, attributed only where a
+key of the trust tiers verifies it, and the claims such a key signed. A free query adds no signer and
+reaches no record outside that dataset, so it is under the same ceiling as every other answer (§9.1).
+
+- Only SELECT and ASK MUST be answered. A query that calls an endpoint (`SERVICE`) or names its own
+  dataset (`FROM`, `FROM NAMED`) MUST be refused before it runs. The dataset is the cockpit's to
+  choose, and a query MUST NOT answer differently by where it is evaluated.
+- `ref` and `filter` MUST be refused beside it. The query narrows itself, and a filter that did
+  nothing would read as one that did.
+- The answer MUST carry the variables in the query's order, the rows or the ASK's boolean, and where
+  it was evaluated (`via`). Rows beyond the limit (default 1000, at most 10000) MUST be cut, and the
+  answer MUST say so (`truncated`). Evaluation is bounded by a timeout (default 30 s, at most 120 s).
+- A cockpit built without the kernel's RDF projection MUST refuse (`sparql.unavailable`) rather than
+  answer nothing.
+
+The vocabulary of the projection, with examples, is in [docs/sparql.md](../docs/sparql.md). Every
+example there is run by a test.
+
+> **Checked by:** `TestCheckFreeQuery_TakesSelectAndAskOverTheCockpitsDataset`,
+> `TestSparql_RefusesWhatItWouldNotAnswer`, `TestSparql_ChecksTheQueryAndNeedsAnEngine`,
+> `TestSparql_AReleasedCockpitSaysItCannotAnswer`, `TestShellSparql_ReadsTheQueryFromAFile`,
+> `TestParseResults_ReadsASelectAndAnAsk`, `TestSparql_TheExamplesAnswerOverAFixture`
+> (`-tags docker,unreleased`).
+
 ## 10 Execution *(optional)*
 
 A repository MAY configure the cockpit to run the published command rather than record one.

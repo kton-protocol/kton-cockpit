@@ -65,6 +65,27 @@ func Query(ctx context.Context, d *Daemon, cfg *config.Config, keys []ed25519.Pu
 	if err := index.CheckQuery(query); err != nil {
 		return nil, err
 	}
+	ds, err := d.prepare(ctx, cfg, keys)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := d.selectOn(ctx, ds.def, ds.named, query)
+	if err != nil {
+		return nil, err
+	}
+	return &Answer{Rows: rows, Registries: ds.registries, Kept: ds.kept}, nil
+}
+
+// prepared is the dataset of one query: its graphs, and how the registries behind them were read.
+type prepared struct {
+	def, named []string
+	registries int
+	kept       bool
+}
+
+// prepare reads into the store whatever changed in the registries of cfg's union and chooses the
+// dataset a query under keys reads.
+func (d *Daemon) prepare(ctx context.Context, cfg *config.Config, keys []ed25519.PublicKey) (*prepared, error) {
 	inputs, err := binaries.Inputs(ctx, cfg)
 	if err != nil {
 		return nil, err
@@ -85,11 +106,7 @@ func Query(ctx context.Context, d *Daemon, cfg *config.Config, keys []ed25519.Pu
 	if err != nil {
 		return nil, err
 	}
-	rows, err := d.selectOn(ctx, def, named, query)
-	if err != nil {
-		return nil, err
-	}
-	return &Answer{Rows: rows, Registries: len(regs), Kept: kept}, nil
+	return &prepared{def: def, named: named, registries: len(regs), kept: kept}, nil
 }
 
 // regIRI names a registry directory. The index belongs to one machine, so its path names it.
@@ -349,6 +366,11 @@ func (d *Daemon) dataset(ctx context.Context, regs []string, trusted map[string]
 
 // selectOn runs query with exactly def as its default graph and named as its named graphs.
 func (d *Daemon) selectOn(ctx context.Context, def, named []string, query string) ([]map[string]string, error) {
+	return d.selectCSV(ctx, datasetForm(def, named, query))
+}
+
+// datasetForm is a protocol request for query over the dataset of def and named.
+func datasetForm(def, named []string, query string) url.Values {
 	form := url.Values{"query": {query}}
 	// An empty list would mean "the store's own", not "none": name one nobody uses.
 	if len(def) == 0 {
@@ -363,7 +385,7 @@ func (d *Daemon) selectOn(ctx context.Context, def, named []string, query string
 	for _, g := range named {
 		form.Add("named-graph-uri", g)
 	}
-	return d.selectCSV(ctx, form)
+	return form
 }
 
 func (d *Daemon) selectCSV(ctx context.Context, form url.Values) ([]map[string]string, error) {

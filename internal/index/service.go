@@ -21,6 +21,48 @@ var ErrService = fmt.Errorf("the query calls another endpoint (SERVICE), which t
 // applied. A query it cannot read to the end (an unterminated string, a malformed escape) is
 // refused too, since what it would mean cannot be checked.
 func CheckQuery(q string) error {
+	return keywords(q, func(word string) error {
+		if strings.EqualFold(word, "SERVICE") {
+			return ErrService
+		}
+		return nil
+	})
+}
+
+// ErrFrom refuses a query that names its own dataset. The dataset is the cockpit's to choose
+// (SPEC §12.4): the daemon overrides FROM with the one of the request, a container for one query would
+// honour it, so the same query would answer differently by where it ran.
+var ErrFrom = fmt.Errorf("the query names its own dataset (FROM), which the cockpit chooses: leave FROM out, and use GRAPH for the claims")
+
+// CheckFreeQuery checks a query someone wrote rather than one an allowed package brings (ask's
+// sparql): what CheckQuery refuses, a FROM clause, and anything but a SELECT or an ASK. It returns
+// the query form, "SELECT" or "ASK".
+func CheckFreeQuery(q string) (string, error) {
+	form := ""
+	err := keywords(q, func(word string) error {
+		w := strings.ToUpper(word)
+		switch {
+		case w == "SERVICE":
+			return ErrService
+		case w == "FROM":
+			return ErrFrom
+		case form != "":
+		case w == "BASE" || w == "PREFIX":
+		case w == "SELECT" || w == "ASK":
+			form = w
+		default:
+			return fmt.Errorf("the query is a %s; only SELECT and ASK are answered", w)
+		}
+		return nil
+	})
+	if err == nil && form == "" {
+		err = fmt.Errorf("the query is neither a SELECT nor an ASK")
+	}
+	return form, err
+}
+
+// keywords calls fn with every word of the query the grammar could read as a keyword, in order.
+func keywords(q string, fn func(word string) error) error {
 	q, err := unescapeCodepoints(q)
 	if err != nil {
 		return err
@@ -57,9 +99,10 @@ func CheckQuery(q string) error {
 			for i > start+1 && r[i-1] == '.' { // a name never ends in a dot; that dot ends the triple
 				i--
 			}
-			word := string(r[start:i])
-			if !strings.Contains(word, ":") && strings.EqualFold(word, "SERVICE") {
-				return ErrService
+			if word := string(r[start:i]); !strings.Contains(word, ":") {
+				if err := fn(word); err != nil {
+					return err
+				}
 			}
 		default:
 			i++

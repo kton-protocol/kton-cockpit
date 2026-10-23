@@ -9,11 +9,13 @@ package cli
 //	cockpit ask about runs/means
 //	cockpit ask by signer me
 //	cockpit ask reproductions out/clean.csv --min 2 --tier peer
+//	cockpit ask sparql query.rq --limit 100       (- reads the query from stdin)
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -34,6 +36,7 @@ var askQueries = []struct{ name, arg, what string }{
 	{"about", "<run|file|sha256:id>", "the claims about a run, a file or a record"},
 	{"by", "signer|predicate|object <value>", "claims by a signer (me), of a kind (a template name), or naming a value"},
 	{"scope", "<sha256:scope-id>", "a scope's chain: head, length, whether it branched"},
+	{"sparql", "<query.rq|->", "a SELECT or ASK of your own over the trusted dataset (docs/sparql.md)"},
 }
 
 func askOverview() {
@@ -51,6 +54,9 @@ func shellAsk(ctx context.Context, args []string) error {
 	if len(args) == 0 {
 		askOverview()
 		return nil
+	}
+	if args[0] == "sparql" {
+		return shellSparql(ctx, args[1:])
 	}
 	in := cockpit.AskRequest{Query: args[0]}
 	var filter cockpit.AskFilter
@@ -159,6 +165,81 @@ func shellAsk(ctx context.Context, args []string) error {
 		return printJSON(out)
 	}
 	printAnswer(ctx, cfg, out)
+	return nil
+}
+
+// shellSparql is `cockpit ask sparql <file|-> [--limit N] [--timeout S] [--json]`: the query from a
+// file or stdin, the rows as tab-separated lines under the variables.
+func shellSparql(ctx context.Context, args []string) error {
+	in := cockpit.AskRequest{Query: "sparql"}
+	asJSON := false
+	var pos []string
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch a {
+		case "--json":
+			asJSON = true
+		case "--limit", "--timeout":
+			if i+1 >= len(args) {
+				return fmt.Errorf("%s needs a value", a)
+			}
+			i++
+			n, err := strconv.Atoi(args[i])
+			if err != nil {
+				return fmt.Errorf("%s takes a number, not %q", a, args[i])
+			}
+			if a == "--limit" {
+				in.Limit = n
+			} else {
+				in.TimeoutSeconds = n
+			}
+		default:
+			if strings.HasPrefix(a, "--") {
+				return fmt.Errorf("unknown flag %s — usage: cockpit ask sparql <query.rq|-> [--limit N] [--timeout S] [--json]", a)
+			}
+			pos = append(pos, a)
+		}
+	}
+	if len(pos) != 1 {
+		return fmt.Errorf("usage: cockpit ask sparql <query.rq|-> [--limit N] [--timeout S] [--json]")
+	}
+	var q []byte
+	var err error
+	if pos[0] == "-" {
+		q, err = io.ReadAll(os.Stdin)
+	} else {
+		q, err = os.ReadFile(pos[0])
+	}
+	if err != nil {
+		return err
+	}
+	in.Sparql = string(q)
+
+	out, err := cockpit.New(cockpit.Start{}).Ask(ctx, in)
+	exitIfRefused(err)
+	if err != nil {
+		return err
+	}
+	if asJSON {
+		return printJSON(out)
+	}
+	a := out.Sparql
+	if a.Boolean != nil {
+		fmt.Println(*a.Boolean)
+	} else {
+		fmt.Println(strings.Join(a.Vars, "\t"))
+		for _, row := range a.Rows {
+			vals := make([]string, len(a.Vars))
+			for i, v := range a.Vars {
+				vals[i] = row[v]
+			}
+			fmt.Println(strings.Join(vals, "\t"))
+		}
+		if a.Truncated {
+			fmt.Printf("(cut at %d rows; --limit raises it)\n", a.Limit)
+		}
+	}
+	fmt.Printf("(%s)\n", a.Via)
 	return nil
 }
 

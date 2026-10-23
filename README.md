@@ -139,6 +139,7 @@ cockpit ask about data/sensor.csv              # the claims about it
 cockpit ask by signer me                       # what I have claimed
 cockpit ask by predicate working-on            # every claim of one kind
 cockpit ask reproductions <file> --min 2       # how many independent parties produced these bytes
+cockpit ask sparql query.rq                    # a SELECT of your own (docs/sparql.md; -tags unreleased)
 ```
 
 Only records a key in your trust tiers verifies are answered; the rest are counted, never shown.
