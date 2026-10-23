@@ -3,6 +3,7 @@ package watch
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -47,6 +48,12 @@ type Asker func(ctx context.Context, dir string, q map[string]string) ([]byte, e
 // Concurrent asks in one federated repository need cockpit v0.3.0 (SPEC §9.8); older ones tear
 // down each other's union cache.
 func CockpitAsk(ctx context.Context, dir string, q map[string]string) ([]byte, error) {
+	return CockpitAskJSON(ctx, dir, q)
+}
+
+// CockpitAskJSON is CockpitAsk for any request (numbers, a SPARQL text). A refusal or a failure
+// comes back as an error carrying what the cockpit said, so a caller can show the person why.
+func CockpitAskJSON(ctx context.Context, dir string, q any) ([]byte, error) {
 	exe := os.Getenv("KTON_COCKPIT")
 	if exe == "" {
 		if home, err := os.UserHomeDir(); err == nil {
@@ -64,7 +71,20 @@ func CockpitAsk(ctx context.Context, dir string, q map[string]string) ([]byte, e
 	// the context kills the cockpit, not its children (git, docker); one of them holding stdout
 	// open must not hold the story
 	cmd.WaitDelay = time.Second
-	return cmd.Output()
+	out, err := cmd.Output()
+	if err != nil {
+		var ee *exec.ExitError
+		if errors.As(err, &ee) {
+			said := strings.TrimSpace(string(ee.Stderr))
+			if said == "" {
+				said = strings.TrimSpace(string(out))
+			}
+			if said != "" {
+				return out, fmt.Errorf("%w: %s", err, said)
+			}
+		}
+	}
+	return out, err
 }
 
 type seal struct {
