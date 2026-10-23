@@ -932,6 +932,20 @@ A cockpit MUST obtain records through the substrate and MUST NOT parse the regis
 store's layout is the substrate's, and a consumer that assumes one shape loses records silently
 rather than failing (kton §11).
 
+A viewer MAY ask for a portion instead of the whole union (`cockpit show`, `/data/select`): the
+pedigree of a content hash N hops up, what was built on one N hops down, a scope's seed and chain,
+or records by id. A foton comes with the claims about it. The selection is read through the index
+(§12.4) over the union of sources (§9.8), and a page that was cut MUST say so with a cursor for the
+next; the same request MUST return the same page while the store is unchanged.
+
+A selection decides only what is shown, and MAY come from an index nobody signed. Every selected
+record MUST therefore carry its signed envelope, and the answer MUST carry the ring of §12.2, so the
+viewer verifies each record as it verifies a union; a selection can show less, never pass a record
+that does not verify.
+
+> **Checked by:** `TestShow_ASelectionIsThePortionAskedForWithEnvelopesAndACursor`,
+> `TestShow_ASelectedScopeIsItsSeedAndChain`.
+
 ### 12.4 A derived index *(optional)*
 
 A cockpit MAY keep what it read between calls (`index.kind`, ADR-012). Such an index is derived: it

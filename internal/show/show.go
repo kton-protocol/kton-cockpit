@@ -116,6 +116,9 @@ func (s *Server) Handler(webDir string) (http.Handler, error) {
 	mux.HandleFunc("/data/union.json", s.serveUnion)
 	mux.HandleFunc("/data/keys.json", s.serveKeys)
 	mux.HandleFunc("/data/names.json", s.serveNames)
+	// A portion of the store, by relation, for a viewer drawing part of a kton too large to fetch
+	// whole (select.go).
+	mux.HandleFunc("/data/select", s.serveSelect)
 	// attested.json lists the keyids whose names a trusted authority has bound (sec:controller).
 	// This cockpit binds none, so it says so: an empty list, not a 404 the viewer has to swallow.
 	// Every name it serves stays a bare key label, which is what it is.
