@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.4.0 — 2026-10-23
 
 Tracks kton v0.3.0. What waited for the kernel is in the default build now; `-tags unreleased`
 is left for what needs ktonpkg, which is not published (install, workflow, ray, the vocabulary
@@ -18,6 +18,20 @@ queries).
   (`{"query":"sparql","sparql":…}`) or `cockpit ask sparql <query.rq|->`. The vocabulary and tested
   examples are in `docs/sparql.md`.
 - **`index.kind: oxigraph`** (ADR-012) is in the default build.
+- **A query against registries that did not move is the query alone.** The index keeps the dataset
+  it computed (which records, which attestations by trusted keys) under the registries' positions
+  and the trusted key set; a change to either, `rebuild` or a new schema computes it again. On a
+  repository of 24 registries an `ask sparql` went from 20 s to 0.14 s.
+- **`show` `/data/select`**: a portion of the store for a viewer (kton-web), with envelopes and a
+  cursor.
+- **The recorder**: kton-web's graph and editor view, MCP tools for an assistant in Positron
+  (`kton_ask`, `kton_sparql`, show/select/copy, `~` in paths), notes kept by ktonwatch, a story's
+  way along real variable uses, a guided tour through the pmx corpus and an explore repository.
+
+### Fixed
+
+- A record fetched from a federated source carries its signed locators again: `run --from` and
+  `ask producer` read `kton-locator/v1` material from the union, and only from a trusted signer.
 
 ## v0.3.0 — 2026-10-23
 
