@@ -8,6 +8,8 @@
 //  - a file's story as an editor tab, step by step from the start up to where kton already has
 //    it; the person describes each step, then reproduces it or publishes it from there
 //  - the big view (ktonwatch's viewer, started if it is not running) in the browser or a panel
+//  - a doctor badge in the status bar: `cockpit doctor` for the cockpit repository of the file
+//    in front, ready / not ready / failing at a glance, the steps in its tooltip
 //  - `cockpit publish` runs in a visible terminal; a reproduction runs the recipe in an empty
 //    directory
 //
@@ -37,6 +39,7 @@ const ktonR = () => cfg().get('ktonRPath') || path.join(home, '.local', 'share',
 let out;      // output channel
 let status;   // status bar item
 let panel;    // the observations panel
+let doctor;   // the doctor badge
 
 // ------------------------------------------------------------------ origins (S6)
 function origin(e) {
@@ -71,6 +74,64 @@ function toggleRecording() {
   vscode.window.setStatusBarMessage(recording() ? 'kton: recording' : 'kton: recording paused', 3000);
 }
 
+// ------------------------------------------------------------------ the doctor badge
+// The cockpit repository a file belongs to: the nearest directory above it with a
+// cockpit.config.json, at most up to the workspace folder it is in.
+function cockpitRepoOf(file) {
+  if (!file) return null;
+  const ws = vscode.workspace.getWorkspaceFolder(vscode.Uri.file(file));
+  const stop = ws ? ws.uri.fsPath : path.parse(file).root;
+  for (let d = path.dirname(file); ; d = path.dirname(d)) {
+    if (fs.existsSync(path.join(d, 'cockpit.config.json'))) return d;
+    if (d === stop || d === path.dirname(d)) return null;
+  }
+}
+// What `cockpit doctor` said: ready or not, and its numbered steps; `!` marks the blocking ones.
+function parseDoctor(text, code) {
+  const r = { state: code === 0 ? 'unknown' : 'failed', steps: [], text };
+  for (const l of text.split('\n')) {
+    if (/^ready:/.test(l)) r.state = 'ready';
+    else if (/^not ready:/.test(l)) r.state = 'not-ready';
+    const m = l.match(/^\s*(!?)\s*\d+\.\s+(.*)$/);
+    if (m) r.steps.push({ must: m[1] === '!', text: m[2] });
+  }
+  if (code !== 0) r.error = text.trim().split('\n').pop();
+  return r;
+}
+let doctorRepo = null, doctorLast = null;
+async function runDoctor(force) {
+  const ed = vscode.window.activeTextEditor;
+  const file = ed && ed.document.uri.scheme === 'file' ? ed.document.uri.fsPath : null;
+  const repo = cockpitRepoOf(file) || (vscode.workspace.workspaceFolders || []).map((f) => f.uri.fsPath)
+    .find((w) => fs.existsSync(path.join(w, 'cockpit.config.json'))) || null;
+  if (!repo) { doctorRepo = null; doctor.hide(); return; }
+  if (repo === doctorRepo && !force) return;
+  doctorRepo = repo;
+  const d = await new Promise((resolve) => execFile(bin('cockpit'), ['doctor'], { cwd: repo, timeout: 15000 }, (err, stdout, stderr) =>
+    resolve(parseDoctor(String(stdout || '') + String(stderr || ''), err ? (typeof err.code === 'number' ? err.code : 1) : 0))));
+  if (repo !== doctorRepo) return; // another file came to the front meanwhile
+  doctorLast = Object.assign(d, { repo });
+  const must = d.steps.filter((s) => s.must).length;
+  doctor.text = d.state === 'ready' ? '🩺 $(check)' : d.state === 'not-ready' ? `🩺 $(warning) ${must}` : '🩺 $(error)';
+  doctor.backgroundColor = d.state === 'ready' ? undefined : new vscode.ThemeColor(d.state === 'not-ready' ? 'statusBarItem.warningBackground' : 'statusBarItem.errorBackground');
+  const tip = new vscode.MarkdownString();
+  tip.appendMarkdown(`**cockpit doctor** · ${path.basename(repo)}\n\n`);
+  tip.appendMarkdown(d.state === 'ready' ? 'ready: publish · say · ask' : d.state === 'not-ready' ? 'not ready: the verbs fail or mislead until the steps marked ! are done'
+    : d.state === 'failed' ? 'doctor failed: ' + (d.error || '') : 'doctor said neither ready nor not ready');
+  if (d.steps.length) tip.appendMarkdown('\n\n' + d.steps.map((s, i) => `${s.must ? '**!**' : '·'} ${i + 1}. ${s.text.replace(/\n/g, ' ')}`).join('\n\n'));
+  tip.appendMarkdown('\n\n*Click: the full report*');
+  doctor.tooltip = tip;
+  doctor.show();
+}
+function showDoctor() {
+  if (!doctorLast) return;
+  out.clear();
+  out.appendLine(`$ (${doctorLast.repo}) cockpit doctor`);
+  out.append(doctorLast.text);
+  out.show(true);
+  runDoctor(true); // and look again: the report may be older than the last change
+}
+
 // ------------------------------------------------------------------ ktonwatch
 function getJSON(url, timeout) {
   return new Promise((resolve, reject) => {
@@ -89,7 +150,7 @@ async function ensureService() {
   // detached: the service outlives this window; the next one finds it running
   const p = spawn(exe, ['serve'], { detached: true, stdio: 'ignore' });
   p.unref();
-  out.appendLine(`ktonwatch serve gestartet (pid ${p.pid})`);
+  out.appendLine(`ktonwatch serve started (pid ${p.pid})`);
   for (let i = 0; i < 20; i++) {
     await new Promise((r) => setTimeout(r, 250));
     try { await getJSON(viewerUrl() + 'api/config'); return true; } catch (e) { /* not yet */ }
@@ -520,6 +581,15 @@ function activate(context) {
   showStatus(); status.show();
   const sync = setInterval(showStatus, 3000); // another window may have switched it
   context.subscriptions.push(out, status, { dispose: () => clearInterval(sync) });
+  doctor = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 99);
+  doctor.command = 'kton.doctor';
+  const cfgWatch = vscode.workspace.createFileSystemWatcher('**/{cockpit.config.json,keys/*,registry/keys/*,templates/*}');
+  const again = () => runDoctor(true);
+  context.subscriptions.push(doctor, cfgWatch, cfgWatch.onDidChange(again), cfgWatch.onDidCreate(again), cfgWatch.onDidDelete(again),
+    vscode.window.onDidChangeActiveTextEditor(() => runDoctor(false)),
+    vscode.workspace.onDidChangeWorkspaceFolders(again),
+    vscode.commands.registerCommand('kton.doctor', showDoctor));
+  runDoctor(true);
   context.subscriptions.push(
     vscode.commands.registerCommand('kton.toggleRecording', toggleRecording),
     vscode.commands.registerCommand('kton.openObservations', openObservations),
@@ -553,4 +623,4 @@ function activate(context) {
 }
 
 function deactivate() {}
-module.exports = { activate, deactivate, _test: { reproduce, publishedSteps, publishText, Tree, setOut: (o) => { out = o; } } };
+module.exports = { activate, deactivate, _test: { parseDoctor, cockpitRepoOf, reproduce, publishedSteps, publishText, Tree, setOut: (o) => { out = o; } } };
