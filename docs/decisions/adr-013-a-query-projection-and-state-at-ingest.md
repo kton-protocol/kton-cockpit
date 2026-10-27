@@ -54,11 +54,11 @@ breaks, and it breaks where the work is meant to grow:
 
 ### 2 The dataset is the index's, never the request's (2.12)
 
-- A query against the query projection names **one view**: its default graph, and the named graphs of its
-  scopes. It never names graphs one by one. Confinement rests on the view holding only what its key set
-  may see, not on the request listing the right graphs.
-- The view's graph IRIs carry the view's id (`urn:kton:view:<id>…`), so two views never write into the
-  same graph.
+- A query against the query projection names **one view**: its graphs (`urn:kton:view:<id>` with the
+  records, `…:claims` with the claim nodes), always as the default graph, and no named graphs. It never
+  names graphs one by one. Confinement rests on the view holding only what its key set may see, not on
+  the request listing the right graphs.
+- The view's graph IRIs carry the view's id, so two views never write into the same graph.
 - `SERVICE` and `FROM` stay refused (ADR-012, `index.CheckQuery`).
 
 ### 3 The query projection's shape (2.3, 2.8)
@@ -67,8 +67,11 @@ breaks, and it breaks where the work is meant to grow:
 default graph, as PR #48 builds it.
 
 **Claims: the claim is a node.** Each claim is `<https://kton.dev/o/<hex>>`, the same IRI as its id
-anywhere else. It lives in the named graph of its scope (`urn:kton:view:<id>/scope/<seed hex>`). A claim in
-no scope is in `…/scope/none`. On the node:
+anywhere else, in the view's default graph. A scope is a triple (`nk:scope <seed>`), not a graph. The
+proposal had one graph per scope. Those graph names would be the view's own (`urn:kton:view:<id>/…`),
+so an answer binding `?g` would differ between the daemon and a container started for one query, and
+between two views. One default graph names nothing, and a scope restricts through an indexed join. On
+the node:
 
 | triple | from |
 |---|---|
@@ -157,13 +160,24 @@ no scope is in `…/scope/none`. On the node:
 - Queries written against the nanopublication shape keep working under `dataset: "nanopub"`. Queries for
   the tour, mignon and the QMS views move to the query projection to become fast.
 
+## As built (2026-10-27)
+
+- `oxigraph.ClaimView` is one function of the kernel's quads, used by the daemon (it fetches the
+  trusted claims' graphs by name: 14,690 graphs, 55,556 quads on explore in 1.5 s) and by a container
+  started for one query (from the kernel's projection in Go). So the two answer alike
+  (`TestSparql_TheExamplesAnswerOverAFixture`, every example on both paths).
+- The view is built when its dataset key changes (positions, trusted keys, or the configuration's
+  signer names and templates), under a lock per view, and marked last.
+- On explore, cockpit-runtime's two tour queries ("final/base models with their signer", "the review
+  cycle with dates") take 60–70 ms against 7–19 s over the nanopublication graphs.
+
 ## What goes into v0.4.0
 
 MH decided on 2026-10-27 that everything from the handoff that can be done goes into v0.4.0.
 
 | part | v0.4.0 | later |
 |---|---|---|
-| dataset per view (2.12) | default graph (PR #48), claims in scope graphs | incremental per scope |
+| dataset per view (2.12) | records (PR #48) and claim nodes in the view's default graph | incremental per scope |
 | claim as node, signer, scope, prev | yes | |
 | position, current (2.4) | yes, at view build | incremental |
 | template terms and types (2.3) | yes, where a template declares them | |
