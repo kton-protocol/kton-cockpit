@@ -36,7 +36,7 @@ func TestFeed_TheRecordsAfterACursorWithTheirSigner(t *testing.T) {
 		t.Fatalf("from the start: want the foton and the claim: %+v", p)
 	}
 	for _, rec := range p.Records {
-		if rec.Signer.KeyID == "" || rec.Signer.Tier == "" || rec.Signer.Name == "" || rec.Registry != "own" || len(rec.Envelope) == 0 {
+		if len(rec.Signers) != 1 || rec.Signers[0].KeyID == "" || rec.Signers[0].Tier == "" || rec.Signers[0].Name == "" || rec.Registry != "own" || len(rec.Envelope) == 0 {
 			t.Errorf("want the verifying key, its tier and name, the registry and the envelope: %+v", rec)
 		}
 	}

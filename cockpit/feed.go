@@ -18,8 +18,8 @@ import (
 
 // Query "feed" (SPEC §9.10) is the union's records in the order they arrived, from a cursor: what
 // an application watching the work asks instead of walking the registry's files (mignon's handoff
-// 2.2). Each record comes with its verdict — the trusted key that verifies it, its tier and the
-// name the trust configuration gives it — so no program checks a signature itself. A record no
+// 2.2). Each record comes with its verdict — every trusted key that verifies it, with its tier and
+// the name the trust configuration gives it — so no program checks a signature itself. A record no
 // trusted key verifies is counted, never shown (SPEC §9.1).
 //
 // The cursor is each registry's position in the kernel's feed (its numbering's epoch and the last
@@ -42,11 +42,11 @@ type FeedRecord struct {
 	Kind     string          `json:"kind"` // foton or claim
 	ID       string          `json:"id"`
 	Registry string          `json:"registry"` // own, or the federation source's name
-	Signer   FeedSigner      `json:"signer"`
+	Signers  []FeedSigner    `json:"signers"`  // every trusted key that verifies it, in signature order
 	Envelope json.RawMessage `json:"envelope"`
 }
 
-// FeedSigner is the trusted key that verifies a record: its keyid, tier, and the name its public
+// FeedSigner is a trusted key that verifies a record: its keyid, tier, and the name its public
 // key file gives it in the trust configuration.
 type FeedSigner struct {
 	KeyID string `json:"keyid"`
@@ -85,7 +85,7 @@ func askFeed(ctx context.Context, cfg *config.Config, in AskRequest) (*AskResult
 	if limit == 0 {
 		limit = feedLimit
 	}
-	signer, err := verify.SignerOf(cfg)
+	signersOf, err := verify.SignersOf(cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -128,15 +128,18 @@ func askFeed(ctx context.Context, cfg *config.Config, in AskRequest) (*AskResult
 					break
 				}
 				from.Seq = r.seq
-				keyid, tier, path := signer(r.env)
-				if tier == verify.Untrusted {
+				verified := signersOf(r.env)
+				if len(verified) == 0 {
 					page.Untrusted++
 					continue
 				}
+				signers := make([]FeedSigner, len(verified))
+				for i, v := range verified {
+					signers[i] = FeedSigner{KeyID: v.KeyID, Tier: v.Tier, Name: strings.TrimSuffix(filepath.Base(v.Path), ".pub")}
+				}
 				env, _ := json.Marshal(r.env)
 				page.Records = append(page.Records, FeedRecord{Kind: layer.kind, ID: r.id, Registry: name,
-					Signer:   FeedSigner{KeyID: keyid, Tier: tier, Name: strings.TrimSuffix(filepath.Base(path), ".pub")},
-					Envelope: env})
+					Signers: signers, Envelope: env})
 			}
 			// The stamp goes into the cursor only once the registry was read to its end; a page that
 			// stopped inside it has to be read on from there.

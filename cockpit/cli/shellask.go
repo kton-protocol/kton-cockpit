@@ -440,7 +440,11 @@ func shellFeed(ctx context.Context, args []string) error {
 	}
 	f := out.Feed
 	for _, r := range f.Records {
-		fmt.Printf("%s  %-5s  %s  %s (%s)\n", r.ID, r.Kind, r.Registry, r.Signer.Name, r.Signer.Tier)
+		var by []string
+		for _, s := range r.Signers {
+			by = append(by, s.Name+" ("+s.Tier+")")
+		}
+		fmt.Printf("%s  %-5s  %s  %s\n", r.ID, r.Kind, r.Registry, strings.Join(by, ", "))
 	}
 	if f.Untrusted > 0 {
 		fmt.Printf("(%d not verified by a key in your trust tiers: counted, not shown)\n", f.Untrusted)

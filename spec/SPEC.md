@@ -767,8 +767,9 @@ example there is run by a test.
 them (kton §12), after a `cursor` the previous answer handed out. It is how a program follows the work
 without reading the registry's files.
 
-- Every record MUST come with its verdict: the configured key that verifies it, that key's tier, and
-  the name the trust configuration gives it. A record no configured key verifies MUST NOT be shown;
+- Every record MUST come with its verdict: every configured key that verifies it (`signers`, in the
+  order of its signatures), each with its tier and the name the trust configuration gives it. A
+  signature's declared keyid MUST NOT decide who signed; only verification does. A record no configured key verifies MUST NOT be shown;
   it is counted (`untrusted`), as in every other answer (§9.1).
 - The answer MUST carry the cursor to ask from next. Asked from it, a registry that did not move MUST
   give nothing again; one whose numbering changed MUST be read from its start. Records beyond the
@@ -777,7 +778,8 @@ without reading the registry's files.
 - `ref`, `sparql` and `filter` MUST be refused beside it, and so MUST a cursor this cockpit did not
   hand out.
 
-> **Checked by:** `TestFeed_TheRecordsAfterACursorWithTheirSigner`, `TestFeed_RefusesWhatItDoesNotTake`.
+> **Checked by:** `TestFeed_TheRecordsAfterACursorWithTheirSigner`, `TestFeed_RefusesWhatItDoesNotTake`,
+> `TestSignersOf_EveryTrustedKeyThatVerifiesARecord`.
 
 ## 10 Execution *(optional)*
 

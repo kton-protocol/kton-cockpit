@@ -22,8 +22,8 @@ queries).
 - **`index.kind: oxigraph`** (ADR-012) is in the default build.
 - **`say` takes `expectHead`** (SPEC §8.5): the claim joins its scope only on the head the caller
   saw, and is refused with the heads there are now if another writer moved it (mignon's handoff 2.6).
-- **`ask feed`** (SPEC §9.10): the union's trusted records after a cursor, each with the key that
-  verifies it, its tier and name, and the next cursor; untrusted ones counted. For a program that
+- **`ask feed`** (SPEC §9.10): the union's trusted records after a cursor, each with every key that
+  verifies it (`signers`; a co-signed record names each), its tier and name, and the next cursor; untrusted ones counted. For a program that
   follows the work (mignon's handoff 2.2) instead of walking the registry's files.
 - **`cockpit.Open`**, a Cockpit for a process that answers many calls (a local service, handoff 2.1):
   it keeps the opened union between calls until a registry changes, whatever `index.kind` says, and
