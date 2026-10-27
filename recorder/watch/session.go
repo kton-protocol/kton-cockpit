@@ -37,7 +37,9 @@ type Session struct {
 	known      map[string]string // path → last content hash seen (closew, outputs)
 	procs      map[int]bool
 	hashCache  map[string]string
-	escaped    bool // the log's header says v2 or later: path and extra are escaped
+	roots      []string // the log's hashed prefixes, for placing the session by where it ran
+	placed     bool     // the project is settled: by ENV, or by the first command's directory
+	escaped    bool     // the log's header says v2 or later: path and extra are escaped
 
 	// Hash computes a file's content hash when the shim did not (files outside the hashed
 	// prefixes). Replaceable in tests.
@@ -152,8 +154,9 @@ func (s *Session) Line(line string) {
 	if h, ok := ParseHeader(line); ok {
 		s.escaped = h.Escaped()
 		if len(h.Hash) > 0 && s.cls.Project == "" {
-			s.cls.Project = h.Hash[0]
+			s.cls.Project = h.Hash[0] // until the first command says where it runs
 			s.Project = h.Hash[0]
+			s.roots = h.Hash
 		}
 		return
 	}
@@ -216,6 +219,9 @@ func (s *Session) Handle(e Event) {
 			prog = f[0]
 		}
 		t.Commands = append(t.Commands, Command{PID: e.PID, PPID: e.PPID, Program: prog, Cmdline: cmdline, Cwd: e.Path})
+		if !s.placed {
+			s.placeBy(e.Path)
+		}
 		delete(c.spawns, e.PID)
 		if s.Script == "" && s.owner == 0 && s.seq == 0 {
 			s.Script = rScriptArg(cmdline, e.Path)
@@ -304,6 +310,7 @@ func (s *Session) Handle(e Event) {
 		if p := e.KV("project"); p != "" {
 			// the session says where it works; more specific than the broad hashed prefix
 			s.cls.Project, s.Project = p, p
+			s.placed = true
 		}
 		// What the runtime read and wrote before it could say where it works is its start, and so
 		// environment unless it is in the project: the shell profile it came up through, its own
@@ -630,6 +637,44 @@ func (s *Session) finish() {
 		return
 	}
 	s.Tasks = append(s.Tasks, t)
+}
+
+// placeBy settles the project of a session that does not say it (a plain Rscript or python run,
+// a terminal) by where its first command ran: the repository around that directory (.git or
+// cockpit.config.json) when it lies within a hashed prefix, else the most specific prefix that
+// holds it. Before, the first hashed prefix was taken, so with several (or a broad one such as
+// /mnt/c/dev) a batch run in a repository was filed under the wrong project.
+func (s *Session) placeBy(cwd string) {
+	if cwd == "" || !filepath.IsAbs(cwd) {
+		return
+	}
+	s.placed = true
+	base := ""
+	for _, r := range s.roots {
+		r = filepath.Clean(r)
+		if (cwd == r || strings.HasPrefix(cwd, r+"/")) && len(r) > len(base) {
+			base = r
+		}
+	}
+	if base == "" {
+		return // ran outside everything hashed: keep the first prefix, as before
+	}
+	project := base
+	if repo := RepoRoot(cwd); repo != cwd || isRepoDir(cwd) {
+		if repo == base || strings.HasPrefix(repo, base+"/") {
+			project = repo
+		}
+	}
+	s.cls.Project, s.Project = project, project
+}
+
+func isRepoDir(d string) bool {
+	for _, m := range []string{"cockpit.config.json", ".git"} {
+		if _, err := os.Stat(filepath.Join(d, m)); err == nil {
+			return true
+		}
+	}
+	return false
 }
 
 // Close ends the session: what came after the last marker becomes the task "tail".

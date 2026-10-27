@@ -12,6 +12,11 @@ Over MCP, `cockpit_ask` takes the same `{"query":"sparql","sparql":…}`. The an
 `{"form","vars","rows","boolean","truncated","limit","via"}`. Each row binds the variables by name, and
 each value is in its lexical form.
 
+For the types, ask for the standard format: `"format":"sparql-results+json"` adds `results`, the same
+answer as a SPARQL 1.1 Query Results JSON document, where every value keeps its type (`uri`, `literal`,
+`bnode`), datatype and language. `cockpit ask sparql query.rq --results-json` prints that document
+alone, for a tool that reads it.
+
 It needs a SPARQL engine: `query.image`, or `index.kind: oxigraph`. The projection below is kton's
 K8, released in kton 0.3.0.
 
