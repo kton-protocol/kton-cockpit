@@ -2,8 +2,10 @@ package watch
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -94,5 +96,60 @@ func TestAPI_BlobServesOnlyTheBytesOfItsHash(t *testing.T) {
 	os.Chtimes(f, st.ModTime(), st.ModTime())
 	if code, body := blob(); code != 404 || strings.Contains(body, "SECRET-B") {
 		t.Fatalf("rewritten file served under the old hash: %d %q", code, body)
+	}
+}
+
+// ddmanymore: /api/calls?project= on 1,996 calls took 100 s and returned 207 MB. A call is what
+// was recorded, so listing them hashes nothing on disk; a page, a brief form and the calls that
+// wrote one file keep the answer small.
+func TestAPI_CallsPagedBriefAndByWhatTheyWrote(t *testing.T) {
+	dir, p := t.TempDir(), t.TempDir()
+	b := &logb{}
+	for i := 1; i <= 3; i++ {
+		pid := 200 + i
+		b.ev(pid, "exec", "-", p, fmt.Sprintf("Rscript extract.R m%d", i)).
+			ev(pid, "open", "r", p+"/extract.R", "sha256=script").
+			ev(pid, "open", "r", fmt.Sprintf("%s/m%d.mod", p, i), fmt.Sprintf("sha256=mod%d", i)).
+			ev(pid, "open", "w", fmt.Sprintf("%s/m%d.json", p, i), "new=1").
+			ev(pid, "closew", "w", fmt.Sprintf("%s/m%d.json", p, i), fmt.Sprintf("sha256=json%d", i)).
+			task(i, "ok", fmt.Sprintf("extract %d", i))
+	}
+	os.WriteFile(filepath.Join(dir, "s1.tsv"), []byte("#ktontrace v1\thash="+p+"\n"+strings.Join(b.lines, "\n")+"\n"), 0o644)
+	sv := &Service{Dir: dir, Store: t.TempDir(), Idle: time.Hour, NewClassifier: func() *Classifier { return &Classifier{} }}
+	sv.Poll(time.Now())
+	srv := httptest.NewServer(sv.Handler())
+	defer srv.Close()
+	get := func(q string) ([]Call, string) {
+		r, err := srv.Client().Get(srv.URL + "/api/calls?project=" + url.QueryEscape(p) + q)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer r.Body.Close()
+		var cs []Call
+		json.NewDecoder(r.Body).Decode(&cs)
+		return cs, r.Header.Get("X-Total-Count")
+	}
+	all, n := get("")
+	if len(all) != 3 || n != "3" || len(all[0].Reads) != 2 {
+		t.Fatalf("all: %d calls, total %s: %+v", len(all), n, all)
+	}
+	page, n := get("&offset=1&limit=1")
+	if len(page) != 1 || n != "3" || page[0].Key != all[1].Key {
+		t.Fatalf("page: %+v, total %s", page, n)
+	}
+	if past, _ := get("&offset=9"); len(past) != 0 {
+		t.Fatalf("past the end: %+v", past)
+	}
+	brief, _ := get("&brief=1")
+	if len(brief) != 3 || brief[0].Reads != nil || len(brief[0].Writes) != 1 || brief[0].Key != all[0].Key {
+		t.Fatalf("brief: %+v", brief[0])
+	}
+	for _, f := range []string{"json2", p + "/m2.json", "m2.json"} {
+		if by, n := get("&wrote=" + url.QueryEscape(f)); len(by) != 1 || n != "1" || by[0].Writes[0].Rel != "m2.json" {
+			t.Fatalf("wrote %s: %+v", f, by)
+		}
+	}
+	if none, n := get("&wrote=nothing"); len(none) != 0 || n != "0" {
+		t.Fatalf("wrote nothing: %+v", none)
 	}
 }
