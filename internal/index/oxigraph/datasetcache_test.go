@@ -11,7 +11,8 @@ import (
 )
 
 // A query against registries that did not move uses the dataset kept for them, and a kept dataset
-// never hides what changed: a new record, other trusted keys, or a store emptied under it.
+// never hides what changed: a new record, other trusted keys, or a store emptied under it. Each key
+// set has its own view, so two of them asking in turn do not replace each other's.
 func TestOxigraph_AKeptDatasetNeverHidesAChange(t *testing.T) {
 	ctx := context.Background()
 	t.Setenv("COCKPIT_INDEX_DIR", t.TempDir())
@@ -40,6 +41,9 @@ func TestOxigraph_AKeptDatasetNeverHidesAChange(t *testing.T) {
 	a, err := oxigraph.Query(ctx, d, cfg, nil, attributed)
 	if err != nil || len(a.Rows) != 0 {
 		t.Fatalf("no trusted key: want nothing attributed, got %+v %v", a, err)
+	}
+	if a := query(t, d, cfg, attributed); !holds(a, "a", f2) || !a.Kept {
+		t.Fatalf("another key set's view beside it: want f2 from this one's, kept: %+v", a)
 	}
 
 	if err := d.Clear(ctx); err != nil {

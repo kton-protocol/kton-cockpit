@@ -585,7 +585,11 @@ func (r *Runner) Annotate(ctx context.Context, subject, tmplName string, sets ma
 
 // templates loads this repo's template set. An alias file is optional and this cockpit ships none:
 // its templates name predicates by full IRI, so there is no prefix to resolve (SPEC §8.1).
-func (r *Runner) templates() (ntemplate.Set, error) {
+func (r *Runner) templates() (ntemplate.Set, error) { return r.Templates() }
+
+// Templates is this repo's template set: its template directory, the allowed packages' templates, and
+// the alias file at the repository root.
+func (r *Runner) Templates() (ntemplate.Set, error) {
 	aliasPath := filepath.Join(r.cfg.RepoRoot, "aliases.json")
 	var aliases []byte
 	if b, err := os.ReadFile(aliasPath); err == nil {

@@ -29,6 +29,12 @@ type AskRequest struct {
 	// Limit and TimeoutSeconds bound a sparql answer; the defaults are sparqlLimit and sparqlTimeout.
 	Limit          int `json:"limit,omitempty" jsonschema:"for query sparql: the most rows to return (default 1000, at most 10000)"`
 	TimeoutSeconds int `json:"timeoutSeconds,omitempty" jsonschema:"for query sparql: how long the query may run (default 30, at most 120)"`
+	// Dataset is the projection a sparql query reads (ADR-013): "claims", the default, where every
+	// claim is a node with its signer, scope, position and whether it is current; or "nanopub", the
+	// kernel's projection with each claim as a nanopublication of named graphs.
+	Dataset string `json:"dataset,omitempty" jsonschema:"for query sparql: claims (default; a claim is a node: nk:about, nk:predicate, its fields, nk:signer, nk:scope, nk:position, nk:current) or nanopub (the kernel's nanopublication graphs)"`
+	// Format "sparql-results+json" adds the answer in the standard SPARQL 1.1 Query Results JSON.
+	Format string `json:"format,omitempty" jsonschema:"for query sparql: sparql-results+json adds results, the answer in the standard SPARQL 1.1 Query Results JSON with every value's type, datatype and language"`
 	// Refs are several endpoints at once, for query "ray": the results of the runs to extract a
 	// potential from. Only several runs show which values varied.
 	Refs []string `json:"refs,omitempty" jsonschema:"for query ray: the endpoints of several runs (hashes or files)"`
