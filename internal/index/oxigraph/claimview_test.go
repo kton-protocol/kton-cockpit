@@ -31,16 +31,6 @@ func claimQuads(h, subject, pred string, fields map[string]string, created, scop
 	return all, pubinfo
 }
 
-func values(view []Quad, s, p string) []string {
-	var out []string
-	for _, q := range view {
-		if q.S.Value == s && q.P.Value == p {
-			out = append(out, q.O.Value)
-		}
-	}
-	return out
-}
-
 // Positions count every claim of a chain, trusted or not; only trusted claims are shown, and only
 // they supersede one another: the latest trusted claim per scope, subject and predicate is current.
 func TestClaimView_KeepsPositionAndCurrent(t *testing.T) {
@@ -123,6 +113,25 @@ func TestClaimView_AppliesTheTemplatesTermsAndTypes(t *testing.T) {
 			if q.O.Type != "uri" || q.O.Value != oNS+"beef" {
 				t.Errorf("a ref field: %+v", q.O)
 			}
+		}
+	}
+}
+
+// A ref field the kernel projects as a node of its own (#o.<field> with lab:hash) points at what it
+// names.
+func TestClaimView_ARefFieldPointsAtWhatItNames(t *testing.T) {
+	all, pub := claimQuads("ac", oNS+"f00d", "https://example.org/q/derived", nil, "2026-03-04T10:00:00Z", "", "", "k1")
+	inner := npNS + "ac.#o.pa"
+	all = append(all,
+		Quad{G: npNS + "ac.#assertion", S: iri(npNS + "ac.#o"), P: iri(labNS + "parent-step"), O: iri(inner)},
+		Quad{G: npNS + "ac.#assertion", S: iri(inner), P: iri(labNS + "hash"), O: iri(oNS + "beef")})
+	view := ClaimView(all, pub, ViewConfig{})
+	if got := values(view, oNS+"ac", labNS+"parent-step"); len(got) != 1 || got[0] != oNS+"beef" {
+		t.Errorf("want the step it names: %v", got)
+	}
+	for _, q := range view {
+		if strings.HasPrefix(q.S.Value, npNS) || strings.HasPrefix(q.O.Value, npNS) {
+			t.Errorf("a node inside the nanopublication leaked into the view: %+v", q)
 		}
 	}
 }

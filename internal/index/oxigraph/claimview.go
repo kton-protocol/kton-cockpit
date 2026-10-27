@@ -75,6 +75,10 @@ type ViewConfig struct {
 	Templates ntemplate.Set
 }
 
+// viewVersion changes whenever ClaimView builds something else from the same quads: a view kept
+// from an older build is then built again rather than answered from.
+const viewVersion = 2
+
 // Fingerprint changes whenever the view a ViewConfig builds would.
 func (vc ViewConfig) Fingerprint() string {
 	type tmpl struct {
@@ -93,10 +97,11 @@ func (vc ViewConfig) Fingerprint() string {
 		ts = append(ts, tmpl{n + "=" + t.Predicate, f})
 	}
 	b, _ := json.Marshal(struct {
+		V int
 		S map[string]Signer
 		T []tmpl
 		R map[string]string
-	}{vc.Signers, ts, terms})
+	}{viewVersion, vc.Signers, ts, terms})
 	h := sha256.Sum256(b)
 	return hex.EncodeToString(h[:8])
 }
@@ -105,6 +110,7 @@ type claimNode struct {
 	hex              string
 	pred, about      Term
 	fields, other    []Quad
+	nested           map[string][]Quad // a field's own node (#o.<field>), such as a ref's hash
 	created          Term
 	scope, prev      string
 	genesis, hasPred bool
@@ -145,6 +151,11 @@ func ClaimView(trusted, structure []Quad, vc ViewConfig) []Quad {
 		case isClaimGraph(q.G, npAssert):
 			helper := npNS + h + ".#o"
 			switch {
+			case strings.HasPrefix(q.S.Value, helper+"."):
+				if c.nested == nil {
+					c.nested = map[string][]Quad{}
+				}
+				c.nested[q.S.Value] = append(c.nested[q.S.Value], q)
 			case q.S.Value == helper:
 				c.fields = append(c.fields, q)
 			case q.O.Value == helper:
@@ -270,6 +281,17 @@ func ClaimView(trusted, structure []Quad, vc ViewConfig) []Quad {
 						o = typedValue(o, t.Fields[key].Type)
 					}
 				}
+				// A field with a node of its own (a ref: the file or step it names, under lab:hash)
+				// points at what it names, not at a node inside the nanopublication.
+				if inner, ok := c.nested[o.Value]; ok {
+					if hash := values(inner, o.Value, labNS+"hash"); len(hash) == 1 {
+						o = iri(hash[0])
+					} else {
+						for _, q := range inner {
+							out = append(out, Quad{S: q.S, P: q.P, O: q.O})
+						}
+					}
+				}
 				out = append(out, Quad{S: iri(n), P: p, O: o})
 			}
 			out = append(out, triple(n, nkNS+"current", typed(strconv.FormatBool(current[h]), xsdNS+"boolean")))
@@ -341,6 +363,17 @@ func typedValue(o Term, fieldType string) Term {
 		}
 	}
 	return o
+}
+
+// values are the objects of s p among qs.
+func values(qs []Quad, s, p string) []string {
+	var out []string
+	for _, q := range qs {
+		if q.S.Value == s && q.P.Value == p {
+			out = append(out, q.O.Value)
+		}
+	}
+	return out
 }
 
 func contains(xs []string, x string) bool {
