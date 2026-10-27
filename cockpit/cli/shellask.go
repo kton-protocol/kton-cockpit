@@ -37,6 +37,7 @@ var askQueries = []struct{ name, arg, what string }{
 	{"by", "signer|predicate|object <value>", "claims by a signer (me), of a kind (a template name), or naming a value"},
 	{"scope", "<sha256:scope-id>", "a scope's chain: head, length, whether it branched"},
 	{"sparql", "<query.rq|->", "a SELECT or ASK of your own over the trusted dataset (docs/sparql.md)"},
+	{"feed", "[cursor]", "the trusted records in the order they arrived, after a cursor, and the next cursor"},
 }
 
 func askOverview() {
@@ -57,6 +58,9 @@ func shellAsk(ctx context.Context, args []string) error {
 	}
 	if args[0] == "sparql" {
 		return shellSparql(ctx, args[1:])
+	}
+	if args[0] == "feed" {
+		return shellFeed(ctx, args[1:])
 	}
 	in := cockpit.AskRequest{Query: args[0]}
 	var filter cockpit.AskFilter
@@ -397,4 +401,53 @@ func fieldsLine(obj any) string {
 		parts = append(parts, k+"="+v)
 	}
 	return strings.Join(parts, " ")
+}
+
+// shellFeed is `cockpit ask feed [cursor] [--limit N] [--json]`: one line per trusted record after
+// the cursor, then the cursor to pass next time.
+func shellFeed(ctx context.Context, args []string) error {
+	in := cockpit.AskRequest{Query: "feed"}
+	asJSON := false
+	for i := 0; i < len(args); i++ {
+		switch a := args[i]; {
+		case a == "--json":
+			asJSON = true
+		case a == "--limit":
+			if i+1 >= len(args) {
+				return fmt.Errorf("--limit needs a value")
+			}
+			i++
+			n, err := strconv.Atoi(args[i])
+			if err != nil {
+				return fmt.Errorf("--limit takes a number, not %q", args[i])
+			}
+			in.Limit = n
+		case strings.HasPrefix(a, "--"):
+			return fmt.Errorf("unknown flag %s — usage: cockpit ask feed [cursor] [--limit N] [--json]", a)
+		case in.Cursor == "":
+			in.Cursor = a
+		default:
+			return fmt.Errorf("usage: cockpit ask feed [cursor] [--limit N] [--json]")
+		}
+	}
+	out, err := cockpit.New(cockpit.Start{}).Ask(ctx, in)
+	exitIfRefused(err)
+	if err != nil {
+		return err
+	}
+	if asJSON {
+		return printJSON(out)
+	}
+	f := out.Feed
+	for _, r := range f.Records {
+		fmt.Printf("%s  %-5s  %s  %s (%s)\n", r.ID, r.Kind, r.Registry, r.Signer.Name, r.Signer.Tier)
+	}
+	if f.Untrusted > 0 {
+		fmt.Printf("(%d not verified by a key in your trust tiers: counted, not shown)\n", f.Untrusted)
+	}
+	if f.More {
+		fmt.Println("(more after this page)")
+	}
+	fmt.Println("cursor:", f.Cursor)
+	return nil
 }

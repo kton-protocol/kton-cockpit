@@ -21,14 +21,17 @@ import (
 // narrow within the trust tiers configured for this repo; it can never surface a tier or signer
 // absent from cockpit.config.json.
 type AskRequest struct {
-	Query string `json:"query" jsonschema:"one of: record, producer, uses, lineage, reproductions, about, by, scope, ray, sparql"`
+	Query string `json:"query" jsonschema:"one of: record, producer, uses, lineage, reproductions, about, by, scope, ray, sparql, feed"`
 	Ref   string `json:"ref,omitempty" jsonschema:"the hash, subject, or value to query (not for sparql)"`
 	// Sparql is the query for query "sparql": a SELECT or an ASK someone wrote, over the dataset the
 	// vocabulary queries read (SPEC §9.9). Ref and Filter are refused beside it; it narrows itself.
 	Sparql string `json:"sparql,omitempty" jsonschema:"for query sparql: a SELECT or ASK over the trusted dataset (SPEC §9.9; see docs/sparql.md). Fotons are in the default graph, claims in named graphs; a record is trusted where it has prov:wasAttributedTo"`
 	// Limit and TimeoutSeconds bound a sparql answer; the defaults are sparqlLimit and sparqlTimeout.
-	Limit          int `json:"limit,omitempty" jsonschema:"for query sparql: the most rows to return (default 1000, at most 10000)"`
+	Limit          int `json:"limit,omitempty" jsonschema:"for query sparql: the most rows to return; for query feed: the most records (default 1000, at most 10000)"`
 	TimeoutSeconds int `json:"timeoutSeconds,omitempty" jsonschema:"for query sparql: how long the query may run (default 30, at most 120)"`
+	// Cursor is where query "feed" starts: the cursor the last answer handed out, or empty for
+	// the beginning.
+	Cursor string `json:"cursor,omitempty" jsonschema:"for query feed: the cursor the last answer returned; empty starts at the beginning"`
 	// Dataset is the projection a sparql query reads (ADR-013): "claims", the default, where every
 	// claim is a node with its signer, scope, position and whether it is current; or "nanopub", the
 	// kernel's projection with each claim as a nanopublication of named graphs.
@@ -175,6 +178,9 @@ type AskResult struct {
 	FilterApplied string         `json:"filterApplied"`
 	// Sparql is the answer to query "sparql": its variables and rows, or an ASK's boolean.
 	Sparql *SparqlAnswer `json:"sparql,omitempty"`
+	// Feed is the answer to query "feed": trusted records after the cursor, each with its signer,
+	// and the next cursor.
+	Feed *FeedPage `json:"feed,omitempty"`
 	// Index says the answer was read through a derived index (index.kind, ADR-012): which kind,
 	// whether the registries were the ones it held from an earlier call, and since when. Absent
 	// when they were opened for this call.
@@ -192,11 +198,14 @@ func (c *Cockpit) Ask(ctx context.Context, in AskRequest) (*AskResult, error) {
 	if in.Query == "sparql" {
 		return askSparql(ctx, cfg, in)
 	}
+	if in.Query == "feed" {
+		return askFeed(ctx, cfg, in)
+	}
 	if in.Ref == "" && len(in.Refs) == 0 {
 		return nil, refuse("argument", "", "ask requires ref (the hash, subject, or value to query)")
 	}
 
-	r := index.Open(cfg)
+	r := c.reader(cfg)
 
 	// A file you have is a question you can ask. The substrate indexes bytes, so every lineage
 	// query wants a content hash — but the thing in front of somebody is a file, and hashing it by
@@ -259,7 +268,7 @@ func dispatchAsk(ctx context.Context, cfg *config.Config, r index.Reader, in Ask
 		out.Raw = verdict.Line()
 		return &out, nil
 	default:
-		return nil, refuse("argument", "", "unknown query %q (must be one of: record, producer, uses, lineage, reproductions, about, by, scope, ray, sparql)", in.Query)
+		return nil, refuse("argument", "", "unknown query %q (must be one of: record, producer, uses, lineage, reproductions, about, by, scope, ray, sparql, feed)", in.Query)
 	}
 }
 

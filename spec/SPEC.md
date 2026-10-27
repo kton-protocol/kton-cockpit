@@ -754,6 +754,24 @@ example there is run by a test.
 > `TestClaimView_AppliesTheTemplatesTermsAndTypes`, `TestSparql_TheExamplesAnswerOverAFixture` (with its
 > standard-results subtests; `-tags docker`).
 
+### 9.10 The feed *(optional)*
+
+`ask` MAY answer `query: "feed"`: the records of the union in the order the kernel's feed numbers
+them (kton §12), after a `cursor` the previous answer handed out. It is how a program follows the work
+without reading the registry's files.
+
+- Every record MUST come with its verdict: the configured key that verifies it, that key's tier, and
+  the name the trust configuration gives it. A record no configured key verifies MUST NOT be shown;
+  it is counted (`untrusted`), as in every other answer (§9.1).
+- The answer MUST carry the cursor to ask from next. Asked from it, a registry that did not move MUST
+  give nothing again; one whose numbering changed MUST be read from its start. Records beyond the
+  limit (default 1000, at most 10000) MUST be left to the next page, and the answer MUST say so
+  (`more`); across pages a record of a registry MUST come once.
+- `ref`, `sparql` and `filter` MUST be refused beside it, and so MUST a cursor this cockpit did not
+  hand out.
+
+> **Checked by:** `TestFeed_TheRecordsAfterACursorWithTheirSigner`, `TestFeed_RefusesWhatItDoesNotTake`.
+
 ## 10 Execution *(optional)*
 
 A repository MAY configure the cockpit to run the published command rather than record one.

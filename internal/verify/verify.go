@@ -71,6 +71,24 @@ func ResolveTier(ctx context.Context, r index.Reader, cfg *config.Config, idOrFi
 
 type tierKey struct{ tier, path string }
 
+// SignerOf returns a check of envelopes against this repository's trust tiers, with the keys read
+// once: the keyid, tier and configured path of the key that verifies one, or Untrusted. For a reader
+// that checks many records in one call.
+func SignerOf(cfg *config.Config) (func(core.Envelope) (keyid, tier, path string), error) {
+	keys, byKeyID, err := tierKeys(cfg)
+	if err != nil {
+		return nil, err
+	}
+	return func(env core.Envelope) (string, string, string) {
+		keyid := core.VerifiedSignerKeyID(env, keys)
+		if keyid == "" {
+			return "", Untrusted, ""
+		}
+		k := byKeyID[keyid]
+		return keyid, k.tier, k.path
+	}, nil
+}
+
 // tierKeys reads every configured pubkey once and indexes it by keyid, which is what the kernel
 // returns. A key that will not parse is an ERROR, never a silent skip: a typo'd path in a trust
 // tier that quietly dropped one key would narrow what this repo trusts without saying so, and

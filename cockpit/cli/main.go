@@ -192,7 +192,9 @@ func runMCP(ctx context.Context) error {
 			"(nk:about, nk:predicate, its fields nk:lab/<field>, nk:signer with rdfs:label and nk:tier, " +
 			"dct:created, nk:scope, nk:position, nk:current), nk: = https://kton.dev/v/. " +
 			"dataset nanopub reads the claims as nanopublication graphs instead. " +
-			"A file or record sha256:<hex> is <https://kton.dev/o/<hex>>. No FROM, no SERVICE.",
+			"A file or record sha256:<hex> is <https://kton.dev/o/<hex>>. No FROM, no SERVICE. " +
+			"query feed returns the trusted records after a cursor (field cursor, empty for the start), " +
+			"each with its signer, and the cursor to ask from next.",
 	}, mcpsurface.Handler(c.Ask))
 
 	return server.Run(ctx, &mcp.StdioTransport{})

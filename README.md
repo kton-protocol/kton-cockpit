@@ -140,6 +140,7 @@ cockpit ask by signer me                       # what I have claimed
 cockpit ask by predicate working-on            # every claim of one kind
 cockpit ask reproductions <file> --min 2       # how many independent parties produced these bytes
 cockpit ask sparql query.rq                    # a SELECT of your own (docs/sparql.md)
+cockpit ask feed [cursor]                      # the trusted records after a cursor, with their signers
 ```
 
 Only records a key in your trust tiers verifies are answered; the rest are counted, never shown.
