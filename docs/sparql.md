@@ -90,7 +90,8 @@ A step carries no time and no command text.
 `describes` is `dct:description`, `rationale` is `ep:hasRationale`, and both have the field
 `nk:lab/value`. Other templates are under their own predicate (`cockpit ask` lists them). A field
 your aliases name (`aliases.json`, kton's alias format) is under that term; a field a template types
-`date` is an `xsd:date` or `xsd:dateTime`, one typed `ref` an IRI.
+`date` is an `xsd:date` or `xsd:dateTime`. A field that names a file or a step (a `ref`, such as
+`parent-step`) points at its node `<https://kton.dev/o/<hex>>`, so it joins the steps directly.
 
 **Position and current are kept, not walked.** The index computes them once per change, so a query
 that wants the latest of something asks `nk:current true` and one that wants order asks
