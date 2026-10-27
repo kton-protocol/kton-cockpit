@@ -72,11 +72,11 @@ SELECT DISTINCT ?check ?value ?file ?by WHERE { VALUES (?pred ?check) { (nk:repr
 ?by is the signer's name (qc-* keys check others' analyses). In the graph a QC pass is a ✓ on the step. For one reproduced file, kton_ask reproductions on its hash shows how many independent signers produced it.
 
 Stop 6 — What rests on a model. Papers and reports and the runs they draw on:
-SELECT DISTINCT ?report ?restsOn WHERE { ?c nk:predicate pmx:rests-on ; nk:about ?step ; lab:rests-on ?x . ?x lab:hash ?t . ?rf prov:wasGeneratedBy ?step ; rdfs:label ?report OPTIONAL { ?mf prov:wasGeneratedBy ?t ; rdfs:label ?restsOn FILTER(STRENDS(?restsOn, ".fit") && !CONTAINS(?restsOn, "parent")) } } ORDER BY ?report LIMIT 40
+SELECT DISTINCT ?report ?restsOn WHERE { ?c nk:predicate pmx:rests-on ; nk:about ?step ; lab:rests-on ?t . ?rf prov:wasGeneratedBy ?step ; rdfs:label ?report OPTIONAL { ?mf prov:wasGeneratedBy ?t ; rdfs:label ?restsOn FILTER(STRENDS(?restsOn, ".fit") && !CONTAINS(?restsOn, "parent")) } } ORDER BY ?report LIMIT 40
 Point out that a paper's claim reaches back through the model to the data (kton_ask lineage on the paper's hash if I want the whole chain).
 
 Stop 7 — Across the analyses. Compare the final models of stop 1: which covariate on which parameter (AGE on CL, SEX on V, WT on CL, CRCL on CL …), how many analyses chose each. Ask me what I make of it: the same data, different final models.
 
 Stop 8 — Where I am. My own programme is in the same store: my THP-101 analysis and Ben's share pk.csv, Carla adapted my prepare script, Dmitri reproduced Carla. Offer to open my programme's graph (kton_open_graph with my project, or repo = "EXPLORE" and a hash of mine), and say that kton_copy can take a script from pmx or from Ben into my project, asking me first.
 
-End by asking which stop I want to go deeper into. If a query is refused (a cockpit before v0.4.0-rc5 has no claims as nodes), say so briefly and fall back to kton_ask.`
+End by asking which stop I want to go deeper into. If a query is refused (a cockpit before v0.4.0-rc6 has no claims as nodes), say so briefly and fall back to kton_ask.`
