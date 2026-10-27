@@ -31,6 +31,11 @@ queries).
   dataset, not a few thousand record graphs listed per query: the engine joined over that list
   graph by graph. A join over records and claims went from over 50 s to 1.3 s.
 
+### Fixed
+
+- **`cockpit <command> --help` prints that command's usage and runs nothing.** `init --help`
+  scaffolded the current directory, `mcp --help` started the server.
+
 ## v0.3.0 — 2026-10-23
 
 Tracks kton v0.2.1 (`kton.dev/plankton`, `nekton`, `kton` by `require`, no vendoring). What needs
