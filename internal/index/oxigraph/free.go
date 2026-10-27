@@ -44,9 +44,17 @@ type FreeAnswer struct {
 // ErrTimeout is a free query cut off at its timeout.
 var ErrTimeout = errors.New("the query ran longer than its timeout")
 
-// Free answers a SELECT or an ASK over the union of cfg, under keys. timeout bounds the evaluation,
-// not the reading of the registries into the store, which only adds and is never left half done.
-func Free(ctx context.Context, d *Daemon, cfg *config.Config, keys []ed25519.PublicKey, query string, timeout time.Duration) (*FreeAnswer, error) {
+// Datasets a free query reads (ADR-013): the query projection, where a claim is a node, or the
+// kernel's projection, where it is a nanopublication.
+const (
+	DatasetClaims  = "claims"
+	DatasetNanopub = "nanopub"
+)
+
+// Free answers a SELECT or an ASK over the union of cfg, under keys, in dataset. timeout bounds the
+// evaluation, not the reading of the registries into the store, which only adds and is never left
+// half done.
+func Free(ctx context.Context, d *Daemon, cfg *config.Config, keys []ed25519.PublicKey, query, dataset string, timeout time.Duration) (*FreeAnswer, error) {
 	if _, err := index.CheckFreeQuery(query); err != nil {
 		return nil, err
 	}
@@ -56,7 +64,11 @@ func Free(ctx context.Context, d *Daemon, cfg *config.Config, keys []ed25519.Pub
 	}
 	qctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	body, err := d.post(qctx, "/query", "application/sparql-results+json", datasetForm(ds.def, ds.named, query))
+	form := datasetForm(ds.def, ds.named, query)
+	if dataset != DatasetNanopub {
+		form = datasetForm(ds.claims, nil, query)
+	}
+	body, err := d.post(qctx, "/query", "application/sparql-results+json", form)
 	if qctx.Err() == context.DeadlineExceeded {
 		return nil, fmt.Errorf("%w (%s)", ErrTimeout, timeout)
 	}

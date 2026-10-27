@@ -2,6 +2,7 @@ package cockpit
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/kton-protocol/kton-cockpit/internal/config"
@@ -18,6 +19,8 @@ import (
 type SparqlAnswer struct {
 	// Form is SELECT or ASK.
 	Form string `json:"form"`
+	// Dataset is the projection it read: claims (a claim is a node, ADR-013) or nanopub.
+	Dataset string `json:"dataset"`
 	// Vars are a SELECT's variables in the query's order; Rows bind them by name, each value in its
 	// lexical form (an IRI, a literal's text). A content node is https://kton.dev/o/<hex>, the
 	// record or file sha256:<hex>.
@@ -88,6 +91,18 @@ const (
 	sparqlMaxTimeout = 120 * time.Second
 )
 
+// datasetLine is the dataset a query names in its first line (`# dataset: nanopub`), a comment to
+// SPARQL, so a query file says which projection it is written for; claims when it names none.
+func datasetLine(q string) string {
+	first, _, _ := strings.Cut(strings.TrimSpace(q), "\n")
+	if v, ok := strings.CutPrefix(strings.TrimSpace(first), "# dataset:"); ok {
+		if v = strings.TrimSpace(v); v == oxigraph.DatasetNanopub {
+			return v
+		}
+	}
+	return oxigraph.DatasetClaims
+}
+
 func askSparql(ctx context.Context, cfg *config.Config, in AskRequest) (*AskResult, error) {
 	switch {
 	case in.Sparql == "":
@@ -100,6 +115,8 @@ func askSparql(ctx context.Context, cfg *config.Config, in AskRequest) (*AskResu
 		return nil, refuse("argument", "SPEC §9.9", "limit must be from 1 to %d, not %d", sparqlMaxLimit, in.Limit)
 	case in.Format != "" && in.Format != SparqlFormatStandard:
 		return nil, refuse("argument", "SPEC §9.9", "format is %q or empty, not %q", SparqlFormatStandard, in.Format)
+	case in.Dataset != "" && in.Dataset != oxigraph.DatasetClaims && in.Dataset != oxigraph.DatasetNanopub:
+		return nil, refuse("argument", "SPEC §9.9", "dataset is %q (the default) or %q, not %q", oxigraph.DatasetClaims, oxigraph.DatasetNanopub, in.Dataset)
 	case in.TimeoutSeconds < 0 || time.Duration(in.TimeoutSeconds)*time.Second > sparqlMaxTimeout:
 		return nil, refuse("argument", "SPEC §9.9", "timeoutSeconds must be from 1 to %d, not %d", int(sparqlMaxTimeout/time.Second), in.TimeoutSeconds)
 	}
@@ -110,11 +127,15 @@ func askSparql(ctx context.Context, cfg *config.Config, in AskRequest) (*AskResu
 	if timeout == 0 {
 		timeout = sparqlTimeout
 	}
-	ans, err := runSparql(ctx, cfg, in.Sparql, timeout)
+	dataset := in.Dataset
+	if dataset == "" {
+		dataset = datasetLine(in.Sparql)
+	}
+	ans, err := runSparql(ctx, cfg, in.Sparql, dataset, timeout)
 	if err != nil {
 		return nil, err
 	}
-	ans.Limit = limit
+	ans.Limit, ans.Dataset = limit, dataset
 	if len(ans.Rows) > limit {
 		ans.Rows, ans.terms, ans.Truncated = ans.Rows[:limit], ans.terms[:limit], true
 	}

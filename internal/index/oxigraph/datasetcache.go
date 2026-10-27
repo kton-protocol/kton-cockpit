@@ -16,6 +16,7 @@ import (
 	"kton.dev/plankton/core"
 
 	"github.com/kton-protocol/kton-cockpit/internal/binaries"
+	"github.com/kton-protocol/kton-cockpit/internal/flock"
 )
 
 // A query's dataset (the graphs a configuration's trusted keys may see) changes only when a
@@ -32,7 +33,7 @@ import (
 // datasetKey names the configuration (slot: its registries and trusted keys, wherever they stand)
 // and the dataset of these registries, at their current positions, under keys (key). The key is ""
 // when a position cannot be read, and then nothing is kept.
-func datasetKey(inputs []binaries.Input, keys []ed25519.PublicKey) (slot, key string) {
+func datasetKey(inputs []binaries.Input, keys []ed25519.PublicKey, view string) (slot, key string) {
 	var regs, parts []string
 	unread := false
 	for _, in := range inputs {
@@ -56,7 +57,7 @@ func datasetKey(inputs []binaries.Input, keys []ed25519.PublicKey) (slot, key st
 	if unread {
 		return slot, ""
 	}
-	return slot, digest(append(parts, ids...))
+	return slot, digest(append(append(parts, ids...), "view="+view))
 }
 
 func digest(parts []string) string {
@@ -65,8 +66,9 @@ func digest(parts []string) string {
 	return hex.EncodeToString(h[:16])
 }
 
-func viewIRI(slot string) string { return kNS + "view:" + slot }
-func markIRI(slot string) string { return kNS + "view-of:" + slot }
+func viewIRI(slot string) string   { return kNS + "view:" + slot }
+func claimsIRI(slot string) string { return kNS + "view:" + slot + ":claims" }
+func markIRI(slot string) string   { return kNS + "view-of:" + slot }
 
 func (d *Daemon) datasetDir() string { return filepath.Join(d.Dir, "datasets") }
 
@@ -88,7 +90,8 @@ func (d *Daemon) keptDataset(ctx context.Context, slot, key string) (*prepared, 
 	if json.Unmarshal(b, &k) != nil || k.Key != key || !d.viewIs(ctx, slot, key) {
 		return nil, false
 	}
-	return &prepared{def: []string{viewIRI(slot)}, named: k.Named, registries: k.Registries, kept: true}, true
+	return &prepared{def: []string{viewIRI(slot)}, claims: []string{viewIRI(slot), claimsIRI(slot)},
+		named: k.Named, registries: k.Registries, kept: true}, true
 }
 
 // viewIs tells whether slot's view holds the dataset key names; another process may have replaced it.
@@ -102,21 +105,39 @@ func (d *Daemon) viewIs(ctx context.Context, slot, key string) bool {
 	return err == nil && r.Boolean != nil && *r.Boolean
 }
 
-// makeView copies the graphs of def into slot's view and marks it with key, in one update, so a
-// reader sees either the old view and mark or the new ones.
-func (d *Daemon) makeView(ctx context.Context, slot, key string, def []string) error {
-	v, m := "<"+viewIRI(slot)+">", "<"+markIRI(slot)+">"
+// makeView copies the graphs of def into slot's view, writes the query projection of its claims
+// (claimsNT) beside it, and marks both with key last, so a reader that sees the mark sees the whole
+// view. Building takes turns per slot: two builds under different keys must not mix.
+func (d *Daemon) makeView(ctx context.Context, slot, key string, def []string, claimsNT []byte) error {
+	if d.Dir != "" {
+		if err := os.MkdirAll(d.datasetDir(), 0o755); err != nil {
+			return err
+		}
+		unlock, err := flock.Lock(filepath.Join(d.datasetDir(), slot+".lock"))
+		if err != nil {
+			return err
+		}
+		defer unlock()
+	}
+	v, c, m := "<"+viewIRI(slot)+">", "<"+claimsIRI(slot)+">", "<"+markIRI(slot)+">"
 	var u strings.Builder
-	u.WriteString("DROP SILENT GRAPH " + v + " ;\nDROP SILENT GRAPH " + m + " ;\n")
+	u.WriteString("DROP SILENT GRAPH " + m + " ;\nDROP SILENT GRAPH " + v + " ;\nDROP SILENT GRAPH " + c + " ;\n")
 	if len(def) > 0 {
 		u.WriteString("INSERT { GRAPH " + v + " { ?s ?p ?o } } WHERE { VALUES ?g {")
 		for _, g := range def {
 			u.WriteString(" <" + g + ">")
 		}
-		u.WriteString(" } GRAPH ?g { ?s ?p ?o } } ;\n")
+		u.WriteString(" } GRAPH ?g { ?s ?p ?o } }")
 	}
-	u.WriteString("INSERT DATA { GRAPH " + m + " { " + v + " <" + kNS + "key> " + strconv.Quote(key) + " } }")
-	_, err := d.post(ctx, "/update", "", url.Values{"update": {u.String()}})
+	if _, err := d.post(ctx, "/update", "", url.Values{"update": {u.String()}}); err != nil {
+		return err
+	}
+	if len(claimsNT) > 0 {
+		if err := d.loadInto(ctx, claimsIRI(slot), claimsNT); err != nil {
+			return err
+		}
+	}
+	_, err := d.post(ctx, "/update", "", url.Values{"update": {"INSERT DATA { GRAPH " + m + " { " + v + " <" + kNS + "key> " + strconv.Quote(key) + " } }"}})
 	return err
 }
 

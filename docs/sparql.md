@@ -8,8 +8,9 @@ cockpit ask sparql query.rq            # or - for stdin
 cockpit ask '{"query":"sparql","sparql":"SELECT …","limit":100}'
 ```
 
-Over MCP, `cockpit_ask` takes the same `{"query":"sparql","sparql":…}`. The answer is
-`{"form","vars","rows","boolean","truncated","limit","via"}`. Each row binds the variables by name, and
+Over MCP, `cockpit_ask` takes the same `{"query":"sparql","sparql":…}`, and `"dataset":"nanopub"`
+for the kernel's projection. The answer is
+`{"form","dataset","vars","rows","boolean","truncated","limit","via"}`. Each row binds the variables by name, and
 each value is in its lexical form.
 
 For the types, ask for the standard format: `"format":"sparql-results+json"` adds `results`, the same
@@ -22,14 +23,20 @@ K8, released in kton 0.3.0.
 
 ## What is in the dataset
 
-The dataset is the kernel's RDF projection of every registry in your union, sources included. It is
-chosen for your trust tiers each time a query runs:
+There are two datasets, both chosen for your trust tiers and kept by the index until a registry or
+your trust moves (ADR-013):
 
-- **The default graph** holds every step (foton) of the union, and that step's attribution to the
-  keys your tiers trust. A step **nobody you trust signed is there too, but unattributed**. A query
-  that wants trusted steps only asks for `prov:wasAttributedTo`.
-- **The named graphs** hold every claim a key you trust signed, as a nanopublication of four
-  graphs. A claim nobody you trust signed is not in the dataset at all.
+- **`claims`, the default: the query projection.** The default graph holds every step (foton) of
+  the union with its attribution to the keys your tiers trust, and **every claim a key you trust
+  signed, as one node**, with its subject, its fields, its signer, its scope, its position in the
+  scope's chain and whether it is current. There are no named graphs: a query names nothing, and
+  stays fast as the work grows.
+- **`nanopub`: the kernel's projection.** The same steps, and each trusted claim as a
+  nanopublication of four named graphs (`"dataset":"nanopub"`, or `# dataset: nanopub` as the
+  query's first line). For queries about the signed form.
+
+A step **nobody you trust signed is there too, but unattributed**: a query that wants trusted steps
+asks for `prov:wasAttributedTo`. A claim nobody you trust signed is in neither dataset.
 
 A query names no dataset of its own (`FROM` is refused) and calls no endpoint (`SERVICE` is refused).
 Only SELECT and ASK are answered.
@@ -63,24 +70,45 @@ A signer is `<https://kton.dev/agent/<keyid>>`, where the keyid is the 16 hex ch
 
 A step carries no time and no command text.
 
-**A claim** with the claim id `sha256:<hex>` is the nanopublication `<https://kton.dev/np/<hex>.>`.
-It has these graphs:
+**A claim** with the claim id `sha256:<hex>` is the node `<https://kton.dev/o/<hex>>` (dataset
+`claims`):
 
 ```
-GRAPH ?head      { ?np np:hasAssertion ?assertion ; np:hasPublicationInfo ?pubinfo }
-GRAPH ?assertion { ?subject ?predicate ?o . ?o ?field ?value }  # the template's predicate; fields are nk:lab/<field>
-GRAPH ?pubinfo   { ?np dct:created ?when ;                       # xsd:dateTime
-                       prov:wasDerivedFrom ?claim ;              # the claim's own content node
-                       nk:scope ?scope ; nk:prev ?previous }     # when it is chained in a scope
-GRAPH ?attribution { ?np dct:creator ?signer . ?assertion prov:wasAttributedTo ?signer }
+?claim a nk:Claim ;
+       nk:about ?subject ;                 # what it is about: a step, a file, any IRI
+       nk:predicate ?predicate ;           # the template's predicate
+       nk:template "describes" ;           # where your templates name it
+       <https://kton.dev/v/lab/value> "…" ;  # each field: nk:lab/<field>, or the term your aliases give it
+       dct:created ?when ;                 # xsd:dateTime, signed
+       nk:signer ?agent ;                  # every key you trust that verifies it
+       nk:scope ?seed ; nk:prev ?previous ;  # when it is chained in a scope
+       nk:position 3 ;                     # its place in the scope's chain; the seed is 0
+       nk:current true .                   # no later claim you trust, same scope, subject, predicate
+?agent rdfs:label "alice" ; nk:tier "peers" .   # from your trust configuration
 ```
 
 `describes` is `dct:description`, `rationale` is `ep:hasRationale`, and both have the field
-`nk:lab/value`. Other templates are under their own predicate (`cockpit ask` lists them).
+`nk:lab/value`. Other templates are under their own predicate (`cockpit ask` lists them). A field
+your aliases name (`aliases.json`, kton's alias format) is under that term; a field a template types
+`date` is an `xsd:date` or `xsd:dateTime`. A field that names a file or a step (a `ref`, such as
+`parent-step`) points at its node `<https://kton.dev/o/<hex>>`, so it joins the steps directly.
 
-**A scope**'s seed is a claim with `nk:genesis true` and `nk:scope` its own id. Its assertion is
-`<urn:nekton:scope:<name>> a nk:Scope ; rdfs:label "<name>"`. A scope's parent is not in the
-projection: `ask scope` reports it.
+**Position and current are kept, not walked.** The index computes them once per change, so a query
+that wants the latest of something asks `nk:current true` and one that wants order asks
+`nk:position`, without `nk:prev+`. Positions count every claim of the chain, including ones you do not
+trust; only claims you trust supersede one another.
+
+**A scope**'s seed is a claim node with `nk:genesis true`, `rdfs:label "<name>"` and `nk:scope` its own
+node. Its parent is not in the projection: `ask scope` reports it.
+
+**In the `nanopub` dataset** a claim is the nanopublication `<https://kton.dev/np/<hex>.>`:
+
+```
+GRAPH ?head      { ?np np:hasAssertion ?assertion ; np:hasPublicationInfo ?pubinfo }
+GRAPH ?assertion { ?subject ?predicate ?o . ?o ?field ?value }
+GRAPH ?pubinfo   { ?np dct:created ?when ; prov:wasDerivedFrom ?claim ; nk:scope ?scope ; nk:prev ?previous }
+GRAPH ?attribution { ?np dct:creator ?signer . ?assertion prov:wasAttributedTo ?signer }
+```
 
 ## Examples
 
@@ -105,60 +133,79 @@ A step with no `?signer` is in a registry you read, but no key you trust signed 
 ```sparql
 PREFIX dct: <http://purl.org/dc/terms/>
 PREFIX ep:  <https://w3id.org/ep-plan#>
-PREFIX np:  <http://www.nanopub.org/nschema#>
 PREFIX nk:  <https://kton.dev/v/>
 SELECT ?kind ?text ?signer ?when WHERE {
   VALUES (?predicate ?kind) { (dct:description "description") (ep:hasRationale "rationale") }
-  GRAPH ?assertion { <https://kton.dev/o/STEP> ?predicate ?o . ?o <https://kton.dev/v/lab/value> ?text }
-  GRAPH ?head { ?np np:hasAssertion ?assertion ; np:hasPublicationInfo ?pubinfo }
-  GRAPH ?pubinfo { ?np dct:created ?when }
-  GRAPH ?attribution { ?np dct:creator ?signer }
+  ?claim nk:about <https://kton.dev/o/STEP> ; nk:predicate ?predicate ;
+         <https://kton.dev/v/lab/value> ?text ; nk:signer ?signer ; dct:created ?when .
 }
 ORDER BY ?when
 ```
 
-A second description does not replace the first (SPEC §8.6). Ordered by time, the last one is the
-newest.
+A second description does not replace the first (SPEC §8.6): both are answered, and `nk:current`
+says which is the latest.
+
+### The current description of a step
+
+```sparql
+PREFIX dct:  <http://purl.org/dc/terms/>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX nk:   <https://kton.dev/v/>
+SELECT ?text ?by WHERE {
+  ?claim nk:about <https://kton.dev/o/STEP> ; nk:predicate dct:description ; nk:current true ;
+         <https://kton.dev/v/lab/value> ?text ; nk:signer ?signer .
+  OPTIONAL { ?signer rdfs:label ?by }
+}
+```
 
 ### What one signer said in a time window
 
 ```sparql
-PREFIX dct:  <http://purl.org/dc/terms/>
-PREFIX prov: <http://www.w3.org/ns/prov#>
-PREFIX xsd:  <http://www.w3.org/2001/XMLSchema#>
+PREFIX dct: <http://purl.org/dc/terms/>
+PREFIX nk:  <https://kton.dev/v/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
 SELECT ?claim ?when WHERE {
-  GRAPH ?attribution { ?np dct:creator <https://kton.dev/agent/KEYID> }
-  GRAPH ?pubinfo { ?np dct:created ?when ; prov:wasDerivedFrom ?claim }
+  ?claim nk:signer <https://kton.dev/agent/KEYID> ; dct:created ?when .
   FILTER (?when >= "2026-01-01T00:00:00Z"^^xsd:dateTime && ?when < "2100-01-01T00:00:00Z"^^xsd:dateTime)
 }
 ORDER BY ?when
 ```
 
 Steps carry no time, so this covers claims. The steps a signer signed are
-`?step prov:wasAttributedTo <https://kton.dev/agent/KEYID>`. A trust tier is not in the dataset, so
-name the tier's keys.
+`?step prov:wasAttributedTo <https://kton.dev/agent/KEYID>`. A signer's name and tier are on the
+agent (`rdfs:label`, `nk:tier`).
 
 ### The claims in a scope, by its name
 
 ```sparql
 PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
-PREFIX prov: <http://www.w3.org/ns/prov#>
-PREFIX np:   <http://www.nanopub.org/nschema#>
 PREFIX nk:   <https://kton.dev/v/>
-SELECT ?claim ?subject ?predicate WHERE {
-  GRAPH ?seedAssertion { ?s a nk:Scope ; rdfs:label "study-af-2026" }
-  GRAPH ?seedHead { ?seed np:hasAssertion ?seedAssertion ; np:hasPublicationInfo ?seedInfo }
-  GRAPH ?seedInfo { ?seed nk:genesis true ; nk:scope ?scope }
-  GRAPH ?pubinfo { ?np nk:scope ?scope ; prov:wasDerivedFrom ?claim
-                   FILTER NOT EXISTS { ?np nk:genesis true } }
+SELECT ?claim ?subject ?predicate ?position WHERE {
+  ?seed nk:genesis true ; rdfs:label "study-af-2026" .
+  ?claim nk:scope ?seed ; nk:about ?subject ; nk:predicate ?predicate ; nk:position ?position .
+}
+ORDER BY ?position
+```
+
+One scope at a time: a study's project and programme are not in the projection, and `ask scope`
+names them (`context`).
+
+### The descriptions of a step, in the nanopublication graphs
+
+```sparql
+# dataset: nanopub
+PREFIX dct: <http://purl.org/dc/terms/>
+PREFIX np:  <http://www.nanopub.org/nschema#>
+SELECT ?text ?signer ?when WHERE {
+  GRAPH ?assertion { <https://kton.dev/o/STEP> dct:description ?o . ?o <https://kton.dev/v/lab/value> ?text }
   GRAPH ?head { ?np np:hasAssertion ?assertion ; np:hasPublicationInfo ?pubinfo }
-  GRAPH ?assertion { ?subject ?predicate ?o FILTER NOT EXISTS { ?any ?points ?subject } }
+  GRAPH ?pubinfo { ?np dct:created ?when }
+  GRAPH ?attribution { ?np dct:creator ?signer }
 }
 ```
 
-The subject of a claim is the node in its assertion that nothing else there points to. Its fields
-hang off `?o`. One scope at a time: a study's project and programme are not in the projection, and `ask scope`
-names them (`context`).
+The same claims as the signed form shows them. A claim is four graphs here, and a query over many of
+them is slower than over the claim nodes.
 
 ### Files that two independent signers produced
 
