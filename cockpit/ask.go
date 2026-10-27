@@ -29,6 +29,8 @@ type AskRequest struct {
 	// Limit and TimeoutSeconds bound a sparql answer; the defaults are sparqlLimit and sparqlTimeout.
 	Limit          int `json:"limit,omitempty" jsonschema:"for query sparql: the most rows to return (default 1000, at most 10000)"`
 	TimeoutSeconds int `json:"timeoutSeconds,omitempty" jsonschema:"for query sparql: how long the query may run (default 30, at most 120)"`
+	// Format "sparql-results+json" adds the answer in the standard SPARQL 1.1 Query Results JSON.
+	Format string `json:"format,omitempty" jsonschema:"for query sparql: sparql-results+json adds results, the answer in the standard SPARQL 1.1 Query Results JSON with every value's type, datatype and language"`
 	// Refs are several endpoints at once, for query "ray": the results of the runs to extract a
 	// potential from. Only several runs show which values varied.
 	Refs []string `json:"refs,omitempty" jsonschema:"for query ray: the endpoints of several runs (hashes or files)"`
