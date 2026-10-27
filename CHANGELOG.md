@@ -20,6 +20,8 @@ queries).
   With `format: "sparql-results+json"` (`--results-json`) the answer is also in the standard SPARQL
   1.1 Query Results JSON, every value with its type, datatype and language.
 - **`index.kind: oxigraph`** (ADR-012) is in the default build.
+- **A call reads the material of many records with the own registry opened once**, not once per
+  record (mignon: 266 claims 45.7 s → 0.65 s).
 - **`ask sparql` reads the query projection by default** (ADR-013): every trusted claim is one node
   (`nk:about`, `nk:predicate`, its fields, `nk:signer` with the signer's name and tier, `nk:scope`,
   `nk:position`, `nk:current`), in the view's default graph, so a query names no graphs. Position and

@@ -43,6 +43,10 @@ type Runner struct {
 	// lives for one call, and every write it makes drops what it holds (wrote).
 	opener Opener
 	held   *heldUnion
+	// ownP and ownN are the own registries as material reads opened them: a call that reads the
+	// material of many records opens each once. wrote drops them with the union.
+	ownP *pregistry.Registry
+	ownN *nregistry.Registry
 }
 
 func New(cfg *config.Config) *Runner {
@@ -828,20 +832,26 @@ func (r *Runner) unionMaterial(ctx context.Context, id string) []pregistry.Verif
 func (r *Runner) material(ctx context.Context, bin, id string) ([]StoredMaterial, error) {
 	var out []StoredMaterial
 	if bin == "plankton" {
-		reg, err := pregistry.Open(r.cfg.PlanktonDir)
-		if err != nil {
-			return nil, err
+		if r.ownP == nil {
+			reg, err := pregistry.Open(r.cfg.PlanktonDir)
+			if err != nil {
+				return nil, err
+			}
+			r.ownP = reg
 		}
-		for _, m := range reg.Material(id) {
+		for _, m := range r.ownP.Material(id) {
 			out = append(out, StoredMaterial{Subject: m.Subject, Scheme: m.Scheme, MediaType: m.MediaType, Material: m.Material})
 		}
 		return out, nil
 	}
-	reg, err := nregistry.Open(r.cfg.NektonDir)
-	if err != nil {
-		return nil, err
+	if r.ownN == nil {
+		reg, err := nregistry.Open(r.cfg.NektonDir)
+		if err != nil {
+			return nil, err
+		}
+		r.ownN = reg
 	}
-	for _, m := range reg.Material(id) {
+	for _, m := range r.ownN.Material(id) {
 		out = append(out, StoredMaterial{Subject: m.Subject, Scheme: m.Scheme, MediaType: m.MediaType, Material: m.Material})
 	}
 	return out, nil
