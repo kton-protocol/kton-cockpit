@@ -76,9 +76,11 @@ func Query(ctx context.Context, d *Daemon, cfg *config.Config, keys []ed25519.Pu
 
 // prepared is the dataset of one query: its graphs, and how the registries behind them were read.
 type prepared struct {
-	def, named []string
-	registries int
-	kept       bool
+	// def and named are the kernel's projection (records once, claims as nanopublications); claims
+	// is the default graph of the query projection (ADR-013): the records and the claims as nodes.
+	def, named, claims []string
+	registries         int
+	kept               bool
 }
 
 // prepare reads into the store whatever changed in the registries of cfg's union and chooses the
@@ -88,7 +90,11 @@ func (d *Daemon) prepare(ctx context.Context, cfg *config.Config, keys []ed25519
 	if err != nil {
 		return nil, err
 	}
-	slot, key := datasetKey(inputs, keys)
+	vc, err := ViewConfigFor(cfg)
+	if err != nil {
+		return nil, err
+	}
+	slot, key := datasetKey(inputs, keys, vc.Fingerprint())
 	if ds, ok := d.keptDataset(ctx, slot, key); ok {
 		return ds, nil
 	}
@@ -104,14 +110,19 @@ func (d *Daemon) prepare(ctx context.Context, cfg *config.Config, keys []ed25519
 			regs = append(regs, regIRI(r.dir))
 		}
 	}
-	def, named, err := d.dataset(ctx, regs, trustedIDs(keys))
+	def, named, pubinfo, err := d.dataset(ctx, regs, trustedIDs(keys))
 	if err != nil {
 		return nil, err
 	}
-	if err := d.makeView(ctx, slot, key, def); err != nil {
+	claimsNT, err := d.claimView(ctx, named, pubinfo, vc)
+	if err != nil {
+		return nil, fmt.Errorf("building the query projection of the claims: %w", err)
+	}
+	if err := d.makeView(ctx, slot, key, def, claimsNT); err != nil {
 		return nil, fmt.Errorf("writing the index's view of the trusted records: %w", err)
 	}
-	ds := &prepared{def: []string{viewIRI(slot)}, named: named, registries: len(regs), kept: kept}
+	ds := &prepared{def: []string{viewIRI(slot)}, claims: []string{viewIRI(slot), claimsIRI(slot)},
+		named: named, registries: len(regs), kept: kept}
 	d.keepDataset(slot, key, ds)
 	return ds, nil
 }
@@ -328,7 +339,7 @@ func (d *Daemon) forgetDeparted(ctx context.Context, reg string, held, attests, 
 }
 
 // dataset is the default and the named graphs a query of these registries reads under trusted.
-func (d *Daemon) dataset(ctx context.Context, regs []string, trusted map[string]bool) (def, named []string, err error) {
+func (d *Daemon) dataset(ctx context.Context, regs []string, trusted map[string]bool) (def, named, pubinfo []string, err error) {
 	vals := make([]string, len(regs))
 	for i, r := range regs {
 		vals[i] = "<" + r + ">"
@@ -339,12 +350,12 @@ func (d *Daemon) dataset(ctx context.Context, regs []string, trusted map[string]
 	held, err := d.selectCSV(ctx, url.Values{"query": {fmt.Sprintf(`SELECT DISTINCT ?reg ?rec ?layer WHERE { GRAPH <%s> {
   VALUES ?reg { %s } ?reg <%sholds> ?rec . ?rec <%slayer> ?layer } }`, indexGraph, strings.Join(vals, " "), kNS, kNS)}})
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	attested, err := d.selectCSV(ctx, url.Values{"query": {fmt.Sprintf(`SELECT DISTINCT ?reg ?rec ?ag ?kid WHERE { GRAPH <%s> {
   VALUES ?reg { %s } ?reg <%sattests> ?ag . ?ag <%sof> ?rec ; <%skeyid> ?kid } }`, indexGraph, strings.Join(vals, " "), kNS, kNS, kNS)}})
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	type rec struct {
 		layer string
@@ -377,10 +388,14 @@ func (d *Daemon) dataset(ctx context.Context, regs []string, trusted map[string]
 			named = append(named, p.graphs()...)
 			named = append(named, x.attr...)
 		}
+		if x.layer == "nekton" {
+			pubinfo = append(pubinfo, g+"#pubinfo") // every claim: a chain counts all of them
+		}
 	}
 	sort.Strings(def)
 	sort.Strings(named)
-	return def, named, nil
+	sort.Strings(pubinfo)
+	return def, named, pubinfo, nil
 }
 
 // selectOn runs query with exactly def as its default graph and named as its named graphs.

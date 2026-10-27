@@ -20,6 +20,13 @@ queries).
   With `format: "sparql-results+json"` (`--results-json`) the answer is also in the standard SPARQL
   1.1 Query Results JSON, every value with its type, datatype and language.
 - **`index.kind: oxigraph`** (ADR-012) is in the default build.
+- **`ask sparql` reads the query projection by default** (ADR-013): every trusted claim is one node
+  (`nk:about`, `nk:predicate`, its fields, `nk:signer` with the signer's name and tier, `nk:scope`,
+  `nk:position`, `nk:current`), in the view's default graph, so a query names no graphs. Position and
+  current are computed once per change instead of walked by `nk:prev+`; template aliases give a
+  field its term, field types its datatype. `dataset: "nanopub"` (or `# dataset: nanopub` as the
+  query's first line) reads the kernel's nanopublication graphs as before. Two tour queries on 24
+  registries: 7–19 s → 60–70 ms.
 - **A query's default graph is one view graph**, the trusted records copied together once per
   dataset, not a few thousand record graphs listed per query: the engine joined over that list
   graph by graph. A join over records and claims went from over 50 s to 1.3 s.

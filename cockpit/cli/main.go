@@ -151,10 +151,12 @@ func runMCP(ctx context.Context) error {
 		Description: "fragen: query the registry graph (producer/uses/lineage/reproductions/about/by). " +
 			"Every returned record is independently re-verified against this repo's configured trust " +
 			"tiers before being included — never trusted from its declared keyid. " +
-			"query sparql takes a SELECT or ASK of your own (field sparql) over the kernel's RDF projection: " +
-			"steps (prov:Activity, prov:used, prov:wasGeneratedBy) in the default graph, attributed with " +
-			"prov:wasAttributedTo only where a trusted key verified them; claims a trusted key signed as " +
-			"nanopublications in named graphs (GRAPH ?a { ?subject ?predicate ?o }). " +
+			"query sparql takes a SELECT or ASK of your own (field sparql), all in the default graph: " +
+			"steps (prov:Activity, prov:used, prov:wasGeneratedBy), attributed with prov:wasAttributedTo " +
+			"only where a trusted key verified them; and every claim a trusted key signed as a node " +
+			"(nk:about, nk:predicate, its fields nk:lab/<field>, nk:signer with rdfs:label and nk:tier, " +
+			"dct:created, nk:scope, nk:position, nk:current), nk: = https://kton.dev/v/. " +
+			"dataset nanopub reads the claims as nanopublication graphs instead. " +
 			"A file or record sha256:<hex> is <https://kton.dev/o/<hex>>. No FROM, no SERVICE.",
 	}, mcpsurface.Handler(c.Ask))
 
