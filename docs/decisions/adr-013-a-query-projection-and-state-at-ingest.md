@@ -48,7 +48,7 @@ breaks, and it breaks where the work is meant to grow:
 - **A query projection is derived from it, per configuration.** A configuration is the registries of a
   union plus a set of trusted keys (the "view" of PR #48). Only what that key set may see goes in. A
   configuration that trusts other keys reads another view. A tier is still never stored as a fact about a
-  record (ADR-012 §1).
+  record (ADR-012, section 1).
 - **The kernel does not change.** Nanopub stays the signed and published form. Aliases and types come from
   the template, which is content with a hash that every claim names.
 
@@ -134,7 +134,7 @@ the node:
 
 ### 7 What does not change
 
-- The registries stay the only truth, and the index is never authoritative (ADR-012 §1).
+- The registries stay the only truth, and the index is never authoritative (ADR-012, section 1).
 - The binding is re-checked on every call (SPEC §5).
 - Ingest goes through the substrate (SPEC §12.3).
 - The kernel's projection, attribution and nanopublication graphs are kept as they are.
