@@ -18,6 +18,9 @@ queries).
   (`{"query":"sparql","sparql":…}`) or `cockpit ask sparql <query.rq|->`. The vocabulary and tested
   examples are in `docs/sparql.md`.
 - **`index.kind: oxigraph`** (ADR-012) is in the default build.
+- **A query's default graph is one view graph**, the trusted records copied together once per
+  dataset, not a few thousand record graphs listed per query: the engine joined over that list
+  graph by graph. A join over records and claims went from over 50 s to 1.3 s.
 
 ## v0.3.0 — 2026-10-23
 
