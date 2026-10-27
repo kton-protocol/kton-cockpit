@@ -155,7 +155,9 @@ func runMCP(ctx context.Context) error {
 			"steps (prov:Activity, prov:used, prov:wasGeneratedBy) in the default graph, attributed with " +
 			"prov:wasAttributedTo only where a trusted key verified them; claims a trusted key signed as " +
 			"nanopublications in named graphs (GRAPH ?a { ?subject ?predicate ?o }). " +
-			"A file or record sha256:<hex> is <https://kton.dev/o/<hex>>. No FROM, no SERVICE.",
+			"A file or record sha256:<hex> is <https://kton.dev/o/<hex>>. No FROM, no SERVICE. " +
+			"query feed returns the trusted records after a cursor (field cursor, empty for the start), " +
+			"each with its signer, and the cursor to ask from next.",
 	}, mcpsurface.Handler(c.Ask))
 
 	return server.Run(ctx, &mcp.StdioTransport{})

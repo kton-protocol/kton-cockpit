@@ -18,6 +18,14 @@ queries).
   (`{"query":"sparql","sparql":…}`) or `cockpit ask sparql <query.rq|->`. The vocabulary and tested
   examples are in `docs/sparql.md`.
 - **`index.kind: oxigraph`** (ADR-012) is in the default build.
+- **`ask feed`** (SPEC §9.10): the union's trusted records after a cursor, each with the key that
+  verifies it, its tier and name, and the next cursor; untrusted ones counted. For a program that
+  follows the work (mignon's handoff 2.2) instead of walking the registry's files.
+- **`cockpit.Open`**, a Cockpit for a process that answers many calls (a local service, handoff 2.1):
+  it keeps the opened union between calls until a registry changes, whatever `index.kind` says, and
+  `Close` lets it go. Every call still re-checks the binding.
+- **A foton's signed locators are read from source registries kept open per process**, until one
+  moves: a held `ask producer` on 24 registries went from 1 s to 60 ms.
 
 ## v0.3.0 — 2026-10-23
 
