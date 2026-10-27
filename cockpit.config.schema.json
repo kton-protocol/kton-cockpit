@@ -200,7 +200,7 @@
       "properties": {
         "kind": { "type": "string", "enum": ["none", "memory", "oxigraph"], "description": "\"none\" (default): the registries are opened on every call. \"memory\": the opened registries are kept for as long as the process runs and opened again when a file in one of them changes; useful for the MCP server, which runs across calls. An answer read through it says so (ask's \"index\" field). \"oxigraph\" (only in a build with the kernel's RDF projections): memory, plus one long-running Oxigraph per machine that keeps the projection vocabulary queries run on, started by the first query from query.image." },
         "url": { "type": "string", "description": "For kind oxigraph: an Oxigraph SPARQL server to connect to instead of starting one." },
-        "memory": { "type": "string", "description": "For kind oxigraph: the memory limit of the Oxigraph container the cockpit starts, in the engine's notation. Default \"2g\"." }
+        "memory": { "type": "string", "description": "For kind oxigraph: the memory limit of the Oxigraph container the cockpit starts, in the engine's notation (\"8g\"). Default \"2g\". A running daemon started with less is restarted with this on the same store by the next query; one started with more is left as it is." }
       }
     },
     "reproduction": {

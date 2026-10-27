@@ -45,7 +45,10 @@ func runIndex(ctx context.Context, args []string) error {
 			if err != nil {
 				return err
 			}
-			fmt.Printf("daemon: %s, container %s\n  image  %s\n  schema %d\n  registries %d\n", l.URL, l.Container, l.Image, l.Schema, n)
+			fmt.Printf("daemon: %s, container %s\n  image  %s\n  schema %d\n  memory %s\n  registries %d\n", l.URL, l.Container, l.Image, l.Schema, l.MemoryOrDefault(), n)
+			if want := cfg.Raw.Index.MemoryOrDefault(); config.MemoryAbove(want, l.MemoryOrDefault()) {
+				fmt.Printf("  ! this configuration asks for %s (index.memory): the next query restarts it with that, on the same store\n", want)
+			}
 			if l.Schema != oxigraph.Schema {
 				fmt.Printf("  ! its store schema is not this cockpit's (%d): cockpit index stop\n", oxigraph.Schema)
 			}

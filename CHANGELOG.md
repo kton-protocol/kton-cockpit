@@ -18,6 +18,9 @@ queries).
   (`{"query":"sparql","sparql":…}`) or `cockpit ask sparql <query.rq|->`. The vocabulary and tested
   examples are in `docs/sparql.md`.
 - **`index.kind: oxigraph`** (ADR-012) is in the default build.
+- **`index.memory` takes effect on a running daemon**: a configuration asking for more than it was
+  started with restarts it with that limit on the same store; `index status` shows the limit. A
+  limit that cannot be read is refused at load.
 
 ## v0.3.0 — 2026-10-23
 
