@@ -19,6 +19,11 @@ queries).
   examples are in `docs/sparql.md`.
 - **`index.kind: oxigraph`** (ADR-012) is in the default build.
 
+### Fixed
+
+- **`cockpit <command> --help` prints that command's usage and runs nothing.** `init --help`
+  scaffolded the current directory, `mcp --help` started the server.
+
 ## v0.3.0 — 2026-10-23
 
 Tracks kton v0.2.1 (`kton.dev/plankton`, `nekton`, `kton` by `require`, no vendoring). What needs

@@ -38,6 +38,10 @@ func Main() {
 		os.Exit(2)
 	}
 
+	if help, ok := helpFor(os.Args[1:]); ok {
+		fmt.Print(help)
+		return
+	}
 	ctx := context.Background()
 	var err error
 	switch os.Args[1] {
@@ -93,8 +97,39 @@ func Main() {
 	}
 }
 
-func usage() {
-	fmt.Fprintf(os.Stderr, `cockpit - kton-cockpit
+func usage() { fmt.Fprint(os.Stderr, usageText()) }
+
+// helpFor answers `cockpit <command> --help` with that command's lines of the usage, before the
+// command runs: `init --help` used to scaffold the current directory, `mcp --help` to start the
+// server. The verbs answer --help with their fields themselves (verbhelp.go).
+func helpFor(args []string) (string, bool) {
+	if len(args) != 2 || (args[1] != "--help" && args[1] != "-h") {
+		return "", false
+	}
+	switch args[0] {
+	case "publish", "say", "ask":
+		return "", false
+	}
+	var b strings.Builder
+	in := false
+	for _, l := range strings.Split(usageText(), "\n") {
+		if f := strings.Fields(l); len(f) >= 2 && f[0] == "cockpit" && strings.HasPrefix(l, "  cockpit ") {
+			in = f[1] == args[0]
+		} else if !strings.HasPrefix(l, "   ") {
+			in = false
+		}
+		if in {
+			b.WriteString(l + "\n")
+		}
+	}
+	if b.Len() == 0 {
+		return usageText(), true
+	}
+	return b.String(), true
+}
+
+func usageText() string {
+	return fmt.Sprintf(`cockpit - kton-cockpit
 
 usage:
   cockpit publish --in FILE... --out FILE... -- COMMAND   record a result as a signed foton
