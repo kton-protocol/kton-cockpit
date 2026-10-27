@@ -43,6 +43,10 @@ type Runner struct {
 	// lives for one call, and every write it makes drops what it holds (wrote).
 	opener Opener
 	held   *heldUnion
+	// ownP and ownN are the own registries as material reads opened them: a call that reads the
+	// material of many records opens each once. wrote drops them with the union.
+	ownP *pregistry.Registry
+	ownN *nregistry.Registry
 }
 
 func New(cfg *config.Config) *Runner {
@@ -581,7 +585,11 @@ func (r *Runner) Annotate(ctx context.Context, subject, tmplName string, sets ma
 
 // templates loads this repo's template set. An alias file is optional and this cockpit ships none:
 // its templates name predicates by full IRI, so there is no prefix to resolve (SPEC §8.1).
-func (r *Runner) templates() (ntemplate.Set, error) {
+func (r *Runner) templates() (ntemplate.Set, error) { return r.Templates() }
+
+// Templates is this repo's template set: its template directory, the allowed packages' templates, and
+// the alias file at the repository root.
+func (r *Runner) Templates() (ntemplate.Set, error) {
 	aliasPath := filepath.Join(r.cfg.RepoRoot, "aliases.json")
 	var aliases []byte
 	if b, err := os.ReadFile(aliasPath); err == nil {
@@ -824,20 +832,26 @@ func (r *Runner) unionMaterial(ctx context.Context, id string) []pregistry.Verif
 func (r *Runner) material(ctx context.Context, bin, id string) ([]StoredMaterial, error) {
 	var out []StoredMaterial
 	if bin == "plankton" {
-		reg, err := pregistry.Open(r.cfg.PlanktonDir)
-		if err != nil {
-			return nil, err
+		if r.ownP == nil {
+			reg, err := pregistry.Open(r.cfg.PlanktonDir)
+			if err != nil {
+				return nil, err
+			}
+			r.ownP = reg
 		}
-		for _, m := range reg.Material(id) {
+		for _, m := range r.ownP.Material(id) {
 			out = append(out, StoredMaterial{Subject: m.Subject, Scheme: m.Scheme, MediaType: m.MediaType, Material: m.Material})
 		}
 		return out, nil
 	}
-	reg, err := nregistry.Open(r.cfg.NektonDir)
-	if err != nil {
-		return nil, err
+	if r.ownN == nil {
+		reg, err := nregistry.Open(r.cfg.NektonDir)
+		if err != nil {
+			return nil, err
+		}
+		r.ownN = reg
 	}
-	for _, m := range reg.Material(id) {
+	for _, m := range r.ownN.Material(id) {
 		out = append(out, StoredMaterial{Subject: m.Subject, Scheme: m.Scheme, MediaType: m.MediaType, Material: m.Material})
 	}
 	return out, nil

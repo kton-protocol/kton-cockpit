@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"kton.dev/plankton/core"
 
@@ -29,6 +30,7 @@ type sparqlFixture struct {
 	step, theirStep      string // foton hex
 	keyid                string // our claims key
 	described, rationale string // claim hex
+	newer                string // claim hex: a second description, after described
 	scoped               string // claim hex
 }
 
@@ -75,6 +77,8 @@ func newSparqlFixture(t *testing.T) *sparqlFixture {
 	f.step = hexOf(mine.FotonID)
 	f.described = hexOf(sayValue(t, mine.FotonID, "describes", "dropped rows without a visit date"))
 	f.rationale = hexOf(sayValue(t, mine.FotonID, "rationale", "the protocol counts visits, not patients"))
+	time.Sleep(1100 * time.Millisecond) // a later signed time: claims are dated to the second
+	f.newer = hexOf(sayValue(t, mine.FotonID, "describes", "dropped rows without a visit date, and duplicates"))
 	res, said, err := Say(ctx, nil, SayRequest{Subject: mine.FotonID, Template: "working-on", Scope: "study",
 		Fields: map[string]string{"step": "analysis", "by-session": testrepo.SessionID}})
 	if err != nil || res.IsError {
@@ -109,11 +113,53 @@ func docExamples(t *testing.T) map[string]string {
 
 func sparqlAsk(t *testing.T, q string) *SparqlAnswer {
 	t.Helper()
-	res, out, err := Ask(context.Background(), nil, AskRequest{Query: "sparql", Sparql: q})
+	return sparqlAskIn(t, q, "")
+}
+
+func sparqlAskIn(t *testing.T, q, dataset string) *SparqlAnswer {
+	t.Helper()
+	res, out, err := Ask(context.Background(), nil, AskRequest{Query: "sparql", Sparql: q, Dataset: dataset})
 	if err != nil || res.IsError {
 		t.Fatalf("%s\n%v %s", q, err, errText(res))
 	}
 	return out.Sparql
+}
+
+// With format sparql-results+json the answer is also in SPARQL 1.1 Query Results JSON, where an IRI
+// is a uri, a time a literal with its datatype, and an ASK a boolean with no bindings.
+func standardResults(t *testing.T) {
+	const q = `PREFIX dct: <http://purl.org/dc/terms/>
+PREFIX nk: <https://kton.dev/v/>
+SELECT ?step ?when ?text WHERE {
+  ?c nk:about ?step ; nk:predicate dct:description ; nk:current true ; dct:created ?when ;
+     <https://kton.dev/v/lab/value> ?text .
+}`
+	res, out, err := Ask(context.Background(), nil, AskRequest{Query: "sparql", Sparql: q, Format: SparqlFormatStandard})
+	if err != nil || res.IsError {
+		t.Fatalf("%v %s", err, errText(res))
+	}
+	r := out.Sparql.Results
+	if r == nil || r.Results == nil || len(r.Results.Bindings) != 1 || strings.Join(r.Head.Vars, " ") != "step when text" {
+		t.Fatalf("want one binding under step, when, text: %+v", r)
+	}
+	b := r.Results.Bindings[0]
+	if b["step"].Type != "uri" || b["when"].Type != "literal" ||
+		b["when"].Datatype != "http://www.w3.org/2001/XMLSchema#dateTime" ||
+		b["text"].Type != "literal" || b["text"].Value != "dropped rows without a visit date, and duplicates" {
+		t.Errorf("want a uri, a dateTime literal and a text literal: %+v", b)
+	}
+	doc, _ := json.Marshal(r)
+	if !strings.Contains(string(doc), `"head":{"vars":["step","when","text"]},"results":{"bindings":[`) {
+		t.Errorf("not the standard document: %s", doc)
+	}
+
+	_, out, err = Ask(context.Background(), nil, AskRequest{Query: "sparql", Sparql: "ASK { ?s ?p ?o }", Format: SparqlFormatStandard})
+	if err != nil || out.Sparql.Results == nil || out.Sparql.Results.Boolean == nil || out.Sparql.Results.Results != nil {
+		t.Errorf("an ASK: want a boolean and no bindings: %+v %v", out, err)
+	}
+	if res, _, _ := Ask(context.Background(), nil, AskRequest{Query: "sparql", Sparql: q, Format: "csv"}); res == nil || !res.IsError {
+		t.Error("format csv: want a refusal")
+	}
 }
 
 func column(a *SparqlAnswer, v string) map[string]bool {
@@ -147,16 +193,22 @@ func TestSparql_TheExamplesAnswerOverAFixture(t *testing.T) {
 			}
 		}},
 		{"The descriptions and rationales of a step", map[string]string{"STEP": f.step}, func(t *testing.T, a *SparqlAnswer) {
-			got := map[string]string{}
+			got := map[string]int{}
 			for _, r := range a.Rows {
-				got[r["kind"]] = r["text"]
+				got[r["kind"]+": "+r["text"]]++
 				if r["signer"] != agent || r["when"] == "" {
 					t.Errorf("want our signer and a time: %v", r)
 				}
 			}
-			if len(a.Rows) != 2 || got["description"] != "dropped rows without a visit date" ||
-				got["rationale"] != "the protocol counts visits, not patients" {
-				t.Errorf("want the description and the rationale: %v", a.Rows)
+			if a.Dataset != "claims" || len(a.Rows) != 3 || got["description: dropped rows without a visit date"] != 1 ||
+				got["description: dropped rows without a visit date, and duplicates"] != 1 ||
+				got["rationale: the protocol counts visits, not patients"] != 1 {
+				t.Errorf("want both descriptions and the rationale, from the claim nodes: %v", a.Rows)
+			}
+		}},
+		{"The current description of a step", map[string]string{"STEP": f.step}, func(t *testing.T, a *SparqlAnswer) {
+			if len(a.Rows) != 1 || a.Rows[0]["text"] != "dropped rows without a visit date, and duplicates" || a.Rows[0]["by"] == "" {
+				t.Errorf("want the newer description alone, with its signer's name: %v", a.Rows)
 			}
 		}},
 		{"What one signer said in a time window", map[string]string{"KEYID": f.keyid}, func(t *testing.T, a *SparqlAnswer) {
@@ -167,8 +219,15 @@ func TestSparql_TheExamplesAnswerOverAFixture(t *testing.T) {
 		}},
 		{"The claims in a scope, by its name", nil, func(t *testing.T, a *SparqlAnswer) {
 			if len(a.Rows) != 1 || a.Rows[0]["claim"] != o(f.scoped) || a.Rows[0]["subject"] != o(f.step) ||
-				a.Rows[0]["predicate"] != "https://kton.dev/v/working-on" {
-				t.Errorf("want the one claim chained in the study: %v", a.Rows)
+				a.Rows[0]["predicate"] != "https://kton.dev/v/working-on" || a.Rows[0]["position"] != "1" {
+				t.Errorf("want the one claim chained in the study, first after its seed: %v", a.Rows)
+			}
+		}},
+		{"The descriptions of a step, in the nanopublication graphs", map[string]string{"STEP": f.step}, func(t *testing.T, a *SparqlAnswer) {
+			texts := column(a, "text")
+			if a.Dataset != "nanopub" || len(a.Rows) != 2 || !texts["dropped rows without a visit date"] ||
+				!texts["dropped rows without a visit date, and duplicates"] {
+				t.Errorf("want both descriptions from the nanopublication graphs: %+v", a)
 			}
 		}},
 		{"Files that two independent signers produced", nil, func(t *testing.T, a *SparqlAnswer) {
@@ -229,11 +288,17 @@ func TestSparql_TheExamplesAnswerOverAFixture(t *testing.T) {
 				}
 			})
 		}
+		t.Run(path+"/the standard results keep each value's type", func(t *testing.T) { standardResults(t) })
 	}
 
-	// A claim nobody here trusts is not in the dataset, whatever a query asks for.
-	a := sparqlAsk(t, `SELECT ?text { GRAPH ?g { ?s <http://purl.org/dc/terms/description> ?o . ?o <https://kton.dev/v/lab/value> ?text } }`)
-	if texts := column(a, "text"); texts["said by a key nobody here trusts"] || len(texts) != 1 {
-		t.Errorf("want our description only: %v", a.Rows)
+	// A claim nobody here trusts is in neither dataset, whatever a query asks for.
+	for dataset, q := range map[string]string{
+		"claims":  `SELECT ?text { ?c <https://kton.dev/v/predicate> <http://purl.org/dc/terms/description> ; <https://kton.dev/v/lab/value> ?text }`,
+		"nanopub": `SELECT ?text { GRAPH ?g { ?s <http://purl.org/dc/terms/description> ?o . ?o <https://kton.dev/v/lab/value> ?text } }`,
+	} {
+		a := sparqlAskIn(t, q, dataset)
+		if texts := column(a, "text"); texts["said by a key nobody here trusts"] || len(texts) != 2 {
+			t.Errorf("%s: want our two descriptions only: %v", dataset, a.Rows)
+		}
 	}
 }

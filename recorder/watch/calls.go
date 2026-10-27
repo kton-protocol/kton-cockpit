@@ -344,15 +344,45 @@ func (sv *Service) callsOf(session string, t *Task) []Call {
 	return cs
 }
 
-// ProjectCalls: every tool call of a project, in time order.
+// ProjectCalls: every tool call of a project, in time order. The tasks are not compared with
+// the disk (projectTasks would hash every file they touched): a call is what was recorded.
 func (sv *Service) ProjectCalls(project string) []Call {
 	sv.mu.RLock()
 	defer sv.mu.RUnlock()
+	var tasks []*Task
+	f := Filter{HideNoise: true}
+	for id, tr := range sv.sessions {
+		if tr.s.Project != project {
+			continue
+		}
+		for _, t := range f.View(tr.s) {
+			t.Session = id
+			tasks = append(tasks, t)
+		}
+	}
+	sort.SliceStable(tasks, func(i, j int) bool { return tasks[i].End < tasks[j].End })
 	var out []Call
-	for _, t := range sv.projectTasks(NewChecker(), project) {
+	for _, t := range tasks {
 		out = append(out, sv.callsOf(t.Session, t)...)
 	}
 	return out
+}
+
+// Wrote says whether the call wrote the file: a sha256, an absolute path, or a path relative
+// to the call's working directory.
+func (c Call) Wrote(file string) bool {
+	for _, w := range c.Writes {
+		if w.SHA256 == file || w.Path == file || w.Rel == file {
+			return true
+		}
+	}
+	return false
+}
+
+// Brief is the call without its file lists, for long listings: the files it wrote stay.
+func (c Call) Brief() Call {
+	c.Reads, c.Outside, c.Missing = nil, nil, nil
+	return c
 }
 
 // CallsByKey: every recorded call with this key, in any project.
