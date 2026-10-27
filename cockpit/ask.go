@@ -32,6 +32,12 @@ type AskRequest struct {
 	// Cursor is where query "feed" starts: the cursor the last answer handed out, or empty for
 	// the beginning.
 	Cursor string `json:"cursor,omitempty" jsonschema:"for query feed: the cursor the last answer returned; empty starts at the beginning"`
+	// Dataset is the projection a sparql query reads (ADR-013): "claims", the default, where every
+	// claim is a node with its signer, scope, position and whether it is current; or "nanopub", the
+	// kernel's projection with each claim as a nanopublication of named graphs.
+	Dataset string `json:"dataset,omitempty" jsonschema:"for query sparql: claims (default; a claim is a node: nk:about, nk:predicate, its fields, nk:signer, nk:scope, nk:position, nk:current) or nanopub (the kernel's nanopublication graphs)"`
+	// Format "sparql-results+json" adds the answer in the standard SPARQL 1.1 Query Results JSON.
+	Format string `json:"format,omitempty" jsonschema:"for query sparql: sparql-results+json adds results, the answer in the standard SPARQL 1.1 Query Results JSON with every value's type, datatype and language"`
 	// Refs are several endpoints at once, for query "ray": the results of the runs to extract a
 	// potential from. Only several runs show which values varied.
 	Refs []string `json:"refs,omitempty" jsonschema:"for query ray: the endpoints of several runs (hashes or files)"`

@@ -17,6 +17,8 @@ queries).
 - **`ask sparql`** (SPEC §9.9): a SELECT or ASK of one's own over the trusted dataset, from MCP
   (`{"query":"sparql","sparql":…}`) or `cockpit ask sparql <query.rq|->`. The vocabulary and tested
   examples are in `docs/sparql.md`.
+  With `format: "sparql-results+json"` (`--results-json`) the answer is also in the standard SPARQL
+  1.1 Query Results JSON, every value with its type, datatype and language.
 - **`index.kind: oxigraph`** (ADR-012) is in the default build.
 - **`ask feed`** (SPEC §9.10): the union's trusted records after a cursor, each with the key that
   verifies it, its tier and name, and the next cursor; untrusted ones counted. For a program that
@@ -26,6 +28,26 @@ queries).
   `Close` lets it go. Every call still re-checks the binding.
 - **A foton's signed locators are read from source registries kept open per process**, until one
   moves: a held `ask producer` on 24 registries went from 1 s to 60 ms.
+- **`index.memory` takes effect on a running daemon**: a configuration asking for more than it was
+  started with restarts it with that limit on the same store; `index status` shows the limit. A
+  limit that cannot be read is refused at load.
+- **A call reads the material of many records with the own registry opened once**, not once per
+  record (mignon: 266 claims 45.7 s → 0.65 s).
+- **`ask sparql` reads the query projection by default** (ADR-013): every trusted claim is one node
+  (`nk:about`, `nk:predicate`, its fields, `nk:signer` with the signer's name and tier, `nk:scope`,
+  `nk:position`, `nk:current`), in the view's default graph, so a query names no graphs. Position and
+  current are computed once per change instead of walked by `nk:prev+`; template aliases give a
+  field its term, field types its datatype. `dataset: "nanopub"` (or `# dataset: nanopub` as the
+  query's first line) reads the kernel's nanopublication graphs as before. Two tour queries on 24
+  registries: 7–19 s → 60–70 ms.
+- **A query's default graph is one view graph**, the trusted records copied together once per
+  dataset, not a few thousand record graphs listed per query: the engine joined over that list
+  graph by graph. A join over records and claims went from over 50 s to 1.3 s.
+
+### Fixed
+
+- **`cockpit <command> --help` prints that command's usage and runs nothing.** `init --help`
+  scaffolded the current directory, `mcp --help` started the server.
 
 ## v0.3.0 — 2026-10-23
 

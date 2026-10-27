@@ -38,6 +38,10 @@ func Main() {
 		os.Exit(2)
 	}
 
+	if help, ok := helpFor(os.Args[1:]); ok {
+		fmt.Print(help)
+		return
+	}
 	ctx := context.Background()
 	var err error
 	switch os.Args[1] {
@@ -93,8 +97,39 @@ func Main() {
 	}
 }
 
-func usage() {
-	fmt.Fprintf(os.Stderr, `cockpit - kton-cockpit
+func usage() { fmt.Fprint(os.Stderr, usageText()) }
+
+// helpFor answers `cockpit <command> --help` with that command's lines of the usage, before the
+// command runs: `init --help` used to scaffold the current directory, `mcp --help` to start the
+// server. The verbs answer --help with their fields themselves (verbhelp.go).
+func helpFor(args []string) (string, bool) {
+	if len(args) != 2 || (args[1] != "--help" && args[1] != "-h") {
+		return "", false
+	}
+	switch args[0] {
+	case "publish", "say", "ask":
+		return "", false
+	}
+	var b strings.Builder
+	in := false
+	for _, l := range strings.Split(usageText(), "\n") {
+		if f := strings.Fields(l); len(f) >= 2 && f[0] == "cockpit" && strings.HasPrefix(l, "  cockpit ") {
+			in = f[1] == args[0]
+		} else if !strings.HasPrefix(l, "   ") {
+			in = false
+		}
+		if in {
+			b.WriteString(l + "\n")
+		}
+	}
+	if b.Len() == 0 {
+		return usageText(), true
+	}
+	return b.String(), true
+}
+
+func usageText() string {
+	return fmt.Sprintf(`cockpit - kton-cockpit
 
 usage:
   cockpit publish --in FILE... --out FILE... -- COMMAND   record a result as a signed foton
@@ -151,10 +186,12 @@ func runMCP(ctx context.Context) error {
 		Description: "fragen: query the registry graph (producer/uses/lineage/reproductions/about/by). " +
 			"Every returned record is independently re-verified against this repo's configured trust " +
 			"tiers before being included — never trusted from its declared keyid. " +
-			"query sparql takes a SELECT or ASK of your own (field sparql) over the kernel's RDF projection: " +
-			"steps (prov:Activity, prov:used, prov:wasGeneratedBy) in the default graph, attributed with " +
-			"prov:wasAttributedTo only where a trusted key verified them; claims a trusted key signed as " +
-			"nanopublications in named graphs (GRAPH ?a { ?subject ?predicate ?o }). " +
+			"query sparql takes a SELECT or ASK of your own (field sparql), all in the default graph: " +
+			"steps (prov:Activity, prov:used, prov:wasGeneratedBy), attributed with prov:wasAttributedTo " +
+			"only where a trusted key verified them; and every claim a trusted key signed as a node " +
+			"(nk:about, nk:predicate, its fields nk:lab/<field>, nk:signer with rdfs:label and nk:tier, " +
+			"dct:created, nk:scope, nk:position, nk:current), nk: = https://kton.dev/v/. " +
+			"dataset nanopub reads the claims as nanopublication graphs instead. " +
 			"A file or record sha256:<hex> is <https://kton.dev/o/<hex>>. No FROM, no SERVICE. " +
 			"query feed returns the trusted records after a cursor (field cursor, empty for the start), " +
 			"each with its signer, and the cursor to ask from next.",

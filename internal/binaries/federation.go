@@ -271,8 +271,9 @@ func (r *Runner) read(ctx context.Context) (*Union, error) {
 	return u, nil
 }
 
-// wrote drops the union after a write to the own registry: the next read opens it again.
-func (r *Runner) wrote() { r.held = nil }
+// wrote drops the union and the own registries after a write to the own registry: the next read
+// opens them again.
+func (r *Runner) wrote() { r.held, r.ownP, r.ownN = nil, nil, nil }
 
 // Reading a registry the cockpit does not own must not change it. The kernel's Open is the writer's:
 // it numbers the store and persists that (.seq, a fresh epoch), and creates a directory that is not

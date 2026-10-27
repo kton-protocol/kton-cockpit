@@ -51,7 +51,7 @@ func TestQuery_TheIndexAnswersAsAContainerForTheQueryDoes(t *testing.T) {
 		`PREFIX prov: <http://www.w3.org/ns/prov#> SELECT ?g ?a ?k WHERE { GRAPH ?g { ?a prov:wasAttributedTo ?k } }`,
 	} {
 		dir := t.TempDir()
-		if err := projectRegistries(ctx, cfg, keys, dir); err != nil {
+		if err := projectRegistries(ctx, cfg, keys, oxigraph.DatasetNanopub, dir); err != nil {
 			t.Fatal(err)
 		}
 		must(t, os.WriteFile(filepath.Join(dir, "query.rq"), []byte(q), 0o644))

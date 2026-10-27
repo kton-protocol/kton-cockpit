@@ -21,13 +21,13 @@ import (
 
 // inContainer evaluates q in a container started for it alone, over the dataset projected for keys,
 // and returns the engine's answer in format. A timeout above zero bounds the evaluation.
-func inContainer(ctx context.Context, cfg *config.Config, keys []ed25519.PublicKey, q []byte, format string, timeout time.Duration) (string, error) {
+func inContainer(ctx context.Context, cfg *config.Config, keys []ed25519.PublicKey, q []byte, format, dataset string, timeout time.Duration) (string, error) {
 	dir, err := os.MkdirTemp("", "cockpit-query-")
 	if err != nil {
 		return "", refuse("io", "", "%v", err)
 	}
 	defer os.RemoveAll(dir)
-	if err := projectRegistries(ctx, cfg, keys, dir); err != nil {
+	if err := projectRegistries(ctx, cfg, keys, dataset, dir); err != nil {
 		return "", refuse("kernel", "", "projecting the registries: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "query.rq"), q, 0o644); err != nil {
@@ -36,8 +36,11 @@ func inContainer(ctx context.Context, cfg *config.Config, keys []ed25519.PublicK
 	if err := os.Mkdir(filepath.Join(dir, "store"), 0o755); err != nil {
 		return "", refuse("io", "", "%v", err)
 	}
-	if _, err := container.RunTool(ctx, cfg, cfg.Raw.Query.Image, dir, "load", "--location", "/q/store",
-		"--file", "/q/default.nt", "--file", "/q/named.nq"); err != nil {
+	files := []string{"--file", "/q/default.nt", "--file", "/q/named.nq"}
+	if dataset == oxigraph.DatasetClaims {
+		files = []string{"--file", "/q/default.nt", "--file", "/q/claims.nt"}
+	}
+	if _, err := container.RunTool(ctx, cfg, cfg.Raw.Query.Image, dir, append([]string{"load", "--location", "/q/store"}, files...)...); err != nil {
 		return "", refuse("query.failed", "", "%v", err)
 	}
 	qctx := ctx
@@ -58,8 +61,9 @@ func inContainer(ctx context.Context, cfg *config.Config, keys []ed25519.PublicK
 }
 
 // projectRegistries writes the dataset a query reads (oxigraph.Dataset): default.nt, the default
-// graph, and named.nq, the claims a trusted key signed. The daemon selects the same graphs.
-func projectRegistries(rctx context.Context, cfg *config.Config, keys []ed25519.PublicKey, dir string) error {
+// graph, and named.nq, the claims a trusted key signed; or for the query projection claims.nt, the
+// claims as nodes (oxigraph.ClaimDataset). The daemon selects and builds the same.
+func projectRegistries(rctx context.Context, cfg *config.Config, keys []ed25519.PublicKey, dataset, dir string) error {
 	u, err := binaries.OpenUnion(rctx, cfg)
 	if err != nil {
 		return err
@@ -70,6 +74,17 @@ func projectRegistries(rctx context.Context, cfg *config.Config, keys []ed25519.
 	}
 	if err := os.WriteFile(filepath.Join(dir, "default.nt"), def, 0o644); err != nil {
 		return err
+	}
+	if dataset == oxigraph.DatasetClaims {
+		vc, err := oxigraph.ViewConfigFor(cfg)
+		if err != nil {
+			return err
+		}
+		claims, err := oxigraph.ClaimDataset(u, keys, vc)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(filepath.Join(dir, "claims.nt"), claims, 0o644)
 	}
 	return os.WriteFile(filepath.Join(dir, "named.nq"), named, 0o644)
 }
