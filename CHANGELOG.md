@@ -20,6 +20,8 @@ queries).
   With `format: "sparql-results+json"` (`--results-json`) the answer is also in the standard SPARQL
   1.1 Query Results JSON, every value with its type, datatype and language.
 - **`index.kind: oxigraph`** (ADR-012) is in the default build.
+- **`say` takes `expectHead`** (SPEC §8.5): the claim joins its scope only on the head the caller
+  saw, and is refused with the heads there are now if another writer moved it (mignon's handoff 2.6).
 - **`ask feed`** (SPEC §9.10): the union's trusted records after a cursor, each with the key that
   verifies it, its tier and name, and the next cursor; untrusted ones counted. For a program that
   follows the work (mignon's handoff 2.2) instead of walking the registry's files.

@@ -452,11 +452,18 @@ The position MUST be reported: which statement this claim follows, how long the 
 head the substrate saw, and how many claims had an unresolvable predecessor. A reader must be able
 to see the order as it stood rather than infer a clean line that was never there.
 
+**A caller MAY name the head it saw (`expectHead`).** The claim is then chained onto exactly that
+head, and refused if it is no longer one of the scope's heads, with the heads there are now. This does
+not judge the chain: it is the caller's own condition, for a program that appends where it read and
+must not fork a conversation because another process or an agent wrote first. Any claim that moved the
+head refuses it, trusted or not. The caller reads what was written and decides.
+
 > **Checked by:** `TestScope_ClaimsChainInOrderAndAdvanceTheTip`,
 > `TestScope_UnconfiguredLeavesClaimsUnchained`, `TestScope_TheAskFilterFindsWhatSayChained`,
 > `TestScope_RefusesAScopeThisRegistryDoesNotHold`, `TestScope_RefusesANameTheConfigDoesNotHave`,
 > `TestScope_TwoScopesInOneRepoChainIndependently`,
-> `TestScope_NeitherABranchNorAGapStopsAClaimBeingRecorded`.
+> `TestScope_NeitherABranchNorAGapStopsAClaimBeingRecorded`,
+> `TestScope_ExpectHeadAppendsOnlyToTheHeadTheCallerSaw`.
 
 **Why refusing was wrong.** An earlier version of this clause refused to write on both conditions.
 Besides contradicting the two clauses above, it was exploitable: a scope id is public and the

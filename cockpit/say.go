@@ -3,8 +3,11 @@ package cockpit
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
+
+	"kton.dev/plankton/core"
 
 	"github.com/kton-protocol/kton-cockpit/internal/anchor"
 	"github.com/kton-protocol/kton-cockpit/internal/binaries"
@@ -32,6 +35,10 @@ type SayRequest struct {
 	// conversation. Omitted, the claim stands on its own — which is the common case. The name must
 	// be one of claims.scopes: the operator fixes the set, exactly as with the template ceiling.
 	Scope string `json:"scope,omitempty" jsonschema:"optional: the name of a configured claim scope to chain this claim into"`
+	// ExpectHead is the head of Scope the caller last saw. When given, the claim is chained onto
+	// exactly that head, and refused if it is no longer one: another process or an agent wrote
+	// first, and appending anyway would fork the conversation without anyone deciding to.
+	ExpectHead string `json:"expectHead,omitempty" jsonschema:"optional, with scope: the scope head (claim id) you last saw; refused if the head has moved since"`
 }
 
 type SayResult struct {
@@ -95,6 +102,19 @@ func (c *Cockpit) Say(ctx context.Context, in SayRequest) (*SayResult, error) {
 	chain, head, cerr := resolveChain(ctx, r, cfg, in.Scope)
 	if cerr != "" {
 		return nil, refuse("scope.unknown", "", "%s", cerr)
+	}
+	if in.ExpectHead != "" {
+		want, ok := core.NormalizeContentHash(in.ExpectHead)
+		switch {
+		case chain == nil:
+			return nil, refuse("argument", "SPEC §8.5", "expectHead needs scope: it is a head of the scope the claim joins")
+		case !ok:
+			return nil, refuse("argument", "SPEC §8.5", "expectHead is a claim id (sha256:<hex>), not %q", in.ExpectHead)
+		case !slices.Contains(head.Heads, want):
+			return nil, refuse("scope.moved", "SPEC §8.5", "the head of scope %s is no longer %s but %s: read what was written since, then say again",
+				in.Scope, want, strings.Join(head.Heads, ", "))
+		}
+		chain.Prev = want
 	}
 
 	claimID, err := r.Annotate(ctx, in.Subject, in.Template, sets, cfg.NektonKey, chain)
