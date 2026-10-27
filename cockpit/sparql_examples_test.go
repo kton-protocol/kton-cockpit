@@ -116,6 +116,44 @@ func sparqlAsk(t *testing.T, q string) *SparqlAnswer {
 	return out.Sparql
 }
 
+// With format sparql-results+json the answer is also in SPARQL 1.1 Query Results JSON, where an IRI
+// is a uri, a time a literal with its datatype, and an ASK a boolean with no bindings.
+func standardResults(t *testing.T) {
+	const q = `PREFIX np: <http://www.nanopub.org/nschema#>
+PREFIX dct: <http://purl.org/dc/terms/>
+SELECT ?step ?when ?text WHERE {
+  GRAPH ?h { ?np np:hasAssertion ?a ; np:hasPublicationInfo ?i }
+  GRAPH ?a { ?step dct:description ?o . ?o <https://kton.dev/v/lab/value> ?text }
+  GRAPH ?i { ?np dct:created ?when }
+}`
+	res, out, err := Ask(context.Background(), nil, AskRequest{Query: "sparql", Sparql: q, Format: SparqlFormatStandard})
+	if err != nil || res.IsError {
+		t.Fatalf("%v %s", err, errText(res))
+	}
+	r := out.Sparql.Results
+	if r == nil || r.Results == nil || len(r.Results.Bindings) != 1 || strings.Join(r.Head.Vars, " ") != "step when text" {
+		t.Fatalf("want one binding under step, when, text: %+v", r)
+	}
+	b := r.Results.Bindings[0]
+	if b["step"].Type != "uri" || b["when"].Type != "literal" ||
+		b["when"].Datatype != "http://www.w3.org/2001/XMLSchema#dateTime" ||
+		b["text"].Type != "literal" || b["text"].Value != "dropped rows without a visit date" {
+		t.Errorf("want a uri, a dateTime literal and a text literal: %+v", b)
+	}
+	doc, _ := json.Marshal(r)
+	if !strings.Contains(string(doc), `"head":{"vars":["step","when","text"]},"results":{"bindings":[`) {
+		t.Errorf("not the standard document: %s", doc)
+	}
+
+	_, out, err = Ask(context.Background(), nil, AskRequest{Query: "sparql", Sparql: "ASK { ?s ?p ?o }", Format: SparqlFormatStandard})
+	if err != nil || out.Sparql.Results == nil || out.Sparql.Results.Boolean == nil || out.Sparql.Results.Results != nil {
+		t.Errorf("an ASK: want a boolean and no bindings: %+v %v", out, err)
+	}
+	if res, _, _ := Ask(context.Background(), nil, AskRequest{Query: "sparql", Sparql: q, Format: "csv"}); res == nil || !res.IsError {
+		t.Error("format csv: want a refusal")
+	}
+}
+
 func column(a *SparqlAnswer, v string) map[string]bool {
 	out := map[string]bool{}
 	for _, r := range a.Rows {
@@ -229,6 +267,7 @@ func TestSparql_TheExamplesAnswerOverAFixture(t *testing.T) {
 				}
 			})
 		}
+		t.Run(path+"/the standard results keep each value's type", func(t *testing.T) { standardResults(t) })
 	}
 
 	// A claim nobody here trusts is not in the dataset, whatever a query asks for.

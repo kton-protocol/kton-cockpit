@@ -17,6 +17,8 @@ queries).
 - **`ask sparql`** (SPEC §9.9): a SELECT or ASK of one's own over the trusted dataset, from MCP
   (`{"query":"sparql","sparql":…}`) or `cockpit ask sparql <query.rq|->`. The vocabulary and tested
   examples are in `docs/sparql.md`.
+  With `format: "sparql-results+json"` (`--results-json`) the answer is also in the standard SPARQL
+  1.1 Query Results JSON, every value with its type, datatype and language.
 - **`index.kind: oxigraph`** (ADR-012) is in the default build.
 - **A query's default graph is one view graph**, the trusted records copied together once per
   dataset, not a few thousand record graphs listed per query: the engine joined over that list

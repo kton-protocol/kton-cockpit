@@ -734,6 +734,9 @@ reaches no record outside that dataset, so it is under the same ceiling as every
 - The answer MUST carry the variables in the query's order, the rows or the ASK's boolean, and where
   it was evaluated (`via`). Rows beyond the limit (default 1000, at most 10000) MUST be cut, and the
   answer MUST say so (`truncated`). Evaluation is bounded by a timeout (default 30 s, at most 120 s).
+- With `format: "sparql-results+json"` the answer MUST also carry the same rows, or the boolean, as a
+  SPARQL 1.1 Query Results JSON document (`results`), each value with its type (`uri`, `literal`,
+  `bnode`), datatype and language. Any other format MUST be refused.
 
 The vocabulary of the projection, with examples, is in [docs/sparql.md](../docs/sparql.md). Every
 example there is run by a test.
@@ -741,8 +744,8 @@ example there is run by a test.
 > **Checked by:** `TestCheckFreeQuery_TakesSelectAndAskOverTheCockpitsDataset`,
 > `TestSparql_RefusesWhatItWouldNotAnswer`, `TestSparql_ChecksTheQueryAndNeedsAnEngine`,
 > `TestShellSparql_ReadsTheQueryFromAFile`,
-> `TestParseResults_ReadsASelectAndAnAsk`, `TestSparql_TheExamplesAnswerOverAFixture`
-> (`-tags docker`).
+> `TestParseResults_ReadsASelectAndAnAsk`, `TestSparql_TheExamplesAnswerOverAFixture` (with its
+> standard-results subtests; `-tags docker`).
 
 ## 10 Execution *(optional)*
 

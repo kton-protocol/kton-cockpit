@@ -61,5 +61,5 @@ func runSparql(ctx context.Context, cfg *config.Config, q string, timeout time.D
 }
 
 func answerOf(form string, r *oxigraph.Results, via string) *SparqlAnswer {
-	return &SparqlAnswer{Form: form, Vars: r.Vars, Rows: r.Rows, Boolean: r.Boolean, Via: via}
+	return &SparqlAnswer{Form: form, Vars: r.Vars, Rows: r.Rows, Boolean: r.Boolean, Via: via, terms: r.Terms}
 }
