@@ -20,6 +20,9 @@ queries).
   With `format: "sparql-results+json"` (`--results-json`) the answer is also in the standard SPARQL
   1.1 Query Results JSON, every value with its type, datatype and language.
 - **`index.kind: oxigraph`** (ADR-012) is in the default build.
+- **`index.memory` takes effect on a running daemon**: a configuration asking for more than it was
+  started with restarts it with that limit on the same store; `index status` shows the limit. A
+  limit that cannot be read is refused at load.
 - **A call reads the material of many records with the own registry opened once**, not once per
   record (mignon: 266 claims 45.7 s → 0.65 s).
 - **`ask sparql` reads the query projection by default** (ADR-013): every trusted claim is one node
