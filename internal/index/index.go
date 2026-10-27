@@ -71,6 +71,16 @@ func Open(cfg *config.Config) Reader {
 	return binaries.New(cfg)
 }
 
+// OpenHeld is Open for a process that keeps what it opened between calls: the memory index at
+// least, oxigraph when configured.
+func OpenHeld(cfg *config.Config) Reader {
+	if cfg.Raw.Index.KindOrDefault() == "none" {
+		o := &memOpener{m: mem}
+		return memReader{binaries.NewWith(cfg, o), o}
+	}
+	return Open(cfg)
+}
+
 // From says where a Reader's answers came from: nil for "none", which reads the registries.
 func From(r Reader) *Answered {
 	if a, ok := r.(interface{ Answered() *Answered }); ok {

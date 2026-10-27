@@ -3,6 +3,7 @@ package index
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"sync"
 	"time"
 
@@ -82,6 +83,17 @@ func (m *memory) open(ctx context.Context, cfg *config.Config) (*heldEntry, bool
 	e := &heldEntry{stamp: stamp, union: u, opened: time.Now().UTC()}
 	m.held[key] = e
 	return e, false, nil
+}
+
+// Forget drops every union held for the repository at root.
+func Forget(root string) {
+	mem.mu.Lock()
+	defer mem.mu.Unlock()
+	for k := range mem.held {
+		if strings.HasPrefix(k, root+"\x00") {
+			delete(mem.held, k)
+		}
+	}
 }
 
 // Stamp is binaries.Stamp: the union cache and this index notice a change by the same rule.

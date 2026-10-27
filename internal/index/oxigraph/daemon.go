@@ -48,6 +48,8 @@ type lock struct {
 	URL       string `json:"url"`
 	Image     string `json:"image"`
 	Schema    int    `json:"schema"`
+	// Memory is the limit it was started with; empty in a lock written before it was recorded.
+	Memory string `json:"memory,omitempty"`
 }
 
 // ErrMismatch says a running daemon was started from another image or schema. It is not used, and
@@ -103,7 +105,12 @@ func Ensure(ctx context.Context, cfg *config.Config) (*Daemon, error) {
 				return nil, fmt.Errorf("%w (%s, schema %d; this configuration wants %s, schema %d): "+
 					"cockpit index stop, then the next query starts the right one", ErrMismatch, l.Image, l.Schema, image, Schema)
 			}
-			return d, d.schema(ctx, true)
+			// A configuration that asks for more memory than the daemon was started with restarts
+			// it on the same store; one that asks for less leaves it, so two configurations never
+			// take turns restarting it.
+			if !config.MemoryAbove(cfg.Raw.Index.MemoryOrDefault(), l.MemoryOrDefault()) {
+				return d, d.schema(ctx, true)
+			}
 		}
 	}
 	return start(ctx, cfg, dir, image)
@@ -167,7 +174,7 @@ func start(ctx context.Context, cfg *config.Config, dir, image string) (*Daemon,
 	if err := d.schema(ctx, true); err != nil {
 		return nil, err
 	}
-	b, _ := json.MarshalIndent(lock{Container: name, URL: d.URL, Image: image, Schema: Schema}, "", "  ")
+	b, _ := json.MarshalIndent(lock{Container: name, URL: d.URL, Image: image, Schema: Schema, Memory: cfg.Raw.Index.MemoryOrDefault()}, "", "  ")
 	return d, os.WriteFile(filepath.Join(dir, "daemon.json"), b, 0o644)
 }
 
@@ -190,6 +197,15 @@ func Stop(ctx context.Context, cfg *config.Config) error {
 		return err
 	}
 	return nil
+}
+
+// MemoryOrDefault is the limit the daemon was started with; a lock that does not say was written
+// when every daemon started with the default.
+func (l lock) MemoryOrDefault() string {
+	if l.Memory == "" {
+		return config.Index{}.MemoryOrDefault()
+	}
+	return l.Memory
 }
 
 func readLock(dir string) (lock, bool) {

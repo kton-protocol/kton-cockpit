@@ -19,6 +19,7 @@ import (
 	"regexp"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 
 	"kton.dev/plankton/core"
@@ -426,6 +427,36 @@ func (i Index) MemoryOrDefault() string {
 	return i.Memory
 }
 
+// MemoryBytes reads a limit in the engine's notation: a number with an optional b, k, m or g.
+func MemoryBytes(s string) (int64, bool) {
+	s = strings.ToLower(strings.TrimSpace(s))
+	mult := int64(1)
+	if n := len(s); n > 0 {
+		switch s[n-1] {
+		case 'b':
+			s = s[:n-1]
+		case 'k':
+			mult, s = 1<<10, s[:n-1]
+		case 'm':
+			mult, s = 1<<20, s[:n-1]
+		case 'g':
+			mult, s = 1<<30, s[:n-1]
+		}
+	}
+	v, err := strconv.ParseInt(s, 10, 64)
+	if err != nil || v <= 0 {
+		return 0, false
+	}
+	return v * mult, true
+}
+
+// MemoryAbove tells whether limit a is larger than b. A limit that cannot be read is not.
+func MemoryAbove(a, b string) bool {
+	x, ok1 := MemoryBytes(a)
+	y, ok2 := MemoryBytes(b)
+	return ok1 && ok2 && x > y
+}
+
 // KindOrDefault is the configured kind, "none" when unset.
 func (i Index) KindOrDefault() string {
 	if i.Kind == "" {
@@ -630,6 +661,9 @@ func validate(raw *Raw) error {
 	if !slices.Contains(IndexKinds, raw.Index.KindOrDefault()) {
 		return fmt.Errorf("index.kind %q is not available in this build (have: %s)",
 			raw.Index.Kind, strings.Join(IndexKinds, ", "))
+	}
+	if _, ok := MemoryBytes(raw.Index.MemoryOrDefault()); !ok {
+		return fmt.Errorf("index.memory %q is not a limit: a number with an optional b, k, m or g (\"8g\")", raw.Index.Memory)
 	}
 	if err := validateQueryImage(raw.Query.Image); err != nil {
 		return err
