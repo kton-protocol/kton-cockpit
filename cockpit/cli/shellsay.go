@@ -22,7 +22,7 @@ import (
 )
 
 func sayOverview(ctx context.Context, cfg *config.Config) {
-	fmt.Println("cockpit say <template> <run|file|sha256:id> [field=value]... [--scope NAME] [--json]")
+	fmt.Println("cockpit say <template> <run|file|sha256:id> [field=value]... [--scope NAME [--expect-head ID]] [--json]")
 	fmt.Println()
 	ts := readTemplates(cfg)
 	if len(ts) == 0 {
@@ -81,6 +81,12 @@ func shellSay(ctx context.Context, args []string) error {
 				return fmt.Errorf("--scope needs a name")
 			}
 			in.Scope = args[i+1]
+			i++
+		case a == "--expect-head":
+			if i+1 >= len(args) {
+				return fmt.Errorf("--expect-head needs the head you saw (sha256:…)")
+			}
+			in.ExpectHead = args[i+1]
 			i++
 		case strings.HasPrefix(a, "--"):
 			return fmt.Errorf("unknown flag %s — cockpit say lists the templates", a)

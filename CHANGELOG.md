@@ -18,6 +18,8 @@ queries).
   (`{"query":"sparql","sparql":…}`) or `cockpit ask sparql <query.rq|->`. The vocabulary and tested
   examples are in `docs/sparql.md`.
 - **`index.kind: oxigraph`** (ADR-012) is in the default build.
+- **`say` takes `expectHead`** (SPEC §8.5): the claim joins its scope only on the head the caller
+  saw, and is refused with the heads there are now if another writer moved it (mignon's handoff 2.6).
 
 ## v0.3.0 — 2026-10-23
 
