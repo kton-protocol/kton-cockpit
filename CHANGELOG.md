@@ -18,6 +18,8 @@ queries).
   (`{"query":"sparql","sparql":…}`) or `cockpit ask sparql <query.rq|->`. The vocabulary and tested
   examples are in `docs/sparql.md`.
 - **`index.kind: oxigraph`** (ADR-012) is in the default build.
+- **A call reads the material of many records with the own registry opened once**, not once per
+  record (mignon: 266 claims 45.7 s → 0.65 s).
 
 ## v0.3.0 — 2026-10-23
 
