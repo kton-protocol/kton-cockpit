@@ -46,8 +46,10 @@ in the environment that was validated for it.
   exit code.
 - **The dispatcher** is a Go API on a held Cockpit (`cockpit.Open`, handoff 2.1): `Call(ctx, ToolCall)
   (ToolResult, error)`. It computes the action key, looks it up (3), runs a miss (4) and records it.
-  It runs outside the calling environment: in `cockpit shim serve` on the host, or in ktonwatch's
-  service (cockpit-runtime, `/v1/call`), which already holds a Cockpit.
+  It ships as an `http.Handler` on a held `*Cockpit`, as `mcpsurface.Handler` does, so the same code
+  is mounted by `cockpit shim serve` on the host and by ktonwatch's service as `/v1/call`
+  (cockpit-runtime, agreed 2026-10-28). The listener belongs to whoever mounts it: ktonwatch serves a
+  unix socket for containers, with its bearer token.
 - **Why split it:** the calling environment is where untrusted code runs. ADR-003 keeps the keys, the
   registries and the substrate out of every container the cockpit runs a command in, and the same
   holds here. The shim talks to the dispatcher over a socket mounted into the calling environment.
@@ -131,8 +133,8 @@ in the environment that was validated for it.
   its mapped environment and class, the exit codes that are results, and the reuse policy. The schema
   and SPEC get a section for it before it ships.
 - `kton-call` stays the recorder's (cockpit-runtime): observational reuse in place, unsigned. The two
-  share argv normalisation and the content store layout, moved into a package both import; what moves
-  is agreed with cockpit-runtime first.
+  share argv normalisation and the content store, moved unchanged into `internal/toolcall` (PR #64,
+  agreed with cockpit-runtime), so existing call keys and content stores stay valid.
 
 ## What it needs from the kernel
 
@@ -158,8 +160,9 @@ building it is written into kton's inbox and becomes a public kton issue.
 - **Generated inputs:** PsN writes `psn.mod` and its directories, then calls NONMEM on them. Their keys
   are stable only if the generation is; ADR-010 leaves the input normaliser open, and so does this.
 - **The socket's reach:** whoever is in the calling environment can ask the dispatcher to run the mapped
-  tools on inputs of their choosing. That is what the environment is for, but it costs compute; a
-  quota or a per-session token may be needed when the dispatcher is shared.
+  tools on inputs of their choosing. That is what the environment is for, but it costs compute.
+  ktonwatch hands out one token per mounted container, so a call is attributed and can be refused per
+  container; a quota on top is not decided.
 - **Licensed tools:** the mapped NONMEM environment needs its licence at run time, which is outside the
   image and must not become an input.
 
