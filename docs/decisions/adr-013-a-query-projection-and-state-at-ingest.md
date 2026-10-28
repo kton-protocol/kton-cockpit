@@ -80,7 +80,7 @@ the node:
 | one triple per field | the template's term and type, or `nk:lab/<field>` with a literal when the template declares none |
 | `nk:signer <https://kton.dev/agent/<keyid>>` | the trusted key that verifies it |
 | `dct:created` | the signed time |
-| `nk:scope`, `nk:prev`, `nk:position`, `nk:current` | kept at ingest (section 4) |
+| `nk:scope`, `nk:prev`, `nk:position`, `nk:current`, `nk:supersededBy` | kept at ingest (section 4) |
 
 **The template declares its vocabulary (2.3).**
 - A template MAY give each field a term (an IRI) and a type: `text`, `iri`, `claim`, `claims`,
@@ -100,12 +100,19 @@ the node:
 - **Position:** a claim's position is its predecessor's (`nk:prev`) plus one, within its scope's chain. A
   scope's seed is at 0.
 - **Current:** a claim is current unless a later claim by a trusted key, in the same scope, has the same
-  subject and template. "Later" means a higher position. Outside any scope, it means a later signed time.
+  subject and predicate. Any trusted key supersedes any other, whatever its tier, and a superseded
+  claim names the claim that is current (`nk:supersededBy`), so a rule sees whose claim hid whose.
+- **"Later" is one total order**, so the same quads give the same answer however they arrive: a claim
+  with a position beats one without (its predecessor is outside the union), then the higher
+  position, then the later signed time compared as an instant, then the id. Where a scope branched
+  (two claims after the same one) and outside any scope, the time the signer stated decides: a
+  trusted key that states a far-future time stays current until a rule says otherwise.
 - **Both are computed in Go when the view is built**, linear in the number of claims, and written as
   triples. A view and every rule then use plain joins. No query walks `prev+`, and "sealed up to here"
   becomes a comparison of two positions.
-- **Both depend on the key set.** A claim by an untrusted key is not in the view and supersedes nothing.
-  So they belong to the view, not to the record.
+- **`current` depends on the key set; position does not.** A position counts every claim of the
+  union's chain, trusted or not. A claim by an untrusted key is not in the view and supersedes
+  nothing. So `current` belongs to the view, not to the record.
 - **The view is rebuilt whenever its dataset key changes** (a registry moved, or the keys changed), as
   the default graph is today. Rebuilding only the changed scopes comes later. A full rebuild remains the
   fallback, and the check for an incremental one.
@@ -120,6 +127,9 @@ the node:
 - **No kernel change.** The template comes from kton.
 - **In the query projection:** a trusted key claim names its agent (section 3), and a mandate becomes
   `prov:actedOnBehalfOf`. An answer can then say "agent for Michael".
+- **Who may name whom.** A key claim signed by a key proves possession of that key, nothing more. A
+  name is taken only from a claim about the key that signed it, or from one a registrar rule
+  accepts, and it is applied when the view is built. Otherwise key B could label key A "Michael".
 - **Later:** a personal keyring outside the repository, a request naming who it acts as, and rules per key
   or tier.
 
@@ -167,7 +177,12 @@ the node:
   started for one query (from the kernel's projection in Go). So the two answer alike
   (`TestSparql_TheExamplesAnswerOverAFixture`, every example on both paths).
 - The view is built when its dataset key changes (positions, trusted keys, or the configuration's
-  signer names and templates), under a lock per view, and marked last.
+  signer names and templates), under a lock per view. The records, the claims and the mark change
+  in one update, so a reader sees the old view or the new one, never a view without its claims
+  (`TestOxigraph_AReaderNeverSeesAViewWithoutItsClaims`). A builder that waited for the lock finds
+  the view already made under its key. When the incremental rebuild comes, it writes into graphs
+  named by key and then switches the mark, rather than dropping graphs in place.
+- An alias that resolves into the projection's own terms (`nk:signer`, `nk:current`, …) is refused.
 - On explore, cockpit-runtime's two tour queries ("final/base models with their signer", "the review
   cycle with dates") take 60–70 ms against 7–19 s over the nanopublication graphs.
 
