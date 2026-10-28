@@ -1,17 +1,18 @@
 package oxigraph
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
-	"strings"
 
 	"kton.dev/plankton/core"
 
@@ -106,8 +107,9 @@ func (d *Daemon) viewIs(ctx context.Context, slot, key string) bool {
 }
 
 // makeView copies the graphs of def into slot's view, writes the query projection of its claims
-// (claimsNT) beside it, and marks both with key last, so a reader that sees the mark sees the whole
-// view. Building takes turns per slot: two builds under different keys must not mix.
+// (claimsNT) beside it, and marks both with key, all in one update: the store applies an update
+// whole, so a reader sees the old view or the new one, never a view without its claims. Building
+// takes turns per slot, and a builder that waited finds the view already made under its key.
 func (d *Daemon) makeView(ctx context.Context, slot, key string, def []string, claimsNT []byte) error {
 	if d.Dir != "" {
 		if err := os.MkdirAll(d.datasetDir(), 0o755); err != nil {
@@ -118,26 +120,39 @@ func (d *Daemon) makeView(ctx context.Context, slot, key string, def []string, c
 			return err
 		}
 		defer unlock()
+		if d.viewIs(ctx, slot, key) {
+			return nil
+		}
 	}
 	v, c, m := "<"+viewIRI(slot)+">", "<"+claimsIRI(slot)+">", "<"+markIRI(slot)+">"
-	var u strings.Builder
+	var u bytes.Buffer
 	u.WriteString("DROP SILENT GRAPH " + m + " ;\nDROP SILENT GRAPH " + v + " ;\nDROP SILENT GRAPH " + c + " ;\n")
 	if len(def) > 0 {
 		u.WriteString("INSERT { GRAPH " + v + " { ?s ?p ?o } } WHERE { VALUES ?g {")
 		for _, g := range def {
 			u.WriteString(" <" + g + ">")
 		}
-		u.WriteString(" } GRAPH ?g { ?s ?p ?o } }")
-	}
-	if _, err := d.post(ctx, "/update", "", url.Values{"update": {u.String()}}); err != nil {
-		return err
+		u.WriteString(" } GRAPH ?g { ?s ?p ?o } } ;\n")
 	}
 	if len(claimsNT) > 0 {
-		if err := d.loadInto(ctx, claimsIRI(slot), claimsNT); err != nil {
-			return err
-		}
+		// N-Triples lines are triples SPARQL's INSERT DATA takes as they are.
+		u.WriteString("INSERT DATA { GRAPH " + c + " {\n")
+		u.Write(claimsNT)
+		u.WriteString("\n} } ;\n")
 	}
-	_, err := d.post(ctx, "/update", "", url.Values{"update": {"INSERT DATA { GRAPH " + m + " { " + v + " <" + kNS + "key> " + strconv.Quote(key) + " } }"}})
+	u.WriteString("INSERT DATA { GRAPH " + m + " { " + v + " <" + kNS + "key> " + strconv.Quote(key) + " } }")
+	return d.update(ctx, u.Bytes())
+}
+
+// update sends one SPARQL update as the request body, which a large one needs: a form would
+// encode every byte of it again.
+func (d *Daemon) update(ctx context.Context, body []byte) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, d.URL+"/update", bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/sparql-update")
+	_, err = do(req)
 	return err
 }
 

@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	ntemplate "kton.dev/nekton/template"
 )
@@ -77,7 +78,7 @@ type ViewConfig struct {
 
 // viewVersion changes whenever ClaimView builds something else from the same quads: a view kept
 // from an older build is then built again rather than answered from.
-const viewVersion = 2
+const viewVersion = 3
 
 // Fingerprint changes whenever the view a ViewConfig builds would.
 func (vc ViewConfig) Fingerprint() string {
@@ -218,25 +219,31 @@ func ClaimView(trusted, structure []Quad, vc ViewConfig) []Quad {
 		c.position = pos(h, 0)
 	}
 
-	// Current: the latest trusted claim per scope, subject and predicate. Later is a higher position
-	// in a chain; outside one (or where the chain has a gap) a later signed time.
+	// Current: the latest trusted claim per scope, subject and predicate, by one total order, so the
+	// same quads give the same answer however they arrive: a claim with a position in its chain
+	// beats one without (its predecessor is outside the union), then the higher position, then the
+	// later signed time as an instant, then the hex. A branched scope (equal positions) and claims
+	// outside any scope are decided by the time their signer stated.
 	latest := map[string]*claimNode{}
 	later := func(a, b *claimNode) bool {
-		if a.position >= 0 && b.position >= 0 && a.scope != "" && a.position != b.position {
+		if (a.position >= 0) != (b.position >= 0) {
+			return a.position >= 0
+		}
+		if a.position != b.position {
 			return a.position > b.position
 		}
-		if a.created.Value != b.created.Value {
-			return a.created.Value > b.created.Value
+		if ta, tb := instant(a.created), instant(b.created); !ta.Equal(tb) {
+			return ta.After(tb)
 		}
 		return a.hex > b.hex
 	}
+	group := func(c *claimNode) string { return c.scope + "\x00" + c.about.Value + "\x00" + c.pred.Value }
 	for _, c := range claims {
 		if len(c.signers) == 0 || !c.hasPred {
 			continue
 		}
-		k := c.scope + "\x00" + c.about.Value + "\x00" + c.pred.Value
-		if cur := latest[k]; cur == nil || later(c, cur) {
-			latest[k] = c
+		if cur := latest[group(c)]; cur == nil || later(c, cur) {
+			latest[group(c)] = c
 		}
 	}
 	current := map[string]bool{}
@@ -274,7 +281,7 @@ func ClaimView(trusted, structure []Quad, vc ViewConfig) []Quad {
 			for _, f := range c.fields {
 				p, o := f.P, f.O
 				if key := strings.TrimPrefix(p.Value, labNS); key != p.Value {
-					if r := vc.Templates.Resolve(key); strings.Contains(r, "://") {
+					if r := vc.Templates.Resolve(key); strings.Contains(r, "://") && !Reserved(r) {
 						p = iri(r)
 					}
 					if known {
@@ -295,6 +302,10 @@ func ClaimView(trusted, structure []Quad, vc ViewConfig) []Quad {
 				out = append(out, Quad{S: iri(n), P: p, O: o})
 			}
 			out = append(out, triple(n, nkNS+"current", typed(strconv.FormatBool(current[h]), xsdNS+"boolean")))
+			if !current[h] {
+				// Which claim hid it, so a rule can see whose later claim superseded whose.
+				out = append(out, triple(n, nkNS+"supersededBy", iri(oNS+latest[group(c)].hex)))
+			}
 		}
 		for _, q := range c.other {
 			out = append(out, Quad{S: q.S, P: q.P, O: q.O})
@@ -521,4 +532,20 @@ func ntQuote(v string) string {
 	}
 	b.WriteByte('"')
 	return b.String()
+}
+
+// instant is a signed time as a point in time: the kernel takes any RFC 3339 time, with an offset or
+// fractions, so the text does not order them. A time that will not parse orders first.
+func instant(t Term) time.Time {
+	v, err := time.Parse(time.RFC3339Nano, t.Value)
+	if err != nil {
+		return time.Time{}
+	}
+	return v
+}
+
+// Reserved tells whether a term is one the query projection writes itself (nk:signer, nk:current,
+// nk:position, …): a field aliased to one would put a second value beside the computed one.
+func Reserved(term string) bool {
+	return strings.HasPrefix(term, nkNS) && !strings.HasPrefix(term, labNS)
 }

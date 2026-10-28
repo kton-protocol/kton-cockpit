@@ -42,6 +42,10 @@ queries).
   field its term, field types its datatype. `dataset: "nanopub"` (or `# dataset: nanopub` as the
   query's first line) reads the kernel's nanopublication graphs as before. Two tour queries on 24
   registries: 7–19 s → 60–70 ms.
+  Building a view is one update, so a reader never sees a view without its claims; `current` is one
+  total order (a claim with a position beats one without, then position, then signed time as an
+  instant, then id), and a superseded claim names the claim that is current (`nk:supersededBy`). An
+  alias into the projection's own terms is refused. (ADR-013 review V1, Q1, Q2, A1.)
 - **A query's default graph is one view graph**, the trusted records copied together once per
   dataset, not a few thousand record graphs listed per query: the engine joined over that list
   graph by graph. A join over records and claims went from over 50 s to 1.3 s.
