@@ -14,6 +14,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/kton-protocol/kton-cockpit/internal/toolcall"
 )
 
 // maxBlob bounds what /kton/blob reads into memory to serve a file preview.
@@ -277,7 +279,7 @@ func (sv *Service) Handler() http.Handler {
 				}
 				for _, c := range sv.callsOf(s.ID, t) {
 					if c.PID == pid {
-						d := CallDraft(c, RepoRoot(s.Project), check.State)
+						d := CallDraft(c, toolcall.RepoRoot(s.Project), check.State)
 						out = &d
 					}
 				}

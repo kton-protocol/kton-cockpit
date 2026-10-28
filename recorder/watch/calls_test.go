@@ -82,25 +82,6 @@ func TestCalls_WorkFilesAndUnchangedWritesAreNotData(t *testing.T) {
 	}
 }
 
-// The CAS keeps a file only with the bytes it was observed with.
-func TestCAS_KeepsOnlyTheObservedBytes(t *testing.T) {
-	dir := t.TempDir()
-	c := &CAS{Dir: filepath.Join(dir, "cas")}
-	f := filepath.Join(dir, "run1.ext")
-	os.WriteFile(f, []byte("OFV 123"), 0o644)
-	sum := "ab2f7ee1e7c4f9f3a1d6ea1a8b5c1f0f5e0b8f4e3b2f8b4f4e1b1e0f7c9a6d21" // not the hash of these bytes
-	if ok, err := c.Put(f, sum); ok || err != nil || c.Has(sum) {
-		t.Fatalf("kept bytes under a hash they do not have: %v %v", ok, err)
-	}
-	h := sha256Hex([]byte("OFV 123"))
-	if ok, err := c.Put(f, h); !ok || err != nil || !c.Has(h) {
-		t.Fatalf("not kept: %v %v", ok, err)
-	}
-	if b, _ := os.ReadFile(c.Path(h)); string(b) != "OFV 123" {
-		t.Fatalf("content %q", b)
-	}
-}
-
 // raw data kept → script → derived (gone) → nmfe → ext (gone): ext can be made again.
 // A version whose producer read something lost is lost too, and says which input.
 func TestProducible_FollowsCallsBackToKeptBytes(t *testing.T) {
@@ -257,15 +238,3 @@ func TestCalls_ReuseIsBlockedWhenWhatTheKeyDoesNotCoverChanged(t *testing.T) {
 }
 
 func hexOf(s string) string { h := sha256.Sum256([]byte(s)); return hex.EncodeToString(h[:]) }
-
-// Review R2 of #12: the command line splits as the shim quotes it, the inverse of shellJoin.
-func TestSplitCmdline_UndoesTheShimsQuoting(t *testing.T) {
-	for _, args := range [][]string{{"nmfe75", "run 1.mod", "run 1.lst"}, {"R", "-e", "it's"}, {"x", "", "a'b'c"}, {"plain", "args"}} {
-		if got := splitCmdline(shellJoin(args)); strings.Join(got, "\x00") != strings.Join(args, "\x00") {
-			t.Errorf("%q → %q → %q", args, shellJoin(args), got)
-		}
-	}
-	if got := normArgv("/opt/nm/run/nmfe75 'run 1.mod' 'run 1.lst'", "/w"); len(got) != 3 || got[1] != "run 1.mod" {
-		t.Fatalf("argv %q", got)
-	}
-}

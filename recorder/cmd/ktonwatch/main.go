@@ -25,6 +25,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kton-protocol/kton-cockpit/internal/toolcall"
 	"github.com/kton-protocol/kton-cockpit/recorder/ktonmcp"
 	"github.com/kton-protocol/kton-cockpit/recorder/watch"
 )
@@ -135,7 +136,7 @@ func serve(args []string) {
 		Logf:          log.Printf,
 	}
 	if *cas != "" {
-		sv.CAS = &watch.CAS{Dir: *cas, MaxSize: *casMax}
+		sv.CAS = &toolcall.CAS{Dir: *cas, MaxSize: *casMax}
 	}
 	if *place {
 		sv.Placer = watch.NewPlacer(watch.CockpitAsk)

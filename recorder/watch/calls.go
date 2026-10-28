@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/kton-protocol/kton-cockpit/internal/toolcall"
 )
 
 // Calls: a step cut at the tools it started. A tool call (nmfe75, PsN's execute or vpc, bbi,
@@ -97,7 +99,7 @@ func CallsOf(t *Task) []Call {
 			continue
 		}
 		call := Call{Session: t.Session, Task: t.ID, PID: pid, Parent: enclosing(pid), Tool: toolCall(c.Cmdline), Cwd: c.Cwd,
-			Argv: normArgv(c.Cmdline, c.Cwd)}
+			Argv: toolcall.NormCmdline(c.Cmdline, c.Cwd)}
 		written := map[string]bool{}
 		opened := map[string]bool{} // opened for writing inside the call: not a stdout it inherited
 		reads, writes, outside := map[string]string{}, map[string]string{}, map[string]string{}
@@ -187,96 +189,6 @@ func relTo(dir, p string) string {
 		return r
 	}
 	return p
-}
-
-// NormArgv is normArgv for a command line given as its arguments (a stub's own os.Args).
-func NormArgv(args []string, cwd string) []string { return normArgv(shellJoin(args), cwd) }
-
-// QuoteArgs writes argv as a command line in mode q, as the shim does: for a program such as
-// kton-call that adds its own exec line to a log.
-func QuoteArgs(args []string) string { return shellJoin(args) }
-
-// SplitArgs is the inverse of QuoteArgs: the arguments of a command line as Command.Cmdline holds it.
-func SplitArgs(cmdline string) []string { return splitCmdline(cmdline) }
-
-// splitCmdline splits a command line as the shim writes it: arguments separated by spaces, an
-// argument with other characters in single quotes ('run 1.mod', 'it'\”s').
-func splitCmdline(s string) []string {
-	var out []string
-	var b strings.Builder
-	in, quoted := false, false
-	for i := 0; i < len(s); i++ {
-		switch c := s[i]; {
-		case quoted && c == '\'':
-			quoted = false
-		case quoted:
-			b.WriteByte(c)
-		case c == '\'':
-			quoted, in = true, true
-		case c == ' ' || c == '\t' || c == '\n':
-			if in {
-				out = append(out, b.String())
-				b.Reset()
-				in = false
-			}
-		case c == '\\' && i+1 < len(s) && s[i+1] == '\'':
-			b.WriteByte('\'') // the \' between two quoted parts of 'it'\''s'
-			i++
-			in = true
-		default:
-			b.WriteByte(c)
-			in = true
-		}
-	}
-	if in {
-		out = append(out, b.String())
-	}
-	return out
-}
-
-// normArgv: the command line as the key sees it. The program by name; an absolute path inside
-// the repository (RepoRoot of the working directory) relative to the working directory, with
-// ".." where it lies above; any other absolute path (an installation, a licence) by its file
-// name, since it belongs to the environment. Also inside key=value. The recorder and kton-call
-// both come here, so a call and its stub see the same command line.
-func normArgv(cmdline, cwd string) []string {
-	f := splitCmdline(cmdline)
-	for len(f) > 1 && scriptRunners[filepath.Base(f[0])] && !strings.HasPrefix(f[1], "-") {
-		f = f[1:]
-	}
-	out := make([]string, len(f))
-	root := cwd
-	if cwd != "" {
-		root = RepoRoot(cwd)
-	}
-	norm := func(p string) string {
-		if !strings.HasPrefix(p, "/") {
-			return p
-		}
-		if cwd == "" {
-			return filepath.Base(p)
-		}
-		if r, err := filepath.Rel(root, p); err != nil || r == ".." || strings.HasPrefix(r, "../") {
-			return filepath.Base(p) // outside the repository: the environment
-		}
-		if r, err := filepath.Rel(cwd, p); err == nil {
-			return r
-		}
-		return filepath.Base(p)
-	}
-	for i, a := range f {
-		switch {
-		case i == 0:
-			a = filepath.Base(a)
-		case strings.Contains(a, "=/"):
-			k := a[:strings.Index(a, "=")+1]
-			a = k + norm(a[len(k):])
-		default:
-			a = norm(a)
-		}
-		out[i] = a
-	}
-	return out
 }
 
 // callKey: sha256 of {inputs: {rel → hash}, protocol: {kind: "cmd", ref: sha256({argv})}}, both

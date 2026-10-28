@@ -1,10 +1,11 @@
 package watch
 
 import (
-	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/kton-protocol/kton-cockpit/internal/toolcall"
 )
 
 // Draft is a proposal for documenting one observed task with `cockpit publish`: the files
@@ -24,37 +25,11 @@ type DraftFile struct {
 	Note string `json:"note,omitempty"`
 }
 
-// RepoRoot is the nearest ancestor of dir holding cockpit.config.json or a .git directory. A
-// .git file (a submodule, a worktree) counts only when no such ancestor is above it: a path in
-// the parent repository stays a path of that repository. A worktree inside the repository
-// (.claude/worktrees/w) without a cockpit.config.json of its own so resolves to the main
-// repository; with the checked-in one it is its own root. dir itself when there is none.
-func RepoRoot(dir string) string {
-	gitFile := ""
-	for d := dir; d != "" && d != "/" && d != "."; d = filepath.Dir(d) {
-		if _, err := os.Stat(filepath.Join(d, "cockpit.config.json")); err == nil {
-			return d
-		}
-		if fi, err := os.Stat(filepath.Join(d, ".git")); err == nil {
-			if fi.IsDir() {
-				return d
-			}
-			if gitFile == "" {
-				gitFile = d
-			}
-		}
-	}
-	if gitFile != "" {
-		return gitFile
-	}
-	return dir
-}
-
 var toolCmd = regexp.MustCompile(`nmfe|execute|bbi|quarto|Rscript`)
 
 // MakeDraft proposes what to publish for a task.
 func MakeDraft(s *Session, t *Task) Draft {
-	repo := RepoRoot(s.Project)
+	repo := toolcall.RepoRoot(s.Project)
 	d := Draft{Repo: repo, Cmd: draftCmd(t, repo)}
 	file := func(p string, cls Class, extra string) DraftFile {
 		r, err := filepath.Rel(repo, p)
@@ -186,7 +161,7 @@ func pyDraftCmd(o Origin, rel func(string) string) string {
 		if filepath.Base(file) == filepath.Base(o.File) {
 			file = o.File // %run names it relative to the console's directory; the extension knows where
 		}
-		return shellJoin(append([]string{"python3", rel(file)}, args...))
+		return toolcall.ShellJoin(append([]string{"python3", rel(file)}, args...))
 	}
 	switch {
 	case o.Chunk != "":
@@ -277,9 +252,9 @@ func CallDraft(c Call, repo string, now func(path, sum string) string) Draft {
 	} else {
 		outside = true
 	}
-	d := Draft{Repo: repo, Cmd: shellJoin(c.Argv)}
+	d := Draft{Repo: repo, Cmd: toolcall.ShellJoin(c.Argv)}
 	if cwd != "." {
-		d.Cmd = "cd " + shellJoin([]string{cwd}) + " && " + d.Cmd
+		d.Cmd = "cd " + toolcall.ShellJoin([]string{cwd}) + " && " + d.Cmd
 	}
 	if outside {
 		d.Notes = append(d.Notes, "ran outside the repo in "+c.Cwd+": cmd does not hold from the repo root, please check")
@@ -321,17 +296,4 @@ func CallDraft(c Call, repo string, now func(path, sum string) string) Draft {
 		d.Notes = append(d.Notes, "leaves no file: nothing to publish")
 	}
 	return d
-}
-
-// shellJoin quotes what a POSIX shell would split or expand.
-func shellJoin(args []string) string {
-	out := make([]string, len(args))
-	for i, a := range args {
-		if a != "" && strings.Trim(a, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_./=:,+@%") == "" {
-			out[i] = a
-		} else {
-			out[i] = "'" + strings.ReplaceAll(a, "'", `'\''`) + "'"
-		}
-	}
-	return strings.Join(out, " ")
 }

@@ -1,6 +1,10 @@
 package watch
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/kton-protocol/kton-cockpit/internal/toolcall"
+)
 
 // Review S2: v2 escapes a backslash, TAB, LF and CR in path and extra; v1 is read as written.
 func TestParse_V2PathsAreUnescaped(t *testing.T) {
@@ -38,10 +42,10 @@ func TestSession_CommandLinesAreReadByTheirOwnLine(t *testing.T) {
 	s.Line("2\t101\t100\texec\tq\t/p\t0\t0\t0\tnmfe75 'run 1.mod' 'it'\\\\''s'") // v3, escaped as logged
 	s.Line("3\t100\t1\tTASK\tok\t1\t0\t0\t0\tx")
 	cs := s.Tasks[0].Commands
-	if got := splitCmdline(cs[0].Cmdline); len(got) != 3 || got[2] != "it's" {
+	if got := toolcall.SplitCmdline(cs[0].Cmdline); len(got) != 3 || got[2] != "it's" {
 		t.Fatalf("unmarked line: %q", got)
 	}
-	if got := splitCmdline(cs[1].Cmdline); len(got) != 3 || got[1] != "run 1.mod" || got[2] != "it's" {
+	if got := toolcall.SplitCmdline(cs[1].Cmdline); len(got) != 3 || got[1] != "run 1.mod" || got[2] != "it's" {
 		t.Fatalf("q line: %q", got)
 	}
 }

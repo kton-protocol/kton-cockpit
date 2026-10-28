@@ -35,6 +35,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kton-protocol/kton-cockpit/internal/toolcall"
 	"github.com/kton-protocol/kton-cockpit/recorder/watch"
 )
 
@@ -45,7 +46,7 @@ func main() {
 		os.Exit(2)
 	}
 	cwd, _ := os.Getwd()
-	argv := watch.NormArgv(append([]string{tool}, os.Args[1:]...), cwd)
+	argv := toolcall.NormArgv(append([]string{tool}, os.Args[1:]...), cwd)
 	if os.Getenv("KTON_REUSE") != "0" {
 		if c, ok := reusable(argv, cwd); ok {
 			if err := putOutputs(c, cwd); err == nil {
@@ -105,7 +106,7 @@ func reusable(argv []string, cwd string) (watch.Call, bool) {
 	if !ok {
 		return watch.Call{}, false
 	}
-	cas := &watch.CAS{Dir: casDir()}
+	cas := &toolcall.CAS{Dir: casDir()}
 	hashes := map[string]string{}
 	for _, c := range calls {
 		if len(c.Writes) == 0 || c.Key == os.Getenv("KTON_NO_REUSE") {
@@ -202,7 +203,7 @@ func sha256File(p string) string {
 // putOutputs copies the call's outputs from the CAS into place and writes the reuse into the
 // log, so the recording shows this call like any other.
 func putOutputs(c watch.Call, cwd string) error {
-	cas := &watch.CAS{Dir: casDir()}
+	cas := &toolcall.CAS{Dir: casDir()}
 	type done struct{ path, sum string }
 	var put []done
 	for _, w := range c.Writes {
@@ -233,7 +234,7 @@ func putOutputs(c watch.Call, cwd string) error {
 		fmt.Fprintf(f, "%d\t%d\t%d\t%s\t%s\t%s\t0\t0\t0\t%s\n", time.Now().UnixNano(), pid, ppid, op, mode,
 			watch.Escape(path), watch.Escape(extra))
 	}
-	line("exec", "q", cwd, watch.QuoteArgs(append([]string{filepath.Base(os.Args[0])}, os.Args[1:]...))) // as the shim writes it
+	line("exec", "q", cwd, toolcall.ShellJoin(append([]string{filepath.Base(os.Args[0])}, os.Args[1:]...))) // as the shim writes it
 	for _, r := range c.Reads {
 		line("open", "r", filepath.Join(cwd, r.Rel), "sha256="+r.SHA256)
 	}

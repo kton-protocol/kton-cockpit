@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+
+	"github.com/kton-protocol/kton-cockpit/internal/toolcall"
 )
 
 // A working day is several sessions: the morning's R session writes a dataset, the
@@ -270,7 +272,7 @@ func (sv *Service) Projects() []ProjectSummary {
 	}
 	var out []ProjectSummary
 	for _, p := range by {
-		if repo := RepoRoot(p.Path); isCockpitRepo(repo) {
+		if repo := toolcall.RepoRoot(p.Path); isCockpitRepo(repo) {
 			p.Registry = RegistryID(repo)
 		}
 		out = append(out, *p)
@@ -295,7 +297,7 @@ func isCockpitRepo(dir string) bool {
 func (sv *Service) RegistryRepo(id string) string {
 	for _, p := range sv.Projects() {
 		if p.Registry == id {
-			return RepoRoot(p.Path)
+			return toolcall.RepoRoot(p.Path)
 		}
 	}
 	sv.allowedMu.Lock()

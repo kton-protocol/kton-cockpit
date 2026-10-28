@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/kton-protocol/kton-cockpit/internal/toolcall"
 )
 
 // Session is one event log: one R session, one Positron kernel, one Claude session.
@@ -215,7 +217,7 @@ func (s *Session) Handle(e Event) {
 	case "exec":
 		cmdline := lineCmdline(e.Mode, e.Extra)
 		prog := ""
-		if f := splitCmdline(cmdline); len(f) > 0 {
+		if f := toolcall.SplitCmdline(cmdline); len(f) > 0 {
 			prog = f[0]
 		}
 		t.Commands = append(t.Commands, Command{PID: e.PID, PPID: e.PPID, Program: prog, Cmdline: cmdline, Cwd: e.Path})
@@ -595,7 +597,7 @@ func (s *Session) finish() {
 	// programs and scripts the task started are environment, not data (bash reads nmfe75)
 	progs := map[string]bool{}
 	for _, cm := range t.Commands {
-		for _, f := range splitCmdline(cm.Cmdline) {
+		for _, f := range toolcall.SplitCmdline(cm.Cmdline) {
 			if strings.HasPrefix(f, "/") {
 				progs[f] = true
 				if r, err := filepath.EvalSymlinks(f); err == nil {
@@ -660,7 +662,7 @@ func (s *Session) placeBy(cwd string) {
 		return // ran outside everything hashed: keep the first prefix, as before
 	}
 	project := base
-	if repo := RepoRoot(cwd); repo != cwd || isRepoDir(cwd) {
+	if repo := toolcall.RepoRoot(cwd); repo != cwd || isRepoDir(cwd) {
 		if repo == base || strings.HasPrefix(repo, base+"/") {
 			project = repo
 		}
@@ -705,12 +707,12 @@ func lineCmdline(mode, line string) string {
 	if mode == "q" {
 		return line
 	}
-	return shellJoin(strings.Fields(line))
+	return toolcall.ShellJoin(strings.Fields(line))
 }
 
 // rScriptArg: the file of `R -f x.R`, `R --file=x.R`, `Rscript x.R`, made absolute against cwd.
 func rScriptArg(cmdline, cwd string) string {
-	f := splitCmdline(cmdline)
+	f := toolcall.SplitCmdline(cmdline)
 	if len(f) == 0 {
 		return ""
 	}
