@@ -69,25 +69,56 @@ func ResolveTier(ctx context.Context, r index.Reader, cfg *config.Config, idOrFi
 	return found.tier, found.path, nil
 }
 
-type tierKey struct{ tier, path string }
+// Signer is a configured key that verifies a record: its keyid, tier and configured path.
+type Signer struct{ KeyID, Tier, Path string }
 
-// SignerOf returns a check of envelopes against this repository's trust tiers, with the keys read
-// once: the keyid, tier and configured path of the key that verifies one, or Untrusted. For a reader
-// that checks many records in one call.
-func SignerOf(cfg *config.Config) (func(core.Envelope) (keyid, tier, path string), error) {
+// SignersOf returns a check of envelopes against this repository's trust tiers, with the keys read
+// once: every configured key whose signature verifies one, in the order of its signatures, or none.
+// For a reader that checks many records in one call. A record two trusted keys signed names both.
+//
+// A signature is tried first against the key its keyid names, which is the one that verifies it
+// unless the keyid was relabelled; only then against the others. The keyid is a hint, never the
+// verdict: what is returned is what verified.
+func SignersOf(cfg *config.Config) (func(core.Envelope) []Signer, error) {
 	keys, byKeyID, err := tierKeys(cfg)
 	if err != nil {
 		return nil, err
 	}
-	return func(env core.Envelope) (string, string, string) {
-		keyid := core.VerifiedSignerKeyID(env, keys)
-		if keyid == "" {
-			return "", Untrusted, ""
+	pubs := map[string]ed25519.PublicKey{}
+	for _, k := range keys {
+		pubs[core.KeyIDHex(k)] = k
+	}
+	return func(env core.Envelope) []Signer {
+		var out []Signer
+		seen := map[string]bool{}
+		for i := range env.Signatures {
+			one := env
+			one.Signatures = env.Signatures[i : i+1]
+			if pub, ok := pubs[one.Signatures[0].KeyID]; ok && !seen[one.Signatures[0].KeyID] {
+				if ok, err := one.Verify(pub); ok && err == nil {
+					kid := one.Signatures[0].KeyID
+					seen[kid] = true
+					out = append(out, Signer{KeyID: kid, Tier: byKeyID[kid].tier, Path: byKeyID[kid].path})
+					continue
+				}
+			}
+			for _, pub := range keys {
+				kid := core.KeyIDHex(pub)
+				if seen[kid] {
+					continue
+				}
+				if ok, err := one.Verify(pub); ok && err == nil {
+					seen[kid] = true
+					out = append(out, Signer{KeyID: kid, Tier: byKeyID[kid].tier, Path: byKeyID[kid].path})
+					break
+				}
+			}
 		}
-		k := byKeyID[keyid]
-		return keyid, k.tier, k.path
+		return out
 	}, nil
 }
+
+type tierKey struct{ tier, path string }
 
 // tierKeys reads every configured pubkey once and indexes it by keyid, which is what the kernel
 // returns. A key that will not parse is an ERROR, never a silent skip: a typo'd path in a trust
