@@ -173,9 +173,12 @@ the prototype.
   directory.
 - **Secrets in the environment (D3).** A caller can read what the mapped environment can read. A
   licence is mounted read-only at run time, never built into the image and never an input, and it is
-  declared in the tool's configuration as a secret. A run whose outputs contain a declared secret's
-  bytes is not recorded. Outputs stay local by default; a tool whose environment holds nothing secret
-  may opt in to sharing them (locators, a shared content store).
+  declared in the tool's configuration as a secret. The guarantee is that and local-by-default:
+  outputs stay in the dispatcher's content store, and only a tool whose environment holds nothing
+  secret may opt in to sharing them (locators, a shared content store). A run whose outputs contain a
+  declared secret's bytes is not recorded, but that is a tripwire, not a guarantee: an encoded copy
+  passes it, and an unrecorded run still returns its outputs to the caller. It is never a reason to
+  share outputs of a licensed environment.
 - **Who signs a hit (D4).** Only an executor tier (section 3).
 - **Optional inputs (D5).** The miss run is traced (the recorder's `LD_PRELOAD` shim), and the paths in
   the staging directory it looked for and did not find become negative conditions of the record. Until
