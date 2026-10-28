@@ -1,11 +1,9 @@
 package oxigraph
 
 import (
-	"bytes"
 	"context"
 	"crypto/ed25519"
 	"fmt"
-	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -35,6 +33,14 @@ func ViewConfigFor(cfg *config.Config) (ViewConfig, error) {
 	set, err := binaries.New(cfg).Templates()
 	if err != nil {
 		return vc, err
+	}
+	for _, n := range set.Names() {
+		t, _ := set.Get(n)
+		for field := range t.Fields {
+			if r := set.Resolve(field); Reserved(r) {
+				return vc, fmt.Errorf("template %s: field %q is aliased to %s, a term the query projection writes itself", n, field, r)
+			}
+		}
 	}
 	vc.Templates = set
 	return vc, nil
@@ -107,15 +113,4 @@ func (d *Daemon) quadsOf(ctx context.Context, graphs []string) ([]Quad, error) {
 		}
 	}
 	return out, nil
-}
-
-// loadInto adds N-Triples to one graph of the store.
-func (d *Daemon) loadInto(ctx context.Context, graph string, nt []byte) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, d.URL+"/store?graph="+url.QueryEscape(graph), bytes.NewReader(nt))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/n-triples")
-	_, err = do(req)
-	return err
 }

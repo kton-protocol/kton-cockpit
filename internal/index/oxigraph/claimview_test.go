@@ -1,6 +1,7 @@
 package oxigraph
 
 import (
+	"math/rand"
 	"strings"
 	"testing"
 
@@ -157,5 +158,79 @@ func TestParseNQuads_ReadsWhatNTriplesWrites(t *testing.T) {
 	}
 	if _, err := ParseNQuads([]byte(`<a> <b> "unclosed .`)); err == nil || !strings.Contains(err.Error(), "line 1") {
 		t.Errorf("a broken line: want an error naming it, got %v", err)
+	}
+}
+
+// current is one answer for one set of quads, however they arrive. A claim whose predecessor is
+// outside the union has no position; it loses to a positioned one whatever the clocks say, and
+// positioned claims are ordered by position, not by the time their signer stated (ADR-013 review
+// Q1: A at 3 signed 10 March, B at 5 signed 5 March, C with no position signed 7 March).
+func TestClaimView_CurrentIsOneAnswerHoweverTheQuadsArrive(t *testing.T) {
+	var trusted, structure []Quad
+	add := func(all, pub []Quad) { trusted, structure = append(trusted, all...), append(structure, pub...) }
+	add(claimQuads("aa", "https://ex.org/s", "https://ex.org/seed", nil, "2026-01-01T00:00:00Z", "aa", "", "k1"))
+	for _, l := range [][3]string{{"01", "2026-01-02T00:00:00Z", "aa"}, {"02", "2026-01-03T00:00:00Z", "01"}, {"04", "2026-01-04T00:00:00Z", "a3"}} {
+		_, p := claimQuads(l[0], "https://ex.org/o", "https://ex.org/other", nil, l[1], "aa", l[2], "")
+		structure = append(structure, p...)
+	}
+	status := "https://ex.org/status"
+	add(claimQuads("a3", "https://ex.org/model", status, nil, "2026-03-10T00:00:00Z", "aa", "02", "k1"))
+	add(claimQuads("b5", "https://ex.org/model", status, nil, "2026-03-05T00:00:00Z", "aa", "04", "k1"))
+	add(claimQuads("c9", "https://ex.org/model", status, nil, "2026-03-07T00:00:00Z", "aa", "gone", "k1"))
+
+	rng := rand.New(rand.NewSource(1))
+	for i := 0; i < 50; i++ {
+		rng.Shuffle(len(trusted), func(a, b int) { trusted[a], trusted[b] = trusted[b], trusted[a] })
+		rng.Shuffle(len(structure), func(a, b int) { structure[a], structure[b] = structure[b], structure[a] })
+		view := ClaimView(trusted, structure, ViewConfig{})
+		for h, want := range map[string]string{"a3": "false", "b5": "true", "c9": "false"} {
+			if got := values(view, oNS+h, nkNS+"current"); len(got) != 1 || got[0] != want {
+				t.Fatalf("build %d: current of %s: got %v, want %s", i, h, got, want)
+			}
+		}
+		for _, h := range []string{"a3", "c9"} {
+			if got := values(view, oNS+h, nkNS+"supersededBy"); len(got) != 1 || got[0] != oNS+"b5" {
+				t.Fatalf("build %d: %s superseded by %v, want b5", i, h, got)
+			}
+		}
+	}
+}
+
+// Outside a chain the later signed time wins, compared as instants: an offset and fractions of a
+// second order by the time they name, not by their text (review Q2).
+func TestClaimView_SignedTimesAreComparedAsInstants(t *testing.T) {
+	var trusted, structure []Quad
+	for _, c := range [][3]string{
+		{"e1", "https://ex.org/e", "2026-03-05T10:00:00+02:00"}, // 08:00Z
+		{"e2", "https://ex.org/e", "2026-03-05T09:30:00Z"},
+		{"f1", "https://ex.org/f", "2026-03-05T10:00:00.5Z"},
+		{"f2", "https://ex.org/f", "2026-03-05T10:00:00Z"},
+	} {
+		a, p := claimQuads(c[0], c[1], "https://ex.org/status", nil, c[2], "", "", "k1")
+		trusted, structure = append(trusted, a...), append(structure, p...)
+	}
+	view := ClaimView(trusted, structure, ViewConfig{})
+	for h, want := range map[string]string{"e1": "false", "e2": "true", "f1": "true", "f2": "false"} {
+		if got := values(view, oNS+h, nkNS+"current"); len(got) != 1 || got[0] != want {
+			t.Errorf("current of %s: got %v, want %s", h, got, want)
+		}
+	}
+}
+
+// A field aliased to a term the view writes itself stays under its lab name: it cannot add a second
+// nk:signer beside the one verification gives (review A1).
+func TestClaimView_AnAliasCannotNameATermTheViewWrites(t *testing.T) {
+	set, err := ntemplate.New(nil, []byte(`{"terms":{"reviewer":"https://kton.dev/v/signer"}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	all, pub := claimQuads("ad", oNS+"f00d", "https://example.org/q/reviewed",
+		map[string]string{"reviewer": agentNS + "someone"}, "2026-03-04T10:00:00Z", "", "", "k1")
+	view := ClaimView(all, pub, ViewConfig{Templates: set})
+	if got := values(view, oNS+"ad", nkNS+"signer"); len(got) != 1 || got[0] != agentNS+"k1" {
+		t.Errorf("want only the verifying key as signer: %v", got)
+	}
+	if got := values(view, oNS+"ad", labNS+"reviewer"); len(got) != 1 {
+		t.Errorf("want the field under its lab name: %v", got)
 	}
 }

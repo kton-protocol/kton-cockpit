@@ -83,7 +83,8 @@ A step carries no time and no command text.
        nk:signer ?agent ;                  # every key you trust that verifies it
        nk:scope ?seed ; nk:prev ?previous ;  # when it is chained in a scope
        nk:position 3 ;                     # its place in the scope's chain; the seed is 0
-       nk:current true .                   # no later claim you trust, same scope, subject, predicate
+       nk:current true ;                   # no later claim you trust, same scope, subject, predicate
+       nk:supersededBy ?later .            # when not current: the claim that is
 ?agent rdfs:label "alice" ; nk:tier "peers" .   # from your trust configuration
 ```
 
@@ -96,7 +97,12 @@ your aliases name (`aliases.json`, kton's alias format) is under that term; a fi
 **Position and current are kept, not walked.** The index computes them once per change, so a query
 that wants the latest of something asks `nk:current true` and one that wants order asks
 `nk:position`, without `nk:prev+`. Positions count every claim of the chain, including ones you do not
-trust; only claims you trust supersede one another.
+trust; only claims you trust supersede one another, whatever their tier (`nk:supersededBy` says
+which one did). "Later" is one order: a claim with a position beats one whose predecessor is outside
+your union, then the higher position, then the later signed time, then the id. Where a scope
+branched (two claims after the same one) or outside any scope, the time the signer stated decides.
+An alias may not name a term the projection writes itself (`nk:signer`, `nk:current`, …): the
+query is refused.
 
 **A scope**'s seed is a claim node with `nk:genesis true`, `rdfs:label "<name>"` and `nk:scope` its own
 node. Its parent is not in the projection: `ask scope` reports it.
