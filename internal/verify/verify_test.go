@@ -135,3 +135,43 @@ func signed(t *testing.T, priv ed25519.PrivateKey, pub ed25519.PublicKey) core.E
 	}{KeyID: core.KeyIDHex(pub), Sig: base64.StdEncoding.EncodeToString(sig)})
 	return env
 }
+
+// A record two trusted keys signed names both, in signature order; a stranger's signature beside them
+// names nobody; and a signature whose keyid was relabelled to another trusted key is still credited
+// to the key that made it, because the keyid only says which key to try first.
+func TestSignersOf_EveryTrustedKeyThatVerifiesARecord(t *testing.T) {
+	dir := t.TempDir()
+	pubA, privA, _ := ed25519.GenerateKey(rand.Reader)
+	pubB, privB, _ := ed25519.GenerateKey(rand.Reader)
+	pubX, privX, _ := ed25519.GenerateKey(rand.Reader)
+	a := writeKey(t, dir, "alice.pub", pubA)
+	b := writeKey(t, dir, "bob.pub", pubB)
+	signersOf, err := SignersOf(cfgWithTier(dir, a, b))
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := func(env core.Envelope) string {
+		var out []string
+		for _, s := range signersOf(env) {
+			out = append(out, filepath.Base(s.Path)+"/"+s.Tier)
+		}
+		return strings.Join(out, ",")
+	}
+
+	env := signed(t, privB, pubB)
+	env.Signatures = append(env.Signatures, signed(t, privX, pubX).Signatures...)
+	env.Signatures = append(env.Signatures, signed(t, privA, pubA).Signatures...)
+	if got := names(env); got != "bob.pub/self,alice.pub/self" {
+		t.Errorf("co-signed by bob, a stranger and alice: got %q", got)
+	}
+
+	relabelled := signed(t, privA, pubA)
+	relabelled.Signatures[0].KeyID = core.KeyIDHex(pubB)
+	if got := names(relabelled); got != "alice.pub/self" {
+		t.Errorf("alice's signature labelled as bob's: got %q", got)
+	}
+
+	if got := signersOf(signed(t, privX, pubX)); len(got) != 0 {
+		t.Errorf("a stranger's record: want no signer, got %+v", got)
+	}
+}

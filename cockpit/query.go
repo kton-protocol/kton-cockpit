@@ -76,7 +76,7 @@ func runQuery(ctx context.Context, cfg *config.Config, name string) (*queryAnswe
 		// it was before the daemon existed.
 		via = "not the index: " + err.Error()
 	}
-	res, err := inContainer(ctx, cfg, keys, q, "csv", 0)
+	res, err := inContainer(ctx, cfg, keys, q, "csv", oxigraph.DatasetNanopub, 0)
 	if err != nil {
 		return nil, err
 	}

@@ -53,6 +53,9 @@ var indexHTML []byte
 //	GET /api/calls?session=ID&task=N           the tool calls of one task
 //	GET /api/calldraft?session=ID&task=N&pid=P  proposal for `cockpit publish` of one tool call
 //	GET /api/calls?argv=["nmfe75","run1.mod"]   recorded calls with this command line, newest first
+//	    …&wrote=F                                only calls that wrote F (sha256, absolute or relative path)
+//	    …&brief=1                                without reads, outside and missing
+//	    …&offset=N&limit=M                       a page; X-Total-Count says how many there are
 //	GET /api/producible?project=P               per file version of the calls: kept, producible again, or lost
 //	GET /api/reproplan?project=P&path=F[&sha=H] what to put in place and which calls to run to make F again
 func (sv *Service) Handler() http.Handler {
@@ -134,6 +137,29 @@ func (sv *Service) Handler() http.Handler {
 		default:
 			http.Error(w, "project, key, argv, or session and task", http.StatusBadRequest)
 			return
+		}
+		if f := q.Get("wrote"); f != "" {
+			kept := out[:0:0]
+			for _, c := range out {
+				if c.Wrote(f) {
+					kept = append(kept, c)
+				}
+			}
+			out = kept
+		}
+		w.Header().Set("X-Total-Count", strconv.Itoa(len(out)))
+		if n, err := strconv.Atoi(q.Get("offset")); err == nil && n > 0 {
+			out = out[min(n, len(out)):]
+		}
+		if n, err := strconv.Atoi(q.Get("limit")); err == nil && n >= 0 && n < len(out) {
+			out = out[:n]
+		}
+		if q.Get("brief") != "" {
+			b := make([]Call, len(out))
+			for i, c := range out {
+				b[i] = c.Brief()
+			}
+			out = b
 		}
 		if out == nil {
 			out = []Call{}

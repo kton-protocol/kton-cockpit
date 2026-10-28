@@ -10,12 +10,14 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/kton-protocol/kton-cockpit/cockpit/source"
 	"github.com/kton-protocol/kton-cockpit/internal/config"
 	"github.com/kton-protocol/kton-cockpit/internal/flock"
 	nregistry "kton.dev/nekton/registry"
+	"kton.dev/plankton/core"
 	pregistry "kton.dev/plankton/registry"
 )
 
@@ -269,8 +271,9 @@ func (r *Runner) read(ctx context.Context) (*Union, error) {
 	return u, nil
 }
 
-// wrote drops the union after a write to the own registry: the next read opens it again.
-func (r *Runner) wrote() { r.held = nil }
+// wrote drops the union and the own registries after a write to the own registry: the next read
+// opens them again.
+func (r *Runner) wrote() { r.held, r.ownP, r.ownN = nil, nil, nil }
 
 // Reading a registry the cockpit does not own must not change it. The kernel's Open is the writer's:
 // it numbers the store and persists that (.seq, a fresh epoch), and creates a directory that is not
@@ -285,6 +288,44 @@ func OpenPlanktonSource(dir string) (*pregistry.Registry, error) {
 		return nil, fmt.Errorf("%s: %w", dir, os.ErrNotExist)
 	}
 	return pregistry.OpenUnion(dir)
+}
+
+// A registry opened only for its material is kept for the process, by directory, under the position
+// it was opened at (core.ReadPosition: its numbering and a stat of every object file, nothing
+// opened). A process that answers many calls — the MCP server, a held Cockpit — opens each source
+// once until it moves, instead of every source on every question about a foton. A read-only
+// registry is never changed after Open, so the one kept can be read by several calls at once.
+var heldSources = struct {
+	sync.Mutex
+	m map[string]heldSource
+}{m: map[string]heldSource{}}
+
+type heldSource struct {
+	pos core.Position
+	reg *pregistry.Registry
+}
+
+func heldPlanktonSource(dir string) (*pregistry.Registry, error) {
+	pos, err := core.ReadPosition(dir)
+	if err != nil {
+		return OpenPlanktonSource(dir)
+	}
+	heldSources.Lock()
+	h, ok := heldSources.m[dir]
+	heldSources.Unlock()
+	if ok && h.pos == pos {
+		return h.reg, nil
+	}
+	reg, err := OpenPlanktonSource(dir)
+	if err != nil {
+		return nil, err
+	}
+	heldSources.Lock()
+	// Kept under the position read BEFORE opening: a write landing in between leaves a position
+	// older than what was opened, and the next call opens again (as the union cache does).
+	heldSources.m[dir] = heldSource{pos, reg}
+	heldSources.Unlock()
+	return reg, nil
 }
 
 // OpenNektonSource opens a nekton registry read-only, as OpenPlanktonSource does.

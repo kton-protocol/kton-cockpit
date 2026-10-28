@@ -37,6 +37,7 @@ var askQueries = []struct{ name, arg, what string }{
 	{"by", "signer|predicate|object <value>", "claims by a signer (me), of a kind (a template name), or naming a value"},
 	{"scope", "<sha256:scope-id>", "a scope's chain: head, length, whether it branched"},
 	{"sparql", "<query.rq|->", "a SELECT or ASK of your own over the trusted dataset (docs/sparql.md)"},
+	{"feed", "[cursor]", "the trusted records in the order they arrived, after a cursor, and the next cursor"},
 }
 
 func askOverview() {
@@ -57,6 +58,9 @@ func shellAsk(ctx context.Context, args []string) error {
 	}
 	if args[0] == "sparql" {
 		return shellSparql(ctx, args[1:])
+	}
+	if args[0] == "feed" {
+		return shellFeed(ctx, args[1:])
 	}
 	in := cockpit.AskRequest{Query: args[0]}
 	var filter cockpit.AskFilter
@@ -168,17 +172,20 @@ func shellAsk(ctx context.Context, args []string) error {
 	return nil
 }
 
-// shellSparql is `cockpit ask sparql <file|-> [--limit N] [--timeout S] [--json]`: the query from a
-// file or stdin, the rows as tab-separated lines under the variables.
+// shellSparql is `cockpit ask sparql <file|-> [--limit N] [--timeout S] [--json|--results-json]`: the query from a
+// file or stdin, the rows as tab-separated lines under the variables. --results-json prints the
+// answer alone in the standard SPARQL 1.1 Query Results JSON, for a tool that reads that.
 func shellSparql(ctx context.Context, args []string) error {
 	in := cockpit.AskRequest{Query: "sparql"}
-	asJSON := false
+	asJSON, standard := false, false
 	var pos []string
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		switch a {
 		case "--json":
 			asJSON = true
+		case "--results-json":
+			standard, in.Format = true, cockpit.SparqlFormatStandard
 		case "--limit", "--timeout":
 			if i+1 >= len(args) {
 				return fmt.Errorf("%s needs a value", a)
@@ -195,13 +202,13 @@ func shellSparql(ctx context.Context, args []string) error {
 			}
 		default:
 			if strings.HasPrefix(a, "--") {
-				return fmt.Errorf("unknown flag %s — usage: cockpit ask sparql <query.rq|-> [--limit N] [--timeout S] [--json]", a)
+				return fmt.Errorf("unknown flag %s — usage: cockpit ask sparql <query.rq|-> [--limit N] [--timeout S] [--json|--results-json]", a)
 			}
 			pos = append(pos, a)
 		}
 	}
 	if len(pos) != 1 {
-		return fmt.Errorf("usage: cockpit ask sparql <query.rq|-> [--limit N] [--timeout S] [--json]")
+		return fmt.Errorf("usage: cockpit ask sparql <query.rq|-> [--limit N] [--timeout S] [--json|--results-json]")
 	}
 	var q []byte
 	var err error
@@ -219,6 +226,12 @@ func shellSparql(ctx context.Context, args []string) error {
 	exitIfRefused(err)
 	if err != nil {
 		return err
+	}
+	if standard {
+		if out.Sparql.Truncated {
+			fmt.Fprintf(os.Stderr, "(cut at %d rows; --limit raises it)\n", out.Sparql.Limit)
+		}
+		return printJSON(out.Sparql.Results)
 	}
 	if asJSON {
 		return printJSON(out)
@@ -388,4 +401,57 @@ func fieldsLine(obj any) string {
 		parts = append(parts, k+"="+v)
 	}
 	return strings.Join(parts, " ")
+}
+
+// shellFeed is `cockpit ask feed [cursor] [--limit N] [--json]`: one line per trusted record after
+// the cursor, then the cursor to pass next time.
+func shellFeed(ctx context.Context, args []string) error {
+	in := cockpit.AskRequest{Query: "feed"}
+	asJSON := false
+	for i := 0; i < len(args); i++ {
+		switch a := args[i]; {
+		case a == "--json":
+			asJSON = true
+		case a == "--limit":
+			if i+1 >= len(args) {
+				return fmt.Errorf("--limit needs a value")
+			}
+			i++
+			n, err := strconv.Atoi(args[i])
+			if err != nil {
+				return fmt.Errorf("--limit takes a number, not %q", args[i])
+			}
+			in.Limit = n
+		case strings.HasPrefix(a, "--"):
+			return fmt.Errorf("unknown flag %s — usage: cockpit ask feed [cursor] [--limit N] [--json]", a)
+		case in.Cursor == "":
+			in.Cursor = a
+		default:
+			return fmt.Errorf("usage: cockpit ask feed [cursor] [--limit N] [--json]")
+		}
+	}
+	out, err := cockpit.New(cockpit.Start{}).Ask(ctx, in)
+	exitIfRefused(err)
+	if err != nil {
+		return err
+	}
+	if asJSON {
+		return printJSON(out)
+	}
+	f := out.Feed
+	for _, r := range f.Records {
+		var by []string
+		for _, s := range r.Signers {
+			by = append(by, s.Name+" ("+s.Tier+")")
+		}
+		fmt.Printf("%s  %-5s  %s  %s\n", r.ID, r.Kind, r.Registry, strings.Join(by, ", "))
+	}
+	if f.Untrusted > 0 {
+		fmt.Printf("(%d not verified by a key in your trust tiers: counted, not shown)\n", f.Untrusted)
+	}
+	if f.More {
+		fmt.Println("(more after this page)")
+	}
+	fmt.Println("cursor:", f.Cursor)
+	return nil
 }

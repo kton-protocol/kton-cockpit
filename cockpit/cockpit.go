@@ -16,9 +16,14 @@ import (
 )
 
 // Cockpit knows only where it starts — never the configuration. Every call re-resolves the
-// configuration and re-checks the binding (SPEC §5), so nothing is cached across calls and a
-// Cockpit can be kept for as long as its caller likes.
-type Cockpit struct{ start Start }
+// configuration and re-checks the binding (SPEC §5), so a Cockpit can be kept for as long as its
+// caller likes. One from New caches nothing across calls; one from Open keeps the opened union
+// (held.go).
+type Cockpit struct {
+	start Start
+	held  bool
+	root  string
+}
 
 // Start says where a Cockpit begins its search for cockpit.config.json.
 type Start struct {
