@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kton-protocol/kton-cockpit/internal/toolcall"
 	"github.com/kton-protocol/kton-cockpit/recorder/watch"
 )
 
@@ -33,7 +34,7 @@ func TestPutOutputs_TheReuseLineKeepsTheArguments(t *testing.T) {
 	var got []string
 	for _, tk := range s.Tasks {
 		for _, c := range tk.Commands {
-			got = watch.SplitArgs(c.Cmdline)
+			got = toolcall.SplitCmdline(c.Cmdline)
 		}
 	}
 	if len(got) != 3 || got[0] != "nmfe75" || got[1] != "run 1.mod" || got[2] != "it's.lst" {

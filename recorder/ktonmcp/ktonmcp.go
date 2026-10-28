@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/kton-protocol/kton-cockpit/internal/mcpsurface"
+	"github.com/kton-protocol/kton-cockpit/internal/toolcall"
 	"github.com/kton-protocol/kton-cockpit/recorder/watch"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -282,7 +283,7 @@ func (t *tools) ask(ctx context.Context, in AskIn) (*AskOut, error) {
 	if project == "" {
 		return nil, fmt.Errorf("project is needed with a sha256 reference")
 	}
-	repo := watch.RepoRoot(project)
+	repo := toolcall.RepoRoot(project)
 	ask := watch.CockpitAsk
 	if t.sv.Placer != nil {
 		ask = t.sv.Placer.Ask
@@ -364,7 +365,7 @@ func (t *tools) sparql(ctx context.Context, in SparqlIn) (*AskOut, error) {
 	}
 	ctx, cancel := context.WithTimeout(ctx, wait)
 	defer cancel()
-	repo := watch.RepoRoot(in.Project)
+	repo := toolcall.RepoRoot(in.Project)
 	b, err := askJSON(ctx, repo, req)
 	if err != nil {
 		if strings.Contains(err.Error(), `unknown field "sparql"`) || strings.Contains(err.Error(), "sparql.unavailable") {

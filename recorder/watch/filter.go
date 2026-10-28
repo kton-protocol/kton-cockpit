@@ -4,6 +4,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/kton-protocol/kton-cockpit/internal/toolcall"
 )
 
 // Filter narrows what is shown. The zero value shows everything.
@@ -28,7 +30,7 @@ var interpreters = map[string]bool{"bash": true, "sh": true, "dash": true, "perl
 // Name is the bare program name of a command. For an interpreter running a script it is the
 // script: `/bin/bash …/nmfe75 run1.mod` is nmfe75, `/usr/bin/perl …/execute` is execute.
 func (c Command) Name() string {
-	f := splitCmdline(c.Cmdline)
+	f := toolcall.SplitCmdline(c.Cmdline)
 	p := c.Program
 	if p == "" && len(f) > 0 {
 		p = f[0]

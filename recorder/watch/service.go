@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/kton-protocol/kton-cockpit/internal/toolcall"
 )
 
 // Service follows every log in a trace directory, one session per *.tsv, and keeps the
@@ -26,7 +28,7 @@ type Service struct {
 	Logf          func(format string, args ...any)
 
 	// CAS, when set, keeps the inputs and outputs of every tool call by their hash.
-	CAS *CAS
+	CAS *toolcall.CAS
 
 	// Placer, when set, finds where a story's sources reside (asks the cockpit).
 	Placer *Placer

@@ -28,6 +28,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kton-protocol/kton-cockpit/internal/toolcall"
 	"github.com/kton-protocol/kton-cockpit/recorder/watch"
 )
 
@@ -105,7 +106,7 @@ func main() {
 	b, _ := json.Marshal(calls) // the stand-in uses Argv, Reads[].Rel and the hashes
 	must(os.WriteFile(filepath.Join(kton, "calls.json"), b, 0o644))
 
-	cas := &watch.CAS{Dir: *casDir}
+	cas := &toolcall.CAS{Dir: *casDir}
 	for _, f := range plan.Put {
 		dst := filepath.Join(work, f.Rel)
 		must(os.MkdirAll(filepath.Dir(dst), 0o755))

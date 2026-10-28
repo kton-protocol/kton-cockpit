@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/kton-protocol/kton-cockpit/internal/toolcall"
 )
 
 // The story of a file: everything that happened in the sessions that led to it, from their
@@ -171,7 +173,7 @@ func storyOf(tasks []*Task, project, path, sum string) *Story {
 		}
 	}
 	end := r.Target.When
-	st := &Story{Target: r.Target, Verdict: r.Verdict, Gaps: r.Gaps, Script: r.Script, Repo: RepoRoot(project), sources: r.Sources}
+	st := &Story{Target: r.Target, Verdict: r.Verdict, Gaps: r.Gaps, Script: r.Script, Repo: toolcall.RepoRoot(project), sources: r.Sources}
 	var picked []*Task
 	for _, t := range tasks {
 		if sessions[t.Session] && t.End <= end && (on[stepKey(t)] || Effect(t) || len(t.Vars) > 0 || t.Status == "err") {
@@ -357,11 +359,10 @@ func shellCommand(cmd string) string {
 // paths shortened to their file name. Scripts run by an interpreter (bash nmfe75, perl vpc)
 // are named by the script.
 var toolProg = regexp.MustCompile(`^(Rscript|R|nmfe\d*|execute|vpc|bootstrap|scm|sse|psn|bbi|quarto|python3?(\.\d+)?)$`)
-var scriptRunners = map[string]bool{"sh": true, "bash": true, "dash": true, "perl": true, "env": true}
 
 func toolCall(cmdline string) string {
-	f := splitCmdline(cmdline)
-	for len(f) > 1 && scriptRunners[filepath.Base(f[0])] && !strings.HasPrefix(f[1], "-") {
+	f := toolcall.SplitCmdline(cmdline)
+	for len(f) > 1 && toolcall.ScriptRunners[filepath.Base(f[0])] && !strings.HasPrefix(f[1], "-") {
 		f = f[1:]
 	}
 	if len(f) == 0 || !toolProg.MatchString(filepath.Base(f[0])) {
