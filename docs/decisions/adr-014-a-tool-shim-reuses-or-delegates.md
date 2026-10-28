@@ -11,7 +11,7 @@ tags: [architecture, execution, environment, reuse, qualification, pharmacometri
 
 ## Status
 
-Proposed (2026-10-28), on kton's request of the same day (`kton-cockpit/INBOX.md`, "tool shims"), from
+Proposed (2026-10-28); kton-review: go for the design, with its points D1–D9 in section 8. On kton's request of the same day (`kton-cockpit/INBOX.md`, "tool shims"), from
 an idea of MH. It builds on ADR-010, whose context already describes the `nmfe` stub that looks a call
 up by its action key, and on ADR-003 (running in a pinned image, the trust base not in the room) and
 ADR-011 (executors as a port). It needs no kernel change. Fetching outputs by hash from elsewhere waits
@@ -56,7 +56,14 @@ in the environment that was validated for it.
 - **The record is derived, never handed in.** On a miss the dispatcher runs the tool itself and records
   what that run wrote, so nothing inside the calling environment can get outputs of its choosing
   signed. On a hit it returns outputs a trusted key already signed for. A caller can only ask "run
-  this tool on these inputs".
+  this tool on these inputs". That also means a caller can read everything the mapped environment
+  can read, since a NONMEM control stream carries Fortran (section 8).
+- **Everything from the shim is untrusted.** The dispatcher takes bytes, never hashes, and hashes them
+  itself; it re-checks every path the shim sends (section 8). The collector's checks in the shim
+  are a convenience for the caller, not a guarantee.
+- **The mounted socket offers `Call` and nothing else.** It is never the listener that serves
+  `/v1/say` or `/v1/publish`, or code in the calling environment could have claims of its choosing
+  signed.
 
 ### 2 The call: inputs collected per tool
 
@@ -65,11 +72,17 @@ in the environment that was validated for it.
   it references (`$DATA`, `$INCLUDE`, `$MSFI`, `$ETAS` files …). For PsN it is the model, the files the
   model references, and the files named by options. Collectors are code, one per tool, tested against
   real calls; the configuration only picks one by name.
-- **The arguments** go into the descriptor, normalised as `kton-call` does (`watch.NormArgv`): paths
-  relative to the working directory, the tool name without its directory.
-- **An input outside the working directory is refused**, with a message naming it. A path the collector
-  cannot make relative would not exist when the call runs elsewhere, and silently leaving it out is the
-  false hit described in 6.
+- **The arguments** go into the descriptor, normalised as `kton-call` does (`toolcall.NormArgv`): paths
+  inside the repository relative to the working directory (`../../data/pk.csv` stays that), the tool
+  name without its directory. The call's working directory goes into the descriptor too, relative to
+  the repository root.
+- **Inputs are staged relative to the repository root**, so NONMEM's usual layout (`models/run1/`
+  with `$DATA ../../data/pk.csv`) works. An input outside the repository is refused, with a message
+  naming it: it would not exist when the call runs elsewhere, and leaving it out silently is a false
+  hit.
+- **The caller's environment variables are not forwarded.** The mapped environment brings its own; a
+  variable a tool needs from the caller (`OMP_NUM_THREADS`) is named in the tool's configuration and
+  then goes into the descriptor, so it is part of the key.
 - **Configuration the tool reads from its environment** (`psn.conf`, NONMEM's sizes, pharmpy's
   configuration) belongs to the mapped environment and its class, not to the call (ADR-010, open point
   three, settled this way for the shim).
@@ -82,12 +95,18 @@ in the environment that was validated for it.
   mapped environment without a class covers its digest, as ADR-010 rule 3 says, and then reuses only
   within that exact image.
 - **A hit** is a `ReuseHits(actionKey)` entry of the union that passes the shim's policy:
-  - a key in the trust tiers verifies it (`verify.SignersOf`, never the declared keyid);
+  - a key in a configured **executor tier** verifies it (`verify.SignersOf`, never the declared
+    keyid): keys held by dispatchers or executors that ran the image themselves. `envRef` is carried,
+    so a person's key could sign a laptop run that names a qualified image; a person tier never makes
+    a hit;
   - its environment class is accepted: a `qualifies-as` claim for the hit's carried `envRef`, signed
     under a configured tier (ADR-010 rule 4), and fail closed without one;
   - it is not conditional, unless the shim's policy allows that.
-- **Several hits:** the one from the highest configured tier, then the earliest in the union's feed.
-  The choice is reported (5).
+- **Several hits:** one global order, as ADR-013 uses: the highest configured tier, then the earlier
+  signed time as an instant, then the id. Two machines with differently assembled unions pick the
+  same one. The choice and the others are reported (5).
+- **No absent optional input:** a record lists the paths in the staging directory its run probed and
+  found absent (section 8). A hit is refused when the caller's repository has one of them.
 - **Outputs are fetched by hash** and checked against it: from the local content store, then from
   locators signed by a trusted key (kton#225, kton#220). A hit whose outputs cannot all be fetched and
   checked is a miss, and the report says so.
@@ -104,9 +123,12 @@ in the environment that was validated for it.
   `.kton/exit-code`, because PsN and pharmpy parse them. They are recorded as a `foton/v1` through the
   publish path (`binaries.Author`), signed by the dispatcher's key, with `envRef` carried, and kept in
   the content store.
-- **Only a run that exits 0 is recorded** unless the tool's configuration lists further exit codes
-  that are results (NONMEM's failed estimation is one; a missing licence is not). An unrecorded run
-  still returns its outputs and exit code to the caller.
+- **A run is recorded only when the tool's result check passes**: its exit code is 0 or one the
+  configuration lists as a result (NONMEM's failed estimation), **and** the outputs the tool always
+  writes exist (`.lst` and `.ext` for NONMEM). A missing licence or input that shares a listed code
+  is then not a result. An unrecorded run still returns its outputs and exit code to the caller.
+- **Outputs of shim runs stay local by default** (section 8): they are kept in the dispatcher's content
+  store and returned to the caller, and their records carry no locators.
 
 ### 5 What the caller sees
 
@@ -136,6 +158,30 @@ in the environment that was validated for it.
   share argv normalisation and the content store, moved unchanged into `internal/toolcall` (PR #64,
   agreed with cockpit-runtime), so existing call keys and content stores stay valid.
 
+### 8 What the dispatcher trusts (review, 2026-10-28)
+
+The calling environment and the code a miss runs are both untrusted. Each point below is a test of
+the prototype.
+
+- **Paths in (D1).** The dispatcher refuses any path that is absolute, has `..` past the staging root,
+  or contains `\0` or an empty segment. It stages each file with `openat` and `O_NOFOLLOW` under the
+  root, so a symlink left there earlier is not followed. Test: such paths sent straight to `Call`.
+- **Outputs (D2).** Only regular files count. A symlink, device or FIFO in the run directory fails the
+  recording, and files are read with `O_NOFOLLOW` from inside the run directory, never through a host
+  path the run could redirect. Test: a run that leaves `out -> ~/.ssh/id_ed25519`. The shim, writing
+  outputs back, refuses absolute and `..` paths and does not write through a symlink in the caller's
+  directory.
+- **Secrets in the environment (D3).** A caller can read what the mapped environment can read. A
+  licence is mounted read-only at run time, never built into the image and never an input, and it is
+  declared in the tool's configuration as a secret. A run whose outputs contain a declared secret's
+  bytes is not recorded. Outputs stay local by default; a tool whose environment holds nothing secret
+  may opt in to sharing them (locators, a shared content store).
+- **Who signs a hit (D4).** Only an executor tier (section 3).
+- **Optional inputs (D5).** The miss run is traced (the recorder's `LD_PRELOAD` shim), and the paths in
+  the staging directory it looked for and did not find become negative conditions of the record. Until
+  that is built, a shim reuses only records this dispatcher made from the same collector.
+- **The socket (D9).** `Call` only (section 1).
+
 ## What it needs from the kernel
 
 Nothing new. Fetching outputs from elsewhere waits for a content store and locators (kton#225, kton#220);
@@ -163,8 +209,6 @@ building it is written into kton's inbox and becomes a public kton issue.
   tools on inputs of their choosing. That is what the environment is for, but it costs compute.
   ktonwatch hands out one token per mounted container, so a call is attributed and can be refused per
   container; a quota on top is not decided.
-- **Licensed tools:** the mapped NONMEM environment needs its licence at run time, which is outside the
-  image and must not become an input.
 
 ## Next
 
