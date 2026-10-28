@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.4.0 — 2026-10-28
 
 Tracks kton v0.3.0. What waited for the kernel is in the default build now; `-tags unreleased`
 is left for what needs ktonpkg, which is not published (install, workflow, ray, the vocabulary
@@ -12,46 +12,60 @@ queries).
   concrete environment in its signed bytes. Both are signed separately and attached beside it
   (`kton-locator/v1`, `kton-env/v1`, ADR-010).
 
-### The tool
+### Asking in SPARQL
 
 - **`ask sparql`** (SPEC §9.9): a SELECT or ASK of one's own over the trusted dataset, from MCP
   (`{"query":"sparql","sparql":…}`) or `cockpit ask sparql <query.rq|->`. The vocabulary and tested
-  examples are in `docs/sparql.md`.
-  With `format: "sparql-results+json"` (`--results-json`) the answer is also in the standard SPARQL
-  1.1 Query Results JSON, every value with its type, datatype and language.
+  examples are in `docs/sparql.md`. With `format: "sparql-results+json"` (`--results-json`) the
+  answer is also in the standard SPARQL 1.1 Query Results JSON, every value with its type, datatype
+  and language.
+- **It reads the query projection by default** (ADR-013): every trusted claim is one node
+  (`nk:about`, `nk:predicate`, its fields, `nk:signer` with the signer's name and tier, `nk:scope`,
+  `nk:position`, `nk:current`, `nk:supersededBy`), in the view's default graph, so a query names no
+  graphs. Position and current are computed once per change instead of walked by `nk:prev+`;
+  `current` is one total order (a claim with a position beats one without, then position, then
+  signed time as an instant, then id). Template aliases give a field its term, field types its
+  datatype; an alias into the projection's own terms is refused. `dataset: "nanopub"` (or
+  `# dataset: nanopub` as the query's first line) reads the kernel's nanopublication graphs. Two tour
+  queries on 24 registries: 7–19 s → 60–70 ms.
 - **`index.kind: oxigraph`** (ADR-012) is in the default build.
-- **`say` takes `expectHead`** (SPEC §8.5): the claim joins its scope only on the head the caller
-  saw, and is refused with the heads there are now if another writer moved it (mignon's handoff 2.6).
-- **`ask feed`** (SPEC §9.10): the union's trusted records after a cursor, each with every key that
-  verifies it (`signers`; a co-signed record names each), its tier and name, and the next cursor; untrusted ones counted. For a program that
-  follows the work (mignon's handoff 2.2) instead of walking the registry's files.
-- **`cockpit.Open`**, a Cockpit for a process that answers many calls (a local service, handoff 2.1):
-  it keeps the opened union between calls until a registry changes, whatever `index.kind` says, and
-  `Close` lets it go. Every call still re-checks the binding.
-- **A foton's signed locators are read from source registries kept open per process**, until one
-  moves: a held `ask producer` on 24 registries went from 1 s to 60 ms.
+- **A query's default graph is one view graph**, the trusted records copied together once per
+  dataset, not a few thousand record graphs listed per query. A join over records and claims went
+  from over 50 s to 1.3 s. A view, its claims and its mark change in one update, so a reader never
+  sees a view without its claims.
+- **A query against registries that did not move is the query alone.** The index keeps the dataset
+  it computed under the registries' positions and the trusted key set; a change to either,
+  `rebuild` or a new schema computes it again. On 24 registries an `ask sparql` went from 20 s to
+  0.14 s.
 - **`index.memory` takes effect on a running daemon**: a configuration asking for more than it was
   started with restarts it with that limit on the same store; `index status` shows the limit. A
   limit that cannot be read is refused at load.
+
+### For programs that follow the work
+
+- **`ask feed`** (SPEC §9.10): the union's trusted records after a cursor, each with every key that
+  verifies it (`signers`; a co-signed record names each), its tier and name, and the next cursor;
+  untrusted ones counted. For a program that follows the work (mignon's handoff 2.2) instead of
+  walking the registry's files.
+- **`cockpit.Open`**, a Cockpit for a process that answers many calls (a local service, handoff 2.1):
+  it keeps the opened union between calls until a registry changes, whatever `index.kind` says, and
+  `Close` lets it go. Every call still re-checks the binding.
+- **`say` takes `expectHead`** (SPEC §8.5): the claim joins its scope only on the head the caller
+  saw, and is refused with the heads there are now if another writer moved it (handoff 2.6).
 - **A call reads the material of many records with the own registry opened once**, not once per
-  record (mignon: 266 claims 45.7 s → 0.65 s).
-- **`ask sparql` reads the query projection by default** (ADR-013): every trusted claim is one node
-  (`nk:about`, `nk:predicate`, its fields, `nk:signer` with the signer's name and tier, `nk:scope`,
-  `nk:position`, `nk:current`), in the view's default graph, so a query names no graphs. Position and
-  current are computed once per change instead of walked by `nk:prev+`; template aliases give a
-  field its term, field types its datatype. `dataset: "nanopub"` (or `# dataset: nanopub` as the
-  query's first line) reads the kernel's nanopublication graphs as before. Two tour queries on 24
-  registries: 7–19 s → 60–70 ms.
-  Building a view is one update, so a reader never sees a view without its claims; `current` is one
-  total order (a claim with a position beats one without, then position, then signed time as an
-  instant, then id), and a superseded claim names the claim that is current (`nk:supersededBy`). An
-  alias into the projection's own terms is refused. (ADR-013 review V1, Q1, Q2, A1.)
-- **A query's default graph is one view graph**, the trusted records copied together once per
-  dataset, not a few thousand record graphs listed per query: the engine joined over that list
-  graph by graph. A join over records and claims went from over 50 s to 1.3 s.
+  record (mignon: 266 claims 45.7 s → 0.65 s); a foton's signed locators are read from source
+  registries kept open per process until one moves (a held `ask producer` on 24 registries: 1 s →
+  60 ms).
+- **`show` `/data/select`**: a portion of the store for a viewer (kton-web), with envelopes and a
+  cursor.
+- **The recorder**: kton-web's graph and editor view, MCP tools for an assistant in Positron
+  (`kton_ask`, `kton_sparql`, show/select/copy, `~` in paths), notes kept by ktonwatch, a story's
+  way along real variable uses, a guided tour through the pmx corpus and an explore repository.
 
 ### Fixed
 
+- A record fetched from a federated source carries its signed locators again: `run --from` and
+  `ask producer` read `kton-locator/v1` material from the union, and only from a trusted signer.
 - **`cockpit <command> --help` prints that command's usage and runs nothing.** `init --help`
   scaffolded the current directory, `mcp --help` started the server.
 
