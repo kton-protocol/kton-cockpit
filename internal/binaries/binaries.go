@@ -80,6 +80,15 @@ type AuthorInput struct {
 	// Empty means unpinned — which is a weaker record, not an invalid one.
 	Environment string // qualified env-spectrum id (sha256:...)
 	EnvRef      string // exact execution environment, e.g. oci://image@sha256:...
+
+	// Kind and Descriptor record something other than a script: a tool call (ADR-014) is kind
+	// "tool/<name>" with the call's own descriptor, and Cmd is then unused. Environment and EnvRef
+	// go into it by the same rules. Empty Kind is a script.
+	Kind       string
+	Descriptor map[string]any
+	// Dir, when set, is the absolute directory Inputs and Outputs are read under instead of the
+	// repository: a tool call's staging directory.
+	Dir string
 }
 
 // Author builds the foton descriptor, signs it, and ingests it. Returns the foton id.
@@ -97,14 +106,13 @@ type Authored struct {
 	CoSigned bool
 }
 
-func (r *Runner) Author(ctx context.Context, in AuthorInput) (Authored, error) {
-	defer r.wrote()
-	coSigned := false
+// spec is the foton Author signs for in: the files hashed, the descriptor built.
+func (r *Runner) spec(in AuthorInput) (ffoton.Spec, []ffoton.FileSpec, []ffoton.FileSpec, map[string][]string, error) {
 	located := map[string][]string{}
 	for _, l := range in.Located {
 		path, uri, ok := strings.Cut(l, "=")
 		if !ok {
-			return Authored{}, fmt.Errorf("located %q is not path=uri", l)
+			return ffoton.Spec{}, nil, nil, nil, fmt.Errorf("located %q is not path=uri", l)
 		}
 		located[path] = append(located[path], uri)
 	}
@@ -112,7 +120,11 @@ func (r *Runner) Author(ctx context.Context, in AuthorInput) (Authored, error) {
 	hashFiles := func(paths []string) ([]ffoton.FileSpec, error) {
 		fs := make([]ffoton.FileSpec, 0, len(paths))
 		for _, p := range paths {
-			b, rerr := os.ReadFile(filepath.Join(r.cfg.RepoRoot, in.Base, p))
+			dir := filepath.Join(r.cfg.RepoRoot, in.Base)
+			if in.Dir != "" {
+				dir = in.Dir
+			}
+			b, rerr := os.ReadFile(filepath.Join(dir, p))
 			if rerr != nil {
 				return nil, rerr
 			}
@@ -122,21 +134,27 @@ func (r *Runner) Author(ctx context.Context, in AuthorInput) (Authored, error) {
 	}
 	inputs, err := hashFiles(in.Inputs)
 	if err != nil {
-		return Authored{}, err
+		return ffoton.Spec{}, nil, nil, nil, err
 	}
 	outputs, err := hashFiles(in.Outputs)
 	if err != nil {
-		return Authored{}, err
+		return ffoton.Spec{}, nil, nil, nil, err
 	}
 
 	// The guards `plankton author` applies, since this path builds the descriptor itself (ADR-010).
 	if in.EnvRef != "" && strings.TrimSpace(in.EnvRef) == "" {
-		return Authored{}, fmt.Errorf("envRef is blank")
+		return ffoton.Spec{}, nil, nil, nil, fmt.Errorf("envRef is blank")
 	}
 	if err := config.ValidateSpectrum(in.Environment); err != nil {
-		return Authored{}, err
+		return ffoton.Spec{}, nil, nil, nil, err
 	}
-	desc := map[string]any{"cmd": in.Cmd}
+	kind, desc := "script", map[string]any{"cmd": in.Cmd}
+	if in.Kind != "" {
+		kind, desc = in.Kind, map[string]any{}
+		for k, v := range in.Descriptor {
+			desc[k] = v
+		}
+	}
 	if in.Environment != "" {
 		desc["environment"] = in.Environment
 	}
@@ -145,9 +163,38 @@ func (r *Runner) Author(ctx context.Context, in AuthorInput) (Authored, error) {
 	}
 	spec := ffoton.Spec{
 		Predicate: "foton", Inputs: inputs, Outputs: outputs,
-		Protocol: &ffoton.ProtocolSpec{Kind: "script", Descriptor: desc},
+		Protocol: &ffoton.ProtocolSpec{Kind: kind, Descriptor: desc},
 	}
 	withStatement(&spec)
+
+	return spec, inputs, outputs, located, nil
+}
+
+// ActionKey is the reuse key of the foton Author would record for in (kton §6.3), computed before
+// anything is signed: a tool shim looks a call up by it (ADR-014).
+func (r *Runner) ActionKey(in AuthorInput) (string, error) {
+	spec, _, _, _, err := r.spec(in)
+	if err != nil {
+		return "", err
+	}
+	ref, err := core.ComputeProtocolRef(spec.Protocol.Descriptor)
+	if err != nil {
+		return "", err
+	}
+	f := core.Foton{Protocol: core.Protocol{Kind: spec.Protocol.Kind, Ref: ref, Descriptor: spec.Protocol.Descriptor}}
+	for _, i := range spec.Inputs {
+		f.Inputs = append(f.Inputs, core.FileRef{Path: i.Path, Hash: i.Hash})
+	}
+	return f.ActionKey()
+}
+
+func (r *Runner) Author(ctx context.Context, in AuthorInput) (Authored, error) {
+	defer r.wrote()
+	coSigned := false
+	spec, inputs, outputs, located, err := r.spec(in)
+	if err != nil {
+		return Authored{}, err
+	}
 
 	priv, err := loadSigningKey(in.SignKey)
 	if err != nil {
@@ -1302,4 +1349,43 @@ func (r *Runner) OwnScope(ctx context.Context, name, signKey string) (string, er
 		return found[0], nil
 	}
 	return "", fmt.Errorf("this repository opened %d scopes named %q: %s", len(found), name, strings.Join(found, ", "))
+}
+
+// Reused is a recorded run a tool shim can answer a call from: its id and its outputs.
+type Reused struct {
+	ID      string
+	Outputs []ffoton.FileSpec
+}
+
+// OwnHits are the records of this repository's plankton registry under actionKey that the key at
+// signKey signed and that are not conditional, in the registry's order (ADR-014, section 8: until a
+// record carries the paths its run looked for and missed, a shim reuses only what it recorded
+// itself). The signature is verified, never read from the envelope's keyid.
+func (r *Runner) OwnHits(actionKey, signKey string) ([]Reused, error) {
+	priv, err := loadSigningKey(signKey)
+	if err != nil {
+		return nil, err
+	}
+	pub := []ed25519.PublicKey{priv.Public().(ed25519.PublicKey)}
+	reg, err := pregistry.Open(r.cfg.PlanktonDir)
+	if err != nil {
+		return nil, fmt.Errorf("opening the plankton registry: %w", err)
+	}
+	var out []Reused
+	for _, h := range reg.ReuseHits(actionKey) {
+		env, ok := reg.Envelope(h.FotonID)
+		if !ok || core.VerifiedSignerKeyID(env, pub) == "" || len(h.Conditions) > 0 {
+			continue
+		}
+		f, ok := reg.Foton(h.FotonID)
+		if !ok {
+			continue
+		}
+		rec := Reused{ID: h.FotonID}
+		for _, o := range f.Outputs {
+			rec.Outputs = append(rec.Outputs, ffoton.FileSpec{Path: o.Path, Hash: o.Hash})
+		}
+		out = append(out, rec)
+	}
+	return out, nil
 }

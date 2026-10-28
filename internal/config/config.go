@@ -398,7 +398,39 @@ type Raw struct {
 	Query        Query        `json:"query,omitempty"`
 	Federation   Federation   `json:"federation,omitempty"`
 	Index        Index        `json:"index,omitempty"`
+	// Shims are the tools a tool shim may call, by the name the shim is installed under (ADR-014).
+	Shims map[string]Shim `json:"shims,omitempty"`
 }
+
+// Shim is one tool a shim calls: how its inputs are collected, the environment a call that no
+// record answers runs in, and what makes a run a result (ADR-014).
+type Shim struct {
+	// Collector names how a call's inputs are found (ShimCollectors). It is part of every call's key.
+	Collector string `json:"collector"`
+	// Image is the tool's own environment, pinned by digest: oci://<image>@sha256:<digest>.
+	Image string `json:"image"`
+	// Engine is the container runtime; empty means docker.
+	Engine string `json:"engine,omitempty"`
+	// Secrets are host files the tool needs at run time and nothing may record, such as a licence:
+	// mounted read-only at At, never an input. A run whose outputs contain one is not recorded.
+	Secrets []ShimSecret `json:"secrets,omitempty"`
+	// ResultCodes are exit codes besides 0 that are results (NONMEM's failed estimation).
+	ResultCodes []int `json:"resultCodes,omitempty"`
+	// Expect are files a run that is a result always writes, relative to the call's directory; $1
+	// to $9 are the call's arguments ("$2" is the listing nmfe writes).
+	Expect []string `json:"expect,omitempty"`
+}
+
+// ShimSecret is a host file and where the tool sees it.
+type ShimSecret struct {
+	Host string `json:"host"`
+	At   string `json:"at"`
+}
+
+// ShimCollectors are the ways a shim finds a call's inputs: "files", every argument that names a
+// file in the repository; "nonmem", the control stream and what it references ($DATA, $INCLUDE,
+// $MSFI).
+var ShimCollectors = []string{"files", "nonmem"}
 
 // Index is how records are read (ADR-012). It is derived, never authoritative: whichever kind is
 // configured answers exactly as "none" does, only sooner.
@@ -665,6 +697,9 @@ func validate(raw *Raw) error {
 	if _, ok := MemoryBytes(raw.Index.MemoryOrDefault()); !ok {
 		return fmt.Errorf("index.memory %q is not a limit: a number with an optional b, k, m or g (\"8g\")", raw.Index.Memory)
 	}
+	if err := validateShims(raw.Shims); err != nil {
+		return err
+	}
 	if err := validateQueryImage(raw.Query.Image); err != nil {
 		return err
 	}
@@ -749,6 +784,31 @@ func validateExecution(ex Execution, env Environment) error {
 			"environment.envRef (%s) and execution.image (%s) disagree: the cockpit would run in one "+
 				"environment and pin the other into the foton. Set only execution.image — it is used for both",
 			env.EnvRef, ex.Image)
+	}
+	return nil
+}
+
+// validateShims refuses a shim the dispatcher could not run as configured.
+func validateShims(shims map[string]Shim) error {
+	for name, sh := range shims {
+		if name == "" || strings.ContainsAny(name, "/\\ ") {
+			return fmt.Errorf("shims: %q is not a tool name (the name a shim is installed under)", name)
+		}
+		if !slices.Contains(ShimCollectors, sh.Collector) {
+			return fmt.Errorf("shims.%s.collector %q is not one this build has (have: %s)", name, sh.Collector, strings.Join(ShimCollectors, ", "))
+		}
+		if !strings.HasPrefix(sh.Image, "oci://") || !strings.Contains(sh.Image, "@sha256:") {
+			return fmt.Errorf("shims.%s.image must be oci://<image>@sha256:<digest>, got %q: a call recorded "+
+				"in an image named by a tag pins nothing", name, sh.Image)
+		}
+		for _, sec := range sh.Secrets {
+			if !filepath.IsAbs(sec.Host) && !strings.HasPrefix(sec.Host, "~/") {
+				return fmt.Errorf("shims.%s.secrets: host %q must be absolute or start with ~/", name, sec.Host)
+			}
+			if !strings.HasPrefix(sec.At, "/") {
+				return fmt.Errorf("shims.%s.secrets: at %q must be an absolute path inside the image", name, sec.At)
+			}
+		}
 	}
 	return nil
 }

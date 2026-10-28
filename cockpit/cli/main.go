@@ -79,6 +79,8 @@ func Main() {
 		err = runInstall(ctx, os.Args[2:])
 	case "workflow":
 		err = runWorkflow(ctx, os.Args[2:])
+	case "shim":
+		err = runShim(ctx, os.Args[2:])
 	case "help", "-h", "--help":
 		usage()
 		return
@@ -148,6 +150,7 @@ usage:
   cockpit sync     take in what others shared, share what is here, then pull the federation sources
   cockpit config   show the configuration, or set one value (config persist.share off)
   cockpit index    status / start / stop / rebuild — the machine's index daemon (index.kind oxigraph)
+  cockpit shim     serve --socket PATH | --listen 127.0.0.1:PORT — answer the tool shims (ADR-014)
   cockpit keygen   make a signing identity (keys/<name>.key + .pub, and the claims pair)
   cockpit version  what this binary is, and which kernel is compiled into it
   cockpit mcp      start the MCP stdio server (cockpit_publish/cockpit_say/cockpit_ask)

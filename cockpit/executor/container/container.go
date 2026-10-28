@@ -47,6 +47,12 @@ func (Executor) Run(ctx context.Context, s executor.Step) (executor.Result, erro
 	args = append(args, "--cap-drop=ALL", "--security-opt=no-new-privileges")
 	args = append(args, "--volume", s.Root+":"+workdir, "--workdir", workdir)
 	args = append(args, maskArgs(s)...)
+	if s.NoEntrypoint {
+		args = append(args, "--entrypoint", "")
+	}
+	for _, m := range s.ReadOnly {
+		args = append(args, "--volume", m.Host+":"+m.At+":ro")
+	}
 	args = append(args, strings.TrimPrefix(s.Image, "oci://"), "sh", "-c", s.Cmd)
 
 	engine := Engine(s)
