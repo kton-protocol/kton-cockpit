@@ -43,6 +43,10 @@ func TestCollect_NonmemTakesTheControlStreamAndWhatItReads(t *testing.T) {
 	if _, err := Collect("nonmem", root, "models/run3", []string{"run3.mod"}); err == nil {
 		t.Errorf("data above the repository: want it refused")
 	}
+	write(t, root, "models/run5/run5.mod", "$INCLUDE run5.mod\n")
+	if _, err := Collect("nonmem", root, "models/run5", []string{"run5.mod"}); err == nil || !strings.Contains(err.Error(), "includes itself") {
+		t.Errorf("a control stream that includes itself: want it refused, got %v", err)
+	}
 	write(t, root, "models/run4/run4.mod", "$DATA missing.csv\n")
 	if _, err := Collect("nonmem", root, "models/run4", []string{"run4.mod"}); err == nil || !strings.Contains(err.Error(), "not there") {
 		t.Errorf("data that is not there: want it said, got %v", err)

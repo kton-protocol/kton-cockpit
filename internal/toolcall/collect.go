@@ -36,7 +36,7 @@ func CheckRel(p string) error {
 // to root). A file the call names outside the repository is an error: it would not exist where the
 // call runs, and leaving it out would make a wrong record (ADR-014, section 2).
 func Collect(collector, root, cwd string, args []string) ([]string, error) {
-	c := collection{root: root, seen: map[string]bool{}}
+	c := collection{root: root, seen: map[string]bool{}, including: map[string]bool{}}
 	switch collector {
 	case "files":
 		for _, a := range args {
@@ -66,6 +66,8 @@ type collection struct {
 	root string
 	seen map[string]bool
 	out  []string
+	// including are the control streams being read, to refuse an $INCLUDE cycle.
+	including map[string]bool
 }
 
 // add takes p, relative to the directory dir (relative to the root), when it names a regular file
@@ -105,6 +107,11 @@ func (c *collection) controlStream(dir, p string) error {
 		return err
 	}
 	rel := path.Clean(path.Join(dir, p))
+	if c.including[rel] {
+		return fmt.Errorf("%s includes itself", rel)
+	}
+	c.including[rel] = true
+	defer delete(c.including, rel)
 	b, err := os.ReadFile(filepath.Join(c.root, filepath.FromSlash(rel)))
 	if err != nil {
 		return err

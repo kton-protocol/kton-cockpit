@@ -12,7 +12,7 @@
   recorded, 0.39 s the second time. The dispatcher is `Cockpit.Call` and `Cockpit.CallHandler`, for
   ktonwatch's `/v1/call`. A call is keyed relative to its base directory, so pharmpy's fresh run
   directories meet their records: a pharmpy `fit()` of three models took 28.7 s, and the rerun 1.9 s
-  with no NONMEM run.
+  with no NONMEM run. A run may leave at most `maxOutputBytes` (1 GiB by default).
 - **`internal/toolcall`**: argv normalisation, the content store and the collectors, shared by
   `kton-call` and the shim.
 

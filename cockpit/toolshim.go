@@ -115,6 +115,20 @@ func rebase(in ToolCall) (ToolCall, string) {
 		return strings.Split(p, "/")
 	}
 	base := segs(in.Cwd)
+	// An argument may reach above the call's directory (an output ../out.csv, a listing in ../lst/);
+	// the base holds whatever it reaches.
+	up := 0
+	for _, a := range in.Args {
+		if _, v, ok := strings.Cut(a, "="); ok && strings.HasPrefix(a, "-") {
+			a = v
+		}
+		n := 0
+		for strings.HasPrefix(a, "../") || a == ".." {
+			n, a = n+1, strings.TrimPrefix(strings.TrimPrefix(a, ".."), "/")
+		}
+		up = max(up, n)
+	}
+	base = base[:max(0, len(base)-up)]
 	for _, f := range in.Files {
 		dir := segs(path.Dir(f.Path))
 		n := 0
@@ -289,6 +303,10 @@ func runStaged(ctx context.Context, stage string, in ToolCall, sh config.Shim, s
 
 	var outputs []string
 	files := map[string][]byte{}
+	limit, total := sh.MaxOutputBytes, int64(0)
+	if limit == 0 {
+		limit = 1 << 30
+	}
 	err := filepath.WalkDir(stage, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -300,6 +318,13 @@ func runStaged(ctx context.Context, stage string, in ToolCall, sh config.Shim, s
 			return nil
 		case !d.Type().IsRegular():
 			return fmt.Errorf("the run left %s, which is not a regular file (%s); nothing of it is read or recorded", rel, d.Type())
+		}
+		fi, err := d.Info()
+		if err != nil {
+			return err
+		}
+		if total += fi.Size(); total > limit {
+			return fmt.Errorf("the run left more than %d bytes (shims.%s.maxOutputBytes); nothing of it is read or recorded", limit, in.Tool)
 		}
 		b, err := readNoFollow(p)
 		if err != nil {
@@ -368,6 +393,9 @@ func fromCAS(cas *toolcall.CAS, h binaries.Reused) (*ToolResult, bool) {
 				res.ExitCode = code
 			}
 		default:
+			if strings.HasPrefix(o.Path, streamsDir+"/") {
+				continue // the run's own, as on a miss
+			}
 			res.Files = append(res.Files, CallFile{Path: o.Path, Data: b})
 		}
 	}

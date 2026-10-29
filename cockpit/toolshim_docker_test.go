@@ -91,3 +91,52 @@ func TestShim_ASecretOrAFailureIsNotRecorded(t *testing.T) {
 		t.Fatalf("a failed run: want its exit code and stderr back, nothing recorded: %+v", res)
 	}
 }
+
+// A call whose output lies above its directory still runs and is recorded: the base it is keyed
+// relative to holds whatever its arguments reach (review S1).
+func TestShim_AnOutputAboveTheCallsDirectoryIsWritten(t *testing.T) {
+	t.Setenv("KTON_CAS", t.TempDir())
+	c := shimRepo(t, map[string]config.Shim{"cp": {Collector: "files", Image: shimImage, Expect: []string{"$2"}}})
+	call := ToolCall{Tool: "cp", Collector: "files", Cwd: "m/r1", Args: []string{"in.csv", "../out.csv"},
+		Files: []CallFile{{Path: "m/r1/in.csv", Data: []byte("x")}}}
+	res, err := c.Call(context.Background(), call)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.ExitCode != 0 || res.FotonID == "" || len(res.Files) != 1 || res.Files[0].Path != "m/out.csv" {
+		t.Fatalf("want m/out.csv written and recorded: %+v", res)
+	}
+	if again, err := c.Call(context.Background(), call); err != nil || !again.Reused || len(again.Files) != 1 || again.Files[0].Path != "m/out.csv" {
+		t.Fatalf("the same call: want a hit with m/out.csv: %+v %v", again, err)
+	}
+}
+
+// What a run leaves under .kton/ besides its streams is its own: it comes back neither on a miss
+// nor on a hit (review S2).
+func TestShim_FilesUnderTheStreamsDirectoryNeverComeBack(t *testing.T) {
+	t.Setenv("KTON_CAS", t.TempDir())
+	c := shimRepo(t, map[string]config.Shim{"sh": {Collector: "files", Image: shimImage}})
+	call := ToolCall{Tool: "sh", Collector: "files", Args: []string{"-c", "echo x >.kton/extra; echo o >o"},
+		Files: []CallFile{{Path: "in", Data: []byte("x")}}}
+	for _, what := range []string{"miss", "hit"} {
+		res, err := c.Call(context.Background(), call)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(res.Files) != 1 || res.Files[0].Path != "o" {
+			t.Fatalf("%s: want only o back: %+v", what, res.Files)
+		}
+	}
+}
+
+// A run that leaves more than the shim's cap is not read or recorded, whatever it costs on disk: a
+// sparse file is checked by its size, before anything is read (review S3).
+func TestShim_ARunThatLeavesTooMuchIsNotRead(t *testing.T) {
+	t.Setenv("KTON_CAS", t.TempDir())
+	c := shimRepo(t, map[string]config.Shim{"truncate": {Collector: "files", Image: shimImage, MaxOutputBytes: 1 << 20}})
+	_, err := c.Call(context.Background(), ToolCall{Tool: "truncate", Collector: "files", Args: []string{"-s", "100G", "big"},
+		Files: []CallFile{{Path: "in", Data: []byte("x")}}})
+	if err == nil || !strings.Contains(err.Error(), "maxOutputBytes") {
+		t.Fatalf("want the run refused for its size: %v", err)
+	}
+}

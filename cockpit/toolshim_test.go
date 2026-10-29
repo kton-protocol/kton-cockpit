@@ -81,18 +81,23 @@ func TestShim_ACallIsKeyedRelativeToItsBase(t *testing.T) {
 	file := func(p string) CallFile { return CallFile{Path: p} }
 	for _, tc := range []struct {
 		cwd   string
+		args  []string
 		files []string
 		base  string
 		rcwd  string
 		paths []string
 	}{
-		{"run-1/x", []string{"run-1/x/model.ctl", "run-1/.datasets/d.csv"}, "run-1", "x", []string{"x/model.ctl", ".datasets/d.csv"}},
-		{"run-1/x", []string{"run-1/x/model.ctl"}, "run-1/x", "", []string{"model.ctl"}},
-		{"models", []string{"models/m.ctl", "data/d.csv"}, "", "models", []string{"models/m.ctl", "data/d.csv"}},
-		{"", []string{"m.ctl"}, "", "", []string{"m.ctl"}},
-		{"ab/c", []string{"ab/c/m.ctl", "a/d.csv"}, "", "ab/c", []string{"ab/c/m.ctl", "a/d.csv"}},
+		{"run-1/x", nil, []string{"run-1/x/model.ctl", "run-1/.datasets/d.csv"}, "run-1", "x", []string{"x/model.ctl", ".datasets/d.csv"}},
+		{"run-1/x", nil, []string{"run-1/x/model.ctl"}, "run-1/x", "", []string{"model.ctl"}},
+		{"models", nil, []string{"models/m.ctl", "data/d.csv"}, "", "models", []string{"models/m.ctl", "data/d.csv"}},
+		{"", nil, []string{"m.ctl"}, "", "", []string{"m.ctl"}},
+		{"ab/c", nil, []string{"ab/c/m.ctl", "a/d.csv"}, "", "ab/c", []string{"ab/c/m.ctl", "a/d.csv"}},
+		// an argument that reaches above the call's directory moves the base up (an output ../out.csv)
+		{"m/r1", []string{"in.csv", "../out.csv"}, []string{"m/r1/in.csv"}, "m", "r1", []string{"r1/in.csv"}},
+		{"m/r1", []string{"-o=../../out.csv", "in.csv"}, []string{"m/r1/in.csv"}, "", "m/r1", []string{"m/r1/in.csv"}},
+		{"m/r1", []string{"../../../out.csv"}, []string{"m/r1/in.csv"}, "", "m/r1", []string{"m/r1/in.csv"}},
 	} {
-		in := ToolCall{Tool: "nmfe75", Cwd: tc.cwd}
+		in := ToolCall{Tool: "nmfe75", Cwd: tc.cwd, Args: tc.args}
 		for _, p := range tc.files {
 			in.Files = append(in.Files, file(p))
 		}

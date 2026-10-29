@@ -215,7 +215,8 @@
             }
           },
           "resultCodes": { "type": "array", "items": { "type": "integer" }, "description": "Exit codes besides 0 that are results (NONMEM's failed estimation)." },
-          "expect": { "type": "array", "items": { "type": "string" }, "description": "Files a run that is a result always writes, relative to the call's directory; $1 to $9 are the call's arguments." }
+          "expect": { "type": "array", "items": { "type": "string" }, "description": "Files a run that is a result always writes, relative to the call's directory; $1 to $9 are the call's arguments." },
+          "maxOutputBytes": { "type": "integer", "minimum": 0, "description": "What one run may leave, all files together; 0 means 1 GiB. A run that leaves more is not read or recorded." }
         }
       }
     },
