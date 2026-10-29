@@ -193,6 +193,32 @@
         "entrypoint": { "type": "string", "description": "What the image runs a command with, as the tool definition states (e.g. Rscript). Needed only to extract a ray (ADR-006): a package carries the image as its first line and leaves the interpreter to the tool, so a recorded command line must start with this word, which is dropped." }
       }
     },
+    "shims": {
+      "type": "object",
+      "description": "Tools a tool shim may call, by the name the shim is installed under (nmfe75, execute …). A call no trusted record answers runs in the tool's own pinned image and is recorded; the same call again is answered from that record. Off unless configured. See ADR-014.",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["collector", "image"],
+        "properties": {
+          "collector": { "type": "string", "enum": ["files", "nonmem"], "description": "How a call's inputs are found: files (every argument naming a file in the repository) or nonmem (the control stream and its $DATA, $INCLUDE, $MSFI). Part of every call's key." },
+          "image": { "type": "string", "pattern": "^oci://.+@sha256:[0-9a-f]{64}$", "description": "The tool's own environment, pinned by digest." },
+          "engine": { "type": "string", "description": "The container runtime executable. Defaults to \"docker\"." },
+          "secrets": {
+            "type": "array",
+            "description": "Host files the tool needs at run time and nothing may record, such as a licence: mounted read-only, never an input. A run whose outputs contain one is not recorded; that is a tripwire, and the outputs of shim runs stay local.",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["host", "at"],
+              "properties": { "host": { "type": "string" }, "at": { "type": "string" } }
+            }
+          },
+          "resultCodes": { "type": "array", "items": { "type": "integer" }, "description": "Exit codes besides 0 that are results (NONMEM's failed estimation)." },
+          "expect": { "type": "array", "items": { "type": "string" }, "description": "Files a run that is a result always writes, relative to the call's directory; $1 to $9 are the call's arguments." }
+        }
+      }
+    },
     "index": {
       "type": "object",
       "description": "How records are read (ADR-012). Derived, never authoritative: every kind answers exactly as \"none\" does, and deleting what it holds changes no answer.",

@@ -3,7 +3,7 @@ title: "A tool shim: reuse a trusted record of the call, or run it in the tool's
 type: "decision"
 project: "kton-cockpit"
 date: 2026-10-28
-status: "proposed"
+status: "accepted"
 tags: [architecture, execution, environment, reuse, qualification, pharmacometrics]
 ---
 
@@ -11,7 +11,7 @@ tags: [architecture, execution, environment, reuse, qualification, pharmacometri
 
 ## Status
 
-Proposed (2026-10-28); kton-review: go for the design, with its points D1–D9 in section 8. On kton's request of the same day (`kton-cockpit/INBOX.md`, "tool shims"), from
+Accepted (2026-10-28, merged as PR #63); kton-review: go for the design, with its points D1–D9 in section 8. On kton's request of the same day (`kton-cockpit/INBOX.md`, "tool shims"), from
 an idea of MH. It builds on ADR-010, whose context already describes the `nmfe` stub that looks a call
 up by its action key, and on ADR-003 (running in a pinned image, the trust base not in the room) and
 ADR-011 (executors as a port). It needs no kernel change. Fetching outputs by hash from elsewhere waits
@@ -212,6 +212,29 @@ building it is written into kton's inbox and becomes a public kton issue.
   tools on inputs of their choosing. That is what the environment is for, but it costs compute.
   ktonwatch hands out one token per mounted container, so a call is attributed and can be refused per
   container; a quota on top is not decided.
+
+## As built: the prototype (2026-10-28)
+
+- `cockpit-shim` (the shim), `cockpit shim serve --socket PATH` (the dispatcher on a held Cockpit),
+  `Cockpit.Call` and `Cockpit.CallHandler`. Collectors `files` and `nonmem` (`$DATA`, `$INCLUDE`,
+  `$MSFI`) in `internal/toolcall`.
+- One NONMEM 7.5.1 call (`scinteco/improve-docker-tool:nonmem751` by digest, its licence mounted
+  read-only from the host): the first call ran in 11.3 s and was recorded as a `tool/nmfe75` foton;
+  the same call again was answered from it in 0.39 s with the same outputs and OFV.
+- A shim run resets the image's entrypoint: improve's tool images call `nmfe` from theirs.
+- A call is keyed relative to its base, the deepest directory holding its directory and its inputs.
+  pharmpy runs each fit in a fresh `NONMEM_run_<model>-<uuid>/x` with the dataset at
+  `../.datasets/`. Keyed on the repository path, no rerun would ever meet its record.
+- pharmpy 2.1.1, `fit()` of the phenobarbital model and two candidates (a weight covariate, a combined
+  error model), with `default_nonmem_path` set to a directory whose `run/nmfe75` is the shim:
+  - the first run took 28.7 s, and each fit ran in the NONMEM image and was recorded;
+  - the same script again took 1.9 s, and all three were answered from their records. OFVs 730.895,
+    589.613 and 725.572 both times, and the 15 result files pharmpy keeps are byte-identical;
+  - with a fourth candidate added, it took 12.2 s: three reused, one ran.
+- pharmpy's dispatchers run in a `TemporaryDirectory`. `TMPDIR` must point into the repository,
+  or the shim refuses the dataset as outside it.
+- Not yet: hits by other dispatchers (an executor tier and `qualifies-as`), a class instead of the
+  digest, the traced negative conditions (D5), forwarded variables (D6), a PsN shim.
 
 ## Next
 

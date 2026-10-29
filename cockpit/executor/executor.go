@@ -38,6 +38,14 @@ type Step struct {
 	Hide []string
 	// HideFiles are repository-relative files the command must find empty (cockpit.config.json).
 	HideFiles []string
+	// ReadOnly are host files or directories the command sees read-only at a path of its own, and
+	// nothing it records: a licence a tool needs at run time (ADR-014). An executor that cannot
+	// mount them refuses the step.
+	ReadOnly []Mount
+	// NoEntrypoint runs Cmd's shell directly instead of through the image's own entrypoint: a tool
+	// shim runs its own command line, and an entrypoint that wraps the tool (improve's tool images
+	// call nmfe themselves) would stand in front of it.
+	NoEntrypoint bool
 	// Cmd is the command line, run by a POSIX shell.
 	Cmd string
 	// Options is the configuration's execution.options block as written: the executor's own
@@ -109,4 +117,9 @@ func Names() []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// Mount is a host path and where the command sees it.
+type Mount struct {
+	Host, At string
 }

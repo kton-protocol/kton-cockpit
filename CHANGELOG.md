@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+### The tool
+
+- **Tool shims, a prototype** (ADR-014, SPEC §10.4): `cockpit-shim`, installed under a tool's name
+  (`nmfe75` …), hands the call to `cockpit shim serve`. The same call recorded before by this
+  dispatcher is answered from that record; otherwise the tool runs in its own pinned image
+  (`shims` in `cockpit.config.json`) on exactly the collected inputs, a licence mounted read-only,
+  and the run is recorded as a `foton/v1` of kind `tool/<name>`. One NONMEM call: 11.3 s run and
+  recorded, 0.39 s the second time. The dispatcher is `Cockpit.Call` and `Cockpit.CallHandler`, for
+  ktonwatch's `/v1/call`. A call is keyed relative to its base directory, so pharmpy's fresh run
+  directories meet their records: a pharmpy `fit()` of three models took 28.7 s, and the rerun 1.9 s
+  with no NONMEM run.
+- **`internal/toolcall`**: argv normalisation, the content store and the collectors, shared by
+  `kton-call` and the shim.
+
 ## v0.4.0 — 2026-10-28
 
 Tracks kton v0.3.0. What waited for the kernel is in the default build now; `-tags unreleased`

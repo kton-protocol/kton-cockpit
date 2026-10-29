@@ -9,7 +9,7 @@ import (
 // scaffold the current directory and `mcp --help` to start the server.
 func TestCommandHelp_AnswersBeforeTheCommandRuns(t *testing.T) {
 	for _, c := range []string{"mcp", "init", "show", "doctor", "scope", "run", "keygen", "pin", "trust",
-		"federation", "sync", "config", "index", "version"} {
+		"federation", "sync", "config", "index", "shim", "version"} {
 		for _, flag := range []string{"--help", "-h"} {
 			help, ok := helpFor([]string{c, flag})
 			if !ok {

@@ -824,6 +824,27 @@ visible; it is the only point at which a declaration can be held against anythin
 > **Not guaranteed:** inputs. Which files a command *read* is not observable without tracing, so the
 > declaration in §7.2 is unimproved on that side — and it is the more consequential side.
 
+### 10.4 Tool shims *(optional, prototype)*
+
+A repository MAY configure `shims`: tools a shim in a calling environment hands its calls to
+(ADR-014). The dispatcher MUST treat everything the shim sends as untrusted. It MUST refuse a path
+that is absolute or contains `..`, `.`, an empty segment or NUL, MUST hash the bytes it is sent
+itself, and MUST run the tool on exactly what it staged, in the configured digest-pinned image.
+
+A run that leaves anything but regular files and directories MUST NOT be read or recorded. A run
+MUST NOT be recorded when its exit code is not a result, when it did not write what a result always
+has, or when an output contains a configured secret. A call is answered from a record only when this
+dispatcher's key signed it and its outputs are in the content store under their hashes.
+
+A call MUST be keyed, staged and recorded relative to its base: the deepest directory that holds its
+directory and all its inputs. Its outputs MUST go back under that base. The same call made in another
+directory is the same call.
+
+> **Checked by:** `TestShim_ACallThatCouldLeaveTheStagingDirectoryIsRefused`,
+> `TestShim_AMissRunsInTheToolsImageAndTheSameCallIsAHit`, `TestShim_ARunThatLeavesALinkIsNotReadOrRecorded`,
+> `TestShim_ASecretOrAFailureIsNotRecorded`, `TestShim_ACallIsKeyedRelativeToItsBase`,
+> `TestCollect_NonmemTakesTheControlStreamAndWhatItReads`.
+
 ## 11 Carried evidence *(optional)*
 
 A record MAY carry external evidence about itself: who a signing key belongs to, that the record
