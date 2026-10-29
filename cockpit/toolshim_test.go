@@ -3,6 +3,7 @@ package cockpit
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 
 	"github.com/kton-protocol/kton-cockpit/internal/config"
@@ -70,5 +71,41 @@ func TestShim_CheckRelAcceptsOnlyCleanRelativePaths(t *testing.T) {
 	}
 	if got := expandArgs("$2.lst", []string{"run1.mod", "run1"}); got != "run1.lst" {
 		t.Errorf("expandArgs: %q", got)
+	}
+}
+
+// A call is keyed relative to its base, the deepest directory holding its directory and its
+// inputs: the same call in another directory (pharmpy's NONMEM_run_<model>-<uuid>) is the same
+// call, and the outputs go back under the base it came from.
+func TestShim_ACallIsKeyedRelativeToItsBase(t *testing.T) {
+	file := func(p string) CallFile { return CallFile{Path: p} }
+	for _, tc := range []struct {
+		cwd   string
+		files []string
+		base  string
+		rcwd  string
+		paths []string
+	}{
+		{"run-1/x", []string{"run-1/x/model.ctl", "run-1/.datasets/d.csv"}, "run-1", "x", []string{"x/model.ctl", ".datasets/d.csv"}},
+		{"run-1/x", []string{"run-1/x/model.ctl"}, "run-1/x", "", []string{"model.ctl"}},
+		{"models", []string{"models/m.ctl", "data/d.csv"}, "", "models", []string{"models/m.ctl", "data/d.csv"}},
+		{"", []string{"m.ctl"}, "", "", []string{"m.ctl"}},
+		{"ab/c", []string{"ab/c/m.ctl", "a/d.csv"}, "", "ab/c", []string{"ab/c/m.ctl", "a/d.csv"}},
+	} {
+		in := ToolCall{Tool: "nmfe75", Cwd: tc.cwd}
+		for _, p := range tc.files {
+			in.Files = append(in.Files, file(p))
+		}
+		out, base := rebase(in)
+		var paths []string
+		for _, f := range out.Files {
+			paths = append(paths, f.Path)
+		}
+		if base != tc.base || out.Cwd != tc.rcwd || !slices.Equal(paths, tc.paths) {
+			t.Errorf("rebase(%q, %q) = %q, %q, %q; want %q, %q, %q", tc.cwd, tc.files, base, out.Cwd, paths, tc.base, tc.rcwd, tc.paths)
+		}
+		if in.Files[0].Path != tc.files[0] {
+			t.Errorf("rebase changed the caller's call")
+		}
 	}
 }

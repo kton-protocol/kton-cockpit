@@ -222,6 +222,17 @@ building it is written into kton's inbox and becomes a public kton issue.
   read-only from the host): the first call ran in 11.3 s and was recorded as a `tool/nmfe75` foton;
   the same call again was answered from it in 0.39 s with the same outputs and OFV.
 - A shim run resets the image's entrypoint: improve's tool images call `nmfe` from theirs.
+- A call is keyed relative to its base, the deepest directory holding its directory and its inputs.
+  pharmpy runs each fit in a fresh `NONMEM_run_<model>-<uuid>/x` with the dataset at
+  `../.datasets/`. Keyed on the repository path, no rerun would ever meet its record.
+- pharmpy 2.1.1, `fit()` of the phenobarbital model and two candidates (a weight covariate, a combined
+  error model), with `default_nonmem_path` set to a directory whose `run/nmfe75` is the shim:
+  - the first run took 28.7 s, and each fit ran in the NONMEM image and was recorded;
+  - the same script again took 1.9 s, and all three were answered from their records. OFVs 730.895,
+    589.613 and 725.572 both times, and the 15 result files pharmpy keeps are byte-identical;
+  - with a fourth candidate added, it took 12.2 s: three reused, one ran.
+- pharmpy's dispatchers run in a `TemporaryDirectory`. `TMPDIR` must point into the repository,
+  or the shim refuses the dataset as outside it.
 - Not yet: hits by other dispatchers (an executor tier and `qualifies-as`), a class instead of the
   digest, the traced negative conditions (D5), forwarded variables (D6), a PsN shim.
 

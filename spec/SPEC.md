@@ -836,9 +836,14 @@ MUST NOT be recorded when its exit code is not a result, when it did not write w
 has, or when an output contains a configured secret. A call is answered from a record only when this
 dispatcher's key signed it and its outputs are in the content store under their hashes.
 
+A call MUST be keyed, staged and recorded relative to its base: the deepest directory that holds its
+directory and all its inputs. Its outputs MUST go back under that base. The same call made in another
+directory is the same call.
+
 > **Checked by:** `TestShim_ACallThatCouldLeaveTheStagingDirectoryIsRefused`,
 > `TestShim_AMissRunsInTheToolsImageAndTheSameCallIsAHit`, `TestShim_ARunThatLeavesALinkIsNotReadOrRecorded`,
-> `TestShim_ASecretOrAFailureIsNotRecorded`, `TestCollect_NonmemTakesTheControlStreamAndWhatItReads`.
+> `TestShim_ASecretOrAFailureIsNotRecorded`, `TestShim_ACallIsKeyedRelativeToItsBase`,
+> `TestCollect_NonmemTakesTheControlStreamAndWhatItReads`.
 
 ## 11 Carried evidence *(optional)*
 

@@ -92,6 +92,51 @@ func (c *Cockpit) Call(ctx context.Context, in ToolCall) (*ToolResult, error) {
 	if err := checkCall(in); err != nil {
 		return nil, refuse("shim.path", "ADR-014, section 8", "%v", err)
 	}
+	rebased, base := rebase(in)
+	res, err := c.call(ctx, cfg, sh, rebased)
+	if res != nil && base != "" {
+		for i := range res.Files {
+			res.Files[i].Path = path.Join(base, res.Files[i].Path)
+		}
+	}
+	return res, err
+}
+
+// rebase moves a call to its base, the deepest directory that holds its directory and all its
+// inputs, and returns the base. A call is keyed, staged and recorded relative to it: where in the
+// repository it ran says nothing about what it did, and a caller that runs each call in a fresh
+// directory (pharmpy's NONMEM_run_<model>-<uuid>) still meets its own records. On the way in,
+// The outputs go back under the base.
+func rebase(in ToolCall) (ToolCall, string) {
+	segs := func(p string) []string {
+		if p == "" || p == "." {
+			return nil
+		}
+		return strings.Split(p, "/")
+	}
+	base := segs(in.Cwd)
+	for _, f := range in.Files {
+		dir := segs(path.Dir(f.Path))
+		n := 0
+		for n < len(base) && n < len(dir) && base[n] == dir[n] {
+			n++
+		}
+		base = base[:n]
+	}
+	out := in
+	prefix := strings.Join(base, "/")
+	if prefix == "" {
+		return out, ""
+	}
+	out.Cwd = strings.TrimPrefix(strings.TrimPrefix(out.Cwd, prefix), "/")
+	out.Files = make([]CallFile, len(in.Files))
+	for i, f := range in.Files {
+		out.Files[i] = CallFile{Path: strings.TrimPrefix(f.Path, prefix+"/"), Data: f.Data}
+	}
+	return out, prefix
+}
+
+func (c *Cockpit) call(ctx context.Context, cfg *config.Config, sh config.Shim, in ToolCall) (*ToolResult, error) {
 
 	stage, err := os.MkdirTemp("", "cockpit-shim-")
 	if err != nil {
