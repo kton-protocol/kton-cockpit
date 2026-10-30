@@ -233,6 +233,12 @@ building it is written into kton's inbox and becomes a public kton issue.
   - with a fourth candidate added, it took 12.2 s: three reused, one ran.
 - pharmpy's dispatchers run in a `TemporaryDirectory`. `TMPDIR` must point into the repository,
   or the shim refuses the dataset as outside it.
+- Review fixes (kton-review, 2026-10-29):
+  - S1: the base also holds what an argument reaches with a leading `../`.
+  - S2: nothing else under `.kton/` comes back on a hit.
+  - S3: `maxOutputBytes` per shim is checked by size before anything is read.
+  - S5: an `$INCLUDE` cycle is refused.
+  - S4 is still open: the dispatcher signs and finds its hits with the repository's publish key. It gets its own key with D4/D5.
 - Not yet: hits by other dispatchers (an executor tier and `qualifies-as`), a class instead of the
   digest, the traced negative conditions (D5), forwarded variables (D6), a PsN shim.
 

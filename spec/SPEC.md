@@ -837,12 +837,18 @@ has, or when an output contains a configured secret. A call is answered from a r
 dispatcher's key signed it and its outputs are in the content store under their hashes.
 
 A call MUST be keyed, staged and recorded relative to its base: the deepest directory that holds its
-directory and all its inputs. Its outputs MUST go back under that base. The same call made in another
-directory is the same call.
+directory, all its inputs and whatever its arguments reach with a leading `../`. Its outputs MUST go back
+under that base. The same call made in another directory is the same call.
+
+A run that leaves more than the shim's `maxOutputBytes` (1 GiB when not set) MUST NOT be read or
+recorded. Nothing a run leaves under `.kton/` besides its streams is an output, on a miss or a hit. A
+control stream that includes itself MUST be refused.
 
 > **Checked by:** `TestShim_ACallThatCouldLeaveTheStagingDirectoryIsRefused`,
 > `TestShim_AMissRunsInTheToolsImageAndTheSameCallIsAHit`, `TestShim_ARunThatLeavesALinkIsNotReadOrRecorded`,
 > `TestShim_ASecretOrAFailureIsNotRecorded`, `TestShim_ACallIsKeyedRelativeToItsBase`,
+> `TestShim_AnOutputAboveTheCallsDirectoryIsWritten`, `TestShim_FilesUnderTheStreamsDirectoryNeverComeBack`,
+> `TestShim_ARunThatLeavesTooMuchIsNotRead`,
 > `TestCollect_NonmemTakesTheControlStreamAndWhatItReads`.
 
 ## 11 Carried evidence *(optional)*

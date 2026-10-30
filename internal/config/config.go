@@ -419,6 +419,9 @@ type Shim struct {
 	// Expect are files a run that is a result always writes, relative to the call's directory; $1
 	// to $9 are the call's arguments ("$2" is the listing nmfe writes).
 	Expect []string `json:"expect,omitempty"`
+	// MaxOutputBytes bounds what one run may leave, all files together; 0 means 1 GiB. A run that
+	// leaves more is not read or recorded.
+	MaxOutputBytes int64 `json:"maxOutputBytes,omitempty"`
 }
 
 // ShimSecret is a host file and where the tool sees it.
@@ -800,6 +803,9 @@ func validateShims(shims map[string]Shim) error {
 		if !strings.HasPrefix(sh.Image, "oci://") || !strings.Contains(sh.Image, "@sha256:") {
 			return fmt.Errorf("shims.%s.image must be oci://<image>@sha256:<digest>, got %q: a call recorded "+
 				"in an image named by a tag pins nothing", name, sh.Image)
+		}
+		if sh.MaxOutputBytes < 0 {
+			return fmt.Errorf("shims.%s.maxOutputBytes must not be negative", name)
 		}
 		for _, sec := range sh.Secrets {
 			if !filepath.IsAbs(sec.Host) && !strings.HasPrefix(sec.Host, "~/") {
