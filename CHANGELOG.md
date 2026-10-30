@@ -1,31 +1,39 @@
 # Changelog
 
-## Unreleased
+## v0.4.1 — 2026-10-30
 
-### The tool
+Tracks kton v0.3.0 and ktonpkg v0.2.0. With ktonpkg published, `-tags unreleased` is gone: one build
+has everything.
 
-- **Packages are in the default build**, now that ktonpkg is published (v0.2.0): `install`,
-  `workflow`, ray extraction, and the vocabulary path. An admitted package
-  (`claims.allowedPackages`, `install --allow`) brings its templates and its queries (SPEC §8.1).
-  `-tags unreleased` is gone.
+### Vocabulary packages
+
+- **Packages are in the default build**: `install`, `workflow`, ray extraction, and the vocabulary
+  path. An admitted package (`claims.allowedPackages`, `install --allow`) brings its templates and
+  its queries (SPEC §8.1).
 - **`ask sparql --name <query> [--bind VAR=VALUE]...`** (SPEC §9.9) runs a query an admitted
   package brings, over the same projection as a query written out. A bound value is a literal in an
   appended `VALUES` clause, never query text. MCP: `name` and `bind`.
+
+### Saying and asking
 
 - **`say --as <name>`** (SPEC §8.7): with `identity.keyring` set, a claim is signed with
   `<name>-claims.key` from that directory instead of `nekton_key`. Only a key whose public half is
   in a trust tier can be named, so one registry carries each writer's own signature (one key per lane).
 - **`ask scope <name>`** takes a name configured under `claims.scopes`, as `say --scope` does; only the
   id worked before.
-- **Tool shims, a prototype** (ADR-014, SPEC §10.4): `cockpit-shim`, installed under a tool's name
-  (`nmfe75` …), hands the call to `cockpit shim serve`. The same call recorded before by this
-  dispatcher is answered from that record; otherwise the tool runs in its own pinned image
-  (`shims` in `cockpit.config.json`) on exactly the collected inputs, a licence mounted read-only,
-  and the run is recorded as a `foton/v1` of kind `tool/<name>`. One NONMEM call: 11.3 s run and
-  recorded, 0.39 s the second time. The dispatcher is `Cockpit.Call` and `Cockpit.CallHandler`, for
-  ktonwatch's `/v1/call`. A call is keyed relative to its base directory, so pharmpy's fresh run
-  directories meet their records: a pharmpy `fit()` of three models took 28.7 s, and the rerun 1.9 s
-  with no NONMEM run. A run may leave at most `maxOutputBytes` (1 GiB by default).
+
+### Tool shims (prototype)
+
+- **Tool shims** (ADR-014, SPEC §10.4): `cockpit-shim`, installed under a tool's name (`nmfe75` …),
+  hands the call to `cockpit shim serve`. The same call recorded before by this dispatcher is
+  answered from that record; otherwise the tool runs in its own pinned image (`shims` in
+  `cockpit.config.json`) on exactly the collected inputs, a licence mounted read-only, and the run is
+  recorded as a `foton/v1` of kind `tool/<name>`. The dispatcher is `Cockpit.Call` and
+  `Cockpit.CallHandler`, for ktonwatch's `/v1/call`.
+  - One NONMEM call: 11.3 s run and recorded, 0.39 s the second time.
+  - A call is keyed relative to its base directory, so pharmpy's fresh run directories meet their
+    records: a pharmpy `fit()` of three models took 28.7 s, and the rerun 1.9 s with no NONMEM run.
+  - A run may leave at most `maxOutputBytes` (1 GiB by default).
 - **`internal/toolcall`**: argv normalisation, the content store and the collectors, shared by
   `kton-call` and the shim.
 
