@@ -392,7 +392,8 @@ already means this is a term a reader may already know.
 
 > **Checked by:** `TestSay_RefusesATemplateOutsideTheConfiguredCeiling`,
 > `TestTemplates_NamePredicatesByFullIRI`, `examples/04-claim-ceiling`,
-> `TestVocabulary_AnAllowedPackageBringsItsTemplatesAndQueries` (`-tags docker`).
+> `TestVocabulary_AnAllowedPackageBringsItsTemplatesAndQueries` (`-tags docker`),
+> `TestShellSay_ListsAnAllowedPackagesTemplatesAndPointsFlagsToTheJSONFields`.
 
 ### 8.2 The reproduction precondition
 

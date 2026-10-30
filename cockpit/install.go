@@ -152,8 +152,8 @@ func (c *Cockpit) Install(ctx context.Context, in InstallRequest) (*InstallResul
 		}
 		out.ClaimID = said
 	} else {
-		out.Note = fmt.Sprintf("installed, but not recorded as installed: no allowed package brings the %q template — "+
-			"install a vocabulary package with --allow first", installedTemplate)
+		out.Note = fmt.Sprintf("installed. No %q claim was written, which is fine: no allowed package brings that template. "+
+			"Allow a vocabulary package that has it, and later installs are also recorded as claims", installedTemplate)
 	}
 	if !out.Allowed && out.Profile == scope.ProfileTemplates {
 		out.Note = fmt.Sprintf("a vocabulary package: its templates and queries are used only once it is allowed — "+
