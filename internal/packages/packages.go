@@ -1,5 +1,3 @@
-//go:build unreleased
-
 // Package packages is what this repository has installed: packages in the scope format (ktonpkg/
 // scope), each kept whole under packages/<name>@<revision>/ — registries, bytes, keys and the
 // readable view — so an installed package stays checkable as the document it was received as.

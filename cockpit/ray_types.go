@@ -1,5 +1,3 @@
-//go:build unreleased
-
 package cockpit
 
 import "github.com/gitmick/ktonpkg"

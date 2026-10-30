@@ -285,8 +285,7 @@ the bytes is the failure locators exist to prevent.
 environment class (`environment.spectrum`) it is COVERED (kton §6.5), so the same command in a different
 pinned environment is a different foton.
 
-With a class, the record covers the class and not the image (ADR-010): on `foton/v1` (`-tags unreleased`
-until kton 0.3.0) the cockpit MUST leave `envRef` out of the record and attach it as this producer's signed
+With a class, the record covers the class and not the image (ADR-010): on `foton/v1` the cockpit MUST leave `envRef` out of the record and attach it as this producer's signed
 `kton-env/v1` statement, so runs in images of one class are one record. A class MUST be a content hash in
 canonical form, and a blank `envRef` MUST be refused. A reader takes such a statement only through the
 kernel's `foton.ReadEnv`: only about that record, only from a key that also signed it, and only under a key
@@ -294,8 +293,7 @@ the reader's trust tiers name; `ask` shows each such account.
 
 > **Checked by:** `TestAuthor_WithoutAClassTheImageIsPartOfTheRecord`,
 > `TestAuthor_RefusesABlankImageAndAClassThatNamesNothing`, `TestConfig_SpectrumIsACanonicalContentHash`,
-> `TestAuthor_MatchesTheReferenceCLI`, `TestAuthor_WithAClassTheImageIsCarriedAndTwoImagesAreOneRecord`
-> (`-tags unreleased`).
+> `TestAuthor_MatchesTheReferenceCLI`, `TestAuthor_WithAClassTheImageIsCarriedAndTwoImagesAreOneRecord`.
 
 It is supplied per call, because a session works across many environments and no configured value
 could be right for all of them. Like the command, it is attested.
@@ -377,6 +375,12 @@ Binds a claim to a record.
 The configuration names the permitted claim templates. A cockpit MUST refuse any other, and MUST NOT
 allow a caller to introduce a claim shape.
 
+The configuration MAY also admit installed packages (`claims.allowedPackages`; `cockpit install
+<package-dir> --allow`). An admitted package's templates are permitted, and its queries can be run by
+name (§9.9). A package that fails its structural check MUST contribute nothing, and two admitted
+packages bringing the same name MUST be refused rather than resolved by order. The operator fixes the
+set either way: by template, or by the package that carries a whole vocabulary.
+
 A template MUST name its predicate by full IRI, never by a CURIE. An alias file resolves a prefix
 before the claim is built, so the signed record carries the full IRI either way — which means two
 repositories with different alias files produce DIFFERENT records from the same template text, and
@@ -387,7 +391,8 @@ Published vocabulary is reused rather than minted: kton's own annex asks for it,
 already means this is a term a reader may already know.
 
 > **Checked by:** `TestSay_RefusesATemplateOutsideTheConfiguredCeiling`,
-> `TestTemplates_NamePredicatesByFullIRI`, `examples/04-claim-ceiling`.
+> `TestTemplates_NamePredicatesByFullIRI`, `examples/04-claim-ceiling`,
+> `TestVocabulary_AnAllowedPackageBringsItsTemplatesAndQueries` (`-tags docker`).
 
 ### 8.2 The reproduction precondition
 
@@ -493,7 +498,7 @@ does not own.
 
 > **Checked by:** `TestSay_DescribesAndRationaleAreTwoClaimsAboutAFoton`,
 > `TestSay_DescribesRefusesAnEmptyClaim`, `TestTemplates_NamePredicatesByFullIRI`,
-> `TestTemplates_KtonpkgReadsWhatDescribesAndRationaleWrite` (`-tags unreleased`).
+> `TestTemplates_KtonpkgReadsWhatDescribesAndRationaleWrite`.
 
 ### 8.7 Saying as another identity *(optional)*
 
@@ -772,12 +777,19 @@ reaches no record outside that dataset, so it is under the same ceiling as every
 - With `format: "sparql-results+json"` the answer MUST also carry the same rows, or the boolean, as a
   SPARQL 1.1 Query Results JSON document (`results`), each value with its type (`uri`, `literal`,
   `bnode`), datatype and language. Any other format MUST be refused.
+- A query MAY be named instead of written (`name`): a query an allowed package brings
+  (`claims.allowedPackages`, §8.1). It MUST be read exactly as the same text passed in `sparql`, and the
+  answer MUST name the package it came from (`from`). Naming a query no allowed package brings, or
+  giving both `name` and `sparql`, MUST be refused.
+- `bind` MAY give the query's variables values, each a plain literal in a `VALUES` clause appended to the
+  query. A value MUST NOT become query text, and a name that is not a variable name MUST be refused.
 
 The vocabulary of the projection, with examples, is in [docs/sparql.md](../docs/sparql.md). Every
 example there is run by a test.
 
 > **Checked by:** `TestCheckFreeQuery_TakesSelectAndAskOverTheCockpitsDataset`,
 > `TestSparql_RefusesWhatItWouldNotAnswer`, `TestSparql_ChecksTheQueryAndNeedsAnEngine`,
+> `TestVocabulary_AnAllowedPackageBringsItsTemplatesAndQueries` (`-tags docker`),
 > `TestShellSparql_ReadsTheQueryFromAFile`,
 > `TestParseResults_ReadsASelectAndAnAsk`, `TestClaimView_KeepsPositionAndCurrent`,
 > `TestClaimView_AppliesTheTemplatesTermsAndTypes`, `TestSparql_TheExamplesAnswerOverAFixture` (with its
@@ -1097,7 +1109,7 @@ written under another schema is emptied first.
 > **Checked by:** `TestOxigraph_RecordsAreStoredOnceAndTrustIsChosenPerQuery`,
 > `TestOxigraph_AttributionIsTheRegistrysOwn`, `TestOxigraph_AReaderNeverSeesARegistryHalfRead`,
 > `TestCheckQuery_RefusesServiceAndOnlyService`, `TestConfig_QueryImageIsPinnedByDigest`,
-> `TestQuery_TheIndexAnswersAsAContainerForTheQueryDoes` (both `-tags docker,unreleased`).
+> `TestQuery_TheIndexAnswersAsAContainerForTheQueryDoes` (both `-tags docker`).
 
 ## 13 What a cockpit does not do
 

@@ -116,6 +116,22 @@ GRAPH ?pubinfo   { ?np dct:created ?when ; prov:wasDerivedFrom ?claim ; nk:scope
 GRAPH ?attribution { ?np dct:creator ?signer . ?assertion prov:wasAttributedTo ?signer }
 ```
 
+## A query from a vocabulary package
+
+A query can come from an installed package instead of a file: `cockpit install <package-dir> --allow`
+admits a package's templates and queries, and `cockpit ask sparql --name <query>` runs one of them
+over the same dataset as a query written out (MCP: `name`). The answer names the package it came from.
+
+`--bind VAR=VALUE` (MCP: `bind`) gives a variable a value. It binds `?VAR` and `$VAR` alike, as a plain
+literal in a `VALUES` clause added to the end of the query, so a value is never read as SPARQL:
+
+```sh
+cockpit ask sparql --name inbox-open --bind LANE=kton-cockpit
+```
+
+A query with a `VALUES` clause of its own at the end cannot take a binding as well; write the binding
+into that clause instead.
+
 ## Examples
 
 Each example runs in the test `TestSparql_TheExamplesAnswerOverAFixture` against a fixture with

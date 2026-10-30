@@ -75,7 +75,7 @@ type AuthorInput struct {
 	// class, is COVERED: it rides in the descriptor into the foton id. EnvRef, the exact image, is
 	// covered too when no class is declared, so two runs in different images are different fotons
 	// and a reproduction commits to re-executing in the pinned one. With a class declared (and
-	// foton/v1, -tags unreleased) it is CARRIED instead, as this producer's signed kton-env/v1
+	// foton/v1) it is CARRIED instead, as this producer's signed kton-env/v1
 	// statement beside the record, so runs in images of one class are one record (ADR-010).
 	// Empty means unpinned — which is a weaker record, not an invalid one.
 	Environment string // qualified env-spectrum id (sha256:...)

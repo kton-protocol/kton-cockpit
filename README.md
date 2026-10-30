@@ -40,7 +40,7 @@ exercises it, so the document is checkable rather than merely asserted.
 A new verb can be added when an operation does not fit the three
 ([ADR-009](docs/decisions/adr-009-no-fixed-verb-count.md)). Everything else on the command line
 (`init`, `keygen`, `pin`, `config`, `trust`, `federation`, `run`, `doctor`, `show`, `scope`,
-`version`; `install` and `workflow` with `-tags unreleased`) is operator work around the verbs, and
+`version`, `install`, `workflow`) is operator work around the verbs, and
 `mcp` serves the verbs to an agent. The cockpit
 reimplements no plankton/nekton logic of its own — it **links** the kernels as Go libraries
 (`kton.dev/plankton`, `kton.dev/nekton`, `kton.dev/kton`) and calls them, so one binary is the whole
@@ -56,9 +56,8 @@ cockpit version            # the binary, the commit it was built from, and the k
 ```
 
 Needs Go and git; Docker (or another engine, `execution.engine`) to run commands in a pinned image.
-The default build uses only published modules (kton v0.3.0). Work that needs ktonpkg, which is not
-published (package installation, workflows, ray extraction, the vocabulary queries), is behind
-`-tags unreleased` and needs it locally.
+The build uses only published modules: kton v0.3.0 and ktonpkg v0.2.0, which brings package
+installation, workflows, ray extraction and the vocabulary queries.
 
 ## Set up a repository
 

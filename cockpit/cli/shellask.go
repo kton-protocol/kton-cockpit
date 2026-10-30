@@ -36,7 +36,7 @@ var askQueries = []struct{ name, arg, what string }{
 	{"about", "<run|file|sha256:id>", "the claims about a run, a file or a record"},
 	{"by", "signer|predicate|object <value>", "claims by a signer (me), of a kind (a template name), or naming a value"},
 	{"scope", "<sha256:scope-id>", "a scope's chain: head, length, whether it branched"},
-	{"sparql", "<query.rq|->", "a SELECT or ASK of your own over the trusted dataset (docs/sparql.md)"},
+	{"sparql", "<query.rq|-|--name Q>", "a SELECT or ASK over the trusted dataset (docs/sparql.md): your own, or a vocabulary package's by name"},
 	{"feed", "[cursor]", "the trusted records in the order they arrived, after a cursor, and the next cursor"},
 }
 
@@ -172,8 +172,8 @@ func shellAsk(ctx context.Context, args []string) error {
 	return nil
 }
 
-// shellSparql is `cockpit ask sparql <file|-> [--limit N] [--timeout S] [--json|--results-json]`: the query from a
-// file or stdin, the rows as tab-separated lines under the variables. --results-json prints the
+// shellSparql is `cockpit ask sparql <file|-|--name QUERY> [--bind VAR=VALUE]... [--limit N] [--timeout S]
+// [--json|--results-json]`: the query from a file, stdin, or an allowed vocabulary package by name, the rows as tab-separated lines under the variables. --results-json prints the
 // answer alone in the standard SPARQL 1.1 Query Results JSON, for a tool that reads that.
 func shellSparql(ctx context.Context, args []string) error {
 	in := cockpit.AskRequest{Query: "sparql"}
@@ -186,6 +186,23 @@ func shellSparql(ctx context.Context, args []string) error {
 			asJSON = true
 		case "--results-json":
 			standard, in.Format = true, cockpit.SparqlFormatStandard
+		case "--name", "--bind":
+			if i+1 >= len(args) {
+				return fmt.Errorf("%s needs a value", a)
+			}
+			i++
+			if a == "--name" {
+				in.Name = args[i]
+				continue
+			}
+			k, v, ok := strings.Cut(args[i], "=")
+			if !ok {
+				return fmt.Errorf("--bind takes VAR=VALUE, not %q", args[i])
+			}
+			if in.Bind == nil {
+				in.Bind = map[string]string{}
+			}
+			in.Bind[k] = v
 		case "--limit", "--timeout":
 			if i+1 >= len(args) {
 				return fmt.Errorf("%s needs a value", a)
@@ -202,25 +219,27 @@ func shellSparql(ctx context.Context, args []string) error {
 			}
 		default:
 			if strings.HasPrefix(a, "--") {
-				return fmt.Errorf("unknown flag %s — usage: cockpit ask sparql <query.rq|-> [--limit N] [--timeout S] [--json|--results-json]", a)
+				return fmt.Errorf("unknown flag %s — usage: cockpit ask sparql <query.rq|-|--name QUERY> [--bind VAR=VALUE]... [--limit N] [--timeout S] [--json|--results-json]", a)
 			}
 			pos = append(pos, a)
 		}
 	}
-	if len(pos) != 1 {
-		return fmt.Errorf("usage: cockpit ask sparql <query.rq|-> [--limit N] [--timeout S] [--json|--results-json]")
+	if len(pos) != 1 && !(in.Name != "" && len(pos) == 0) {
+		return fmt.Errorf("usage: cockpit ask sparql <query.rq|-|--name QUERY> [--bind VAR=VALUE]... [--limit N] [--timeout S] [--json|--results-json]")
 	}
-	var q []byte
-	var err error
-	if pos[0] == "-" {
-		q, err = io.ReadAll(os.Stdin)
-	} else {
-		q, err = os.ReadFile(pos[0])
+	if in.Name == "" {
+		var q []byte
+		var err error
+		if pos[0] == "-" {
+			q, err = io.ReadAll(os.Stdin)
+		} else {
+			q, err = os.ReadFile(pos[0])
+		}
+		if err != nil {
+			return err
+		}
+		in.Sparql = string(q)
 	}
-	if err != nil {
-		return err
-	}
-	in.Sparql = string(q)
 
 	out, err := cockpit.New(cockpit.Start{}).Ask(ctx, in)
 	exitIfRefused(err)

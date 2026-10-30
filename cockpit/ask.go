@@ -26,6 +26,12 @@ type AskRequest struct {
 	// Sparql is the query for query "sparql": a SELECT or an ASK someone wrote, over the dataset the
 	// vocabulary queries read (SPEC §9.9). Ref and Filter are refused beside it; it narrows itself.
 	Sparql string `json:"sparql,omitempty" jsonschema:"for query sparql: a SELECT or ASK over the trusted dataset (SPEC §9.9; see docs/sparql.md). Fotons are in the default graph, claims in named graphs; a record is trusted where it has prov:wasAttributedTo"`
+	// Name is, for query "sparql", a query an allowed package brings (claims.allowedPackages), run
+	// instead of Sparql and read exactly as Sparql would be.
+	Name string `json:"name,omitempty" jsonschema:"for query sparql: run this query of an allowed vocabulary package (claims.allowedPackages) instead of sparql"`
+	// Bind gives a sparql query's variables values: each a plain literal, in a VALUES clause
+	// appended to the query, so nothing is spliced into its text.
+	Bind map[string]string `json:"bind,omitempty" jsonschema:"for query sparql: values for the query's variables as plain literals, e.g. {\"LANE\": \"kton-cockpit\"} binds ?LANE (and $LANE)"`
 	// Limit and TimeoutSeconds bound a sparql answer; the defaults are sparqlLimit and sparqlTimeout.
 	Limit          int `json:"limit,omitempty" jsonschema:"for query sparql: the most rows to return; for query feed: the most records (default 1000, at most 10000)"`
 	TimeoutSeconds int `json:"timeoutSeconds,omitempty" jsonschema:"for query sparql: how long the query may run (default 30, at most 120)"`

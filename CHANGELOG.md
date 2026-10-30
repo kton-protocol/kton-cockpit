@@ -4,6 +4,14 @@
 
 ### The tool
 
+- **Packages are in the default build**, now that ktonpkg is published (v0.2.0): `install`,
+  `workflow`, ray extraction, and the vocabulary path. An admitted package
+  (`claims.allowedPackages`, `install --allow`) brings its templates and its queries (SPEC §8.1).
+  `-tags unreleased` is gone.
+- **`ask sparql --name <query> [--bind VAR=VALUE]...`** (SPEC §9.9) runs a query an admitted
+  package brings, over the same projection as a query written out. A bound value is a literal in an
+  appended `VALUES` clause, never query text. MCP: `name` and `bind`.
+
 - **`say --as <name>`** (SPEC §8.7): with `identity.keyring` set, a claim is signed with
   `<name>-claims.key` from that directory instead of `nekton_key`. Only a key whose public half is
   in a trust tier can be named, so one registry carries each writer's own signature (one key per lane).
