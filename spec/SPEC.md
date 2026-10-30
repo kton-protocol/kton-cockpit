@@ -1029,8 +1029,14 @@ turn off checking which repository this is. The cockpit itself MUST NOT call a b
 everything it needs from the store goes through the backend (ADR-011). With sharing off, a verb MUST
 NOT share at all, not even a revision an earlier call left unshared.
 
+Several verbs MAY write to one working tree at once, for example many writers saying into one
+registry. Each MUST make what it wrote durable exactly once and succeed. One MUST NOT fail because
+another holds the store's lock: the cockpit's own writes take turns, and a lock held by a tool
+outside the cockpit is waited out for a bounded time.
+
 > **Checked by:** `TestConfigGuard_StillRefusesTheWrongRepoWithCommitsOff`,
-> `TestPublish_WithPushOffItCommitsLocallyAndSaysSo`, `TestCommitAndPush_NeverPushesWhenNotSharing`.
+> `TestPublish_WithPushOffItCommitsLocallyAndSaysSo`, `TestCommitAndPush_NeverPushesWhenNotSharing`,
+> `TestSay_ParallelProcessesEachCommitTheirClaim`, `TestCommitAndPush_WaitsOutALockAnotherGitHolds`.
 
 `cockpit sync` takes in what others shared and then shares what is durable here only. It MUST NOT
 rewrite a local revision — records already signed pin it in their locators — and where both sides

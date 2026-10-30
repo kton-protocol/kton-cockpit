@@ -345,3 +345,35 @@ exit 0
 		t.Fatal("git push was invoked although Push is false")
 	}
 }
+
+// A lock held by a git outside the cockpit (a person's, an editor's) is waited out, not reported as
+// a failed commit: the first commit meets index.lock, the next try commits.
+func TestCommitAndPush_WaitsOutALockAnotherGitHolds(t *testing.T) {
+	repoDir := t.TempDir()
+	binDir := t.TempDir()
+	tried := filepath.Join(binDir, "tried")
+	script := `#!/bin/sh
+for a in "$@"; do
+  if [ "$a" = "commit" ]; then
+    if [ ! -f "` + tried + `" ]; then
+      touch "` + tried + `"
+      echo "fatal: Unable to create '/x/.git/index.lock': File exists." >&2
+      exit 128
+    fi
+    exit 0
+  fi
+done
+if [ "$1" = "diff" ]; then exit 1; fi
+if [ "$1" = "rev-parse" ]; then echo "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"; fi
+exit 0
+`
+	if err := os.WriteFile(filepath.Join(binDir, "git"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	sha, err := CommitAndPush(context.Background(), Git{Root: repoDir, Commit: true, SessionID: "session-1"}, []string{"a.csv"}, "test")
+	if err != nil || sha == "" {
+		t.Fatalf("want the commit made on the second try: %q %v", sha, err)
+	}
+}

@@ -31,6 +31,12 @@ func (Backend) Head(ctx context.Context, r backend.Repo) (backend.Revision, erro
 // pushes; a push origin refuses is reported as Rejected, not as an error.
 func (b Backend) Sync(ctx context.Context, r backend.Repo) (backend.Revision, error) {
 	// The merge commit is the cockpit's, made under the session's identity as its other commits are.
+	// It holds the same lock as a commit, so a say during a sync waits instead of meeting index.lock.
+	unlock, err := gitops.LockRepo(r.Dir)
+	if err != nil {
+		return backend.Revision{}, err
+	}
+	defer unlock()
 	if err := gitrepo.PullMerge(ctx, r.Dir, gitops.IdentityArgs(r.SessionID)...); err != nil {
 		return backend.Revision{}, err
 	}

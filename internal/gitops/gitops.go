@@ -6,11 +6,18 @@ package gitops
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
+	"sync"
+	"time"
+
+	"github.com/kton-protocol/kton-cockpit/internal/flock"
 )
 
 func run(ctx context.Context, dir, name string, args ...string) (string, error) {
@@ -88,6 +95,18 @@ func CommitAndPush(ctx context.Context, cfg Git, paths []string, message string)
 	if !cfg.Commit {
 		return "", nil
 	}
+	// Several say or publish processes on one working tree take turns here: git allows one writer
+	// of the index at a time, and a second one fails on index.lock while the first commits. The
+	// lock covers add, commit and push, so each call commits what it wrote exactly once.
+	unlock, err := LockRepo(cfg.Root)
+	if err != nil {
+		return "", err
+	}
+	defer unlock()
+	return commitAndPush(ctx, cfg, paths, message)
+}
+
+func commitAndPush(ctx context.Context, cfg Git, paths []string, message string) (sha string, err error) {
 	// The "--" separator is load-bearing, not cosmetic: without it, a path that happens to start
 	// with "-" (e.g. "-f") is parsed by git as a FLAG, not a literal path — "git add -f ." force-
 	// adds every gitignored file in the repo, keys included, without the string "keys/..." ever
@@ -95,7 +114,7 @@ func CommitAndPush(ctx context.Context, cfg Git, paths []string, message string)
 	// leading-dash paths as defense in depth, but this is the actual, root-cause fix: with "--",
 	// everything after it is unconditionally a pathspec, regardless of what it starts with.
 	args := append([]string{"add", "--"}, paths...)
-	if _, err := run(ctx, cfg.Root, "git", args...); err != nil {
+	if _, err := runWaiting(ctx, cfg.Root, args...); err != nil {
 		return "", err
 	}
 
@@ -139,7 +158,7 @@ func CommitAndPush(ctx context.Context, cfg Git, paths []string, message string)
 	// practice where writing to .git/config directly hit "Device or resource busy" inside that
 	// sandbox. Derived from the session identity already in config — not a new config field.
 	commitArgs := append(commitIdentityArgs(cfg), "commit", "-m", message)
-	if _, err := run(ctx, cfg.Root, "git", commitArgs...); err != nil {
+	if _, err := runWaiting(ctx, cfg.Root, commitArgs...); err != nil {
 		return "", err
 	}
 	if cfg.Push {
@@ -272,4 +291,63 @@ func localAheadOfUpstream(ctx context.Context, cfg Git) (bool, error) {
 // the given sha.
 func PermalinkBase(owner, name, sha string) string {
 	return fmt.Sprintf("https://raw.githubusercontent.com/%s/%s/%s", owner, name, sha)
+}
+
+// repoLocks serialises the callers in this process; LockRepo's file lock, those of other processes.
+var (
+	repoLocksMu sync.Mutex
+	repoLocks   = map[string]*sync.Mutex{}
+)
+
+// LockRepo takes the lock for writing root's git index: every cockpit write to the store holds it
+// (commits here, the merge of cockpit sync). The lock file lives in the temp directory,
+// named by the repository's resolved path, so it is never part of the working tree.
+func LockRepo(root string) (func(), error) {
+	abs, err := filepath.Abs(root)
+	if err != nil {
+		return nil, err
+	}
+	if real, err := filepath.EvalSymlinks(abs); err == nil {
+		abs = real
+	}
+	repoLocksMu.Lock()
+	mu, ok := repoLocks[abs]
+	if !ok {
+		mu = &sync.Mutex{}
+		repoLocks[abs] = mu
+	}
+	repoLocksMu.Unlock()
+	mu.Lock()
+	sum := sha256.Sum256([]byte(abs))
+	unlock, err := flock.Lock(filepath.Join(os.TempDir(), "kton-cockpit-git-"+hex.EncodeToString(sum[:8])+".lock"))
+	if err != nil {
+		mu.Unlock()
+		return nil, fmt.Errorf("locking %s for a commit: %w", root, err)
+	}
+	return func() { unlock(); mu.Unlock() }, nil
+}
+
+// runWaiting runs a git command that writes the index, waiting out a lock held by a git outside
+// the cockpit (a person's git, an editor) for up to lockWait instead of failing on it.
+func runWaiting(ctx context.Context, dir string, args ...string) (string, error) {
+	deadline := time.Now().Add(lockWait)
+	for wait := 50 * time.Millisecond; ; wait = min(2*wait, time.Second) {
+		out, err := run(ctx, dir, "git", args...)
+		if err == nil || !heldLock(out) || time.Now().After(deadline) {
+			return out, err
+		}
+		select {
+		case <-ctx.Done():
+			return out, err
+		case <-time.After(wait):
+		}
+	}
+}
+
+// lockWait is how long a write waits for another git to let go of the repository's lock.
+const lockWait = 30 * time.Second
+
+// heldLock reports git saying another process holds one of its lock files.
+func heldLock(out string) bool {
+	return strings.Contains(out, ".lock': File exists") || strings.Contains(out, "Unable to create") && strings.Contains(out, ".lock")
 }
