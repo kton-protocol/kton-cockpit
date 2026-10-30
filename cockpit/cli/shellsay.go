@@ -26,7 +26,7 @@ func sayOverview(ctx context.Context, cfg *config.Config) {
 	fmt.Println()
 	ts := readTemplates(cfg)
 	if len(ts) == 0 {
-		fmt.Println("  no templates allowed here (claims.allowedTemplates, files in the template directory)")
+		fmt.Println("  no templates allowed here (claims.allowedTemplates with files in the template directory, or claims.allowedPackages)")
 	}
 	for _, t := range ts {
 		fmt.Printf("  %-14s about %s\n", t.Name, targetWords[orDefault(t.Target, "foton")])
@@ -94,6 +94,8 @@ func shellSay(ctx context.Context, args []string) error {
 			}
 			in.ExpectHead = args[i+1]
 			i++
+		case strings.HasPrefix(strings.TrimSpace(a), "{"):
+			return fmt.Errorf("flags do not combine with the JSON form; it carries them as fields, e.g. {\"as\": \"NAME\", \"scope\": \"NAME\", …} — cockpit say --help lists them")
 		case strings.HasPrefix(a, "--"):
 			return fmt.Errorf("unknown flag %s — cockpit say lists the templates", a)
 		case strings.Contains(a, "=") && len(pos) > 0:

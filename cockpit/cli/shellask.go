@@ -25,6 +25,7 @@ import (
 	"github.com/kton-protocol/kton-cockpit/cockpit"
 	"github.com/kton-protocol/kton-cockpit/internal/binaries"
 	"github.com/kton-protocol/kton-cockpit/internal/config"
+	"github.com/kton-protocol/kton-cockpit/internal/packages"
 )
 
 var askQueries = []struct{ name, arg, what string }{
@@ -386,6 +387,23 @@ func readTemplates(cfg *config.Config) []templateInfo {
 		}
 		var t templateInfo
 		if json.Unmarshal(b, &t) == nil {
+			if t.Name == "" {
+				t.Name = name
+			}
+			out = append(out, t)
+		}
+	}
+	// The templates an allowed package brings are allowed too (SPEC §8.1), so they are listed.
+	if voc, err := packages.Allowed(cfg.RepoRoot, cfg.Raw.Claims.AllowedPackages); err == nil {
+		have := map[string]bool{}
+		for _, t := range out {
+			have[t.Name] = true
+		}
+		for name, b := range voc.Templates {
+			var t templateInfo
+			if have[name] || json.Unmarshal(b, &t) != nil {
+				continue
+			}
 			if t.Name == "" {
 				t.Name = name
 			}

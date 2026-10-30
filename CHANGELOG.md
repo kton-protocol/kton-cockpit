@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+Found by kton-coordination on `lanes/` with v0.4.1:
+- **`cockpit say` lists the templates an allowed package brings.** It said "no templates allowed
+  here" while `say requests …` worked.
+- **A flag beside the JSON form is refused with the field that carries it.** `say --as X '{…}'` gave
+  a bare usage error, though the JSON form takes `"as"` (and `"scope"`, `"expectHead"`) itself.
+- **`install --allow` no longer reads like a failure** when no allowed package brings the
+  `installed` template: the package is installed, and only the claim recording it is not written.
+
 ## v0.4.1 — 2026-10-30
 
 Tracks kton v0.3.0 and ktonpkg v0.2.0. With ktonpkg published, `-tags unreleased` is gone: one build
