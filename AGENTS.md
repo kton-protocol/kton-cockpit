@@ -43,7 +43,7 @@ the first question anyone asks of it. Which kton is inside it needs no stamp: Go
 required kernel modules' versions in the build info, and `cockpit version` prints them.
 
 ```bash
-go build -ldflags "-X github.com/kton-protocol/kton-cockpit/cockpit/cli.Version=v0.4.1" -o bin/cockpit ./cmd/cockpit
+go build -ldflags "-X github.com/kton-protocol/kton-cockpit/cockpit/cli.Version=v0.4.2" -o bin/cockpit ./cmd/cockpit
 cockpit version
 ```
 

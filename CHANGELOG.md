@@ -1,10 +1,11 @@
 # Changelog
 
-## Unreleased
+## v0.4.2 — 2026-10-30
+
+Fixes found by kton-coordination on `lanes/` with v0.4.1. Tracks kton v0.3.0 and ktonpkg v0.2.0.
 
 ### Fixed
 
-Found by kton-coordination on `lanes/` with v0.4.1:
 - **`cockpit say` lists the templates an allowed package brings.** It said "no templates allowed
   here" while `say requests …` worked.
 - **A flag beside the JSON form is refused with the field that carries it.** `say --as X '{…}'` gave
