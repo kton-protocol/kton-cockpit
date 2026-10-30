@@ -260,7 +260,12 @@ func dispatchAsk(ctx context.Context, cfg *config.Config, r index.Reader, in Ask
 		// this cockpit reaches a verdict about completeness — which kton §7.4 assigns to a consumer
 		// and evaluates "when the seal is relied upon". Relying on it is a read.
 		out := AskResult{Query: in.Query, Ref: in.Ref, FilterApplied: filter.describe()}
-		verdict, msg := askScope(ctx, cfg, r, in.Ref, &out)
+		// A name this repository configures stands for its id, as it does for say.
+		id := in.Ref
+		if named, _, ok := cfg.ScopeID(in.Ref); ok && !strings.HasPrefix(in.Ref, "sha256:") {
+			id = named
+		}
+		verdict, msg := askScope(ctx, cfg, r, id, &out)
 		if msg != "" {
 			return nil, refuse("scope", "SPEC §9.6", "%s", msg)
 		}

@@ -100,6 +100,11 @@ func CommitAndPush(ctx context.Context, cfg Git, paths []string, message string)
 	}
 
 	if _, err := run(ctx, cfg.Root, "git", "diff", "--cached", "--quiet"); err == nil {
+		// A repository that does not share never pushes, here or below: a stranded commit is
+		// exactly what persist.share false asks for.
+		if !cfg.Push {
+			return CurrentSHA(ctx, cfg)
+		}
 		// Nothing NEW staged this call — but HEAD may already be ahead of origin from a PRIOR
 		// call whose commit succeeded and whose push then failed (network blip, auth hiccup): a
 		// naive early return here, without ever attempting a push, would leave that commit

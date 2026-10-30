@@ -111,6 +111,11 @@ type Identity struct {
 	SessionID   string `json:"session_id"`
 	PlanktonKey string `json:"plankton_key"`
 	NektonKey   string `json:"nekton_key"`
+	// Keyring is a directory outside the repository holding further claim keys, as
+	// <name>-claims.key beside <name>-claims.pub. With it, say may sign as one of them (say --as
+	// <name>), but only a key whose public half is in a trust tier. Empty, the default, means say
+	// signs with nekton_key only.
+	Keyring string `json:"keyring,omitempty"`
 }
 
 type Verbs struct {
@@ -677,6 +682,9 @@ func validate(raw *Raw) error {
 	}
 	if len(missing) > 0 {
 		return fmt.Errorf("missing required field(s): %s", strings.Join(missing, ", "))
+	}
+	if k := raw.Identity.Keyring; k != "" && !filepath.IsAbs(k) && !strings.HasPrefix(k, "~/") {
+		return fmt.Errorf("identity.keyring %q must be absolute or start with ~/: it lives outside the repository", k)
 	}
 	if err := validateTrustTiers(raw); err != nil {
 		return err

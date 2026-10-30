@@ -142,6 +142,15 @@ func tierKeys(cfg *config.Config) ([]ed25519.PublicKey, map[string]tierKey, erro
 	return keys, byKeyID, nil
 }
 
+// TierOfKey is the trust tier a public key is configured in, or "" when it is in none.
+func TierOfKey(cfg *config.Config, pub ed25519.PublicKey) (string, error) {
+	_, byKeyID, err := tierKeys(cfg)
+	if err != nil {
+		return "", err
+	}
+	return byKeyID[core.KeyIDHex(pub)].tier, nil
+}
+
 // envelopeOf returns the signed bytes to check, from the registry by id or from a file.
 func envelopeOf(ctx context.Context, r index.Reader, idOrFile string, kind Kind) (core.Envelope, error) {
 	if _, ok := core.NormalizeContentHash(idOrFile); !ok {

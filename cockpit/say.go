@@ -39,6 +39,9 @@ type SayRequest struct {
 	// exactly that head, and refused if it is no longer one: another process or an agent wrote
 	// first, and appending anyway would fork the conversation without anyone deciding to.
 	ExpectHead string `json:"expectHead,omitempty" jsonschema:"optional, with scope: the scope head (claim id) you last saw; refused if the head has moved since"`
+	// As names who the claim is said as: a key in identity.keyring whose public half a trust tier
+	// holds. Omitted, the claim is signed with this repository's nekton_key.
+	As string `json:"as,omitempty" jsonschema:"optional: sign as this key of identity.keyring (<name>-claims.key), which must be in a trust tier"`
 }
 
 type SayResult struct {
@@ -85,6 +88,15 @@ func (c *Cockpit) Say(ctx context.Context, in SayRequest) (*SayResult, error) {
 		return nil, refuse("argument", "", "say requires subject (the foton id or hash the claim is about)")
 	}
 
+	signKey := cfg.NektonKey
+	if in.As != "" {
+		k, why := keyAs(cfg, in.As)
+		if why != "" {
+			return nil, refuse("identity.as", "SPEC §8.7", "%s", why)
+		}
+		signKey = k
+	}
+
 	r := binaries.New(cfg)
 	sets := in.Fields
 	if sets == nil {
@@ -117,7 +129,7 @@ func (c *Cockpit) Say(ctx context.Context, in SayRequest) (*SayResult, error) {
 		chain.Prev = want
 	}
 
-	claimID, err := r.Annotate(ctx, in.Subject, in.Template, sets, cfg.NektonKey, chain)
+	claimID, err := r.Annotate(ctx, in.Subject, in.Template, sets, signKey, chain)
 	if err != nil {
 		return nil, refuse("kernel", "", "nekton annotate failed: %v", err)
 	}

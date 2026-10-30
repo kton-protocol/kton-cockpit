@@ -38,7 +38,8 @@
       "properties": {
         "session_id": { "type": "string", "minLength": 1 },
         "plankton_key": { "type": "string", "minLength": 1 },
-        "nekton_key": { "type": "string", "minLength": 1 }
+        "nekton_key": { "type": "string", "minLength": 1 },
+        "keyring": { "type": "string", "minLength": 1, "description": "A directory outside the repository holding further claim keys as <name>-claims.key beside <name>-claims.pub (absolute, or starting with ~/). With it, say may sign as one of them (say --as <name>), and only as a key whose public half is in a trust tier. Absent, say signs with nekton_key only." }
       }
     },
     "verbs": {

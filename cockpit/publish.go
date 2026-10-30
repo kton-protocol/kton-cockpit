@@ -119,11 +119,14 @@ type PublishResult struct {
 	// when, and not that the signer did not later prefer a different record.
 	RekorLogIndex int64  `json:"rekorLogIndex,omitempty"`
 	RekorUUID     string `json:"rekorUuid,omitempty"`
-	// ShareRejected means the record is durable here and not yet anywhere else — somebody shared
-	// between this run starting and finishing. Nothing is lost: `cockpit sync`, then publish again
+	// ShareRejected means the record is durable here and not yet anywhere else: the push was
+	// refused, often because somebody shared between this run starting and finishing (ShareReason
+	// says what the store answered). Nothing is lost: `cockpit sync`, then publish again
 	// or share by hand. Reported as its own field rather than as shared:false, because "this repo
 	// does not share" and "this share was refused" call for different things from whoever reads it.
 	ShareRejected bool `json:"shareRejected,omitempty"`
+	// ShareReason is why sharing was refused, as the store said it.
+	ShareReason string `json:"shareReason,omitempty"`
 	// Persisted and Shared say what actually happened in the store, because both are configurable
 	// (persist.commit, persist.share) and each changes what the locators are worth. Not persisted
 	// means there are none: the revision one would pin does not exist. Persisted but not shared
@@ -328,7 +331,7 @@ func (c *Cockpit) Publish(ctx context.Context, in PublishRequest) (*PublishResul
 	if err != nil {
 		return nil, refuse("store", "", "git commit of inputs+outputs failed: %v", err)
 	}
-	shareRejected := rev.Rejected
+	shareRejected, shareReason := rev.Rejected, rev.Reason
 
 	located := locators(cfg, rev, allPaths)
 	fotonInputs := in.Inputs
@@ -403,7 +406,9 @@ func (c *Cockpit) Publish(ctx context.Context, in PublishRequest) (*PublishResul
 	if err != nil {
 		return nil, refuse("store", "", "git commit/push of the registry failed: %v", err)
 	}
-	shareRejected = shareRejected || finalRev.Rejected
+	if finalRev.Rejected {
+		shareRejected, shareReason = true, finalRev.Reason
+	}
 	finalSHA := finalRev.ID
 
 	// finalSHA is empty when this repo does not commit: there is then no commit for a permalink to
@@ -426,6 +431,7 @@ func (c *Cockpit) Publish(ctx context.Context, in PublishRequest) (*PublishResul
 		Persisted:      cfg.Raw.CommitEnabled(),
 		Shared:         cfg.Raw.ShareEnabled() && !shareRejected,
 		ShareRejected:  shareRejected,
+		ShareReason:    shareReason,
 		UnionPublished: cfg.Raw.Union.Publish,
 		CoSigned:       authored.CoSigned,
 		Base:           base,
