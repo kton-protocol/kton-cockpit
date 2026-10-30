@@ -28,7 +28,10 @@ func TestVocabulary_AnAllowedPackageBringsItsTemplatesAndQueries(t *testing.T) {
 	r.Use(t)
 
 	src := t.TempDir()
-	write := func(p, s string) { must(t, os.MkdirAll(filepath.Dir(p), 0o755)); must(t, os.WriteFile(p, []byte(s), 0o644)) }
+	write := func(p, s string) {
+		must(t, os.MkdirAll(filepath.Dir(p), 0o755))
+		must(t, os.WriteFile(p, []byte(s), 0o644))
+	}
 	write(filepath.Join(src, "templates", "requests.json"), `{"name": "requests", "target": "either",
   "predicate": "https://example.org/ln/requests", "fields": {"lane": {"type": "string", "required": true}}}`)
 	write(filepath.Join(src, "queries", "open.rq"), `PREFIX nk: <https://kton.dev/v/>
