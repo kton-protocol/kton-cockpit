@@ -1,5 +1,3 @@
-//go:build unreleased
-
 package cli
 
 const packageUsage = `  cockpit install <package-dir> [--allow]

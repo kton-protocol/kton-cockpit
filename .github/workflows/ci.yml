@@ -162,8 +162,8 @@ jobs:
         run: |
           echo "required: $(go list -m -f '{{.Version}}' kton.dev/plankton)"
           go get kton.dev/plankton@main kton.dev/nekton@main kton.dev/kton@main
-          # -e: tidy also reads the files behind -tags unreleased, whose imports (ktonpkg, the
-          # unpublished kernel packages) do not resolve here. What builds without the tag still does.
+          # -e: at kton main an import may not resolve (a package moved, ktonpkg built on v0.3.0);
+          # tidy still writes what it can, and the test step below says what breaks.
           go mod tidy -e
           echo "main HEAD: $(go list -m -f '{{.Version}}' kton.dev/plankton)"
 

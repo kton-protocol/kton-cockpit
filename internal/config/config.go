@@ -162,7 +162,7 @@ type Trust struct {
 //
 // Deliberately config, not a tool argument. Spectrum is COVERED: it rides in the foton's descriptor
 // into its id. EnvRef is covered too when no Spectrum is set, so it is then part of what a
-// reproduction commits to re-executing. With a Spectrum set (and foton/v1, -tags unreleased) EnvRef
+// reproduction commits to re-executing. With a Spectrum set (and foton/v1) EnvRef
 // is CARRIED instead: this producer's signed kton-env/v1 statement beside the record, so runs in
 // images of one class are one record and can be reused across them (ADR-010). Either way a value
 // supplied per-call by the caller would be a self-declared, unverified assertion about which

@@ -137,8 +137,6 @@ cockpit doctor      validate cockpit.config.json + the repo binding, and say wha
 cockpit show        serve this repo's records to a kton-web viewer
 cockpit scope       seed, seal or read a nekton scope
 cockpit version     the binary, its commit, and the kernels linked into it
-
-with -tags unreleased:
 cockpit install     install a package
 cockpit workflow    run a package's workflow
 ```

@@ -2,11 +2,15 @@ package cockpit
 
 import (
 	"context"
+	"fmt"
+	"regexp"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/kton-protocol/kton-cockpit/internal/config"
 	"github.com/kton-protocol/kton-cockpit/internal/index/oxigraph"
+	"github.com/kton-protocol/kton-cockpit/internal/packages"
 )
 
 // A free query (SPEC §9.9) is SPARQL someone wrote, read over the dataset a vocabulary query reads:
@@ -38,6 +42,8 @@ type SparqlAnswer struct {
 	// Via says where it was evaluated: the index daemon and how many registries it read, or a
 	// container for this query alone.
 	Via string `json:"via"`
+	// From is the package a named query came from, and where it is installed.
+	From string `json:"from,omitempty"`
 
 	terms []map[string]oxigraph.Term
 }
@@ -104,6 +110,29 @@ func datasetLine(q string) string {
 }
 
 func askSparql(ctx context.Context, cfg *config.Config, in AskRequest) (*AskResult, error) {
+	from := ""
+	if in.Name != "" {
+		if in.Sparql != "" {
+			return nil, refuse("argument", "SPEC §9.9", "query sparql takes sparql or name, not both")
+		}
+		voc, err := packages.Allowed(cfg.RepoRoot, cfg.Raw.Claims.AllowedPackages)
+		if err != nil {
+			return nil, refuse("vocabulary", "SPEC §9.9", "%v", err)
+		}
+		q, ok := voc.Queries[in.Name]
+		if !ok {
+			return nil, refuse("query.unknown", "SPEC §9.9", "no allowed package brings the query %q — install a vocabulary package and name it in claims.allowedPackages", in.Name)
+		}
+		src := voc.From["query:"+in.Name]
+		from, in.Sparql = src.Name+" ("+src.Dir+")", string(q)
+	}
+	if len(in.Bind) > 0 && in.Sparql != "" {
+		clause, err := valuesClause(in.Bind)
+		if err != nil {
+			return nil, refuse("argument", "SPEC §9.9", "bind: %v", err)
+		}
+		in.Sparql += clause
+	}
 	switch {
 	case in.Sparql == "":
 		return nil, refuse("argument", "SPEC §9.9", "query sparql takes sparql: a SELECT or an ASK")
@@ -135,7 +164,7 @@ func askSparql(ctx context.Context, cfg *config.Config, in AskRequest) (*AskResu
 	if err != nil {
 		return nil, err
 	}
-	ans.Limit, ans.Dataset = limit, dataset
+	ans.Limit, ans.Dataset, ans.From = limit, dataset, from
 	if len(ans.Rows) > limit {
 		ans.Rows, ans.terms, ans.Truncated = ans.Rows[:limit], ans.terms[:limit], true
 	}
@@ -144,4 +173,26 @@ func askSparql(ctx context.Context, cfg *config.Config, in AskRequest) (*AskResu
 	}
 	return &AskResult{Query: in.Query, Sparql: ans,
 		FilterApplied: "none — the query narrows itself; a record is attributed only where a key in your trust tiers verifies it, and only claims such a key signed are in it"}, nil
+}
+
+// sparqlVar is a variable name a binding may give a value to.
+var sparqlVar = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+// valuesClause is a trailing VALUES clause that binds each variable to a plain literal. A value is
+// a quoted string with its quote, backslash and line breaks escaped, never query text.
+func valuesClause(bind map[string]string) (string, error) {
+	names := make([]string, 0, len(bind))
+	for k := range bind {
+		if !sparqlVar.MatchString(k) {
+			return "", fmt.Errorf("%q is not a variable name", k)
+		}
+		names = append(names, k)
+	}
+	sort.Strings(names)
+	vars, vals := make([]string, len(names)), make([]string, len(names))
+	for i, k := range names {
+		vars[i] = "?" + k
+		vals[i] = `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`, "\n", `\n`, "\r", `\r`, "\t", `\t`).Replace(bind[k]) + `"`
+	}
+	return fmt.Sprintf("\nVALUES (%s) { (%s) }\n", strings.Join(vars, " "), strings.Join(vals, " ")), nil
 }
