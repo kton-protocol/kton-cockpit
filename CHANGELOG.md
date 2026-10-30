@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **Parallel writers on one working tree no longer fail on git's lock** (SPEC §12.1). Two `say`
+  calls at once made one of them report "git commit/push of the claim registry failed"
+  (`index.lock`), although its claim had landed; a caller trusting the exit code sent it twice.
+  The cockpit's commits, pushes and `sync` merges now take turns under one lock per repository,
+  and a lock held by a git outside the cockpit is waited out for up to 30 s. Found by
+  kton-coordination on `lanes/`.
+
 ## v0.4.2 — 2026-10-30
 
 Fixes found by kton-coordination on `lanes/` with v0.4.1. Tracks kton v0.3.0 and ktonpkg v0.2.0.
