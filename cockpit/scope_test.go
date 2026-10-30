@@ -486,3 +486,17 @@ func publish(t *testing.T, inputs, outputs []string, cmd string) PublishResult {
 	}
 	return out
 }
+
+// A scope this repository configures by name can be asked about by that name, as say takes it.
+func TestScope_AskTakesAConfiguredName(t *testing.T) {
+	r, scope := scopedRepo(t)
+	pub := publishOne(t, r)
+	mine := sayInScope(t, pub.FotonID, "review")
+	result, out, err := Ask(context.Background(), nil, AskRequest{Query: "scope", Ref: "review"})
+	if err != nil || result.IsError {
+		t.Fatalf("ask scope review failed: err=%v %s", err, errText(result))
+	}
+	if len(out.Included) != 1 || out.Included[0] != mine || out.Seal == nil {
+		t.Fatalf("want the claim of %s by its name: %+v", scope, out)
+	}
+}

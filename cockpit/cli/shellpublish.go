@@ -80,7 +80,8 @@ func shellPublish(ctx context.Context, args []string) error {
 	}
 	switch {
 	case out.ShareRejected:
-		fmt.Println("durable here; sharing was refused (someone shared meanwhile) — cockpit sync takes theirs in and shares this")
+		fmt.Printf("durable here; sharing was refused: %s\n", firstLine(out.ShareReason))
+		fmt.Println("  if someone shared meanwhile, cockpit sync takes theirs in and shares this")
 	case out.Shared:
 		fmt.Printf("persisted and shared (%s)\n", shortSHA(out.Revision))
 	case out.Persisted:
@@ -111,4 +112,13 @@ func shortSHA(s string) string {
 		return s[:12]
 	}
 	return s
+}
+
+// firstLine is the first line of a store's answer, which is the one that names the cause.
+func firstLine(s string) string {
+	line, _, _ := strings.Cut(strings.TrimSpace(s), "\n")
+	if line == "" {
+		return "the store gave no reason"
+	}
+	return line
 }

@@ -316,3 +316,32 @@ func TestRedactSlice(t *testing.T) {
 		t.Fatalf("expected [REDACTED] placeholder, got: %q", joined)
 	}
 }
+
+// A repository that does not share never pushes, also not the commit an earlier call left ahead of
+// its upstream (persist.share false; coordination's lanes/ saw a push to a remote that does not exist).
+func TestCommitAndPush_NeverPushesWhenNotSharing(t *testing.T) {
+	repoDir := t.TempDir()
+	binDir := t.TempDir()
+	pushLog := filepath.Join(binDir, "push.log")
+	script := `#!/bin/sh
+if [ "$1" = "push" ]; then
+  echo "$@" >> "` + pushLog + `"
+fi
+if [ "$1" = "rev-parse" ]; then
+  if [ "$2" = "HEAD" ]; then echo "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"; else echo "0000000000000000000000000000000000000000"; fi
+fi
+exit 0
+`
+	if err := os.WriteFile(filepath.Join(binDir, "git"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	cfg := Git{Root: repoDir, Commit: true, Push: false, SessionID: "session-1"}
+	if _, err := CommitAndPush(context.Background(), cfg, []string{"already-committed.csv"}, "test"); err != nil {
+		t.Fatalf("CommitAndPush: %v", err)
+	}
+	if _, err := os.Stat(pushLog); err == nil {
+		t.Fatal("git push was invoked although Push is false")
+	}
+}

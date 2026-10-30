@@ -4,6 +4,11 @@
 
 ### The tool
 
+- **`say --as <name>`** (SPEC §8.7): with `identity.keyring` set, a claim is signed with
+  `<name>-claims.key` from that directory instead of `nekton_key`. Only a key whose public half is
+  in a trust tier can be named, so one registry carries each writer's own signature (one key per lane).
+- **`ask scope <name>`** takes a name configured under `claims.scopes`, as `say --scope` does; only the
+  id worked before.
 - **Tool shims, a prototype** (ADR-014, SPEC §10.4): `cockpit-shim`, installed under a tool's name
   (`nmfe75` …), hands the call to `cockpit shim serve`. The same call recorded before by this
   dispatcher is answered from that record; otherwise the tool runs in its own pinned image
@@ -15,6 +20,12 @@
   with no NONMEM run. A run may leave at most `maxOutputBytes` (1 GiB by default).
 - **`internal/toolcall`**: argv normalisation, the content store and the collectors, shared by
   `kton-call` and the shim.
+
+### Fixed
+
+- **With `persist.share: false`, nothing is pushed.** A publish whose files were already committed
+  still pushed a commit an earlier call had left ahead of its upstream. When a share is refused,
+  publish now prints the store's reason, not a guessed cause ("someone shared meanwhile").
 
 ## v0.4.0 — 2026-10-28
 

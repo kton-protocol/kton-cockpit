@@ -495,6 +495,25 @@ does not own.
 > `TestSay_DescribesRefusesAnEmptyClaim`, `TestTemplates_NamePredicatesByFullIRI`,
 > `TestTemplates_KtonpkgReadsWhatDescribesAndRationaleWrite` (`-tags unreleased`).
 
+### 8.7 Saying as another identity *(optional)*
+
+A repository MAY configure `identity.keyring`, a directory outside it that holds further claim keys
+as `<name>-claims.key` beside `<name>-claims.pub`. A say request MAY then name who it acts as (`as`,
+`say --as <name>`), and the claim is signed with that key instead of `nekton_key`. One registry then
+carries each writer's own signature, for example one key per lane.
+
+The operator fixes the set by what the trust tiers hold; the request picks one. The cockpit MUST
+refuse the request when:
+- no keyring is configured;
+- the name is not a plain name;
+- the public half beside the key is not that key's;
+- the key is in no configured trust tier, since such a claim would be excluded from every answer.
+
+Everything else about the call is unchanged, the guard of §5 included. Anchoring (§11.3) does not
+support `as` yet and is refused with it.
+
+> **Checked by:** `TestSay_AsAnotherIdentitySignsWithThatKey`.
+
 ### 8.3 Registration
 
 A cockpit MUST confirm, by querying the record back, that the claim registered — and MUST NOT report
@@ -592,6 +611,8 @@ there were simply not enough of them.
 A cockpit MUST be able to answer whether a scope's chain reaches its seed without a gap, over the
 sources it holds. This is the judgment kton §7.4 assigns to a consumer — "sealing rules are checked
 by consumers/aggregators, not the kernel" — and the moment it names: when the seal is relied upon.
+The scope is named by its id, or by a name this repository configures under `claims.scopes`, as for
+say.
 
 The verdict MUST distinguish two ways of not being sealable, because they call for opposite
 responses:
@@ -634,7 +655,8 @@ emits none.
 > `TestScope_TheSealVerdictReportsABranchAsUnsealable`,
 > `TestScope_TheSealVerdictReportsAGapAsPartialNotBroken`,
 > `TestScope_AnUntrustedWriterIsReportedButExcluded`,
-> `TestScope_SealRecordsTheHeadInTheParent`, `TestScope_ASealedScopeSaysWhatItCanBeCheckedAgainst`.
+> `TestScope_SealRecordsTheHeadInTheParent`, `TestScope_ASealedScopeSaysWhatItCanBeCheckedAgainst`,
+> `TestScope_AskTakesAConfiguredName`.
 
 A scope is read over the union of sources (§9.8), like any record: its seed, its chain and its head,
 so the tip a claim chains onto (§8.5) is the head over everything held. The seed MUST be verified
@@ -991,10 +1013,11 @@ What a verb wrote is made durable and shared by the backend (`persist.commit`, `
 git: commit and push). Both MAY be turned off. Signing and registration are unaffected; what goes away
 is the locators (§7.4). The binding (§5) MUST be unaffected — turning off writing to the store MUST NOT
 turn off checking which repository this is. The cockpit itself MUST NOT call a backend's tools (git):
-everything it needs from the store goes through the backend (ADR-011).
+everything it needs from the store goes through the backend (ADR-011). With sharing off, a verb MUST
+NOT share at all, not even a revision an earlier call left unshared.
 
 > **Checked by:** `TestConfigGuard_StillRefusesTheWrongRepoWithCommitsOff`,
-> `TestPublish_WithPushOffItCommitsLocallyAndSaysSo`.
+> `TestPublish_WithPushOffItCommitsLocallyAndSaysSo`, `TestCommitAndPush_NeverPushesWhenNotSharing`.
 
 `cockpit sync` takes in what others shared and then shares what is durable here only. It MUST NOT
 rewrite a local revision — records already signed pin it in their locators — and where both sides
