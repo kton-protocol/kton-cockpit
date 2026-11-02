@@ -216,6 +216,26 @@ from `$PATH`, and by checking the version on the path a session actually takes.
 > fixture runs are built from the module version go.mod requires), `TestAuthor_MatchesTheReferenceCLI` (the
 > linked write path produces the same foton id as the reference binary does).
 
+### 6.2 Vocabulary tools
+
+An operator MAY start the tool transport with the allowed packages' words as tools of their own
+(`cockpit mcp --vocabulary`): one tool per query a package brings (`ask_<name>`, run as `ask sparql
+--name <name>`, its `$VAR` parameters as arguments) and one per template (`say_<name>`, its fields as
+arguments). Each is one of the three verbs with some arguments fixed, never a fourth: it reaches the
+same handler, under the same ceilings, as `cockpit_ask` or `cockpit_say` would.
+
+What the operator fixes when starting the server — the identity every claim is signed as (`--as`),
+the scope the templates chain into and are about by default (`--scope`), the value of a query
+parameter (`--bind VAR=VALUE`) — MUST hold for every call over that server and MUST NOT be in a
+tool's arguments. With `--as`, `cockpit_say` signs as that identity too, and a call naming another
+identity MUST be refused: a session that cannot choose its key cannot sign as the repository or as
+another lane. An argument a tool's schema does not name MUST be refused, so a typed-wrong field is
+not a claim saying less than meant. A scope the configuration does not name MUST be refused when the
+server starts, not on the first call.
+
+> **Checked by:** `TestMCP_VocabularyToolsAreTheVerbsWithArgumentsFixed`,
+> `TestMCP_TheVocabularyIsOptInAndItsOptionsAreChecked`, `TestMCP_AQueryToolRunsWithTheServersBinding`.
+
 ## 7 publish
 
 Records a result as a signed foton, and commits, pushes and locates the bytes it describes.

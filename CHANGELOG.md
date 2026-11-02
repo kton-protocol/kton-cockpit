@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **`cockpit mcp --vocabulary`: an allowed package's queries and templates as MCP tools** (SPEC §6.2).
+  Each query is a tool `ask_<name>` with its `$VAR` parameters as arguments, each template a tool
+  `say_<name>` with its fields. `--as NAME` signs every claim over the server as NAME (also
+  `cockpit_say`; another `as` is refused), `--scope NAME` chains the templates into that scope and
+  makes it their default subject, `--bind VAR=VALUE` fixes a parameter and takes it out of the
+  schema. For the lanes: `cockpit mcp --vocabulary --as lane-X --scope lane-X --bind LANE=…` in
+  `.mcp.json`, with `COCKPIT_REPO_DIR` pointing at `lanes/`, gives `ask_inbox_open`, `ask_lanes`,
+  `say_requests`, `say_done`, … without shell wrappers.
+
 ## v0.4.2 — 2026-10-30
 
 Fixes found by kton-coordination on `lanes/` with v0.4.1. Tracks kton v0.3.0 and ktonpkg v0.2.0.

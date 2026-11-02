@@ -46,7 +46,7 @@ func Main() {
 	var err error
 	switch os.Args[1] {
 	case "mcp":
-		err = runMCP(ctx)
+		err = runMCP(ctx, os.Args[2:])
 	case "init":
 		err = runInit(ctx)
 	case "show":
@@ -154,6 +154,10 @@ usage:
   cockpit keygen   make a signing identity (keys/<name>.key + .pub, and the claims pair)
   cockpit version  what this binary is, and which kernel is compiled into it
   cockpit mcp      start the MCP stdio server (cockpit_publish/cockpit_say/cockpit_ask)
+                   [--vocabulary] also a tool per query (ask_<name>) and template (say_<name>)
+                   of the allowed packages; [--as NAME] every say signs as NAME;
+                   [--scope NAME] their claims chain into that scope, about it by default;
+                   [--bind VAR=VALUE]... fixes a query parameter $VAR
   cockpit init     scaffold cockpit.config.json in the current git repo
   cockpit doctor   validate cockpit.config.json + the repo binding; --json for a program,
                    exit 3 while a step marked ! is left
@@ -162,13 +166,34 @@ usage:
 
 a session never invokes 'init'/'doctor'/'show' — they are for the human operator setting up or
 inspecting a participant repo. Only 'mcp' is registered as the tool surface (via .mcp.json), and
-it exposes exactly three verbs.
+it exposes exactly three verbs — the vocabulary tools are those verbs with arguments fixed.
 `, packageUsage)
 }
 
-func runMCP(ctx context.Context) error {
+func runMCP(ctx context.Context, args []string) error {
+	o, err := parseMCPArgs(args)
+	if err != nil {
+		return err
+	}
+	server, err := mcpServer(ctx, o)
+	if err != nil {
+		return err
+	}
+	return server.Run(ctx, &mcp.StdioTransport{})
+}
+
+// mcpServer is the tool surface: the three verbs, and with --vocabulary the allowed packages'
+// queries and templates as tools of their own, each one of the verbs with arguments fixed (SPEC §6.2).
+func mcpServer(ctx context.Context, o mcpOptions) (*mcp.Server, error) {
 	server := mcp.NewServer(&mcp.Implementation{Name: "kton-cockpit", Version: Version}, nil)
 	c := cockpit.New(cockpit.Start{})
+	say := func(ctx context.Context, in cockpit.SayRequest) (*cockpit.SayResult, error) {
+		in, err := o.sayAs(in)
+		if err != nil {
+			return nil, err
+		}
+		return c.Say(ctx, in)
+	}
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "cockpit_publish",
@@ -182,7 +207,7 @@ func runMCP(ctx context.Context) error {
 		Description: "sagen: bind a claim, from an allowed template, to a foton or file via " +
 			"`nekton annotate`. For the reproduces template, the cockpit itself determines the " +
 			"achieved level by running the reproduction precondition — it is never self-declared.",
-	}, mcpsurface.Handler(c.Say))
+	}, mcpsurface.Handler(say))
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "cockpit_ask",
@@ -200,7 +225,18 @@ func runMCP(ctx context.Context) error {
 			"each with its signer, and the cursor to ask from next.",
 	}, mcpsurface.Handler(c.Ask))
 
-	return server.Run(ctx, &mcp.StdioTransport{})
+	if o.vocabulary {
+		cfg, err := config.Load(ctx, ".")
+		if err != nil {
+			return nil, err
+		}
+		tools, err := vocabularyTools(cfg, c, o)
+		if err != nil {
+			return nil, err
+		}
+		addVocabulary(server, tools)
+	}
+	return server, nil
 }
 
 func runInit(ctx context.Context) error {
