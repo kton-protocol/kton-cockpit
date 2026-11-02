@@ -20,9 +20,12 @@ import (
 // resulting observations in a store directory (one JSON file per session). It is the
 // recorder's only state, and it is a cache: delete the store and the logs rebuild it.
 type Service struct {
-	Dir           string // where shims write logs (…/kton-cockpit/trace)
-	Store         string // where observations are kept (…/kton-cockpit/observations)
-	Idle          time.Duration
+	Dir   string // where shims write logs (…/kton-cockpit/trace)
+	Store string // where observations are kept (…/kton-cockpit/observations)
+	Idle  time.Duration
+	// MaxAge, when set, leaves out logs and stored sessions without data for longer: the
+	// service then holds recent work only (a week of batch runs did not fit a 12 GB machine)
+	MaxAge        time.Duration
 	Web           string // a kton-web checkout: its graph viewer draws the observations
 	NewClassifier func() *Classifier
 	Logf          func(format string, args ...any)
@@ -43,8 +46,9 @@ type Service struct {
 	allowed   map[string]string // registry id → a repository the MCP tools admitted (AllowRegistry)
 
 	mu       sync.RWMutex
-	archived map[string]bool // session\x00task whose call files were handed to the CAS
-	callMemo sync.Map        // the calls of a task, until it grows (callsOf)
+	tooOld   map[string]time.Time // log → its mtime when MaxAge left it out (read again once it grows)
+	archived map[string]bool      // session\x00task whose call files were handed to the CAS
+	callMemo sync.Map             // the calls of a task, until it grows (callsOf)
 	sessions map[string]*tracked
 	origins  []Origin
 	oSize    int64
@@ -96,6 +100,9 @@ func (sv *Service) Load() error {
 		if _, err := os.Stat(s.Log); err == nil {
 			continue
 		}
+		if sv.MaxAge > 0 && time.Since(time.Unix(0, s.Last)) > sv.MaxAge {
+			continue
+		}
 		s.cls = &Classifier{Project: s.Project}
 		sv.sessions[s.ID] = &tracked{s: s}
 	}
@@ -139,6 +146,23 @@ func (sv *Service) Poll(now time.Time) {
 		if _, ok := sv.sessions[id]; ok {
 			continue
 		}
+		if sv.MaxAge > 0 {
+			fi, err := os.Stat(l)
+			if err != nil {
+				continue
+			}
+			if at, ok := sv.tooOld[l]; ok && fi.ModTime().Equal(at) {
+				continue
+			}
+			if now.Sub(fi.ModTime()) > sv.MaxAge {
+				if sv.tooOld == nil {
+					sv.tooOld = map[string]time.Time{}
+				}
+				sv.tooOld[l] = fi.ModTime()
+				continue
+			}
+			delete(sv.tooOld, l)
+		}
 		f, err := os.Open(l)
 		if err != nil {
 			continue
@@ -152,7 +176,7 @@ func (sv *Service) Poll(now time.Time) {
 		if o, err := ParseOrigins(filepath.Join(sv.Dir, OriginsFile)); err == nil {
 			sv.origins, sv.oSize = o, fi.Size()
 			for _, tr := range sv.sessions {
-				tr.dirty = true
+				tr.dirty = tr.dirty || !tr.s.Closed // new executions belong to sessions still running
 			}
 		}
 	}
@@ -164,6 +188,9 @@ func (sv *Service) Poll(now time.Time) {
 		got := sv.read(tr)
 		if got {
 			tr.lastData = now
+			if fi, err := tr.f.Stat(); err == nil && fi.ModTime().Before(now) {
+				tr.lastData = fi.ModTime() // the data came when it was written, not when it was read
+			}
 		}
 		if !tr.s.Closed && sv.Idle > 0 && now.Sub(tr.lastData) > sv.Idle && !anyAlive(tr.s.PIDs()) {
 			tr.s.Close("timeout", tr.s.Last)
@@ -174,7 +201,7 @@ func (sv *Service) Poll(now time.Time) {
 		}
 		if tr.s.Closed {
 			tr.f.Close()
-			tr.f = nil
+			tr.f, tr.r = nil, nil
 		}
 	}
 	for _, tr := range sv.sessions {
