@@ -1,8 +1,8 @@
 {
   "name": "kton-workgroup",
   "displayName": "kton workgroup",
-  "description": "The workgroup's surfaces and their background sessions in tmux: open one in a terminal, send it back, start it, see its open messages, and get told when a lane gets one.",
-  "version": "0.1.0",
+  "description": "The workgroup's surfaces and their background sessions in tmux: open one in a terminal, send it back, start it, see its open messages, get told when a lane gets one, and open a surface's own conversation as a Claude tab in its own window.",
+  "version": "0.2.0",
   "publisher": "kton",
   "license": "MIT",
   "engines": {
@@ -34,6 +34,11 @@
       ]
     },
     "commands": [
+      {
+        "command": "ktonWorkgroup.openSurface",
+        "title": "Open surface (Claude tab in its own window)",
+        "icon": "$(window)"
+      },
       {
         "command": "ktonWorkgroup.open",
         "title": "Open",
@@ -68,6 +73,11 @@
         }
       ],
       "view/item/context": [
+        {
+          "command": "ktonWorkgroup.openSurface",
+          "when": "view == ktonWorkgroup.surfaces && viewItem =~ /^surface-.*-tab/",
+          "group": "inline@0"
+        },
         {
           "command": "ktonWorkgroup.open",
           "when": "view == ktonWorkgroup.surfaces && viewItem =~ /^(surface|lane)-up/",

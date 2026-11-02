@@ -40,4 +40,8 @@ const sse = new m.SSE((name, data) => got.push([name, JSON.parse(data)]));
 sse.push('event: cursor\ndata: {"cursor":"c1"}\n\nevent: rec');
 sse.push('ord\ndata: {"id":"x"}\n\n: ping\n\n');
 assert.deepStrictEqual(got, [['cursor', { cursor: 'c1' }], ['record', { id: 'x' }]]);
+const ss = m.surfaceSessions({ kton: {}, _surface_sessions: { qm: { session: 's1', dir: '/c/surfaces/qm/' }, bad: { dir: '/x' } } });
+assert.deepStrictEqual(ss, { qm: { session: 's1', dir: '/c/surfaces/qm' } });
+assert.strictEqual(m.surfaceOfFolder(ss, '/c/surfaces/qm'), 'qm');
+assert.strictEqual(m.surfaceOfFolder(ss, '/c'), undefined);
 console.log('model ok');
