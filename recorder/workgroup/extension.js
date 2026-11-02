@@ -6,6 +6,12 @@
 // package query inbox-open-all over the lanes registry. ktonwatch's /v1/watch says when a record
 // arrives there, so nothing polls; each one recounts, and a new message gets a notification with
 // [Open] (or opens its lane, for the lanes in ktonWorkgroup.bringForward).
+//
+// A surface that runs as a Claude conversation of its own (sessions.json, _surface_sessions) opens
+// in a VS Code window on its folder: the Claude extension runs every editor tab in the window's
+// first workspace folder (setupPanel: cwd = workspaceFolders[0]) and keeps conversations per
+// folder, so in any other window it would resume in the wrong folder, with the wrong CLAUDE.md.
+// The window this opens finds its folder is a surface's and opens that conversation as a tab.
 'use strict';
 const vscode = require('vscode');
 const cp = require('child_process');
@@ -33,6 +39,7 @@ class Tree {
     this.open = {};      // lane → open messages
     this.watch = 'connecting';
     this.terminals = new Map(); // "surface" or "surface/lane" → terminal
+    this.tabs = {};             // surface → {session, dir}: surfaces with a conversation of their own
     this._change = new vscode.EventEmitter();
     this.onDidChangeTreeData = this._change.event;
   }
@@ -41,6 +48,7 @@ class Tree {
   async refreshState() {
     const r = await kw('list');
     if (r.ok) this.surfaces = m.parseKwList(r.out);
+    this.tabs = readSurfaceSessions();
     this.changed();
   }
 
@@ -95,7 +103,7 @@ class Tree {
       it.iconPath = new vscode.ThemeIcon('server-environment');
       it.description = [el.s.up ? el.s.tmux : 'not started', total ? `${total} open` : ''].filter(Boolean).join(' · ');
       it.contextValue = ['surface', el.s.up ? 'up' : 'down', this.front(el.s.name) ? 'front' : '',
-        el.s.lanes.some((l) => l.state === 'none') ? 'startable' : ''].filter(Boolean).join('-');
+        el.s.lanes.some((l) => l.state === 'none') ? 'startable' : '', this.tabs[el.s.name] ? 'tab' : ''].filter(Boolean).join('-');
       return it;
     }
     const { s, l } = el;
@@ -110,6 +118,27 @@ class Tree {
     if (l.state !== 'none') it.command = { command: 'ktonWorkgroup.open', title: 'Open', arguments: [el] };
     return it;
   }
+}
+
+function readSurfaceSessions() {
+  try { return m.surfaceSessions(JSON.parse(fs.readFileSync(path.join(coord(), 'sessions.json'), 'utf8'))); } catch (e) { return {}; }
+}
+
+const firstFolder = () => (vscode.workspace.workspaceFolders || [])[0];
+const openTab = (session) => vscode.commands.executeCommand('claude-vscode.editor.open', session);
+
+// openSurface opens a surface's own conversation: here, if this window is on its folder, else in
+// a new window on that folder (same remote, so a WSL window opens a WSL window).
+async function openSurface(tree, name) {
+  const t = (tree.tabs[name] || readSurfaceSessions()[name]);
+  if (!t) {
+    vscode.window.showWarningMessage(`${name} has no conversation of its own in sessions.json (_surface_sessions)`);
+    return;
+  }
+  const f = firstFolder();
+  if (f && f.uri.fsPath.replace(/\/+$/, '') === t.dir) return openTab(t.session);
+  const uri = f && f.uri.scheme !== 'file' ? f.uri.with({ path: t.dir }) : vscode.Uri.file(t.dir);
+  await vscode.commands.executeCommand('vscode.openFolder', uri, { forceNewWindow: true });
 }
 
 // openTerminal brings a surface (or one of its lanes) to the foreground: a terminal attached to
@@ -193,6 +222,10 @@ function activate(ctx) {
   };
 
   ctx.subscriptions.push(
+    vscode.commands.registerCommand('ktonWorkgroup.openSurface', (el) => {
+      const s = surfaceOf(el);
+      if (s) return openSurface(tree, s.name);
+    }),
     vscode.commands.registerCommand('ktonWorkgroup.open', (el) => {
       const s = surfaceOf(el);
       if (s) openTerminal(tree, s, el && el.kind === 'lane' ? el.l.name : undefined);
@@ -230,6 +263,12 @@ function activate(ctx) {
   tree.refreshState();
   tree.recount();
   watch(tree, onNews, ctx);
+
+  // a window on a surface's folder: its conversation, as a Claude tab (revealed if already open)
+  const f = firstFolder();
+  const here = f && m.surfaceOfFolder(readSurfaceSessions(), f.uri.fsPath);
+  if (here) openTab(readSurfaceSessions()[here].session).then(undefined, (e) =>
+    vscode.window.showWarningMessage(`${here}: could not open its conversation (${e && e.message ? e.message : e})`));
 }
 
 function deactivate() {}

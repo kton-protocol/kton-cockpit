@@ -91,4 +91,20 @@ class SSE {
   }
 }
 
-module.exports = { parseKwList, laneIndex, openByLane, sender, fresh, SSE };
+// surfaceSessions reads sessions.json's _surface_sessions: surface → {session, dir}, for the
+// surfaces that run as a Claude conversation of their own.
+function surfaceSessions(sessionsJson) {
+  const out = {};
+  for (const [name, v] of Object.entries((sessionsJson && sessionsJson._surface_sessions) || {})) {
+    if (v && v.session && v.dir) out[name] = { session: v.session, dir: v.dir.replace(/\/+$/, '') };
+  }
+  return out;
+}
+
+// surfaceOfFolder is the surface whose folder is dir, if any.
+function surfaceOfFolder(sessions, dir) {
+  const d = (dir || '').replace(/\/+$/, '');
+  return Object.keys(sessions).find((n) => sessions[n].dir === d);
+}
+
+module.exports = { parseKwList, laneIndex, openByLane, sender, fresh, SSE, surfaceSessions, surfaceOfFolder };
