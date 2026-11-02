@@ -377,3 +377,32 @@ exit 0
 		t.Fatalf("want the commit made on the second try: %q %v", sha, err)
 	}
 }
+
+// A store's own lock or temporary file that vanishes while git add reads the registry directory
+// (another writer removed it) is tried again, not reported as a failed commit.
+func TestCommitAndPush_TriesAgainWhenAFileVanishesUnderAdd(t *testing.T) {
+	repoDir := t.TempDir()
+	binDir := t.TempDir()
+	tried := filepath.Join(binDir, "tried")
+	script := `#!/bin/sh
+if [ "$1" = "add" ]; then
+  if [ ! -f "` + tried + `" ]; then
+    touch "` + tried + `"
+    echo "fatal: unable to stat 'registry/nekton/.objects.lock': No such file or directory" >&2
+    exit 128
+  fi
+  exit 0
+fi
+if [ "$1" = "diff" ]; then exit 1; fi
+if [ "$1" = "rev-parse" ]; then echo "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"; fi
+exit 0
+`
+	if err := os.WriteFile(filepath.Join(binDir, "git"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	if sha, err := CommitAndPush(context.Background(), Git{Root: repoDir, Commit: true, SessionID: "session-1"}, []string{"registry/nekton"}, "test"); err != nil || sha == "" {
+		t.Fatalf("want the add tried again and the commit made: %q %v", sha, err)
+	}
+}

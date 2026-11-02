@@ -328,12 +328,14 @@ func LockRepo(root string) (func(), error) {
 }
 
 // runWaiting runs a git command that writes the index, waiting out a lock held by a git outside
-// the cockpit (a person's git, an editor) for up to lockWait instead of failing on it.
+// the cockpit (a person's git, an editor) for up to lockWait instead of failing on it. It also tries
+// again when a file vanished under git add: the kernel stores create and remove their own lock and
+// temporary files (.objects.lock, .tmp-…) while another writer adds the registry directory.
 func runWaiting(ctx context.Context, dir string, args ...string) (string, error) {
 	deadline := time.Now().Add(lockWait)
 	for wait := 50 * time.Millisecond; ; wait = min(2*wait, time.Second) {
 		out, err := run(ctx, dir, "git", args...)
-		if err == nil || !heldLock(out) || time.Now().After(deadline) {
+		if err == nil || !(heldLock(out) || vanished(out)) || time.Now().After(deadline) {
 			return out, err
 		}
 		select {
@@ -350,4 +352,10 @@ const lockWait = 30 * time.Second
 // heldLock reports git saying another process holds one of its lock files.
 func heldLock(out string) bool {
 	return strings.Contains(out, ".lock': File exists") || strings.Contains(out, "Unable to create") && strings.Contains(out, ".lock")
+}
+
+// vanished reports git saying a file it was adding disappeared between listing and reading it.
+func vanished(out string) bool {
+	return strings.Contains(out, "No such file or directory") &&
+		(strings.Contains(out, "unable to stat") || strings.Contains(out, "unable to index") || strings.Contains(out, "open("))
 }
