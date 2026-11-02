@@ -20,11 +20,11 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"syscall"
 
 	"github.com/kton-protocol/kton-cockpit/cockpit/executor"
 	"github.com/kton-protocol/kton-cockpit/internal/binaries"
 	"github.com/kton-protocol/kton-cockpit/internal/config"
+	"github.com/kton-protocol/kton-cockpit/internal/nofollow"
 	"github.com/kton-protocol/kton-cockpit/internal/toolcall"
 	"kton.dev/plankton/core"
 )
@@ -252,7 +252,7 @@ func stageFile(root string, f CallFile) error {
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return err
 	}
-	w, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW, 0o644)
+	w, err := nofollow.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 	if err != nil {
 		return fmt.Errorf("staging %s: %w", f.Path, err)
 	}
@@ -403,7 +403,7 @@ func fromCAS(cas *toolcall.CAS, h binaries.Reused) (*ToolResult, bool) {
 }
 
 func readNoFollow(p string) ([]byte, error) {
-	f, err := os.OpenFile(p, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
+	f, err := nofollow.OpenFile(p, os.O_RDONLY, 0)
 	if err != nil {
 		return nil, err
 	}

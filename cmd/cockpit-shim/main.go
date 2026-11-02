@@ -21,8 +21,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
 
+	"github.com/kton-protocol/kton-cockpit/internal/nofollow"
 	"github.com/kton-protocol/kton-cockpit/internal/toolcall"
 )
 
@@ -185,7 +185,7 @@ func writeBack(root string, f callFile) error {
 			return fmt.Errorf("%s is not a directory (a link?); %s is not written", dir, f.Path)
 		}
 	}
-	w, err := os.OpenFile(filepath.Join(dir, parts[len(parts)-1]), os.O_WRONLY|os.O_CREATE|os.O_TRUNC|syscall.O_NOFOLLOW, 0o644)
+	w, err := nofollow.OpenFile(filepath.Join(dir, parts[len(parts)-1]), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
 	if err != nil {
 		return fmt.Errorf("writing %s: %w", f.Path, err)
 	}

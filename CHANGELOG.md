@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **`cockpit/` builds for Windows again** (broken since the shim review fixes, PR #65:
+  `syscall.O_NOFOLLOW` does not exist there, and the recorder imports `cockpit`). Opening without
+  following a link is `internal/nofollow`: `O_NOFOLLOW` on unix, a link found by `Lstat` refused on
+  Windows. CI now vets for Windows and builds for macOS.
+
 ## v0.4.2 — 2026-10-30
 
 Fixes found by kton-coordination on `lanes/` with v0.4.1. Tracks kton v0.3.0 and ktonpkg v0.2.0.
