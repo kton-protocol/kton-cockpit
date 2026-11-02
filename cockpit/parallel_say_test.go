@@ -17,8 +17,9 @@ import (
 // lane says into one registry). Run as separate processes, so the lock between processes is
 // what is tested, not only the one inside this one.
 func TestSay_ParallelProcessesEachCommitTheirClaim(t *testing.T) {
-	if os.Getenv("COCKPIT_TEST_SAY_CHILD") != "" {
-		t.Skip("the child half runs in TestSay_ParallelChild")
+	if subject := os.Getenv("COCKPIT_TEST_SAY_CHILD"); subject != "" {
+		sayAsChild(t, subject) // this process is one of the parallel says
+		return
 	}
 	r := testrepo.New(t)
 	r.Use(t)
@@ -34,7 +35,7 @@ func TestSay_ParallelProcessesEachCommitTheirClaim(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			cmd := exec.Command(os.Args[0], "-test.run=^TestSay_ParallelChild$", "-test.count=1")
+			cmd := exec.Command(os.Args[0], "-test.run=^TestSay_ParallelProcessesEachCommitTheirClaim$", "-test.count=1")
 			cmd.Env = append(os.Environ(), "COCKPIT_TEST_SAY_CHILD="+subject, fmt.Sprintf("COCKPIT_TEST_SAY_STEP=step-%d", i))
 			b, err := cmd.CombinedOutput()
 			outs[i], errs[i] = string(b), err
@@ -71,13 +72,8 @@ func TestSay_ParallelProcessesEachCommitTheirClaim(t *testing.T) {
 	}
 }
 
-// TestSay_ParallelChild is one say of TestSay_ParallelProcessesEachCommitTheirClaim, in a process
-// of its own; on its own it does nothing.
-func TestSay_ParallelChild(t *testing.T) {
-	subject := os.Getenv("COCKPIT_TEST_SAY_CHILD")
-	if subject == "" {
-		t.Skip("run by TestSay_ParallelProcessesEachCommitTheirClaim")
-	}
+// sayAsChild is one say of TestSay_ParallelProcessesEachCommitTheirClaim, in a process of its own.
+func sayAsChild(t *testing.T, subject string) {
 	res, out, err := Say(context.Background(), nil, SayRequest{Subject: subject, Template: "working-on",
 		Fields: map[string]string{"step": os.Getenv("COCKPIT_TEST_SAY_STEP"), "by-session": testrepo.SessionID}})
 	if err != nil || res.IsError {
