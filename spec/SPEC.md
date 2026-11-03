@@ -236,6 +236,18 @@ server starts, not on the first call.
 > **Checked by:** `TestMCP_VocabularyToolsAreTheVerbsWithArgumentsFixed`,
 > `TestMCP_TheVocabularyIsOptInAndItsOptionsAreChecked`, `TestMCP_AQueryToolRunsWithTheServersBinding`.
 
+A verticle (ktonpkg profile `verticle`) MAY declare its MCP tools itself (`mcp/<name>.json`: a
+description, an input schema, and a `bind` from the query's `$VAR` or the ray's holes to input
+fields). The server MUST serve such a tool under the declared name and schema, in place of the tool
+it would derive, and MUST NOT serve two tools of one name. A tool bound to a ray runs code, so it
+MUST be served only when the operator starts the server with `--runs`, never because the package is
+allowed: `--runs` also derives a tool `run_<name>` for an installed workflow that declares none. A
+ray tool runs as `workflow run` does — every step a recorded run — in a directory named after its
+first bound file, and an optional hole left out takes the package's default. A control is not
+served yet, and the server says so when it starts.
+
+> **Checked by:** `TestMCP_AVerticlesDeclaredToolsAreServed`, `TestMCP_ADeclaredRayToolRunsItsSteps`.
+
 ## 7 publish
 
 Records a result as a signed foton, and commits, pushes and locates the bytes it describes.
@@ -329,6 +341,12 @@ Where the cockpit ran the command itself (§10), it MUST record the environment 
 refuse a supplied value naming a different one.
 
 > **Checked by:** `TestPublish_WillNotRecordAnEnvironmentOtherThanTheOneItRanIn`.
+
+A packaged step that names its image (ktonpkg `Protocol.Image`) MUST run in that image or not at all:
+where it differs from `execution.image`, `workflow run` MUST refuse before staging anything rather
+than run the step somewhere else.
+
+> **Checked by:** `TestWorkflowRun_AStepInAnotherImageIsRefused`.
 
 ### 7.6 Publishing a ray *(optional)*
 

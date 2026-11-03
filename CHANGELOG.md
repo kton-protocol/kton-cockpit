@@ -2,7 +2,22 @@
 
 ## Unreleased
 
+### Changed
+
+- **Requires ktonpkg v0.3.0** (verticle profile, `Protocol.Image`, `Step.Outputs`).
+
 ### Added
+
+- **`cockpit mcp --runs`: a package's steps as MCP tools, and the tools a verticle declares**
+  (ktonpkg v0.3.0, SPEC §6.2). A verticle's `mcp/<name>.json` is served under its own name and
+  schema: a query tool with `--vocabulary`, a ray tool only with `--runs`. A ray tool runs the
+  package's steps as `workflow run` does, each a recorded foton, in `work/<package>/<source>`.
+  `--runs` also gives each installed workflow without a declaration a `run_<name>` tool, its holes
+  as arguments. The first verticle served this way is `render` (SOP `.Rmd` → docx → PDF).
+- **`workflow run` takes a verticle's ray, and an optional hole's default.** A hole the package
+  marks optional (a template) takes the package's default when not bound; required holes must still
+  be named. A step whose `Protocol.Image` differs from `execution.image` is refused before anything
+  is staged (SPEC §7.5).
 
 - **`cockpit mcp --vocabulary`: an allowed package's queries and templates as MCP tools** (SPEC §6.2).
   Each query is a tool `ask_<name>` with its `$VAR` parameters as arguments, each template a tool

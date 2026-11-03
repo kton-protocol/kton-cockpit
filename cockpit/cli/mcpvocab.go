@@ -4,10 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path"
+	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
+	"github.com/gitmick/ktonpkg/scope"
 	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/kton-protocol/kton-cockpit/cockpit"
 	"github.com/kton-protocol/kton-cockpit/internal/config"
@@ -30,6 +34,10 @@ type mcpOptions struct {
 	scope string
 	// bind gives query parameters fixed values; a bound parameter is not in the tool's schema.
 	bind map[string]string
+	// runs adds one tool per installed workflow package (run_<name>): its ray, the holes as
+	// arguments, every step a recorded run. That executes code, so it is a separate yes from the
+	// operator, never implied by --vocabulary (SPEC §6.2).
+	runs bool
 }
 
 func parseMCPArgs(args []string) (mcpOptions, error) {
@@ -47,6 +55,8 @@ func parseMCPArgs(args []string) (mcpOptions, error) {
 		switch a {
 		case "--vocabulary":
 			o.vocabulary = true
+		case "--runs":
+			o.runs = true
 		case "--as":
 			o.as, err = next()
 		case "--scope":
@@ -147,6 +157,8 @@ func objectSchema(props map[string]*jsonschema.Schema, required []string) *jsons
 // vocabTool is one tool the allowed packages bring: a query (ask sparql --name) or a template
 // (say), with what the operator fixed already applied.
 type vocabTool struct {
+	// ray is, for a tool a package declares bound to a ray, that package's name.
+	ray  string
 	tool *mcp.Tool
 	call func(ctx context.Context, args map[string]any) (any, error)
 }
@@ -288,6 +300,188 @@ func vocabularyTools(cfg *config.Config, c *cockpit.Cockpit, o mcpOptions) ([]vo
 		})
 	}
 	return out, nil
+}
+
+// runTools are the tools of the installed workflow packages: run_<name> binds the arguments to
+// the ray's holes and runs it as WorkflowRun does, each step a recorded foton in the image the
+// configuration pins. A required hole is a required argument; nothing falls back to the package's
+// test data, as with workflow run.
+func runTools(ctx context.Context, cfg *config.Config, c *cockpit.Cockpit) ([]vocabTool, error) {
+	all, err := packages.List(cfg.RepoRoot)
+	if err != nil {
+		return nil, err
+	}
+	var out []vocabTool
+	seen := map[string]bool{}
+	for _, in := range all {
+		prof, _ := in.Revision.Profile()
+		if (prof != scope.ProfileWorkflow && prof != scope.ProfileVerticle) || seen[in.Package.Name] {
+			continue
+		}
+		if ray, err := in.Revision.Ray(); err != nil || ray == nil {
+			continue // a verticle without steps has nothing to run
+		}
+		seen[in.Package.Name] = true
+		show, err := c.WorkflowShow(ctx, in.Package.Name)
+		if err != nil {
+			return nil, err
+		}
+		props := map[string]*jsonschema.Schema{}
+		var required, steps []string
+		for _, h := range show.Holes {
+			what := "a repo-relative file for the step " + h.Step + "'s slot " + h.Slot
+			if h.Type == "param" {
+				what = "the value of the step " + h.Step + "'s parameter " + h.Param
+			} else if h.Type == "dir" {
+				what = "a repo-relative folder for the step " + h.Step + "'s slot " + h.Slot
+			}
+			if h.Description != "" {
+				what = h.Description + " (" + what + ")"
+			}
+			props[h.Name] = &jsonschema.Schema{Type: "string", Description: what}
+			if h.Required {
+				required = append(required, h.Name)
+			}
+		}
+		for _, st := range show.Steps {
+			steps = append(steps, st.ID)
+		}
+		props["dir"] = &jsonschema.Schema{Type: "string", Description: "the repo-relative working directory (default work/" + show.Name + ")"}
+		name := show.Name
+		out = append(out, vocabTool{
+			tool: &mcp.Tool{Name: toolName("run", name), InputSchema: objectSchema(props, required),
+				Description: fmt.Sprintf("Run the workflow %s (%s): steps %s, each recorded as a foton in the image this "+
+					"repository pins; returns each step's outputs with their hashes and foton id.", name, show.Label, strings.Join(steps, " → "))},
+			call: func(ctx context.Context, args map[string]any) (any, error) {
+				req := cockpit.WorkflowRunRequest{Name: name, Bindings: map[string]string{}}
+				for k, v := range args {
+					if k == "dir" {
+						req.Dir = fmt.Sprint(v)
+						continue
+					}
+					req.Bindings[k] = fmt.Sprint(v)
+				}
+				return c.WorkflowRun(ctx, req)
+			},
+		})
+	}
+	return out, nil
+}
+
+// declaredTools are the MCP tools the allowed verticles declare (ktonpkg v0.3.0: mcp/<name>.json,
+// each bound to exactly one of a query, a control or a ray). The declaration names the tool, says
+// what it does and gives its input schema; bind maps the query's $VAR or the ray's hole to an input
+// field. A query tool is served with --vocabulary, a ray tool only with --runs, since it runs code.
+// Controls are not served yet: they are reported, not dropped silently.
+func declaredTools(cfg *config.Config, c *cockpit.Cockpit, o mcpOptions) (tools []vocabTool, notes []string, err error) {
+	voc, err := packages.Allowed(cfg.RepoRoot, cfg.Raw.Claims.AllowedPackages)
+	if err != nil {
+		return nil, nil, err
+	}
+	names := make([]string, 0, len(voc.MCPTools))
+	for n := range voc.MCPTools {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		t := voc.MCPTools[name]
+		src := voc.From["mcp:"+name]
+		var schema jsonschema.Schema
+		if err := json.Unmarshal(t.Input, &schema); err != nil {
+			return nil, nil, fmt.Errorf("the MCP tool %s of %s: its input is not a JSON Schema: %v", name, src.Name, err)
+		}
+		bind := t.Bind
+		desc := strings.TrimSpace(t.Description + fmt.Sprintf(" (declared by the package %s)", src.Name))
+		var call func(ctx context.Context, args map[string]any) (any, error)
+		switch {
+		case t.Query != "" && o.vocabulary:
+			// A parameter the operator fixed is not the caller's to give: out of the schema.
+			fixed := map[string]string{}
+			for v, field := range bind {
+				if val, ok := o.bind[v]; ok {
+					fixed[v] = val
+					delete(schema.Properties, field)
+					schema.Required = slices.DeleteFunc(schema.Required, func(r string) bool { return r == field })
+				}
+			}
+			if len(fixed) > 0 {
+				desc += " Fixed by this server: " + fmtBind(fixed) + "."
+			}
+			q := t.Query
+			call = func(ctx context.Context, args map[string]any) (any, error) {
+				in := cockpit.AskRequest{Query: "sparql", Name: q, Bind: map[string]string{}}
+				for v, val := range fixed {
+					in.Bind[v] = val
+				}
+				for v, field := range bind {
+					if a, ok := args[field]; ok {
+						in.Bind[v] = fmt.Sprint(a)
+					}
+				}
+				res, err := c.Ask(ctx, in)
+				if err != nil {
+					return nil, err
+				}
+				return res.Sparql, nil
+			}
+		case t.Ray != "" && o.runs:
+			pkg := src.Name
+			call = func(ctx context.Context, args map[string]any) (any, error) {
+				req := cockpit.WorkflowRunRequest{Name: pkg, Bindings: map[string]string{}}
+				for hole, field := range bind {
+					if a, ok := args[field]; ok && fmt.Sprint(a) != "" {
+						req.Bindings[hole] = fmt.Sprint(a)
+					}
+				}
+				req.Dir = runDir(pkg, req.Bindings)
+				return c.WorkflowRun(ctx, req)
+			}
+		case t.Control != "":
+			notes = append(notes, fmt.Sprintf("the MCP tool %s of %s binds the control %s; controls are not served yet", name, src.Name, t.Control))
+			continue
+		default:
+			continue // a query tool without --vocabulary, a ray tool without --runs
+		}
+		if schema.Type == "" {
+			schema.Type = "object"
+		}
+		vt := vocabTool{tool: &mcp.Tool{Name: name, Description: desc, InputSchema: &schema}, call: call}
+		if t.Ray != "" {
+			vt.ray = src.Name
+		}
+		tools = append(tools, vt)
+	}
+	return tools, notes, nil
+}
+
+// runDir is where a declared ray tool runs: work/<package>/<name of the first bound file>, so two
+// calls with different sources do not overwrite each other's files, and the same source lands in
+// the same place, where the same work is the same record.
+func runDir(pkg string, bindings map[string]string) string {
+	holes := make([]string, 0, len(bindings))
+	for h := range bindings {
+		holes = append(holes, h)
+	}
+	sort.Strings(holes)
+	for _, h := range holes {
+		base := path.Base(filepath.ToSlash(bindings[h]))
+		if stem := strings.TrimSuffix(base, path.Ext(base)); stem != "" && stem != "." && stem != "/" {
+			return path.Join("work", pkg, regexp.MustCompile(`[^A-Za-z0-9._-]`).ReplaceAllString(stem, "_"))
+		}
+	}
+	return ""
+}
+
+func fmtBind(m map[string]string) string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for i, k := range keys {
+		keys[i] = k + "=" + m[k]
+	}
+	return strings.Join(keys, ", ")
 }
 
 // addVocabulary registers the vocabulary tools on server.

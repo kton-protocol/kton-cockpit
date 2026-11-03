@@ -1,5 +1,7 @@
 github.com/gitmick/ktonpkg v0.2.0 h1:9OajwxEfj/pzqMleORySri/t2sThBtmUKmj00ZlGnhw=
 github.com/gitmick/ktonpkg v0.2.0/go.mod h1:2QvS8r1ozllMa9TXRVQ+AcIEZQbz7ONTDx+V5SF/8sg=
+github.com/gitmick/ktonpkg v0.3.0 h1:lVHUEWsIeCIZJKcer8jW7CoJNxwd2CI/jQGa4N0HxQ0=
+github.com/gitmick/ktonpkg v0.3.0/go.mod h1:2QvS8r1ozllMa9TXRVQ+AcIEZQbz7ONTDx+V5SF/8sg=
 github.com/golang-jwt/jwt/v5 v5.3.1 h1:kYf81DTWFe7t+1VvL7eS+jKFVWaUnK9cB1qbwn63YCY=
 github.com/golang-jwt/jwt/v5 v5.3.1/go.mod h1:fxCRLWMO43lRc8nhHWY6LGqRcf+1gQWArsqaEUEa5bE=
 github.com/google/go-cmp v0.7.0 h1:wk8382ETsv4JYUZwIsn6YpYiWiBsYLSJiTsyBybVuN8=
