@@ -367,7 +367,20 @@ func (c *Cockpit) WorkflowRun(ctx context.Context, in WorkflowRunRequest) (*Work
 	// Test data binds only a check. A run that is not a check and leaves a required hole open
 	// does not start (URS-6): silently running on the package's test data would produce a result
 	// that looks like the user's and is not.
-	plan, err := b.Plan(work, ktonpkg.Bindings(in.Bindings), ktonpkg.PlanOptions{NoDefaults: !in.Check})
+	// A hole the package marks optional takes its default (a template, say) when nobody binds it;
+	// only required holes must be named, so a run never stands on the test data unasked (URS-6).
+	bindings := ktonpkg.Bindings{}
+	for k, v := range in.Bindings {
+		bindings[k] = v
+	}
+	if !in.Check {
+		for _, h := range b.Ray.Holes {
+			if !h.Required && bindings[h.Name] == "" && h.Default != "" {
+				bindings[h.Name] = h.Default
+			}
+		}
+	}
+	plan, err := b.Plan(work, bindings, ktonpkg.PlanOptions{NoDefaults: !in.Check})
 	if err != nil {
 		if m, ok := err.(*ktonpkg.MissingError); ok {
 			return nil, refuse("workflow.unbound", "", "required holes not bound: %s — bind them with --bind NAME=VALUE, "+
@@ -377,6 +390,14 @@ func (c *Cockpit) WorkflowRun(ctx context.Context, in WorkflowRunRequest) (*Work
 	}
 	out := &WorkflowRunResult{Name: inst.Package.Name, Dir: work, Bindings: plan.Bindings,
 		InReferenceDir: in.Check && in.Dir == "" && work == referenceDir(cfg, refs)}
+	// A step that names its image runs there or not at all: the cockpit runs every step in the
+	// image its configuration pins, so a different one is refused rather than substituted.
+	for _, st := range plan.Steps {
+		if st.Image != "" && "oci://"+strings.TrimPrefix(st.Image, "oci://") != cfg.Raw.Execution.Image {
+			return nil, refuse("workflow.image", "SPEC §7.5", "step %s runs in %s, and this repository runs steps in %q — "+
+				"set execution.image to that image to run it", st.ID, st.Image, cfg.Raw.Execution.Image)
+		}
+	}
 	for _, st := range plan.Steps {
 		for _, sg := range st.Stage {
 			if err := copyRepoFile(cfg.RepoRoot, sg.From, sg.To); err != nil {
@@ -478,7 +499,9 @@ func installedWorkflow(cfg *config.Config, name string) (*packages.Installed, *k
 	if err != nil {
 		return nil, nil, refuse("workflow.unknown", "", "%v", err)
 	}
-	if prof, _ := in.Revision.Profile(); prof != scope.ProfileWorkflow {
+	// A verticle may carry a ray too (ktonpkg v0.3.0): its steps are the verticle's work, run the
+	// same way. Whether it has one is checked below.
+	if prof, _ := in.Revision.Profile(); prof != scope.ProfileWorkflow && prof != scope.ProfileVerticle {
 		return nil, nil, refuse("workflow.unknown", "", "%s is a %s package, not a workflow", name, prof)
 	}
 	view := path.Join(in.Dir, scope.FilesDir, in.Revision.Label)
