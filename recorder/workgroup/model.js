@@ -107,4 +107,24 @@ function surfaceOfFolder(sessions, dir) {
   return Object.keys(sessions).find((n) => sessions[n].dir === d);
 }
 
-module.exports = { parseKwList, laneIndex, openByLane, sender, fresh, SSE, surfaceSessions, surfaceOfFolder };
+// openFor lists the open messages routed to the lane whose folder is dir: a surface's own area
+// (its lane is its folder relative to the workstreams, active/kton-coordination/surfaces/qm).
+function openFor(results, dir) {
+  const d = (dir || '').replace(/\/+$/, '');
+  const out = [];
+  for (const b of (results.results && results.results.bindings) || []) {
+    const v = (k) => (b[k] ? b[k].value : '');
+    const lane = v('lane');
+    if (!lane || !(d === lane || d.endsWith('/' + lane))) continue;
+    out.push({ msg: v('msg'), title: v('title'), area: v('area'), from: sender(v('from')), when: v('when') });
+  }
+  return out;
+}
+
+// doorbell is the line a surface's conversation gets about a new message: the content stays in
+// the scope, the surface reads it from its inbox.
+function doorbell(surface, x) {
+  return `New message for ${surface} in area ${x.area} from ${x.from}: "${x.title}". Read it in your inbox and act on it.`;
+}
+
+module.exports = { parseKwList, laneIndex, openByLane, sender, fresh, SSE, surfaceSessions, surfaceOfFolder, openFor, doorbell };

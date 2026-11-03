@@ -44,4 +44,8 @@ const ss = m.surfaceSessions({ kton: {}, _surface_sessions: { qm: { session: 's1
 assert.deepStrictEqual(ss, { qm: { session: 's1', dir: '/c/surfaces/qm' } });
 assert.strictEqual(m.surfaceOfFolder(ss, '/c/surfaces/qm'), 'qm');
 assert.strictEqual(m.surfaceOfFolder(ss, '/c'), undefined);
+const res = { results: { bindings: [row('active/kton-coordination/surfaces/qm', 'q1', 'for qm'), row('active/kton-coordination', 'c1', 'for coordination'), row('active/cockpit', 'x', 'other')] } };
+const mine = m.openFor(res, '/mnt/c/dev/workstreams/active/kton-coordination/surfaces/qm/');
+assert.deepStrictEqual(mine.map((x) => x.msg), ['q1'], 'only the surface folder\'s own lane, not its parent');
+assert.ok(m.doorbell('qm', mine[0]).includes('"for qm"'));
 console.log('model ok');
