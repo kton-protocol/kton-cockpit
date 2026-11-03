@@ -12,6 +12,9 @@
 // first workspace folder (setupPanel: cwd = workspaceFolders[0]) and keeps conversations per
 // folder, so in any other window it would resume in the wrong folder, with the wrong CLAUDE.md.
 // The window this opens finds its folder is a surface's and opens that conversation as a tab.
+// There, a message to the surface's own area (its lane in the registry is its folder) gets a
+// notification; [Open] shows the tab with a one-line doorbell as its prompt. The Claude extension
+// applies a prompt only to a tab it opens, so the line is also put on the clipboard.
 'use strict';
 const vscode = require('vscode');
 const cp = require('child_process');
@@ -62,6 +65,13 @@ class Tree {
     try { now = m.openByLane(JSON.parse(r.out), idx); } catch (e) { return []; }
     const news = this.counted ? m.fresh(this.open, now) : [];
     this.open = now;
+    if (this.here) {
+      let mine = [];
+      try { mine = m.openFor(JSON.parse(r.out), this.here.dir); } catch (e) { /* none */ }
+      const seen = new Set((this.mine || []).map((x) => x.msg));
+      if (this.counted) for (const x of mine) if (!seen.has(x.msg)) news.push({ surface: this.here.name, ...x });
+      this.mine = mine;
+    }
     this.counted = true;
     this.changed();
     return news;
@@ -208,10 +218,25 @@ function activate(ctx) {
   const view = vscode.window.createTreeView('ktonWorkgroup.surfaces', { treeDataProvider: tree });
   ctx.subscriptions.push(view);
 
+  // a window on a surface's folder: that surface hears about its own area
+  const f0 = firstFolder();
+  const hereName = f0 && m.surfaceOfFolder(readSurfaceSessions(), f0.uri.fsPath);
+  if (hereName) tree.here = { name: hereName, ...readSurfaceSessions()[hereName] };
+
   const surfaceOf = (el) => (el && el.s) || tree.surfaces[0];
   const onNews = (news) => {
     const forward = new Set(cfg().get('bringForward') || []);
     for (const x of news) {
+      if (x.surface) {
+        const line = m.doorbell(x.surface, x);
+        vscode.window.showInformationMessage(`${x.surface}: ${x.title} (from ${x.from})`, 'Open').then(async (a) => {
+          if (a !== 'Open') return;
+          await vscode.env.clipboard.writeText(line);
+          await vscode.commands.executeCommand('claude-vscode.editor.open', tree.here.session, line);
+        });
+        continue;
+      }
+      if (tree.here) continue; // a surface window: only its own area, the lanes belong to the coordination window
       const s = tree.surfaces.find((sf) => sf.lanes.some((l) => l.name === x.lane));
       if (!s) continue;
       if (forward.has(x.lane)) { openTerminal(tree, s, x.lane); continue; }
@@ -265,10 +290,8 @@ function activate(ctx) {
   watch(tree, onNews, ctx);
 
   // a window on a surface's folder: its conversation, as a Claude tab (revealed if already open)
-  const f = firstFolder();
-  const here = f && m.surfaceOfFolder(readSurfaceSessions(), f.uri.fsPath);
-  if (here) openTab(readSurfaceSessions()[here].session).then(undefined, (e) =>
-    vscode.window.showWarningMessage(`${here}: could not open its conversation (${e && e.message ? e.message : e})`));
+  if (tree.here) openTab(tree.here.session).then(undefined, (e) =>
+    vscode.window.showWarningMessage(`${tree.here.name}: could not open its conversation (${e && e.message ? e.message : e})`));
 }
 
 function deactivate() {}
