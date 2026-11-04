@@ -216,6 +216,38 @@ from `$PATH`, and by checking the version on the path a session actually takes.
 > fixture runs are built from the module version go.mod requires), `TestAuthor_MatchesTheReferenceCLI` (the
 > linked write path produces the same foton id as the reference binary does).
 
+### 6.2 Vocabulary tools
+
+An operator MAY start the tool transport with the allowed packages' words as tools of their own
+(`cockpit mcp --vocabulary`): one tool per query a package brings (`ask_<name>`, run as `ask sparql
+--name <name>`, its `$VAR` parameters as arguments) and one per template (`say_<name>`, its fields as
+arguments). Each is one of the three verbs with some arguments fixed, never a fourth: it reaches the
+same handler, under the same ceilings, as `cockpit_ask` or `cockpit_say` would.
+
+What the operator fixes when starting the server — the identity every claim is signed as (`--as`),
+the scope the templates chain into and are about by default (`--scope`), the value of a query
+parameter (`--bind VAR=VALUE`) — MUST hold for every call over that server and MUST NOT be in a
+tool's arguments. With `--as`, `cockpit_say` signs as that identity too, and a call naming another
+identity MUST be refused: a session that cannot choose its key cannot sign as the repository or as
+another lane. An argument a tool's schema does not name MUST be refused, so a typed-wrong field is
+not a claim saying less than meant. A scope the configuration does not name MUST be refused when the
+server starts, not on the first call.
+
+> **Checked by:** `TestMCP_VocabularyToolsAreTheVerbsWithArgumentsFixed`,
+> `TestMCP_TheVocabularyIsOptInAndItsOptionsAreChecked`, `TestMCP_AQueryToolRunsWithTheServersBinding`.
+
+A verticle (ktonpkg profile `verticle`) MAY declare its MCP tools itself (`mcp/<name>.json`: a
+description, an input schema, and a `bind` from the query's `$VAR` or the ray's holes to input
+fields). The server MUST serve such a tool under the declared name and schema, in place of the tool
+it would derive, and MUST NOT serve two tools of one name. A tool bound to a ray runs code, so it
+MUST be served only when the operator starts the server with `--runs`, never because the package is
+allowed: `--runs` also derives a tool `run_<name>` for an installed workflow that declares none. A
+ray tool runs as `workflow run` does — every step a recorded run — in a directory named after its
+first required input, and an optional hole left out takes the package's default. A control is not
+served yet, and the server says so when it starts.
+
+> **Checked by:** `TestMCP_AVerticlesDeclaredToolsAreServed`, `TestMCP_ADeclaredRayToolRunsItsSteps`.
+
 ## 7 publish
 
 Records a result as a signed foton, and commits, pushes and locates the bytes it describes.
@@ -309,6 +341,18 @@ Where the cockpit ran the command itself (§10), it MUST record the environment 
 refuse a supplied value naming a different one.
 
 > **Checked by:** `TestPublish_WillNotRecordAnEnvironmentOtherThanTheOneItRanIn`.
+
+A packaged step that names its image (ktonpkg `Protocol.Image`) MUST run in that image or not at all:
+where it differs from `execution.image`, `workflow run` MUST refuse before staging anything rather
+than run the step somewhere else.
+
+A folder bound to a folder slot (a slot ending in `/`) MUST reach the step file by file: every regular
+file in it is an input under the slot, so the run records each one, and a link in it MUST be refused. An
+optional folder left open stages nothing.
+
+> **Checked by:** `TestWorkflowRun_AStepInAnotherImageIsRefused`, `TestExpandDirSlots_EveryFileIsAnInput`,
+> `TestExpandDirSlots_ALinkInTheFolderIsRefused`, `TestExpandDirSlots_AFolderLeftOpenHasNoFiles`,
+> `TestMCP_ADeclaredRayToolRunsItsSteps` (`-tags docker`).
 
 ### 7.6 Publishing a ray *(optional)*
 
@@ -877,15 +921,15 @@ under that base. The same call made in another directory is the same call.
 
 A run that leaves more than the shim's `maxOutputBytes` (1 GiB when not set) MUST NOT be read or
 recorded. Nothing a run leaves under `.kton/` besides its streams is an output, on a miss or a hit. A
-control stream that includes itself MUST be refused. A link a run leaves MUST NOT be followed when its
-outputs are read or written back, on every platform the cockpit builds for (on Windows, which has no
-`O_NOFOLLOW`, a link found before the open is refused).
+control stream that includes itself MUST be refused, and one included many times MUST be read once. A
+link a run leaves MUST NOT be followed when its outputs are read or written back, on every platform the
+cockpit builds for (on Windows, which has no `O_NOFOLLOW`, a link found before the open is refused).
 
 > **Checked by:** `TestOpenFile_RefusesALinkAtTheName`, `TestShim_ACallThatCouldLeaveTheStagingDirectoryIsRefused`,
 > `TestShim_AMissRunsInTheToolsImageAndTheSameCallIsAHit`, `TestShim_ARunThatLeavesALinkIsNotReadOrRecorded`,
 > `TestShim_ASecretOrAFailureIsNotRecorded`, `TestShim_ACallIsKeyedRelativeToItsBase`,
 > `TestShim_AnOutputAboveTheCallsDirectoryIsWritten`, `TestShim_FilesUnderTheStreamsDirectoryNeverComeBack`,
-> `TestShim_ARunThatLeavesTooMuchIsNotRead`,
+> `TestShim_ARunThatLeavesTooMuchIsNotRead`, `TestCollect_ARepeatedIncludeIsReadOnce`,
 > `TestCollect_NonmemTakesTheControlStreamAndWhatItReads`.
 
 ## 11 Carried evidence *(optional)*
@@ -1031,8 +1075,16 @@ turn off checking which repository this is. The cockpit itself MUST NOT call a b
 everything it needs from the store goes through the backend (ADR-011). With sharing off, a verb MUST
 NOT share at all, not even a revision an earlier call left unshared.
 
+Several verbs MAY write to one working tree at once, for example many writers saying into one
+registry. Each MUST make what it wrote durable exactly once and succeed. One MUST NOT fail because
+another holds the store's lock: the cockpit's own writes take turns, and a lock held by a tool
+outside the cockpit is waited out for a bounded time, as is a store's own lock or temporary file that
+another writer removes while it is being added.
+
 > **Checked by:** `TestConfigGuard_StillRefusesTheWrongRepoWithCommitsOff`,
-> `TestPublish_WithPushOffItCommitsLocallyAndSaysSo`, `TestCommitAndPush_NeverPushesWhenNotSharing`.
+> `TestPublish_WithPushOffItCommitsLocallyAndSaysSo`, `TestCommitAndPush_NeverPushesWhenNotSharing`,
+> `TestSay_ParallelProcessesEachCommitTheirClaim`, `TestCommitAndPush_WaitsOutALockAnotherGitHolds`,
+> `TestCommitAndPush_TriesAgainWhenAFileVanishesUnderAdd`.
 
 `cockpit sync` takes in what others shared and then shares what is durable here only. It MUST NOT
 rewrite a local revision — records already signed pin it in their locators — and where both sides
@@ -1093,7 +1145,9 @@ reading them, following symlinks), leaving out only the store's bookkeeping, whi
 > `TestIndex_AnAnswerSaysItCameFromTheMemoryIndex`.
 
 `oxigraph` reads records as `memory` does and evaluates vocabulary queries on one Oxigraph per machine,
-which the first such query starts. It stores every record once, as the kernel projects it apart from any
+which the first such query starts. The engine restarts it after a crash or a reboot (`unless-stopped`;
+`cockpit index stop` removes it), and the next query uses it where it answers now, on its store, rather than
+starting another (`TestOxigraph_ADaemonTheEngineRestartedIsFoundAgain`, `-tags docker`). It stores every record once, as the kernel projects it apart from any
 key (kton#232), with one attribution graph per key that verifies it; no trust tier is stored. Before a query
 it reads into the store what changed in each registry of the union, by the kernel's position (kton#233):
 an equal position reads nothing, otherwise the records since its cursor, or all of them when the epoch

@@ -27,6 +27,7 @@ import (
 
 	"github.com/kton-protocol/kton-cockpit/internal/toolcall"
 	"github.com/kton-protocol/kton-cockpit/recorder/ktonmcp"
+	v1 "github.com/kton-protocol/kton-cockpit/recorder/v1"
 	"github.com/kton-protocol/kton-cockpit/recorder/watch"
 )
 
@@ -154,14 +155,17 @@ func serve(args []string) {
 	}()
 	mux := http.NewServeMux()
 	mux.Handle("/kton/reg/", registries(sv))
+	home, _ := os.UserHomeDir()
+	tok, err := ktonmcp.Token(filepath.Join(home, ".config", "kton", "mcp-token"))
+	if err != nil {
+		log.Fatalf("token: %v", err)
+	}
 	if *mcpOn {
-		home, _ := os.UserHomeDir()
-		tok, err := ktonmcp.Token(filepath.Join(home, ".config", "kton", "mcp-token"))
-		if err != nil {
-			log.Fatalf("mcp token: %v", err)
-		}
 		mux.Handle("/mcp", ktonmcp.Handler(ktonmcp.Server(sv, "recorder"), tok))
 	}
+	api := &v1.Server{Token: tok} // the service API on the cockpit's held union, same token
+	defer api.Close()
+	mux.Handle("/v1/", api.Handler())
 	mux.Handle("/", sv.Handler())
 	srv := &http.Server{Addr: *listen, Handler: mux}
 	go func() { <-ctx.Done(); srv.Close() }()

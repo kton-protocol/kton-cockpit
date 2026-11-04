@@ -8,6 +8,7 @@
 #   ~/.ipython/profile_default/startup/50-kton.py   loads it in IPython kernels that run under
 #                                      the shim; nothing else in the profile is touched
 #   $PREFIX/share/kton/kton-recorder-*.vsix   the Positron extension
+#   $PREFIX/share/kton/kton-workgroup-*.vsix  the workgroup view for VS Code (surfaces and their lanes in tmux)
 #   $PREFIX/bin/kton-repro             makes a recorded file again in containers and compares
 #   $PREFIX/bin/kton-call              the stand-in for a tool call (reuse by key, else the real tool)
 #   $PREFIX/share/kton/stubs/          nmfe75, execute, vpc … → kton-call; active only with
@@ -18,6 +19,7 @@ ROOT=$(cd "$(dirname "$0")" && pwd)
 PREFIX=${PREFIX:-$HOME/.local}
 sh "$ROOT/build.sh"
 python3 -I "$ROOT/positron/pack.py" >/dev/null
+python3 -I "$ROOT/workgroup/pack.py" >/dev/null
 put() { mkdir -p "$(dirname "$2")"; cp "$1" "$2.new.$$" && mv -f "$2.new.$$" "$2"; }
 put "$ROOT/.build/libktontrace.so" "$PREFIX/lib/kton/libktontrace.so"
 put "$ROOT/.build/ktonwatch" "$PREFIX/bin/ktonwatch"; chmod +x "$PREFIX/bin/ktonwatch"
