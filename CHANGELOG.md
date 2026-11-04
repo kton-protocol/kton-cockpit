@@ -14,6 +14,31 @@
 - **The shim's NONMEM collector reads a repeatedly included control stream once** (kton-review S6).
   A chain where each level includes the next twice was exponential: 16 levels took 19 s, and now
   take milliseconds.
+### Changed
+
+- **Requires ktonpkg v0.3.0** (verticle profile, `Protocol.Image`, `Step.Outputs`).
+
+### Added
+
+- **`cockpit mcp --runs`: a package's steps as MCP tools, and the tools a verticle declares**
+  (ktonpkg v0.3.0, SPEC §6.2). A verticle's `mcp/<name>.json` is served under its own name and
+  schema: a query tool with `--vocabulary`, a ray tool only with `--runs`. A ray tool runs the
+  package's steps as `workflow run` does, each a recorded foton, in `work/<package>/<source>`.
+  `--runs` also gives each installed workflow without a declaration a `run_<name>` tool, its holes
+  as arguments. The first verticle served this way is `render` (SOP `.Rmd` → docx → PDF).
+- **`workflow run` takes a verticle's ray, and an optional hole's default.** A hole the package
+  marks optional (a template) takes the package's default when not bound; required holes must still
+  be named. A step whose `Protocol.Image` differs from `execution.image` is refused before anything
+  is staged (SPEC §7.5).
+
+- **`cockpit mcp --vocabulary`: an allowed package's queries and templates as MCP tools** (SPEC §6.2).
+  Each query is a tool `ask_<name>` with its `$VAR` parameters as arguments, each template a tool
+  `say_<name>` with its fields. `--as NAME` signs every claim over the server as NAME (also
+  `cockpit_say`; another `as` is refused), `--scope NAME` chains the templates into that scope and
+  makes it their default subject, `--bind VAR=VALUE` fixes a parameter and takes it out of the
+  schema. For the lanes: `cockpit mcp --vocabulary --as lane-X --scope lane-X --bind LANE=…` in
+  `.mcp.json`, with `COCKPIT_REPO_DIR` pointing at `lanes/`, gives `ask_inbox_open`, `ask_lanes`,
+  `say_requests`, `say_done`, … without shell wrappers.
 
 ## v0.4.2 — 2026-10-30
 
@@ -21,6 +46,12 @@ Fixes found by kton-coordination on `lanes/` with v0.4.1. Tracks kton v0.3.0 and
 
 ### Fixed
 
+- **`workflow run` stages a folder hole.** Each file in a folder bound to a slot ending in `/` is an
+  input under it, recorded by the run; a link in the folder is refused, and an optional folder left
+  open stages nothing. A declared ray tool's run is named after its required input, not a folder.
+- **The index daemon comes back after a crash or a reboot.** It is started with
+  `--restart unless-stopped`, and a cockpit finds a daemon the engine restarted at the port it has
+  now, instead of replacing it. Before, it stayed down after a WSL crash, and every inbox with it.
 - **`cockpit say` lists the templates an allowed package brings.** It said "no templates allowed
   here" while `say requests …` worked.
 - **A flag beside the JSON form is refused with the field that carries it.** `say --as X '{…}'` gave

@@ -100,6 +100,9 @@ func Ensure(ctx context.Context, cfg *config.Config) (*Daemon, error) {
 	image := strings.TrimPrefix(cfg.Raw.Query.Image, "oci://")
 	if l, ok := readLock(dir); ok {
 		d := &Daemon{URL: l.URL, Dir: dir}
+		if d.ping(ctx) != nil && relocate(ctx, cfg, dir, &l) {
+			d.URL = l.URL // the engine restarted it, perhaps on another port
+		}
 		if d.ping(ctx) == nil {
 			if l.Image != image || l.Schema != Schema {
 				return nil, fmt.Errorf("%w (%s, schema %d; this configuration wants %s, schema %d): "+
@@ -114,6 +117,33 @@ func Ensure(ctx context.Context, cfg *config.Config) (*Daemon, error) {
 		}
 	}
 	return start(ctx, cfg, dir, image)
+}
+
+// relocate finds a daemon the engine restarted by itself (after a crash or a reboot: it runs with
+// --restart unless-stopped) at the port it has now, which the engine chose anew, and records it in
+// the lock. It reports whether the daemon answers there.
+func relocate(ctx context.Context, cfg *config.Config, dir string, l *lock) bool {
+	out, err := exec.CommandContext(ctx, cfg.Raw.Execution.EngineOrDefault(), "port", l.Container, "7878/tcp").Output()
+	if err != nil {
+		return false
+	}
+	addr := strings.TrimSpace(strings.SplitN(string(out), "\n", 2)[0])
+	if addr == "" {
+		return false
+	}
+	// Just restarted, it may not answer yet: a few seconds, not start's 30.
+	d := &Daemon{URL: "http://" + addr, Dir: dir}
+	for deadline := time.Now().Add(5 * time.Second); d.ping(ctx) != nil; time.Sleep(200 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			return false
+		}
+	}
+	if d.URL == l.URL {
+		return true
+	}
+	l.URL = d.URL
+	b, _ := json.MarshalIndent(l, "", "  ")
+	return os.WriteFile(filepath.Join(dir, "daemon.json"), b, 0o644) == nil
 }
 
 // Running returns the machine's daemon if one is up, without starting one.
@@ -145,8 +175,9 @@ func start(ctx context.Context, cfg *config.Config, dir, image string) (*Daemon,
 	name := containerName(dir)
 	_ = exec.CommandContext(ctx, engine, "rm", "-f", name).Run() // a stopped one of ours
 	// Loopback only, no capabilities, as the user who owns the cache, with a memory ceiling so one
-	// unbounded query cannot take the machine down.
-	args := []string{"run", "-d", "--name", name,
+	// unbounded query cannot take the machine down. The engine brings it back after a crash or a
+	// reboot (every lane's reads depend on it); stop removes it, so it stays stopped then.
+	args := []string{"run", "-d", "--name", name, "--restart", "unless-stopped",
 		"--publish", "127.0.0.1::7878",
 		"--user", fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid()),
 		"--cap-drop=ALL", "--security-opt=no-new-privileges",

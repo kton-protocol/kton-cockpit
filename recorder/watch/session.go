@@ -689,6 +689,10 @@ func (s *Session) Close(reason string, ts int64) {
 	s.finish()
 	s.Closed = true
 	s.CloseReason = reason
+	// what only reading needs: a closed session reads no more lines, and thousands of them are
+	// kept at once (ddmanymore's batch: 12,000 sessions held 6.7 GB at startup)
+	s.cur, s.producedBy, s.lastOutput, s.known = nil, nil, nil, nil
+	s.procs, s.hashCache, s.console, s.redirects = nil, nil, nil, nil
 }
 
 // rewrote: the file's mtime at its last tracked close differs from when it was first read, so

@@ -3,6 +3,7 @@ package watch
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -60,5 +61,52 @@ func TestService_ClosesASilentSessionWhoseProcessesAreGone(t *testing.T) {
 	sv.Poll(now.Add(2 * time.Second))
 	if s := sv.Sessions(); len(s) != 1 || !s[0].Closed || s[0].Tasks != 1 {
 		t.Fatalf("%+v", s)
+	}
+}
+
+// ddmanymore 28.10.: 12,000 logs of a week's batch held 6.7 GB at startup and the service did not
+// answer for minutes. An old log closes once read and keeps no reading state; with MaxAge it is
+// not read at all, until it grows again.
+func TestService_OldLogsCloseOnceReadAndMaxAgeLeavesThemOut(t *testing.T) {
+	write := func(dir, id string, age time.Duration) string {
+		l := filepath.Join(dir, id+".tsv")
+		b := (&logb{}).ev(3999999, "open", "r", "/p/in.csv", "sha256=in").ev(3999999, "TASK", "ok", "1", "read") // a pid no process has
+		os.WriteFile(l, []byte("#ktontrace v1\thash=/p\n"+strings.Join(b.lines, "\n")+"\n"), 0o644)
+		at := time.Now().Add(-age)
+		os.Chtimes(l, at, at)
+		return l
+	}
+	newSv := func(dir string) *Service {
+		return &Service{Dir: dir, Store: t.TempDir(), Idle: 15 * time.Minute, NewClassifier: func() *Classifier { return &Classifier{} }}
+	}
+
+	dir := t.TempDir()
+	write(dir, "old", 48*time.Hour)
+	write(dir, "new", 0)
+	sv := newSv(dir)
+	sv.Poll(time.Now())
+	old, cur := sv.sessions["old"], sv.sessions["new"]
+	if !old.s.Closed || old.f != nil || old.r != nil || old.s.cur != nil || old.s.known != nil {
+		t.Fatalf("an old log is closed once read, without reading state: closed=%v", old.s.Closed)
+	}
+	if cur.s.Closed {
+		t.Fatalf("a log written just now stays open")
+	}
+
+	dir = t.TempDir()
+	l := write(dir, "old", 48*time.Hour)
+	write(dir, "new", 0)
+	sv = newSv(dir)
+	sv.MaxAge = 24 * time.Hour
+	sv.Poll(time.Now())
+	if _, ok := sv.sessions["old"]; ok || sv.sessions["new"] == nil {
+		t.Fatalf("MaxAge: sessions %v", len(sv.sessions))
+	}
+	f, _ := os.OpenFile(l, os.O_APPEND|os.O_WRONLY, 0)
+	f.WriteString("9\t100\t1\topen\tr\t/p/more.csv\t0\t0\t0\tsha256=m\n")
+	f.Close()
+	sv.Poll(time.Now())
+	if sv.sessions["old"] == nil {
+		t.Fatalf("a left-out log that grows is read")
 	}
 }

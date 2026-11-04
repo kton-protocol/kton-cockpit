@@ -1,0 +1,131 @@
+{
+  "name": "kton-workgroup",
+  "displayName": "kton workgroup",
+  "description": "The workgroup's surfaces and their background sessions in tmux: open one in a terminal, send it back, start it, see its open messages, get told when a lane gets one, and open a surface's own conversation as a Claude tab in its own window, where it hears about messages to its own area.",
+  "version": "0.4.0",
+  "publisher": "kton",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.65.0"
+  },
+  "extensionKind": [
+    "workspace"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "ktonWorkgroup",
+          "title": "Workgroup",
+          "icon": "$(organization)"
+        }
+      ]
+    },
+    "views": {
+      "ktonWorkgroup": [
+        {
+          "id": "ktonWorkgroup.surfaces",
+          "name": "Workgroup"
+        },
+        {
+          "id": "ktonWorkgroup.performance",
+          "name": "Performance"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "ktonWorkgroup.openSurface",
+        "title": "Open surface (Claude tab in its own window)",
+        "icon": "$(window)"
+      },
+      {
+        "command": "ktonWorkgroup.open",
+        "title": "Open",
+        "icon": "$(terminal)"
+      },
+      {
+        "command": "ktonWorkgroup.background",
+        "title": "Background",
+        "icon": "$(debug-disconnect)"
+      },
+      {
+        "command": "ktonWorkgroup.start",
+        "title": "Start",
+        "icon": "$(play)"
+      },
+      {
+        "command": "ktonWorkgroup.refresh",
+        "title": "Refresh",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "ktonWorkgroup.feed",
+        "title": "kton workgroup: Open the feed (WORKGROUP.md)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "ktonWorkgroup.refresh",
+          "when": "view == ktonWorkgroup.surfaces",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "ktonWorkgroup.openSurface",
+          "when": "view == ktonWorkgroup.surfaces && viewItem =~ /^surface-.*-tab/",
+          "group": "inline@0"
+        },
+        {
+          "command": "ktonWorkgroup.open",
+          "when": "view == ktonWorkgroup.surfaces && viewItem =~ /^(surface|lane)-up/",
+          "group": "inline@1"
+        },
+        {
+          "command": "ktonWorkgroup.background",
+          "when": "view == ktonWorkgroup.surfaces && viewItem =~ /-front/",
+          "group": "inline@2"
+        },
+        {
+          "command": "ktonWorkgroup.start",
+          "when": "view == ktonWorkgroup.surfaces && viewItem =~ /^(surface|lane)-/ && viewItem =~ /-startable/",
+          "group": "inline@3"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "kton workgroup",
+      "properties": {
+        "ktonWorkgroup.coordination": {
+          "type": "string",
+          "default": "/mnt/c/dev/workstreams/active/kton-coordination",
+          "description": "The coordination folder: kw, surfaces.json, WORKGROUP.md and the lanes registry (lanes/)."
+        },
+        "ktonWorkgroup.ktonwatch": {
+          "type": "string",
+          "default": "http://127.0.0.1:8378",
+          "description": "ktonwatch, whose /v1/watch tells the view about new messages."
+        },
+        "ktonWorkgroup.tokenFile": {
+          "type": "string",
+          "default": "~/.config/kton/mcp-token",
+          "description": "ktonwatch's bearer token."
+        },
+        "ktonWorkgroup.bringForward": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Lanes opened in a terminal by themselves when they get a message (otherwise a notification with [Open])."
+        }
+      }
+    }
+  }
+}

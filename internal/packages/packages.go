@@ -96,11 +96,13 @@ type Source struct {
 	Dir     string
 }
 
-// Vocabulary is what the allowed packages contribute: templates and queries by name.
+// Vocabulary is what the allowed packages contribute: templates and queries by name, and the MCP
+// tools a verticle declares (ktonpkg v0.3.0, profile verticle).
 type Vocabulary struct {
 	Templates map[string][]byte
 	Queries   map[string][]byte
-	From      map[string]Source // "template:<name>" / "query:<name>" -> where it came from
+	MCPTools  map[string]scope.MCPTool
+	From      map[string]Source // "template:<name>" / "query:<name>" / "mcp:<name>" -> where it came from
 }
 
 // Allowed reads the templates and queries of the installed packages named in allowed. A package
@@ -108,7 +110,7 @@ type Vocabulary struct {
 // package whose signatures or bytes do not hold would be words nobody stands behind. Two allowed
 // packages offering the same name is refused rather than resolved by order.
 func Allowed(repoRoot string, allowed []string) (*Vocabulary, error) {
-	v := &Vocabulary{Templates: map[string][]byte{}, Queries: map[string][]byte{}, From: map[string]Source{}}
+	v := &Vocabulary{Templates: map[string][]byte{}, Queries: map[string][]byte{}, MCPTools: map[string]scope.MCPTool{}, From: map[string]Source{}}
 	if len(allowed) == 0 {
 		return v, nil
 	}
@@ -135,6 +137,17 @@ func Allowed(repoRoot string, allowed []string) (*Vocabulary, error) {
 		qs, err := in.Revision.Queries()
 		if err != nil {
 			return nil, err
+		}
+		tools, err := in.Revision.MCPTools()
+		if err != nil {
+			return nil, err
+		}
+		for name, t := range tools {
+			if prev, dup := v.From["mcp:"+name]; dup {
+				return nil, fmt.Errorf("two allowed packages offer the MCP tool %q: %s and %s", name, prev.Name, in.Package.Name)
+			}
+			v.MCPTools[name] = t
+			v.From["mcp:"+name] = src
 		}
 		for kind, m := range map[string]map[string][]byte{"template": ts, "query": qs} {
 			dst := v.Templates
