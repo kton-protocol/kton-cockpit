@@ -34,6 +34,9 @@ Fixes found by kton-coordination on `lanes/` with v0.4.1. Tracks kton v0.3.0 and
 
 ### Fixed
 
+- **`workflow run` stages a folder hole.** Each file in a folder bound to a slot ending in `/` is an
+  input under it, recorded by the run; a link in the folder is refused, and an optional folder left
+  open stages nothing. A declared ray tool's run is named after its required input, not a folder.
 - **`cockpit say` lists the templates an allowed package brings.** It said "no templates allowed
   here" while `say requests …` worked.
 - **A flag beside the JSON form is refused with the field that carries it.** `say --as X '{…}'` gave

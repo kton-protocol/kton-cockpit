@@ -243,7 +243,7 @@ it would derive, and MUST NOT serve two tools of one name. A tool bound to a ray
 MUST be served only when the operator starts the server with `--runs`, never because the package is
 allowed: `--runs` also derives a tool `run_<name>` for an installed workflow that declares none. A
 ray tool runs as `workflow run` does — every step a recorded run — in a directory named after its
-first bound file, and an optional hole left out takes the package's default. A control is not
+first required input, and an optional hole left out takes the package's default. A control is not
 served yet, and the server says so when it starts.
 
 > **Checked by:** `TestMCP_AVerticlesDeclaredToolsAreServed`, `TestMCP_ADeclaredRayToolRunsItsSteps`.
@@ -346,7 +346,13 @@ A packaged step that names its image (ktonpkg `Protocol.Image`) MUST run in that
 where it differs from `execution.image`, `workflow run` MUST refuse before staging anything rather
 than run the step somewhere else.
 
-> **Checked by:** `TestWorkflowRun_AStepInAnotherImageIsRefused`.
+A folder bound to a folder slot (a slot ending in `/`) MUST reach the step file by file: every regular
+file in it is an input under the slot, so the run records each one, and a link in it MUST be refused. An
+optional folder left open stages nothing.
+
+> **Checked by:** `TestWorkflowRun_AStepInAnotherImageIsRefused`, `TestExpandDirSlots_EveryFileIsAnInput`,
+> `TestExpandDirSlots_ALinkInTheFolderIsRefused`, `TestExpandDirSlots_AFolderLeftOpenHasNoFiles`,
+> `TestMCP_ADeclaredRayToolRunsItsSteps` (`-tags docker`).
 
 ### 7.6 Publishing a ray *(optional)*
 

@@ -19,7 +19,8 @@ import (
 )
 
 // verticleRepo installs and allows a verticle declaring two MCP tools: "greet", bound to a ray of
-// one step (the source hole required, the suffix hole optional with the package's own default),
+// one step (the source hole required, the suffix hole optional with the package's own default, the
+// extras folder optional and empty when left open),
 // and "open", bound to a query. image, when given, is the step's Protocol.Image; execImage, when
 // given, the repository's execution.image (a step runs only where the cockpit executes it).
 func verticleRepo(t *testing.T, image, execImage string) *testrepo.Repo {
@@ -52,19 +53,21 @@ func verticleRepo(t *testing.T, image, execImage string) *testrepo.Repo {
 			map[string]string{"slot": "greet.sh", "path": "steps/greet.sh", "variable": "command-file"},
 			map[string]string{"slot": "name.txt", "from": "hole:name"},
 			map[string]string{"slot": "suffix.txt", "from": "hole:suffix"},
+			map[string]string{"slot": "extras/", "from": "hole:extras"},
 		},
 		"outputs": []string{"greeting.txt"},
 	}}, "holes": []any{
 		map[string]any{"name": "name", "step": "greet", "slot": "name.txt", "type": "file", "required": true, "default": "testdata/name.txt"},
 		map[string]any{"name": "suffix", "step": "greet", "slot": "suffix.txt", "type": "file", "required": false, "default": "testdata/suffix.txt"},
+		map[string]any{"name": "extras", "step": "greet", "slot": "extras/", "type": "dir", "required": false},
 	}})
 	write("ray.json", string(ray))
-	write("steps/greet.sh", "printf 'hello %s%s\\n' \"$(cat name.txt)\" \"$(cat suffix.txt)\" > greeting.txt\n")
+	write("steps/greet.sh", "n=; [ -f extras/sub/note.txt ] && n=' (noted)'\nprintf 'hello %s%s%s\\n' \"$(cat name.txt)\" \"$(cat suffix.txt)\" \"$n\" > greeting.txt\n")
 	write("testdata/name.txt", "test")
 	write("testdata/suffix.txt", "!")
 	write("queries/open.rq", "PREFIX nk: <https://kton.dev/v/>\n# Requests in an area.\nSELECT ?msg WHERE { ?msg nk:predicate ?p ; <https://kton.dev/v/lab/area> $AREA }\n")
-	write("mcp/greet.json", `{"description": "Greet someone.", "ray": "greet", "bind": {"name": "who", "suffix": "ending"},
-  "input": {"type": "object", "required": ["who"], "properties": {"who": {"type": "string"}, "ending": {"type": "string"}}}}`)
+	write("mcp/greet.json", `{"description": "Greet someone.", "ray": "greet", "bind": {"name": "who", "suffix": "ending", "extras": "folder"},
+  "input": {"type": "object", "required": ["who"], "properties": {"who": {"type": "string"}, "ending": {"type": "string"}, "folder": {"type": "string"}}}}`)
 	write("mcp/open.json", `{"description": "Open requests.", "query": "open", "bind": {"AREA": "area"},
   "input": {"type": "object", "required": ["area"], "properties": {"area": {"type": "string"}}}}`)
 	_, key, err := ed25519.GenerateKey(rand.Reader)
@@ -77,6 +80,7 @@ func verticleRepo(t *testing.T, image, execImage string) *testrepo.Repo {
 		t.Fatal(err)
 	}
 	r.Write(t, "data/ada.txt", "Ada")
+	r.Write(t, "data/extras/sub/note.txt", "a file in a folder")
 	return r
 }
 
@@ -131,5 +135,16 @@ func TestWorkflowRun_AStepInAnotherImageIsRefused(t *testing.T) {
 	}
 	if _, statErr := os.Stat(filepath.Join(r.Root, "work", "greet")); statErr == nil {
 		t.Error("nothing should have been staged")
+	}
+}
+
+// A run is named after what a caller must give, not after a folder that happens to sort first.
+func TestRunDir_NamesARunAfterItsRequiredInput(t *testing.T) {
+	b := map[string]string{"resources": "docs/shared", "source": "docs/one.md"}
+	if got := runDir("render", b, []string{"source"}); got != "work/render/one" {
+		t.Errorf("want work/render/one, got %s", got)
+	}
+	if got := runDir("render", map[string]string{"source": "docs/two.md"}, nil); got != "work/render/two" {
+		t.Errorf("want work/render/two, got %s", got)
 	}
 }

@@ -59,4 +59,16 @@ func TestMCP_ADeclaredRayToolRunsItsSteps(t *testing.T) {
 	if err != nil || strings.TrimSpace(string(b)) != "hello Ada!" {
 		t.Errorf("want the source bound and the package's suffix: %q %v (the run: %v)", b, err, out)
 	}
+
+	// A folder bound to a folder hole reaches the step file by file, and does not name the run.
+	if out, why = callTool(t, cs, "greet", map[string]any{"who": "data/ada.txt", "folder": "data/extras"}); why != "" {
+		t.Fatalf("greet with a folder: %s", why)
+	}
+	if out["dir"] != "work/greet/ada" {
+		t.Errorf("want the run named after its source: %v", out["dir"])
+	}
+	b, err = os.ReadFile(filepath.Join(r.Root, "work", "greet", "ada", "greet", "greeting.txt"))
+	if err != nil || strings.TrimSpace(string(b)) != "hello Ada! (noted)" {
+		t.Errorf("want the folder's file in the step: %q %v", b, err)
+	}
 }
