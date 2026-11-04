@@ -15,6 +15,11 @@
 // There, a message to the surface's own area (its lane in the registry is its folder) gets a
 // notification; [Open] shows the tab with a one-line doorbell as its prompt. The Claude extension
 // applies a prompt only to a tab it opens, so the line is also put on the clipboard.
+//
+// Decisions: the proposals waiting for MH (kton-coordination's ./decisions --json), each with its
+// options, answered through ./decide, which signs with his key; the logic stays in decisions.py.
+// The registry is on the hub, which ktonwatch here does not follow, so this list is read every
+// minute by the window that is not a surface's, and when a window or the view comes back.
 'use strict';
 const vscode = require('vscode');
 const cp = require('child_process');
@@ -88,6 +93,125 @@ class Performance {
     it.iconPath = new vscode.ThemeIcon(l.state === 'running' ? 'circle-filled' : 'circle-outline');
     return it;
   }
+}
+
+class Decisions {
+  constructor() {
+    this.rows = [];
+    this.error = '';
+    this.loaded = false;
+    this.reading = null;
+    this.session = () => null; // set by activate: where a lane's session is
+    this._change = new vscode.EventEmitter();
+    this.onDidChangeTreeData = this._change.event;
+  }
+  // refresh reads the list again and returns the proposals that are new since the last reading.
+  refresh() {
+    if (this.reading) return this.reading.then(() => []);
+    this.reading = this.read().finally(() => { this.reading = null; });
+    return this.reading;
+  }
+  async read() {
+    const r = await run(path.join(coord(), 'decisions'), ['--json'], { cwd: coord() });
+    let rows = null;
+    if (r.ok) try { rows = JSON.parse(r.out); } catch (e) { r.err = `unreadable answer: ${e.message}`; }
+    if (!rows) {
+      const error = r.err.trim().split('\n').pop();
+      if (error !== this.error) { this.error = error; this._change.fire(); }
+      return [];
+    }
+    const news = this.loaded ? m.freshDecisions(this.rows, rows) : [];
+    const same = this.loaded && !this.error && JSON.stringify(rows) === JSON.stringify(this.rows);
+    this.rows = rows;
+    this.error = '';
+    this.loaded = true;
+    if (!same) this._change.fire();
+    return news;
+  }
+  getChildren(el) {
+    if (!el) {
+      const items = this.rows.map((d) => ({ kind: 'decision', d }));
+      if (this.error) items.unshift({ kind: 'error' });
+      else if (this.loaded && !items.length) items.push({ kind: 'text', text: 'No open decisions' });
+      return items;
+    }
+    const lines = (text) => m.wrap(text).map((t) => ({ kind: 'text', text: t }));
+    if (el.kind === 'option') return lines(el.o.consequence);
+    if (el.kind !== 'decision') return [];
+    const d = el.d;
+    return [
+      ...lines(d.text),
+      ...d.choices.map((o) => ({ kind: 'option', d, o })),
+      { kind: 'reject', d },
+      { kind: 'modify', d },
+      ...lines(d.why ? `Why it matters: ${d.why}` : ''),
+      { kind: 'session', d },
+    ];
+  }
+  getTreeItem(el) {
+    const None = vscode.TreeItemCollapsibleState.None;
+    const act = (label, icon, command, tooltip) => {
+      const it = new vscode.TreeItem(label, None);
+      it.iconPath = new vscode.ThemeIcon(icon);
+      it.command = { command, title: label, arguments: [el] };
+      it.tooltip = tooltip;
+      return it;
+    };
+    if (el.kind === 'error') {
+      const it = new vscode.TreeItem('Decisions could not be read', None);
+      it.description = this.rows.length ? 'showing the last list' : '';
+      it.iconPath = new vscode.ThemeIcon('warning');
+      it.tooltip = this.error;
+      return it;
+    }
+    if (el.kind === 'text') {
+      const it = new vscode.TreeItem(el.text, None);
+      it.tooltip = el.text;
+      return it;
+    }
+    if (el.kind === 'decision') {
+      const d = el.d;
+      const it = new vscode.TreeItem(d.title, vscode.TreeItemCollapsibleState.Collapsed);
+      it.id = d.id;
+      it.description = `${d.lane} · ${d.when.slice(0, 10)}`;
+      it.iconPath = new vscode.ThemeIcon('question');
+      it.tooltip = `${d.title}\n\n${d.text}`;
+      return it;
+    }
+    if (el.kind === 'option') {
+      const { d, o } = el;
+      const best = String(o.id) === String(d.recommended);
+      const it = act(`${o.id}: ${o.label}`, best ? 'star-full' : 'circle-outline', 'ktonWorkgroup.decisions.answer',
+        `Answer "${o.label}": asks for a note, then signs with your key`);
+      it.collapsibleState = o.consequence ? vscode.TreeItemCollapsibleState.Expanded : None;
+      if (best) it.description = 'recommended';
+      return it;
+    }
+    if (el.kind === 'reject') return act('Reject …', 'close', 'ktonWorkgroup.decisions.reject', 'Reject the proposal, with a reason if you like');
+    if (el.kind === 'modify') return act('Answer differently …', 'edit', 'ktonWorkgroup.decisions.modify', 'Say what to do instead');
+    if (this.session(el.d.lane)) return act(`Open the session of ${el.d.lane}`, 'terminal', 'ktonWorkgroup.decisions.session');
+    const it = new vscode.TreeItem(`${el.d.lane} has no session to open from here`, None);
+    it.iconPath = new vscode.ThemeIcon('circle-slash');
+    return it;
+  }
+}
+
+// answer signs MH's answer through ./decide. A click on a row never signs by itself: the box
+// asking for a note is the confirmation, Enter signs and Esc leaves it.
+async function answer(decisions, d, pick, what, needsText) {
+  const text = await vscode.window.showInputBox({
+    title: d.title,
+    prompt: needsText ? `${what}. Enter signs with your key, Esc cancels.` : `${what}. A note if you like; Enter signs with your key, Esc cancels.`,
+    ignoreFocusOut: true,
+    validateInput: (v) => (needsText && !v.trim() ? 'Say what to do instead' : undefined),
+  });
+  if (text === undefined) return;
+  const r = await vscode.window.withProgress({ location: { viewId: 'ktonWorkgroup.decisions' }, title: 'Signing' },
+    () => run(path.join(coord(), 'decide'), m.decideArgs(d, pick, text.trim()), { cwd: coord() }));
+  if (r.ok) vscode.window.showInformationMessage(r.out.trim().split('\n')[0] || `Decided: ${d.title}`);
+  else vscode.window.showErrorMessage(`Not decided: ${d.title}: ${r.err.trim()}`);
+  await decisions.reading; // one that started before the answer would still show it open
+  await decisions.refresh();
 }
 
 class Tree {
@@ -277,10 +401,32 @@ function activate(ctx) {
   const every = setInterval(() => perf.refresh(), 30000);
   ctx.subscriptions.push({ dispose() { clearInterval(every); } });
 
+  const decisions = new Decisions();
+  const decisionsView = vscode.window.createTreeView('ktonWorkgroup.decisions', { treeDataProvider: decisions });
+  ctx.subscriptions.push(decisionsView);
+  decisions.session = (lane) => m.sessionOf(lane, tree.surfaces, tree.tabs);
+  decisions.onDidChangeTreeData(() => {
+    const n = decisions.rows.length;
+    decisionsView.badge = n ? { value: n, tooltip: `${n} open decisions` } : undefined;
+  });
+
   // a window on a surface's folder: that surface hears about its own area
   const f0 = firstFolder();
   const hereName = f0 && m.surfaceOfFolder(readSurfaceSessions(), f0.uri.fsPath);
   if (hereName) tree.here = { name: hereName, ...readSurfaceSessions()[hereName] };
+
+  const readDecisions = async () => {
+    const news = await decisions.refresh();
+    if (tree.here || !news.length) return;
+    const what = news.length === 1 ? `Decision for you: ${news[0].title} (from ${news[0].lane})` : `${news.length} new decisions for you`;
+    vscode.window.showInformationMessage(what, 'Show').then((a) => {
+      if (a === 'Show') vscode.commands.executeCommand('ktonWorkgroup.decisions.focus');
+    });
+  };
+  if (!tree.here) {
+    const minute = setInterval(readDecisions, 60000);
+    ctx.subscriptions.push({ dispose() { clearInterval(minute); } });
+  }
 
   const surfaceOf = (el) => (el && el.s) || tree.surfaces[0];
   const onNews = (news) => {
@@ -333,6 +479,18 @@ function activate(ctx) {
       await tree.refreshState();
       await tree.recount();
     }),
+    vscode.commands.registerCommand('ktonWorkgroup.decisions.refresh', readDecisions),
+    vscode.commands.registerCommand('ktonWorkgroup.decisions.answer', ({ d, o }) =>
+      answer(decisions, d, String(o.id), `Answer ${o.id}: ${o.label}`)),
+    vscode.commands.registerCommand('ktonWorkgroup.decisions.reject', ({ d }) => answer(decisions, d, 'reject', 'Reject')),
+    vscode.commands.registerCommand('ktonWorkgroup.decisions.modify', ({ d }) =>
+      answer(decisions, d, 'modify', 'What to do instead', true)),
+    vscode.commands.registerCommand('ktonWorkgroup.decisions.session', async ({ d }) => {
+      const at = decisions.session(d.lane);
+      if (at && at.surface) return openSurface(tree, at.surface);
+      const r = await kw('front', d.lane);
+      if (!r.ok) vscode.window.showErrorMessage(`kw front ${d.lane}: ${r.err.trim()}`);
+    }),
     vscode.commands.registerCommand('ktonWorkgroup.feed', () =>
       vscode.window.showTextDocument(vscode.Uri.file(path.join(coord(), 'WORKGROUP.md')))),
     vscode.window.onDidCloseTerminal((t) => {
@@ -341,10 +499,12 @@ function activate(ctx) {
     }),
     // tmux state is local and cheap: read again when the view or the window comes back
     view.onDidChangeVisibility((e) => { if (e.visible) tree.refreshState(); }),
-    vscode.window.onDidChangeWindowState((e) => { if (e.focused) tree.refreshState(); }),
+    decisionsView.onDidChangeVisibility((e) => { if (e.visible) readDecisions(); }),
+    vscode.window.onDidChangeWindowState((e) => { if (e.focused) { tree.refreshState(); readDecisions(); } }),
   );
 
-  tree.refreshState();
+  tree.refreshState().then(() => decisions._change.fire()); // the session rows need the lanes
+  readDecisions();
   tree.recount();
   watch(tree, onNews, ctx);
 

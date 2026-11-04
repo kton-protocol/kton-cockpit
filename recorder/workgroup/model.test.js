@@ -61,4 +61,14 @@ assert.strictEqual(m.machineLine(low), '10.4/11.7 GB · swap 8.0/8.0 GB · load 
 assert.strictEqual(m.machineLine({ error: 'not reachable from here' }), 'not reachable from here');
 const st = { lanes: [{ lane: 'b', host: 'x', rss_mb: null }, { lane: 'a', host: 'x', rss_mb: 300 }, { lane: 'c', host: 'y', rss_mb: 9 }] };
 assert.deepStrictEqual(m.lanesOn(st, 'x').map((l) => l.lane), ['a', 'b']);
+assert.deepStrictEqual(m.wrap('aa bb cc', 5), ['aa bb', 'cc']);
+assert.deepStrictEqual(m.wrap('averyveryverylongword x', 5), ['averyveryverylongword', 'x'], 'a long word stays whole');
+assert.deepStrictEqual(m.wrap(undefined), []);
+assert.deepStrictEqual(m.freshDecisions([{ id: 'a' }], [{ id: 'a' }, { id: 'b' }]).map((d) => d.id), ['b']);
+const tabs = { qm: { session: 's1', dir: '/c/surfaces/qm' } };
+assert.deepStrictEqual(m.sessionOf('cockpit-runtime', s, tabs), { lane: 'cockpit-runtime' });
+assert.deepStrictEqual(m.sessionOf('qm', s, tabs), { surface: 'qm' }, 'a surface opens as its tab, kw front knows lanes only');
+assert.strictEqual(m.sessionOf('kton-coordination', s, tabs), null);
+assert.deepStrictEqual(m.decideArgs({ id: 'x1' }, 'a', ''), ['x1', 'a']);
+assert.deepStrictEqual(m.decideArgs({ id: 'x1' }, 'modify', 'push tomorrow'), ['x1', 'modify', 'push tomorrow']);
 console.log('model ok');
