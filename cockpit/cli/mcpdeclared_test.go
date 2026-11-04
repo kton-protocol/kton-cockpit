@@ -62,7 +62,7 @@ func verticleRepo(t *testing.T, image, execImage string) *testrepo.Repo {
 		map[string]any{"name": "extras", "step": "greet", "slot": "extras/", "type": "dir", "required": false},
 	}})
 	write("ray.json", string(ray))
-	write("steps/greet.sh", "n=; [ -f extras/sub/note.txt ] && n=' (noted)'\nprintf 'hello %s%s%s\\n' \"$(cat name.txt)\" \"$(cat suffix.txt)\" \"$n\" > greeting.txt\n")
+	write("steps/greet.sh", "n=; [ -e extras ] && n=' (extras)'; [ -f extras/sub/note.txt ] && n=' (noted)'\nprintf 'hello %s%s%s\\n' \"$(cat name.txt)\" \"$(cat suffix.txt)\" \"$n\" > greeting.txt\n")
 	write("testdata/name.txt", "test")
 	write("testdata/suffix.txt", "!")
 	write("queries/open.rq", "PREFIX nk: <https://kton.dev/v/>\n# Requests in an area.\nSELECT ?msg WHERE { ?msg nk:predicate ?p ; <https://kton.dev/v/lab/area> $AREA }\n")
