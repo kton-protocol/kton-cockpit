@@ -4,7 +4,7 @@
 
 // parseKwList reads `kw list`: a "◆ <surface>  (tmux kw-<surface>: up|not started)" line per
 // surface, then a line per lane with its state (● claude = running, ○ <cmd> = a window without
-// claude, — = no window) and its session id.
+// claude, — = no window), its session id, and @<host> when it runs on another machine.
 function parseKwList(text) {
   const surfaces = [];
   let cur = null;
@@ -15,10 +15,12 @@ function parseKwList(text) {
       surfaces.push(cur);
       continue;
     }
-    const l = line.match(/^ {3}(\S+)\s+(● \S+|○ \S+|—)\s*(\S*)/);
+    const l = line.match(/^ {3}(\S+)\s+(● \S+|○ \S+|—)\s*(.*)$/);
     if (l && cur) {
       const state = l[2] === '—' ? 'none' : l[2].startsWith('●') ? 'running' : 'window';
-      cur.lanes.push({ name: l[1], state, session: l[3] || '' });
+      const rest = l[3].trim().split(/\s+/).filter(Boolean);
+      const at = rest.find((w) => w.startsWith('@'));
+      cur.lanes.push({ name: l[1], state, session: rest.find((w) => !w.startsWith('@')) || '', host: at ? at.slice(1) : '' });
     }
   }
   return surfaces;
@@ -127,4 +129,30 @@ function doorbell(surface, x) {
   return `New message for ${surface} in area ${x.area} from ${x.from}: "${x.title}". Read it in your inbox and act on it.`;
 }
 
-module.exports = { parseKwList, laneIndex, openByLane, sender, fresh, SSE, surfaceSessions, surfaceOfFolder, openFor, doorbell };
+// machineWarning says what is short on a machine of `kw stats --json`, or '': SCI-0350 crashed
+// twice on 03.11. with its memory gone and its swap full.
+const LOW_MEMORY_MB = 1536;
+function machineWarning(m) {
+  const mem = m && m.memory;
+  if (!mem) return '';
+  const out = [];
+  if (mem.available_mb < LOW_MEMORY_MB) out.push(`${(mem.available_mb / 1024).toFixed(1)} GB memory available`);
+  if (mem.swap_total_mb > 0 && mem.swap_free_mb / mem.swap_total_mb < 0.05) out.push('swap nearly full');
+  return out.join(', ');
+}
+
+// machineLine is a machine's summary: memory used of total, swap, load.
+function machineLine(m) {
+  if (m.error) return m.error;
+  const gb = (mb) => (mb / 1024).toFixed(1);
+  const mem = m.memory;
+  return `${gb(mem.total_mb - mem.available_mb)}/${gb(mem.total_mb)} GB · swap ${gb(mem.swap_total_mb - mem.swap_free_mb)}/${gb(mem.swap_total_mb)} GB · load ${m.load[0].toFixed(1)}`;
+}
+
+// lanesOn lists the lanes of a host from `kw stats --json`: the largest first, stopped ones last.
+function lanesOn(stats, host) {
+  return (stats.lanes || []).filter((l) => l.host === host)
+    .sort((a, b) => (b.rss_mb || 0) - (a.rss_mb || 0) || a.lane.localeCompare(b.lane));
+}
+
+module.exports = { machineWarning, machineLine, lanesOn, parseKwList, laneIndex, openByLane, sender, fresh, SSE, surfaceSessions, surfaceOfFolder, openFor, doorbell };

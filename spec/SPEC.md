@@ -1135,7 +1135,9 @@ reading them, following symlinks), leaving out only the store's bookkeeping, whi
 > `TestIndex_AnAnswerSaysItCameFromTheMemoryIndex`.
 
 `oxigraph` reads records as `memory` does and evaluates vocabulary queries on one Oxigraph per machine,
-which the first such query starts. It stores every record once, as the kernel projects it apart from any
+which the first such query starts. The engine restarts it after a crash or a reboot (`unless-stopped`;
+`cockpit index stop` removes it), and the next query uses it where it answers now, on its store, rather than
+starting another (`TestOxigraph_ADaemonTheEngineRestartedIsFoundAgain`, `-tags docker`). It stores every record once, as the kernel projects it apart from any
 key (kton#232), with one attribution graph per key that verifies it; no trust tier is stored. Before a query
 it reads into the store what changed in each registry of the union, by the kernel's position (kton#233):
 an equal position reads nothing, otherwise the records since its cursor, or all of them when the epoch
