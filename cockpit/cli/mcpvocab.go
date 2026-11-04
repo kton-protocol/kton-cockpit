@@ -426,6 +426,12 @@ func declaredTools(cfg *config.Config, c *cockpit.Cockpit, o mcpOptions) (tools 
 			}
 		case t.Ray != "" && o.runs:
 			pkg := src.Name
+			var lead []string // the holes a caller must fill: what a run is about
+			for hole, field := range bind {
+				if slices.Contains(schema.Required, field) {
+					lead = append(lead, hole)
+				}
+			}
 			call = func(ctx context.Context, args map[string]any) (any, error) {
 				req := cockpit.WorkflowRunRequest{Name: pkg, Bindings: map[string]string{}}
 				for hole, field := range bind {
@@ -433,7 +439,7 @@ func declaredTools(cfg *config.Config, c *cockpit.Cockpit, o mcpOptions) (tools 
 						req.Bindings[hole] = fmt.Sprint(a)
 					}
 				}
-				req.Dir = runDir(pkg, req.Bindings)
+				req.Dir = runDir(pkg, req.Bindings, lead)
 				return c.WorkflowRun(ctx, req)
 			}
 		case t.Control != "":
@@ -454,17 +460,23 @@ func declaredTools(cfg *config.Config, c *cockpit.Cockpit, o mcpOptions) (tools 
 	return tools, notes, nil
 }
 
-// runDir is where a declared ray tool runs: work/<package>/<name of the first bound file>, so two
-// calls with different sources do not overwrite each other's files, and the same source lands in
-// the same place, where the same work is the same record.
-func runDir(pkg string, bindings map[string]string) string {
+// runDir is where a declared ray tool runs: work/<package>/<name of what the run is about>, the
+// first lead hole bound, else the first bound. Two calls with different sources do not overwrite
+// each other's files, and the same source lands in the same place, where the same work is the same
+// record. A folder of resources beside the source does not name the run: several sources share one.
+func runDir(pkg string, bindings map[string]string, lead []string) string {
 	holes := make([]string, 0, len(bindings))
 	for h := range bindings {
 		holes = append(holes, h)
 	}
 	sort.Strings(holes)
+	sort.Strings(lead)
+	holes = append(slices.Clone(lead), holes...)
 	for _, h := range holes {
 		base := path.Base(filepath.ToSlash(bindings[h]))
+		if bindings[h] == "" {
+			continue
+		}
 		if stem := strings.TrimSuffix(base, path.Ext(base)); stem != "" && stem != "." && stem != "/" {
 			return path.Join("work", pkg, regexp.MustCompile(`[^A-Za-z0-9._-]`).ReplaceAllString(stem, "_"))
 		}

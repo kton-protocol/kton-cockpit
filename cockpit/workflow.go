@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
@@ -399,6 +400,10 @@ func (c *Cockpit) WorkflowRun(ctx context.Context, in WorkflowRunRequest) (*Work
 		}
 	}
 	for _, st := range plan.Steps {
+		// Here and not before the loop: a folder handed over from an earlier step exists only now.
+		if err := expandDirSlots(cfg.RepoRoot, b.Ray.Step(st.ID), &st); err != nil {
+			return nil, refuse("io", "", "step %s: %v", st.ID, err)
+		}
 		for _, sg := range st.Stage {
 			if err := copyRepoFile(cfg.RepoRoot, sg.From, sg.To); err != nil {
 				return nil, refuse("io", "", "step %s: %v", st.ID, err)
@@ -423,6 +428,49 @@ func (c *Cockpit) WorkflowRun(ctx context.Context, in WorkflowRunRequest) (*Work
 		out.Steps = append(out.Steps, rs)
 	}
 	return out, nil
+}
+
+// expandDirSlots turns each folder slot of a planned step into its files: every file in the folder
+// is an input under the slot (slot/file, slot/sub/file), so a run records each one. Stage follows
+// the order of the step's inputs. Only regular files are taken; a link in the folder is refused.
+func expandDirSlots(root string, s *ktonpkg.Step, st *ktonpkg.PlanStep) error {
+	var stage []ktonpkg.Stage
+	var inputs []string
+	for i, sg := range st.Stage {
+		if !ktonpkg.IsDirSlot(s.Inputs[i].Slot) {
+			stage, inputs = append(stage, sg), append(inputs, sg.To)
+			continue
+		}
+		if sg.From == "" {
+			continue // an optional folder left open: no files, and the step sees no folder
+		}
+		dir := filepath.Join(root, filepath.FromSlash(sg.From))
+		err := filepath.WalkDir(dir, func(p string, e fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if e.IsDir() {
+				return nil
+			}
+			rel, err := filepath.Rel(dir, p)
+			if err != nil {
+				return err
+			}
+			if !e.Type().IsRegular() {
+				return fmt.Errorf("%s in the folder bound to %s is not a regular file", rel, s.Inputs[i].Slot)
+			}
+			rel = filepath.ToSlash(rel)
+			stage = append(stage, ktonpkg.Stage{From: path.Join(sg.From, rel), To: path.Join(sg.To, rel)})
+			inputs = append(inputs, path.Join(sg.To, rel))
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+	}
+	sort.Strings(inputs)
+	st.Stage, st.Inputs = stage, inputs
+	return nil
 }
 
 // checkStep says `reproduces` about the reference run of a step: the cockpit computes the level
