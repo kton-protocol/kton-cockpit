@@ -1,12 +1,12 @@
 {
   "name": "kton-workgroup",
   "displayName": "kton workgroup",
-  "description": "The workgroup's surfaces and their background sessions in tmux: open one in a terminal, send it back, start it, see its open messages, get told when a lane gets one, and open a surface's own conversation as a Claude tab in its own window, where it hears about messages to its own area.",
-  "version": "0.4.0",
+  "description": "The workgroup's surfaces and their background sessions in tmux: open one in a terminal, send it back, start it, see its open messages, get told when a lane gets one, open a surface's own conversation as a Claude tab in its own window, where it hears about messages to its own area, and answer the decisions waiting for MH.",
+  "version": "0.5.0",
   "publisher": "kton",
   "license": "MIT",
   "engines": {
-    "vscode": "^1.65.0"
+    "vscode": "^1.72.0"
   },
   "extensionKind": [
     "workspace"
@@ -30,6 +30,10 @@
         {
           "id": "ktonWorkgroup.surfaces",
           "name": "Workgroup"
+        },
+        {
+          "id": "ktonWorkgroup.decisions",
+          "name": "Decisions"
         },
         {
           "id": "ktonWorkgroup.performance",
@@ -64,6 +68,11 @@
         "icon": "$(refresh)"
       },
       {
+        "command": "ktonWorkgroup.decisions.refresh",
+        "title": "Refresh decisions",
+        "icon": "$(refresh)"
+      },
+      {
         "command": "ktonWorkgroup.feed",
         "title": "kton workgroup: Open the feed (WORKGROUP.md)"
       }
@@ -73,6 +82,11 @@
         {
           "command": "ktonWorkgroup.refresh",
           "when": "view == ktonWorkgroup.surfaces",
+          "group": "navigation"
+        },
+        {
+          "command": "ktonWorkgroup.decisions.refresh",
+          "when": "view == ktonWorkgroup.decisions",
           "group": "navigation"
         }
       ],

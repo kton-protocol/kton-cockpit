@@ -155,4 +155,36 @@ function lanesOn(stats, host) {
     .sort((a, b) => (b.rss_mb || 0) - (a.rss_mb || 0) || a.lane.localeCompare(b.lane));
 }
 
-module.exports = { machineWarning, machineLine, lanesOn, parseKwList, laneIndex, openByLane, sender, fresh, SSE, surfaceSessions, surfaceOfFolder, openFor, doorbell };
+// wrap breaks text into lines of at most width characters, at spaces: a tree row shows one line
+// and a decision has to be readable in the view.
+function wrap(text, width = 64) {
+  const lines = [];
+  let cur = '';
+  for (const w of String(text || '').split(/\s+/).filter(Boolean)) {
+    if (cur && cur.length + 1 + w.length > width) { lines.push(cur); cur = w; } else cur = cur ? `${cur} ${w}` : w;
+  }
+  if (cur) lines.push(cur);
+  return lines;
+}
+
+// freshDecisions lists the proposals in now that were not in before.
+function freshDecisions(before, now) {
+  const seen = new Set(before.map((d) => d.id));
+  return now.filter((d) => !seen.has(d.id));
+}
+
+// sessionOf says where the session that asked is. A proposal's lane is the sender's name, which is
+// a lane of kw (kw front), a surface with a conversation of its own (its Claude tab), or neither:
+// kton-coordination has no entry in surfaces.json.
+function sessionOf(lane, surfaces, tabs) {
+  if (surfaces.some((s) => s.lanes.some((l) => l.name === lane))) return { lane };
+  if (tabs[lane]) return { surface: lane };
+  return null;
+}
+
+// decideArgs is the command line of ./decide; the logic of an answer stays in decisions.py.
+function decideArgs(d, pick, text) {
+  return [d.id, pick].concat(text ? [text] : []);
+}
+
+module.exports = { wrap, freshDecisions, sessionOf, decideArgs, machineWarning, machineLine, lanesOn, parseKwList, laneIndex, openByLane, sender, fresh, SSE, surfaceSessions, surfaceOfFolder, openFor, doorbell };
