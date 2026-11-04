@@ -67,3 +67,22 @@ func TestExpandDirSlots_AFolderLeftOpenHasNoFiles(t *testing.T) {
 		t.Fatalf("want %v, got %v", want, st.Inputs)
 	}
 }
+
+// A run directory is reused: what the last run's folder left under the slot must not reach this
+// run, whether this run binds the folder or leaves it open.
+func TestExpandDirSlots_ALastRunsFolderIsCleared(t *testing.T) {
+	root, s, st := dirStep(t)
+	stale := filepath.Join(root, "w/s/resources/stale.png")
+	if err := os.MkdirAll(filepath.Dir(stale), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(stale, []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := expandDirSlots(root, s, st, ktonpkg.Bindings{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(stale); !os.IsNotExist(err) {
+		t.Fatalf("want the last run's file gone: %v", err)
+	}
+}
