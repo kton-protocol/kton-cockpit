@@ -4,6 +4,10 @@
 
 ### Fixed
 
+- **`cockpit/` builds for Windows again** (broken since the shim review fixes, PR #65:
+  `syscall.O_NOFOLLOW` does not exist there, and the recorder imports `cockpit`). Opening without
+  following a link is `internal/nofollow`: `O_NOFOLLOW` on unix, a link found by `Lstat` refused on
+  Windows. CI now vets for Windows and builds for macOS.
 - **Parallel writers on one working tree no longer fail on git's lock** (SPEC §12.1). Two `say`
   calls at once made one of them report "git commit/push of the claim registry failed"
   (`index.lock`), although its claim had landed; a caller trusting the exit code sent it twice.

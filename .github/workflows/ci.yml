@@ -48,6 +48,12 @@ jobs:
         working-directory: cockpit
         run: go vet ./...
 
+      # The recorder imports cockpit and ships on Windows; a unix-only call (syscall.O_NOFOLLOW) in
+      # cockpit/ once broke it unnoticed, since every other job runs on Linux.
+      - name: builds for Windows and macOS
+        working-directory: cockpit
+        run: GOOS=windows go vet ./... && GOOS=darwin go build ./...
+
       # The suite builds the kernel CLIs itself, from the module go.mod requires; they are not built
       # here, so that CI exercises the same path a contributor's machine does.
       #

@@ -921,9 +921,11 @@ under that base. The same call made in another directory is the same call.
 
 A run that leaves more than the shim's `maxOutputBytes` (1 GiB when not set) MUST NOT be read or
 recorded. Nothing a run leaves under `.kton/` besides its streams is an output, on a miss or a hit. A
-control stream that includes itself MUST be refused, and one included many times MUST be read once.
+control stream that includes itself MUST be refused, and one included many times MUST be read once. A
+link a run leaves MUST NOT be followed when its outputs are read or written back, on every platform the
+cockpit builds for (on Windows, which has no `O_NOFOLLOW`, a link found before the open is refused).
 
-> **Checked by:** `TestShim_ACallThatCouldLeaveTheStagingDirectoryIsRefused`,
+> **Checked by:** `TestOpenFile_RefusesALinkAtTheName`, `TestShim_ACallThatCouldLeaveTheStagingDirectoryIsRefused`,
 > `TestShim_AMissRunsInTheToolsImageAndTheSameCallIsAHit`, `TestShim_ARunThatLeavesALinkIsNotReadOrRecorded`,
 > `TestShim_ASecretOrAFailureIsNotRecorded`, `TestShim_ACallIsKeyedRelativeToItsBase`,
 > `TestShim_AnOutputAboveTheCallsDirectoryIsWritten`, `TestShim_FilesUnderTheStreamsDirectoryNeverComeBack`,
