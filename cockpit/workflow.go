@@ -441,6 +441,11 @@ func expandDirSlots(root string, s *ktonpkg.Step, st *ktonpkg.PlanStep, bindings
 			stage, inputs = append(stage, sg), append(inputs, sg.To)
 			continue
 		}
+		// A folder slot holds what this run bound and nothing else: a run directory is reused, and
+		// files of the last run's folder would pass for this one's.
+		if err := os.RemoveAll(filepath.Join(root, filepath.FromSlash(sg.To))); err != nil {
+			return err
+		}
 		// An optional folder left open: no files. Asked of the bindings, not of From: Plan takes an
 		// empty binding for the hole's empty default and points From at the package itself.
 		if h, ok := strings.CutPrefix(s.Inputs[i].From, ktonpkg.FromHole); ok && bindings[h] == "" {
