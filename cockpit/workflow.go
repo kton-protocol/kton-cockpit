@@ -401,7 +401,7 @@ func (c *Cockpit) WorkflowRun(ctx context.Context, in WorkflowRunRequest) (*Work
 	}
 	for _, st := range plan.Steps {
 		// Here and not before the loop: a folder handed over from an earlier step exists only now.
-		if err := expandDirSlots(cfg.RepoRoot, b.Ray.Step(st.ID), &st); err != nil {
+		if err := expandDirSlots(cfg.RepoRoot, b.Ray.Step(st.ID), &st, plan.Bindings); err != nil {
 			return nil, refuse("io", "", "step %s: %v", st.ID, err)
 		}
 		for _, sg := range st.Stage {
@@ -433,7 +433,7 @@ func (c *Cockpit) WorkflowRun(ctx context.Context, in WorkflowRunRequest) (*Work
 // expandDirSlots turns each folder slot of a planned step into its files: every file in the folder
 // is an input under the slot (slot/file, slot/sub/file), so a run records each one. Stage follows
 // the order of the step's inputs. Only regular files are taken; a link in the folder is refused.
-func expandDirSlots(root string, s *ktonpkg.Step, st *ktonpkg.PlanStep) error {
+func expandDirSlots(root string, s *ktonpkg.Step, st *ktonpkg.PlanStep, bindings ktonpkg.Bindings) error {
 	var stage []ktonpkg.Stage
 	var inputs []string
 	for i, sg := range st.Stage {
@@ -441,8 +441,10 @@ func expandDirSlots(root string, s *ktonpkg.Step, st *ktonpkg.PlanStep) error {
 			stage, inputs = append(stage, sg), append(inputs, sg.To)
 			continue
 		}
-		if sg.From == "" {
-			continue // an optional folder left open: no files, and the step sees no folder
+		// An optional folder left open: no files. Asked of the bindings, not of From: Plan takes an
+		// empty binding for the hole's empty default and points From at the package itself.
+		if h, ok := strings.CutPrefix(s.Inputs[i].From, ktonpkg.FromHole); ok && bindings[h] == "" {
+			continue
 		}
 		dir := filepath.Join(root, filepath.FromSlash(sg.From))
 		err := filepath.WalkDir(dir, func(p string, e fs.DirEntry, err error) error {

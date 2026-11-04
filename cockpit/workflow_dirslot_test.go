@@ -32,7 +32,7 @@ func dirStep(t *testing.T) (string, *ktonpkg.Step, *ktonpkg.PlanStep) {
 // one (SPEC §7.5).
 func TestExpandDirSlots_EveryFileIsAnInput(t *testing.T) {
 	root, s, st := dirStep(t)
-	if err := expandDirSlots(root, s, st); err != nil {
+	if err := expandDirSlots(root, s, st, ktonpkg.Bindings{"resources": "docs/images"}); err != nil {
 		t.Fatal(err)
 	}
 	want := []string{"w/s/resources/a.png", "w/s/resources/sub/b.png", "w/s/source.md"}
@@ -50,16 +50,17 @@ func TestExpandDirSlots_ALinkInTheFolderIsRefused(t *testing.T) {
 	if err := os.Symlink("/etc/passwd", filepath.Join(root, "docs/images/link.png")); err != nil {
 		t.Skip(err)
 	}
-	if err := expandDirSlots(root, s, st); err == nil {
+	if err := expandDirSlots(root, s, st, ktonpkg.Bindings{"resources": "docs/images"}); err == nil {
 		t.Fatal("want refused")
 	}
 }
 
-// An optional folder left open stages nothing; it must not read as the repository's root.
+// An optional folder left open stages nothing. Plan hands over the package's own folder for it (an
+// empty binding equals an empty default), so that is what the plan here says too.
 func TestExpandDirSlots_AFolderLeftOpenHasNoFiles(t *testing.T) {
 	root, s, st := dirStep(t)
-	st.Stage[1].From = ""
-	if err := expandDirSlots(root, s, st); err != nil {
+	st.Stage[1].From = "docs"
+	if err := expandDirSlots(root, s, st, ktonpkg.Bindings{}); err != nil {
 		t.Fatal(err)
 	}
 	if want := []string{"w/s/source.md"}; !reflect.DeepEqual(st.Inputs, want) {
