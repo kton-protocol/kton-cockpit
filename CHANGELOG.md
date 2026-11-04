@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### Fixed
+
+- **Parallel writers on one working tree no longer fail on git's lock** (SPEC §12.1). Two `say`
+  calls at once made one of them report "git commit/push of the claim registry failed"
+  (`index.lock`), although its claim had landed; a caller trusting the exit code sent it twice.
+  The cockpit's commits, pushes and `sync` merges now take turns under one lock per repository,
+  and a lock held by a git outside the cockpit is waited out for up to 30 s. A kernel store's own
+  `.objects.lock` or temporary file that another writer removes while `git add` reads the registry
+  is tried again too. Found by kton-coordination on `lanes/`.
+- **The shim's NONMEM collector reads a repeatedly included control stream once** (kton-review S6).
+  A chain where each level includes the next twice was exponential: 16 levels took 19 s, and now
+  take milliseconds.
 ### Changed
 
 - **Requires ktonpkg v0.3.0** (verticle profile, `Protocol.Image`, `Step.Outputs`).

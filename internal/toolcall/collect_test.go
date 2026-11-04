@@ -1,10 +1,12 @@
 package toolcall
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func write(t *testing.T, root, rel, content string) {
@@ -65,5 +67,31 @@ func TestCollect_FilesTakesTheArgumentsThatAreFiles(t *testing.T) {
 	}
 	if strings.Join(got, " ") != "data/in.csv models/opts.txt" {
 		t.Errorf("got %v", got)
+	}
+}
+
+// A control stream included many times is read once: a chain where each level includes the next
+// twice is linear, not exponential (kton-review S6: 16 levels took 19 s).
+func TestCollect_ARepeatedIncludeIsReadOnce(t *testing.T) {
+	root := t.TempDir()
+	const levels = 16
+	for i := range levels {
+		body := "$PROBLEM level\n"
+		if i < levels-1 {
+			body = fmt.Sprintf("$INCLUDE l%d.inc\n$INCLUDE l%d.inc\n", i+1, i+1)
+		}
+		write(t, root, fmt.Sprintf("m/l%d.inc", i), body)
+	}
+	write(t, root, "m/run.mod", "$INCLUDE l0.inc\n$INCLUDE l0.inc\n")
+	start := time.Now()
+	got, err := Collect("nonmem", root, "m", []string{"run.mod"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != levels+1 {
+		t.Errorf("want the control stream and %d includes once each, got %d", levels, len(got))
+	}
+	if d := time.Since(start); d > 2*time.Second {
+		t.Errorf("a %d-level chain took %v", levels, d)
 	}
 }

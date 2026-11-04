@@ -921,13 +921,13 @@ under that base. The same call made in another directory is the same call.
 
 A run that leaves more than the shim's `maxOutputBytes` (1 GiB when not set) MUST NOT be read or
 recorded. Nothing a run leaves under `.kton/` besides its streams is an output, on a miss or a hit. A
-control stream that includes itself MUST be refused.
+control stream that includes itself MUST be refused, and one included many times MUST be read once.
 
 > **Checked by:** `TestShim_ACallThatCouldLeaveTheStagingDirectoryIsRefused`,
 > `TestShim_AMissRunsInTheToolsImageAndTheSameCallIsAHit`, `TestShim_ARunThatLeavesALinkIsNotReadOrRecorded`,
 > `TestShim_ASecretOrAFailureIsNotRecorded`, `TestShim_ACallIsKeyedRelativeToItsBase`,
 > `TestShim_AnOutputAboveTheCallsDirectoryIsWritten`, `TestShim_FilesUnderTheStreamsDirectoryNeverComeBack`,
-> `TestShim_ARunThatLeavesTooMuchIsNotRead`,
+> `TestShim_ARunThatLeavesTooMuchIsNotRead`, `TestCollect_ARepeatedIncludeIsReadOnce`,
 > `TestCollect_NonmemTakesTheControlStreamAndWhatItReads`.
 
 ## 11 Carried evidence *(optional)*
@@ -1073,8 +1073,16 @@ turn off checking which repository this is. The cockpit itself MUST NOT call a b
 everything it needs from the store goes through the backend (ADR-011). With sharing off, a verb MUST
 NOT share at all, not even a revision an earlier call left unshared.
 
+Several verbs MAY write to one working tree at once, for example many writers saying into one
+registry. Each MUST make what it wrote durable exactly once and succeed. One MUST NOT fail because
+another holds the store's lock: the cockpit's own writes take turns, and a lock held by a tool
+outside the cockpit is waited out for a bounded time, as is a store's own lock or temporary file that
+another writer removes while it is being added.
+
 > **Checked by:** `TestConfigGuard_StillRefusesTheWrongRepoWithCommitsOff`,
-> `TestPublish_WithPushOffItCommitsLocallyAndSaysSo`, `TestCommitAndPush_NeverPushesWhenNotSharing`.
+> `TestPublish_WithPushOffItCommitsLocallyAndSaysSo`, `TestCommitAndPush_NeverPushesWhenNotSharing`,
+> `TestSay_ParallelProcessesEachCommitTheirClaim`, `TestCommitAndPush_WaitsOutALockAnotherGitHolds`,
+> `TestCommitAndPush_TriesAgainWhenAFileVanishesUnderAdd`.
 
 `cockpit sync` takes in what others shared and then shares what is durable here only. It MUST NOT
 rewrite a local revision — records already signed pin it in their locators — and where both sides
