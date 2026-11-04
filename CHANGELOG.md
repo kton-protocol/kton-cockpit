@@ -34,6 +34,9 @@ Fixes found by kton-coordination on `lanes/` with v0.4.1. Tracks kton v0.3.0 and
 
 ### Fixed
 
+- **The index daemon comes back after a crash or a reboot.** It is started with
+  `--restart unless-stopped`, and a cockpit finds a daemon the engine restarted at the port it has
+  now, instead of replacing it. Before, it stayed down after a WSL crash, and every inbox with it.
 - **`cockpit say` lists the templates an allowed package brings.** It said "no templates allowed
   here" while `say requests …` worked.
 - **A flag beside the JSON form is refused with the field that carries it.** `say --as X '{…}'` gave
