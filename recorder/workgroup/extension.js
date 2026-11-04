@@ -36,6 +36,60 @@ function run(cmd, args, opts = {}) {
 }
 const kw = (...args) => run(path.join(coord(), 'kw'), args, { cwd: coord() });
 
+// Performance: per machine memory, swap and load; per lane its session's memory (kw stats --json,
+// which reaches ai1 over ssh). Read every 30 s; a machine running short shows in the status bar
+// and gets one warning each time it gets there.
+class Performance {
+  constructor() {
+    this.stats = { machines: {}, lanes: [] };
+    this.warned = new Set();
+    this.status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 50);
+    this.status.command = 'ktonWorkgroup.performance.focus';
+    this._change = new vscode.EventEmitter();
+    this.onDidChangeTreeData = this._change.event;
+  }
+  async refresh() {
+    const r = await kw('stats', '--json');
+    if (!r.ok) return;
+    try { this.stats = JSON.parse(r.out); } catch (e) { return; }
+    const short = [];
+    for (const [host, mc] of Object.entries(this.stats.machines || {})) {
+      const w = m.machineWarning(mc);
+      if (!w) { this.warned.delete(host); continue; }
+      short.push(`${host}: ${w}`);
+      if (!this.warned.has(host)) {
+        this.warned.add(host);
+        vscode.window.showWarningMessage(`${host} is running short: ${w}`);
+      }
+    }
+    if (short.length) {
+      this.status.text = `$(warning) ${short.join(' · ')}`;
+      this.status.show();
+    } else this.status.hide();
+    this._change.fire();
+  }
+  getChildren(el) {
+    if (!el) return Object.entries(this.stats.machines || {}).map(([host, mc]) => ({ host, mc }));
+    if (el.mc) return m.lanesOn(this.stats, el.host).map((lane) => ({ lane }));
+    return [];
+  }
+  getTreeItem(el) {
+    if (el.mc) {
+      const it = new vscode.TreeItem(el.host, vscode.TreeItemCollapsibleState.Expanded);
+      const w = m.machineWarning(el.mc);
+      it.description = m.machineLine(el.mc);
+      it.iconPath = new vscode.ThemeIcon(w ? 'warning' : el.mc.error ? 'debug-disconnect' : 'server');
+      it.tooltip = w || undefined;
+      return it;
+    }
+    const l = el.lane;
+    const it = new vscode.TreeItem(l.lane);
+    it.description = [l.rss_mb ? `${l.rss_mb} MB` : '', l.state, l.surface].filter(Boolean).join(' · ');
+    it.iconPath = new vscode.ThemeIcon(l.state === 'running' ? 'circle-filled' : 'circle-outline');
+    return it;
+  }
+}
+
 class Tree {
   constructor() {
     this.surfaces = [];
@@ -120,7 +174,7 @@ class Tree {
     const k = n(l.name);
     const it = new vscode.TreeItem(l.name);
     const state = { running: '● running', window: '○ window without claude', none: '— not started' }[l.state];
-    it.description = [state, k ? `${k} open` : ''].filter(Boolean).join(' · ');
+    it.description = [state, l.host ? `@${l.host}` : '', k ? `${k} open` : ''].filter(Boolean).join(' · ');
     it.iconPath = new vscode.ThemeIcon(k ? 'mail' : l.state === 'running' ? 'circle-filled' : 'circle-outline');
     it.tooltip = (this.open[l.name] || []).map((x) => `${x.title} (from ${x.from}, ${x.area})`).join('\n') || undefined;
     it.contextValue = ['lane', l.state === 'none' ? 'down' : 'up', this.front(`${s.name}/${l.name}`) || this.front(s.name) ? 'front' : '',
@@ -217,6 +271,11 @@ function activate(ctx) {
   const tree = new Tree();
   const view = vscode.window.createTreeView('ktonWorkgroup.surfaces', { treeDataProvider: tree });
   ctx.subscriptions.push(view);
+  const perf = new Performance();
+  ctx.subscriptions.push(vscode.window.createTreeView('ktonWorkgroup.performance', { treeDataProvider: perf }), perf.status);
+  perf.refresh();
+  const every = setInterval(() => perf.refresh(), 30000);
+  ctx.subscriptions.push({ dispose() { clearInterval(every); } });
 
   // a window on a surface's folder: that surface hears about its own area
   const f0 = firstFolder();
