@@ -268,38 +268,70 @@ async function publish(repo, text) {
     `Run ${calls} × cockpit publish${says ? ` and ${says} × cockpit say (description, rationale)` : ''} in ${repo}? That signs, commits and pushes.`, { modal: true }, 'Run');
   if (ok !== 'Run') return;
   const cockpit = bin('cockpit');
-  // the lines below are POSIX shell: the terminal is bash, whatever the person's default is
-  // bash, whose quoting the publish lines are written for: a "kton cockpit" terminal an older
-  // version opened in another shell is not reused
-  let term;
-  if (repoMode(repo) === 'improve') {
-    // the token lives in the terminal's environment, not in what is typed into it; a fresh one
-    // each time, since a session's token expires
-    const token = await improveToken(repo, true);
-    if (!token) {
-      vscode.window.showErrorMessage('kton: not signed in to improve. Sign in with the improve extension, then publish again.');
-      return;
-    }
-    for (const t of vscode.window.terminals) if (t.name === 'kton cockpit (improve)') t.dispose();
-    term = vscode.window.createTerminal({ name: 'kton cockpit (improve)', cwd: repo, shellPath: '/bin/bash', env: { IMPROVE_TOKEN: token } });
-  } else {
-    term = vscode.window.terminals.find((t) => t.name === 'kton cockpit' && (t.creationOptions || {}).shellPath === '/bin/bash') ||
-      vscode.window.createTerminal({ name: 'kton cockpit', cwd: repo, shellPath: '/bin/bash' });
-  }
-  term.show();
-  term.sendText(`cd ${JSON.stringify(repo)}`);
   const c = JSON.stringify(cockpit);
   // `cockpit claim <template> '<text>'` is ours: a say with that template, its field "value",
   // about the foton the publish before it returned (its JSON answer, kept in KTON_OUT and shown)
   const claim = "import json,sys; o=json.loads(sys.argv[1]); print(json.dumps({'template':sys.argv[2],'subject':o['fotonId'],'fields':{'value':json.loads(sys.argv[3])}}))";
+  // the lines as POSIX shell, for bash, whose quoting the publish lines are written for
+  const steps = [];
   for (const line of text.split('\n')) {
-    if (line.startsWith('cockpit publish ')) term.sendText(`KTON_OUT=; KTON_OUT=$(${c}${line.slice('cockpit'.length)}) && printf '%s\\n' "$KTON_OUT"`);
+    if (line.startsWith('cockpit publish ')) steps.push({ kind: 'publish', cmd: c + line.slice('cockpit'.length) });
     else if (line.startsWith('cockpit claim ')) {
-      const [, template, text] = line.match(/^cockpit claim (\S+) (.*)$/s);
-      term.sendText(`[ -n "$KTON_OUT" ] && ${c} say "$(python3 -c ${sq(claim)} "$KTON_OUT" ${template} ${text})"`);
-    }
-    else if (line.trim()) term.sendText(line); // comments: shown, ignored by the shell
+      const [, template, t] = line.match(/^cockpit claim (\S+) (.*)$/s);
+      steps.push({ kind: 'claim', cmd: `[ -n "$KTON_OUT" ] && ${c} say "$(python3 -c ${sq(claim)} "$KTON_OUT" ${template} ${t})"` });
+    } else if (line.trim()) steps.push({ kind: 'comment', cmd: line });
   }
+  if (repoMode(repo) === 'improve') return publishImprove(repo, steps);
+  // a "kton cockpit" terminal an older version opened in another shell is not reused
+  const term = vscode.window.terminals.find((t) => t.name === 'kton cockpit' && (t.creationOptions || {}).shellPath === '/bin/bash') ||
+    vscode.window.createTerminal({ name: 'kton cockpit', cwd: repo, shellPath: '/bin/bash' });
+  term.show();
+  term.sendText(`cd ${JSON.stringify(repo)}`);
+  for (const st of steps) {
+    if (st.kind === 'publish') term.sendText(`KTON_OUT=; KTON_OUT=$(${st.cmd}) && printf '%s\\n' "$KTON_OUT"`);
+    else term.sendText(st.cmd); // comments: shown, ignored by the shell
+  }
+}
+
+// publishImprove runs the lines for a repository in improve mode. An improve access token lives
+// five minutes and the backend cannot renew it, so each line gets a fresh one from the improve
+// extension, in its own environment: the lines run one after the other in a terminal this
+// extension drives, which shows each command and its output and stops at the first failure.
+async function publishImprove(repo, steps, signIn = improveToken) {
+  if (!(await signIn(repo, true))) {
+    vscode.window.showErrorMessage('kton: not signed in to improve. Sign in with the improve extension, then publish again.');
+    return;
+  }
+  for (const t of vscode.window.terminals) if (t.name === 'kton cockpit (improve)') t.dispose();
+  const out = new vscode.EventEmitter();
+  const say = (x) => out.fire(String(x).replace(/\r?\n/g, '\r\n'));
+  let closed = false, child = null;
+  const runAll = async () => {
+    say(`cd ${repo}\n`);
+    let last = '';
+    for (const st of steps) {
+      if (closed) return;
+      say(`$ ${st.cmd}\n`);
+      if (st.kind === 'comment') continue;
+      const token = await signIn(repo, false);
+      if (!token) { say('kton: the improve session ended; sign in again and publish the rest\n'); return; }
+      const code = await new Promise((resolve) => {
+        child = spawn('/bin/bash', ['-c', st.cmd], { cwd: repo, env: { ...process.env, IMPROVE_TOKEN: token, KTON_OUT: last } });
+        let stdout = '';
+        child.stdout.on('data', (d) => { stdout += d; say(d); });
+        child.stderr.on('data', (d) => say(d));
+        child.on('error', (e) => { say(e.message + '\n'); resolve(1); });
+        child.on('close', (code) => { if (st.kind === 'publish') last = code === 0 ? stdout.trim() : ''; resolve(code); });
+      });
+      child = null;
+      if (code !== 0) { say(`kton: stopped, that line exited with ${code}\n`); return; }
+    }
+    say('kton: done\n');
+  };
+  const pty = { onDidWrite: out.event, open: () => { runAll(); }, close: () => { closed = true; if (child) child.kill(); } };
+  const term = vscode.window.createTerminal({ name: 'kton cockpit (improve)', pty });
+  term.show();
+  return term;
 }
 
 // ------------------------------------------------------------------ reproduce
