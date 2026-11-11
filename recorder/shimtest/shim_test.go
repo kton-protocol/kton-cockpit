@@ -476,3 +476,20 @@ func TestShim_ExecChainKeepsOneLog(t *testing.T) {
 		t.Fatalf("want bash and cat in the same log, %d exec lines:\n%s", n, b)
 	}
 }
+
+// 12.11.: bash brings its own getenv(); with bash as the first process the header lost the hash
+// prefix, so the log had no project and no hashes.
+func TestShim_BashFirstKeepsTheHashPrefix(t *testing.T) {
+	build(t)
+	dir := t.TempDir()
+	cmd := exec.Command("/bin/bash", "-c", "true")
+	cmd.Env = append(os.Environ(), "LD_PRELOAD="+built.lib, "KTON_TRACE_LOG="+filepath.Join(dir, "r-%p.tsv"), "KTON_TRACE_HASH="+dir)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	logs, _ := filepath.Glob(filepath.Join(dir, "r-*.tsv"))
+	b, _ := os.ReadFile(logs[0])
+	if !strings.HasPrefix(string(b), "#ktontrace v3\thash="+dir+"\n") {
+		t.Fatalf("header: %q", strings.SplitN(string(b), "\n", 2)[0])
+	}
+}
