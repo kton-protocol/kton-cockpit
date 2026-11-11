@@ -216,7 +216,13 @@
     document.getElementById("publish").onclick = () => {
       const steps = [];
       for (const c of cs) {
-        if (c.inKton) continue;
+        if (c.inKton) {
+          // already in kton (a NONMEM run the improve shim published): the words written here are signed about it
+          const n = noteOf(c.noteKey), s = c.path.find((x) => (x.writes || []).length);
+          if (s && ((n.description || "").trim() || (n.rationale || "").trim()))
+            steps.push({inKton: true, session: s.session, task: s.task, where: s.where, sentence: s.sentence, hashes: s.hashes || [], note: n});
+          continue;
+        }
         if (c.hand) { steps.push({hand: true, sentence: c.steps[0].sentence, note: noteOf(c.noteKey)}); continue; }
         c.path.filter((s) => (s.writes || []).length && !published[skey(s)]).forEach((s, i) =>
           steps.push({session: s.session, task: s.task, where: s.where, sentence: s.sentence, note: i === 0 ? noteOf(c.noteKey) : null}));

@@ -264,7 +264,8 @@ async function openObservations() {
 // ------------------------------------------------------------------ publish: the verb, by hand, visibly
 async function publish(repo, text) {
   const calls = (text.match(/^cockpit publish /gm) || []).length;
-  if (!calls) return;
+  const direct = (text.match(/^cockpit say /gm) || []).length; // words about steps already in kton
+  if (!calls && !direct) return;
   const says = (text.match(/^cockpit claim /gm) || []).length;
   const ok = await vscode.window.showWarningMessage(
     `Run ${calls} × cockpit publish${says ? ` and ${says} × cockpit say (description, rationale)` : ''} in ${repo}? That signs, commits and pushes.`, { modal: true }, 'Run');
@@ -279,6 +280,7 @@ async function publish(repo, text) {
   const steps = [];
   for (const line of text.split('\n')) {
     if (line.startsWith('cockpit publish ')) steps.push({ kind: 'publish', cmd: c + line.slice('cockpit'.length) });
+    else if (line.startsWith('cockpit say ')) steps.push({ kind: 'say', cmd: c + line.slice('cockpit'.length) }); // about a foton already in kton
     else if (line.startsWith('cockpit claim ')) {
       const [, template, t] = line.match(/^cockpit claim (\S+) (.*)$/s);
       steps.push({ kind: 'claim', cmd: `[ -n "$KTON_OUT" ] && ${c} say "$(python3 -c ${sq(claim)} "$KTON_OUT" ${template} ${t})"` });
@@ -713,6 +715,28 @@ async function basedOnLines(repo, cmd) {
   return ['cockpit claim based-on ' + sq(JSON.stringify({ 'based-on': id, why: `developed from ${parent}` }))];
 }
 
+// wordsForPublished: a step already in kton (the improve shim publishes each NONMEM run it ran)
+// still takes the person's description and rationale: signed about its foton, the latest one
+// with the step's output bytes, unless kton holds the same words about it already.
+async function wordsForPublished(repo, s, allowed) {
+  const n = typeof s.note === 'string' ? { description: s.note } : (s.note || {});
+  const want = [['describes', 'description', (n.description || '').trim()], ['rationale', 'rationale', (n.rationale || '').trim()]]
+    .filter(([t, , v]) => v && allowed[t]);
+  if (!want.length) return [];
+  let id = null;
+  for (const h of s.hashes || []) { const ids = await producersOf(repo, h); if (ids.length) { id = ids[ids.length - 1]; break; } }
+  if (!id) return [`# ${s.where}: ${s.sentence}`, '#   in kton, but its record was not found: the words stay in the story'];
+  const about = await askCockpit(repo, { query: 'about', ref: id });
+  const has = new Set(((about && about.claims) || []).map((c) => c.predicate + '\u0000' + ((c.object || {}).value || '')));
+  const pred = { describes: 'http://purl.org/dc/terms/description', rationale: 'https://w3id.org/ep-plan#hasRationale' };
+  const out = [];
+  for (const [t, , v] of want) {
+    if (has.has(pred[t] + '\u0000' + v)) continue;
+    out.push('cockpit say ' + sq(JSON.stringify({ template: t, subject: id, fields: { value: v } })));
+  }
+  return out.length ? [`# ${s.where}: ${s.sentence} (already in kton: words only)`, ...out] : [];
+}
+
 async function publishText(story, file, steps) {
   const lines = [`# Story of ${path.relative(story.repo, file.path)}`];
   // a step's description and rationale become signed claims about its foton (templates
@@ -720,6 +744,10 @@ async function publishText(story, file, steps) {
   // them; elsewhere they stay comments
   const allowed = { describes: allowsTemplate(story.repo, 'describes'), rationale: allowsTemplate(story.repo, 'rationale'), note: allowsTemplate(story.repo, 'note'), basedOn: allowsTemplate(story.repo, 'based-on') };
   for (const s of steps) {
+    if (s.inKton) { // already in kton (a NONMEM run the improve shim published): only the words
+      lines.push(...(await wordsForPublished(story.repo, s, allowed)));
+      continue;
+    }
     if (s.hand) { // not recorded, nothing to publish: the person's words stay with the story
       lines.push(`# ${s.sentence}`);
       lines.push(...noteLines(s.note));
@@ -834,7 +862,7 @@ async function openInKton(project, repo, sum, name, opts) {
   const reg = opts.registry || (p0 && p0.registry);
   const g = '/kton/graph.json?project=' + encodeURIComponent(project);
   const q = (reg ? 'select=' + encodeURIComponent(`/kton/reg/${reg}/data/select`) + '&' : '') +
-    (opts.registry ? '' : 'graph=' + encodeURIComponent(g) + '&') + 'focus=' + encodeURIComponent('sha256:' + sum) + '&mode=anc&view=extension';
+    (opts.registry ? '' : 'graph=' + encodeURIComponent(g) + '&') + 'focus=' + encodeURIComponent('sha256:' + sum) + '&mode=anc&view=' + encodeURIComponent(cfg().get('graphView') || 'pmx');
   const src = (await vscode.env.asExternalUri(vscode.Uri.parse(viewerUrl() + 'web/viewers/graph/?' + q))).toString(true);
   const originOf = new URL(src).origin;
   let panel = shown && shown.panel;
