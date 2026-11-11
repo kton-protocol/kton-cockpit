@@ -241,6 +241,14 @@ func draftCmd(t *Task, repo string) string {
 	if t.Expr != "" && t.ID != "tail" && !strings.HasPrefix(t.Expr, "base::") {
 		return t.Expr // what the person typed, e.g. system("nmfe75 …")
 	}
+	// the tool itself before a line that only mentions it: a wrapper script runs as
+	// `/usr/bin/env bash …/nmfe75 run1.ctl run1.lst`, the call is `nmfe75 run1.ctl run1.lst`
+	// (a stand-in that writes its own lines, like the improve nmfe75 shim's wrapper, 11.11.)
+	for _, c := range t.Commands {
+		if f := toolcall.SplitCmdline(c.Cmdline); len(f) > 0 && toolCmd.MatchString(filepath.Base(f[0])) {
+			return c.Cmdline
+		}
+	}
 	for _, c := range t.Commands {
 		if toolCmd.MatchString(c.Cmdline) {
 			return c.Cmdline

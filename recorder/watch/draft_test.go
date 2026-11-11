@@ -242,3 +242,20 @@ func TestClassifier_StartupAndGitFilesAreEnvironment(t *testing.T) {
 		}
 	}
 }
+
+// kton-theo-pmx, 11.11.: the nmfe75 wrapper runs as `/usr/bin/env bash …/nmfe75 …` and writes the
+// call itself as `nmfe75 …`; the draft names the call, which the improve shim's record names too.
+func TestDraftCmd_TheToolBeforeALineThatMentionsIt(t *testing.T) {
+	tk := &Task{ID: "tail", Commands: []Command{
+		{Cmdline: "script/run-model.sh run6"},
+		{Cmdline: "/usr/bin/env bash /p/tools/nonmem/nmfe75 model/pk/run6/run6.ctl model/pk/run6/run6.lst"},
+		{Cmdline: "nmfe75 model/pk/run6/run6.ctl model/pk/run6/run6.lst"},
+	}}
+	if got := draftCmd(tk, "/p"); got != "nmfe75 model/pk/run6/run6.ctl model/pk/run6/run6.lst" {
+		t.Fatalf("cmd %q", got)
+	}
+	tk.Commands = tk.Commands[:2]
+	if got := draftCmd(tk, "/p"); !strings.HasPrefix(got, "/usr/bin/env bash") {
+		t.Fatalf("without the call itself, the line that mentions it: %q", got)
+	}
+}
