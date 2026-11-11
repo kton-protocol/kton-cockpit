@@ -229,3 +229,16 @@ func TestDraft_FilesReachedThroughObjectsAreInputs(t *testing.T) {
 		t.Fatalf("inputs %v, want %v", got, want)
 	}
 }
+
+// Positron, 11.11.: R's startup files and git's own files are environment, not the step's data.
+func TestClassifier_StartupAndGitFilesAreEnvironment(t *testing.T) {
+	c := &Classifier{Project: "/p"}
+	for p, want := range map[string]Class{
+		"/p/.Renviron": ClassEnv, "/p/.Rprofile": ClassEnv, "/p/.git/info/exclude": ClassEnv,
+		"/p/script/data-prep.R": ClassProject, "/p/data/Renviron.csv": ClassProject, "/p/x.git/y": ClassProject,
+	} {
+		if got := c.Class(p); got != want {
+			t.Errorf("%s: %s, want %s", p, got, want)
+		}
+	}
+}
