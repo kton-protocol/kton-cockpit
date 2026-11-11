@@ -123,6 +123,7 @@ func serve(args []string) {
 	store := fs.String("store", cacheDir("observations"), "directory the observations are kept in")
 	listen := fs.String("listen", "127.0.0.1:8378", "address of the viewer and the read-only API (loopback)")
 	idle := fs.Duration("idle", 15*time.Minute, "close a session after this long without data once its processes are gone")
+	exited := fs.Duration("exited", 3*time.Second, "close a session that owns its log (a terminal command, an Rscript run) this long after its processes exited, so its step can be published at once (0: -idle for all)")
 	maxAge := fs.Duration("max-age", 0, "leave out logs and stored sessions without data for longer than this (0: keep all)")
 	env := fs.String("env", "", "extra environment prefixes")
 	cas := fs.String("cas", cacheDir("cas"), "directory the inputs and outputs of tool calls are kept in, by hash (empty: keep nothing)")
@@ -133,7 +134,7 @@ func serve(args []string) {
 	fs.Parse(args)
 
 	sv := &watch.Service{
-		Dir: *dir, Store: *store, Idle: *idle, MaxAge: *maxAge, Web: *web,
+		Dir: *dir, Store: *store, Idle: *idle, Exited: *exited, MaxAge: *maxAge, Web: *web,
 		NewClassifier: func() *watch.Classifier { return classifier("", *env) },
 		Logf:          log.Printf,
 	}
