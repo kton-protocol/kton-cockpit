@@ -55,6 +55,29 @@ func MakeDraft(s *Session, t *Task) Draft {
 		nowNote(&f, in.Now)
 		d.Inputs = append(d.Inputs, f)
 	}
+	// files reached through R objects: a step that only uses `d` from an earlier command still
+	// depends on what that command read (`d <- nm_join(mod)` reads 106.tab; `ggsave(p)` reads
+	// nothing itself). Followed back through every command whose objects it used.
+	seen := map[string]bool{}
+	for _, f := range d.Inputs {
+		seen[f.Path] = true
+	}
+	for _, o := range t.Outputs {
+		if r, err := filepath.Rel(repo, o.Path); err == nil {
+			seen[r] = true // what it writes is not its input
+		}
+	}
+	for _, v := range viaObjects(s, t) {
+		if v.in.SHA256 == EmptySHA256 || v.in.Rewritten || Scratch(v.in.Path) {
+			continue
+		}
+		f := file(v.in.Path, v.in.Class, "read by command "+v.task+" for "+v.name)
+		if seen[f.Path] {
+			continue
+		}
+		seen[f.Path] = true
+		d.Inputs = append(d.Inputs, f)
+	}
 	for _, o := range t.Outputs {
 		if o.SHA256 == EmptySHA256 {
 			continue
@@ -296,4 +319,45 @@ func CallDraft(c Call, repo string, now func(path, sum string) string) Draft {
 		d.Notes = append(d.Notes, "leaves no file: nothing to publish")
 	}
 	return d
+}
+
+type objectInput struct {
+	in   *Input
+	task string // the command that read it
+	name string // the object through which this task depends on it
+}
+
+// viaObjects lists the files read by the earlier commands of the session whose objects t
+// uses, transitively, nearest first.
+func viaObjects(s *Session, t *Task) []objectInput {
+	byID := map[string]*Task{}
+	for _, x := range s.Tasks {
+		byID[x.ID] = x
+	}
+	var out []objectInput
+	done := map[string]bool{t.ID: true}
+	type hop struct{ task, name string }
+	queue := []hop{}
+	for _, u := range t.Uses {
+		queue = append(queue, hop{u.Task, u.Name})
+	}
+	for len(queue) > 0 {
+		h := queue[0]
+		queue = queue[1:]
+		if done[h.task] {
+			continue
+		}
+		done[h.task] = true
+		x := byID[h.task]
+		if x == nil {
+			continue
+		}
+		for _, in := range x.Inputs {
+			out = append(out, objectInput{in: in, task: h.task, name: h.name})
+		}
+		for _, u := range x.Uses {
+			queue = append(queue, hop{u.Task, h.name})
+		}
+	}
+	return out
 }
