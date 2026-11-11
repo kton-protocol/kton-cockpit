@@ -1109,6 +1109,32 @@ function startTerminalToken(context) {
   return { file, write };
 }
 
+// askImproveAccess: VS Code hands another extension's sign-in to this one only after the person
+// granted it, and a silent request never asks (MH 11.11.: doctor red, "no improve credentials", no
+// request in the Accounts menu). In a workspace with an improve-mode repository the recorder asks
+// once, visibly; a request also stays in the Accounts menu. Once granted, the silent calls work:
+// doctor runs again and the terminal token is written.
+async function askImproveAccess(token) {
+  const repos = (vscode.workspace.workspaceFolders || []).map((w) => w.uri.fsPath).filter((d) => repoMode(d) === 'improve');
+  if (!repos.length) return;
+  let s;
+  try { s = await vscode.authentication.getSession('improve-auth', [], { silent: true }); } catch (e) { return; } // no improve extension
+  if (s) return;
+  // the Accounts menu entry ("Grant access to improve Repository for kton recorder")
+  vscode.authentication.getSession('improve-auth', [], {}).then(() => granted(token), () => {});
+  const a = await vscode.window.showInformationMessage(
+    'kton recorder needs your improve sign-in for this repository (cockpit doctor, publish, NONMEM in the terminal).', 'Allow');
+  if (a !== 'Allow') return;
+  try { s = await vscode.authentication.getSession('improve-auth', [], { createIfNone: true }); } catch (e) { s = undefined; }
+  if (s) granted(token);
+}
+async function granted(token) {
+  if (token) await token.write();
+  doctorRepo = null;
+  runDoctor(true);
+  out.appendLine('improve sign-in granted to the kton recorder: doctor runs again; open a new terminal for NONMEM in improve');
+}
+
 function activate(context) {
   extContext = context;
   out = vscode.window.createOutputChannel('kton');
@@ -1117,7 +1143,8 @@ function activate(context) {
   showStatus(); status.show();
   const sync = setInterval(showStatus, 3000); // another window may have switched it
   context.subscriptions.push(out, status, { dispose: () => clearInterval(sync) });
-  startTerminalToken(context);
+  const token = startTerminalToken(context);
+  askImproveAccess(token);
   doctor = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 99);
   doctor.command = 'kton.doctor';
   const cfgWatch = vscode.workspace.createFileSystemWatcher('**/{cockpit.config.json,keys/*,registry/keys/*,templates/*}');
@@ -1164,4 +1191,4 @@ function activate(context) {
 }
 
 function deactivate() {}
-module.exports = { activate, deactivate, _test: { startTerminalToken, tokenFilePath, listenUI, findBytes, copyIntoProject, ktonIntent, parseDoctor, parseDoctorJSON, cockpitRepoOf, reproduce, publishedSteps, publishText, Tree, setOut: (o) => { out = o; } } };
+module.exports = { activate, deactivate, _test: { askImproveAccess, startTerminalToken, tokenFilePath, listenUI, findBytes, copyIntoProject, ktonIntent, parseDoctor, parseDoctorJSON, cockpitRepoOf, reproduce, publishedSteps, publishText, Tree, setOut: (o) => { out = o; } } };
