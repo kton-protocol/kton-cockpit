@@ -577,10 +577,14 @@ func (s *Session) finish() {
 		// after that write but before the command ended, it is the command's output; a change
 		// after the end (a hand edit) is not.
 		if at, seen := c.closeAt[p]; ok && h != "" && seen && t.End > 0 {
-			// On a file system with whole-second times (/mnt/c, drvfs) both writes can carry the
-			// same mtime (11.11.: pandoc rewrote report.html after Quarto's seen write, in the
-			// same second); then the content decides.
-			if mt, okm := fileMtime(p); okm && (mt != at[1] || mt%1e9 == 0) && mt <= t.End {
+			// A program the shim cannot see may finish its write just after the step's end marker
+			// (11.11.: pandoc's final report.html, 68 ms after the console's marker on /mnt/c,
+			// where Windows sets the time when the file is closed): a short grace then.
+			grace := int64(0)
+			if len(c.spawns) > 0 {
+				grace = unseenGrace
+			}
+			if mt, okm := fileMtime(p); okm && mt != at[1] && mt <= t.End+grace {
 				if dh, dst := s.Hash(p); dh != "" && dh != h && dst != "gone" {
 					h, st = dh, "written-unseen"
 					o := FileOp{PID: lastWriter(t, p), Op: "c", Path: p, SHA256: h}
@@ -811,3 +815,7 @@ func isDigits(x string) bool {
 	}
 	return true
 }
+
+// unseenGrace: how long after a step's end a write by a program the shim could not see (a static
+// binary the step started) still counts as the step's.
+const unseenGrace = int64(2e9)
