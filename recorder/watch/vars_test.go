@@ -60,3 +60,21 @@ func TestUsedNames_CallsAndOwnAssignmentsAreNotUses(t *testing.T) {
 		}
 	}
 }
+
+// kton-theo-pmx, 11.11.: `sd <- sd[sd$DV > 0, ]` reads the sd an earlier command made; the
+// assignment makes it the code's own only for the statements after it.
+func TestUsedNames_SelfAssignmentUsesTheEarlierObject(t *testing.T) {
+	for code, want := range map[string]bool{
+		"sd <- sd[sd$DV > 0, ]":     true,
+		"x <- 1; y <- x":            false, // x is this code's own
+		"d <- f(d)\nd2 <- d":        true,
+		"for (i in 1:3) n <- n + i": true,
+		"m <- 2\nm <- m * 2":        false,
+	} {
+		name := map[string]string{"sd <- sd[sd$DV > 0, ]": "sd", "x <- 1; y <- x": "x", "d <- f(d)\nd2 <- d": "d",
+			"for (i in 1:3) n <- n + i": "n", "m <- 2\nm <- m * 2": "m"}[code]
+		if got := usedNames(code)[name]; got != want {
+			t.Errorf("%q: %s used = %v, want %v", code, name, got, want)
+		}
+	}
+}
