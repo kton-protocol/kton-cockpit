@@ -78,3 +78,18 @@ func TestUsedNames_SelfAssignmentUsesTheEarlierObject(t *testing.T) {
 		}
 	}
 }
+
+// 11.11.: eda.R and data-prep.R both begin with `for (d in dirs) dir.create(d)`; sourced in one
+// console, eda.R's d is its own loop variable, not data-prep.R's d.
+func TestUsedNames_ForLoopVariableIsTheCodesOwn(t *testing.T) {
+	code := "for (d in c(\"deliv/figure\", \"deliv/table\")) dir.create(d, recursive = TRUE)\nd <- read.csv(\"x.csv\")\nprint(d)"
+	if usedNames(code)["d"] {
+		t.Fatalf("d is the loop's own: %v", usedNames(code))
+	}
+	if !usedNames("for (i in seq_len(n)) print(i)")["n"] {
+		t.Fatalf("n, the range, is still a use")
+	}
+	if !usedNames("format(d)")["d"] {
+		t.Fatalf("plain use")
+	}
+}
