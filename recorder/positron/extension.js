@@ -34,6 +34,25 @@ function traceDir() {
 const pauseFile = () => path.join(traceDir(), 'PAUSED');
 const viewerUrl = () => (cfg().get('viewerUrl') || 'http://127.0.0.1:8378/').replace(/\/?$/, '/');
 const bin = (name) => cfg().get(name + 'Path') || path.join(home, '.local', 'bin', name);
+
+// The improve backend (repo.mode "improve", kton-cockpit-improve) is signed in through the improve
+// extension: its session (provider improve-auth) goes to the cockpit as IMPROVE_TOKEN, in the
+// environment of that process only, never written anywhere. Other repositories get no token.
+// Without a session the cockpit says it cannot reach improve; publish asks to sign in first.
+function repoMode(repo) {
+  try { return (JSON.parse(fs.readFileSync(path.join(repo, 'cockpit.config.json'), 'utf8')).repo || {}).mode || ''; } catch (e) { return ''; }
+}
+async function improveToken(repo, signIn) {
+  if (!repo || repoMode(repo) !== 'improve') return '';
+  try {
+    const s = await vscode.authentication.getSession('improve-auth', [], signIn ? { createIfNone: true } : { silent: true });
+    return (s && s.accessToken) || '';
+  } catch (e) { return ''; } // no improve extension, or the person declined
+}
+const cockpitEnv = async (repo, signIn) => {
+  const t = await improveToken(repo, signIn);
+  return t ? { ...process.env, IMPROVE_TOKEN: t } : undefined;
+};
 const ktonR = () => cfg().get('ktonRPath') || path.join(home, '.local', 'share', 'kton', 'r', 'kton-R');
 
 let out;      // output channel
@@ -106,8 +125,11 @@ function parseDoctorJSON(stdout, code) {
   if (!j || typeof j.ready !== 'boolean' || (code !== 0 && code !== 3)) return null;
   return { state: j.ready ? 'ready' : 'not-ready', steps: (j.steps || []).map((x) => ({ must: !!x.must, text: String(x.text || '') })) };
 }
-const doctorRun = (repo, args) => new Promise((resolve) => execFile(bin('cockpit'), ['doctor', ...args], { cwd: repo, timeout: 15000 }, (err, stdout, stderr) =>
-  resolve({ stdout: String(stdout || ''), stderr: String(stderr || ''), code: err ? (typeof err.code === 'number' ? err.code : 1) : 0 })));
+const doctorRun = async (repo, args) => {
+  const env = await cockpitEnv(repo, false);
+  return new Promise((resolve) => execFile(bin('cockpit'), ['doctor', ...args], { cwd: repo, timeout: 15000, env }, (err, stdout, stderr) =>
+    resolve({ stdout: String(stdout || ''), stderr: String(stderr || ''), code: err ? (typeof err.code === 'number' ? err.code : 1) : 0 })));
+};
 let doctorRepo = null, doctorLast = null;
 async function runDoctor(force) {
   const ed = vscode.window.activeTextEditor;
@@ -249,8 +271,21 @@ async function publish(repo, text) {
   // the lines below are POSIX shell: the terminal is bash, whatever the person's default is
   // bash, whose quoting the publish lines are written for: a "kton cockpit" terminal an older
   // version opened in another shell is not reused
-  const term = vscode.window.terminals.find((t) => t.name === 'kton cockpit' && (t.creationOptions || {}).shellPath === '/bin/bash') ||
-    vscode.window.createTerminal({ name: 'kton cockpit', cwd: repo, shellPath: '/bin/bash' });
+  let term;
+  if (repoMode(repo) === 'improve') {
+    // the token lives in the terminal's environment, not in what is typed into it; a fresh one
+    // each time, since a session's token expires
+    const token = await improveToken(repo, true);
+    if (!token) {
+      vscode.window.showErrorMessage('kton: not signed in to improve. Sign in with the improve extension, then publish again.');
+      return;
+    }
+    for (const t of vscode.window.terminals) if (t.name === 'kton cockpit (improve)') t.dispose();
+    term = vscode.window.createTerminal({ name: 'kton cockpit (improve)', cwd: repo, shellPath: '/bin/bash', env: { IMPROVE_TOKEN: token } });
+  } else {
+    term = vscode.window.terminals.find((t) => t.name === 'kton cockpit' && (t.creationOptions || {}).shellPath === '/bin/bash') ||
+      vscode.window.createTerminal({ name: 'kton cockpit', cwd: repo, shellPath: '/bin/bash' });
+  }
   term.show();
   term.sendText(`cd ${JSON.stringify(repo)}`);
   const c = JSON.stringify(cockpit);
@@ -505,12 +540,15 @@ async function recordedFile(uri) {
 // A step is in kton when the cockpit knows a producer for every file it wrote (verified records
 // only, the cockpit's own rule). Asked per hash, in the repository the story belongs to.
 // concurrent asks in one federated repository need cockpit v0.3.0 (SPEC §9.8)
-const askCockpit = (repo, q) => new Promise((resolve) => {
-  execFile(bin('cockpit'), ['ask', JSON.stringify(q)], { cwd: repo, timeout: 15000 }, (err, stdout) => {
-    if (err) return resolve(null);
-    try { resolve(JSON.parse(stdout)); } catch (e) { resolve(null); }
+const askCockpit = async (repo, q) => {
+  const env = await cockpitEnv(repo, false);
+  return new Promise((resolve) => {
+    execFile(bin('cockpit'), ['ask', JSON.stringify(q)], { cwd: repo, timeout: 15000, env }, (err, stdout) => {
+      if (err) return resolve(null);
+      try { resolve(JSON.parse(stdout)); } catch (e) { resolve(null); }
+    });
   });
-});
+};
 // the verified records whose output these bytes are
 const producersOf = async (repo, sum) => {
   const a = await askCockpit(repo, { query: 'producer', ref: 'sha256:' + sum });
