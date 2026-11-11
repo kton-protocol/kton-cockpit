@@ -23,6 +23,10 @@ type Service struct {
 	Dir   string // where shims write logs (…/kton-cockpit/trace)
 	Store string // where observations are kept (…/kton-cockpit/observations)
 	Idle  time.Duration
+	// Exited closes a session that owns its log (Session.OwnLog: a terminal command, an Rscript
+	// run) this long after its processes are gone, instead of Idle: its step is finished and can
+	// be published while other sessions go on (MH 11.11.). 0: Idle for every session.
+	Exited time.Duration
 	// MaxAge, when set, leaves out logs and stored sessions without data for longer: the
 	// service then holds recent work only (a week of batch runs did not fit a 12 GB machine)
 	MaxAge        time.Duration
@@ -191,6 +195,10 @@ func (sv *Service) Poll(now time.Time) {
 			if fi, err := tr.f.Stat(); err == nil && fi.ModTime().Before(now) {
 				tr.lastData = fi.ModTime() // the data came when it was written, not when it was read
 			}
+		}
+		if !tr.s.Closed && sv.Exited > 0 && tr.s.OwnLog() && now.Sub(tr.lastData) > sv.Exited && !anyAlive(tr.s.PIDs()) {
+			tr.s.Close("exit", tr.s.Last)
+			sv.logf("session %s: closed, its processes have exited", id)
 		}
 		if !tr.s.Closed && sv.Idle > 0 && now.Sub(tr.lastData) > sv.Idle && !anyAlive(tr.s.PIDs()) {
 			tr.s.Close("timeout", tr.s.Last)

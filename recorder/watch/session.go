@@ -42,6 +42,7 @@ type Session struct {
 	roots      []string // the log's hashed prefixes, for placing the session by where it ran
 	placed     bool     // the project is settled: by ENV, or by the first command's directory
 	escaped    bool     // the log's header says v2 or later: path and extra are escaped
+	root       int      // the first process that wrote an event (not a marker)
 
 	// Hash computes a file's content hash when the shim did not (files outside the hashed
 	// prefixes). Replaceable in tests.
@@ -182,6 +183,13 @@ func (s *Session) Handle(e Event) {
 	}
 	if e.TS > s.Last {
 		s.Last = e.TS
+	}
+	switch e.Op {
+	case "TASK", "END", "SOURCE", "ENV", "VARS":
+	default:
+		if s.root == 0 {
+			s.root = e.PID
+		}
 	}
 	c := s.cur
 	t := c.t
@@ -762,4 +770,41 @@ func lastWriter(t *Task, p string) int {
 		}
 	}
 	return pid
+}
+
+// OwnLog: the session has no markers and its log is its first process's own (a %p log, named
+// after that pid, maybe with -2 …): a terminal command, an Rscript run. Once its processes are
+// gone nothing can add to it, so its one step is finished (MH 11.11.: publish a step as soon as
+// it ended). A log with markers can still get them from outside (the Claude Code hook writes a
+// TASK per Bash command, between processes), and a fixed log name can be shared by later runs.
+func (s *Session) OwnLog() bool {
+	if s.owner != 0 || s.root == 0 {
+		return false
+	}
+	base := strings.TrimSuffix(filepath.Base(s.Log), filepath.Ext(s.Log))
+	return ownLogName(base, s.root)
+}
+
+func ownLogName(base string, pid int) bool {
+	p := fmt.Sprint(pid)
+	if i := strings.LastIndex(base, "-"); i > 0 && strings.HasSuffix(base[:i], p) && isDigits(base[i+1:]) {
+		base = base[:i] // <pid>-2
+	}
+	if !strings.HasSuffix(base, p) {
+		return false
+	}
+	before := strings.TrimSuffix(base, p)
+	return before == "" || !isDigits(before[len(before)-1:])
+}
+
+func isDigits(x string) bool {
+	if x == "" {
+		return false
+	}
+	for _, r := range x {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
