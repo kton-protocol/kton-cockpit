@@ -254,6 +254,15 @@ func TestDraftCmd_TheToolBeforeALineThatMentionsIt(t *testing.T) {
 	if got := draftCmd(tk, "/p"); got != "nmfe75 model/pk/run6/run6.ctl model/pk/run6/run6.lst" {
 		t.Fatalf("cmd %q", got)
 	}
+	// cockpit-improve v0.2.3 is dynamic: its own start is seen, then the call it writes itself
+	shim := &Task{ID: "tail", Commands: []Command{
+		{Cmdline: "bash /p/tools/nonmem/nmfe75 model/pk/run1/run1.ctl model/pk/run1/run1.lst"},
+		{Cmdline: "cockpit-improve-nmfe75 model/pk/run1/run1.ctl model/pk/run1/run1.lst"},
+		{Cmdline: "nmfe75 model/pk/run1/run1.ctl model/pk/run1/run1.lst"},
+	}}
+	if got := draftCmd(shim, "/p"); got != "nmfe75 model/pk/run1/run1.ctl model/pk/run1/run1.lst" {
+		t.Fatalf("shim: %q", got)
+	}
 	tk.Commands = tk.Commands[:2]
 	if got := draftCmd(tk, "/p"); !strings.HasPrefix(got, "/usr/bin/env bash") {
 		t.Fatalf("without the call itself, the line that mentions it: %q", got)
@@ -274,5 +283,38 @@ func TestDraft_SourcedScriptIsAnRscriptCall(t *testing.T) {
 	d := MakeDraft(s, t2)
 	if d.Cmd != "Rscript script/eda.R" || len(d.Notes) != 1 || !strings.Contains(d.Notes[0], "not self-contained") || !strings.Contains(d.Notes[0], "nm") {
 		t.Fatalf("uses nm: %q %v", d.Cmd, d.Notes)
+	}
+}
+
+// 11.11.: the improve shim publishes a NONMEM run with the control stream and the dataset as its
+// inputs; the panel's draft of the same call must name the same, not run-model.sh (read by the
+// script's bash) or the nmfe75 wrapper (read by the bash that then exec'd the shim).
+func TestDraft_ToolCallNamesWhatTheToolRead(t *testing.T) {
+	dir := t.TempDir()
+	p := func(r string) string { return filepath.Join(dir, r) }
+	in := func(r string, pid int) *Input {
+		return &Input{Path: p(r), SHA256: sha(r), Class: ClassProject, PID: pid}
+	}
+	s := NewSession("x", dir, &Classifier{Project: dir})
+	tk := &Task{ID: "tail",
+		Parents: map[int]int{11: 10, 12: 11},
+		Commands: []Command{
+			{PID: 10, Cmdline: "bash script/run-model.sh run1", Cwd: dir},
+			{PID: 11, Cmdline: "bash " + p("tools/nonmem/nmfe75") + " model/pk/run1/run1.ctl model/pk/run1/run1.lst", Cwd: dir},
+			{PID: 11, Cmdline: "cockpit-improve-nmfe75 model/pk/run1/run1.ctl model/pk/run1/run1.lst", Cwd: dir},
+			{PID: 11, Cmdline: "nmfe75 model/pk/run1/run1.ctl model/pk/run1/run1.lst", Cwd: dir},
+			{PID: 12, Cmdline: "python3 -I -c 'read the token'", Cwd: dir},
+		},
+		Inputs:  []*Input{in("script/run-model.sh", 10), in("tools/nonmem/nmfe75", 11), in("data/derived/nm_data.csv", 11), in("model/pk/run1/run1.ctl", 11)},
+		Outputs: []*Output{{Path: p("model/pk/run1/run1.lst"), SHA256: sha("lst"), Class: ClassProject}},
+	}
+	s.Tasks = []*Task{tk}
+	d := MakeDraft(s, tk)
+	var got []string
+	for _, f := range d.Inputs {
+		got = append(got, f.Path)
+	}
+	if d.Cmd != "nmfe75 model/pk/run1/run1.ctl model/pk/run1/run1.lst" || strings.Join(got, ",") != "data/derived/nm_data.csv,model/pk/run1/run1.ctl" {
+		t.Fatalf("cmd %q inputs %v", d.Cmd, got)
 	}
 }

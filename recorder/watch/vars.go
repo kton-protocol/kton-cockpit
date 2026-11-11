@@ -16,6 +16,7 @@ type VarUse struct {
 
 var (
 	rIdent = regexp.MustCompile(`[A-Za-z.][A-Za-z0-9._]*`)
+	forVar = regexp.MustCompile(`(^|[^A-Za-z0-9._])for\s*\($`)
 )
 
 // Origin is the command that names the task: the last one sent with a file (a script, a chunk),
@@ -144,6 +145,14 @@ func usedNames(code string) map[string]bool {
 		switch {
 		case strings.HasPrefix(rest, "("):
 			continue // a call
+		case forVar.MatchString(before) && strings.HasPrefix(rest, "in"):
+			// `for (d in …)` assigns d: the loop's own, not an object an earlier command left
+			// (11.11.: eda.R's `for (d in dirs)` linked it to data-prep.R's d in one console);
+			// its own at once, since the body that uses it follows on the same line
+			if !used[name] {
+				local[name] = true
+			}
+			continue
 		case strings.HasPrefix(rest, "<-") || strings.HasPrefix(rest, "<<-") || strings.HasSuffix(before, "->"),
 			strings.HasPrefix(rest, "=") && !strings.HasPrefix(rest, "==") && depth[m[0]] == 0:
 			pending = append(pending, name) // assigned before any read: the code's own, after this statement

@@ -42,6 +42,7 @@ type Session struct {
 	roots      []string // the log's hashed prefixes, for placing the session by where it ran
 	placed     bool     // the project is settled: by ENV, or by the first command's directory
 	escaped    bool     // the log's header says v2 or later: path and extra are escaped
+	root       int      // the first process that wrote an event (not a marker)
 
 	// Hash computes a file's content hash when the shim did not (files outside the hashed
 	// prefixes). Replaceable in tests.
@@ -182,6 +183,13 @@ func (s *Session) Handle(e Event) {
 	}
 	if e.TS > s.Last {
 		s.Last = e.TS
+	}
+	switch e.Op {
+	case "TASK", "END", "SOURCE", "ENV", "VARS":
+	default:
+		if s.root == 0 {
+			s.root = e.PID
+		}
 	}
 	c := s.cur
 	t := c.t
@@ -569,7 +577,14 @@ func (s *Session) finish() {
 		// after that write but before the command ended, it is the command's output; a change
 		// after the end (a hand edit) is not.
 		if at, seen := c.closeAt[p]; ok && h != "" && seen && t.End > 0 {
-			if mt, okm := fileMtime(p); okm && mt != at[1] && mt <= t.End {
+			// A program the shim cannot see may finish its write just after the step's end marker
+			// (11.11.: pandoc's final report.html, 68 ms after the console's marker on /mnt/c,
+			// where Windows sets the time when the file is closed): a short grace then.
+			grace := int64(0)
+			if len(c.spawns) > 0 {
+				grace = unseenGrace
+			}
+			if mt, okm := fileMtime(p); okm && mt != at[1] && mt <= t.End+grace {
 				if dh, dst := s.Hash(p); dh != "" && dh != h && dst != "gone" {
 					h, st = dh, "written-unseen"
 					o := FileOp{PID: lastWriter(t, p), Op: "c", Path: p, SHA256: h}
@@ -763,3 +778,44 @@ func lastWriter(t *Task, p string) int {
 	}
 	return pid
 }
+
+// OwnLog: the session has no markers and its log is its first process's own (a %p log, named
+// after that pid, maybe with -2 …): a terminal command, an Rscript run. Once its processes are
+// gone nothing can add to it, so its one step is finished (MH 11.11.: publish a step as soon as
+// it ended). A log with markers can still get them from outside (the Claude Code hook writes a
+// TASK per Bash command, between processes), and a fixed log name can be shared by later runs.
+func (s *Session) OwnLog() bool {
+	if s.owner != 0 || s.root == 0 {
+		return false
+	}
+	base := strings.TrimSuffix(filepath.Base(s.Log), filepath.Ext(s.Log))
+	return ownLogName(base, s.root)
+}
+
+func ownLogName(base string, pid int) bool {
+	p := fmt.Sprint(pid)
+	if i := strings.LastIndex(base, "-"); i > 0 && strings.HasSuffix(base[:i], p) && isDigits(base[i+1:]) {
+		base = base[:i] // <pid>-2
+	}
+	if !strings.HasSuffix(base, p) {
+		return false
+	}
+	before := strings.TrimSuffix(base, p)
+	return before == "" || !isDigits(before[len(before)-1:])
+}
+
+func isDigits(x string) bool {
+	if x == "" {
+		return false
+	}
+	for _, r := range x {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// unseenGrace: how long after a step's end a write by a program the shim could not see (a static
+// binary the step started) still counts as the step's.
+const unseenGrace = int64(2e9)

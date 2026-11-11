@@ -110,3 +110,37 @@ func TestService_OldLogsCloseOnceReadAndMaxAgeLeavesThemOut(t *testing.T) {
 		t.Fatalf("a left-out log that grows is read")
 	}
 }
+
+// MH 11.11.: a terminal command's or an Rscript run's session (no markers, its own %p log) is
+// finished when its processes exit, so its step can be published at once; a log with markers, or
+// one whose name is not its process's, waits for Idle as before.
+func TestService_ClosesAnOwnLogWhenItsProcessesExit(t *testing.T) {
+	dir := t.TempDir()
+	sv := &Service{Dir: dir, Store: t.TempDir(), Idle: 15 * time.Minute, Exited: time.Second,
+		NewClassifier: func() *Classifier { return &Classifier{} }}
+	ev := "1\t4194305\t1\texec\tq\t/p\t0\t0\t0\tRscript script/a.R\n2\t4194305\t1\topen\tw\t/p/out.csv\t0\t0\t0\tnew=1\n3\t4194305\t1\tclosew\tw\t/p/out.csv\t0\t0\t0\tsha256=o\n"
+	os.WriteFile(filepath.Join(dir, "terminal-4194305.tsv"), []byte("#ktontrace v1\thash=/p\n"+ev), 0o644)
+	os.WriteFile(filepath.Join(dir, "terminal-4194305-2.tsv"), []byte("#ktontrace v1\thash=/p\n"+ev), 0o644)
+	os.WriteFile(filepath.Join(dir, "shared.tsv"), []byte("#ktontrace v1\thash=/p\n"+ev), 0o644)
+	os.WriteFile(filepath.Join(dir, "claude-4194305.tsv"), []byte("#ktontrace v1\thash=/p\n"+ev+"4\t1\t1\tTASK\tok\t1\t0\t0\t0\tBash\n"), 0o644)
+	now := time.Now()
+	sv.Poll(now)
+	sv.Poll(now.Add(2 * time.Second))
+	for id, want := range map[string]bool{"terminal-4194305": true, "terminal-4194305-2": true, "shared": false, "claude-4194305": false} {
+		tr := sv.sessions[id]
+		if tr == nil || tr.s.Closed != want {
+			t.Errorf("%s: closed %v, want %v", id, tr != nil && tr.s.Closed, want)
+		}
+	}
+	if s := sv.sessions["terminal-4194305"].s; len(s.Tasks) != 1 || len(s.Tasks[0].Outputs) != 1 || s.CloseReason != "exit" {
+		t.Fatalf("the step: %+v", s.Tasks)
+	}
+}
+
+func TestOwnLogName(t *testing.T) {
+	for base, want := range map[string]bool{"terminal-123": true, "terminal-123-2": true, "123": true, "r-1123": false, "terminal-12": false, "terminal-123x": false} {
+		if got := ownLogName(base, 123); got != want {
+			t.Errorf("%s: %v", base, got)
+		}
+	}
+}

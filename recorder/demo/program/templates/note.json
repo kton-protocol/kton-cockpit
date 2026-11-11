@@ -1,0 +1,8 @@
+{
+  "name": "note",
+  "target": "foton",
+  "predicate": "https://kton.dev/v/pmx/note",
+  "fields": {
+    "value": {"type": "string", "required": true}
+  }
+}

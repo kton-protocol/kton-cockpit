@@ -15,6 +15,7 @@
 //
 // It runs in the remote (WSL) extension host, where R, the logs and ktonwatch live.
 const vscode = require('vscode');
+const nr = require('./newrun');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -263,7 +264,8 @@ async function openObservations() {
 // ------------------------------------------------------------------ publish: the verb, by hand, visibly
 async function publish(repo, text) {
   const calls = (text.match(/^cockpit publish /gm) || []).length;
-  if (!calls) return;
+  const direct = (text.match(/^cockpit say /gm) || []).length; // words about steps already in kton
+  if (!calls && !direct) return;
   const says = (text.match(/^cockpit claim /gm) || []).length;
   const ok = await vscode.window.showWarningMessage(
     `Run ${calls} × cockpit publish${says ? ` and ${says} × cockpit say (description, rationale)` : ''} in ${repo}? That signs, commits and pushes.`, { modal: true }, 'Run');
@@ -272,11 +274,13 @@ async function publish(repo, text) {
   const c = JSON.stringify(cockpit);
   // `cockpit claim <template> '<text>'` is ours: a say with that template, its field "value",
   // about the foton the publish before it returned (its JSON answer, kept in KTON_OUT and shown)
-  const claim = "import json,sys; o=json.loads(sys.argv[1]); print(json.dumps({'template':sys.argv[2],'subject':o['fotonId'],'fields':{'value':json.loads(sys.argv[3])}}))";
+  // a JSON object is the fields themselves (based-on names a foton, not a value)
+  const claim = "import json,sys; o=json.loads(sys.argv[1]); v=json.loads(sys.argv[3]); print(json.dumps({'template':sys.argv[2],'subject':o['fotonId'],'fields':v if isinstance(v,dict) else {'value':v}}))";
   // the lines as POSIX shell, for bash, whose quoting the publish lines are written for
   const steps = [];
   for (const line of text.split('\n')) {
     if (line.startsWith('cockpit publish ')) steps.push({ kind: 'publish', cmd: c + line.slice('cockpit'.length) });
+    else if (line.startsWith('cockpit say ')) steps.push({ kind: 'say', cmd: c + line.slice('cockpit'.length) }); // about a foton already in kton
     else if (line.startsWith('cockpit claim ')) {
       const [, template, t] = line.match(/^cockpit claim (\S+) (.*)$/s);
       steps.push({ kind: 'claim', cmd: `[ -n "$KTON_OUT" ] && ${c} say "$(python3 -c ${sq(claim)} "$KTON_OUT" ${template} ${t})"` });
@@ -638,13 +642,112 @@ function allowsTemplate(repo, name) {
   try { return (JSON.parse(fs.readFileSync(path.join(repo, 'cockpit.config.json'), 'utf8')).claims || {}).allowedTemplates.includes(name); } catch (e) { return false; }
 }
 
+// ------------------------------------------------------------------ New run (MH 11.11.)
+// Copies a run folder that holds one recorded process's files to the next free number beside it,
+// with only that process's inputs from the folder, renaming only what points at the run itself
+// (newrun.js). The copy is the run's next version: `; based_on:` names the folder copied from,
+// which the improve shim and the publish's based-on claim follow. Running it stays the person's.
+async function newRun(uri) {
+  const folder = uri && uri.fsPath;
+  let isDir = false;
+  try { isDir = fs.statSync(folder).isDirectory(); } catch (e) { /* gone */ }
+  if (!isDir) { vscode.window.showWarningMessage('kton: New run works on a run folder'); return; }
+  const repo = cockpitRepoOf(path.join(folder, '.')) || (vscode.workspace.workspaceFolders || []).map((w) => w.uri.fsPath).find((w) => folder.startsWith(w + path.sep)) || path.dirname(folder);
+  const rel = path.relative(repo, folder);
+  let files = [];
+  try { files = await getJSON(`${viewerUrl()}api/files?project=${encodeURIComponent(repo)}`, 20000); } catch (e) { /* no ktonwatch: the folder alone decides */ }
+  files = (files || []).map((f) => Object.assign({}, f, { path: path.relative(repo, f.path) }));
+  const cmds = {};
+  for (const f of files) {
+    if (f.produced_by && path.dirname(f.path) === rel) {
+      const k = f.produced_by.session + '/' + f.produced_by.task;
+      if (!(k in cmds)) {
+        const d = await getJSON(`${viewerUrl()}api/draft?session=${encodeURIComponent(f.produced_by.session)}&task=${encodeURIComponent(f.produced_by.task)}`, 10000).catch(() => null);
+        cmds[k] = (d && d.cmd) || k;
+      }
+    }
+  }
+  const p = nr.plan(rel, files, (s, t) => cmds[s + '/' + t], fs.readdirSync(folder));
+  if (!p.ok) { vscode.window.showWarningMessage(`kton: no New run from ${rel}: ${p.reason}`); return; }
+  const parentDir = path.dirname(folder), oldName = path.basename(folder);
+  const siblings = fs.readdirSync(parentDir).filter((x) => { try { return fs.statSync(path.join(parentDir, x)).isDirectory(); } catch (e) { return false; } });
+  const newName = nr.nextName(oldName, siblings);
+  if (!newName) { vscode.window.showWarningMessage(`kton: ${oldName} has no run number to count up`); return; }
+  const dest = path.join(parentDir, newName);
+  if (fs.existsSync(dest)) { vscode.window.showWarningMessage(`kton: ${path.relative(repo, dest)} exists already`); return; }
+  fs.mkdirSync(dest);
+  const changes = [];
+  let open = null;
+  for (const input of p.inputs) {
+    const src = path.join(repo, input);
+    const to = path.join(dest, nr.renameRef(path.basename(input), oldName, newName));
+    if (/\.(ctl|mod)$/i.test(input)) {
+      const r = nr.renameCtl(fs.readFileSync(src, 'utf8'), oldName, newName);
+      fs.writeFileSync(to, r.text);
+      changes.push(...r.changes);
+      open = open || to;
+    } else {
+      fs.copyFileSync(src, to);
+    }
+  }
+  const what = changes.length ? changes.join('; ') : 'nothing renamed';
+  out.appendLine(`New run ${path.relative(repo, dest)} from ${rel}${p.call ? ` (${p.call})` : ''}: ${what}`);
+  if (open) await vscode.window.showTextDocument(vscode.Uri.file(open));
+  vscode.window.showInformationMessage(`kton: ${newName} from ${oldName}. Renamed: ${what}. Edit the model, then run it as usual.`);
+}
+
+// basedOnLines: for `nmfe75 <dir>/<run>.ctl …` whose control stream says `; based_on: <parent>`, the
+// claim line naming the parent's latest published foton (by its listing's bytes, in the sibling
+// folder <parent>/<parent>.lst), or a comment why there is none.
+async function basedOnLines(repo, cmd) {
+  const f = (cmd || '').split(/\s+/);
+  if (!/^nmfe\d*$/.test(path.basename(f[0] || '')) || !f[1]) return [];
+  let text = '';
+  try { text = fs.readFileSync(path.join(repo, f[1]), 'utf8'); } catch (e) { return []; }
+  const m = text.match(/^;\s*based_on:\s*(\S+)/m);
+  if (!m || m[1] === '-') return [];
+  const parent = m[1];
+  const lst = path.join(repo, path.dirname(path.dirname(f[1])), parent, parent + '.lst');
+  const sum = await sha256File(lst);
+  const ids = sum ? await producersOf(repo, sum) : [];
+  if (!ids.length) return [`#   based-on ${parent}: not published yet; publish ${parent}'s lineage first, then this one`];
+  const id = ids[ids.length - 1];
+  return ['cockpit claim based-on ' + sq(JSON.stringify({ 'based-on': id, why: `developed from ${parent}` }))];
+}
+
+// wordsForPublished: a step already in kton (the improve shim publishes each NONMEM run it ran)
+// still takes the person's description and rationale: signed about its foton, the latest one
+// with the step's output bytes, unless kton holds the same words about it already.
+async function wordsForPublished(repo, s, allowed) {
+  const n = typeof s.note === 'string' ? { description: s.note } : (s.note || {});
+  const want = [['describes', 'description', (n.description || '').trim()], ['rationale', 'rationale', (n.rationale || '').trim()]]
+    .filter(([t, , v]) => v && allowed[t]);
+  if (!want.length) return [];
+  let id = null;
+  for (const h of s.hashes || []) { const ids = await producersOf(repo, h); if (ids.length) { id = ids[ids.length - 1]; break; } }
+  if (!id) return [`# ${s.where}: ${s.sentence}`, '#   in kton, but its record was not found: the words stay in the story'];
+  const about = await askCockpit(repo, { query: 'about', ref: id });
+  const has = new Set(((about && about.claims) || []).map((c) => c.predicate + '\u0000' + ((c.object || {}).value || '')));
+  const pred = { describes: 'http://purl.org/dc/terms/description', rationale: 'https://w3id.org/ep-plan#hasRationale' };
+  const out = [];
+  for (const [t, , v] of want) {
+    if (has.has(pred[t] + '\u0000' + v)) continue;
+    out.push('cockpit say ' + sq(JSON.stringify({ template: t, subject: id, fields: { value: v } })));
+  }
+  return out.length ? [`# ${s.where}: ${s.sentence} (already in kton: words only)`, ...out] : [];
+}
+
 async function publishText(story, file, steps) {
   const lines = [`# Story of ${path.relative(story.repo, file.path)}`];
   // a step's description and rationale become signed claims about its foton (templates
   // "describes" and "rationale", as cockpit init writes them) where the repository allows
   // them; elsewhere they stay comments
-  const allowed = { describes: allowsTemplate(story.repo, 'describes'), rationale: allowsTemplate(story.repo, 'rationale') };
+  const allowed = { describes: allowsTemplate(story.repo, 'describes'), rationale: allowsTemplate(story.repo, 'rationale'), note: allowsTemplate(story.repo, 'note'), basedOn: allowsTemplate(story.repo, 'based-on') };
   for (const s of steps) {
+    if (s.inKton) { // already in kton (a NONMEM run the improve shim published): only the words
+      lines.push(...(await wordsForPublished(story.repo, s, allowed)));
+      continue;
+    }
     if (s.hand) { // not recorded, nothing to publish: the person's words stay with the story
       lines.push(`# ${s.sentence}`);
       lines.push(...noteLines(s.note));
@@ -666,6 +769,12 @@ async function publishText(story, file, steps) {
     // the text as JSON: one line, whatever it holds (the script is sent line by line)
     if (allowed.describes && (n.description || '').trim()) lines.push('cockpit claim describes ' + sq(JSON.stringify(n.description.trim())));
     if (allowed.rationale && (n.rationale || '').trim()) lines.push('cockpit claim rationale ' + sq(JSON.stringify(n.rationale.trim())));
+    // what the draft says about the step itself (a sourced script that is not self-contained),
+    // signed as a note where the repository allows it; the improve backend puts it on the step
+    if (allowed.note) for (const x of (d.notes || []).filter((x) => x.startsWith('not self-contained'))) lines.push('cockpit claim note ' + sq(JSON.stringify(x)));
+    // a NONMEM run derived from another (`; based_on: run6`, which "New run" writes): signed as
+    // based-on the run it came from, its latest published foton
+    if (allowed.basedOn) lines.push(...(await basedOnLines(story.repo, d.cmd)));
   }
   return lines.join('\n');
 }
@@ -753,7 +862,7 @@ async function openInKton(project, repo, sum, name, opts) {
   const reg = opts.registry || (p0 && p0.registry);
   const g = '/kton/graph.json?project=' + encodeURIComponent(project);
   const q = (reg ? 'select=' + encodeURIComponent(`/kton/reg/${reg}/data/select`) + '&' : '') +
-    (opts.registry ? '' : 'graph=' + encodeURIComponent(g) + '&') + 'focus=' + encodeURIComponent('sha256:' + sum) + '&mode=anc&view=extension';
+    (opts.registry ? '' : 'graph=' + encodeURIComponent(g) + '&') + 'focus=' + encodeURIComponent('sha256:' + sum) + '&mode=anc&view=' + encodeURIComponent(cfg().get('graphView') || 'pmx');
   const src = (await vscode.env.asExternalUri(vscode.Uri.parse(viewerUrl() + 'web/viewers/graph/?' + q))).toString(true);
   const originOf = new URL(src).origin;
   let panel = shown && shown.panel;
@@ -993,6 +1102,67 @@ async function openInBrowser() {
 
 // ------------------------------------------------------------------ activation
 let extContext; // for what opens a story from outside one (the viewer's actions)
+// ------------------------------------------------------------------ the improve sign-in for terminals
+// What runs in a terminal (the nmfe75 shim: NONMEM in improve) acts as the person signed in with
+// the improve extension, not as a test account (kunden 11.11.). A session's access token lives five
+// minutes and the extension hands out no refresh token, so the current one is kept in a file in
+// the user's runtime directory (tmpfs: memory, never disk), mode 0600, refreshed every minute and
+// on every change of the sign-in, and removed when the window closes. New terminals get its path as
+// IMPROVE_ACCESS_TOKEN_FILE; the reader takes the token from it whenever it needs one.
+function tokenFilePath() {
+  const run = process.env.XDG_RUNTIME_DIR || `/run/user/${process.getuid ? process.getuid() : 0}`;
+  return path.join(run, 'kton', 'improve-access-token.json');
+}
+function startTerminalToken(context) {
+  const file = tokenFilePath();
+  const drop = () => { try { fs.unlinkSync(file); } catch (e) { /* not there */ } };
+  const write = async () => {
+    let s;
+    try { s = await vscode.authentication.getSession('improve-auth', [], { silent: true }); } catch (e) { s = undefined; }
+    if (!s || !s.accessToken) { drop(); return; }
+    try {
+      fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+      const tmp = `${file}.${process.pid}.tmp`;
+      fs.writeFileSync(tmp, JSON.stringify({ accessToken: s.accessToken, account: (s.account && s.account.label) || '', at: new Date().toISOString() }), { mode: 0o600 });
+      fs.renameSync(tmp, file);
+    } catch (e) { out.appendLine(`improve token for terminals: ${e.message}`); }
+  };
+  context.environmentVariableCollection.replace('IMPROVE_ACCESS_TOKEN_FILE', file);
+  write();
+  const every = setInterval(write, 60000);
+  context.subscriptions.push(
+    { dispose: () => { clearInterval(every); drop(); } },
+    vscode.authentication.onDidChangeSessions((e) => { if (e.provider && e.provider.id === 'improve-auth') write(); }),
+  );
+  return { file, write };
+}
+
+// askImproveAccess: VS Code hands another extension's sign-in to this one only after the person
+// granted it, and a silent request never asks (MH 11.11.: doctor red, "no improve credentials", no
+// request in the Accounts menu). In a workspace with an improve-mode repository the recorder asks
+// once, visibly; a request also stays in the Accounts menu. Once granted, the silent calls work:
+// doctor runs again and the terminal token is written.
+async function askImproveAccess(token) {
+  const repos = (vscode.workspace.workspaceFolders || []).map((w) => w.uri.fsPath).filter((d) => repoMode(d) === 'improve');
+  if (!repos.length) return;
+  let s;
+  try { s = await vscode.authentication.getSession('improve-auth', [], { silent: true }); } catch (e) { return; } // no improve extension
+  if (s) return;
+  // the Accounts menu entry ("Grant access to improve Repository for kton recorder")
+  vscode.authentication.getSession('improve-auth', [], {}).then(() => granted(token), () => {});
+  const a = await vscode.window.showInformationMessage(
+    'kton recorder needs your improve sign-in for this repository (cockpit doctor, publish, NONMEM in the terminal).', 'Allow');
+  if (a !== 'Allow') return;
+  try { s = await vscode.authentication.getSession('improve-auth', [], { createIfNone: true }); } catch (e) { s = undefined; }
+  if (s) granted(token);
+}
+async function granted(token) {
+  if (token) await token.write();
+  doctorRepo = null;
+  runDoctor(true);
+  out.appendLine('improve sign-in granted to the kton recorder: doctor runs again; open a new terminal for NONMEM in improve');
+}
+
 function activate(context) {
   extContext = context;
   out = vscode.window.createOutputChannel('kton');
@@ -1001,6 +1171,8 @@ function activate(context) {
   showStatus(); status.show();
   const sync = setInterval(showStatus, 3000); // another window may have switched it
   context.subscriptions.push(out, status, { dispose: () => clearInterval(sync) });
+  const token = startTerminalToken(context);
+  askImproveAccess(token);
   doctor = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 99);
   doctor.command = 'kton.doctor';
   const cfgWatch = vscode.workspace.createFileSystemWatcher('**/{cockpit.config.json,keys/*,registry/keys/*,templates/*}');
@@ -1020,6 +1192,7 @@ function activate(context) {
       const r = await recordedFile(uri);
       if (r) reproduce(r.project, r.file.path, r.file.sha256);
     }),
+    vscode.commands.registerCommand('kton.newRun', (uri) => newRun(uri)),
     vscode.commands.registerCommand('kton.storyFile', async (uri) => {
       const r = await recordedFile(uri);
       if (r) openStory(context, r.project, r.file);
@@ -1046,4 +1219,4 @@ function activate(context) {
 }
 
 function deactivate() {}
-module.exports = { activate, deactivate, _test: { listenUI, findBytes, copyIntoProject, ktonIntent, parseDoctor, parseDoctorJSON, cockpitRepoOf, reproduce, publishedSteps, publishText, Tree, setOut: (o) => { out = o; } } };
+module.exports = { activate, deactivate, _test: { askImproveAccess, startTerminalToken, tokenFilePath, listenUI, findBytes, copyIntoProject, ktonIntent, parseDoctor, parseDoctorJSON, cockpitRepoOf, reproduce, publishedSteps, publishText, Tree, setOut: (o) => { out = o; } } };
