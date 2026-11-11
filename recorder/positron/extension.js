@@ -643,7 +643,7 @@ async function publishText(story, file, steps) {
   // a step's description and rationale become signed claims about its foton (templates
   // "describes" and "rationale", as cockpit init writes them) where the repository allows
   // them; elsewhere they stay comments
-  const allowed = { describes: allowsTemplate(story.repo, 'describes'), rationale: allowsTemplate(story.repo, 'rationale') };
+  const allowed = { describes: allowsTemplate(story.repo, 'describes'), rationale: allowsTemplate(story.repo, 'rationale'), note: allowsTemplate(story.repo, 'note') };
   for (const s of steps) {
     if (s.hand) { // not recorded, nothing to publish: the person's words stay with the story
       lines.push(`# ${s.sentence}`);
@@ -666,6 +666,9 @@ async function publishText(story, file, steps) {
     // the text as JSON: one line, whatever it holds (the script is sent line by line)
     if (allowed.describes && (n.description || '').trim()) lines.push('cockpit claim describes ' + sq(JSON.stringify(n.description.trim())));
     if (allowed.rationale && (n.rationale || '').trim()) lines.push('cockpit claim rationale ' + sq(JSON.stringify(n.rationale.trim())));
+    // what the draft says about the step itself (a sourced script that is not self-contained),
+    // signed as a note where the repository allows it; the improve backend puts it on the step
+    if (allowed.note) for (const x of (d.notes || []).filter((x) => x.startsWith('not self-contained'))) lines.push('cockpit claim note ' + sq(JSON.stringify(x)));
   }
   return lines.join('\n');
 }
