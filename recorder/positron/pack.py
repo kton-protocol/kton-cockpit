@@ -29,7 +29,7 @@ types = '''<?xml version="1.0" encoding="utf-8"?>
 with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
     z.writestr("[Content_Types].xml", types)
     z.writestr("extension.vsixmanifest", manifest)
-    for f in ("package.json", "extension.js"):
+    for f in ("package.json", "extension.js", "newrun.js"):
         z.write(os.path.join(here, f), "extension/" + f)
     for f in sorted(os.listdir(os.path.join(here, "media"))):
         z.write(os.path.join(here, "media", f), "extension/media/" + f)
