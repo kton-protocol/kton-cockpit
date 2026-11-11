@@ -27,6 +27,9 @@ type DraftFile struct {
 
 var toolCmd = regexp.MustCompile(`nmfe|execute|bbi|quarto|Rscript`)
 
+// toolProgram: a program name that is a tool itself.
+var toolProgram = regexp.MustCompile(`^(nmfe\d*|execute|bbi|quarto|Rscript)$`)
+
 // MakeDraft proposes what to publish for a task.
 func MakeDraft(s *Session, t *Task) Draft {
 	repo := toolcall.RepoRoot(s.Project)
@@ -245,9 +248,17 @@ func draftCmd(t *Task, repo string) string {
 	// the tool itself before a line that only mentions it: a wrapper script runs as
 	// `/usr/bin/env bash …/nmfe75 run1.ctl run1.lst`, the call is `nmfe75 run1.ctl run1.lst`
 	// (a stand-in that writes its own lines, like the improve nmfe75 shim's wrapper, 11.11.)
-	for _, c := range t.Commands {
-		if f := toolcall.SplitCmdline(c.Cmdline); len(f) > 0 && toolCmd.MatchString(filepath.Base(f[0])) {
-			return c.Cmdline
+	// a program that is the tool (nmfe75) before one that only carries it in its name
+	// (cockpit-improve-nmfe75, the improve shim, which then writes `nmfe75 …` itself)
+	for _, exact := range []bool{true, false} {
+		for _, c := range t.Commands {
+			f := toolcall.SplitCmdline(c.Cmdline)
+			if len(f) == 0 {
+				continue
+			}
+			if base := filepath.Base(f[0]); exact && toolProgram.MatchString(base) || !exact && toolCmd.MatchString(base) {
+				return c.Cmdline
+			}
 		}
 	}
 	for _, c := range t.Commands {
