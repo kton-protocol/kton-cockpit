@@ -1125,6 +1125,13 @@ that does not verify.
 > **Checked by:** `TestShow_ASelectionIsThePortionAskedForWithEnvelopesAndACursor`,
 > `TestShow_ASelectedScopeIsItsSeedAndChain`.
 
+`cockpit show` MUST mark everything it serves, the data and the viewer's files, for revalidation
+(`Cache-Control: no-cache`). The data changes with every record and the viewer with its checkout; a
+browser that reused its cached modules would show an old viewer over new data, and a forced reload
+does not reliably refetch ES modules or wasm.
+
+> **Checked by:** `TestShow_TheBrowserRevalidatesWhatItCached`.
+
 ### 12.4 A derived index *(optional)*
 
 A cockpit MAY keep what it read between calls (`index.kind`, ADR-012). Such an index is derived: it

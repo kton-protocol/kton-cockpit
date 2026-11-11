@@ -245,3 +245,33 @@ func TestShow_NoNameIsAttested(t *testing.T) {
 		t.Errorf("attested.json: got %v, want an empty list", attested)
 	}
 }
+
+// Everything show serves, the viewer's files and the data, is revalidated before a browser reuses
+// it, so an updated viewer or a new publish reaches a reload (SPEC §12.3).
+func TestShow_TheBrowserRevalidatesWhatItCached(t *testing.T) {
+	r := testrepo.New(t)
+	r.Use(t)
+	web := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(web, "runtime"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(web, "runtime", "kton.js"), []byte("export {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h, err := show.New(r.Config(t)).Handler(web)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts := httptest.NewServer(h)
+	t.Cleanup(ts.Close)
+	for _, path := range []string{"/runtime/kton.js", "/data/union.json", "/data/keys.json"} {
+		resp, err := http.Get(ts.URL + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK || resp.Header.Get("Cache-Control") != "no-cache" {
+			t.Errorf("%s: want 200 with Cache-Control no-cache, got %d %q", path, resp.StatusCode, resp.Header.Get("Cache-Control"))
+		}
+	}
+}
