@@ -2,7 +2,7 @@
   "name": "kton-recorder",
   "displayName": "kton recorder",
   "description": "Records where each piece of R code came from, switches recording on and off, shows each result's story step by step, and runs publish and reproduction from there.",
-  "version": "0.4.8",
+  "version": "0.4.9",
   "publisher": "kton",
   "license": "MIT",
   "engines": {
@@ -66,6 +66,10 @@
       {
         "command": "kton.reproduceFile",
         "title": "kton: Reproduce this file"
+      },
+      {
+        "command": "kton.newRun",
+        "title": "kton: New run from this folder"
       }
     ],
     "configuration": {
@@ -151,6 +155,11 @@
         {
           "command": "kton.reproduceFile",
           "group": "kton@2"
+        },
+        {
+          "command": "kton.newRun",
+          "when": "explorerResourceIsFolder",
+          "group": "kton@3"
         }
       ],
       "editor/title/context": [
@@ -174,6 +183,10 @@
         },
         {
           "command": "kton.openFile",
+          "when": "false"
+        },
+        {
+          "command": "kton.newRun",
           "when": "false"
         }
       ]

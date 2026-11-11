@@ -15,6 +15,7 @@
 //
 // It runs in the remote (WSL) extension host, where R, the logs and ktonwatch live.
 const vscode = require('vscode');
+const nr = require('./newrun');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -272,7 +273,8 @@ async function publish(repo, text) {
   const c = JSON.stringify(cockpit);
   // `cockpit claim <template> '<text>'` is ours: a say with that template, its field "value",
   // about the foton the publish before it returned (its JSON answer, kept in KTON_OUT and shown)
-  const claim = "import json,sys; o=json.loads(sys.argv[1]); print(json.dumps({'template':sys.argv[2],'subject':o['fotonId'],'fields':{'value':json.loads(sys.argv[3])}}))";
+  // a JSON object is the fields themselves (based-on names a foton, not a value)
+  const claim = "import json,sys; o=json.loads(sys.argv[1]); v=json.loads(sys.argv[3]); print(json.dumps({'template':sys.argv[2],'subject':o['fotonId'],'fields':v if isinstance(v,dict) else {'value':v}}))";
   // the lines as POSIX shell, for bash, whose quoting the publish lines are written for
   const steps = [];
   for (const line of text.split('\n')) {
@@ -638,12 +640,85 @@ function allowsTemplate(repo, name) {
   try { return (JSON.parse(fs.readFileSync(path.join(repo, 'cockpit.config.json'), 'utf8')).claims || {}).allowedTemplates.includes(name); } catch (e) { return false; }
 }
 
+// ------------------------------------------------------------------ New run (MH 11.11.)
+// Copies a run folder that holds one recorded process's files to the next free number beside it,
+// with only that process's inputs from the folder, renaming only what points at the run itself
+// (newrun.js). The copy is the run's next version: `; based_on:` names the folder copied from,
+// which the improve shim and the publish's based-on claim follow. Running it stays the person's.
+async function newRun(uri) {
+  const folder = uri && uri.fsPath;
+  let isDir = false;
+  try { isDir = fs.statSync(folder).isDirectory(); } catch (e) { /* gone */ }
+  if (!isDir) { vscode.window.showWarningMessage('kton: New run works on a run folder'); return; }
+  const repo = cockpitRepoOf(path.join(folder, '.')) || (vscode.workspace.workspaceFolders || []).map((w) => w.uri.fsPath).find((w) => folder.startsWith(w + path.sep)) || path.dirname(folder);
+  const rel = path.relative(repo, folder);
+  let files = [];
+  try { files = await getJSON(`${viewerUrl()}api/files?project=${encodeURIComponent(repo)}`, 20000); } catch (e) { /* no ktonwatch: the folder alone decides */ }
+  files = (files || []).map((f) => Object.assign({}, f, { path: path.relative(repo, f.path) }));
+  const cmds = {};
+  for (const f of files) {
+    if (f.produced_by && path.dirname(f.path) === rel) {
+      const k = f.produced_by.session + '/' + f.produced_by.task;
+      if (!(k in cmds)) {
+        const d = await getJSON(`${viewerUrl()}api/draft?session=${encodeURIComponent(f.produced_by.session)}&task=${encodeURIComponent(f.produced_by.task)}`, 10000).catch(() => null);
+        cmds[k] = (d && d.cmd) || k;
+      }
+    }
+  }
+  const p = nr.plan(rel, files, (s, t) => cmds[s + '/' + t], fs.readdirSync(folder));
+  if (!p.ok) { vscode.window.showWarningMessage(`kton: no New run from ${rel}: ${p.reason}`); return; }
+  const parentDir = path.dirname(folder), oldName = path.basename(folder);
+  const siblings = fs.readdirSync(parentDir).filter((x) => { try { return fs.statSync(path.join(parentDir, x)).isDirectory(); } catch (e) { return false; } });
+  const newName = nr.nextName(oldName, siblings);
+  if (!newName) { vscode.window.showWarningMessage(`kton: ${oldName} has no run number to count up`); return; }
+  const dest = path.join(parentDir, newName);
+  if (fs.existsSync(dest)) { vscode.window.showWarningMessage(`kton: ${path.relative(repo, dest)} exists already`); return; }
+  fs.mkdirSync(dest);
+  const changes = [];
+  let open = null;
+  for (const input of p.inputs) {
+    const src = path.join(repo, input);
+    const to = path.join(dest, nr.renameRef(path.basename(input), oldName, newName));
+    if (/\.(ctl|mod)$/i.test(input)) {
+      const r = nr.renameCtl(fs.readFileSync(src, 'utf8'), oldName, newName);
+      fs.writeFileSync(to, r.text);
+      changes.push(...r.changes);
+      open = open || to;
+    } else {
+      fs.copyFileSync(src, to);
+    }
+  }
+  const what = changes.length ? changes.join('; ') : 'nothing renamed';
+  out.appendLine(`New run ${path.relative(repo, dest)} from ${rel}${p.call ? ` (${p.call})` : ''}: ${what}`);
+  if (open) await vscode.window.showTextDocument(vscode.Uri.file(open));
+  vscode.window.showInformationMessage(`kton: ${newName} from ${oldName}. Renamed: ${what}. Edit the model, then run it as usual.`);
+}
+
+// basedOnLines: for `nmfe75 <dir>/<run>.ctl …` whose control stream says `; based_on: <parent>`, the
+// claim line naming the parent's latest published foton (by its listing's bytes, in the sibling
+// folder <parent>/<parent>.lst), or a comment why there is none.
+async function basedOnLines(repo, cmd) {
+  const f = (cmd || '').split(/\s+/);
+  if (!/^nmfe\d*$/.test(path.basename(f[0] || '')) || !f[1]) return [];
+  let text = '';
+  try { text = fs.readFileSync(path.join(repo, f[1]), 'utf8'); } catch (e) { return []; }
+  const m = text.match(/^;\s*based_on:\s*(\S+)/m);
+  if (!m || m[1] === '-') return [];
+  const parent = m[1];
+  const lst = path.join(repo, path.dirname(path.dirname(f[1])), parent, parent + '.lst');
+  const sum = await sha256File(lst);
+  const ids = sum ? await producersOf(repo, sum) : [];
+  if (!ids.length) return [`#   based-on ${parent}: not published yet; publish ${parent}'s lineage first, then this one`];
+  const id = ids[ids.length - 1];
+  return ['cockpit claim based-on ' + sq(JSON.stringify({ 'based-on': id, why: `developed from ${parent}` }))];
+}
+
 async function publishText(story, file, steps) {
   const lines = [`# Story of ${path.relative(story.repo, file.path)}`];
   // a step's description and rationale become signed claims about its foton (templates
   // "describes" and "rationale", as cockpit init writes them) where the repository allows
   // them; elsewhere they stay comments
-  const allowed = { describes: allowsTemplate(story.repo, 'describes'), rationale: allowsTemplate(story.repo, 'rationale'), note: allowsTemplate(story.repo, 'note') };
+  const allowed = { describes: allowsTemplate(story.repo, 'describes'), rationale: allowsTemplate(story.repo, 'rationale'), note: allowsTemplate(story.repo, 'note'), basedOn: allowsTemplate(story.repo, 'based-on') };
   for (const s of steps) {
     if (s.hand) { // not recorded, nothing to publish: the person's words stay with the story
       lines.push(`# ${s.sentence}`);
@@ -669,6 +744,9 @@ async function publishText(story, file, steps) {
     // what the draft says about the step itself (a sourced script that is not self-contained),
     // signed as a note where the repository allows it; the improve backend puts it on the step
     if (allowed.note) for (const x of (d.notes || []).filter((x) => x.startsWith('not self-contained'))) lines.push('cockpit claim note ' + sq(JSON.stringify(x)));
+    // a NONMEM run derived from another (`; based_on: run6`, which "New run" writes): signed as
+    // based-on the run it came from, its latest published foton
+    if (allowed.basedOn) lines.push(...(await basedOnLines(story.repo, d.cmd)));
   }
   return lines.join('\n');
 }
@@ -1023,6 +1101,7 @@ function activate(context) {
       const r = await recordedFile(uri);
       if (r) reproduce(r.project, r.file.path, r.file.sha256);
     }),
+    vscode.commands.registerCommand('kton.newRun', (uri) => newRun(uri)),
     vscode.commands.registerCommand('kton.storyFile', async (uri) => {
       const r = await recordedFile(uri);
       if (r) openStory(context, r.project, r.file);
