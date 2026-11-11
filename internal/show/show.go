@@ -131,7 +131,19 @@ func (s *Server) Handler(webDir string) (http.Handler, error) {
 		}
 		mux.Handle("/", http.FileServer(http.Dir(webDir)))
 	}
-	return mux, nil
+	return revalidate(mux), nil
+}
+
+// revalidate tells the browser to ask again before it reuses anything this server sent. The data
+// changes with every publish, and the viewer's files change when the kton-web checkout is updated;
+// without it a browser keeps the old ES modules and wasm from its cache, even through a forced
+// reload, and shows an old viewer over new data. The file server answers a revalidation from the
+// file's modification time, so an unchanged file still costs only a 304.
+func revalidate(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		w.Header().Set("Cache-Control", "no-cache")
+		h.ServeHTTP(w, req)
+	})
 }
 
 // serveKeys maps keyid -> public key, which is what lets the viewer re-verify a signature instead

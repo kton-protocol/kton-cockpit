@@ -4,6 +4,9 @@
 
 ### Fixed
 
+- **`cockpit show` marks what it serves for revalidation** (SPEC §12.3): `Cache-Control: no-cache`
+  on the viewer's files and the data. A browser kept the old kton-web viewer (ES modules, wasm)
+  after the checkout was updated, even through a forced reload. Asked by metworx.
 - **`cockpit/` builds for Windows again** (broken since the shim review fixes, PR #65:
   `syscall.O_NOFOLLOW` does not exist there, and the recorder imports `cockpit`). Opening without
   following a link is `internal/nofollow`: `O_NOFOLLOW` on unix, a link found by `Lstat` refused on
