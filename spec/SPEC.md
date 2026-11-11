@@ -330,6 +330,13 @@ the reader's trust tiers name; `ask` shows each such account.
 It is supplied per call, because a session works across many environments and no configured value
 could be right for all of them. Like the command, it is attested.
 
+The class MAY be supplied per call too (`environment`), because it belongs to the tool that ran and a
+recorder publishes for several tools; omitted, it is `environment.spectrum`. It MUST be a content hash in
+canonical form. When the cockpit runs the command itself in a repository that configures a class, a
+different one MUST be refused.
+
+> **Checked by:** `TestPublish_TheCallerNamesTheEnvironmentClass`.
+
 An `oci://` reference MUST carry a digest. A tag names whatever it points at today, so a reproduction
 committing to "that image" commits to nothing. Other forms are passed through uninterpreted.
 
@@ -450,6 +457,15 @@ consulting it (kton §9). Inferring otherwise mislabels a genuine L0 in any repo
 normalizer, which an L0 policy then rejects.
 
 If the outputs do not reproduce, **no claim is written at all.**
+
+The normaliser comes with the environment (MH 11.11.). When the call names none, the cockpit MUST offer
+the one of the reproduced run's environment class: the subject foton's `descriptor.environment` (or the
+one class all producers of the subject's output agree on), found as a spectrum in an installed package's
+latest sealed revision, matched by the hash of its manifest or its ktonpkg id computed from the manifest
+itself. Only without such a spectrum does `reproduction.normalizer` apply. The answer MUST say which
+normaliser was offered and where it came from.
+
+> **Checked by:** `TestSay_ReproducesThroughTheNormaliserOfTheRunsEnvironment`.
 
 > **Checked by:** `TestSay_ReproducesRecordsL0ForIdenticalBytes`,
 > `TestSay_ReproducesRefusesWhenTheOutputsDoNotMatch`,

@@ -67,6 +67,11 @@ type PublishRequest struct {
 	// for. plankton says as much of the command: it RECORDS it, and never runs it. Treating the
 	// command that way and the environment differently would be an inconsistency, not a safeguard.
 	EnvRef string `json:"envRef,omitempty" jsonschema:"the execution environment this ran in, digest-pinned: oci://<image>@sha256:<digest>, a nix store path, or a run-server id"`
+	// Environment names the environment class (an env-spectrum id, ADR-010) the work ran under. It is
+	// per call for the reason EnvRef is: the class belongs to the tool that ran, and one session or
+	// recorder runs several tools. Omitted, the repo's environment.spectrum is used. Like EnvRef it is
+	// attested, and it is covered: it is part of the record's identity.
+	Environment string `json:"environment,omitempty" jsonschema:"optional: the environment class (env-spectrum id, sha256:<64 hex>) the work ran under; the repo's environment.spectrum when omitted"`
 }
 
 type PublishResult struct {
@@ -175,6 +180,10 @@ func (c *Cockpit) Publish(ctx context.Context, in PublishRequest) (*PublishResul
 	envRef, envErr := resolveEnvRef(cfg, in.EnvRef)
 	if envErr != "" {
 		return nil, refuse("env-ref", "SPEC §7.5", "%s", envErr)
+	}
+	class, classErr := resolveEnvironment(cfg, in.Environment)
+	if classErr != "" {
+		return nil, refuse("environment", "SPEC §7.5", "%s", classErr)
 	}
 
 	r := binaries.New(cfg)
@@ -346,10 +355,9 @@ func (c *Cockpit) Publish(ctx context.Context, in PublishRequest) (*PublishResul
 		Cmd:     in.Cmd,
 		Located: locatedUnderBase(base, located),
 		SignKey: cfg.PlanktonKey,
-		// From the config, never from the caller: both values are COVERED, so a self-declared one
-		// would bake an unverified assertion about which environment ran into the record's own
-		// identity. See config.Environment.
-		Environment: cfg.Raw.Environment.Spectrum,
+		// Both are COVERED and both are attested, as the command is: see resolveEnvRef and
+		// resolveEnvironment for when the caller names them and when the cockpit does.
+		Environment: class,
 		EnvRef:      envRef,
 	})
 	if err != nil {
@@ -426,7 +434,7 @@ func (c *Cockpit) Publish(ctx context.Context, in PublishRequest) (*PublishResul
 		OutputHashes:   outputHashes,
 		Revision:       finalSHA,
 		Locators:       permalinks,
-		Environment:    cfg.Raw.Environment.Spectrum,
+		Environment:    class,
 		EnvRef:         envRef,
 		Persisted:      cfg.Raw.CommitEnabled(),
 		Shared:         cfg.Raw.ShareEnabled() && !shareRejected,
@@ -481,6 +489,29 @@ func resolveEnvRef(cfg *config.Config, supplied string) (envRef string, errMsg s
 		return supplied, ""
 	}
 	return cfg.Raw.Environment.EnvRef, ""
+}
+
+// resolveEnvironment decides which environment class this publish records.
+//
+// The class belongs to the tool that ran (a NONMEM run is of the NONMEM spectrum, and the
+// normaliser its reproductions are judged through comes with that spectrum), so a recorder that
+// publishes for several tools names it per call. It is attested on the terms resolveEnvRef gives.
+// When the cockpit runs the command itself in a repo that configures a class, that class is what
+// it ran under, and another is refused.
+//
+// The second return value is a non-empty error message.
+func resolveEnvironment(cfg *config.Config, supplied string) (string, string) {
+	if supplied == "" {
+		return cfg.Raw.Environment.Spectrum, ""
+	}
+	if err := config.ValidateSpectrum(supplied); err != nil {
+		return "", strings.Replace(err.Error(), "environment.spectrum", "environment", 1)
+	}
+	if conf := cfg.Raw.Environment.Spectrum; cfg.Raw.Execution.Enabled() && conf != "" && supplied != conf {
+		return "", fmt.Sprintf("environment %s was supplied, but this repo runs the command itself under "+
+			"the class %s — the cockpit records what it ran under, and will not record something else", supplied, conf)
+	}
+	return supplied, ""
 }
 
 // checkCorpusCorroboration requires every record the caller names as a basis to have been produced
