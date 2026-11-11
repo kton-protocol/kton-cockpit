@@ -31,6 +31,7 @@ var toolCmd = regexp.MustCompile(`nmfe|execute|bbi|quarto|Rscript`)
 func MakeDraft(s *Session, t *Task) Draft {
 	repo := toolcall.RepoRoot(s.Project)
 	d := Draft{Repo: repo, Cmd: draftCmd(t, repo)}
+	d.Notes = append(d.Notes, sourcedNotes(t, d.Cmd)...)
 	file := func(p string, cls Class, extra string) DraftFile {
 		r, err := filepath.Rel(repo, p)
 		if err != nil || strings.HasPrefix(r, "..") {
@@ -231,11 +232,11 @@ func draftCmd(t *Task, repo string) string {
 		case o.StartLine > 0 && !(strings.HasPrefix(strings.TrimSpace(o.Code), "source(")):
 			return rel(o.File) + ":" + itoa(o.StartLine) + "-" + itoa(o.EndLine)
 		}
-		return `source("` + rel(o.File) + `")`
+		return rscript(rel(o.File))
 	}
 	for _, s := range t.Sources {
 		if s.Class == ClassProject {
-			return `source("` + rel(s.Path) + `")`
+			return rscript(rel(s.Path))
 		}
 	}
 	if t.Expr != "" && t.ID != "tail" && !strings.HasPrefix(t.Expr, "base::") {
@@ -368,4 +369,23 @@ func viaObjects(s *Session, t *Task) []objectInput {
 		}
 	}
 	return out
+}
+
+// rscript: a sourced script is published as the call that runs it alone, `Rscript <file>`
+// from the project root (MH 11.11.): that is what a run server's R tool executes, and what
+// reproduces it. Where the console's objects went into it, the draft says so (sourcedNotes).
+func rscript(file string) string { return toolcall.ShellJoin([]string{"Rscript", file}) }
+
+// sourcedNotes: a script sourced in a console session that uses objects earlier commands left
+// is not self-contained; `Rscript` alone would not find them.
+func sourcedNotes(t *Task, cmd string) []string {
+	if !strings.HasPrefix(cmd, "Rscript ") || len(t.Uses) == 0 {
+		return nil
+	}
+	var names []string
+	for _, u := range t.Uses {
+		names = append(names, u.Name)
+	}
+	return []string{"not self-contained: the script uses " + strings.Join(names, ", ") +
+		" from earlier commands of the console session, which Rscript alone does not have"}
 }

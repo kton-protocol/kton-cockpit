@@ -32,7 +32,7 @@ func TestDraft_IsAcceptedByCockpitPublishAtTheCommandLine(t *testing.T) {
 	s := sess(t, l, nil)
 	d := MakeDraft(s, task(t, s, "1"))
 
-	if d.Repo != root || d.Cmd != `source("step.R")` {
+	if d.Repo != root || d.Cmd != "Rscript step.R" {
 		t.Fatalf("draft %+v", d)
 	}
 	req := map[string]any{"cmd": d.Cmd}
@@ -257,5 +257,22 @@ func TestDraftCmd_TheToolBeforeALineThatMentionsIt(t *testing.T) {
 	tk.Commands = tk.Commands[:2]
 	if got := draftCmd(tk, "/p"); !strings.HasPrefix(got, "/usr/bin/env bash") {
 		t.Fatalf("without the call itself, the line that mentions it: %q", got)
+	}
+}
+
+// MH 11.11.: source("script/x.R") in a console is published as `Rscript script/x.R`; a script
+// that uses the console's objects says it is not self-contained.
+func TestDraft_SourcedScriptIsAnRscriptCall(t *testing.T) {
+	dir := t.TempDir()
+	s := NewSession("x", dir, &Classifier{Project: dir})
+	t1 := &Task{ID: "1", Sources: []Source{{Path: filepath.Join(dir, "script/data-prep.R"), Class: ClassProject}}}
+	if d := MakeDraft(s, t1); d.Cmd != "Rscript script/data-prep.R" || len(d.Notes) != 0 {
+		t.Fatalf("self-contained: %q %v", d.Cmd, d.Notes)
+	}
+	t2 := &Task{ID: "2", Sources: []Source{{Path: filepath.Join(dir, "script/eda.R"), Class: ClassProject}},
+		Uses: []VarUse{{Name: "nm", Task: "1"}}}
+	d := MakeDraft(s, t2)
+	if d.Cmd != "Rscript script/eda.R" || len(d.Notes) != 1 || !strings.Contains(d.Notes[0], "not self-contained") || !strings.Contains(d.Notes[0], "nm") {
+		t.Fatalf("uses nm: %q %v", d.Cmd, d.Notes)
 	}
 }
