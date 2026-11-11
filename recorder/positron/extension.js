@@ -654,6 +654,7 @@ async function publishText(story, file, steps) {
     if (!d) continue;
     lines.push(`# ${s.where}: ${s.sentence}`);
     lines.push(...noteLines(s.note));
+    for (const n of d.notes || []) lines.push(`#   note: ${n}`); // e.g. a sourced script that is not self-contained
     const req = { inputs: (d.inputs || []).filter((f) => f.use).map((f) => f.path), outputs: (d.outputs || []).filter((f) => f.use).map((f) => f.path), cmd: d.cmd };
     if (!req.outputs.length) { // the files it wrote are not there with these bytes any more: nothing to sign
       lines.push('#   cannot be published: ' + ((d.outputs || []).map((f) => `${f.path}${f.note ? ' (' + f.note + ')' : ''}`).join(', ') || 'no output'));
