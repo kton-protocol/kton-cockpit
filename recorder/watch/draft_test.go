@@ -254,6 +254,15 @@ func TestDraftCmd_TheToolBeforeALineThatMentionsIt(t *testing.T) {
 	if got := draftCmd(tk, "/p"); got != "nmfe75 model/pk/run6/run6.ctl model/pk/run6/run6.lst" {
 		t.Fatalf("cmd %q", got)
 	}
+	// cockpit-improve v0.2.3 is dynamic: its own start is seen, then the call it writes itself
+	shim := &Task{ID: "tail", Commands: []Command{
+		{Cmdline: "bash /p/tools/nonmem/nmfe75 model/pk/run1/run1.ctl model/pk/run1/run1.lst"},
+		{Cmdline: "cockpit-improve-nmfe75 model/pk/run1/run1.ctl model/pk/run1/run1.lst"},
+		{Cmdline: "nmfe75 model/pk/run1/run1.ctl model/pk/run1/run1.lst"},
+	}}
+	if got := draftCmd(shim, "/p"); got != "nmfe75 model/pk/run1/run1.ctl model/pk/run1/run1.lst" {
+		t.Fatalf("shim: %q", got)
+	}
 	tk.Commands = tk.Commands[:2]
 	if got := draftCmd(tk, "/p"); !strings.HasPrefix(got, "/usr/bin/env bash") {
 		t.Fatalf("without the call itself, the line that mentions it: %q", got)
