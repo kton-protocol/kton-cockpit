@@ -550,3 +550,35 @@ func TestSession_APlainRunIsFiledUnderTheRepositoryItRanIn(t *testing.T) {
 		t.Errorf("ENV project: %q", s.Project)
 	}
 }
+
+// MH 11.11. (kton-theo-pmx-mh on /mnt/c): Quarto's write of report.html was seen, then pandoc (a
+// static binary) wrote the final file in the same whole second. drvfs keeps whole-second mtimes,
+// so the times could not tell the writes apart; the content does.
+func TestSession_UnseenRewriteWithinTheSameSecond(t *testing.T) {
+	dir := t.TempDir()
+	out := filepath.Join(dir, "report.html")
+	if err := os.WriteFile(out, []byte("final"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sec := time.Now().Add(-time.Minute).Truncate(time.Second)
+	if err := os.Chtimes(out, sec, sec); err != nil {
+		t.Fatal(err)
+	}
+	mt := sec.UnixNano()
+	line := func(ts int64, op, mode, extra string) string {
+		return fmt.Sprintf("%d\t100\t1\t%s\t%s\t%s\t5\t%d\t1\t%s", ts, op, mode, out, mt, extra)
+	}
+	cls := &Classifier{Project: dir, System: DefaultSystem, Temp: DefaultTemp}
+	s := NewSession("t", "/log.tsv", cls)
+	s.Line("#ktontrace v1\thash=" + dir)
+	s.Line(line(mt+1, "open", "w", "new=1"))
+	s.Line(line(mt+2, "closew", "w", "sha256=seen"))
+	s.Line(fmt.Sprintf("%d\t100\t1\tTASK\tok\t1\t0\t0\t0\trender", mt+int64(500*time.Millisecond)))
+	if len(s.Tasks) != 1 || len(s.Tasks[0].Outputs) != 1 {
+		t.Fatalf("tasks %+v", s.Tasks)
+	}
+	o := s.Tasks[0].Outputs[0]
+	if o.SHA256 != sha("final") || o.Status != "written-unseen" {
+		t.Fatalf("the bytes on disk are the output: %s %s", o.SHA256, o.Status)
+	}
+}

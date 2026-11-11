@@ -577,7 +577,10 @@ func (s *Session) finish() {
 		// after that write but before the command ended, it is the command's output; a change
 		// after the end (a hand edit) is not.
 		if at, seen := c.closeAt[p]; ok && h != "" && seen && t.End > 0 {
-			if mt, okm := fileMtime(p); okm && mt != at[1] && mt <= t.End {
+			// On a file system with whole-second times (/mnt/c, drvfs) both writes can carry the
+			// same mtime (11.11.: pandoc rewrote report.html after Quarto's seen write, in the
+			// same second); then the content decides.
+			if mt, okm := fileMtime(p); okm && (mt != at[1] || mt%1e9 == 0) && mt <= t.End {
 				if dh, dst := s.Hash(p); dh != "" && dh != h && dst != "gone" {
 					h, st = dh, "written-unseen"
 					o := FileOp{PID: lastWriter(t, p), Op: "c", Path: p, SHA256: h}
