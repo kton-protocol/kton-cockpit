@@ -2,6 +2,7 @@ package watch
 
 import (
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -72,6 +73,9 @@ func (c *Classifier) Class(p string) Class {
 	case c.Log != "" && p == c.Log:
 		return ClassSelf
 	case c.Project != "" && (p == c.Project || strings.HasPrefix(p, c.Project+"/")):
+		if projectEnv(p) {
+			return ClassEnv
+		}
 		return ClassProject
 	}
 	for _, t := range c.Temp {
@@ -110,3 +114,12 @@ func (c *Classifier) Rel(p string) string {
 	}
 	return p
 }
+
+// projectEnv: files in the project that are environment, not data. R reads its startup files
+// (.Renviron, .Rprofile, .RData) before the first command, and in a Positron console they would
+// land in its first step; tools read git's own files (.git/info/exclude, 11.11.).
+func projectEnv(p string) bool {
+	return rStartup.MatchString(filepath.Base(p)) || strings.Contains(p, "/.git/")
+}
+
+var rStartup = regexp.MustCompile(`^(\.Renviron.*|\.Rprofile|\.RData|\.Rhistory)$`)

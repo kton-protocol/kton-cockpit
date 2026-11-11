@@ -222,7 +222,8 @@ async function ensureService() {
   const exe = bin('ktonwatch');
   if (!fs.existsSync(exe)) { vscode.window.showErrorMessage(`kton: ${exe} is missing (recorder/install.sh)`); return false; }
   // detached: the service outlives this window; the next one finds it running
-  const p = spawn(exe, ['serve'], { detached: true, stdio: 'ignore' });
+  // only what had data in the last three days: all of the logs can take gigabytes (11.11.)
+  const p = spawn(exe, ['serve', '-max-age', '72h'], { detached: true, stdio: 'ignore' });
   p.unref();
   out.appendLine(`ktonwatch serve started (pid ${p.pid})`);
   for (let i = 0; i < 20; i++) {
