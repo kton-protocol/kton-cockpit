@@ -550,3 +550,37 @@ func TestSession_APlainRunIsFiledUnderTheRepositoryItRanIn(t *testing.T) {
 		t.Errorf("ENV project: %q", s.Project)
 	}
 }
+
+// MH 11.11. (kton-theo-pmx-mh on /mnt/c): Quarto's write of report.html was seen; pandoc, a static
+// binary the step started, wrote the final file 68 ms after the console's end marker. A program the
+// shim cannot see gets a short grace after the step's end; without one, a later change stays a hand edit.
+func TestSession_UnseenRewriteJustAfterTheEnd(t *testing.T) {
+	for _, withSpawn := range []bool{true, false} {
+		dir := t.TempDir()
+		out := filepath.Join(dir, "report.html")
+		os.WriteFile(out, []byte("final"), 0o644)
+		end := time.Now().Add(-time.Minute)
+		after := end.Add(68 * time.Millisecond)
+		os.Chtimes(out, after, after)
+		seenMt := end.Add(-800 * time.Millisecond).UnixNano()
+		line := func(ts int64, op, mode, path, extra string) string {
+			return fmt.Sprintf("%d\t100\t1\t%s\t%s\t%s\t5\t%d\t1\t%s", ts, op, mode, path, seenMt, extra)
+		}
+		cls := &Classifier{Project: dir, System: DefaultSystem, Temp: DefaultTemp}
+		s := NewSession("t", "/log.tsv", cls)
+		s.Line("#ktontrace v1\thash=" + dir)
+		if withSpawn {
+			s.Line(line(seenMt, "spawn", "q", "/opt/quarto/bin/tools/x86_64/pandoc", "argv=pandoc"))
+		}
+		s.Line(line(seenMt+1, "open", "w", out, "new=1"))
+		s.Line(line(seenMt+2, "closew", "w", out, "sha256=seen"))
+		s.Line(fmt.Sprintf("%d\t100\t1\tTASK\tok\t1\t0\t0\t0\trender", end.UnixNano()))
+		o := s.Tasks[0].Outputs[0]
+		if withSpawn && (o.SHA256 != sha("final") || o.Status != "written-unseen") {
+			t.Fatalf("with an unseen program the bytes on disk are the output: %s %s", o.SHA256, o.Status)
+		}
+		if !withSpawn && o.SHA256 != "seen" {
+			t.Fatalf("without one, a change after the end is not the step's: %s", o.SHA256)
+		}
+	}
+}
