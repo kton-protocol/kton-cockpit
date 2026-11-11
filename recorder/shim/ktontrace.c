@@ -375,13 +375,27 @@ __attribute__((constructor)) static void kton_init(void) {
      * environment so children log into the same file (one log per kernel, not per process) */
     char expanded[4096];
     const char *pp = strstr(p, "%p");
+    log_fd = -1;
     if (pp) {
-        snprintf(expanded, sizeof expanded, "%.*s%d%s", (int)(pp - p), p, (int)getpid(), pp + 2);
+        /* a new file: pids repeat after a reboot, and appending to an old session's log
+         * would merge the two (11.11.: gof.R run2 landed in an October session). The first
+         * free name of <pid>, <pid>-2, <pid>-3 … */
+        for (int n = 1; n < 1000 && log_fd < 0; n++) {
+            if (n == 1)
+                snprintf(expanded, sizeof expanded, "%.*s%d%s", (int)(pp - p), p, (int)getpid(), pp + 2);
+            else
+                snprintf(expanded, sizeof expanded, "%.*s%d-%d%s", (int)(pp - p), p, (int)getpid(), n, pp + 2);
+            log_fd = (int)syscall(SYS_openat, AT_FDCWD, expanded,
+                                  O_WRONLY | O_APPEND | O_CREAT | O_EXCL | O_CLOEXEC, 0644);
+            if (log_fd < 0 && errno != EEXIST) break;
+        }
+        if (log_fd < 0) return;
         setenv("KTON_TRACE_LOG", expanded, 1);
         p = expanded;
+    } else {
+        log_fd = (int)syscall(SYS_openat, AT_FDCWD, p,
+                              O_WRONLY | O_APPEND | O_CREAT | O_CLOEXEC, 0644);
     }
-    log_fd = (int)syscall(SYS_openat, AT_FDCWD, p,
-                          O_WRONLY | O_APPEND | O_CREAT | O_CLOEXEC, 0644);
     if (log_fd < 0) return;
     {
         const char *slash = strrchr(p, '/');

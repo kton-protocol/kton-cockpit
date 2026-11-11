@@ -6,9 +6,11 @@ package shim_test
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -411,5 +413,41 @@ func TestShim_TheIPythonStartupFile(t *testing.T) {
 	cmd.Env = append(os.Environ(), "KTON_TRACE_LOG=", "LD_PRELOAD=")
 	if out, err := cmd.CombinedOutput(); err != nil || len(out) > 0 {
 		t.Fatalf("outside the shim it must do nothing and say nothing: %v %s", err, out)
+	}
+}
+
+// After a reboot pids repeat: an old log with the same name stays the old session's, and the
+// new process writes <pid>-2 (11.11.: a step was appended to an October session's log).
+func TestShim_PidLogNameTakenGetsANewFile(t *testing.T) {
+	build(t)
+	dir := t.TempDir()
+	b, err := os.ReadFile("/proc/sys/kernel/ns_last_pid")
+	if err != nil {
+		t.Skip("no ns_last_pid")
+	}
+	last, _ := strconv.Atoi(strings.TrimSpace(string(b)))
+	for p := last + 1; p <= last+300; p++ {
+		if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("r-%d.tsv", p)), []byte("old\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cmd := exec.Command("/bin/sh", "-c", "cat /dev/null")
+	cmd.Env = append(os.Environ(), "LD_PRELOAD="+built.lib, "KTON_TRACE_LOG="+filepath.Join(dir, "r-%p.tsv"), "KTON_TRACE_HASH="+dir)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	pid := cmd.ProcessState.Pid()
+	if pid > last+300 {
+		t.Skipf("pid %d past the prepared names", pid)
+	}
+	if old, _ := os.ReadFile(filepath.Join(dir, fmt.Sprintf("r-%d.tsv", pid))); string(old) != "old\n" {
+		t.Fatalf("the old log was written to:\n%s", old)
+	}
+	nb, err := os.ReadFile(filepath.Join(dir, fmt.Sprintf("r-%d-2.tsv", pid)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(string(nb), "\texec\t"); n != 2 {
+		t.Fatalf("want sh and cat in the new log, %d exec lines:\n%s", n, nb)
 	}
 }
