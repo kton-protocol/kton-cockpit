@@ -116,7 +116,20 @@ func usedNames(code string) map[string]bool {
 		}
 	}
 	used, local := map[string]bool{}, map[string]bool{}
+	// a name assigned in a statement is the code's own from the next statement on: R evaluates
+	// the right-hand side first, so `sd <- sd[sd$DV > 0, ]` uses the earlier sd
+	var pending []string
+	last := 0
 	for _, m := range rIdent.FindAllStringIndex(code, -1) {
+		if strings.ContainsAny(code[last:m[0]], "\n;") {
+			for _, n := range pending {
+				if !used[n] {
+					local[n] = true
+				}
+			}
+			pending = pending[:0]
+		}
+		last = m[1]
 		if m[0] > 0 {
 			if p := code[m[0]-1]; p == '$' || p == '@' || p == ':' {
 				continue
@@ -133,9 +146,7 @@ func usedNames(code string) map[string]bool {
 			continue // a call
 		case strings.HasPrefix(rest, "<-") || strings.HasPrefix(rest, "<<-") || strings.HasSuffix(before, "->"),
 			strings.HasPrefix(rest, "=") && !strings.HasPrefix(rest, "==") && depth[m[0]] == 0:
-			if !used[name] {
-				local[name] = true // assigned before any read: the code's own
-			}
+			pending = append(pending, name) // assigned before any read: the code's own, after this statement
 			continue
 		case strings.HasPrefix(rest, "=") && !strings.HasPrefix(rest, "=="):
 			continue // a named argument
