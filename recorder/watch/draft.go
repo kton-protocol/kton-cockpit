@@ -35,6 +35,7 @@ func MakeDraft(s *Session, t *Task) Draft {
 	repo := toolcall.RepoRoot(s.Project)
 	d := Draft{Repo: repo, Cmd: draftCmd(t, repo)}
 	d.Notes = append(d.Notes, sourcedNotes(t, d.Cmd)...)
+	tool := toolScopeOf(t, d.Cmd)
 	file := func(p string, cls Class, extra string) DraftFile {
 		r, err := filepath.Rel(repo, p)
 		if err != nil || strings.HasPrefix(r, "..") {
@@ -46,6 +47,9 @@ func MakeDraft(s *Session, t *Task) Draft {
 	for _, in := range t.Inputs {
 		if in.SHA256 == EmptySHA256 {
 			continue
+		}
+		if tool != nil && !tool.reads(in) {
+			continue // the scripts that started the tool, not what the tool read
 		}
 		note := ""
 		if in.Status == "changed-outside" {
@@ -399,4 +403,80 @@ func sourcedNotes(t *Task, cmd string) []string {
 	}
 	return []string{"not self-contained: the script uses " + strings.Join(names, ", ") +
 		" from earlier commands of the console session, which Rscript alone does not have"}
+}
+
+// toolScope: a draft whose command is a tool's own call (`nmfe75 run1.ctl run1.lst`) names what
+// that call read: the files its process and the processes it started read, without the scripts a
+// shell ran on the way there (run-model.sh, the nmfe75 wrapper). The improve shim publishes the
+// same run with exactly those inputs (11.11.); any other input would make a second foton.
+type toolScope struct {
+	pids    map[int]bool
+	scripts map[string]bool
+}
+
+func toolScopeOf(t *Task, cmd string) *toolScope {
+	var root *Command
+	for i, c := range t.Commands {
+		if c.Cmdline == cmd {
+			if f := toolcall.SplitCmdline(c.Cmdline); len(f) > 0 && toolProgram.MatchString(filepath.Base(f[0])) && filepath.Base(f[0]) != "Rscript" {
+				root = &t.Commands[i]
+				break
+			}
+		}
+	}
+	if root == nil {
+		return nil
+	}
+	sc := &toolScope{pids: map[int]bool{root.PID: true}, scripts: map[string]bool{}}
+	for changed := true; changed; {
+		changed = false
+		for p, pp := range t.Parents {
+			if sc.pids[pp] && !sc.pids[p] {
+				sc.pids[p], changed = true, true
+			}
+		}
+	}
+	for _, c := range t.Commands {
+		f := toolcall.SplitCmdline(c.Cmdline)
+		if len(f) < 2 || !sc.pids[c.PID] {
+			continue
+		}
+		// the script a shell runs is its first operand (`bash run.sh args`, `env bash run.sh args`)
+		words := f[1:]
+		if filepath.Base(f[0]) == "env" {
+			for len(words) > 0 && (strings.HasPrefix(words[0], "-") || strings.Contains(words[0], "=")) {
+				words = words[1:]
+			}
+			if len(words) == 0 || !isShell(words[0]) {
+				continue
+			}
+			words = words[1:]
+		} else if !isShell(f[0]) {
+			continue
+		}
+		for _, w := range words {
+			if strings.HasPrefix(w, "-") {
+				continue
+			}
+			sc.scripts[w] = true
+			if c.Cwd != "" && !filepath.IsAbs(w) {
+				sc.scripts[filepath.Join(c.Cwd, w)] = true
+			}
+			break
+		}
+	}
+	return sc
+}
+
+func (sc *toolScope) reads(in *Input) bool {
+	return sc.pids[in.PID] && !sc.scripts[in.Path]
+}
+
+// isShell: a program name that runs a script given as its first operand.
+func isShell(prog string) bool {
+	switch filepath.Base(prog) {
+	case "bash", "sh", "dash", "zsh", "ksh":
+		return true
+	}
+	return false
 }
