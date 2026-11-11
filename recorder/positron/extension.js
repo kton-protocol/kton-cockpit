@@ -1074,6 +1074,41 @@ async function openInBrowser() {
 
 // ------------------------------------------------------------------ activation
 let extContext; // for what opens a story from outside one (the viewer's actions)
+// ------------------------------------------------------------------ the improve sign-in for terminals
+// What runs in a terminal (the nmfe75 shim: NONMEM in improve) acts as the person signed in with
+// the improve extension, not as a test account (kunden 11.11.). A session's access token lives five
+// minutes and the extension hands out no refresh token, so the current one is kept in a file in
+// the user's runtime directory (tmpfs: memory, never disk), mode 0600, refreshed every minute and
+// on every change of the sign-in, and removed when the window closes. New terminals get its path as
+// IMPROVE_ACCESS_TOKEN_FILE; the reader takes the token from it whenever it needs one.
+function tokenFilePath() {
+  const run = process.env.XDG_RUNTIME_DIR || `/run/user/${process.getuid ? process.getuid() : 0}`;
+  return path.join(run, 'kton', 'improve-access-token.json');
+}
+function startTerminalToken(context) {
+  const file = tokenFilePath();
+  const drop = () => { try { fs.unlinkSync(file); } catch (e) { /* not there */ } };
+  const write = async () => {
+    let s;
+    try { s = await vscode.authentication.getSession('improve-auth', [], { silent: true }); } catch (e) { s = undefined; }
+    if (!s || !s.accessToken) { drop(); return; }
+    try {
+      fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+      const tmp = `${file}.${process.pid}.tmp`;
+      fs.writeFileSync(tmp, JSON.stringify({ accessToken: s.accessToken, account: (s.account && s.account.label) || '', at: new Date().toISOString() }), { mode: 0o600 });
+      fs.renameSync(tmp, file);
+    } catch (e) { out.appendLine(`improve token for terminals: ${e.message}`); }
+  };
+  context.environmentVariableCollection.replace('IMPROVE_ACCESS_TOKEN_FILE', file);
+  write();
+  const every = setInterval(write, 60000);
+  context.subscriptions.push(
+    { dispose: () => { clearInterval(every); drop(); } },
+    vscode.authentication.onDidChangeSessions((e) => { if (e.provider && e.provider.id === 'improve-auth') write(); }),
+  );
+  return { file, write };
+}
+
 function activate(context) {
   extContext = context;
   out = vscode.window.createOutputChannel('kton');
@@ -1082,6 +1117,7 @@ function activate(context) {
   showStatus(); status.show();
   const sync = setInterval(showStatus, 3000); // another window may have switched it
   context.subscriptions.push(out, status, { dispose: () => clearInterval(sync) });
+  startTerminalToken(context);
   doctor = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 99);
   doctor.command = 'kton.doctor';
   const cfgWatch = vscode.workspace.createFileSystemWatcher('**/{cockpit.config.json,keys/*,registry/keys/*,templates/*}');
@@ -1128,4 +1164,4 @@ function activate(context) {
 }
 
 function deactivate() {}
-module.exports = { activate, deactivate, _test: { listenUI, findBytes, copyIntoProject, ktonIntent, parseDoctor, parseDoctorJSON, cockpitRepoOf, reproduce, publishedSteps, publishText, Tree, setOut: (o) => { out = o; } } };
+module.exports = { activate, deactivate, _test: { startTerminalToken, tokenFilePath, listenUI, findBytes, copyIntoProject, ktonIntent, parseDoctor, parseDoctorJSON, cockpitRepoOf, reproduce, publishedSteps, publishText, Tree, setOut: (o) => { out = o; } } };
