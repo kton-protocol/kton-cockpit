@@ -199,3 +199,33 @@ func TestCallDraft_OneNmfeCallIsPublishedOnItsOwn(t *testing.T) {
 		t.Fatalf("cockpit publish %s exited %d:\n%s", b, code, out)
 	}
 }
+
+// metworx, 11.11.: `d <- nm_join(mod)` reads the tables and writes nothing; `p <- ggplot(d)`;
+// `ggsave("fig.png", p)` reads nothing itself. The figure's draft names the tables, reached
+// through p and d, so its foton keeps the lineage.
+func TestDraft_FilesReachedThroughObjectsAreInputs(t *testing.T) {
+	dir := t.TempDir()
+	in := func(name, h string) *Input {
+		return &Input{Path: filepath.Join(dir, name), SHA256: sha(h), Class: ClassProject}
+	}
+	s := NewSession("x", dir, &Classifier{Project: dir})
+	t1 := &Task{ID: "1", Inputs: []*Input{in("106.tab", "tab"), in("pk.csv", "pk")}}
+	t2 := &Task{ID: "2", Inputs: []*Input{in("theme.R", "th")}, Uses: []VarUse{{Name: "d", Task: "1"}}}
+	t3 := &Task{ID: "3", Uses: []VarUse{{Name: "p", Task: "2"}},
+		Inputs:  []*Input{in("pk.csv", "pk")},
+		Outputs: []*Output{{Path: filepath.Join(dir, "fig.png"), SHA256: sha("png"), Class: ClassProject}}}
+	other := &Task{ID: "4", Inputs: []*Input{in("unrelated.csv", "u")}}
+	s.Tasks = []*Task{t1, t2, t3, other}
+	d := MakeDraft(s, t3)
+	var got []string
+	for _, f := range d.Inputs {
+		got = append(got, f.Path+"|"+f.Note)
+		if !f.Use {
+			t.Fatalf("%s should be preselected", f.Path)
+		}
+	}
+	want := []string{"pk.csv|", "theme.R|read by command 2 for p", "106.tab|read by command 1 for p"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("inputs %v, want %v", got, want)
+	}
+}
