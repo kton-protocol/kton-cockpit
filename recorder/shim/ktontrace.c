@@ -368,6 +368,40 @@ static int exists_at(int dirfd, const char *p) {
 /* ------------------------------------------------------------------ */
 /* setup: open log, record the exec of this process image              */
 
+/* self_start_ns: when this process started (wall clock, ns; tick resolution), from
+ * /proc/self/stat field 22 and the boot time in /proc/stat; 0 if unknown. An exec keeps it. */
+static long long read_small(const char *path, char *buf, size_t n) {
+    int fd = (int)syscall(SYS_openat, AT_FDCWD, path, O_RDONLY | O_CLOEXEC, 0);
+    if (fd < 0) return -1;
+    long long got = 0, r;
+    while (got < (long long)n - 1 && (r = syscall(SYS_read, fd, buf + got, n - 1 - got)) > 0) got += r;
+    syscall(SYS_close, fd);
+    buf[got > 0 ? got : 0] = 0;
+    return got;
+}
+
+static long long self_start_ns(void) {
+    char st[1024], ps[8192];
+    if (read_small("/proc/self/stat", st, sizeof st) <= 0) return 0;
+    const char *p = strrchr(st, ')');
+    if (!p) return 0;
+    int field = 2; /* p sits at the end of field 2 */
+    unsigned long long ticks = 0;
+    for (p++; *p; p++) {
+        if (*p == ' ') {
+            field++;
+            if (field == 22) { ticks = strtoull(p + 1, NULL, 10); break; }
+        }
+    }
+    if (!ticks || read_small("/proc/stat", ps, sizeof ps) <= 0) return 0;
+    const char *b = strstr(ps, "\nbtime ");
+    if (!b) return 0;
+    long long boot = strtoll(b + 7, NULL, 10);
+    long hz = sysconf(_SC_CLK_TCK);
+    if (boot <= 0 || hz <= 0) return 0;
+    return boot * 1000000000LL + (long long)(ticks * (1000000000ULL / (unsigned long long)hz));
+}
+
 __attribute__((constructor)) static void kton_init(void) {
     const char *p = getenv("KTON_TRACE_LOG");
     if (!p || !*p) return;
@@ -388,6 +422,17 @@ __attribute__((constructor)) static void kton_init(void) {
             log_fd = (int)syscall(SYS_openat, AT_FDCWD, expanded,
                                   O_WRONLY | O_APPEND | O_CREAT | O_EXCL | O_CLOEXEC, 0644);
             if (log_fd < 0 && errno != EEXIST) break;
+            if (log_fd < 0) {
+                /* taken: by this very process before an exec (bash running its last command,
+                 * Rscript -> R keep the pid, and bash hands %p on unexpanded), which wrote it
+                 * after this process started; or by an older process with the same pid, which
+                 * last wrote it before. Only the first is ours to continue. */
+                struct stat ost;
+                long long started = self_start_ns();
+                if (started > 0 && syscall(SYS_newfstatat, AT_FDCWD, expanded, &ost, 0) == 0 &&
+                    (long long)ost.st_mtim.tv_sec * 1000000000LL + ost.st_mtim.tv_nsec >= started)
+                    log_fd = (int)syscall(SYS_openat, AT_FDCWD, expanded, O_WRONLY | O_APPEND | O_CLOEXEC, 0644);
+            }
         }
         if (log_fd < 0) return;
         setenv("KTON_TRACE_LOG", expanded, 1);

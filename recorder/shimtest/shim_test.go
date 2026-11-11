@@ -427,7 +427,12 @@ func TestShim_PidLogNameTakenGetsANewFile(t *testing.T) {
 	}
 	last, _ := strconv.Atoi(strings.TrimSpace(string(b)))
 	for p := last + 1; p <= last+300; p++ {
-		if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("r-%d.tsv", p)), []byte("old\n"), 0o644); err != nil {
+		old := filepath.Join(dir, fmt.Sprintf("r-%d.tsv", p))
+		if err := os.WriteFile(old, []byte("old\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		hour := time.Now().Add(-time.Hour) // an older process's log: last written before this one started
+		if err := os.Chtimes(old, hour, hour); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -449,5 +454,25 @@ func TestShim_PidLogNameTakenGetsANewFile(t *testing.T) {
 	}
 	if n := strings.Count(string(nb), "\texec\t"); n != 2 {
 		t.Fatalf("want sh and cat in the new log, %d exec lines:\n%s", n, nb)
+	}
+}
+
+// bash hands %p on unexpanded and runs its last command by exec, keeping its pid: the shim
+// starts again in the same process and must continue its own log, not open <pid>-2.
+func TestShim_ExecChainKeepsOneLog(t *testing.T) {
+	build(t)
+	dir := t.TempDir()
+	cmd := exec.Command("/bin/bash", "-c", "cat /dev/null")
+	cmd.Env = append(os.Environ(), "LD_PRELOAD="+built.lib, "KTON_TRACE_LOG="+filepath.Join(dir, "r-%p.tsv"), "KTON_TRACE_HASH="+dir)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	logs, _ := filepath.Glob(filepath.Join(dir, "r-*.tsv"))
+	if len(logs) != 1 {
+		t.Fatalf("want one log for bash and the cat it exec'd, got %v", logs)
+	}
+	b, _ := os.ReadFile(logs[0])
+	if n := strings.Count(string(b), "\texec\t"); n != 2 {
+		t.Fatalf("want bash and cat in the same log, %d exec lines:\n%s", n, b)
 	}
 }
