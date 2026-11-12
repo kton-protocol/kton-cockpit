@@ -134,7 +134,7 @@ func serve(args []string) {
 	fs.Parse(args)
 
 	sv := &watch.Service{
-		Dir: *dir, Store: *store, Idle: *idle, Exited: *exited, MaxAge: *maxAge, Web: *web,
+		Dir: *dir, Store: *store, Idle: *idle, Exited: *exited, MaxAge: *maxAge, OldEvery: 30 * time.Second, Web: *web,
 		NewClassifier: func() *watch.Classifier { return classifier("", *env) },
 		Logf:          log.Printf,
 	}

@@ -144,3 +144,27 @@ func TestOwnLogName(t *testing.T) {
 		}
 	}
 }
+
+// 12.11.: a log MaxAge left out is stat'ed again only every OldEvery, not on every poll.
+func TestService_OldLogsAreLookedAtOnlyEveryOldEvery(t *testing.T) {
+	dir := t.TempDir()
+	l := filepath.Join(dir, "old.tsv")
+	os.WriteFile(l, []byte("#ktontrace v1\thash=/p\n"), 0o644)
+	at := time.Now().Add(-48 * time.Hour)
+	os.Chtimes(l, at, at)
+	sv := &Service{Dir: dir, Store: t.TempDir(), Idle: time.Minute, MaxAge: 24 * time.Hour, OldEvery: time.Minute,
+		NewClassifier: func() *Classifier { return &Classifier{} }}
+	now := time.Now()
+	sv.Poll(now)
+	f, _ := os.OpenFile(l, os.O_APPEND|os.O_WRONLY, 0)
+	f.WriteString("9\t100\t1\topen\tr\t/p/a\t0\t0\t0\tsha256=a\n")
+	f.Close()
+	sv.Poll(now.Add(time.Second))
+	if sv.sessions["old"] != nil {
+		t.Fatalf("looked at again within OldEvery")
+	}
+	sv.Poll(now.Add(2 * time.Minute))
+	if sv.sessions["old"] == nil {
+		t.Fatalf("a left-out log that grew is read after OldEvery")
+	}
+}
