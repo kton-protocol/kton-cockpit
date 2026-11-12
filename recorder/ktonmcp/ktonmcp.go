@@ -433,7 +433,7 @@ type NoteOut struct {
 	Was  *watch.Note `json:"was,omitempty"`
 }
 
-func (t *tools) note(_ context.Context, in NoteIn) (*NoteOut, error) {
+func (t *tools) note(ctx context.Context, in NoteIn) (*NoteOut, error) {
 	if t.sv.Notes == nil {
 		return nil, fmt.Errorf("no note store (ktonwatch has no -store)")
 	}
@@ -453,6 +453,13 @@ func (t *tools) note(_ context.Context, in NoteIn) (*NoteOut, error) {
 		}
 	}
 	was := t.noteOf(in.Key)
+	// a step already in kton is locked, as in the story: its words change there (Publish says them), not
+	// as an assistant's draft (MH 12.11.). The check is the panel's own, asked in the person's window.
+	if strings.TrimSpace(in.Description) != "" || strings.TrimSpace(in.Rationale) != "" {
+		if err := t.notLocked(ctx, in.Key); err != nil {
+			return nil, err
+		}
+	}
 	n := watch.Note{Description: strings.TrimSpace(in.Description), Rationale: strings.TrimSpace(in.Rationale), By: "claude"}
 	if err := t.sv.Notes.Put(in.Key, n); err != nil {
 		return nil, err
@@ -460,6 +467,28 @@ func (t *tools) note(_ context.Context, in NoteIn) (*NoteOut, error) {
 	got, _ := t.sv.Notes.Get(in.Key)
 	t.notesChanged()
 	return &NoteOut{Key: in.Key, Note: got, Was: was}, nil
+}
+
+// notLocked: nil when the step may get a draft; an error saying why not when it is in kton already, or
+// when no window can tell
+func (t *tools) notLocked(ctx context.Context, key string) error {
+	if t.sv.UI == nil {
+		return fmt.Errorf("%s: cannot check whether the step is in kton (no editor); open Positron with the kton recorder", key)
+	}
+	cctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	a, err := t.sv.UI.Do(cctx, "step_in_kton", map[string]any{"key": key})
+	if err != nil {
+		return fmt.Errorf("%s: cannot check whether the step is in kton (%v); no draft written", key, err)
+	}
+	if in, _ := a.Data["in_kton"].(bool); in {
+		return fmt.Errorf("%s is already in kton: its description and rationale are locked for drafts. "+
+			"The person changes them in the story (type the words there, then Publish says them)", key)
+	}
+	if !a.OK {
+		return fmt.Errorf("%s: cannot check whether the step is in kton (%s); no draft written", key, a.Message)
+	}
+	return nil
 }
 
 // notesChanged: the open stories show the new drafts at once (MH 12.11.); a window that does not answer

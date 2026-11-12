@@ -135,6 +135,13 @@ func TestTools_ProjectsRunsAndANoteRoundTrip(t *testing.T) {
 	if e := errText(call(t, cs, "kton_note", map[string]any{"key": "positron-1/9", "description": "x"}, nil)); !strings.Contains(e, "no recorded step") {
 		t.Fatalf("a note on a step that does not exist: %q", e)
 	}
+	// without a window that can tell whether the step is in kton, no draft
+	if e := errText(call(t, cs, "kton_note", map[string]any{"key": "positron-1/1", "description": "x"}, nil)); !strings.Contains(e, "cannot check whether the step is in kton") {
+		t.Fatalf("no window: %q", e)
+	}
+	fakeEditor(t, sv, func(ev watch.UIEvent) watch.UIAnswer {
+		return watch.UIAnswer{OK: true, Data: map[string]any{"in_kton": false}}
+	})
 	var n NoteOut
 	call(t, cs, "kton_note", map[string]any{"key": "positron-1/1", "description": "Prepares the PK data.", "rationale": "Dose in mg for the population model."}, &n)
 	if n.Note.By != "claude" || n.Note.Description != "Prepares the PK data." || n.Was != nil {
@@ -423,6 +430,9 @@ func TestEditorTools_CurrentStoryAndRefreshAfterANote(t *testing.T) {
 		if ev.Action == "current_story" {
 			return watch.UIAnswer{OK: true, Message: "open", Data: map[string]any{"path": "/p/derived/fit.csv", "focus": "s1/2", "steps": []any{map[string]any{"key": "s1/2"}}}}
 		}
+		if ev.Action == "step_in_kton" { // the panel's check: positron-1/2 is published
+			return watch.UIAnswer{OK: true, Data: map[string]any{"in_kton": ev.Args["key"] == "positron-1/2"}}
+		}
 		return watch.UIAnswer{OK: true, Message: "refreshed"}
 	})
 	var out EditorOut
@@ -433,6 +443,9 @@ func TestEditorTools_CurrentStoryAndRefreshAfterANote(t *testing.T) {
 	key := "positron-1/1"
 	var note NoteOut
 	call(t, cs, "kton_note", map[string]any{"key": key, "description": "d", "rationale": "r"}, &note)
+	if ev := <-got; ev.Action != "step_in_kton" {
+		t.Fatalf("kton_note asks the window first: %+v", ev)
+	}
 	select {
 	case ev := <-got:
 		if ev.Action != "notes_changed" {
@@ -440,5 +453,10 @@ func TestEditorTools_CurrentStoryAndRefreshAfterANote(t *testing.T) {
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatalf("no notes_changed after kton_note")
+	}
+	// MH 12.11.: a step already in kton is locked for drafts, as in the story
+	e := errText(call(t, cs, "kton_note", map[string]any{"key": "positron-1/2", "description": "x"}, nil))
+	if !strings.Contains(e, "already in kton") {
+		t.Fatalf("a published step: %q", e)
 	}
 }
