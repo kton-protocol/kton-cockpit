@@ -203,10 +203,11 @@
       const bad = (x.outputs || []).filter((o) => !o.same);
       const why = x.state === "differs" && x.becauseOf && [].concat(x.becauseOf).length && !x.differsOwn
         ? `<div class="muted">because ${[].concat(x.becauseOf).map((b) => esc(typeof b === "string" ? b : (b.call || b.step || ""))).join(", ")} differed upstream</div>`
-        : x.state === "differs" && x.differsOwn ? `<div class="warn">differs here, its inputs were the same: this is where it began</div>` : "";
+        : x.state === "differs" ? `<div class="warn">differs here, its inputs were the same: this is where it began</div>` : "";
+      const ofv = x.ofv ? `<div class="${x.ofv.same ? "muted" : "warn"}">OFV ${x.ofv.same ? "the same" : "differs"}: ${esc(x.ofv.recorded || "")}${x.ofv.same ? "" : " → " + esc(x.ofv.reproduced || "")}</div>` : "";
       const outs = bad.length ? `<div class="muted">${bad.map((o) => esc(o.path) + (o.reproduced ? "" : " (not produced)")).join(", ")}</div>`
         : (x.outputs || []).length ? `<div class="muted">${esc([...new Set((x.outputs || []).map((o) => how[o.how] || "same bytes"))].join(", "))}</div>` : "";
-      return `<tr class="${esc(x.state || "")}"><td>${icon[x.state] || "·"}</td><td><code>${esc(x.call || "")}</code>${why}${outs}${x.detail ? `<div class="muted">${esc(x.detail)}</div>` : ""}</td>
+      return `<tr class="${esc(x.state || "")}"><td>${icon[x.state] || "·"}</td><td><code>${esc(x.call || "")}</code>${why}${ofv}${outs}${x.detail ? `<div class="muted">${esc(x.detail)}</div>` : ""}</td>
         <td>${link(x.step)}</td><td>${link(x.original)}</td></tr>`;
     };
     return `<section class="wfrepro">
@@ -330,7 +331,7 @@
       busy = null;
       result = m.cancelled ? null : m.ok
         ? {ok: true, text: m.text || (m.what === "publish" ? (m.inTerminal ? "Publishing runs in the terminal; the story updates when it is done" : m.nothing ? "Nothing to publish" : "Published") : "Reproduced")}
-        : {ok: false, text: (m.what === "publish" ? "Publish stopped: " : "Reproduce failed: ") + (m.error || "see the terminal")};
+        : {ok: false, text: m.what === "reproduce-workflow" && m.text ? m.text : (m.what === "publish" ? "Publish stopped: " : "Reproduce failed: ") + (m.error || "see the terminal")};
       render();
     }
   });

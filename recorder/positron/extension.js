@@ -911,9 +911,11 @@ async function openStory(context, project, file) {
       try { r = await reproduceWorkflow(story.repo, file.path, (pr) => w.postMessage({ type: 'busy', what: 'reproduce', text: pr.text })); }
       catch (e) { r = { ok: false, error: e.message }; }
       finally { busy = null; }
+      // a run with failed steps ends with exit 2 and still has its result: the story shows it, as a warning
       const sum = r.result && r.result.summary;
-      w.postMessage({ type: 'done', what: 'reproduce-workflow', ok: !!r.ok, cancelled: r.cancelled, error: r.error,
-        text: sum ? `Reproduced in improve (tree ${r.result.tree}): ${sum.reproduces || 0} reproduce, ${sum.differs || 0} differ, ${sum.failed || 0} failed` : '' });
+      const text = sum ? `Reproduced in improve (tree ${r.result.tree}): ${sum.reproduces || 0} reproduce, ${sum.differs || 0} differ, ${sum.failed || 0} failed` : '';
+      w.postMessage({ type: 'done', what: 'reproduce-workflow', cancelled: r.cancelled,
+        ok: sum ? !sum.failed : !!r.ok, error: sum ? text : r.error, text });
       send();
     }
     else if (m.type === 'reproduce') { // the result belongs in the story
@@ -1322,6 +1324,7 @@ async function reproduceWorkflow(repo, target, onProgress = () => {}) {
   if (result && !result.steps) result.steps = events.filter((e2) => e2.event === 'step');
   if (result) { result.tree = result.tree || tree; result.target = result.target || (which.all ? '' : rel); }
   const refused = events.find((e2) => e2.event === 'error');
+  if (result && Array.isArray(result.steps) && result.steps.length && end.code === 2 && !refused) end.code = 1; // some steps failed: a result all the same
   return { ok: end.code === 0 || end.code === 1, code: end.code,
     error: end.error || (refused && (refused.message || refused.code)) || (end.code === 2 ? 'could not run (see the terminal "kton reproduce (improve)")' : ''), result };
 }
