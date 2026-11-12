@@ -77,6 +77,9 @@ function renameCtl(text, oldName, newName) {
 // model written, never run) qualifies when it holds exactly one control stream.
 // Returns {ok, reason, inputs: [repo-relative paths], call}.
 function plan(folderRel, files, cmdOf, listing) {
+  // the folder as it is now: versions whose bytes are on disk (now 'same'); a run done again leaves its
+  // earlier versions in the recording, and they wrote here too, but they are not what the folder holds
+  files = files.filter((f) => !f.now || f.now === 'same');
   const inFolder = (p) => path.dirname(p) === folderRel;
   const key = (r) => r.session + '/' + r.task;
   const writers = new Map();
