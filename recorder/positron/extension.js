@@ -903,6 +903,15 @@ async function openStory(context, project, file) {
   w.onDidReceiveMessage(async (m) => {
     if (m.type === 'ready') send();
     else if (m.type === 'note') putNote(m.key, m.note).catch((e) => vscode.window.showWarningMessage(`kton: the note was not kept: ${e.message}`));
+    else if ((m.type === 'compareFinding' || m.type === 'acceptFinding' || m.type === 'investigateFinding') && story) {
+      const r = workflowReproductions(story.repo, path.relative(story.repo, file.path)).find((x) => x.tree === m.tree);
+      const st = r && (r.steps || []).find((x) => x.i === m.i);
+      const o = st && (st.outputs || []).find((x) => x.path === m.path);
+      if (!o) return;
+      if (m.type === 'compareFinding') await compareFinding(context, story.repo, r, st, o);
+      else if (m.type === 'acceptFinding') { if (await acceptFinding(story.repo, r, st, o)) send(); }
+      else { writeDecision(story.repo, r.tree, `${st.i}:${o.path}`, { decision: 'investigate', path: o.path, call: st.call, at: new Date().toISOString() }); await compareFinding(context, story.repo, r, st, o); send(); }
+    }
     else if (m.type === 'reproduceWorkflow' && story) {
       if (busy) return;
       busy = 'reproduce';
@@ -1328,16 +1337,99 @@ async function reproduceWorkflow(repo, target, onProgress = () => {}) {
   return { ok: end.code === 0 || end.code === 1, code: end.code,
     error: end.error || (refused && (refused.message || refused.code)) || (end.code === 2 ? 'could not run (see the terminal "kton reproduce (improve)")' : ''), result };
 }
+// ------------------------------------------------------------------ a reproduction's findings
+// MH 12.11.: a 'differs' is a finding, not a failure. The person sees both versions (images side by side
+// with a pixel-diff overlay, text and tables in the diff editor) and decides per finding: accept it as an
+// environment difference with a reason (a note about the step, and kept beside the result), or
+// investigate. The recorded bytes come from the recorder's content store (or a file with those bytes);
+// the reproduced ones from the result (reproducedPath, written by cockpit-improve).
+const decisionsFile = (repo, tree) => path.join(reproDir(repo), `${tree}.decisions.json`);
+function readDecisions(repo, tree) {
+  try { return JSON.parse(fs.readFileSync(decisionsFile(repo, tree), 'utf8')) || {}; } catch (e) { return {}; }
+}
+function writeDecision(repo, tree, key, d) {
+  const all = readDecisions(repo, tree);
+  all[key] = d;
+  fs.mkdirSync(reproDir(repo), { recursive: true });
+  fs.writeFileSync(decisionsFile(repo, tree), JSON.stringify(all, null, 2) + '\n');
+  return all;
+}
+const bare = (h) => String(h || '').replace(/^sha256:/, '');
+const isImage = (p) => /\.(png|jpe?g|gif|svg|webp)$/i.test(p);
+async function findingFiles(repo, o) {
+  const rec = bare(o.recorded) ? await findBytes(repo, bare(o.recorded)) : null;
+  const repFile = o.reproducedPath ? path.resolve(repo, o.reproducedPath) : null;
+  return { recorded: rec && rec.file, reproduced: repFile && fs.existsSync(repFile) ? repFile : null };
+}
+// compareFinding: both versions of one differing output, side by side
+async function compareFinding(context, repo, r, step, o) {
+  const f = await findingFiles(repo, o);
+  const miss = [!f.recorded && 'the recorded bytes are not on this machine', !f.reproduced && "improve's reproduced bytes are not here yet (no reproducedPath)"].filter(Boolean);
+  if (miss.length) { vscode.window.showWarningMessage(`kton: cannot compare ${o.path}: ${miss.join('; ')}`); return; }
+  const title = `${path.basename(o.path)}: recorded ↔ reproduced (${r.tree})`;
+  if (!isImage(o.path)) { // text, tables, NONMEM listings: the diff editor
+    await vscode.commands.executeCommand('vscode.diff', vscode.Uri.file(f.recorded), vscode.Uri.file(f.reproduced), title);
+    return;
+  }
+  const p = vscode.window.createWebviewPanel('ktonFinding', title, vscode.ViewColumn.Beside,
+    { enableScripts: true, localResourceRoots: [vscode.Uri.file(path.dirname(f.recorded)), vscode.Uri.file(path.dirname(f.reproduced))] });
+  const w = p.webview, nonce = crypto.randomBytes(16).toString('hex');
+  const env = step.environment || {};
+  const envLine = (e) => (e ? Object.entries(e).map(([k, v]) => `${k} ${v}`).join(', ') : 'not known');
+  const esc = (x) => String(x).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  w.html = `<!doctype html><html><head><meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${w.cspSource}; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';">
+<style>body{font-family:var(--vscode-font-family);color:var(--vscode-foreground);padding:8px}.row{display:flex;gap:12px}.col{flex:1;min-width:0}
+img,canvas{max-width:100%;border:1px solid var(--vscode-panel-border,#8884)}.muted{opacity:.7;font-size:.9em}h3{margin:4px 0}</style></head><body>
+<h3>${esc(o.path)}</h3><div class="muted">${esc(step.call || '')} · tree ${esc(r.tree)}</div>
+<div class="row"><div class="col"><b>recorded</b><div class="muted">${esc(envLine(env.recorded))}</div><img id="a" src="${w.asWebviewUri(vscode.Uri.file(f.recorded))}"></div>
+<div class="col"><b>reproduced in improve</b><div class="muted">${esc(envLine(env.reproduced))}</div><img id="b" src="${w.asWebviewUri(vscode.Uri.file(f.reproduced))}"></div></div>
+<p><label><input type="checkbox" id="ov"> pixel difference</label> <span id="stat" class="muted"></span></p><canvas id="d" style="display:none"></canvas>
+<script nonce="${nonce}">
+const a=document.getElementById('a'), b=document.getElementById('b'), d=document.getElementById('d'), stat=document.getElementById('stat');
+function diff(){ if(!a.complete||!b.complete) return;
+  const W=Math.max(a.naturalWidth,b.naturalWidth), H=Math.max(a.naturalHeight,b.naturalHeight); d.width=W; d.height=H;
+  const c=d.getContext('2d'), t=document.createElement('canvas'); t.width=W; t.height=H; const tc=t.getContext('2d');
+  c.drawImage(a,0,0); const A=c.getImageData(0,0,W,H); tc.drawImage(b,0,0); const B=tc.getImageData(0,0,W,H);
+  let n=0; for(let i=0;i<A.data.length;i+=4){ const dd=Math.abs(A.data[i]-B.data[i])+Math.abs(A.data[i+1]-B.data[i+1])+Math.abs(A.data[i+2]-B.data[i+2]);
+    if(dd>0){ n++; A.data[i]=255;A.data[i+1]=0;A.data[i+2]=0;A.data[i+3]=255; } else { A.data[i+3]=60; } }
+  c.putImageData(A,0,0);
+  stat.textContent = (a.naturalWidth!==b.naturalWidth||a.naturalHeight!==b.naturalHeight ? 'sizes differ: '+a.naturalWidth+'×'+a.naturalHeight+' vs '+b.naturalWidth+'×'+b.naturalHeight+'; ' : '') + n+' of '+(W*H)+' pixels differ ('+(100*n/(W*H)).toFixed(2)+' %)'; }
+a.onload=b.onload=diff; diff();
+document.getElementById('ov').onchange=(e)=>{ d.style.display=e.target.checked?'block':'none'; };
+</script></body></html>`;
+}
+// acceptFinding: the person accepts a difference as one of the environment, with a reason; a note about
+// the reproduced step (else the original), signed by the cockpit where the repository allows notes
+async function acceptFinding(repo, r, step, o) {
+  const reason = await vscode.window.showInputBox({ title: `kton: accept the difference in ${o.path}`,
+    prompt: 'Why is this difference acceptable? (e.g. R 4.4 in improve vs 4.3 locally: anti-aliasing of the plot)', validateInput: (v) => (v.trim() ? null : 'a reason, please') });
+  if (!reason) return null;
+  const d = { decision: 'accepted', reason: reason.trim(), path: o.path, call: step.call, at: new Date().toISOString() };
+  const subject = (step.step && step.step.foton) || (step.original && step.original.foton);
+  if (subject && allowsTemplate(repo, 'note')) {
+    const env = await cockpitEnv(repo, false);
+    const text = `Reproduce ${r.tree}: ${o.path} differs; accepted as an environment difference: ${d.reason}`;
+    const said = await new Promise((resolve) => execFile(bin('cockpit'), ['say', JSON.stringify({ template: 'note', subject, fields: { value: text } })], { cwd: repo, env, timeout: 120000 },
+      (err, stdout, stderr) => resolve(err ? { error: (String(stderr).trim().split('\n').pop() || err.message) } : { ok: true })));
+    if (said.ok) d.note = { subject, text }; else d.noteError = said.error;
+  } else d.noteError = subject ? 'the repository does not allow the template note' : 'no foton to say it about';
+  writeDecision(repo, r.tree, `${step.i}:${o.path}`, d);
+  if (d.noteError) vscode.window.showWarningMessage(`kton: accepted and kept beside the result, but not said: ${d.noteError}`);
+  return d;
+}
+
 // workflowReproductions: the reproductions kept for this file (its lineage) or for everything, newest first
 function workflowReproductions(repo, rel) {
   let names = [];
-  try { names = fs.readdirSync(reproDir(repo)).filter((n) => n.endsWith('.json')); } catch (e) { return []; }
+  try { names = fs.readdirSync(reproDir(repo)).filter((n) => n.endsWith('.json') && !n.endsWith('.decisions.json')); } catch (e) { return []; }
   const out = [];
   for (const n of names) {
     try {
       const r = JSON.parse(fs.readFileSync(path.join(reproDir(repo), n), 'utf8'));
       if (!r || !Array.isArray(r.steps)) continue; // a single-foton report of `reproduce <file>`, not a workflow
       r.tree = r.tree || n.replace(/\.json$/, '');
+      r.decisions = readDecisions(repo, r.tree);
       if (!r.target || r.target === rel || r.all) out.push({ r, at: fs.statSync(path.join(reproDir(repo), n)).mtimeMs });
     } catch (e) { /* not ours */ }
   }
@@ -1461,4 +1553,4 @@ function activate(context) {
 }
 
 function deactivate() {}
-module.exports = { activate, deactivate, _test: { planFor, askImproveAccess, startTerminalToken, tokenFilePath, listenUI, findBytes, copyIntoProject, ktonIntent, parseDoctor, parseDoctorJSON, cockpitRepoOf, reproduce, publishedSteps, publishText, Tree, reproduceWorkflow, workflowReproductions, jsonLines, setOut: (o) => { out = o; } } };
+module.exports = { activate, deactivate, _test: { planFor, askImproveAccess, startTerminalToken, tokenFilePath, listenUI, findBytes, copyIntoProject, ktonIntent, parseDoctor, parseDoctorJSON, cockpitRepoOf, reproduce, publishedSteps, publishText, Tree, reproduceWorkflow, workflowReproductions, jsonLines, acceptFinding, findingFiles, readDecisions, setOut: (o) => { out = o; } } };

@@ -84,3 +84,6 @@ details.gaps summary { cursor: pointer; color: var(--vscode-descriptionForegroun
 .wfrepro tr.differs td:first-child { color: var(--vscode-charts-orange, #d18616); }
 .wfrepro tr.failed td:first-child { color: var(--vscode-errorForeground, #f14c4c); }
 .wfrepro tr.reproduces td:first-child { color: var(--vscode-charts-green, #89d185); }
+
+.wfrepro .finding { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin: 2px 0; font-size: 0.95em; }
+.wfrepro button.small { padding: 0 6px; font-size: 0.85em; }

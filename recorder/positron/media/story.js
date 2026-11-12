@@ -205,7 +205,18 @@
         ? `<div class="muted">because ${[].concat(x.becauseOf).map((b) => esc(typeof b === "string" ? b : (b.call || b.step || ""))).join(", ")} differed upstream</div>`
         : x.state === "differs" ? `<div class="warn">differs here, its inputs were the same: this is where it began</div>` : "";
       const ofv = x.ofv ? `<div class="${x.ofv.same ? "muted" : "warn"}">OFV ${x.ofv.same ? "the same" : "differs"}: ${esc(x.ofv.recorded || "")}${x.ofv.same ? "" : " → " + esc(x.ofv.reproduced || "")}</div>` : "";
-      const outs = bad.length ? `<div class="muted">${bad.map((o) => esc(o.path) + (o.reproduced ? "" : " (not produced)")).join(", ")}</div>`
+      // a difference is a finding: both versions, and the person's decision (MH 12.11.)
+      const dec = (o) => (r.decisions || {})[`${x.i}:${o.path}`];
+      const finding = (o) => {
+        const d = dec(o);
+        const btn = (t, label, title) => `<button class="secondary small" data-f="${t}" data-tree="${esc(r.tree)}" data-i="${x.i}" data-path="${esc(o.path)}" title="${esc(title)}">${label}</button>`;
+        return `<div class="finding"><span>${esc(o.path)}${o.reproduced ? "" : " (not produced)"}</span>
+          ${btn("compareFinding", "Compare", "both versions side by side")}
+          ${d && d.decision === "accepted" ? `<span class="ok" title="${esc(d.at || "")}">✓ accepted: ${esc(d.reason)}${d.note ? "" : " <span class=\"muted\">(kept here; not said)</span>"}</span>`
+            : `${btn("acceptFinding", "Accept…", "accept it as an environment difference, with your reason (a note about the step)")}
+               ${d && d.decision === "investigate" ? `<span class="warn">investigating</span>` : btn("investigateFinding", "Investigate", "mark it to look into, and compare")}`}</div>`;
+      };
+      const outs = bad.length ? bad.map(finding).join("")
         : (x.outputs || []).length ? `<div class="muted">${esc([...new Set((x.outputs || []).map((o) => how[o.how] || "same bytes"))].join(", "))}</div>` : "";
       return `<tr class="${esc(x.state || "")}"><td>${icon[x.state] || "·"}</td><td><code>${esc(x.call || "")}</code>${why}${ofv}${outs}${x.detail ? `<div class="muted">${esc(x.detail)}</div>` : ""}</td>
         <td>${link(x.step)}</td><td>${link(x.original)}</td></tr>`;
@@ -288,6 +299,8 @@
         clearTimeout(n._t); n._t = setTimeout(() => vscode.postMessage({type: "note", key: n.dataset.k, note: notes[n.dataset.k]}), 400);
       };
     }
+    for (const b of document.querySelectorAll("button[data-f]")) b.onclick = () =>
+      vscode.postMessage({type: b.dataset.f, tree: b.dataset.tree, i: Number(b.dataset.i), path: b.dataset.path});
     const ri = document.getElementById("reproimp");
     if (ri) ri.onclick = () => {
       if (busy) return; // already running: a second click does nothing
