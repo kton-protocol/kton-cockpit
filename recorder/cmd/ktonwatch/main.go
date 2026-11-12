@@ -170,9 +170,51 @@ func serve(args []string) {
 	mux.Handle("/", sv.Handler())
 	srv := &http.Server{Addr: *listen, Handler: mux}
 	go func() { <-ctx.Done(); srv.Close() }()
+	// a new ktonwatch installed over this one: start it in this process (MH 12.11.: after an install the
+	// old server kept running and answered 'unknown action' for what the new extension asked)
+	replaced := make(chan string, 1)
+	go watchOwnBinary(replaced, func() { srv.Close() })
 	log.Printf("ktonwatch: logs %s, observations %s, viewer http://%s/", *dir, *store, *listen)
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatal(err)
+	}
+	select {
+	case exe := <-replaced:
+		log.Printf("ktonwatch: %s was replaced; starting the new one with the same arguments", exe)
+		if err := restartAs(exe); err != nil {
+			log.Fatalf("ktonwatch: could not start the new binary: %v", err)
+		}
+	default:
+	}
+}
+
+// watchOwnBinary: the executable this process was started from, looked at every 15 s; when another
+// file stands there (an install puts a new one in place by rename), and it has not changed for a few
+// seconds, stop serving and hand its path on.
+func watchOwnBinary(replaced chan<- string, stop func()) {
+	exe, err := os.Executable()
+	if err != nil {
+		return
+	}
+	if r, err := filepath.EvalSymlinks(exe); err == nil {
+		exe = r
+	}
+	first, err := os.Stat(exe)
+	if err != nil {
+		return
+	}
+	for range time.Tick(15 * time.Second) {
+		now, err := os.Stat(exe)
+		if err != nil || os.SameFile(first, now) || now.Mode()&0o111 == 0 {
+			continue
+		}
+		time.Sleep(3 * time.Second) // let the install finish writing
+		if again, err := os.Stat(exe); err != nil || again.Size() != now.Size() || !again.ModTime().Equal(now.ModTime()) {
+			continue
+		}
+		replaced <- exe
+		stop()
+		return
 	}
 }
 
