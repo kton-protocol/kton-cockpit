@@ -15,11 +15,11 @@ func TestClass_PackageLibraryIsEnvironment(t *testing.T) {
 	os.MkdirAll(filepath.Join(home, "data"), 0o755)
 	c := &Classifier{Project: filepath.Join(home, "proj"), System: DefaultSystem, Temp: DefaultTemp}
 	for p, want := range map[string]Class{
-		filepath.Join(lib, "ggplot2", "Meta", "package.rds"): ClassEnv,
-		filepath.Join(lib, "ggplot2", "R", "ggplot2.rdb"):    ClassEnv,
+		filepath.Join(lib, "ggplot2", "Meta", "package.rds"):                                 ClassEnv,
+		filepath.Join(lib, "ggplot2", "R", "ggplot2.rdb"):                                    ClassEnv,
 		filepath.Join(home, ".venv", "lib", "python3.12", "site-packages", "pandas", "x.py"): ClassEnv,
-		filepath.Join(home, "data", "delivery.csv"):         ClassOutside, // a real input outside the project stays one
-		filepath.Join(home, "proj", "script", "gof.R"):      ClassProject,
+		filepath.Join(home, "data", "delivery.csv"):                                          ClassOutside, // a real input outside the project stays one
+		filepath.Join(home, "proj", "script", "gof.R"):                                       ClassProject,
 	} {
 		if got := c.Class(p); got != want {
 			t.Errorf("%s: %s, want %s", p, got, want)
