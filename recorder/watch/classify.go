@@ -1,9 +1,11 @@
 package watch
 
 import (
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 )
 
 // Class says where a path belongs.
@@ -93,7 +95,36 @@ func (c *Classifier) Class(p string) Class {
 			return ClassSystem
 		}
 	}
+	if inPackageLibrary(p) {
+		return ClassEnv
+	}
 	return ClassOutside
+}
+
+// inPackageLibrary: a file of an installed package, wherever its library is (MH 12.11., mh4: GOF run in a
+// terminal listed ~/R/merge-demo-lib/ggplot2/Meta/package.rds and 125 more as inputs; an Rscript has no
+// ktonrec to name .libPaths()). An R package is a directory with Meta/package.rds; Python's packages
+// live under site-packages or dist-packages. The answer per package directory is cached.
+var pkgDirs sync.Map // directory → bool
+
+func inPackageLibrary(p string) bool {
+	if strings.Contains(p, "/site-packages/") || strings.Contains(p, "/dist-packages/") {
+		return true
+	}
+	for d := filepath.Dir(p); d != "/" && d != "." && d != ""; d = filepath.Dir(d) {
+		if v, ok := pkgDirs.Load(d); ok {
+			if v.(bool) {
+				return true
+			}
+			continue
+		}
+		_, err := os.Stat(filepath.Join(d, "Meta", "package.rds"))
+		pkgDirs.Store(d, err == nil)
+		if err == nil {
+			return true
+		}
+	}
+	return false
 }
 
 // AddEnv adds environment prefixes, e.g. from an ENV line a session wrote.
