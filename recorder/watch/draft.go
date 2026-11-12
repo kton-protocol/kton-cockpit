@@ -253,16 +253,22 @@ func draftCmd(t *Task, repo string) string {
 	// `/usr/bin/env bash …/nmfe75 run1.ctl run1.lst`, the call is `nmfe75 run1.ctl run1.lst`
 	// (a stand-in that writes its own lines, like the improve nmfe75 shim's wrapper, 11.11.)
 	// a program that is the tool (nmfe75) before one that only carries it in its name
-	// (cockpit-improve-nmfe75, the improve shim, which then writes `nmfe75 …` itself)
-	for _, exact := range []bool{true, false} {
-		for _, c := range t.Commands {
-			f := toolcall.SplitCmdline(c.Cmdline)
-			if len(f) == 0 {
-				continue
-			}
-			if base := filepath.Base(f[0]); exact && toolProgram.MatchString(base) || !exact && toolCmd.MatchString(base) {
-				return c.Cmdline
-			}
+	// (cockpit-improve-nmfe75, the improve shim, which then writes `nmfe75 …` itself); of the
+	// programs that are the tool, the innermost: `tools/nonmem/nmfe75 run1.ctl` typed by the person
+	// runs the wrapper, which hands over to the shim, whose own line `nmfe75 run1.ctl run1.lst` is
+	// the call it published (12.11.: the short form made every run look unpublished)
+	exact := ""
+	for _, c := range t.Commands {
+		if f := toolcall.SplitCmdline(c.Cmdline); len(f) > 0 && toolProgram.MatchString(filepath.Base(f[0])) {
+			exact = c.Cmdline
+		}
+	}
+	if exact != "" {
+		return exact
+	}
+	for _, c := range t.Commands {
+		if f := toolcall.SplitCmdline(c.Cmdline); len(f) > 0 && toolCmd.MatchString(filepath.Base(f[0])) {
+			return c.Cmdline
 		}
 	}
 	for _, c := range t.Commands {

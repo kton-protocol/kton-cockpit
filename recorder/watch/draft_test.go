@@ -263,6 +263,17 @@ func TestDraftCmd_TheToolBeforeALineThatMentionsIt(t *testing.T) {
 	if got := draftCmd(shim, "/p"); got != "nmfe75 model/pk/run1/run1.ctl model/pk/run1/run1.lst" {
 		t.Fatalf("shim: %q", got)
 	}
+	// the short form typed by the person: the wrapper is a program named nmfe75 too; the shim's
+	// own line, innermost, is the call
+	short := &Task{ID: "tail", Commands: []Command{
+		{Cmdline: "tools/nonmem/nmfe75 model/pk/run1/run1.ctl"},
+		{Cmdline: "/usr/bin/env bash tools/nonmem/nmfe75 model/pk/run1/run1.ctl"},
+		{Cmdline: "cockpit-improve-nmfe75 model/pk/run1/run1.ctl"},
+		{Cmdline: "nmfe75 model/pk/run1/run1.ctl model/pk/run1/run1.lst"},
+	}}
+	if got := draftCmd(short, "/p"); got != "nmfe75 model/pk/run1/run1.ctl model/pk/run1/run1.lst" {
+		t.Fatalf("short form: %q", got)
+	}
 	tk.Commands = tk.Commands[:2]
 	if got := draftCmd(tk, "/p"); !strings.HasPrefix(got, "/usr/bin/env bash") {
 		t.Fatalf("without the call itself, the line that mentions it: %q", got)
