@@ -819,3 +819,7 @@ func isDigits(x string) bool {
 // unseenGrace: how long after a step's end a write by a program the shim could not see (a static
 // binary the step started) still counts as the step's.
 const unseenGrace = int64(2e9)
+
+// Console: the session is a console that marks its executions (ktonrec in R or Python), not a
+// terminal or a script run.
+func (s *Session) Console() bool { return s.owner != 0 }

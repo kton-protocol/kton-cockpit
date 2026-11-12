@@ -242,3 +242,31 @@ func TestAttachOrigins_AScriptGoesToTheStepThatSourcedIt(t *testing.T) {
 		}
 	}
 }
+
+// mh3, 12.11.: NONMEM ran in a terminal while the R console sourced eda.R; the terminal's task gets no
+// console origin, and its draft stays the shim's call
+func TestOriginsFor_ATerminalGetsNoConsoleExecutions(t *testing.T) {
+	ors := []Origin{{TS: 30, Kind: "script", File: "/p/script/eda.R", Code: `source("script/eda.R", echo = TRUE)`, Language: "r"}}
+	term := NewSession("terminal-1", "/log.tsv", &Classifier{System: DefaultSystem, Temp: DefaultTemp, Project: "/p"})
+	term.Line("#ktontrace v3\thash=/p")
+	term.Line("10\t300\t1\texec\tq\t/p\t0\t0\t0\tnmfe75 model/pk/run3/run3.ctl model/pk/run3/run3.lst")
+	term.Line("50\t300\t1\texit\t-\t-\t0\t0\t0\t0")
+	if term.Console() || OriginsFor(term, ors) != nil {
+		t.Fatalf("a terminal is no console")
+	}
+	AttachOrigins(term.Tasks, OriginsFor(term, ors))
+	for _, tk := range term.Tasks {
+		if len(tk.Origins) != 0 {
+			t.Fatalf("terminal task got %+v", tk.Origins)
+		}
+		if got := draftCmd(tk, "/p"); got != "nmfe75 model/pk/run3/run3.ctl model/pk/run3/run3.lst" {
+			t.Fatalf("draft %q", got)
+		}
+	}
+	con := NewSession("positron-1", "/log.tsv", &Classifier{System: DefaultSystem, Temp: DefaultTemp, Project: "/p"})
+	con.Line("#ktontrace v3\thash=/p")
+	con.Line("20\t200\t0\tTASK\tok\t1\t0\t0\t0\tsource(\"script/eda.R\")")
+	if !con.Console() || len(OriginsFor(con, ors)) != 1 {
+		t.Fatalf("a console keeps its executions")
+	}
+}

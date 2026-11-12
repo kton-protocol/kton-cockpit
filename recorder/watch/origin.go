@@ -107,6 +107,17 @@ func originLanguage(l string) (string, bool) {
 	return "", false
 }
 
+// OriginsFor: the console executions a session's tasks may get. Only a console has them: a session
+// with markers (ktonrec in R or Python). A terminal session has none, and an R console's source()
+// sent while NONMEM ran in a terminal is not that run's code (12.11., mh3: the run3 task got
+// source("script/eda.R") and was drafted as `Rscript script/eda.R`).
+func OriginsFor(s *Session, origins []Origin) []Origin {
+	if !s.Console() {
+		return nil
+	}
+	return OriginsIn(origins, s.Language)
+}
+
 // OriginsIn keeps the executions of one language: a session's tasks get only its own console's.
 func OriginsIn(origins []Origin, lang string) []Origin {
 	if lang == "" {
