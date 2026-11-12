@@ -290,7 +290,70 @@ func storyOf(tasks []*Task, project, path, sum string) *Story {
 		}
 	}
 	sort.SliceStable(st.Steps, func(i, j int) bool { return st.Steps[i].When < st.Steps[j].When })
+	st.Steps = flowOrder(st.Steps)
 	return st
+}
+
+// flowOrder: a step that wrote bytes another step read comes before it, whatever the clock says; time
+// orders the rest. WSL's clock can step back by seconds (12.11., mh3 dry run: render-report.R stamped
+// 1.4 s before the model-table.R it read), and Publish follows the story's order: a reader published
+// before its producer gets its input as a file, not as a link to the producer's step.
+func flowOrder(steps []StoryStep) []StoryStep {
+	// the same path and bytes: run8, a copy of run6's model, writes sdtab8 with sdtab6's bytes, and is
+	// no producer of what GOF run6 read
+	writer := map[string][]int{}
+	for i, s := range steps {
+		for k, p := range s.Writes {
+			if k < len(s.Hashes) {
+				writer[p+"\x00"+s.Hashes[k]] = append(writer[p+"\x00"+s.Hashes[k]], i)
+			}
+		}
+	}
+	before := make([]map[int]bool, len(steps)) // before[i]: the steps that must come before i
+	for i, s := range steps {
+		before[i] = map[int]bool{}
+		for _, p := range s.Reads {
+			for _, h := range s.InHashes {
+				for _, j := range writer[p+"\x00"+h] {
+					if j != i {
+						before[i][j] = true
+					}
+				}
+			}
+		}
+	}
+	out := make([]StoryStep, 0, len(steps))
+	done := make([]bool, len(steps))
+	for len(out) < len(steps) {
+		next := -1
+		for i := range steps { // the earliest step whose producers are all placed
+			if done[i] {
+				continue
+			}
+			ready := true
+			for j := range before[i] {
+				if !done[j] {
+					ready = false
+					break
+				}
+			}
+			if ready {
+				next = i
+				break
+			}
+		}
+		if next < 0 { // a cycle (the same bytes written by two steps that read each other's): by time
+			for i := range steps {
+				if !done[i] {
+					next = i
+					break
+				}
+			}
+		}
+		done[next] = true
+		out = append(out, steps[next])
+	}
+	return out
 }
 
 // writerBefore: the last step before `until` that wrote path, and the bytes it left
