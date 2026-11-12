@@ -365,6 +365,10 @@ function openFile(path, sha) { picked = {path, sha}; setTab("files"); }
 // The observations in kton-web's graph form (/kton/graph.json), drawn and navigated by kton-web's
 // viewer unchanged. Reloaded only when the project or the focus changes, so its navigation stays.
 let kwebSrc = "";
+// MH 12.11. (internal demo): kton-web's pmx view (kton-web d9fb22c): steps named by their descriptions,
+// the model tree, marks, rationale notes, shared files only, one participant per identity; recorded-only
+// steps hidden behind its own switch in the stats line, and without a focus it starts on the lineage of
+// the step most work leads to
 function renderKtonWeb() {
   $("filters").style.display = "none";
   if (!cfg.web) {
@@ -384,6 +388,7 @@ function renderKtonWeb() {
     : `/web/viewers/graph/?union=${enc(`/kton/reg/${reg}/data/union.json`)}&graph=${enc(g)}`;
   if (reg && focusHash) src += `&focus=${enc("sha256:" + focusHash)}&mode=anc`;
   else if (focusNode) src += `&focus=${enc(focusNode)}&mode=anc`;
+  src += `&view=pmx`;
   if (src === kwebSrc && $("kweb")) return;
   kwebSrc = src;
   $("view").innerHTML = `<div class="bar" style="padding-top:0"><span class="h">kton-web graph · ${reg ? "recorded and signed together: signed records are verified here, recorded steps without a record stay unsigned" : "steps are fotons (unverified: none of it is signed), source files are sources"}.</span>
