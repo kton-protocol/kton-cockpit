@@ -68,10 +68,17 @@ func (sv *Service) linkAcross(s *Session, tasks []*Task) {
 				continue
 			}
 			var best *produced
-			for i, p := range idx[in.Path+"\x00"+in.SHA256] {
+			cands := idx[in.Path+"\x00"+in.SHA256]
+			for i, p := range cands {
 				if p.end <= start {
-					best = &idx[in.Path+"\x00"+in.SHA256][i]
+					best = &cands[i]
 				}
+			}
+			// only writers stamped after the read: the clock stepped back (WSL, 12.11.: render-report.R
+			// stamped 1.4 s before the model-table.R whose bytes it read). The same path and bytes name
+			// the producer anyway; the earliest of them.
+			if best == nil && len(cands) > 0 {
+				best = &cands[0]
 			}
 			if best != nil {
 				in.From = []Ref{best.ref}
