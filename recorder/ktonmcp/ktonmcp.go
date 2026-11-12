@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -64,12 +65,45 @@ func Server(sv *watch.Service, version string) *mcp.Server {
 	addTour(s)
 	mcp.AddTool(s, &mcp.Tool{Name: "kton_note", Description: "Draft the description and the rationale of a recorded step (key \"session/task\" from kton_runs or kton_story). A draft only: the person sees it in the story, can change it, and signs it when publishing. Empty description and rationale remove the draft."},
 		mcpsurface.Handler(t.note))
+	s.AddReceivingMiddleware(logCalls)
 	return s
+}
+
+// logCalls writes every tool call to ktonwatch's log: which tool, how long, and the error if it failed
+// (MH 12.11.: Claude in Positron got an MCP error that left no trace here)
+func logCalls(next mcp.MethodHandler) mcp.MethodHandler {
+	return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+		t0 := time.Now()
+		res, err := next(ctx, method, req)
+		name := method
+		if p, ok := req.GetParams().(*mcp.CallToolParamsRaw); ok && p != nil {
+			name += " " + p.Name
+		}
+		switch {
+		case err != nil:
+			log.Printf("mcp: %s failed after %s: %v", name, time.Since(t0).Round(time.Millisecond), err)
+		case method == "tools/call":
+			msg := ""
+			if r, ok := res.(*mcp.CallToolResult); ok && r != nil && r.IsError {
+				for _, c := range r.Content {
+					if tc, ok := c.(*mcp.TextContent); ok {
+						msg = ": " + tc.Text
+					}
+				}
+				log.Printf("mcp: %s returned an error after %s%s", name, time.Since(t0).Round(time.Millisecond), msg)
+			} else {
+				log.Printf("mcp: %s ok in %s", name, time.Since(t0).Round(time.Millisecond))
+			}
+		}
+		return res, err
+	}
 }
 
 // Handler serves the MCP server over streamable HTTP, for requests that carry the token.
 func Handler(s *mcp.Server, token string) http.Handler {
-	h := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return s }, nil)
+	// stateless: a client that connected before ktonwatch restarted keeps working instead of getting
+	// 'session not found' (MH 12.11., mh4); no tool asks the client anything back
+	h := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return s }, &mcp.StreamableHTTPOptions{Stateless: true})
 	want := []byte("Bearer " + token)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// a loopback port is open to every process and every web page on the machine
