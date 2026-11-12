@@ -387,11 +387,31 @@ func (s *Session) connect(t *Task, e Event) {
 	if rc == "" { // old format "rc=-1 errno=115"
 		fmt.Sscanf(e.Extra, "rc=%s errno=%s", &rc, &errno)
 	}
-	t.Network = append(t.Network, Net{PID: e.PID, Address: e.Path, Class: class, OK: rc == "0" || errno == "115"})
+	t.Network = append(t.Network, Net{PID: e.PID, Address: e.Path, Class: class, OK: rc == "0" || errno == "115", ts: e.TS})
+}
+
+// arkBackground: Positron's R kernel (ark) fetches a package's sources from CRAN into its own cache
+// (~/.cache/oak/source/…, for source references) in the background, from the console's own process,
+// while a command runs (mh3, 12.11.: '⚠ connection to inet:137.208.57.37:443' on data-prep.R, which never
+// touches the network). The same process writing into that cache within a few seconds after a remote
+// connection shows whose it was: the session's, not the step's.
+const arkBackgroundWindow = 5_000_000_000
+
+func arkBackground(t *Task, e Event) {
+	if !strings.Contains(e.Path, "/.cache/oak/") || (e.Mode != "w" && e.Mode != "rw") {
+		return
+	}
+	for i := len(t.Network) - 1; i >= 0; i-- {
+		n := &t.Network[i]
+		if n.PID == e.PID && n.Class == "remote" && n.ts <= e.TS && e.TS-n.ts <= arkBackgroundWindow {
+			n.Class, n.Why = "background", "Positron's R kernel fetching package sources into ~/.cache/oak"
+		}
+	}
 }
 
 func (s *Session) open(c *taskState, e Event) {
 	t := c.t
+	arkBackground(t, e)
 	class := s.cls.Class(e.Path)
 	switch class {
 	case ClassSelf, ClassSystem:
