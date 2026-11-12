@@ -48,6 +48,9 @@ let p = n.plan('model/pk/run6', files, cmdOf, ['run6.ctl', 'run6.ext', 'sdtab6']
 assert.deepStrictEqual([p.ok, p.inputs, p.call], [true, ['model/pk/run6/run6.ctl'], 'nmfe75 model/pk/run6/run6.ctl model/pk/run6/run6.lst']);
 p = n.plan('model/pk/run6', files.concat([{ path: 'model/pk/run6/x.csv', produced_by: step('x', 'tail') }]), cmdOf, []);
 assert.ok(!p.ok && /2 different recorded calls/.test(p.reason), p.reason);
+// run6 done again: the earlier run's versions are no longer on disk and do not count
+p = n.plan('model/pk/run6', files.concat([{ path: 'model/pk/run6/run6.lst', now: 'changed', produced_by: step('x', 'tail') }]), cmdOf, []);
+assert.ok(p.ok, p.reason);
 p = n.plan('model/pk/run9', [], cmdOf, ['run9.ctl']);
 assert.deepStrictEqual([p.ok, p.inputs], [true, ['model/pk/run9/run9.ctl']], 'a model never run: its one control stream');
 p = n.plan('model/pk/run9', [], cmdOf, ['a.ctl', 'b.ctl']);
