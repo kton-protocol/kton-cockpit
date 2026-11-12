@@ -257,14 +257,19 @@ func draftCmd(t *Task, repo string) string {
 	// programs that are the tool, the innermost: `tools/nonmem/nmfe75 run1.ctl` typed by the person
 	// runs the wrapper, which hands over to the shim, whose own line `nmfe75 run1.ctl run1.lst` is
 	// the call it published (12.11.: the short form made every run look unpublished)
-	exact := ""
-	for _, c := range t.Commands {
+	// ... but only through wrappers: a later tool call replaces the one before only when it runs
+	// under it through shells (or exec, the same pid). `Rscript script/render-report.R` runs quarto,
+	// whose own `Rscript …/rmd.R` is not the call (12.11., mh3 dry run).
+	var exact *Command
+	for i, c := range t.Commands {
 		if f := toolcall.SplitCmdline(c.Cmdline); len(f) > 0 && toolProgram.MatchString(filepath.Base(f[0])) {
-			exact = c.Cmdline
+			if exact == nil || wrappedBy(t.Commands, c, *exact) {
+				exact = &t.Commands[i]
+			}
 		}
 	}
-	if exact != "" {
-		return exact
+	if exact != nil {
+		return exact.Cmdline
 	}
 	for _, c := range t.Commands {
 		if f := toolcall.SplitCmdline(c.Cmdline); len(f) > 0 && toolCmd.MatchString(filepath.Base(f[0])) {
@@ -479,6 +484,43 @@ func (sc *toolScope) reads(in *Input) bool {
 }
 
 // isShell: a program name that runs a script given as its first operand.
+// wrappedBy: inner runs under outer with nothing but shells between them: the same pid (exec), or
+// parents whose every recorded command is a shell line (`bash x`, `/usr/bin/env bash x`).
+func wrappedBy(cmds []Command, inner, outer Command) bool {
+	byPID := map[int][]Command{}
+	for _, c := range cmds {
+		byPID[c.PID] = append(byPID[c.PID], c)
+	}
+	p := inner.PID
+	for seen := 0; seen < 64; seen++ {
+		if p == outer.PID {
+			return true
+		}
+		rs := byPID[p]
+		if len(rs) == 0 {
+			return false
+		}
+		if p != inner.PID {
+			for _, r := range rs {
+				if !shellLine(r.Cmdline) {
+					return false
+				}
+			}
+		}
+		p = rs[0].PPID
+	}
+	return false
+}
+
+// shellLine: a command line that runs a shell (directly or through env)
+func shellLine(cmdline string) bool {
+	f := toolcall.SplitCmdline(cmdline)
+	if len(f) > 1 && filepath.Base(f[0]) == "env" {
+		f = f[1:]
+	}
+	return len(f) > 0 && isShell(f[0])
+}
+
 func isShell(prog string) bool {
 	switch filepath.Base(prog) {
 	case "bash", "sh", "dash", "zsh", "ksh":
