@@ -350,6 +350,10 @@
 
   window.addEventListener("message", (e) => {
     const m = e.data;
+    if (m.type === "story" && !window.__focusWired) { // which step's note has the focus: for an assistant (kton_current_story)
+      window.__focusWired = true;
+      document.addEventListener("focusin", (e) => { const k = e.target && e.target.dataset && e.target.dataset.k; if (k) vscode.postMessage({type: "focus", key: k}); });
+    }
     if (m.type === "story") { S = m.story; published = m.published || {}; sameResult = m.sameResult || {}; notes = m.notes || {}; cockpitRepo = m.cockpitRepo; improve = !!m.improve; wfRepros = m.workflowRepros || []; render(); }
     if (m.type === "published") { published = m.published || {}; sameResult = m.sameResult || {}; render(); }
     if (m.type === "plan") { plan = m.plan; render(); }

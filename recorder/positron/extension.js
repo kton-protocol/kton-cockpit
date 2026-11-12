@@ -651,6 +651,10 @@ async function publishedSteps(story, fresh) {
 
 // ------------------------------------------------------------------ the story, as an editor tab
 const stories = new Map(); // path@sha → panel
+// what an assistant may ask about the stories open in this window (kton_current_story): per story its
+// file, the story as shown, the step whose note has the focus, and how to show it again
+const storyInfo = new Map(); // path@sha → {project, file, story(), focus, refresh}
+let activeStory = null;      // the story tab last in front
 const sq = (s) => "'" + String(s).replace(/'/g, "'\\''") + "'";
 
 // the person's description and rationale of a line, as shell comments
@@ -899,8 +903,12 @@ async function openStory(context, project, file) {
   // what Publish would do in improve, per step: once per opening, not per keystroke (about a second)
   const sendPlan = async () => { if (story && repoMode(story.repo) === 'improve') { w.postMessage({ type: 'plan', plan: 'pending' }); const plan = await planOf(story); if (plan) w.postMessage({ type: 'plan', plan }); } };
   // back in view: read again, so drafts Claude wrote meanwhile (kton_note) show
-  p.onDidChangeViewState((e) => { if (e.webviewPanel.visible && story) send(); });
+  p.onDidChangeViewState((e) => { if (e.webviewPanel.active) activeStory = id; if (e.webviewPanel.visible && story) send(); });
+  storyInfo.set(id, { project, file, story: () => story, focus: null, refresh: () => (story ? send() : null) });
+  activeStory = id;
+  p.onDidDispose(() => { storyInfo.delete(id); if (activeStory === id) activeStory = [...storyInfo.keys()].pop() || null; });
   w.onDidReceiveMessage(async (m) => {
+    if (m.type === 'focus') { const i = storyInfo.get(id); if (i) i.focus = m.key; return; }
     if (m.type === 'ready') send();
     else if (m.type === 'note') putNote(m.key, m.note).catch((e) => vscode.window.showWarningMessage(`kton: the note was not kept: ${e.message}`));
     else if (m.type === 'showRendered') {
@@ -1205,6 +1213,28 @@ async function uiDo(context, ev) {
       e.panel.reveal(vscode.ViewColumn.Beside);
       e.panel.webview.postMessage({ type: 'set', state: { view: { select: { multi: true } }, selection: a.selection || [] } });
       return { ok: true, message: `${(a.selection || []).length} selected` };
+    }
+    case 'current_story': {
+      // the story in front: what the person is looking at, with the drafts as they stand now
+      const info = storyInfo.get(activeStory);
+      const st = info && info.story();
+      if (!st) return { ok: false, message: 'no story is open in Positron' };
+      const notes = await notesFor(new Set(st.steps.map((x) => x.session)));
+      const ps = await publishedSteps(st).catch(() => ({ done: {}, same: {} }));
+      const key = (x) => (x.hand ? null : `${x.session}/${x.task}`);
+      const steps = st.steps.map((x) => {
+        const k = key(x), n = (k && notes[k]) || {};
+        return { key: k, when: x.when_ns, where: x.where, code: x.code, sentence: x.sentence, on_path: !!x.on_path, hand: !!x.hand,
+          reads: x.reads || [], writes: x.writes || [], in_kton: !!(k && (ps.done || {})[k]), same_result: !!(k && (ps.same || {})[k]),
+          description: (typeof n === 'string' ? n : n.description) || '', rationale: (typeof n === 'string' ? '' : n.rationale) || '' };
+      });
+      return { ok: true, message: `the story of ${path.relative(info.project, info.file.path)} is open (${steps.length} steps)`,
+        data: { project: info.project, path: info.file.path, sha256: info.file.sha256, repo: st.repo, focus: info.focus, steps } };
+    }
+    case 'notes_changed': {
+      // a draft was written (kton_note): the open stories show it at once
+      for (const i of storyInfo.values()) i.refresh();
+      return { ok: true, message: `${storyInfo.size} open stor${storyInfo.size === 1 ? 'y' : 'ies'} refreshed` };
     }
     case 'get_selection': {
       const e = panelOf(a.project);
@@ -1596,4 +1626,4 @@ function activate(context) {
 }
 
 function deactivate() {}
-module.exports = { activate, deactivate, _test: { planFor, askImproveAccess, startTerminalToken, tokenFilePath, listenUI, findBytes, copyIntoProject, ktonIntent, parseDoctor, parseDoctorJSON, cockpitRepoOf, reproduce, publishedSteps, publishText, Tree, reproduceWorkflow, workflowReproductions, jsonLines, rerunStep, acceptFinding, findingFiles, readDecisions, setOut: (o) => { out = o; } } };
+module.exports = { activate, deactivate, _test: { planFor, askImproveAccess, startTerminalToken, tokenFilePath, listenUI, findBytes, copyIntoProject, ktonIntent, parseDoctor, parseDoctorJSON, cockpitRepoOf, reproduce, publishedSteps, publishText, Tree, uiDo, storyInfo, setActiveStory: (id) => { activeStory = id; }, reproduceWorkflow, workflowReproductions, jsonLines, rerunStep, acceptFinding, findingFiles, readDecisions, setOut: (o) => { out = o; } } };

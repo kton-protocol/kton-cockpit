@@ -109,7 +109,7 @@ func TestTools_Listed(t *testing.T) {
 	for _, tl := range res.Tools {
 		names = append(names, tl.Name)
 	}
-	if strings.Join(names, " ") != "kton_ask kton_copy kton_note kton_open_graph kton_open_story kton_projects kton_runs kton_select kton_selection kton_sparql kton_story" {
+	if strings.Join(names, " ") != "kton_ask kton_copy kton_current_story kton_note kton_open_graph kton_open_story kton_projects kton_runs kton_select kton_selection kton_sparql kton_story" {
 		t.Fatalf("tools %v", names)
 	}
 }
@@ -410,5 +410,35 @@ func TestPaths_TheHomeDirectoryIsExpanded(t *testing.T) {
 	call(t, cs, "kton_sparql", map[string]any{"sparql": "SELECT * {}", "project": "~/kton-programme/explore"}, nil)
 	if dir != explore {
 		t.Fatalf("asked in %q, want %q", dir, explore)
+	}
+}
+
+// MH 12.11.: an assistant sees the story open in Positron, and its drafts show there at once
+func TestEditorTools_CurrentStoryAndRefreshAfterANote(t *testing.T) {
+	sv, _ := fixture(t)
+	cs := connect(t, sv)
+	got := make(chan watch.UIEvent, 8)
+	fakeEditor(t, sv, func(ev watch.UIEvent) watch.UIAnswer {
+		got <- ev
+		if ev.Action == "current_story" {
+			return watch.UIAnswer{OK: true, Message: "open", Data: map[string]any{"path": "/p/derived/fit.csv", "focus": "s1/2", "steps": []any{map[string]any{"key": "s1/2"}}}}
+		}
+		return watch.UIAnswer{OK: true, Message: "refreshed"}
+	})
+	var out EditorOut
+	call(t, cs, "kton_current_story", map[string]any{}, &out)
+	if ev := <-got; !out.OK || ev.Action != "current_story" || out.Data["focus"] != "s1/2" {
+		t.Fatalf("current_story: %+v %+v", out, ev)
+	}
+	key := "positron-1/1"
+	var note NoteOut
+	call(t, cs, "kton_note", map[string]any{"key": key, "description": "d", "rationale": "r"}, &note)
+	select {
+	case ev := <-got:
+		if ev.Action != "notes_changed" {
+			t.Fatalf("after kton_note: %+v", ev)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatalf("no notes_changed after kton_note")
 	}
 }
