@@ -201,9 +201,15 @@
     const how = {bytes: "same bytes", normaliser: "same after NONMEM's normaliser", ofv: "same OFV"};
     const row = (x) => {
       const bad = (x.outputs || []).filter((o) => !o.same);
-      const why = x.state === "differs" && x.becauseOf && [].concat(x.becauseOf).length && !x.differsOwn
-        ? `<div class="muted">because ${[].concat(x.becauseOf).map((b) => esc(typeof b === "string" ? b : (b.call || b.step || ""))).join(", ")} differed upstream</div>`
-        : x.state === "differs" ? `<div class="warn">differs here, its inputs were the same: this is where it began</div>` : "";
+      // where a difference began: an output whose inputs already differed upstream names them (becauseOf);
+      // a differing output without them began here
+      const ups = [...new Set([].concat(x.becauseOf || [], ...bad.map((o) => o.becauseOf || [])).map((b) => (typeof b === "string" ? b : (b.call || b.step || b.path || ""))))].filter(Boolean);
+      const why = x.state !== "differs" ? "" : ups.length
+        ? `<div class="muted">because ${ups.map(esc).join(", ")} already differed upstream</div>`
+        : `<div class="warn">differs here, its inputs were the same: this is where it began</div>`;
+      const envOf = (e) => (e ? Object.values(e).filter(Boolean).join(" ") : "");
+      const env = x.environment && x.state !== "reproduces" ? `<div class="muted">recorded: ${esc(envOf(x.environment.recorded) || "?")} · reproduced: ${esc(envOf(x.environment.reproduced) || "?")}</div>` : "";
+      const rerun = x.state === "failed" || x.state === "differs" ? `<button class="secondary small" data-rerun="${x.i}" data-tree="${esc(r.tree)}" ${busy ? "disabled" : ""} title="run this step again in improve (cockpit-improve reproduce --resume ${esc(r.tree)} --step ${x.i})">Re-run</button>` : "";
       const ofv = x.ofv ? `<div class="${x.ofv.same ? "muted" : "warn"}">OFV ${x.ofv.same ? "the same" : "differs"}: ${esc(x.ofv.recorded || "")}${x.ofv.same ? "" : " → " + esc(x.ofv.reproduced || "")}</div>` : "";
       // a difference is a finding: both versions, and the person's decision (MH 12.11.)
       const dec = (o) => (r.decisions || {})[`${x.i}:${o.path}`];
@@ -218,7 +224,7 @@
       };
       const outs = bad.length ? bad.map(finding).join("")
         : (x.outputs || []).length ? `<div class="muted">${esc([...new Set((x.outputs || []).map((o) => how[o.how] || "same bytes"))].join(", "))}</div>` : "";
-      return `<tr class="${esc(x.state || "")}"><td>${icon[x.state] || "·"}</td><td><code>${esc(x.call || "")}</code>${why}${ofv}${outs}${x.detail ? `<div class="muted">${esc(x.detail)}</div>` : ""}</td>
+      return `<tr class="${esc(x.state || "")}"><td>${icon[x.state] || "·"}</td><td><code>${esc(x.call || "")}</code> ${rerun}${why}${env}${ofv}${outs}${x.detail ? `<div class="muted">${esc(x.detail)}</div>` : ""}</td>
         <td>${link(x.step)}</td><td>${link(x.original)}</td></tr>`;
     };
     return `<section class="wfrepro">
@@ -280,6 +286,7 @@
           ${planSummary(todo)}
           <button id="publish" ${busy || !cockpitRepo || !todo.length ? "disabled" : ""} title="${cockpitRepo ? "cockpit publish for every line without ✓, in the terminal, with description and rationale as comments" : "no cockpit repo (cockpit init)"}">Publish to kton${todo.length ? ` (${todo.length})` : ""}</button>
           <button class="secondary" id="inkton" ${cockpitRepo ? "" : "disabled"} title="${cockpitRepo ? "kton-web beside the story: what was recorded and what is signed, in one graph, centred on this file (kton-web verifies the records)" : "no cockpit repo (cockpit init)"}">In kton</button>
+          ${/\.html?$/i.test(targetRel()) ? `<button class="secondary" id="rendered" title="the page as it renders (Live Preview, beside the story; it only reads the file)">Show rendered</button>` : ""}
           <button class="secondary" id="save">Markdown</button>
         </div>
       </header>
@@ -299,6 +306,13 @@
         clearTimeout(n._t); n._t = setTimeout(() => vscode.postMessage({type: "note", key: n.dataset.k, note: notes[n.dataset.k]}), 400);
       };
     }
+    const rb = document.getElementById("rendered");
+    if (rb) rb.onclick = () => vscode.postMessage({type: "showRendered"});
+    for (const b of document.querySelectorAll("button[data-rerun]")) b.onclick = () => {
+      if (busy) return;
+      busy = {what: "reproduce", text: "Re-running step " + b.dataset.rerun + " …", since: Date.now()}; result = null; render(); tick();
+      vscode.postMessage({type: "rerunStep", tree: b.dataset.tree, i: Number(b.dataset.rerun)});
+    };
     for (const b of document.querySelectorAll("button[data-f]")) b.onclick = () =>
       vscode.postMessage({type: b.dataset.f, tree: b.dataset.tree, i: Number(b.dataset.i), path: b.dataset.path});
     const ri = document.getElementById("reproimp");

@@ -903,6 +903,24 @@ async function openStory(context, project, file) {
   w.onDidReceiveMessage(async (m) => {
     if (m.type === 'ready') send();
     else if (m.type === 'note') putNote(m.key, m.note).catch((e) => vscode.window.showWarningMessage(`kton: the note was not kept: ${e.message}`));
+    else if (m.type === 'showRendered') {
+      // an HTML result as it renders (MH 12.11.): Live Preview (ms-vscode.live-server) beside the story; it only reads the file
+      const cmds = await vscode.commands.getCommands(true);
+      if (cmds.includes('livePreview.start.preview.atFile')) await vscode.commands.executeCommand('livePreview.start.preview.atFile', vscode.Uri.file(file.path));
+      else vscode.window.showInformationMessage('kton: install "Live Preview" (ms-vscode.live-server) in the WSL server to see the rendered page here.');
+    }
+    else if (m.type === 'rerunStep' && story) {
+      if (busy) return;
+      busy = 'reproduce';
+      w.postMessage({ type: 'busy', what: 'reproduce', text: `Re-running step ${m.i} in improve …` });
+      let r;
+      try { r = await rerunStep(story.repo, m.tree, m.i, (pr) => w.postMessage({ type: 'busy', what: 'reproduce', text: pr.text })); }
+      catch (e) { r = { ok: false, error: e.message }; }
+      finally { busy = null; }
+      w.postMessage({ type: 'done', what: 'reproduce-workflow', ok: r.ok && r.state !== 'failed', error: r.error || `step ${m.i}: ${r.state || 'not run'}`,
+        text: r.state ? `Step ${m.i} re-run: ${r.state}` : '' });
+      send();
+    }
     else if ((m.type === 'compareFinding' || m.type === 'acceptFinding' || m.type === 'investigateFinding') && story) {
       const r = workflowReproductions(story.repo, path.relative(story.repo, file.path)).find((x) => x.tree === m.tree);
       const st = r && (r.steps || []).find((x) => x.i === m.i);
@@ -1261,6 +1279,50 @@ const stepsOf = (ev) => (Array.isArray(ev.steps) ? ev.steps.length : Number(ev.s
 function reproArgs(repo, target, all, tree, plan) {
   return ['reproduce', ...(all ? ['--all'] : ['--workflow', path.relative(repo, target)]), '--tree', tree, ...(plan ? ['--plan'] : []), '--json'];
 }
+// runReproduce: cockpit-improve reproduce in a visible terminal, its JSON lines turned into progress
+async function runReproduce(repo, args, env, onProgress) {
+  for (const t of vscode.window.terminals) if (t.name === 'kton reproduce (improve)') t.dispose();
+  const outE = new vscode.EventEmitter();
+  const say = (x) => outE.fire(String(x).replace(/\r?\n/g, '\r\n'));
+  let finish, child = null;
+  const finished = new Promise((r) => { finish = r; });
+  const events = [];
+  const runIt = () => {
+    say(`cd ${repo}\n$ cockpit-improve ${args.join(' ')}\n`);
+    child = spawn(bin('cockpit'), args, { cwd: repo, env });
+    let buf = '';
+    child.stdout.on('data', (dat) => {
+      buf += dat;
+      let k;
+      while ((k = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, k); buf = buf.slice(k + 1);
+        const ev = jsonLines(line)[0];
+        if (!ev) { say(line + '\n'); continue; }
+        events.push(ev);
+        if (ev.event === 'step') {
+          say(`[${ev.i}/${ev.n || '?'}] ${ev.state}: ${ev.call || ''}\n`);
+          const call = String(ev.call || ''); onProgress({ text: `Reproducing ${ev.i} of ${ev.n || '?'}: ${call.length > 70 ? call.slice(0, 67) + '…' : call} — ${ev.state}` });
+        } else if (ev.event === 'plan') say(`${stepsOf(ev)} steps\n`);
+        else if (ev.event === 'error') say(`refused: ${ev.message || ev.code}\n`);
+      }
+    });
+    child.stderr.on('data', (dat) => say(dat));
+    child.on('error', (e) => { say(e.message + '\n'); finish({ code: 2, error: e.message }); });
+    child.on('close', (code) => finish({ code }));
+  };
+  const pty = { onDidWrite: outE.event, open: () => runIt(), close: () => { if (child) child.kill(); finish({ code: 2, error: 'the terminal was closed' }); } };
+  vscode.window.createTerminal({ name: 'kton reproduce (improve)', pty }).show(true);
+  return { end: await finished, events };
+}
+// rerunStep: one step of a kept reproduction again (cockpit-improve reproduce --resume <tree> --step <i>)
+async function rerunStep(repo, tree, i, onProgress = () => {}) {
+  if (!(await improveToken(repo, true))) return { ok: false, error: 'not signed in to improve' };
+  const env = { ...process.env, IMPROVE_ACCESS_TOKEN_FILE: tokenFilePath() };
+  const { end, events } = await runReproduce(repo, ['reproduce', '--resume', tree, '--step', String(i), '--json'], env, onProgress);
+  const refused = events.find((e) => e.event === 'error');
+  const last = events.filter((e) => e.event === 'step' && e.i === i).pop();
+  return { ok: !refused && end.code !== 2 || !!last, state: last && last.state, error: end.error || (refused && (refused.message || refused.code)) || '' };
+}
 async function reproduceWorkflow(repo, target, onProgress = () => {}) {
   if (!(await improveToken(repo, true))) {
     vscode.window.showErrorMessage('kton: not signed in to improve. Sign in with the improve extension, then reproduce again.');
@@ -1296,38 +1358,7 @@ async function reproduceWorkflow(repo, target, onProgress = () => {}) {
     'Each step runs again in improve on the reproduced upstream outputs; NONMEM takes about a minute per run.', { modal: true }, 'Reproduce');
   if (ok !== 'Reproduce') return { ok: false, cancelled: true };
   // visible, like publishing: the command's own output in a terminal, the steps in the story
-  for (const t of vscode.window.terminals) if (t.name === 'kton reproduce (improve)') t.dispose();
-  const outE = new vscode.EventEmitter();
-  const say = (x) => outE.fire(String(x).replace(/\r?\n/g, '\r\n'));
-  let finish, child = null;
-  const finished = new Promise((r) => { finish = r; });
-  const events = [];
-  const runIt = () => {
-    say(`cd ${repo}\n$ cockpit-improve ${reproArgs(repo, target, which.all, tree, false).join(' ')}\n`);
-    child = spawn(bin('cockpit'), reproArgs(repo, target, which.all, tree, false), { cwd: repo, env });
-    let buf = '';
-    child.stdout.on('data', (dat) => {
-      buf += dat;
-      let k;
-      while ((k = buf.indexOf('\n')) >= 0) {
-        const line = buf.slice(0, k); buf = buf.slice(k + 1);
-        const ev = jsonLines(line)[0];
-        if (!ev) { say(line + '\n'); continue; }
-        events.push(ev);
-        if (ev.event === 'step') {
-          say(`[${ev.i}/${ev.n || '?'}] ${ev.state}: ${ev.call || ''}${ev.becauseOf ? '  (because of ' + [].concat(ev.becauseOf).join(', ') + ')' : ''}\n`);
-          const call = String(ev.call || ''); onProgress({ text: `Reproducing ${ev.i} of ${ev.n}: ${call.length > 70 ? call.slice(0, 67) + '…' : call} — ${ev.state}` });
-        } else if (ev.event === 'plan') say(`${stepsOf(ev)} steps\n`);
-        else if (ev.event === 'error') say(`refused: ${ev.message || ev.code}\n`);
-      }
-    });
-    child.stderr.on('data', (dat) => say(dat));
-    child.on('error', (e) => { say(e.message + '\n'); finish({ code: 2, error: e.message }); });
-    child.on('close', (code) => finish({ code }));
-  };
-  const pty = { onDidWrite: outE.event, open: () => runIt(), close: () => { if (child) child.kill(); finish({ code: 2, error: 'the terminal was closed' }); } };
-  vscode.window.createTerminal({ name: 'kton reproduce (improve)', pty }).show(true);
-  const end = await finished;
+  const { end, events } = await runReproduce(repo, reproArgs(repo, target, which.all, tree, false), env, onProgress);
   let result = null;
   try { result = JSON.parse(fs.readFileSync(path.join(reproDir(repo), tree + '.json'), 'utf8')); } catch (e) { result = events.filter((e2) => e2.event === 'result').pop() || null; }
   if (result && !result.steps) result.steps = events.filter((e2) => e2.event === 'step');
@@ -1368,6 +1399,18 @@ async function compareFinding(context, repo, r, step, o) {
   if (miss.length) { vscode.window.showWarningMessage(`kton: cannot compare ${o.path}: ${miss.join('; ')}`); return; }
   const title = `${path.basename(o.path)}: recorded ↔ reproduced (${r.tree})`;
   if (!isImage(o.path)) { // text, tables, NONMEM listings: the diff editor
+    // NONMEM's files: what the normaliser compared (its ignored parts gone), or the raw files
+    const n = o.normalized;
+    if (n && n.recorded && n.reproduced && fs.existsSync(path.resolve(repo, n.recorded)) && fs.existsSync(path.resolve(repo, n.reproduced))) {
+      const pick = await vscode.window.showQuickPick([
+        { label: 'Normalised', description: "what was compared: the normaliser's ignored parts (dates, times, paths) left out", norm: true },
+        { label: 'Raw files', description: 'the files as they are', norm: false }], { title: `kton: compare ${o.path}` });
+      if (!pick) return;
+      if (pick.norm) {
+        await vscode.commands.executeCommand('vscode.diff', vscode.Uri.file(path.resolve(repo, n.recorded)), vscode.Uri.file(path.resolve(repo, n.reproduced)), title + ' — normalised');
+        return;
+      }
+    }
     await vscode.commands.executeCommand('vscode.diff', vscode.Uri.file(f.recorded), vscode.Uri.file(f.reproduced), title);
     return;
   }
@@ -1553,4 +1596,4 @@ function activate(context) {
 }
 
 function deactivate() {}
-module.exports = { activate, deactivate, _test: { planFor, askImproveAccess, startTerminalToken, tokenFilePath, listenUI, findBytes, copyIntoProject, ktonIntent, parseDoctor, parseDoctorJSON, cockpitRepoOf, reproduce, publishedSteps, publishText, Tree, reproduceWorkflow, workflowReproductions, jsonLines, acceptFinding, findingFiles, readDecisions, setOut: (o) => { out = o; } } };
+module.exports = { activate, deactivate, _test: { planFor, askImproveAccess, startTerminalToken, tokenFilePath, listenUI, findBytes, copyIntoProject, ktonIntent, parseDoctor, parseDoctorJSON, cockpitRepoOf, reproduce, publishedSteps, publishText, Tree, reproduceWorkflow, workflowReproductions, jsonLines, rerunStep, acceptFinding, findingFiles, readDecisions, setOut: (o) => { out = o; } } };
