@@ -262,14 +262,14 @@ async function openObservations() {
 }
 
 // ------------------------------------------------------------------ publish: the verb, by hand, visibly
-async function publish(repo, text) {
+async function publish(repo, text, onProgress = () => {}) {
   const calls = (text.match(/^cockpit publish /gm) || []).length;
   const direct = (text.match(/^cockpit say /gm) || []).length; // words about steps already in kton
-  if (!calls && !direct) return;
+  if (!calls && !direct) return { ok: true, nothing: true };
   const says = (text.match(/^cockpit claim /gm) || []).length;
   const ok = await vscode.window.showWarningMessage(
     `Run ${calls} × cockpit publish${says ? ` and ${says} × cockpit say (description, rationale)` : ''} in ${repo}? That signs, commits and pushes.`, { modal: true }, 'Run');
-  if (ok !== 'Run') return;
+  if (ok !== 'Run') return { ok: false, cancelled: true };
   const cockpit = bin('cockpit');
   const c = JSON.stringify(cockpit);
   // `cockpit claim <template> '<text>'` is ours: a say with that template, its field "value",
@@ -286,7 +286,7 @@ async function publish(repo, text) {
       steps.push({ kind: 'claim', cmd: `[ -n "$KTON_OUT" ] && ${c} say "$(python3 -c ${sq(claim)} "$KTON_OUT" ${template} ${t})"` });
     } else if (line.trim()) steps.push({ kind: 'comment', cmd: line });
   }
-  if (repoMode(repo) === 'improve') return publishImprove(repo, steps);
+  if (repoMode(repo) === 'improve') return publishImprove(repo, steps, improveToken, onProgress);
   // a "kton cockpit" terminal an older version opened in another shell is not reused
   const term = vscode.window.terminals.find((t) => t.name === 'kton cockpit' && (t.creationOptions || {}).shellPath === '/bin/bash') ||
     vscode.window.createTerminal({ name: 'kton cockpit', cwd: repo, shellPath: '/bin/bash' });
@@ -296,18 +296,23 @@ async function publish(repo, text) {
     if (st.kind === 'publish') term.sendText(`KTON_OUT=; KTON_OUT=$(${st.cmd}) && printf '%s\\n' "$KTON_OUT"`);
     else term.sendText(st.cmd); // comments: shown, ignored by the shell
   }
+  return { ok: true, inTerminal: true }; // the typed terminal runs on its own; the story looks again
 }
 
 // publishImprove runs the lines for a repository in improve mode. An improve access token lives
 // five minutes and the backend cannot renew it, so each line gets a fresh one from the improve
 // extension, in its own environment: the lines run one after the other in a terminal this
 // extension drives, which shows each command and its output and stops at the first failure.
-async function publishImprove(repo, steps, signIn = improveToken) {
+async function publishImprove(repo, steps, signIn = improveToken, onProgress = () => {}) {
   if (!(await signIn(repo, true))) {
     vscode.window.showErrorMessage('kton: not signed in to improve. Sign in with the improve extension, then publish again.');
-    return;
+    return { ok: false, error: 'not signed in to improve' };
   }
   for (const t of vscode.window.terminals) if (t.name === 'kton cockpit (improve)') t.dispose();
+  let finish;
+  const finished = new Promise((r) => { finish = r; });
+  const work = steps.filter((x) => x.kind !== 'comment');
+  let at = 0;
   const out = new vscode.EventEmitter();
   const say = (x) => out.fire(String(x).replace(/\r?\n/g, '\r\n'));
   let closed = false, child = null;
@@ -318,8 +323,10 @@ async function publishImprove(repo, steps, signIn = improveToken) {
       if (closed) return;
       say(`$ ${st.cmd}\n`);
       if (st.kind === 'comment') continue;
+      at++;
+      onProgress({ i: at, n: work.length, kind: st.kind, cmd: st.cmd });
       const token = await signIn(repo, false);
-      if (!token) { say('kton: the improve session ended; sign in again and publish the rest\n'); return; }
+      if (!token) { say('kton: the improve session ended; sign in again and publish the rest\n'); finish({ ok: false, error: 'the improve session ended' }); return; }
       const code = await new Promise((resolve) => {
         child = spawn('/bin/bash', ['-c', st.cmd], { cwd: repo, env: { ...process.env, IMPROVE_TOKEN: token, KTON_OUT: last } });
         let stdout = '';
@@ -329,14 +336,15 @@ async function publishImprove(repo, steps, signIn = improveToken) {
         child.on('close', (code) => { if (st.kind === 'publish') last = code === 0 ? stdout.trim() : ''; resolve(code); });
       });
       child = null;
-      if (code !== 0) { say(`kton: stopped, that line exited with ${code}\n`); return; }
+      if (code !== 0) { say(`kton: stopped, that line exited with ${code}\n`); finish({ ok: false, error: `line ${at} of ${work.length} exited with ${code} (see the terminal "kton cockpit (improve)")` }); return; }
     }
     say('kton: done\n');
+    finish({ ok: true });
   };
-  const pty = { onDidWrite: out.event, open: () => { runAll(); }, close: () => { closed = true; if (child) child.kill(); } };
+  const pty = { onDidWrite: out.event, open: () => { runAll(); }, close: () => { closed = true; if (child) child.kill(); finish({ ok: false, error: 'the terminal was closed' }); } };
   const term = vscode.window.createTerminal({ name: 'kton cockpit (improve)', pty });
   term.show();
-  return term;
+  return finished;
 }
 
 // ------------------------------------------------------------------ reproduce
@@ -741,6 +749,17 @@ async function basedOnLines(repo, cmd) {
   return ['cockpit claim based-on ' + sq(JSON.stringify({ 'based-on': id, why: `developed from ${parent}` }))];
 }
 
+// shortCall: a publish line as a few words (the call inside its JSON, or the template of a say)
+function shortCall(cmd) {
+  const m = /'(\{.*\})'\s*$/.exec(cmd || '');
+  try {
+    const j = m ? JSON.parse(m[1]) : null;
+    if (j && j.cmd) return j.cmd.length > 60 ? j.cmd.slice(0, 57) + '…' : j.cmd;
+    if (j && j.template) return j.template;
+  } catch (e) { /* not JSON */ }
+  return (cmd || '').split(' ').slice(1, 3).join(' ');
+}
+
 // planOf: the story's improve preview, asked once and shared by the in-kton marks and the preview
 // lines; fresh asks again (after a publish).
 const plans = new WeakMap();
@@ -860,6 +879,7 @@ async function openStory(context, project, file) {
 <body><div id="root"><main><p class="muted">Putting the story together …</p></main></div>
 <script nonce="${nonce}" src="${w.asWebviewUri(vscode.Uri.joinPath(media, 'story.js'))}"></script></body></html>`;
   let story = null;
+  let busy = null; // 'publish' | 'reproduce' while one runs
   const send = async () => {
     try {
       story = await getJSON(`${viewerUrl()}api/story?project=${encodeURIComponent(project)}&path=${encodeURIComponent(file.path)}&sha=${encodeURIComponent(file.sha256)}`, 20000);
@@ -875,22 +895,42 @@ async function openStory(context, project, file) {
     sendPlan();
   };
   // what Publish would do in improve, per step: once per opening, not per keystroke (about a second)
-  const sendPlan = async () => { if (story) { const plan = await planOf(story); if (plan) w.postMessage({ type: 'plan', plan }); } };
+  const sendPlan = async () => { if (story && repoMode(story.repo) === 'improve') { w.postMessage({ type: 'plan', plan: 'pending' }); const plan = await planOf(story); if (plan) w.postMessage({ type: 'plan', plan }); } };
   // back in view: read again, so drafts Claude wrote meanwhile (kton_note) show
   p.onDidChangeViewState((e) => { if (e.webviewPanel.visible && story) send(); });
   w.onDidReceiveMessage(async (m) => {
     if (m.type === 'ready') send();
     else if (m.type === 'note') putNote(m.key, m.note).catch((e) => vscode.window.showWarningMessage(`kton: the note was not kept: ${e.message}`));
-    else if (m.type === 'reproduce') { await reproduce(project, file.path, file.sha256); send(); } // the result belongs in the story
+    else if (m.type === 'reproduce') { // the result belongs in the story
+      if (busy) return;
+      busy = 'reproduce';
+      w.postMessage({ type: 'busy', what: 'reproduce', text: 'Reproducing in an empty folder …' });
+      try { await reproduce(project, file.path, file.sha256); w.postMessage({ type: 'done', what: 'reproduce', ok: true }); }
+      catch (e) { w.postMessage({ type: 'done', what: 'reproduce', ok: false, error: e.message }); }
+      finally { busy = null; }
+      send();
+    }
     else if (m.type === 'diff') diffReproduced(project, m);
     else if (m.type === 'inkton' && story) openInKton(project, story.repo, file.sha256, path.basename(file.path));
     else if (m.type === 'save') {
       const to = await vscode.window.showSaveDialog({ defaultUri: vscode.Uri.file(path.join(story ? story.repo : project, path.basename(file.path) + '.story.md')), filters: { Markdown: ['md'] } });
       if (to) { fs.writeFileSync(to.fsPath, m.markdown); vscode.window.showTextDocument(to); }
     } else if (m.type === 'publish' && story) {
-      await publish(story.repo, await publishText(story, file, m.steps));
-      // the terminal does the work; look again a few times so the story catches up
-      for (const ms of [5000, 15000, 40000]) setTimeout(async () => { if (stories.has(id)) { const ps = await publishedSteps(story, true); w.postMessage({ type: 'published', published: ps.done, sameResult: ps.same }); sendPlan(); } }, ms);
+      if (busy) return; // a second click while one runs: ignored, no second publish
+      busy = 'publish';
+      w.postMessage({ type: 'busy', what: 'publish', text: 'Preparing the publish …' });
+      let r;
+      try {
+        r = await publish(story.repo, await publishText(story, file, m.steps), (pr) => w.postMessage({ type: 'busy', what: 'publish',
+          text: `Publishing ${pr.i} of ${pr.n}: ${pr.kind === 'publish' ? 'step' : 'words'} ${shortCall(pr.cmd)} …` }));
+      } catch (e) { r = { ok: false, error: e.message }; }
+      finally { busy = null; }
+      w.postMessage({ type: 'done', what: 'publish', ...(r || { ok: true }) });
+      const look = async () => { if (stories.has(id)) { const ps = await publishedSteps(story, true); w.postMessage({ type: 'published', published: ps.done, sameResult: ps.same }); sendPlan(); } };
+      // improve: the lines have run (all, or up to the one that stopped): the story shows what is in kton now
+      if (r && !r.inTerminal && !r.nothing && !r.cancelled) await look();
+      // git: the typed terminal does the work; look again a few times so the story catches up
+      if (r && r.inTerminal) for (const ms of [5000, 15000, 40000]) setTimeout(look, ms);
     }
   });
 }

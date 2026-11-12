@@ -65,3 +65,13 @@ details.gaps summary { cursor: pointer; color: var(--vscode-descriptionForegroun
 .plan.skip { color: var(--vscode-editorWarning-foreground, #cca700); }
 .plan-sum { font-size: 0.85em; margin-right: 8px; color: var(--vscode-descriptionForeground); }
 .plan-warn { font-size: 0.85em; color: var(--vscode-editorWarning-foreground, #cca700); margin: 0 0 4px; }
+
+/* busy: the action that runs, its step, and the end */
+.busy { font-size: 0.85em; margin-right: 8px; }
+.spin { display: inline-block; width: 0.8em; height: 0.8em; border: 2px solid var(--vscode-descriptionForeground); border-top-color: transparent; border-radius: 50%; animation: spin 0.8s linear infinite; vertical-align: -1px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+/* a published step: its signed words, marks and improve step */
+.pub { font-size: 0.85em; margin: 1px 0; }
+.mark { font-size: 0.75em; padding: 0 4px; border: 1px solid var(--vscode-descriptionForeground); border-radius: 3px; }
+.mark.final, .mark.key { border-color: var(--vscode-charts-green, #89d185); }
+.mark.not-followed { opacity: 0.6; }
