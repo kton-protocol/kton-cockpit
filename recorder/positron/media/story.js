@@ -98,7 +98,8 @@
   const planOf = (c) => (plan && !plan.error ? (c.path || c.steps || []).map((s) => plan[skey(s)]).filter(Boolean) : []);
   function planLine(c) {
     if (c.hand) return "";
-    return planOf(c).map((p) => `<div class="plan ${esc(p.action)}" title="${esc(p.reason || "")}">improve: ${esc(p.text)}</div>`).join("");
+    return planOf(c).map((p) => `<div class="plan ${esc(p.action)}" title="${esc(p.reason || "")}">improve: ${esc(p.text)}</div>` +
+      (p.warning ? `<div class="plan-warn">⚠ ${esc(p.warning)}</div>` : "")).join("");
   }
   // beside Publish: what the lines without ✓ will do in improve, counted
   function planSummary(todo) {
@@ -108,7 +109,9 @@
     for (const c of todo) for (const p of planOf(c)) n[p.action] = (n[p.action] || 0) + 1;
     const say = { root: "new root step", version: "child of its previous version", derived: "child of the run it is based on", exists: "already in improve", skip: "skipped" };
     const parts = Object.keys(say).filter((a) => n[a]).map((a) => `${n[a]} ${say[a]}${n[a] > 1 && a === "root" ? "s" : ""}`);
-    return parts.length ? `<span class="plan-sum">In improve: ${esc(parts.join(", "))}</span>` : "";
+    const warned = todo.flatMap((c) => planOf(c)).filter((p) => p.warning).length;
+    return (parts.length ? `<span class="plan-sum">In improve: ${esc(parts.join(", "))}</span>` : "") +
+      (warned ? `<span class="plan-sum plan-warn" title="the control stream's header and what New run copied disagree; see the steps">⚠ ${warned} to check</span>` : "");
   }
 
   function line(c) {

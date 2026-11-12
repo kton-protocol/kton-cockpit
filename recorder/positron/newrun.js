@@ -95,4 +95,20 @@ function plan(folderRel, files, cmdOf, listing) {
   return { ok: true, inputs, call: [...calls][0] };
 }
 
-module.exports = { nextName, renameRef, renameCtl, plan };
+// recordDerivation: what New run did, in <root>/.kton/derivations.json, keyed by the new control
+// stream's project-relative path: {from, action: "new-run", at}. The improve shim takes based-on from
+// it before the header (cockpit-improve-backend, 12.11.: MH's run4 copied from run2 got the demo's
+// header, based_on run3); the same path made again replaces its entry. fsMod: fs, for tests.
+function recordDerivation(root, toRel, fromRel, fsMod = require('fs'), now = new Date()) {
+  const file = path.join(root, '.kton', 'derivations.json');
+  let all = {};
+  try { all = JSON.parse(fsMod.readFileSync(file, 'utf8')) || {}; } catch (e) { all = {}; }
+  all[toRel] = { from: fromRel, action: 'new-run', at: now.toISOString().replace(/\.\d+Z$/, 'Z') };
+  fsMod.mkdirSync(path.dirname(file), { recursive: true });
+  const tmp = file + '.tmp';
+  fsMod.writeFileSync(tmp, JSON.stringify(all, null, 2) + '\n');
+  fsMod.renameSync(tmp, file);
+  return all;
+}
+
+module.exports = { nextName, renameRef, renameCtl, plan, recordDerivation };
