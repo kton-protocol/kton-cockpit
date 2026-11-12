@@ -105,11 +105,14 @@
   // a published step: what kton holds about it (the person's words with who/when, based-on, marks) and its
   // improve step; with improve, improve holds the identities (MH 12.11.: no signatures there)
   function publishedInfo(p) {
-    const w = (x, label) => x && x.value ? `<div class="pub"><span class="nl">${label}</span> ${esc(x.value)}${x.by || x.at ? ` <span class="muted" title="${esc([x.by, x.at].filter(Boolean).join(", "))}">· ${esc(x.by || "")}${x.by && x.at ? ", " : ""}${esc((x.at || "").slice(0, 10))}</span>` : ""}</div>` : "";
+    // who: the person's name; a bare key id (key:…) says nothing to a reader, so only the date shows
+    const who = (x) => (x.by && !/^key:/.test(x.by) ? x.by : "");
+    const w = (x, label) => x && x.value ? `<div class="pub"><span class="nl">${label}</span> ${esc(x.value)}${who(x) || x.at ? ` <span class="muted" title="${esc([x.by, x.at].filter(Boolean).join(", "))}">· ${esc(who(x))}${who(x) && x.at ? ", " : ""}${esc((x.at || "").slice(0, 10))}</span>` : ""}</div>` : "";
     const label = {"base-model": "BASE", base: "BASE", "final-model": "FINAL", final: "FINAL", "key-step": "KEY", key: "KEY", "not-followed": "NOT FOLLOWED"};
     const marks = (p.marks || []).map((m) => `<span class="mark ${esc((label[m] || m).toLowerCase().replace(/ /g, "-"))}">${esc(label[m] || m.toUpperCase())}</span>`).join(" ");
     const based = p.basedOn ? `<span class="muted">based on ${esc(p.basedOn.run || p.basedOn.path || "")}</span>` : "";
-    const step = p.step ? (p.step.url ? `<a href="${esc(p.step.url)}">${esc(p.step.name || "")} (${esc(p.step.entity || "")})</a>` : `${esc(p.step.name || "")} (${esc(p.step.entity || "")})`) : "";
+    const id = (e) => String(e || "").split(":").pop(); // robert1…-10110:ST-292174 → ST-292174
+    const step = p.step ? (p.step.url ? `<a href="${esc(p.step.url)}" title="${esc(p.step.entity || "")}">${esc(p.step.name || "")} (${esc(id(p.step.entity))})</a>` : `${esc(p.step.name || "")} (${esc(id(p.step.entity))})`) : "";
     return `<div class="plan exists">improve: ${step || esc(p.text)} ${based} ${marks}</div>${w(p.description, "Description")}${w(p.rationale, "Rationale")}`;
   }
   // a long step (NONMEM: about a minute) shows its seconds, without rendering the story again
