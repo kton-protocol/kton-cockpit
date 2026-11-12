@@ -29,7 +29,7 @@ type SayRequest struct {
 	SubjectOutputHash string `json:"subjectOutputHash,omitempty" jsonschema:"output hash of the producer foton being reproduced (reproduces template only)"`
 	ReproducedOutput  string `json:"reproducedOutput,omitempty" jsonschema:"repo-relative path of the caller's own output file that reproduces the subject (reproduces template only)"`
 	ReproducedFotonID string `json:"reproducedFotonId,omitempty" jsonschema:"foton id of the caller's own producer foton for reproducedOutput (reproduces template only)"`
-	Via               string `json:"via,omitempty" jsonschema:"optional shared normalizer ref, for an L1 (not L0) reproduction"`
+	Via               string `json:"via,omitempty" jsonschema:"optional shared normalizer ref, for an L1 (not L0) reproduction; omitted, the normaliser of the reproduced run's environment class, then the repo's reproduction.normalizer"`
 
 	// Scope names one of the scopes this repo configures, chaining the claim into that
 	// conversation. Omitted, the claim stands on its own — which is the common case. The name must
@@ -45,8 +45,13 @@ type SayRequest struct {
 }
 
 type SayResult struct {
-	ClaimID      string `json:"claimId"`
-	Level        string `json:"level,omitempty"`
+	ClaimID string `json:"claimId"`
+	Level   string `json:"level,omitempty"`
+	// Via is the normaliser potential a reproduces comparison was offered, and ViaFrom where it came
+	// from: "call", "spectrum <id> in <package>", or "reproduction.normalizer". Set for reproduces
+	// only, whether or not the match needed it (an L0 never does).
+	Via          string `json:"via,omitempty"`
+	ViaFrom      string `json:"viaFrom,omitempty"`
 	Confirmation string `json:"confirmation"`
 	// RekorLogIndex and RekorUUID are set when this repo anchors its records — see PublishResult.
 	RekorLogIndex int64  `json:"rekorLogIndex,omitempty"`
@@ -103,11 +108,18 @@ func (c *Cockpit) Say(ctx context.Context, in SayRequest) (*SayResult, error) {
 		sets = map[string]string{}
 	}
 
+	var reproducedVia, reproducedViaFrom string
 	if in.Template == "reproduces" {
+		via, viaFrom, verr := reproductionVia(ctx, cfg, r, in)
+		if verr != nil {
+			return nil, refuse("reproduction.normalizer", "SPEC §8.2", "%v", verr)
+		}
+		in.Via = via
 		level, err := determineReproductionLevel(ctx, cfg, r, in)
 		if err != "" {
 			return nil, refuse("reproduction.not-met", "SPEC §8.2", "%s", err)
 		}
+		reproducedVia, reproducedViaFrom = via, viaFrom
 		sets = map[string]string{"level": level, "reproducedBy": in.ReproducedFotonID}
 	}
 
@@ -188,6 +200,7 @@ func (c *Cockpit) Say(ctx context.Context, in SayRequest) (*SayResult, error) {
 		Level:        level,
 		Confirmation: fmt.Sprintf("registered: nekton reports %s among the %d claim(s) about %s", claimID, len(claims), in.Subject),
 	}
+	out.Via, out.ViaFrom = reproducedVia, reproducedViaFrom
 	if anchored != nil {
 		out.RekorLogIndex, out.RekorUUID = anchored.LogIndex, anchored.UUID
 	}
@@ -198,6 +211,29 @@ func (c *Cockpit) Say(ctx context.Context, in SayRequest) (*SayResult, error) {
 		}
 	}
 	return &out, nil
+}
+
+// reproductionVia picks the normaliser a reproduces comparison is offered, in this order: the one
+// the call names; the one that comes with the environment class of the run being reproduced, found
+// in an installed package's spectrum (MH 11.11.: the normaliser comes with the environment, not
+// with the project); the repo's reproduction.normalizer. The second value says which it was.
+func reproductionVia(ctx context.Context, cfg *config.Config, r *binaries.Runner, in SayRequest) (string, string, error) {
+	if in.Via != "" {
+		return in.Via, "call", nil
+	}
+	if class := subjectEnvironment(ctx, r, in); class != "" {
+		pot, from, err := spectrumNormalizer(cfg, class)
+		if err != nil {
+			return "", "", err
+		}
+		if pot != "" {
+			return pot, "spectrum " + class + " in " + from, nil
+		}
+	}
+	if n := cfg.Raw.Reproduction.Normalizer; n != "" {
+		return n, "reproduction.normalizer", nil
+	}
+	return "", "", nil
 }
 
 // determineReproductionLevel runs the reproduction precondition itself (never trusting a
@@ -213,10 +249,7 @@ func determineReproductionLevel(ctx context.Context, cfg *config.Config, r *bina
 		return "", "plankton hash of reproducedOutput failed: " + err.Error()
 	}
 
-	via := in.Via
-	if via == "" {
-		via = cfg.Raw.Reproduction.Normalizer
-	}
+	via := in.Via // chosen by reproductionVia
 
 	verdict, err := r.Reproduces(ctx, in.SubjectOutputHash, candHash, via)
 	if err != nil {

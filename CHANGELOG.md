@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Added
+
+- **The normaliser comes with the environment** (MH 11.11., D5; asked by cockpit-improve-backend).
+  `publish` takes the environment class per call (`environment`, `--environment`), as it takes
+  `envRef`; the repo's `environment.spectrum` stays the default. `say reproduces` without `via`
+  uses the normaliser of the reproduced run's class, from a spectrum in an installed package, and
+  only then `reproduction.normalizer`; the answer reports `via` and `viaFrom` (SPEC §7.5, SPEC §8.2).
+
 ### Fixed
 
 - **`cockpit/` builds for Windows again** (broken since the shim review fixes, PR #65:
