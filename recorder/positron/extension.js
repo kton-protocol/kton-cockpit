@@ -891,7 +891,9 @@ async function openStory(context, project, file) {
     const mine = await notesFor(new Set(story.steps.map((s) => s.session)));
     const cockpitRepo = fs.existsSync(path.join(story.repo, 'cockpit.config.json'));
     const ps = await publishedSteps(story);
-    w.postMessage({ type: 'story', story, notes: mine, cockpitRepo, published: ps.done, sameResult: ps.same });
+    const improve = repoMode(story.repo) === 'improve';
+    w.postMessage({ type: 'story', story, notes: mine, cockpitRepo, improve, published: ps.done, sameResult: ps.same,
+      workflowRepros: improve ? workflowReproductions(story.repo, path.relative(story.repo, file.path)) : [] });
     sendPlan();
   };
   // what Publish would do in improve, per step: once per opening, not per keystroke (about a second)
@@ -901,6 +903,19 @@ async function openStory(context, project, file) {
   w.onDidReceiveMessage(async (m) => {
     if (m.type === 'ready') send();
     else if (m.type === 'note') putNote(m.key, m.note).catch((e) => vscode.window.showWarningMessage(`kton: the note was not kept: ${e.message}`));
+    else if (m.type === 'reproduceWorkflow' && story) {
+      if (busy) return;
+      busy = 'reproduce';
+      w.postMessage({ type: 'busy', what: 'reproduce', text: 'Reproduce in improve …' });
+      let r;
+      try { r = await reproduceWorkflow(story.repo, file.path, (pr) => w.postMessage({ type: 'busy', what: 'reproduce', text: pr.text })); }
+      catch (e) { r = { ok: false, error: e.message }; }
+      finally { busy = null; }
+      const sum = r.result && r.result.summary;
+      w.postMessage({ type: 'done', what: 'reproduce-workflow', ok: !!r.ok, cancelled: r.cancelled, error: r.error,
+        text: sum ? `Reproduced in improve (tree ${r.result.tree}): ${sum.reproduces || 0} reproduce, ${sum.differs || 0} differ, ${sum.failed || 0} failed` : '' });
+      send();
+    }
     else if (m.type === 'reproduce') { // the result belongs in the story
       if (busy) return;
       busy = 'reproduce';
@@ -1207,6 +1222,120 @@ async function openInBrowser() {
 
 // ------------------------------------------------------------------ activation
 let extContext; // for what opens a story from outside one (the viewer's actions)
+// ------------------------------------------------------------------ reproduce the workflow in improve
+// MH 12.11.: Reproduce a file's whole lineage (or everything published) in improve, in a NEW tree the
+// person names; the original tree stays untouched. Every step runs again in improve on the outputs the
+// reproduction made upstream (an independent re-run: a difference upstream shows downstream, traced back
+// to where it began). cockpit-improve does the work (contract with cockpit-improve-backend, 12.11.):
+//   cockpit-improve reproduce --workflow <file>|--all --tree <name> [--plan] --json
+// prints JSON lines on stdout: {event:"plan", steps}, {event:"step", i, n, call, state, step, original, …},
+// {event:"result", …}; the result is kept in .cockpit-improve/reproduce/<tree>.json. Exit 0 all reproduce,
+// 1 something differs, 2 could not run. The improve token is the person's, re-read from
+// IMPROVE_ACCESS_TOKEN_FILE for each request (a whole run outlives one five-minute token).
+function improveTree(repo) {
+  try { return ((JSON.parse(fs.readFileSync(path.join(repo, 'cockpit.config.json'), 'utf8')).repo || {}).improve || {}).tree || 'kton'; } catch (e) { return 'kton'; }
+}
+const reproDir = (repo) => path.join(repo, '.cockpit-improve', 'reproduce');
+// jsonLines: the JSON objects among a command's output lines (other lines are the command's talk)
+function jsonLines(text) {
+  const out = [];
+  for (const l of String(text).split('\n')) {
+    const t = l.trim();
+    if (!t.startsWith('{')) continue;
+    try { out.push(JSON.parse(t)); } catch (e) { /* not JSON */ }
+  }
+  return out;
+}
+const stepsOf = (ev) => (Array.isArray(ev.steps) ? ev.steps.length : Number(ev.steps) || 0);
+function reproArgs(repo, target, all, tree, plan) {
+  return ['reproduce', ...(all ? ['--all'] : ['--workflow', path.relative(repo, target)]), '--tree', tree, ...(plan ? ['--plan'] : []), '--json'];
+}
+async function reproduceWorkflow(repo, target, onProgress = () => {}) {
+  if (!(await improveToken(repo, true))) {
+    vscode.window.showErrorMessage('kton: not signed in to improve. Sign in with the improve extension, then reproduce again.');
+    return { ok: false, error: 'not signed in to improve' };
+  }
+  const rel = path.relative(repo, target);
+  const which = await vscode.window.showQuickPick([
+    { label: `The lineage of ${rel}`, description: 'every step it depends on', all: false },
+    { label: 'All published steps', description: 'the whole tree', all: true },
+  ], { title: 'kton: reproduce in improve', placeHolder: 'What should be reproduced?' });
+  if (!which) return { ok: false, cancelled: true };
+  const d = new Date(), two = (x) => String(x).padStart(2, '0');
+  const proposal = `${improveTree(repo)}-reproduce-${d.getFullYear()}${two(d.getMonth() + 1)}${two(d.getDate())}-${two(d.getHours())}${two(d.getMinutes())}`;
+  const tree = await vscode.window.showInputBox({
+    title: 'kton: reproduce in improve', value: proposal,
+    prompt: `A NEW tree in improve for the reproduction. The original tree "${improveTree(repo)}" stays untouched.`,
+    validateInput: (v) => (!/^[A-Za-z0-9._-]+$/.test(v) ? 'letters, digits, . _ - only'
+      : v === improveTree(repo) ? 'that is the original tree; name a new one'
+      : fs.existsSync(path.join(reproDir(repo), v + '.json')) ? 'a reproduction with this name exists already' : null),
+  });
+  if (!tree) return { ok: false, cancelled: true };
+  const env = { ...process.env, IMPROVE_ACCESS_TOKEN_FILE: tokenFilePath() };
+  onProgress({ text: 'Planning the reproduction …' });
+  const plan = await new Promise((resolve) => execFile(bin('cockpit'), reproArgs(repo, target, which.all, tree, true), { cwd: repo, env, timeout: 120000, maxBuffer: 16 << 20 },
+    (err, stdout, stderr) => resolve({ err, events: jsonLines(stdout), stderr: String(stderr || '') })));
+  const pe = plan.events.find((e) => e.event === 'plan');
+  if (!pe) return { ok: false, error: 'no plan: ' + ((plan.stderr.trim().split('\n').pop()) || (plan.err && plan.err.message) || 'no answer') };
+  const n = stepsOf(pe);
+  const ok = await vscode.window.showWarningMessage(
+    `Reproduce ${n} step${n === 1 ? '' : 's'} (${which.all ? 'everything published' : 'the lineage of ' + rel}) in improve, in the new tree "${tree}"? ` +
+    'Each step runs again in improve on the reproduced upstream outputs; NONMEM takes about a minute per run.', { modal: true }, 'Reproduce');
+  if (ok !== 'Reproduce') return { ok: false, cancelled: true };
+  // visible, like publishing: the command's own output in a terminal, the steps in the story
+  for (const t of vscode.window.terminals) if (t.name === 'kton reproduce (improve)') t.dispose();
+  const outE = new vscode.EventEmitter();
+  const say = (x) => outE.fire(String(x).replace(/\r?\n/g, '\r\n'));
+  let finish, child = null;
+  const finished = new Promise((r) => { finish = r; });
+  const events = [];
+  const runIt = () => {
+    say(`cd ${repo}\n$ cockpit-improve ${reproArgs(repo, target, which.all, tree, false).join(' ')}\n`);
+    child = spawn(bin('cockpit'), reproArgs(repo, target, which.all, tree, false), { cwd: repo, env });
+    let buf = '';
+    child.stdout.on('data', (dat) => {
+      buf += dat;
+      let k;
+      while ((k = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, k); buf = buf.slice(k + 1);
+        const ev = jsonLines(line)[0];
+        if (!ev) { say(line + '\n'); continue; }
+        events.push(ev);
+        if (ev.event === 'step') {
+          say(`[${ev.i}/${ev.n}] ${ev.state}: ${ev.call || ''}${ev.becauseOf ? '  (because of ' + [].concat(ev.becauseOf).join(', ') + ')' : ''}\n`);
+          const call = String(ev.call || ''); onProgress({ text: `Reproducing ${ev.i} of ${ev.n}: ${call.length > 70 ? call.slice(0, 67) + '…' : call} — ${ev.state}` });
+        } else if (ev.event === 'plan') say(`${stepsOf(ev)} steps\n`);
+      }
+    });
+    child.stderr.on('data', (dat) => say(dat));
+    child.on('error', (e) => { say(e.message + '\n'); finish({ code: 2, error: e.message }); });
+    child.on('close', (code) => finish({ code }));
+  };
+  const pty = { onDidWrite: outE.event, open: () => runIt(), close: () => { if (child) child.kill(); finish({ code: 2, error: 'the terminal was closed' }); } };
+  vscode.window.createTerminal({ name: 'kton reproduce (improve)', pty }).show(true);
+  const end = await finished;
+  let result = null;
+  try { result = JSON.parse(fs.readFileSync(path.join(reproDir(repo), tree + '.json'), 'utf8')); } catch (e) { result = events.filter((e2) => e2.event === 'result').pop() || null; }
+  if (result && !result.steps) result.steps = events.filter((e2) => e2.event === 'step');
+  if (result) { result.tree = result.tree || tree; result.target = result.target || (which.all ? '' : rel); }
+  return { ok: end.code === 0 || end.code === 1, code: end.code, error: end.error || (end.code === 2 ? 'could not run (see the terminal "kton reproduce (improve)")' : ''), result };
+}
+// workflowReproductions: the reproductions kept for this file (its lineage) or for everything, newest first
+function workflowReproductions(repo, rel) {
+  let names = [];
+  try { names = fs.readdirSync(reproDir(repo)).filter((n) => n.endsWith('.json')); } catch (e) { return []; }
+  const out = [];
+  for (const n of names) {
+    try {
+      const r = JSON.parse(fs.readFileSync(path.join(reproDir(repo), n), 'utf8'));
+      if (!r || !Array.isArray(r.steps)) continue; // a single-foton report of `reproduce <file>`, not a workflow
+      r.tree = r.tree || n.replace(/\.json$/, '');
+      if (!r.target || r.target === rel || r.all) out.push({ r, at: fs.statSync(path.join(reproDir(repo), n)).mtimeMs });
+    } catch (e) { /* not ours */ }
+  }
+  return out.sort((a, b) => b.at - a.at).map((x) => x.r);
+}
+
 // ------------------------------------------------------------------ the improve sign-in for terminals
 // What runs in a terminal (the nmfe75 shim: NONMEM in improve) acts as the person signed in with
 // the improve extension, not as a test account (kunden 11.11.). A session's access token lives five
@@ -1324,4 +1453,4 @@ function activate(context) {
 }
 
 function deactivate() {}
-module.exports = { activate, deactivate, _test: { planFor, askImproveAccess, startTerminalToken, tokenFilePath, listenUI, findBytes, copyIntoProject, ktonIntent, parseDoctor, parseDoctorJSON, cockpitRepoOf, reproduce, publishedSteps, publishText, Tree, setOut: (o) => { out = o; } } };
+module.exports = { activate, deactivate, _test: { planFor, askImproveAccess, startTerminalToken, tokenFilePath, listenUI, findBytes, copyIntoProject, ktonIntent, parseDoctor, parseDoctorJSON, cockpitRepoOf, reproduce, publishedSteps, publishText, Tree, reproduceWorkflow, workflowReproductions, jsonLines, setOut: (o) => { out = o; } } };

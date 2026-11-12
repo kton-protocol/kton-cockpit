@@ -4,7 +4,7 @@
 (function () {
   const vscode = acquireVsCodeApi();
   const root = document.getElementById("root");
-  let S = null, published = {}, sameResult = {}, notes = {}, cockpitRepo = false, open = {}, plan = null, busy = null, result = null;
+  let S = null, published = {}, sameResult = {}, notes = {}, cockpitRepo = false, open = {}, plan = null, busy = null, result = null, improve = false, wfRepros = [];
 
   const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
   const clock = (ns) => new Date(ns / 1e6).toLocaleTimeString(undefined, {hour: "2-digit", minute: "2-digit"});
@@ -189,6 +189,33 @@
       <div class="body"><div class="head"><b>Reproduced</b> in an empty folder: ${what} <span class="muted">· ${r.seconds} s</span></div></div></li>`;
   }
 
+  // a reproduction of the workflow in improve (cockpit-improve reproduce --workflow|--all --tree): per step
+  // reproduces / differs / failed, the new step beside the original, and where a difference began
+  function workflowRepro(r) {
+    const steps = r.steps || [];
+    const count = (st) => steps.filter((x) => x.state === st).length;
+    const sum = r.summary || {reproduces: count("reproduces"), differs: count("differs"), failed: count("failed")};
+    const link = (x, label) => (x && x.url ? `<a href="${esc(x.url)}" title="${esc(x.entity || "")}">${esc(label || x.name || String(x.entity || "").split(":").pop())}</a>`
+      : x ? esc(label || x.name || String(x.entity || "").split(":").pop()) : "");
+    const icon = {reproduces: "✓", differs: "≠", failed: "✗"};
+    const how = {bytes: "same bytes", normaliser: "same after NONMEM's normaliser", ofv: "same OFV"};
+    const row = (x) => {
+      const bad = (x.outputs || []).filter((o) => !o.same);
+      const why = x.state === "differs" && x.becauseOf && [].concat(x.becauseOf).length && !x.differsOwn
+        ? `<div class="muted">because ${[].concat(x.becauseOf).map((b) => esc(typeof b === "string" ? b : (b.call || b.step || ""))).join(", ")} differed upstream</div>`
+        : x.state === "differs" && x.differsOwn ? `<div class="warn">differs here, its inputs were the same: this is where it began</div>` : "";
+      const outs = bad.length ? `<div class="muted">${bad.map((o) => esc(o.path) + (o.reproduced ? "" : " (not produced)")).join(", ")}</div>`
+        : (x.outputs || []).length ? `<div class="muted">${esc([...new Set((x.outputs || []).map((o) => how[o.how] || "same bytes"))].join(", "))}</div>` : "";
+      return `<tr class="${esc(x.state || "")}"><td>${icon[x.state] || "·"}</td><td><code>${esc(x.call || "")}</code>${why}${outs}${x.detail ? `<div class="muted">${esc(x.detail)}</div>` : ""}</td>
+        <td>${link(x.step)}</td><td>${link(x.original)}</td></tr>`;
+    };
+    return `<section class="wfrepro">
+      <h2>Reproduced in improve <span class="muted">· tree ${esc(r.tree || "")}${r.target ? "" : " · everything published"}${r.when || r.at ? " · " + esc(stamp(r.when || r.at)) : ""}</span></h2>
+      <div class="${sum.differs || sum.failed ? "warn" : "ok"}">${sum.reproduces || 0} reproduce, ${sum.differs || 0} differ, ${sum.failed || 0} failed</div>
+      <table><thead><tr><th></th><th>step</th><th>reproduction</th><th>original</th></tr></thead><tbody>${steps.map(row).join("")}</tbody></table>
+    </section>`;
+  }
+
   function markdown(cs) {
     let md = `# How ${targetRel()} came about\n\n${headline(cs).replace(/<\/?code>/g, "`")}\n\n`;
     for (const ps of chains()) md += `In ${ps[0].levels.map((l) => l.name).join(" › ")}, from ${ps.map((p) => short(p.path) + " (" + p.foton + ")").join(", ")}\n\n`;
@@ -237,6 +264,7 @@
         <div class="actions">
           ${busy ? `<span class="busy"><span class="spin"></span> ${esc(busy.text)} <span id="elapsed" class="muted"></span></span>` : result ? `<span class="${result.ok ? "ok" : "warn"}">${result.ok ? "✓" : "⚠"} ${esc(result.text)}</span>` : ""}
           <button id="repro" ${busy ? "disabled" : ""} title="source files and scripts into an empty folder, run there, compare the hash">Reproduce</button>
+          ${improve ? `<button id="reproimp" ${busy || !cockpitRepo ? "disabled" : ""} title="every step of this file's lineage (or everything published) again in improve, in a new tree you name; the original tree stays untouched">Reproduce in improve…</button>` : ""}
           ${planSummary(todo)}
           <button id="publish" ${busy || !cockpitRepo || !todo.length ? "disabled" : ""} title="${cockpitRepo ? "cockpit publish for every line without ✓, in the terminal, with description and rationale as comments" : "no cockpit repo (cockpit init)"}">Publish to kton${todo.length ? ` (${todo.length})` : ""}</button>
           <button class="secondary" id="inkton" ${cockpitRepo ? "" : "disabled"} title="${cockpitRepo ? "kton-web beside the story: what was recorded and what is signed, in one graph, centred on this file (kton-web verifies the records)" : "no cockpit repo (cockpit init)"}">In kton</button>
@@ -244,6 +272,7 @@
         </div>
       </header>
       <ol class="story">${cs.map(line).join("")}${(S.reproductions || []).slice(0, 1).map(reproLine).join("")}</ol>
+      ${wfRepros.slice(0, 1).map(workflowRepro).join("")}
       ${(S.gaps || []).length ? `<details class="gaps"><summary>${S.gaps.length} gap${S.gaps.length > 1 ? "s" : ""} in the recording</summary>${S.gaps.map((g) => `<div class="warn">${esc(g)}</div>`).join("")}</details>` : ""}
     </main>`;
     for (const b of root.querySelectorAll("button.diff")) b.onclick = () => {
@@ -258,6 +287,12 @@
         clearTimeout(n._t); n._t = setTimeout(() => vscode.postMessage({type: "note", key: n.dataset.k, note: notes[n.dataset.k]}), 400);
       };
     }
+    const ri = document.getElementById("reproimp");
+    if (ri) ri.onclick = () => {
+      if (busy) return; // already running: a second click does nothing
+      busy = {what: "reproduce", text: "Reproduce in improve …", since: Date.now()}; result = null; render(); tick();
+      vscode.postMessage({type: "reproduceWorkflow"});
+    };
     document.getElementById("repro").onclick = () => {
       if (busy) return; // already running: a second click does nothing
       busy = {what: "reproduce", text: "Starting the reproduction …"}; result = null; render();
@@ -287,14 +322,14 @@
 
   window.addEventListener("message", (e) => {
     const m = e.data;
-    if (m.type === "story") { S = m.story; published = m.published || {}; sameResult = m.sameResult || {}; notes = m.notes || {}; cockpitRepo = m.cockpitRepo; render(); }
+    if (m.type === "story") { S = m.story; published = m.published || {}; sameResult = m.sameResult || {}; notes = m.notes || {}; cockpitRepo = m.cockpitRepo; improve = !!m.improve; wfRepros = m.workflowRepros || []; render(); }
     if (m.type === "published") { published = m.published || {}; sameResult = m.sameResult || {}; render(); }
     if (m.type === "plan") { plan = m.plan; render(); }
     if (m.type === "busy") { busy = {what: m.what, text: m.text, since: Date.now()}; render(); tick(); }
     if (m.type === "done") {
       busy = null;
       result = m.cancelled ? null : m.ok
-        ? {ok: true, text: m.what === "publish" ? (m.inTerminal ? "Publishing runs in the terminal; the story updates when it is done" : m.nothing ? "Nothing to publish" : "Published") : "Reproduced"}
+        ? {ok: true, text: m.text || (m.what === "publish" ? (m.inTerminal ? "Publishing runs in the terminal; the story updates when it is done" : m.nothing ? "Nothing to publish" : "Published") : "Reproduced")}
         : {ok: false, text: (m.what === "publish" ? "Publish stopped: " : "Reproduce failed: ") + (m.error || "see the terminal")};
       render();
     }
