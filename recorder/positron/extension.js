@@ -577,14 +577,26 @@ async function recordedFile(uri) {
 // A step is in kton when the cockpit knows a producer for every file it wrote (verified records
 // only, the cockpit's own rule). Asked per hash, in the repository the story belongs to.
 // concurrent asks in one federated repository need cockpit v0.3.0 (SPEC §9.8)
+// At most a few at once: with the improve backend every ask first binds to improve (about 5 s),
+// and dozens in parallel ran into the time limit, so a story showed nothing as in kton (MH 12.11.).
+let asking = 0;
+const askWaiting = [];
 const askCockpit = async (repo, q) => {
-  const env = await cockpitEnv(repo, false);
-  return new Promise((resolve) => {
-    execFile(bin('cockpit'), ['ask', JSON.stringify(q)], { cwd: repo, timeout: 15000, env }, (err, stdout) => {
-      if (err) return resolve(null);
-      try { resolve(JSON.parse(stdout)); } catch (e) { resolve(null); }
+  if (asking >= 4) await new Promise((r) => askWaiting.push(r));
+  asking++;
+  try {
+    const env = await cockpitEnv(repo, false);
+    return await new Promise((resolve) => {
+      execFile(bin('cockpit'), ['ask', JSON.stringify(q)], { cwd: repo, timeout: 60000, env }, (err, stdout) => {
+        if (err) return resolve(null);
+        try { resolve(JSON.parse(stdout)); } catch (e) { resolve(null); }
+      });
     });
-  });
+  } finally {
+    asking--;
+    const next = askWaiting.shift();
+    if (next) next();
+  }
 };
 // the verified records whose output these bytes are
 const producersOf = async (repo, sum) => {
@@ -600,9 +612,17 @@ const recordInputs = async (repo, id) => {
 // names only inputs this step read with the same bytes: the same computation, not only the same
 // result. Same output bytes from other inputs (a changed script whose change did not reach this
 // file) are told apart: "same" (the result is in kton, this run of it is not).
-async function publishedSteps(story) {
+async function publishedSteps(story, fresh) {
   const done = {}, same = {};
   if (!fs.existsSync(path.join(story.repo, 'cockpit.config.json'))) return { done, same };
+  // improve: one preview for the whole story says which steps are in improve already, so in kton
+  if (repoMode(story.repo) === 'improve') {
+    const plan = await planOf(story, fresh);
+    if (plan && !plan.error) {
+      for (const [key, p] of Object.entries(plan)) if (p.action === 'exists') done[key] = true;
+      return { done, same };
+    }
+  }
   const sums = [...new Set(story.steps.flatMap((s) => s.hashes || []))];
   const producers = {};
   await Promise.all(sums.map(async (h) => { producers[h] = await producersOf(story.repo, h); }));
@@ -719,6 +739,14 @@ async function basedOnLines(repo, cmd) {
   if (!ids.length) return [`#   based-on ${parent}: not published yet; publish ${parent}'s lineage first, then this one`];
   const id = ids[ids.length - 1];
   return ['cockpit claim based-on ' + sq(JSON.stringify({ 'based-on': id, why: `developed from ${parent}` }))];
+}
+
+// planOf: the story's improve preview, asked once and shared by the in-kton marks and the preview
+// lines; fresh asks again (after a publish).
+const plans = new WeakMap();
+function planOf(story, fresh) {
+  if (fresh || !plans.has(story)) plans.set(story, planFor(story));
+  return plans.get(story);
 }
 
 // planFor: for a repository in improve mode, what publishing the story's recorded steps does in improve,
@@ -847,7 +875,7 @@ async function openStory(context, project, file) {
     sendPlan();
   };
   // what Publish would do in improve, per step: once per opening, not per keystroke (about a second)
-  const sendPlan = async () => { if (story) { const plan = await planFor(story); if (plan) w.postMessage({ type: 'plan', plan }); } };
+  const sendPlan = async () => { if (story) { const plan = await planOf(story); if (plan) w.postMessage({ type: 'plan', plan }); } };
   // back in view: read again, so drafts Claude wrote meanwhile (kton_note) show
   p.onDidChangeViewState((e) => { if (e.webviewPanel.visible && story) send(); });
   w.onDidReceiveMessage(async (m) => {
@@ -862,7 +890,7 @@ async function openStory(context, project, file) {
     } else if (m.type === 'publish' && story) {
       await publish(story.repo, await publishText(story, file, m.steps));
       // the terminal does the work; look again a few times so the story catches up
-      for (const ms of [5000, 15000, 40000]) setTimeout(async () => { if (stories.has(id)) { const ps = await publishedSteps(story); w.postMessage({ type: 'published', published: ps.done, sameResult: ps.same }); if (ms === 40000) sendPlan(); } }, ms);
+      for (const ms of [5000, 15000, 40000]) setTimeout(async () => { if (stories.has(id)) { const ps = await publishedSteps(story, true); w.postMessage({ type: 'published', published: ps.done, sameResult: ps.same }); sendPlan(); } }, ms);
     }
   });
 }
