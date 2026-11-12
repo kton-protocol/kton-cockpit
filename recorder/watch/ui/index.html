@@ -365,11 +365,10 @@ function openFile(path, sha) { picked = {path, sha}; setTab("files"); }
 // The observations in kton-web's graph form (/kton/graph.json), drawn and navigated by kton-web's
 // viewer unchanged. Reloaded only when the project or the focus changes, so its navigation stays.
 let kwebSrc = "";
-// MH 12.11. (internal demo): the flow of a project in a cockpit repository is what is published, in the
-// pmx view (steps named by their descriptions, the model tree, marks, rationale notes, shared files only),
-// one signer; the recorded steps without a record (one participant per console or terminal) only on demand
-let withRecorded = false;
-try { withRecorded = localStorage.getItem("kton.flow.recorded") === "1"; } catch (e) { /* none */ }
+// MH 12.11. (internal demo): kton-web's pmx view (kton-web d9fb22c): steps named by their descriptions,
+// the model tree, marks, rationale notes, shared files only, one participant per identity; recorded-only
+// steps hidden behind its own switch in the stats line, and without a focus it starts on the lineage of
+// the step most work leads to
 function renderKtonWeb() {
   $("filters").style.display = "none";
   if (!cfg.web) {
@@ -384,27 +383,20 @@ function renderKtonWeb() {
   // finds whether a record or only a recorded step has it
   // a file in focus: only the portion of the store around it (?select=, expandable in the viewer);
   // the whole project: the repository's records whole (?union=)
-  const rec = !reg || withRecorded ? `&graph=${enc(g)}` : "";
   let src = !reg ? `/web/viewers/graph/?graph=${enc(g)}`
-    : focusHash ? `/web/viewers/graph/?select=${enc(`/kton/reg/${reg}/data/select`)}${rec}`
-    : `/web/viewers/graph/?union=${enc(`/kton/reg/${reg}/data/union.json`)}${rec}`;
+    : focusHash ? `/web/viewers/graph/?select=${enc(`/kton/reg/${reg}/data/select`)}&graph=${enc(g)}`
+    : `/web/viewers/graph/?union=${enc(`/kton/reg/${reg}/data/union.json`)}&graph=${enc(g)}`;
   if (reg && focusHash) src += `&focus=${enc("sha256:" + focusHash)}&mode=anc`;
-  else if (focusNode && (!reg || withRecorded)) src += `&focus=${enc(focusNode)}&mode=anc`;
+  else if (focusNode) src += `&focus=${enc(focusNode)}&mode=anc`;
   src += `&view=pmx`;
   if (src === kwebSrc && $("kweb")) return;
   kwebSrc = src;
   $("view").innerHTML = `<div class="bar" style="padding-top:0"><span class="h">kton-web graph · ${reg ? "recorded and signed together: signed records are verified here, recorded steps without a record stay unsigned" : "steps are fotons (unverified: none of it is signed), source files are sources"}.</span>
       <button class="btn" id="kwebReload">Reload</button><a class="btn" href="${esc(src)}" target="_blank" style="text-decoration:none">In its own window</a>
-      ${focusNode || focusHash ? `<button class="btn" id="kwebAll">Whole graph</button>` : ""}
-      ${reg ? `<button class="btn" id="kwebRec" title="the recorded steps that have no record yet, one participant per console or terminal">${withRecorded ? "Published only" : "With recorded steps"}</button>` : ""}</div>
+      ${focusNode || focusHash ? `<button class="btn" id="kwebAll">Whole graph</button>` : ""}</div>
     <iframe id="kweb" src="${esc(src)}"></iframe>`;
   $("kwebReload").onclick = () => { kwebSrc = ""; renderKtonWeb(); };
   if ($("kwebAll")) $("kwebAll").onclick = () => { focusNode = null; focusHash = null; renderKtonWeb(); };
-  if ($("kwebRec")) $("kwebRec").onclick = () => {
-    withRecorded = !withRecorded;
-    try { localStorage.setItem("kton.flow.recorded", withRecorded ? "1" : "0"); } catch (e) { /* none */ }
-    kwebSrc = ""; renderKtonWeb();
-  };
 }
 
 // ------------------------------------------------------------------ documenting (by hand, with the cockpit's verbs)
