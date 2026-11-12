@@ -210,8 +210,8 @@
         <td>${link(x.step)}</td><td>${link(x.original)}</td></tr>`;
     };
     return `<section class="wfrepro">
-      <h2>Reproduced in improve <span class="muted">· tree ${esc(r.tree || "")}${r.target ? "" : " · everything published"}${r.when || r.at ? " · " + esc(stamp(r.when || r.at)) : ""}</span></h2>
-      <div class="${sum.differs || sum.failed ? "warn" : "ok"}">${sum.reproduces || 0} reproduce, ${sum.differs || 0} differ, ${sum.failed || 0} failed</div>
+      <h2>Reproduced in improve <span class="muted">· tree ${esc(r.tree || "")}${r.target ? "" : " · everything published"}${r.finishedAt || r.when ? " · " + esc(stamp(r.finishedAt || r.when)) : ""}${r.treeUrl ? ` · <a href="${esc(r.treeUrl)}">open in improve</a>` : ""}</span></h2>
+      <div class="${sum.differs || sum.failed ? "warn" : "ok"}">${sum.reproduces || 0} reproduce, ${sum.differs || 0} differ${sum.differsOwn != null && sum.differs ? ` (${sum.differsOwn} where it began)` : ""}, ${sum.failed || 0} failed</div>
       <table><thead><tr><th></th><th>step</th><th>reproduction</th><th>original</th></tr></thead><tbody>${steps.map(row).join("")}</tbody></table>
     </section>`;
   }

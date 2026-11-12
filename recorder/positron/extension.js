@@ -1276,6 +1276,8 @@ async function reproduceWorkflow(repo, target, onProgress = () => {}) {
   const plan = await new Promise((resolve) => execFile(bin('cockpit'), reproArgs(repo, target, which.all, tree, true), { cwd: repo, env, timeout: 120000, maxBuffer: 16 << 20 },
     (err, stdout, stderr) => resolve({ err, events: jsonLines(stdout), stderr: String(stderr || '') })));
   const pe = plan.events.find((e) => e.event === 'plan');
+  const perr = plan.events.find((e) => e.event === 'error');
+  if (perr) return { ok: false, error: perr.message || perr.code || 'refused' };
   if (!pe) return { ok: false, error: 'no plan: ' + ((plan.stderr.trim().split('\n').pop()) || (plan.err && plan.err.message) || 'no answer') };
   const n = stepsOf(pe);
   const ok = await vscode.window.showWarningMessage(
@@ -1302,9 +1304,10 @@ async function reproduceWorkflow(repo, target, onProgress = () => {}) {
         if (!ev) { say(line + '\n'); continue; }
         events.push(ev);
         if (ev.event === 'step') {
-          say(`[${ev.i}/${ev.n}] ${ev.state}: ${ev.call || ''}${ev.becauseOf ? '  (because of ' + [].concat(ev.becauseOf).join(', ') + ')' : ''}\n`);
+          say(`[${ev.i}/${ev.n || '?'}] ${ev.state}: ${ev.call || ''}${ev.becauseOf ? '  (because of ' + [].concat(ev.becauseOf).join(', ') + ')' : ''}\n`);
           const call = String(ev.call || ''); onProgress({ text: `Reproducing ${ev.i} of ${ev.n}: ${call.length > 70 ? call.slice(0, 67) + '…' : call} — ${ev.state}` });
         } else if (ev.event === 'plan') say(`${stepsOf(ev)} steps\n`);
+        else if (ev.event === 'error') say(`refused: ${ev.message || ev.code}\n`);
       }
     });
     child.stderr.on('data', (dat) => say(dat));
@@ -1318,7 +1321,9 @@ async function reproduceWorkflow(repo, target, onProgress = () => {}) {
   try { result = JSON.parse(fs.readFileSync(path.join(reproDir(repo), tree + '.json'), 'utf8')); } catch (e) { result = events.filter((e2) => e2.event === 'result').pop() || null; }
   if (result && !result.steps) result.steps = events.filter((e2) => e2.event === 'step');
   if (result) { result.tree = result.tree || tree; result.target = result.target || (which.all ? '' : rel); }
-  return { ok: end.code === 0 || end.code === 1, code: end.code, error: end.error || (end.code === 2 ? 'could not run (see the terminal "kton reproduce (improve)")' : ''), result };
+  const refused = events.find((e2) => e2.event === 'error');
+  return { ok: end.code === 0 || end.code === 1, code: end.code,
+    error: end.error || (refused && (refused.message || refused.code)) || (end.code === 2 ? 'could not run (see the terminal "kton reproduce (improve)")' : ''), result };
 }
 // workflowReproductions: the reproductions kept for this file (its lineage) or for everything, newest first
 function workflowReproductions(repo, rel) {
