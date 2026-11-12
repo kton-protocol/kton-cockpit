@@ -150,7 +150,9 @@ func (c *Classifier) Rel(p string) string {
 // (.Renviron, .Rprofile, .RData) before the first command, and in a Positron console they would
 // land in its first step; tools read git's own files (.git/info/exclude, 11.11.).
 func projectEnv(p string) bool {
-	return rStartup.MatchString(filepath.Base(p)) || strings.Contains(p, "/.git/")
+	// a repository's own metadata: git, and the other version control systems
+	return rStartup.MatchString(filepath.Base(p)) || strings.Contains(p, "/.git/") || strings.HasSuffix(p, "/.git") ||
+		strings.Contains(p, "/.hg/") || strings.Contains(p, "/.svn/")
 }
 
 var rStartup = regexp.MustCompile(`^(\.Renviron.*|\.Rprofile|\.RData|\.Rhistory)$`)
