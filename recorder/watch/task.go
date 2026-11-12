@@ -88,8 +88,10 @@ type FileOp struct {
 type Net struct {
 	PID     int    `json:"pid"`
 	Address string `json:"address"`
-	Class   string `json:"class"` // loopback | unix | remote
+	Class   string `json:"class"` // loopback | unix | remote | background (the IDE's own traffic, not the step's)
 	OK      bool   `json:"ok"`
+	Why     string `json:"why,omitempty"` // for background: what showed it
+	ts      int64
 }
 
 // Var is a variable a command left in the global environment: name, class, shape.
