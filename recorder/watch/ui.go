@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 )
@@ -40,12 +41,59 @@ var ErrNoEditor = errors.New("no Positron window with the kton recorder is liste
 // UIHub passes events to the listening windows and their answers back.
 type UIHub struct {
 	mu      sync.Mutex
-	subs    map[chan UIEvent]bool
+	subs    map[chan UIEvent]uiWindow
 	waiting map[string]chan UIAnswer
 }
 
+// uiWindow: what a listening window said about itself, its app (Positron, Visual Studio Code) and the
+// folders it has open
+type uiWindow struct {
+	App     string
+	Folders []string
+}
+
 func NewUIHub() *UIHub {
-	return &UIHub{subs: map[chan UIEvent]bool{}, waiting: map[string]chan UIAnswer{}}
+	return &UIHub{subs: map[chan UIEvent]uiWindow{}, waiting: map[string]chan UIAnswer{}}
+}
+
+// targets: the windows an event goes to (MH 12.11., mh4: Claude in Positron opened a story, and it opened
+// in a VS Code window that answered first). An event about a project goes to the windows that have it
+// open; among several, and when none or no project is named, Positron's. Every window only when nothing
+// tells them apart (windows from before this, which name nothing).
+func targets(subs map[chan UIEvent]uiWindow, args map[string]any) []chan UIEvent {
+	project, _ := args["project"].(string)
+	if project == "" {
+		project, _ = args["path"].(string)
+	}
+	has := func(w uiWindow) bool {
+		for _, f := range w.Folders {
+			f = strings.TrimRight(f, "/")
+			if f != "" && project != "" && (project == f || strings.HasPrefix(project, f+"/") || strings.HasPrefix(f, project+"/")) {
+				return true
+			}
+		}
+		return false
+	}
+	positron := func(w uiWindow) bool { return strings.Contains(strings.ToLower(w.App), "positron") }
+	pick := func(ok func(uiWindow) bool) []chan UIEvent {
+		var out []chan UIEvent
+		for c, w := range subs {
+			if ok(w) {
+				out = append(out, c)
+			}
+		}
+		return out
+	}
+	if t := pick(func(w uiWindow) bool { return has(w) && positron(w) }); len(t) > 0 {
+		return t
+	}
+	if t := pick(has); len(t) > 0 {
+		return t
+	}
+	if t := pick(positron); len(t) > 0 {
+		return t
+	}
+	return pick(func(uiWindow) bool { return true })
 }
 
 // Listening is how many windows are subscribed.
@@ -67,7 +115,7 @@ func (h *UIHub) Do(ctx context.Context, action string, args map[string]any) (UIA
 		return UIAnswer{}, ErrNoEditor
 	}
 	h.waiting[ev.ID] = ans
-	for c := range h.subs {
+	for _, c := range targets(h.subs, args) {
 		select {
 		case c <- ev:
 		default: // a window that does not read is skipped, not waited for
@@ -99,10 +147,10 @@ func (h *UIHub) answer(a UIAnswer) bool {
 	return ok
 }
 
-func (h *UIHub) subscribe() chan UIEvent {
+func (h *UIHub) subscribe(w uiWindow) chan UIEvent {
 	c := make(chan UIEvent, 8)
 	h.mu.Lock()
-	h.subs[c] = true
+	h.subs[c] = w
 	h.mu.Unlock()
 	return c
 }
@@ -122,7 +170,8 @@ func (h *UIHub) serveEvents(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
-	c := h.subscribe()
+	q := r.URL.Query()
+	c := h.subscribe(uiWindow{App: q.Get("app"), Folders: q["folder"]})
 	defer h.unsubscribe(c)
 	fmt.Fprint(w, ": kton ui\n\n")
 	fl.Flush()

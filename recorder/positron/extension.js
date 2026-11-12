@@ -1247,11 +1247,18 @@ async function uiDo(context, ev) {
   return { ok: false, message: 'unknown action ' + ev.action };
 }
 function listenUI(context) {
-  let stopped = false, req;
+  let stopped = false, req, pending = false;
+  // one reconnect at a time: a stream that ends can report both 'end'/'error' on the response and
+  // 'error' on the request, and two subscriptions would carry out every request twice
+  const again = (ms) => { if (pending || stopped) return; pending = true; setTimeout(() => { pending = false; connect(); }, ms); };
   const connect = () => {
     if (stopped) return;
-    req = http.get(viewerUrl() + 'api/ui/events', (res) => {
-      if (res.statusCode !== 200) { res.resume(); return setTimeout(connect, 10000); }
+    // this window says what it is: an assistant's request about a project goes to the window that has it
+    // open, and Positron's before another editor's (MH 12.11., mh4)
+    const q = new URLSearchParams({ app: vscode.env.appName || '' });
+    for (const f of vscode.workspace.workspaceFolders || []) q.append('folder', f.uri.fsPath);
+    req = http.get(viewerUrl() + 'api/ui/events?' + q.toString(), (res) => {
+      if (res.statusCode !== 200) { res.resume(); return again(10000); }
       let buf = '';
       res.on('data', (c) => {
         buf += c;
@@ -1265,13 +1272,15 @@ function listenUI(context) {
             .then((ans) => sendJSON('POST', viewerUrl() + 'api/ui/answer', Object.assign({ id: ev.id }, ans)).catch(() => { /* another window answered */ }));
         }
       });
-      res.on('end', () => setTimeout(connect, 3000));
-      res.on('error', () => setTimeout(connect, 3000));
+      res.on('end', () => again(3000));
+      res.on('error', () => again(3000));
     });
-    req.on('error', () => setTimeout(connect, 10000));
+    req.on('error', () => again(10000));
   };
   connect();
-  context.subscriptions.push({ dispose: () => { stopped = true; if (req) req.destroy(); } });
+  context.subscriptions.push({ dispose: () => { stopped = true; if (req) req.destroy(); } },
+    // other folders open: subscribe again with them (the old stream ends and reconnects)
+    vscode.workspace.onDidChangeWorkspaceFolders(() => { if (req) req.destroy(); }));
 }
 
 async function openInBrowser() {
