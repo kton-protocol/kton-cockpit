@@ -402,8 +402,19 @@ static long long self_start_ns(void) {
     return boot * 1000000000LL + (long long)(ticks * (1000000000ULL / (unsigned long long)hz));
 }
 
+/* env: a variable straight from the process environment. bash brings its own getenv(), which
+ * answers from bash's variable table and, before bash's main has filled it, misses variables (12.11.:
+ * `bash -c …` or `bash script` as the first process logged an empty hash prefix). */
+extern char **environ;
+static const char *env(const char *name) {
+    size_t n = strlen(name);
+    for (char **e = environ; e && *e; e++)
+        if (strncmp(*e, name, n) == 0 && (*e)[n] == '=') return *e + n + 1;
+    return NULL;
+}
+
 __attribute__((constructor)) static void kton_init(void) {
-    const char *p = getenv("KTON_TRACE_LOG");
+    const char *p = env("KTON_TRACE_LOG");
     if (!p || !*p) return;
     /* "%p" becomes this process's pid, once: the expanded path is put back into the
      * environment so children log into the same file (one log per kernel, not per process) */
@@ -447,7 +458,7 @@ __attribute__((constructor)) static void kton_init(void) {
         if (slash) snprintf(pause_path, sizeof pause_path, "%.*s/PAUSED", (int)(slash - p), p);
     }
     struct stat st;
-    const char *hp = getenv("KTON_TRACE_HASH");
+    const char *hp = env("KTON_TRACE_HASH");
     if (hp) snprintf(hash_prefixes, sizeof hash_prefixes, "%s", hp);
     if (fstat(log_fd, &st) == 0) {
         log_dev = st.st_dev; log_ino = st.st_ino;
@@ -457,7 +468,7 @@ __attribute__((constructor)) static void kton_init(void) {
             if (n > 0) raw_write(hdr, (size_t)n < sizeof hdr ? (size_t)n : sizeof hdr - 1);
         }
     }
-    const char *hm = getenv("KTON_TRACE_HASH_MAX");
+    const char *hm = env("KTON_TRACE_HASH_MAX");
     if (hm && *hm) hash_max = atoll(hm);
 
     char raw[2048] = {0}, cmd[2048] = {0}, cwd[4096] = "-";
