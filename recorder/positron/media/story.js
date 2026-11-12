@@ -4,7 +4,7 @@
 (function () {
   const vscode = acquireVsCodeApi();
   const root = document.getElementById("root");
-  let S = null, published = {}, sameResult = {}, notes = {}, cockpitRepo = false, open = {}, plan = null, busy = null, result = null;
+  let S = null, published = {}, sameResult = {}, notes = {}, cockpitRepo = false, open = {}, plan = null, busy = null, result = null, improve = false, wfRepros = [];
 
   const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
   const clock = (ns) => new Date(ns / 1e6).toLocaleTimeString(undefined, {hour: "2-digit", minute: "2-digit"});
@@ -189,6 +189,51 @@
       <div class="body"><div class="head"><b>Reproduced</b> in an empty folder: ${what} <span class="muted">· ${r.seconds} s</span></div></div></li>`;
   }
 
+  // a reproduction of the workflow in improve (cockpit-improve reproduce --workflow|--all --tree): per step
+  // reproduces / differs / failed, the new step beside the original, and where a difference began
+  function workflowRepro(r) {
+    const steps = r.steps || [];
+    const count = (st) => steps.filter((x) => x.state === st).length;
+    const sum = r.summary || {reproduces: count("reproduces"), differs: count("differs"), failed: count("failed")};
+    const link = (x, label) => (x && x.url ? `<a href="${esc(x.url)}" title="${esc(x.entity || "")}">${esc(label || x.name || String(x.entity || "").split(":").pop())}</a>`
+      : x ? esc(label || x.name || String(x.entity || "").split(":").pop()) : "");
+    const icon = {reproduces: "✓", differs: "≠", failed: "✗"};
+    const how = {bytes: "same bytes", normaliser: "same after NONMEM's normaliser", ofv: "same OFV"};
+    const row = (x) => {
+      const bad = (x.outputs || []).filter((o) => !o.same);
+      // where a difference began: an output whose inputs already differed upstream names them (becauseOf);
+      // a differing output without them began here
+      const ups = [...new Set([].concat(x.becauseOf || [], ...bad.map((o) => o.becauseOf || [])).map((b) => (typeof b === "string" ? b : (b.call || b.step || b.path || ""))))].filter(Boolean);
+      const why = x.state !== "differs" ? "" : ups.length
+        ? `<div class="muted">because ${ups.map(esc).join(", ")} already differed upstream</div>`
+        : `<div class="warn">differs here, its inputs were the same: this is where it began</div>`;
+      const envOf = (e) => (e ? Object.values(e).filter(Boolean).join(" ") : "");
+      const env = x.environment && x.state !== "reproduces" ? `<div class="muted">recorded: ${esc(envOf(x.environment.recorded) || "?")} · reproduced: ${esc(envOf(x.environment.reproduced) || "?")}</div>` : "";
+      const rerun = x.state === "failed" || x.state === "differs" ? `<button class="secondary small" data-rerun="${x.i}" data-tree="${esc(r.tree)}" ${busy ? "disabled" : ""} title="run this step again in improve (cockpit-improve reproduce --resume ${esc(r.tree)} --step ${x.i})">Re-run</button>` : "";
+      const ofv = x.ofv ? `<div class="${x.ofv.same ? "muted" : "warn"}">OFV ${x.ofv.same ? "the same" : "differs"}: ${esc(x.ofv.recorded || "")}${x.ofv.same ? "" : " → " + esc(x.ofv.reproduced || "")}</div>` : "";
+      // a difference is a finding: both versions, and the person's decision (MH 12.11.)
+      const dec = (o) => (r.decisions || {})[`${x.i}:${o.path}`];
+      const finding = (o) => {
+        const d = dec(o);
+        const btn = (t, label, title) => `<button class="secondary small" data-f="${t}" data-tree="${esc(r.tree)}" data-i="${x.i}" data-path="${esc(o.path)}" title="${esc(title)}">${label}</button>`;
+        return `<div class="finding"><span>${esc(o.path)}${o.reproduced ? "" : " (not produced)"}</span>
+          ${btn("compareFinding", "Compare", "both versions side by side")}
+          ${d && d.decision === "accepted" ? `<span class="ok" title="${esc(d.at || "")}">✓ accepted: ${esc(d.reason)}${d.note ? "" : " <span class=\"muted\">(kept here; not said)</span>"}</span>`
+            : `${btn("acceptFinding", "Accept…", "accept it as an environment difference, with your reason (a note about the step)")}
+               ${d && d.decision === "investigate" ? `<span class="warn">investigating</span>` : btn("investigateFinding", "Investigate", "mark it to look into, and compare")}`}</div>`;
+      };
+      const outs = bad.length ? bad.map(finding).join("")
+        : (x.outputs || []).length ? `<div class="muted">${esc([...new Set((x.outputs || []).map((o) => how[o.how] || "same bytes"))].join(", "))}</div>` : "";
+      return `<tr class="${esc(x.state || "")}"><td>${icon[x.state] || "·"}</td><td><code>${esc(x.call || "")}</code> ${rerun}${why}${env}${ofv}${outs}${x.detail ? `<div class="muted">${esc(x.detail)}</div>` : ""}</td>
+        <td>${link(x.step)}</td><td>${link(x.original)}</td></tr>`;
+    };
+    return `<section class="wfrepro">
+      <h2>Reproduced in improve <span class="muted">· tree ${esc(r.tree || "")}${r.target ? "" : " · everything published"}${r.finishedAt || r.when ? " · " + esc(stamp(r.finishedAt || r.when)) : ""}${r.treeUrl ? ` · <a href="${esc(r.treeUrl)}">open in improve</a>` : ""}</span></h2>
+      <div class="${sum.differs || sum.failed ? "warn" : "ok"}">${sum.reproduces || 0} reproduce, ${sum.differs || 0} differ${sum.differsOwn != null && sum.differs ? ` (${sum.differsOwn} where it began)` : ""}, ${sum.failed || 0} failed</div>
+      <table><thead><tr><th></th><th>step</th><th>reproduction</th><th>original</th></tr></thead><tbody>${steps.map(row).join("")}</tbody></table>
+    </section>`;
+  }
+
   function markdown(cs) {
     let md = `# How ${targetRel()} came about\n\n${headline(cs).replace(/<\/?code>/g, "`")}\n\n`;
     for (const ps of chains()) md += `In ${ps[0].levels.map((l) => l.name).join(" › ")}, from ${ps.map((p) => short(p.path) + " (" + p.foton + ")").join(", ")}\n\n`;
@@ -237,13 +282,16 @@
         <div class="actions">
           ${busy ? `<span class="busy"><span class="spin"></span> ${esc(busy.text)} <span id="elapsed" class="muted"></span></span>` : result ? `<span class="${result.ok ? "ok" : "warn"}">${result.ok ? "✓" : "⚠"} ${esc(result.text)}</span>` : ""}
           <button id="repro" ${busy ? "disabled" : ""} title="source files and scripts into an empty folder, run there, compare the hash">Reproduce</button>
+          ${improve ? `<button id="reproimp" ${busy || !cockpitRepo ? "disabled" : ""} title="every step of this file's lineage (or everything published) again in improve, in a new tree you name; the original tree stays untouched">Reproduce in improve…</button>` : ""}
           ${planSummary(todo)}
           <button id="publish" ${busy || !cockpitRepo || !todo.length ? "disabled" : ""} title="${cockpitRepo ? "cockpit publish for every line without ✓, in the terminal, with description and rationale as comments" : "no cockpit repo (cockpit init)"}">Publish to kton${todo.length ? ` (${todo.length})` : ""}</button>
           <button class="secondary" id="inkton" ${cockpitRepo ? "" : "disabled"} title="${cockpitRepo ? "kton-web beside the story: what was recorded and what is signed, in one graph, centred on this file (kton-web verifies the records)" : "no cockpit repo (cockpit init)"}">In kton</button>
+          ${/\.html?$/i.test(targetRel()) ? `<button class="secondary" id="rendered" title="the page as it renders (Live Preview, beside the story; it only reads the file)">Show rendered</button>` : ""}
           <button class="secondary" id="save">Markdown</button>
         </div>
       </header>
       <ol class="story">${cs.map(line).join("")}${(S.reproductions || []).slice(0, 1).map(reproLine).join("")}</ol>
+      ${wfRepros.slice(0, 1).map(workflowRepro).join("")}
       ${(S.gaps || []).length ? `<details class="gaps"><summary>${S.gaps.length} gap${S.gaps.length > 1 ? "s" : ""} in the recording</summary>${S.gaps.map((g) => `<div class="warn">${esc(g)}</div>`).join("")}</details>` : ""}
     </main>`;
     for (const b of root.querySelectorAll("button.diff")) b.onclick = () => {
@@ -258,6 +306,21 @@
         clearTimeout(n._t); n._t = setTimeout(() => vscode.postMessage({type: "note", key: n.dataset.k, note: notes[n.dataset.k]}), 400);
       };
     }
+    const rb = document.getElementById("rendered");
+    if (rb) rb.onclick = () => vscode.postMessage({type: "showRendered"});
+    for (const b of document.querySelectorAll("button[data-rerun]")) b.onclick = () => {
+      if (busy) return;
+      busy = {what: "reproduce", text: "Re-running step " + b.dataset.rerun + " …", since: Date.now()}; result = null; render(); tick();
+      vscode.postMessage({type: "rerunStep", tree: b.dataset.tree, i: Number(b.dataset.rerun)});
+    };
+    for (const b of document.querySelectorAll("button[data-f]")) b.onclick = () =>
+      vscode.postMessage({type: b.dataset.f, tree: b.dataset.tree, i: Number(b.dataset.i), path: b.dataset.path});
+    const ri = document.getElementById("reproimp");
+    if (ri) ri.onclick = () => {
+      if (busy) return; // already running: a second click does nothing
+      busy = {what: "reproduce", text: "Reproduce in improve …", since: Date.now()}; result = null; render(); tick();
+      vscode.postMessage({type: "reproduceWorkflow"});
+    };
     document.getElementById("repro").onclick = () => {
       if (busy) return; // already running: a second click does nothing
       busy = {what: "reproduce", text: "Starting the reproduction …"}; result = null; render();
@@ -291,15 +354,15 @@
       window.__focusWired = true;
       document.addEventListener("focusin", (e) => { const k = e.target && e.target.dataset && e.target.dataset.k; if (k) vscode.postMessage({type: "focus", key: k}); });
     }
-    if (m.type === "story") { S = m.story; published = m.published || {}; sameResult = m.sameResult || {}; notes = m.notes || {}; cockpitRepo = m.cockpitRepo; render(); }
+    if (m.type === "story") { S = m.story; published = m.published || {}; sameResult = m.sameResult || {}; notes = m.notes || {}; cockpitRepo = m.cockpitRepo; improve = !!m.improve; wfRepros = m.workflowRepros || []; render(); }
     if (m.type === "published") { published = m.published || {}; sameResult = m.sameResult || {}; render(); }
     if (m.type === "plan") { plan = m.plan; render(); }
     if (m.type === "busy") { busy = {what: m.what, text: m.text, since: Date.now()}; render(); tick(); }
     if (m.type === "done") {
       busy = null;
       result = m.cancelled ? null : m.ok
-        ? {ok: true, text: m.what === "publish" ? (m.inTerminal ? "Publishing runs in the terminal; the story updates when it is done" : m.nothing ? "Nothing to publish" : "Published") : "Reproduced"}
-        : {ok: false, text: (m.what === "publish" ? "Publish stopped: " : "Reproduce failed: ") + (m.error || "see the terminal")};
+        ? {ok: true, text: m.text || (m.what === "publish" ? (m.inTerminal ? "Publishing runs in the terminal; the story updates when it is done" : m.nothing ? "Nothing to publish" : "Published") : "Reproduced")}
+        : {ok: false, text: m.what === "reproduce-workflow" && m.text ? m.text : (m.what === "publish" ? "Publish stopped: " : "Reproduce failed: ") + (m.error || "see the terminal")};
       render();
     }
   });

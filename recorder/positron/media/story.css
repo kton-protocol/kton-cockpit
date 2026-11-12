@@ -75,3 +75,15 @@ details.gaps summary { cursor: pointer; color: var(--vscode-descriptionForegroun
 .mark { font-size: 0.75em; padding: 0 4px; border: 1px solid var(--vscode-descriptionForeground); border-radius: 3px; }
 .mark.final, .mark.key { border-color: var(--vscode-charts-green, #89d185); }
 .mark.not-followed { opacity: 0.6; }
+
+/* a reproduction of the workflow in improve */
+.wfrepro { margin-top: 18px; }
+.wfrepro h2 { font-size: 1em; margin: 0 0 4px; }
+.wfrepro table { border-collapse: collapse; width: 100%; font-size: 0.9em; margin-top: 6px; }
+.wfrepro td, .wfrepro th { text-align: left; padding: 3px 6px; vertical-align: top; border-bottom: 1px solid var(--vscode-panel-border, #8884); }
+.wfrepro tr.differs td:first-child { color: var(--vscode-charts-orange, #d18616); }
+.wfrepro tr.failed td:first-child { color: var(--vscode-errorForeground, #f14c4c); }
+.wfrepro tr.reproduces td:first-child { color: var(--vscode-charts-green, #89d185); }
+
+.wfrepro .finding { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin: 2px 0; font-size: 0.95em; }
+.wfrepro button.small { padding: 0 6px; font-size: 0.85em; }
