@@ -54,6 +54,8 @@ func Server(sv *watch.Service, version string) *mcp.Server {
 		mcpsurface.Handler(t.openGraph))
 	mcp.AddTool(s, &mcp.Tool{Name: "kton_select", Description: "Select steps in the open graph (opening it if needed): each entry a file (its producing step), a file hash, or a record id (sha256:…). Replaces the selection; an empty list clears it. Use it to point at the steps you mean."},
 		mcpsurface.Handler(t.selectSteps))
+	mcp.AddTool(s, &mcp.Tool{Name: "kton_current_story", Description: "The story open in the person's Positron right now: the file, every step (key session/task, where, code, files read and written, whether kton has it already) with its current draft description and rationale, and the step whose note the person is in (focus). Use it to help with the words of what they are looking at, then kton_note: the open story shows your drafts at once."},
+		mcpsurface.Handler(t.currentStory))
 	mcp.AddTool(s, &mcp.Tool{Name: "kton_selection", Description: "The steps the person has selected in the open graph (Ctrl/Shift-click): record id, command, outputs. Use it for \"these steps\" in what the person asks."},
 		mcpsurface.Handler(t.selection))
 	mcp.AddTool(s, &mcp.Tool{Name: "kton_copy", Description: "Copy a file (by its content hash, e.g. another analyst's script or dataset found with kton_ask or the graph) into a project. The person is asked in Positron and sees source and target first; nothing is overwritten without their yes. The bytes are checked against the hash."},
@@ -422,7 +424,27 @@ func (t *tools) note(_ context.Context, in NoteIn) (*NoteOut, error) {
 		return nil, err
 	}
 	got, _ := t.sv.Notes.Get(in.Key)
+	t.notesChanged()
 	return &NoteOut{Key: in.Key, Note: got, Was: was}, nil
+}
+
+// notesChanged: the open stories show the new drafts at once (MH 12.11.); a window that does not answer
+// changes nothing, the story reads the drafts again when it comes back into view anyway
+func (t *tools) notesChanged() {
+	if t.sv.UI == nil {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_, _ = t.sv.UI.Do(ctx, "notes_changed", map[string]any{})
+	}()
+}
+
+type CurrentStoryIn struct{}
+
+func (t *tools) currentStory(ctx context.Context, _ CurrentStoryIn) (*EditorOut, error) {
+	return t.editor(ctx, 15*time.Second, "current_story", map[string]any{})
 }
 
 // ------------------------------------------------------------------ the editor (watch/ui.go)
