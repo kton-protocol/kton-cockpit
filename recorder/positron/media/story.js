@@ -102,9 +102,10 @@
       (p.warning ? `<div class="plan-warn">⚠ ${esc(p.warning)}</div>` : "")).join("");
   }
   // beside Publish: what the lines without ✓ will do in improve, counted
-  // a published step: what kton holds about it (signed words, based-on, marks) and its improve step
+  // a published step: what kton holds about it (the person's words with who/when, based-on, marks) and its
+  // improve step; with improve, improve holds the identities (MH 12.11.: no signatures there)
   function publishedInfo(p) {
-    const w = (x, label) => x && x.value ? `<div class="pub"><span class="nl">${label}</span> ${esc(x.value)}${x.by || x.at ? ` <span class="muted" title="${esc([x.by, x.at].filter(Boolean).join(", "))}">· signed</span>` : ""}</div>` : "";
+    const w = (x, label) => x && x.value ? `<div class="pub"><span class="nl">${label}</span> ${esc(x.value)}${x.by || x.at ? ` <span class="muted" title="${esc([x.by, x.at].filter(Boolean).join(", "))}">· ${esc(x.by || "")}${x.by && x.at ? ", " : ""}${esc((x.at || "").slice(0, 10))}</span>` : ""}</div>` : "";
     const label = {"base-model": "BASE", base: "BASE", "final-model": "FINAL", final: "FINAL", "key-step": "KEY", key: "KEY", "not-followed": "NOT FOLLOWED"};
     const marks = (p.marks || []).map((m) => `<span class="mark ${esc((label[m] || m).toLowerCase().replace(/ /g, "-"))}">${esc(label[m] || m.toUpperCase())}</span>`).join(" ");
     const based = p.basedOn ? `<span class="muted">based on ${esc(p.basedOn.run || p.basedOn.path || "")}</span>` : "";
