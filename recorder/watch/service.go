@@ -27,6 +27,8 @@ type Service struct {
 	// run) this long after its processes are gone, instead of Idle: its step is finished and can
 	// be published while other sessions go on (MH 11.11.). 0: Idle for every session.
 	Exited time.Duration
+	// OldEvery: how often a log MaxAge left out is looked at again for growth (0: every poll).
+	OldEvery time.Duration
 	// MaxAge, when set, leaves out logs and stored sessions without data for longer: the
 	// service then holds recent work only (a week of batch runs did not fit a 12 GB machine)
 	MaxAge        time.Duration
@@ -51,6 +53,7 @@ type Service struct {
 
 	mu       sync.RWMutex
 	tooOld   map[string]time.Time // log → its mtime when MaxAge left it out (read again once it grows)
+	oldAt    time.Time            // when the left-out logs were last looked at again
 	archived map[string]bool      // session\x00task whose call files were handed to the CAS
 	callMemo sync.Map             // the calls of a task, until it grows (callsOf)
 	sessions map[string]*tracked
@@ -145,12 +148,21 @@ func (sv *Service) Poll(now time.Time) {
 		sv.sessions = map[string]*tracked{}
 	}
 	logs, _ := filepath.Glob(filepath.Join(sv.Dir, "*.tsv"))
+	// logs MaxAge left out are looked at again only every OldEvery: thousands of them were stat'ed
+	// twice a second, and ktonwatch used a third of a CPU doing nothing else (12.11.)
+	recheckOld := sv.OldEvery <= 0 || now.Sub(sv.oldAt) >= sv.OldEvery
+	if recheckOld {
+		sv.oldAt = now
+	}
 	for _, l := range logs {
 		id := strings.TrimSuffix(filepath.Base(l), ".tsv")
 		if _, ok := sv.sessions[id]; ok {
 			continue
 		}
 		if sv.MaxAge > 0 {
+			if _, old := sv.tooOld[l]; old && !recheckOld {
+				continue
+			}
 			fi, err := os.Stat(l)
 			if err != nil {
 				continue
