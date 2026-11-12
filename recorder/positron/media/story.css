@@ -64,3 +64,4 @@ details.gaps summary { cursor: pointer; color: var(--vscode-descriptionForegroun
 .plan.root { color: var(--vscode-charts-green, #89d185); }
 .plan.skip { color: var(--vscode-editorWarning-foreground, #cca700); }
 .plan-sum { font-size: 0.85em; margin-right: 8px; color: var(--vscode-descriptionForeground); }
+.plan-warn { font-size: 0.85em; color: var(--vscode-editorWarning-foreground, #cca700); margin: 0 0 4px; }

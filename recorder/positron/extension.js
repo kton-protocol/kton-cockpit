@@ -690,6 +690,12 @@ async function newRun(uri) {
       fs.copyFileSync(src, to);
     }
   }
+  // what was done, for the shim and the publish: copied from this folder's control stream
+  const ctlOut = open ? path.relative(repo, open) : null;
+  if (ctlOut) {
+    const from = p.inputs.find((x) => /\.(ctl|mod)$/i.test(x)) || path.join(rel, oldName + '.ctl');
+    try { nr.recordDerivation(repo, ctlOut, from); } catch (e) { out.appendLine(`New run: the derivation was not recorded: ${e.message}`); }
+  }
   const what = changes.length ? changes.join('; ') : 'nothing renamed';
   out.appendLine(`New run ${path.relative(repo, dest)} from ${rel}${p.call ? ` (${p.call})` : ''}: ${what}`);
   if (open) await vscode.window.showTextDocument(vscode.Uri.file(open));
