@@ -274,6 +274,36 @@ func TestDraftCmd_TheToolBeforeALineThatMentionsIt(t *testing.T) {
 	if got := draftCmd(short, "/p"); got != "nmfe75 model/pk/run1/run1.ctl model/pk/run1/run1.lst" {
 		t.Fatalf("short form: %q", got)
 	}
+	// the short form with its process tree: the launcher execs the wrapper, which execs the shim
+	tree := &Task{ID: "tail", Commands: []Command{
+		{PID: 10, PPID: 1, Cmdline: "nmfe75 model/pk/run1/run1.ctl"},
+		{PID: 10, PPID: 1, Cmdline: "/bin/sh /home/u/.local/bin/nmfe75 model/pk/run1/run1.ctl"},
+		{PID: 10, PPID: 1, Cmdline: "/usr/bin/env bash /p/tools/nonmem/nmfe75 model/pk/run1/run1.ctl"},
+		{PID: 10, PPID: 1, Cmdline: "cockpit-improve-nmfe75 model/pk/run1/run1.ctl"},
+		{PID: 10, PPID: 1, Cmdline: "nmfe75 model/pk/run1/run1.ctl model/pk/run1/run1.lst"},
+	}}
+	if got := draftCmd(tree, "/p"); got != "nmfe75 model/pk/run1/run1.ctl model/pk/run1/run1.lst" {
+		t.Fatalf("short form, exec chain: %q", got)
+	}
+	// a tool call that runs another program which runs a tool: the outer call stays (quarto's Rscript)
+	report := &Task{ID: "tail", Commands: []Command{
+		{PID: 20, PPID: 1, Cmdline: "Rscript script/render-report.R"},
+		{PID: 21, PPID: 20, Cmdline: "/bin/bash /opt/quarto/bin/quarto render report/report.qmd"},
+		{PID: 21, PPID: 20, Cmdline: "/opt/quarto/bin/tools/x86_64/deno run quarto.js render report/report.qmd"},
+		{PID: 22, PPID: 21, Cmdline: "/usr/lib/R/bin/Rscript /opt/quarto/share/rmd/rmd.R"},
+	}}
+	if got := draftCmd(report, "/p"); got != "Rscript script/render-report.R" {
+		t.Fatalf("report: %q", got)
+	}
+	// through a shell child (a wrapper that does not exec), the inner call still counts
+	sub := &Task{ID: "tail", Commands: []Command{
+		{PID: 30, PPID: 1, Cmdline: "nmfe75 run1.ctl"},
+		{PID: 31, PPID: 30, Cmdline: "bash -c cockpit-improve-nmfe75 run1.ctl"},
+		{PID: 32, PPID: 31, Cmdline: "nmfe75 run1.ctl run1.lst"},
+	}}
+	if got := draftCmd(sub, "/p"); got != "nmfe75 run1.ctl run1.lst" {
+		t.Fatalf("through a shell: %q", got)
+	}
 	tk.Commands = tk.Commands[:2]
 	if got := draftCmd(tk, "/p"); !strings.HasPrefix(got, "/usr/bin/env bash") {
 		t.Fatalf("without the call itself, the line that mentions it: %q", got)
