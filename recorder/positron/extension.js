@@ -1226,10 +1226,36 @@ async function uiDo(context, ev) {
         const k = key(x), n = (k && notes[k]) || {};
         return { key: k, when: x.when_ns, where: x.where, code: x.code, sentence: x.sentence, on_path: !!x.on_path, hand: !!x.hand,
           reads: x.reads || [], writes: x.writes || [], in_kton: !!(k && (ps.done || {})[k]), same_result: !!(k && (ps.same || {})[k]),
+          // a step already in kton: its words are changed in the story (Publish says them), not drafted by an assistant
+          locked: !!(k && (ps.done || {})[k]),
           description: (typeof n === 'string' ? n : n.description) || '', rationale: (typeof n === 'string' ? '' : n.rationale) || '' };
       });
       return { ok: true, message: `the story of ${path.relative(info.project, info.file.path)} is open (${steps.length} steps)`,
         data: { project: info.project, path: info.file.path, sha256: info.file.sha256, repo: st.repo, focus: info.focus, steps } };
+    }
+    case 'step_in_kton': {
+      // the panel's own check (publishedSteps), so the MCP's kton_note follows the same rule as the story:
+      // the open story that has the step, else a story of that one step from its draft
+      const key = String(a.key || '');
+      const [sess, task] = key.split('/');
+      for (const i of storyInfo.values()) {
+        const st = i.story();
+        if (st && st.steps.some((x) => `${x.session}/${x.task}` === key)) {
+          const ps = await publishedSteps(st);
+          return { ok: true, message: 'checked in the open story', data: { key, in_kton: !!ps.done[key] } };
+        }
+      }
+      const sessions = (await getJSON(viewerUrl() + 'api/sessions').catch(() => [])) || [];
+      const list = Array.isArray(sessions) ? sessions : (sessions.sessions || []);
+      const se = list.find((x) => x.id === sess);
+      const repo = se && repoOfProject(se.project);
+      if (!repo) return { ok: true, message: 'not in a cockpit repository', data: { key, in_kton: false } };
+      const d = await getJSON(`${viewerUrl()}api/draft?session=${encodeURIComponent(sess)}&task=${encodeURIComponent(task)}`, 10000).catch(() => null);
+      const outs = ((d && d.outputs) || []).filter((f) => f.use);
+      if (!outs.length) return { ok: true, message: 'the step wrote nothing to publish', data: { key, in_kton: false } };
+      const one = { repo, steps: [{ session: sess, task, writes: outs.map((f) => f.path), hashes: outs.map((f) => f.sha256).filter(Boolean) }] };
+      const ps = await publishedSteps(one, true);
+      return { ok: true, message: 'checked', data: { key, in_kton: !!ps.done[key] } };
     }
     case 'notes_changed': {
       // a draft was written (kton_note): the open stories show it at once
