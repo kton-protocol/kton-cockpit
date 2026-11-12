@@ -4,7 +4,7 @@
 (function () {
   const vscode = acquireVsCodeApi();
   const root = document.getElementById("root");
-  let S = null, published = {}, sameResult = {}, notes = {}, cockpitRepo = false, open = {};
+  let S = null, published = {}, sameResult = {}, notes = {}, cockpitRepo = false, open = {}, plan = null;
 
   const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
   const clock = (ns) => new Date(ns / 1e6).toLocaleTimeString(undefined, {hour: "2-digit", minute: "2-digit"});
@@ -94,6 +94,23 @@
     return `${parts.join(", ")}. ${how}`;
   }
 
+  // what Publish does in improve for this line's steps (cockpit-improve plan): one line under the step
+  const planOf = (c) => (plan && !plan.error ? (c.path || c.steps || []).map((s) => plan[skey(s)]).filter(Boolean) : []);
+  function planLine(c) {
+    if (c.hand) return "";
+    return planOf(c).map((p) => `<div class="plan ${esc(p.action)}" title="${esc(p.reason || "")}">improve: ${esc(p.text)}</div>`).join("");
+  }
+  // beside Publish: what the lines without ✓ will do in improve, counted
+  function planSummary(todo) {
+    if (!plan) return "";
+    if (plan.error) return `<span class="muted plan-sum" title="${esc(plan.error)}">improve preview not available</span>`;
+    const n = {};
+    for (const c of todo) for (const p of planOf(c)) n[p.action] = (n[p.action] || 0) + 1;
+    const say = { root: "new root step", version: "child of its previous version", derived: "child of the run it is based on", exists: "already in improve", skip: "skipped" };
+    const parts = Object.keys(say).filter((a) => n[a]).map((a) => `${n[a]} ${say[a]}${n[a] > 1 && a === "root" ? "s" : ""}`);
+    return parts.length ? `<span class="plan-sum">In improve: ${esc(parts.join(", "))}</span>` : "";
+  }
+
   function line(c) {
     const note = noteOf(c.noteKey);
     const field = (f, ph) => `<div class="note ${note[f] ? "" : "empty"}" contenteditable="true" data-k="${esc(c.noteKey)}" data-f="${f}" data-ph="${ph}">${esc(note[f])}</div>`;
@@ -123,6 +140,7 @@
         <div class="head">${c.where.startsWith("$ ") ? `<code class="cmdline">${esc(c.where)}</code>` : `<b>${esc(c.hand ? "by hand" : c.where.replace(/^script /, ""))}</b>`} ${what} ${flags}
           ${c.hand ? "" : `<button class="link tog">${open[c.key] ? "less" : `${c.steps.length} commands`}</button>`}</div>
         ${devs}
+        ${planLine(c)}
         ${details}
         <div class="notes ${c.inKton && !note.description && !note.rationale ? "quiet" : ""}">
           <span class="nl">Description</span>${field("description", c.hand ? "What did you change?" : "What was done here?")}
@@ -190,6 +208,7 @@
         ${contextLine()}
         <div class="actions">
           <button id="repro" title="source files and scripts into an empty folder, run there, compare the hash">Reproduce</button>
+          ${planSummary(todo)}
           <button id="publish" ${!cockpitRepo || !todo.length ? "disabled" : ""} title="${cockpitRepo ? "cockpit publish for every line without ✓, in the terminal, with description and rationale as comments" : "no cockpit repo (cockpit init)"}">Publish to kton${todo.length ? ` (${todo.length})` : ""}</button>
           <button class="secondary" id="inkton" ${cockpitRepo ? "" : "disabled"} title="${cockpitRepo ? "kton-web beside the story: what was recorded and what is signed, in one graph, centred on this file (kton-web verifies the records)" : "no cockpit repo (cockpit init)"}">In kton</button>
           <button class="secondary" id="save">Markdown</button>
@@ -235,6 +254,7 @@
     const m = e.data;
     if (m.type === "story") { S = m.story; published = m.published || {}; sameResult = m.sameResult || {}; notes = m.notes || {}; cockpitRepo = m.cockpitRepo; render(); }
     if (m.type === "published") { published = m.published || {}; sameResult = m.sameResult || {}; render(); }
+    if (m.type === "plan") { plan = m.plan; render(); }
   });
   vscode.postMessage({type: "ready"});
 })();

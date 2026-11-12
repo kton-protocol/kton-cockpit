@@ -715,6 +715,34 @@ async function basedOnLines(repo, cmd) {
   return ['cockpit claim based-on ' + sq(JSON.stringify({ 'based-on': id, why: `developed from ${parent}` }))];
 }
 
+// planFor: for a repository in improve mode, what publishing the story's recorded steps does in improve,
+// without writing anything: the same drafts Publish sends, in its order, to `cockpit-improve plan --json`
+// (cockpit-improve-backend, MH 12.11.: "child step of EDA v1", "new root step", "already in improve").
+// Per step key session/task: {action, text, step?, parent?}; {error} when there is no preview.
+async function planFor(story) {
+  if (!story || repoMode(story.repo) !== 'improve') return null;
+  const keys = [], drafts = [];
+  for (const s of story.steps) {
+    if (s.hand || !(s.writes || []).length) continue;
+    const d = await getJSON(`${viewerUrl()}api/draft?session=${encodeURIComponent(s.session)}&task=${encodeURIComponent(s.task)}`, 10000).catch(() => null);
+    if (!d) continue;
+    const req = { inputs: (d.inputs || []).filter((f) => f.use).map((f) => f.path), outputs: (d.outputs || []).filter((f) => f.use).map((f) => f.path), cmd: d.cmd };
+    if (!req.outputs.length) continue;
+    keys.push(s.session + '/' + s.task);
+    drafts.push(req);
+  }
+  if (!drafts.length) return {};
+  const env = await cockpitEnv(story.repo, false);
+  return new Promise((resolve) => execFile(bin('cockpit'), ['plan', '--json', JSON.stringify(drafts)], { cwd: story.repo, timeout: 60000, env, maxBuffer: 16 << 20 }, (err, stdout, stderr) => {
+    if (err) return resolve({ error: (String(stderr || '').trim().split('\n').pop() || err.message) });
+    try {
+      const out = {};
+      JSON.parse(stdout).forEach((x, i) => { out[keys[i]] = x; });
+      resolve(out);
+    } catch (e) { resolve({ error: 'no preview: ' + e.message }); }
+  }));
+}
+
 // wordsForPublished: a step already in kton (the improve shim publishes each NONMEM run it ran)
 // still takes the person's description and rationale: signed about its foton, the latest one
 // with the step's output bytes, unless kton holds the same words about it already.
@@ -810,7 +838,10 @@ async function openStory(context, project, file) {
     const cockpitRepo = fs.existsSync(path.join(story.repo, 'cockpit.config.json'));
     const ps = await publishedSteps(story);
     w.postMessage({ type: 'story', story, notes: mine, cockpitRepo, published: ps.done, sameResult: ps.same });
+    sendPlan();
   };
+  // what Publish would do in improve, per step: once per opening, not per keystroke (about a second)
+  const sendPlan = async () => { if (story) { const plan = await planFor(story); if (plan) w.postMessage({ type: 'plan', plan }); } };
   // back in view: read again, so drafts Claude wrote meanwhile (kton_note) show
   p.onDidChangeViewState((e) => { if (e.webviewPanel.visible && story) send(); });
   w.onDidReceiveMessage(async (m) => {
@@ -825,7 +856,7 @@ async function openStory(context, project, file) {
     } else if (m.type === 'publish' && story) {
       await publish(story.repo, await publishText(story, file, m.steps));
       // the terminal does the work; look again a few times so the story catches up
-      for (const ms of [5000, 15000, 40000]) setTimeout(async () => { if (stories.has(id)) { const ps = await publishedSteps(story); w.postMessage({ type: 'published', published: ps.done, sameResult: ps.same }); } }, ms);
+      for (const ms of [5000, 15000, 40000]) setTimeout(async () => { if (stories.has(id)) { const ps = await publishedSteps(story); w.postMessage({ type: 'published', published: ps.done, sameResult: ps.same }); if (ms === 40000) sendPlan(); } }, ms);
     }
   });
 }
@@ -1219,4 +1250,4 @@ function activate(context) {
 }
 
 function deactivate() {}
-module.exports = { activate, deactivate, _test: { askImproveAccess, startTerminalToken, tokenFilePath, listenUI, findBytes, copyIntoProject, ktonIntent, parseDoctor, parseDoctorJSON, cockpitRepoOf, reproduce, publishedSteps, publishText, Tree, setOut: (o) => { out = o; } } };
+module.exports = { activate, deactivate, _test: { planFor, askImproveAccess, startTerminalToken, tokenFilePath, listenUI, findBytes, copyIntoProject, ktonIntent, parseDoctor, parseDoctorJSON, cockpitRepoOf, reproduce, publishedSteps, publishText, Tree, setOut: (o) => { out = o; } } };
