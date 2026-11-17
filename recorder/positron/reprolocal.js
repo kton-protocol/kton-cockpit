@@ -65,6 +65,10 @@ async function plan(viewer, project, target, sum) {
   for (const s of story.steps || []) {
     if (s.hand || !(s.writes || []).length) continue;
     const k = `${s.session}/${s.task}`;
+    if (s.published) { // recorded elsewhere, published: its foton says the call, inputs and outputs
+      steps.push({ key: k, call: s.published.cmd, foton: s.published.foton, inputs: s.published.inputs || [], outputs: (s.published.outputs || []).filter((o) => o.sha256) });
+      continue;
+    }
     const d = await getJSON(`${viewer}api/draft?session=${encodeURIComponent(s.session)}&task=${encodeURIComponent(s.task)}`).catch(() => null);
     if (!d || !d.cmd) continue;
     const r = {}, w = {};
@@ -147,8 +151,8 @@ async function reproduce(o) {
     for (const x of outputs) if (!x.same) (x.reproduced ? differing : failedOut).add(x.path);
     const nSame = outputs.filter((x) => x.same).length;
     steps.push({
-      i, call: s.call, state, outputs, original: { name: 'recorded', key: s.key },
-      detail: state === 'failed' ? `the step did not run: ${r.tail.trim().split('\n').slice(-3).join(' | ')}` : `${nSame} of ${outputs.length} outputs the same (${Math.round((Date.now() - t0) / 1000)} s)`,
+      i, call: s.call, state, outputs, original: { name: s.foton ? 'published' : 'recorded', key: s.key, ...(s.foton ? { foton: s.foton } : {}) },
+      detail: state === 'failed' ? `the step did not run: ${r.tail.trim().split('\n').slice(-3).join(' | ')}` : `${nSame} of ${outputs.length} outputs the same (${Math.max(0, Math.round((Date.now() - t0) / 1000))} s)`,
       environment: { recorded: { where: 'local (recorded)' }, reproduced: { where: 'local, an empty folder', ...(/^nmfe75\b/.test(s.call) ? { tool: 'NONMEM 7.5.1 container (tools/nonmem/nmfe75)' } : {}) } },
     });
     onProgress({ i, n: p.steps.length, call: s.call, state });
@@ -159,7 +163,7 @@ async function reproduce(o) {
     steps, summary: { n: steps.length, reproduces: count('reproduces'), differs: count('differs'),
       differsOwn: steps.filter((x) => x.state === 'differs' && x.outputs.every((o2) => o2.same || !o2.becauseOf)).length, failed: count('failed') },
   };
-  const dir = path.join(repo, '.cockpit-improve', 'reproduce');
+  const dir = o.resultDir || path.join(repo, '.cockpit-improve', 'reproduce');
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, name + '.json'), JSON.stringify(result, null, 2) + '\n');
   return result;

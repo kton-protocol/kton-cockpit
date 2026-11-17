@@ -157,13 +157,13 @@
       c.failed ? `<span class="muted" title="failed commands, without effect">${c.failed}× failed</span>` : ""].filter(Boolean).join(" ");
     const details = open[c.key] ? `<div class="details">
         ${c.warn.map((w) => `<div class="warn">⚠ ${esc(w)}</div>`).join("")}
-        ${c.steps.map((s) => `<div class="cmd ${s.on_path ? "" : "off"}"><span class="when">${clock(s.when_ns)}</span> <code>${esc((s.code || s.sentence).split("\n")[0])}</code>${(s.writes || []).length ? ` → ${files(s.writes, 3)}` : ""}${s.error ? ' <span class="warn">fails</span>' : ""}</div>`).join("")}
+        ${c.steps.map((s) => `<div class="cmd ${s.on_path ? "" : "off"}"><span class="when">${s.published ? "kton" : clock(s.when_ns)}</span> <code>${esc((s.code || s.sentence).split("\n")[0])}</code>${(s.writes || []).length ? ` → ${files(s.writes, 3)}` : ""}${s.error ? ' <span class="warn">fails</span>' : ""}</div>`).join("")}
       </div>` : "";
     // deviating outputs, each with a diff when both versions exist
     const devs = (c.devs || []).length ? `<div class="devs">${c.devs.map((o, i) => `<div class="dev"><span class="warn">≠</span> <span class="f">${esc(relp(o.path))}</span>
       ${o.reproduced ? `<span class="muted">${esc(o.recorded.slice(0, 8))} → ${esc(o.reproduced.slice(0, 8))}</span> <button class="link diff" data-k="${esc(c.key)}" data-i="${i}">open diff</button>` : '<span class="muted">not produced</span>'}</div>`).join("")}</div>` : "";
     return `<li class="${cls}" data-k="${esc(c.key)}">
-      <div class="t">${c.hand ? "✎" : clock(c.when)}</div>
+      <div class="t" ${c.steps[0].published ? 'title="published in kton, recorded elsewhere (another folder or person): its foton says what ran"' : ""}>${c.hand ? "✎" : c.steps[0].published ? "kton" : clock(c.when)}</div>
       <div class="body">
         <div class="head">${c.where.startsWith("$ ") ? `<code class="cmdline">${esc(c.where)}</code>` : `<b>${esc(c.hand ? "by hand" : c.where.replace(/^script /, ""))}</b>`} ${what} ${flags}
           ${c.hand ? "" : `<button class="link tog">${open[c.key] ? "less" : `${c.steps.length} commands`}</button>`}</div>

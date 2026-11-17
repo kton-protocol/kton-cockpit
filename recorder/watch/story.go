@@ -1,6 +1,7 @@
 package watch
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 	"regexp"
@@ -36,6 +37,8 @@ type StoryStep struct {
 	Tools    []string   `json:"tools,omitempty"`
 	Warnings []string   `json:"warnings,omitempty"`
 	Repro    *StepRepro `json:"repro,omitempty"` // what the latest reproduction gave for this step
+	// Published: not recorded here, a foton in kton upstream of the story (session "kton", task its id)
+	Published *PublishedStep `json:"published,omitempty"`
 }
 
 // Story is the file's whole story.
@@ -67,6 +70,11 @@ func (sv *Service) Story(project, path, sum string) *Story {
 	}
 	sv.mu.RUnlock()
 	sv.Placer.placeSources(st, project, st.sourcesOrNil()) // asks the cockpit: not under the lock
+	if st != nil && sv.Placer != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), sv.Placer.Budget)
+		sv.Placer.addPublished(ctx, st)
+		cancel()
+	}
 	return st
 }
 
