@@ -36,6 +36,10 @@ func main() {
 		serve(os.Args[2:])
 		return
 	}
+	if len(os.Args) > 1 && os.Args[1] == "prune" {
+		pruneCmd(os.Args[2:])
+		return
+	}
 	single(os.Args[1:])
 }
 
@@ -128,10 +132,29 @@ func serve(args []string) {
 	env := fs.String("env", "", "extra environment prefixes")
 	cas := fs.String("cas", cacheDir("cas"), "directory the inputs and outputs of tool calls are kept in, by hash (empty: keep nothing)")
 	casMax := fs.Int64("cas-max", 1<<30, "largest file kept in the cas, in bytes")
+	pruneEvery := fs.Duration("prune-every", 0, "run prune this often in the service (0: never; see ktonwatch prune -h)")
+	po := pruneFlags(fs)
 	mcpOn := fs.Bool("mcp", true, "serve the MCP tools at /mcp for an assistant (bearer token in ~/.config/kton/mcp-token)")
 	place := fs.Bool("place", true, "find where a story's sources reside by asking the cockpit (cockpit ask producer/about/scope)")
 	web := fs.String("web", defaultWeb(), "the kton-web checkout whose graph viewer draws the flow (default: $KTON_WEB, else what install.sh recorded)")
 	fs.Parse(args)
+	pruneParsed()
+	po.Dir, po.Store, po.CAS = *dir, *store, *cas
+	if *pruneEvery > 0 {
+		// the store kept within bounds while the service runs (MH 17.11.)
+		go func() {
+			for {
+				if r, err := prune(*po); err != nil {
+					log.Printf("prune: %v", err)
+				} else {
+					for _, l := range r.Lines {
+						log.Printf("prune: %s", l)
+					}
+				}
+				time.Sleep(*pruneEvery)
+			}
+		}()
+	}
 
 	sv := &watch.Service{
 		Dir: *dir, Store: *store, Idle: *idle, Exited: *exited, MaxAge: *maxAge, OldEvery: 30 * time.Second, Web: *web,
