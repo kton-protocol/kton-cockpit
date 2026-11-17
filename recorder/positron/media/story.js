@@ -113,7 +113,7 @@
     const based = p.basedOn ? `<span class="muted">based on ${esc(p.basedOn.run || p.basedOn.path || "")}</span>` : "";
     const id = (e) => String(e || "").split(":").pop(); // robert1…-10110:ST-292174 → ST-292174
     const step = p.step ? (p.step.url ? `<a href="${esc(p.step.url)}" title="${esc(p.step.entity || "")}">${esc(p.step.name || "")} (${esc(id(p.step.entity))})</a>` : `${esc(p.step.name || "")} (${esc(id(p.step.entity))})`) : "";
-    return `<div class="plan exists">improve: ${step || esc(p.text)} ${based} ${marks}</div>${w(p.description, "Description")}${w(p.rationale, "Rationale")}`;
+    return `<div class="plan exists">${improve ? "improve" : "kton"}: ${step || esc(p.text)} ${based} ${marks}</div>${w(p.description, "Description")}${w(p.rationale, "Rationale")}`;
   }
   // a long step (NONMEM: about a minute) shows its seconds, without rendering the story again
   let ticking = null;

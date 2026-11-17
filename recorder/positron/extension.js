@@ -281,6 +281,7 @@ async function publish(repo, text, onProgress = () => {}) {
   for (const line of text.split('\n')) {
     if (line.startsWith('cockpit publish ')) steps.push({ kind: 'publish', cmd: c + line.slice('cockpit'.length) });
     else if (line.startsWith('cockpit say ')) steps.push({ kind: 'say', cmd: c + line.slice('cockpit'.length) }); // about a foton already in kton
+    else if (line === 'cockpit model-claims') steps.push({ kind: 'claim', cmd: `[ -n "$KTON_OUT" ] && env -u LD_PRELOAD KTON_TRACE_LOG= ${JSON.stringify(bin('cockpit-improve'))} model-claims "$(python3 -c ${sq("import json,sys; print(json.loads(sys.argv[1])['fotonId'])")} "$KTON_OUT")" || true` });
     else if (line.startsWith('cockpit claim ')) {
       const [, template, t] = line.match(/^cockpit claim (\S+) (.*)$/s);
       steps.push({ kind: 'claim', cmd: `[ -n "$KTON_OUT" ] && ${c} say "$(python3 -c ${sq(claim)} "$KTON_OUT" ${template} ${t})"` });
@@ -771,6 +772,8 @@ function shortCall(cmd) {
 const gitBytes = (repo, rel) => new Promise((resolve) => execFile('git', ['show', 'HEAD:' + rel], { cwd: repo, encoding: 'buffer', maxBuffer: 512 << 20 },
   (err, out) => resolve(err ? null : crypto.createHash('sha256').update(out).digest('hex'))));
 async function previousVersion(repo, outs) {
+  const now = outs.find((o) => o.sha256);
+  if (now && (await producersOf(repo, now.sha256)).length) return null; // these bytes are in kton already: nothing new
   for (const o of outs) {
     if (!o.path || !o.sha256) continue;
     const before = await gitBytes(repo, o.path);
@@ -799,6 +802,7 @@ async function gitPlan(story) {
 // planOf: the story's improve preview, asked once and shared by the in-kton marks and the preview
 // lines; fresh asks again (after a publish).
 const plans = new WeakMap();
+const backendPlans = new WeakSet(); // git mode: plans cockpit-improve made (it says based-on through model-claims)
 function planOf(story, fresh) {
   if (fresh || !plans.has(story)) plans.set(story, planFor(story));
   return plans.get(story);
@@ -809,8 +813,8 @@ function planOf(story, fresh) {
 // (cockpit-improve-backend, MH 12.11.: "child step of EDA v1", "new root step", "already in improve").
 // Per step key session/task: {action, text, step?, parent?}; {error} when there is no preview.
 async function planFor(story) {
-  if (story && fs.existsSync(path.join(story.repo, 'cockpit.config.json')) && repoMode(story.repo) !== 'improve') return gitPlan(story);
-  if (!story || repoMode(story.repo) !== 'improve') return null;
+  if (!story || !fs.existsSync(path.join(story.repo, 'cockpit.config.json'))) return null;
+  const git = repoMode(story.repo) !== 'improve';
   const keys = [], drafts = [];
   for (const s of story.steps) {
     if (s.hand || !(s.writes || []).length) continue;
@@ -823,7 +827,10 @@ async function planFor(story) {
   }
   if (!drafts.length) return {};
   const env = await cockpitEnv(story.repo, false);
-  return new Promise((resolve) => execFile(bin('cockpit'), ['plan', '--json', JSON.stringify(drafts)], { cwd: story.repo, timeout: 60000, env, maxBuffer: 16 << 20 }, (err, stdout, stderr) => {
+  // git mode: cockpit-improve's plan works without improve from v0.3.4 (backend 327595a: 'version' with
+  // parent.foton for a re-run); an older one refuses, and the panel's own previous-version check stands in
+  const exe = git ? bin('cockpit-improve') : bin('cockpit');
+  const got = await new Promise((resolve) => execFile(exe, ['plan', '--json', JSON.stringify(drafts)], { cwd: story.repo, timeout: 60000, env, maxBuffer: 16 << 20 }, (err, stdout, stderr) => {
     if (err) return resolve({ error: (String(stderr || '').trim().split('\n').pop() || err.message) });
     try {
       const out = {};
@@ -831,6 +838,9 @@ async function planFor(story) {
       resolve(out);
     } catch (e) { resolve({ error: 'no preview: ' + e.message }); }
   }));
+  if (!git) return got;
+  if (!got.error) { backendPlans.add(got); return got; }
+  return gitPlan(story);
 }
 
 // wordsForPublished: a step already in kton (the improve shim publishes each NONMEM run it ran)
@@ -896,12 +906,16 @@ async function publishText(story, file, steps) {
       const b = await basedOnLines(story.repo, d.cmd);
       lines.push(...b);
       // git backend: a new version of a published step (an edited script run again) is based on that step
-      if (!b.some((l) => l.startsWith('cockpit claim based-on')) && repoMode(story.repo) !== 'improve') {
+      const viaBackend = repoMode(story.repo) !== 'improve' && backendPlans.has(await planOf(story));
+      if (!viaBackend && !b.some((l) => l.startsWith('cockpit claim based-on')) && repoMode(story.repo) !== 'improve') {
         const outs = await Promise.all(req.outputs.map(async (p) => ({ path: p, sha256: await sha256File(path.join(story.repo, p)) })));
         const prev = await previousVersion(story.repo, outs);
         if (prev) lines.push('cockpit claim based-on ' + sq(JSON.stringify({ 'based-on': prev.id, why: `new version of ${prev.cmd || 'the step'}` })));
       }
     }
+    // git mode: what the backend says about the published foton (based-on and parent-step for a new version,
+    // base/final and \$PROBLEM for NONMEM; nothing twice), as the nmfe75 wrapper does
+    if (repoMode(story.repo) !== 'improve') lines.push('cockpit model-claims');
   }
   return lines.join('\n');
 }
