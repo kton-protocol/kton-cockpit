@@ -98,7 +98,7 @@
   const planOf = (c) => (plan && plan !== "pending" && !plan.error ? (c.path || c.steps || []).map((s) => plan[skey(s)]).filter(Boolean) : []);
   function planLine(c) {
     if (c.hand) return "";
-    return planOf(c).map((p) => (p.action === "exists" ? publishedInfo(p) : `<div class="plan ${esc(p.action)}" title="${esc(p.reason || "")}">improve: ${esc(p.text)}</div>`) +
+    return planOf(c).map((p) => (p.action === "exists" ? publishedInfo(p) : `<div class="plan ${esc(p.action)}" title="${esc(p.reason || "")}">${improve ? "improve" : "kton"}: ${esc(p.text)}</div>`) +
       (p.warning ? `<div class="plan-warn">⚠ ${esc(p.warning)}</div>` : "")).join("");
   }
   // beside Publish: what the lines without ✓ will do in improve, counted
@@ -127,7 +127,8 @@
     }, 1000);
   }
   function planSummary(todo) {
-    if (plan === "pending") return `<span class="plan-sum"><span class="spin"></span> checking improve …</span>`;
+    if (plan === "pending") return `<span class="plan-sum"><span class="spin"></span> checking ${improve ? "improve" : "kton"} …</span>`;
+    if (!improve) { const v = todo.flatMap((c) => planOf(c)).filter((p) => p.action === "version").length; return v ? `<span class="plan-sum">In kton: ${v} new version${v > 1 ? "s" : ""}, based on the previous one</span>` : ""; }
     if (!plan) return "";
     if (plan.error) return `<span class="muted plan-sum" title="${esc(plan.error)}">improve preview not available</span>`;
     const n = {};

@@ -764,6 +764,38 @@ function shortCall(cmd) {
   return (cmd || '').split(' ').slice(1, 3).join(' ');
 }
 
+// previousVersion (git backend, metworx a7e9eda1, MH 17.11.): a step that wrote a file whose committed bytes
+// (HEAD: what the last publish committed) differ from this run's and came from a published step is a new
+// version of that step, as improve makes it a child of its previous version. The foton that published the
+// committed bytes, its call, and the file it was found by; null when there is none.
+const gitBytes = (repo, rel) => new Promise((resolve) => execFile('git', ['show', 'HEAD:' + rel], { cwd: repo, encoding: 'buffer', maxBuffer: 512 << 20 },
+  (err, out) => resolve(err ? null : crypto.createHash('sha256').update(out).digest('hex'))));
+async function previousVersion(repo, outs) {
+  for (const o of outs) {
+    if (!o.path || !o.sha256) continue;
+    const before = await gitBytes(repo, o.path);
+    if (!before || before === o.sha256) continue;
+    const ids = await producersOf(repo, before);
+    if (!ids.length) continue;
+    const id = ids[ids.length - 1];
+    const a = await askCockpit(repo, { query: 'record', ref: id });
+    return { id, cmd: (a && a.record && a.record.cmd) || '', path: o.path };
+  }
+  return null;
+}
+// gitPlan: per step key, a step that is a new version: {action: 'version', text, previous}
+async function gitPlan(story) {
+  const out = {};
+  for (const s of story.steps) {
+    if (s.hand || s.published || !(s.writes || []).length) continue;
+    const outs = s.writes.map((w, i) => ({ path: w, sha256: (s.hashes || [])[i] }));
+    const prev = await previousVersion(story.repo, outs);
+    if (prev) out[s.session + '/' + s.task] = { action: 'version', previous: prev,
+      text: `new version of ${prev.cmd || 'the step'}: published based on its previous version (${prev.id.replace(/^sha256:/, '').slice(0, 8)}, which made the committed ${prev.path})` };
+  }
+  return out;
+}
+
 // planOf: the story's improve preview, asked once and shared by the in-kton marks and the preview
 // lines; fresh asks again (after a publish).
 const plans = new WeakMap();
@@ -777,6 +809,7 @@ function planOf(story, fresh) {
 // (cockpit-improve-backend, MH 12.11.: "child step of EDA v1", "new root step", "already in improve").
 // Per step key session/task: {action, text, step?, parent?}; {error} when there is no preview.
 async function planFor(story) {
+  if (story && fs.existsSync(path.join(story.repo, 'cockpit.config.json')) && repoMode(story.repo) !== 'improve') return gitPlan(story);
   if (!story || repoMode(story.repo) !== 'improve') return null;
   const keys = [], drafts = [];
   for (const s of story.steps) {
@@ -859,7 +892,16 @@ async function publishText(story, file, steps) {
     if (allowed.note) for (const x of (d.notes || []).filter((x) => x.startsWith('not self-contained'))) lines.push('cockpit claim note ' + sq(JSON.stringify(x)));
     // a NONMEM run derived from another (`; based_on: run6`, which "New run" writes): signed as
     // based-on the run it came from, its latest published foton
-    if (allowed.basedOn) lines.push(...(await basedOnLines(story.repo, d.cmd)));
+    if (allowed.basedOn) {
+      const b = await basedOnLines(story.repo, d.cmd);
+      lines.push(...b);
+      // git backend: a new version of a published step (an edited script run again) is based on that step
+      if (!b.some((l) => l.startsWith('cockpit claim based-on')) && repoMode(story.repo) !== 'improve') {
+        const outs = await Promise.all(req.outputs.map(async (p) => ({ path: p, sha256: await sha256File(path.join(story.repo, p)) })));
+        const prev = await previousVersion(story.repo, outs);
+        if (prev) lines.push('cockpit claim based-on ' + sq(JSON.stringify({ 'based-on': prev.id, why: `new version of ${prev.cmd || 'the step'}` })));
+      }
+    }
   }
   return lines.join('\n');
 }
@@ -901,7 +943,7 @@ async function openStory(context, project, file) {
     sendPlan();
   };
   // what Publish would do in improve, per step: once per opening, not per keystroke (about a second)
-  const sendPlan = async () => { if (story && repoMode(story.repo) === 'improve') { w.postMessage({ type: 'plan', plan: 'pending' }); const plan = await planOf(story); if (plan) w.postMessage({ type: 'plan', plan }); } };
+  const sendPlan = async () => { if (story && fs.existsSync(path.join(story.repo, 'cockpit.config.json'))) { w.postMessage({ type: 'plan', plan: 'pending' }); const plan = await planOf(story); if (plan) w.postMessage({ type: 'plan', plan }); } };
   // back in view: read again, so drafts Claude wrote meanwhile (kton_note) show
   p.onDidChangeViewState((e) => { if (e.webviewPanel.active) activeStory = id; if (e.webviewPanel.visible && story) send(); });
   storyInfo.set(id, { project, file, story: () => story, focus: null, refresh: () => (story ? send() : null) });
