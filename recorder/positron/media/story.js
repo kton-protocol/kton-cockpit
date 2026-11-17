@@ -209,7 +209,7 @@
         : `<div class="warn">differs here, its inputs were the same: this is where it began</div>`;
       const envOf = (e) => (e ? Object.values(e).filter(Boolean).join(" ") : "");
       const env = x.environment && x.state !== "reproduces" ? `<div class="muted">recorded: ${esc(envOf(x.environment.recorded) || "?")} · reproduced: ${esc(envOf(x.environment.reproduced) || "?")}</div>` : "";
-      const rerun = x.state === "failed" || x.state === "differs" ? `<button class="secondary small" data-rerun="${x.i}" data-tree="${esc(r.tree)}" ${busy ? "disabled" : ""} title="run this step again in improve (cockpit-improve reproduce --resume ${esc(r.tree)} --step ${x.i})">Re-run</button>` : "";
+      const rerun = !r.local && (x.state === "failed" || x.state === "differs") ? `<button class="secondary small" data-rerun="${x.i}" data-tree="${esc(r.tree)}" ${busy ? "disabled" : ""} title="run this step again in improve (cockpit-improve reproduce --resume ${esc(r.tree)} --step ${x.i})">Re-run</button>` : "";
       const ofv = x.ofv ? `<div class="${x.ofv.same ? "muted" : "warn"}">OFV ${x.ofv.same ? "the same" : "differs"}: ${esc(x.ofv.recorded || "")}${x.ofv.same ? "" : " → " + esc(x.ofv.reproduced || "")}</div>` : "";
       // a difference is a finding: both versions, and the person's decision (MH 12.11.)
       const dec = (o) => (r.decisions || {})[`${x.i}:${o.path}`];
@@ -228,7 +228,7 @@
         <td>${link(x.step)}</td><td>${link(x.original)}</td></tr>`;
     };
     return `<section class="wfrepro">
-      <h2>Reproduced in improve <span class="muted">· tree ${esc(r.tree || "")}${r.target ? "" : " · everything published"}${r.finishedAt || r.when ? " · " + esc(stamp(r.finishedAt || r.when)) : ""}${r.treeUrl ? ` · <a href="${esc(r.treeUrl)}">open in improve</a>` : ""}</span></h2>
+      <h2>${r.local ? "Reproduced locally" : "Reproduced in improve"} <span class="muted">· ${r.local ? "" : "tree "}${esc(r.tree || "")}${r.target ? "" : " · everything published"}${r.finishedAt || r.when ? " · " + esc(stamp(r.finishedAt || r.when)) : ""}${r.treeUrl ? ` · <a href="${esc(r.treeUrl)}">open in improve</a>` : ""}</span></h2>
       <div class="${sum.differs || sum.failed ? "warn" : "ok"}">${sum.reproduces || 0} reproduce, ${sum.differs || 0} differ${sum.differsOwn != null && sum.differs ? ` (${sum.differsOwn} where it began)` : ""}, ${sum.failed || 0} failed</div>
       <table><thead><tr><th></th><th>step</th><th>reproduction</th><th>original</th></tr></thead><tbody>${steps.map(row).join("")}</tbody></table>
     </section>`;
@@ -282,7 +282,8 @@
         <div class="actions">
           ${busy ? `<span class="busy"><span class="spin"></span> ${esc(busy.text)} <span id="elapsed" class="muted"></span></span>` : result ? `<span class="${result.ok ? "ok" : "warn"}">${result.ok ? "✓" : "⚠"} ${esc(result.text)}</span>` : ""}
           <button id="repro" ${busy ? "disabled" : ""} title="source files and scripts into an empty folder, run there, compare the hash">Reproduce</button>
-          ${improve ? `<button id="reproimp" ${busy || !cockpitRepo ? "disabled" : ""} title="every step of this file's lineage (or everything published) again in improve, in a new tree you name; the original tree stays untouched">Reproduce in improve…</button>` : ""}
+          ${improve ? `<button id="reproimp" ${busy || !cockpitRepo ? "disabled" : ""} title="every step of this file's lineage (or everything published) again in improve, in a new tree you name; the original tree stays untouched">Reproduce in improve…</button>`
+            : cockpitRepo ? `<button id="reproimp" ${busy ? "disabled" : ""} title="every step of this file's lineage again, locally in an empty folder (NONMEM in its container), compared step by step">Reproduce the workflow…</button>` : ""}
           ${planSummary(todo)}
           <button id="publish" ${busy || !cockpitRepo || !todo.length ? "disabled" : ""} title="${cockpitRepo ? "cockpit publish for every line without ✓, in the terminal, with description and rationale as comments" : "no cockpit repo (cockpit init)"}">Publish to kton${todo.length ? ` (${todo.length})` : ""}</button>
           <button class="secondary" id="inkton" ${cockpitRepo ? "" : "disabled"} title="${cockpitRepo ? "kton-web beside the story: what was recorded and what is signed, in one graph, centred on this file (kton-web verifies the records)" : "no cockpit repo (cockpit init)"}">In kton</button>

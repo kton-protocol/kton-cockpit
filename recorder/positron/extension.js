@@ -897,7 +897,7 @@ async function openStory(context, project, file) {
     const ps = await publishedSteps(story);
     const improve = repoMode(story.repo) === 'improve';
     w.postMessage({ type: 'story', story, notes: mine, cockpitRepo, improve, published: ps.done, sameResult: ps.same,
-      workflowRepros: improve ? workflowReproductions(story.repo, path.relative(story.repo, file.path)) : [] });
+      workflowRepros: cockpitRepo ? workflowReproductions(story.repo, path.relative(story.repo, file.path)) : [] });
     sendPlan();
   };
   // what Publish would do in improve, per step: once per opening, not per keystroke (about a second)
@@ -937,6 +937,35 @@ async function openStory(context, project, file) {
       if (m.type === 'compareFinding') await compareFinding(context, story.repo, r, st, o);
       else if (m.type === 'acceptFinding') { if (await acceptFinding(story.repo, r, st, o)) send(); }
       else { writeDecision(story.repo, r.tree, `${st.i}:${o.path}`, { decision: 'investigate', path: o.path, call: st.call, at: new Date().toISOString() }); await compareFinding(context, story.repo, r, st, o); send(); }
+    }
+    else if (m.type === 'reproduceWorkflow' && story && repoMode(story.repo) !== 'improve') {
+      // git backend: the lineage reproduced locally, in an empty folder (reprolocal.js), shown like improve's
+      if (busy) return;
+      const d = new Date(), two = (x) => String(x).padStart(2, '0');
+      const name = await vscode.window.showInputBox({ title: 'kton: reproduce the workflow locally',
+        value: `reproduce-${d.getFullYear()}${two(d.getMonth() + 1)}${two(d.getDate())}-${two(d.getHours())}${two(d.getMinutes())}`,
+        prompt: `Every step of ${path.basename(file.path)}'s lineage runs again in an empty folder (NONMEM in its container) and is compared. A name for this reproduction:`,
+        validateInput: (v) => (/^[A-Za-z0-9._-]+$/.test(v) ? null : 'letters, digits, . _ - only') });
+      if (!name) return;
+      busy = 'reproduce';
+      w.postMessage({ type: 'busy', what: 'reproduce', text: 'Planning the reproduction …' });
+      let r = null, err = '';
+      try {
+        r = await require('./reprolocal').reproduce({ viewer: viewerUrl(), project, target: file.path, sum: file.sha256, name,
+          onProgress: (x) => { const c = String(x.call || ''); w.postMessage({ type: 'busy', what: 'reproduce', text: `Reproducing ${x.i} of ${x.n}: ${c.length > 70 ? c.slice(0, 67) + '…' : c} — ${x.state}` }); } });
+        // each step's foton, so an accepted difference is said about it
+        for (const st of r.steps) {
+          const h = (st.outputs[0] || {}).recorded;
+          const ids = h ? await producersOf(story.repo, String(h).replace(/^sha256:/, '')) : [];
+          if (ids.length) st.original = { ...st.original, foton: ids[ids.length - 1] };
+        }
+        fs.writeFileSync(path.join(reproDir(story.repo), name + '.json'), JSON.stringify(r, null, 2) + '\n');
+      } catch (e) { err = e.message; }
+      finally { busy = null; }
+      const sum = r && r.summary;
+      w.postMessage({ type: 'done', what: 'reproduce-workflow', ok: !!sum && !sum.failed, error: err || (sum ? '' : 'no result'),
+        text: sum ? `Reproduced locally (${name}): ${sum.reproduces} reproduce, ${sum.differs} differ, ${sum.failed} failed` : '' });
+      send();
     }
     else if (m.type === 'reproduceWorkflow' && story) {
       if (busy) return;
