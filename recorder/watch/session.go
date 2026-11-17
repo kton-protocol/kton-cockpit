@@ -38,6 +38,7 @@ type Session struct {
 	seenFiles  []FileOp          // project file versions seen since the service last took them (for the CAS)
 	known      map[string]string // path → last content hash seen (closew, outputs)
 	procs      map[int]bool
+	tooling    map[int]bool // processes of the kton tooling itself (cockpit, ktonwatch …) and their children
 	hashCache  map[string]string
 	roots      []string // the log's hashed prefixes, for placing the session by where it ran
 	placed     bool     // the project is settled: by ENV, or by the first command's directory
@@ -108,7 +109,7 @@ func NewSession(id, log string, cls *Classifier) *Session {
 	s := &Session{
 		ID: id, Log: log, cls: cls,
 		producedBy: map[string][]Ref{}, lastOutput: map[string]*Output{}, known: map[string]string{},
-		procs: map[int]bool{}, hashCache: map[string]string{}, console: map[string]bool{}, redirects: map[int][]string{},
+		procs: map[int]bool{}, tooling: map[int]bool{}, hashCache: map[string]string{}, console: map[string]bool{}, redirects: map[int][]string{},
 	}
 	s.Hash = s.hashFile
 	s.Project = cls.Project
@@ -189,6 +190,24 @@ func (s *Session) Handle(e Event) {
 	default:
 		if s.root == 0 {
 			s.root = e.PID
+		}
+	}
+	// the kton tooling never observes itself (MH 12.11.): a process that is the cockpit, ktonwatch or a
+	// reproduction, and everything it starts (git, curl, the improve CLI …), is not part of the person's work
+	switch e.Op {
+	case "TASK", "END", "SOURCE", "ENV", "VARS":
+	default:
+		if s.tooling == nil { // a session restored from the store
+			s.tooling = map[int]bool{}
+		}
+		if s.tooling[e.PPID] && e.PPID != 0 {
+			s.tooling[e.PID] = true
+		}
+		if e.Op == "exec" && isTooling(e.Extra) {
+			s.tooling[e.PID] = true
+		}
+		if s.tooling[e.PID] {
+			return
 		}
 	}
 	c := s.cur
@@ -409,6 +428,19 @@ func arkBackground(t *Task, e Event) {
 	}
 }
 
+// toolingPrograms: the kton tooling's own programs. Not the NONMEM shim (cockpit-improve-nmfe75, nmfe75)
+// nor kton-call: they stand for the person's tool call and write its lines themselves.
+var toolingPrograms = map[string]bool{"cockpit": true, "cockpit-improve": true, "ktonwatch": true, "kton-repro": true}
+
+// isTooling: a command line whose program (behind env and its assignments) is the kton tooling
+func isTooling(cmdline string) bool {
+	f := toolcall.SplitCmdline(cmdline)
+	for len(f) > 0 && (filepath.Base(f[0]) == "env" || strings.HasPrefix(f[0], "-") || strings.Contains(f[0], "=")) {
+		f = f[1:]
+	}
+	return len(f) > 0 && toolingPrograms[filepath.Base(f[0])]
+}
+
 func (s *Session) open(c *taskState, e Event) {
 	t := c.t
 	arkBackground(t, e)
@@ -617,6 +649,12 @@ func (s *Session) finish() {
 		// after someone edited the file by hand, and that edit is not this task's output.
 		if fr, read := c.firstRead[p]; read && fr == h && !c.recreated[p] && !c.rewrote(p) {
 			continue // opened for writing, left unchanged: not an output
+		}
+		// environment and system files are never outputs, however they were written: git writes .git/index
+		// and its refs by renaming a .lock into place (MH 12.11., jf1-git3: the cockpit's commits filled the
+		// observations with .git files), and a rename marks its target written whatever its class
+		if cl := s.cls.Class(p); cl == ClassEnv || cl == ClassSystem || cl == ClassSelf {
+			continue
 		}
 		out := &Output{Path: p, Class: s.cls.Class(p), SHA256: h, Status: st, WrittenAt: c.closeTS[p]}
 		if prev, ok := s.lastOutput[p]; ok && prev.SHA256 != h {
