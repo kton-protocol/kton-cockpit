@@ -231,6 +231,29 @@ replaces, and only the meaning of the field says which. So the view stops guessi
   position and time only.
 - The same mechanism serves ADR-015's tool installations (`replaces`, uninstall).
 
+### A5 What `nk:replacedBy` takes from a name (kton-review M1–M3, 18.11.; proposed, for MH)
+
+A1's view marked every named claim. The kernel lets key B name key A's claim, about another subject
+(kton #258), so `FILTER NOT EXISTS { ?r nk:replacedBy ?claim }` was A1's "a rule's check" with the signer
+left out: any trusted key, an agent's included, could take a person's approval out of every "latest"
+query by naming it from a claim about something else. A view property stood in for a check.
+
+- **`nk:replacedBy` is marked only for a replacement of one's own claim:** the replacing claim has the
+  same template, the same signer (the same verifying key) and at least one `nk:about` in common with
+  the claim it names. Then "nothing replaces it" means "its own signer has not replaced it, about that
+  subject", which is what the migration line assumed.
+- **Every other name is still in the view, as `nk:names`:** `?r nk:names ?claim` for each `replaces`
+  value, whoever signed it, with the replacing claim's own `nk:signer`. A rule that lets a role replace
+  (a QA manager closing someone's CAPA) says so with a join on `nk:names` and that signer's tier. The
+  view never treats it as replacement on its own.
+- **`replace: previous` fills only one's own:** `say` fills `replaces` with this signer's unreplaced
+  claim of that template about the same subject, from this checkout's registry and union, as A1 says.
+  The answer reports which claim it named (M2).
+- **Normalised:** `replaces` is written `sha256:` plus lower-case hex. `say` normalises it before
+  signing, and the projection normalises it before matching (M3).
+- **Checked by** a test: a claim by another key naming a person's approval leaves the approval in
+  "latest" and shows only as `nk:names`. Built with view vocabulary 1 in cockpit v0.5.0.
+
 ### A2 Several subjects, claims as subjects
 
 - **Several `nk:about`** (kton #254): a claim about A and B has `nk:about A, B`. Because nothing is
@@ -256,7 +279,7 @@ format: nanopub (and the kernel's foton projection) is kton's one RDF face.
 
 | | before | after |
 |---|---|---|
-| state | `nk:current`, `nk:supersededBy` (same scope, subject, predicate) | `nk:replacedBy`, only where a claim names it |
+| state | `nk:current`, `nk:supersededBy` (same scope, subject, predicate) | `nk:replacedBy`, only where a claim of the same signer, template and subject names it (A5); `nk:names` for every name |
 | subjects | one `nk:about` | one or more (#254) |
 | unscoped claims | no position; stated time decides | position in the root scope (#213) |
 | scopes | `nk:scope` | `nk:scope`, and `nk:parent` per seed (#241) |
