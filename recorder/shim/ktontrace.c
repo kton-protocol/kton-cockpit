@@ -25,7 +25,8 @@
  *
  * While a file PAUSED exists next to the log, nothing is logged (checked at most once a second).
  *
- * Files under $KTON_TRACE_HASH (':'-separated prefixes) are hashed in-process with SHA-256:
+ * Files under $KTON_TRACE_HASH (':'-separated prefixes, or "@<file>" holding them, which ktonwatch
+ * writes for its watched folders) are hashed in-process with SHA-256:
  * when opened for reading and when the last tracked write fd is closed. $KTON_TRACE_HASH_MAX
  * (bytes, default 2 GiB) limits that; larger files are logged as unhashed=large.
  *
@@ -459,7 +460,17 @@ __attribute__((constructor)) static void kton_init(void) {
     }
     struct stat st;
     const char *hp = env("KTON_TRACE_HASH");
-    if (hp) snprintf(hash_prefixes, sizeof hash_prefixes, "%s", hp);
+    if (hp && hp[0] == '@') {
+        /* "@<file>": the prefixes are read from the file ktonwatch writes for its watched folders
+           (MH 18.11.), so a folder added or removed counts for the next process, no setting changes */
+        int hf = (int)syscall(SYS_openat, AT_FDCWD, hp + 1, O_RDONLY | O_CLOEXEC);
+        if (hf >= 0) {
+            ssize_t n = syscall(SYS_read, hf, hash_prefixes, sizeof hash_prefixes - 1);
+            syscall(SYS_close, hf);
+            hash_prefixes[n > 0 ? n : 0] = 0;
+            for (char *q = hash_prefixes; *q; q++) if (*q == '\n' || *q == '\r') { *q = 0; break; }
+        }
+    } else if (hp) snprintf(hash_prefixes, sizeof hash_prefixes, "%s", hp);
     if (fstat(log_fd, &st) == 0) {
         log_dev = st.st_dev; log_ino = st.st_ino;
         if (st.st_size == 0) {

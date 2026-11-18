@@ -493,3 +493,31 @@ func TestShim_BashFirstKeepsTheHashPrefix(t *testing.T) {
 		t.Fatalf("header: %q", strings.SplitN(string(b), "\n", 2)[0])
 	}
 }
+
+// KTON_TRACE_HASH=@<file>: the prefixes come from the file ktonwatch writes for its watched folders
+// (MH 18.11.), and the header names them as if they had been given directly.
+func TestShim_HashPrefixesFromAFile(t *testing.T) {
+	build(t)
+	proj, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(proj, "in.csv"), "a,b\n")
+	prefixes := filepath.Join(t.TempDir(), "watched")
+	write(t, prefixes, "/nowhere:"+proj+"\n")
+	logf := filepath.Join(t.TempDir(), "trace.tsv")
+	cmd := exec.Command("cat", "in.csv")
+	cmd.Dir = proj
+	cmd.Env = append(os.Environ(), "LD_PRELOAD="+built.lib, "KTON_TRACE_LOG="+logf, "KTON_TRACE_HASH=@"+prefixes)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	b, _ := os.ReadFile(logf)
+	lines := strings.Split(string(b), "\n")
+	if lines[0] != "#ktontrace v3\thash=/nowhere:"+proj {
+		t.Fatalf("header %q", lines[0])
+	}
+	if !strings.Contains(string(b), proj+"/in.csv") || !strings.Contains(string(b), "sha256=") {
+		t.Fatalf("the file under a prefix from the file is hashed:\n%s", b)
+	}
+}

@@ -25,6 +25,7 @@ type Session struct {
 	Script      string  `json:"script,omitempty"`       // the session is `R -f`/`Rscript` of this file
 	Language    string  `json:"language,omitempty"`     // of its markers: r (ktonrec) or python (ktonrec.py); "" = r
 	ScriptSHA   string  `json:"script_sha256,omitempty"`
+	Where       string  `json:"where,omitempty"` // the directory its first command ran in (what watched folders are matched against)
 	Tasks       []*Task `json:"tasks"`
 
 	cls        *Classifier
@@ -724,6 +725,7 @@ func (s *Session) placeBy(cwd string) {
 		return
 	}
 	s.placed = true
+	s.Where = cwd
 	base := ""
 	for _, r := range s.roots {
 		r = filepath.Clean(r)
