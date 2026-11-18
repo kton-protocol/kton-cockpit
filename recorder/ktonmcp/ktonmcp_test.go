@@ -370,7 +370,8 @@ func TestEditorTools_AGraphOfAnExploreRepository(t *testing.T) {
 	sv, _ := fixture(t)
 	cs := connect(t, sv)
 	explore := t.TempDir()
-	os.WriteFile(filepath.Join(explore, "cockpit.config.json"), []byte("{}"), 0o644)
+	os.MkdirAll(filepath.Join(explore, ".kton"), 0o755)
+	os.WriteFile(filepath.Join(explore, ".kton", "cockpit.config.json"), []byte("{}"), 0o644)
 	var got []watch.UIEvent
 	fakeEditor(t, sv, func(ev watch.UIEvent) watch.UIAnswer {
 		got = append(got, ev)
@@ -399,7 +400,8 @@ func TestPaths_TheHomeDirectoryIsExpanded(t *testing.T) {
 	t.Setenv("HOME", h)
 	explore := filepath.Join(h, "kton-programme", "explore")
 	os.MkdirAll(explore, 0o755)
-	os.WriteFile(filepath.Join(explore, "cockpit.config.json"), []byte("{}"), 0o644)
+	os.MkdirAll(filepath.Join(explore, ".kton"), 0o755)
+	os.WriteFile(filepath.Join(explore, ".kton", "cockpit.config.json"), []byte("{}"), 0o644)
 	if got := home("~/kton-programme/explore/"); got != explore {
 		t.Fatalf("home: %q", got)
 	}

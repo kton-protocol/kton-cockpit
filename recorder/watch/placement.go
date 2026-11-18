@@ -123,7 +123,7 @@ func NewPlacer(ask Asker) *Placer {
 // dirSources are the repository itself and the federation sources of kind dir, in config order.
 func dirSources(repo string) [][2]string {
 	out := [][2]string{{"self", repo}}
-	b, err := os.ReadFile(filepath.Join(repo, "cockpit.config.json"))
+	b, err := os.ReadFile(filepath.Join(repo, ConfigFile))
 	if err != nil {
 		return out
 	}
@@ -204,7 +204,7 @@ func (pl *Placer) Place(ctx context.Context, repo, path, sum string) Placement {
 
 func (pl *Placer) place(ctx context.Context, repo, path, sum string) Placement {
 	p := Placement{Path: path, SHA256: sum}
-	if _, err := os.Stat(filepath.Join(repo, "cockpit.config.json")); err != nil {
+	if _, err := os.Stat(filepath.Join(repo, ConfigFile)); err != nil {
 		p.Note = "not a cockpit repository"
 		return p
 	}
