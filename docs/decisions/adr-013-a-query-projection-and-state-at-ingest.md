@@ -242,9 +242,9 @@ query by naming it from a claim about something else. A view property stood in f
   same template, the same signer (the same verifying key) and at least one `nk:about` in common with
   the claim it names. Then "nothing replaces it" means "its own signer has not replaced it, about that
   subject", which is what the migration line assumed.
-- **Every other name is still in the view, as `nk:names`:** `?r nk:names ?claim` for each `replaces`
+- **Every name is in the view as `nk:replaces`**, the term the kernel projects for the field (kton #258): `?r nk:replaces ?claim` for each `replaces`
   value, whoever signed it, with the replacing claim's own `nk:signer`. A rule that lets a role replace
-  (a QA manager closing someone's CAPA) says so with a join on `nk:names` and that signer's tier. The
+  (a QA manager closing someone's CAPA) says so with a join on `nk:replaces` and that signer's tier. The
   view never treats it as replacement on its own.
 - **`replace: previous` fills only one's own:** `say` fills `replaces` with this signer's unreplaced
   claim of that template about the same subject, from this checkout's registry and union, as A1 says.
@@ -252,7 +252,7 @@ query by naming it from a claim about something else. A view property stood in f
 - **Normalised:** `replaces` is written `sha256:` plus lower-case hex. `say` normalises it before
   signing, and the projection normalises it before matching (M3).
 - **Checked by** a test: a claim by another key naming a person's approval leaves the approval in
-  "latest" and shows only as `nk:names`. Built with view vocabulary 1 in cockpit v0.5.0.
+  "latest" and shows only as `nk:replaces`. Built with view vocabulary 1 in cockpit v0.5.0.
 
 ### A2 Several subjects, claims as subjects
 
@@ -279,7 +279,7 @@ format: nanopub (and the kernel's foton projection) is kton's one RDF face.
 
 | | before | after |
 |---|---|---|
-| state | `nk:current`, `nk:supersededBy` (same scope, subject, predicate) | `nk:replacedBy`, only where a claim of the same signer, template and subject names it (A5); `nk:names` for every name |
+| state | `nk:current`, `nk:supersededBy` (same scope, subject, predicate) | `nk:replacedBy`, only where a claim of the same signer, template and subject names it (A5); `nk:replaces` for every name |
 | subjects | one `nk:about` | one or more (#254) |
 | unscoped claims | no position; stated time decides | position in the root scope (#213) |
 | scopes | `nk:scope` | `nk:scope`, and `nk:parent` per seed (#241) |

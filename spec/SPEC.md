@@ -921,7 +921,7 @@ with every other store that names records by hash. Nanopub's Trusty URIs belong 
 | `nk:genesis` | `true` on a seed |
 | `nk:parent` | on a seed: the parent scope's seed (kton #241) |
 | `nk:replacedBy` | on a claim that a trusted claim of the same signer, the same template and a shared `nk:about` names in its `replaces` field: that claim (ADR-013 amendment, A5) |
-| `nk:names` | from a trusted claim to every claim its `replaces` field names, whoever signed either; a rule decides what a name by another signer means (ADR-013 amendment, A5) |
+| `nk:replaces` | from a trusted claim to every claim its `replaces` field names, whoever signed either; a rule decides what a name by another signer means (ADR-013 amendment, A5) |
 | a field | under the term the template's aliases give it, else `lab:<field>` (`https://kton.dev/v/lab/`), typed by the field's type (`docs/sparql.md`) |
 
 No other state is inferred: nothing is "current", nothing is superseded unless a claim says so. An alias
