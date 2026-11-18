@@ -895,6 +895,44 @@ without reading the registry's files.
 > **Checked by:** `TestFeed_TheRecordsAfterACursorWithTheirSigner`, `TestFeed_RefusesWhatItDoesNotTake`,
 > `TestSignersOf_EveryTrustedKeyThatVerifiesARecord`.
 
+### 9.11 The query view's vocabulary
+
+The query projection §9.9 answers over (ADR-013) is **cockpit vocabulary, not protocol**. The kernel's one
+RDF face is nanopub; query and view conveniences live here, and the kernel keeps what is signed and
+verified. The vocabulary is versioned with this specification. Before 1.0 a version need not be read by
+the next one: a query written for one view version is rewritten for the next, not translated.
+
+Its terms keep the `nk:` prefix (`https://kton.dev/v/`). Every node is a content IRI,
+`https://kton.dev/o/<hex>`: a foton, a file, a claim and a scope's seed alike, so the projection joins
+with every other store that names records by hash. Nanopub's Trusty URIs belong to the published form only.
+
+**View vocabulary 1** (cockpit v0.5.0, with kton v0.4.0). A claim is a node `a nk:Claim` with:
+
+| term | value |
+|---|---|
+| `nk:about` | what the claim is about, one or more (kton #254); a claim is a subject like any other |
+| `nk:template` | the template's name |
+| `nk:predicate` | the claim's predicate IRI |
+| `nk:signer` | `https://kton.dev/agent/<keyid>`, a trusted key that verifies it; the agent has `rdfs:label` (its name) and `nk:tier` (the asker's tier for it) |
+| `dct:created` | the signed time, `xsd:dateTime` |
+| `nk:scope` | the scope's seed |
+| `nk:prev` | the claim before it in the scope's chain |
+| `nk:position` | its place in the chain; the seed is 0. Unscoped claims are in the root scope's chain (kton #213) |
+| `nk:genesis` | `true` on a seed |
+| `nk:parent` | on a seed: the parent scope's seed (kton #241) |
+| `nk:replacedBy` | on a claim another trusted claim names in its `replaces` field: that claim (ADR-013 amendment) |
+| a field | under the term the template's aliases give it, else `lab:<field>` (`https://kton.dev/v/lab/`), typed by the field's type (`docs/sparql.md`) |
+
+No other state is inferred: nothing is "current", nothing is superseded unless a claim says so. An alias
+MUST NOT name a term of this table. Until v0.5.0 the projection still writes the vocabulary 0 terms
+`nk:current` and `nk:supersededBy`, one `nk:about`, and no `nk:parent`; they go with v0.5.0, without a
+compatibility period.
+
+> **Checked by:** `TestClaimView_KeepsPositionAndCurrent`, `TestClaimView_AppliesTheTemplatesTermsAndTypes`,
+> `TestClaimView_ARefFieldPointsAtWhatItNames`, `TestClaimView_AnAliasCannotNameATermTheViewWrites`,
+> `TestSparql_TheExamplesAnswerOverAFixture` (`-tags docker`). The vocabulary 1 terms are checked by the
+> tests that land with them in v0.5.0.
+
 ## 10 Execution *(optional)*
 
 A repository MAY configure the cockpit to run the published command rather than record one.
