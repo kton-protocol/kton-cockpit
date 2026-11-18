@@ -89,13 +89,16 @@ func TestClaimView_KeepsPositionAndCurrent(t *testing.T) {
 func TestClaimView_AppliesTheTemplatesTermsAndTypes(t *testing.T) {
 	set, err := ntemplate.New(map[string][]byte{
 		"reviewed": []byte(`{"name":"reviewed","target":"either","predicate":"https://example.org/q/reviewed",
-		  "fields":{"on":{"type":"date"},"outcome":{"type":"string"},"basis":{"type":"ref"}}}`),
+		  "fields":{"on":{"type":"date"},"outcome":{"type":"string"},"basis":{"type":"ref"},"revision":{"type":"integer"},
+		    "state":{"type":"enum","values":["q:Effective","q:Draft"]},"owner":{"type":"enum","values":["https://example.org/r/qa"]},
+		    "verdict":{"type":"enum","values":["approve","reject"]}}}`),
 	}, []byte(`{"prefixes":{"q":"https://example.org/q/"},"terms":{"outcome":"q:outcome"}}`))
 	if err != nil {
 		t.Fatal(err)
 	}
 	all, pub := claimQuads("ab", oNS+"f00d", "https://example.org/q/reviewed",
-		map[string]string{"on": "2026-03-04", "outcome": "accepted", "basis": "sha256:beef"}, "2026-03-04T10:00:00Z", "", "", "k1")
+		map[string]string{"on": "2026-03-04", "outcome": "accepted", "basis": "sha256:beef", "revision": "12",
+			"state": "q:Effective", "owner": "https://example.org/r/qa", "verdict": "approve"}, "2026-03-04T10:00:00Z", "", "", "k1")
 	view := ClaimView(all, pub, ViewConfig{Templates: set})
 	n := oNS + "ab"
 	if got := values(view, n, "https://example.org/q/outcome"); len(got) != 1 || got[0] != "accepted" {
@@ -113,6 +116,22 @@ func TestClaimView_AppliesTheTemplatesTermsAndTypes(t *testing.T) {
 		case labNS + "basis":
 			if q.O.Type != "uri" || q.O.Value != oNS+"beef" {
 				t.Errorf("a ref field: %+v", q.O)
+			}
+		case labNS + "revision":
+			if q.O.Datatype != xsdNS+"integer" || q.O.Value != "12" {
+				t.Errorf("an integer field: %+v", q.O)
+			}
+		case labNS + "state":
+			if q.O.Type != "uri" || q.O.Value != "https://example.org/q/Effective" {
+				t.Errorf("an enum value written as a CURIE: %+v", q.O)
+			}
+		case labNS + "owner":
+			if q.O.Type != "uri" || q.O.Value != "https://example.org/r/qa" {
+				t.Errorf("an enum value written as an IRI: %+v", q.O)
+			}
+		case labNS + "verdict":
+			if q.O.Type != "literal" || q.O.Value != "approve" {
+				t.Errorf("a bare enum value stays a literal: %+v", q.O)
 			}
 		}
 	}

@@ -285,7 +285,7 @@ func ClaimView(trusted, structure []Quad, vc ViewConfig) []Quad {
 						p = iri(r)
 					}
 					if known {
-						o = typedValue(o, t.Fields[key].Type)
+						o = typedValue(o, t.Fields[key].Type, vc.Templates.Resolve)
 					}
 				}
 				// A field with a node of its own (a ref: the file or step it names, under lab:hash)
@@ -350,13 +350,16 @@ func ClaimView(trusted, structure []Quad, vc ViewConfig) []Quad {
 }
 
 var (
+	isInteger  = regexp.MustCompile(`^[+-]?\d+$`)
 	isDate     = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
 	isDateTime = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$`)
 )
 
 // typedValue gives a plain literal the type its template field declares. A value that does not
-// read as that type stays as it was signed.
-func typedValue(o Term, fieldType string) Term {
+// read as that type stays as it was signed. An enum value written as an IRI, or as a CURIE the alias
+// file resolves to one, is that IRI, so a rule can match it against a vocabulary's terms; a bare
+// value ("approve") stays a literal.
+func typedValue(o Term, fieldType string, resolve func(string) string) Term {
 	if o.Type != "literal" || o.Datatype != "" || o.Lang != "" {
 		return o
 	}
@@ -367,6 +370,16 @@ func typedValue(o Term, fieldType string) Term {
 		}
 		if isDateTime.MatchString(o.Value) {
 			return typed(o.Value, xsdNS+"dateTime")
+		}
+	case "integer":
+		if isInteger.MatchString(o.Value) {
+			return typed(o.Value, xsdNS+"integer")
+		}
+	case "enum":
+		if strings.Contains(o.Value, ":") {
+			if r := resolve(o.Value); strings.Contains(r, "://") && !strings.ContainsAny(r, " <>\"{}|^`\\") && !Reserved(r) {
+				return iri(r)
+			}
 		}
 	case "ref":
 		if strings.HasPrefix(o.Value, "sha256:") {

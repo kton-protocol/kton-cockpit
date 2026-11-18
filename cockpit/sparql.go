@@ -131,7 +131,9 @@ func askSparql(ctx context.Context, cfg *config.Config, in AskRequest) (*AskResu
 		if err != nil {
 			return nil, refuse("argument", "SPEC §9.9", "bind: %v", err)
 		}
-		in.Sparql += clause
+		if in.Sparql, err = bindIntoWhere(in.Sparql, clause); err != nil {
+			return nil, refuse("argument", "SPEC §9.9", "bind: %v", err)
+		}
 	}
 	switch {
 	case in.Sparql == "":
@@ -178,8 +180,8 @@ func askSparql(ctx context.Context, cfg *config.Config, in AskRequest) (*AskResu
 // sparqlVar is a variable name a binding may give a value to.
 var sparqlVar = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
-// valuesClause is a trailing VALUES clause that binds each variable to a plain literal. A value is
-// a quoted string with its quote, backslash and line breaks escaped, never query text.
+// valuesClause is a VALUES clause that binds each variable to a plain literal. A value is a quoted
+// string with its quote, backslash and line breaks escaped, never query text.
 func valuesClause(bind map[string]string) (string, error) {
 	names := make([]string, 0, len(bind))
 	for k := range bind {
@@ -195,4 +197,86 @@ func valuesClause(bind map[string]string) (string, error) {
 		vals[i] = `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`, "\n", `\n`, "\r", `\r`, "\t", `\t`).Replace(bind[k]) + `"`
 	}
 	return fmt.Sprintf("\nVALUES (%s) { (%s) }\n", strings.Join(vars, " "), strings.Join(vals, " ")), nil
+}
+
+// bindIntoWhere puts the VALUES clause first in the query's outermost group, the WHERE clause's
+// opening brace. There, every pattern and FILTER of that group sees the bound variables: a FILTER
+// that compares with an as-of date takes it as a parameter. A clause appended after the query would
+// only be joined with the finished solutions, after every FILTER had run without it.
+//
+// The brace is the first one that is not in a comment, a string or an IRI: nothing before the WHERE
+// clause (prologue, SELECT expressions, dataset clauses) has a brace of its own.
+func bindIntoWhere(q, clause string) (string, error) {
+	i := whereBrace(q)
+	if i < 0 {
+		return "", fmt.Errorf("the query has no WHERE clause to bind into")
+	}
+	return q[:i+1] + clause + q[i+1:], nil
+}
+
+// iriRef is an IRIREF as SPARQL's grammar has it: no space, no brace, no quote inside.
+var iriRef = regexp.MustCompile("^<[^<>\"{}|^`\\\\\\x00-\\x20]*>")
+
+// whereBrace is the index of the first "{" outside comments, strings and IRIs, or -1.
+func whereBrace(q string) int {
+	for i := 0; i < len(q); {
+		switch c := q[i]; {
+		case c == '#':
+			for i < len(q) && q[i] != '\n' && q[i] != '\r' {
+				i++
+			}
+		case c == '<':
+			if m := iriRef.FindString(q[i:]); m != "" {
+				i += len(m)
+			} else {
+				i++ // less-than in an expression
+			}
+		case c == '"' || c == '\'':
+			i = skipString(q, i)
+		case c == '{':
+			return i
+		default:
+			i++
+		}
+	}
+	return -1
+}
+
+// skipString returns the index just past the string literal that starts at i, short or long form.
+func skipString(q string, i int) int {
+	quote := q[i : i+1]
+	if strings.HasPrefix(q[i:], quote+quote+quote) {
+		end := strings.Index(q[i+3:], quote+quote+quote)
+		for end >= 0 && escaped(q, i+3+end) {
+			next := strings.Index(q[i+3+end+1:], quote+quote+quote)
+			if next < 0 {
+				return len(q)
+			}
+			end += 1 + next
+		}
+		if end < 0 {
+			return len(q)
+		}
+		return i + 3 + end + 3
+	}
+	for j := i + 1; j < len(q); j++ {
+		switch q[j] {
+		case '\\':
+			j++
+		case quote[0]:
+			return j + 1
+		case '\n', '\r':
+			return j // an unterminated short string; the engine will say so
+		}
+	}
+	return len(q)
+}
+
+// escaped reports whether the character at j follows an odd number of backslashes.
+func escaped(q string, j int) bool {
+	n := 0
+	for k := j - 1; k >= 0 && q[k] == '\\'; k-- {
+		n++
+	}
+	return n%2 == 1
 }

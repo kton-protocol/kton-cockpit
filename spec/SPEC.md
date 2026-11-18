@@ -826,8 +826,10 @@ reaches no record outside that dataset, so it is under the same ceiling as every
   (`claims.allowedPackages`, §8.1). It MUST be read exactly as the same text passed in `sparql`, and the
   answer MUST name the package it came from (`from`). Naming a query no allowed package brings, or
   giving both `name` and `sparql`, MUST be refused.
-- `bind` MAY give the query's variables values, each a plain literal in a `VALUES` clause appended to the
-  query. A value MUST NOT become query text, and a name that is not a variable name MUST be refused.
+- `bind` MAY give the query's variables values, each a plain literal in a `VALUES` clause put first into
+  the query's outermost group (the `WHERE` clause), so a `FILTER` of that group sees it. A value MUST NOT
+  become query text, a name that is not a variable name MUST be refused, and so MUST a query without a
+  group to bind into.
 
 The vocabulary of the projection, with examples, is in [docs/sparql.md](../docs/sparql.md). Every
 example there is run by a test.
@@ -837,7 +839,7 @@ example there is run by a test.
 > `TestVocabulary_AnAllowedPackageBringsItsTemplatesAndQueries` (`-tags docker`),
 > `TestShellSparql_ReadsTheQueryFromAFile`,
 > `TestParseResults_ReadsASelectAndAnAsk`, `TestClaimView_KeepsPositionAndCurrent`,
-> `TestClaimView_AppliesTheTemplatesTermsAndTypes`, `TestSparql_TheExamplesAnswerOverAFixture` (with its
+> `TestClaimView_AppliesTheTemplatesTermsAndTypes`, `TestBind_GoesFirstIntoTheWhereClause`, `TestSparql_TheExamplesAnswerOverAFixture` (with its
 > standard-results subtests; `-tags docker`).
 
 ### 9.10 The feed *(optional)*

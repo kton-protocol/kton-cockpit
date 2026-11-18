@@ -91,7 +91,9 @@ A step carries no time and no command text.
 `describes` is `dct:description`, `rationale` is `ep:hasRationale`, and both have the field
 `nk:lab/value`. Other templates are under their own predicate (`cockpit ask` lists them). A field
 your aliases name (`aliases.json`, kton's alias format) is under that term; a field a template types
-`date` is an `xsd:date` or `xsd:dateTime`. A field that names a file or a step (a `ref`, such as
+`date` is an `xsd:date` or `xsd:dateTime`, and one it types `integer` is an `xsd:integer`. An `enum`
+value written as an IRI, or as a CURIE your aliases resolve (`qms:Effective`), is that IRI; a bare
+value such as `approve` stays a literal. A value that does not read as its type stays as signed. A field that names a file or a step (a `ref`, such as
 `parent-step`) points at its node `<https://kton.dev/o/<hex>>`, so it joins the steps directly.
 
 **Position and current are kept, not walked.** The index computes them once per change, so a query
@@ -123,14 +125,17 @@ admits a package's templates and queries, and `cockpit ask sparql --name <query>
 over the same dataset as a query written out (MCP: `name`). The answer names the package it came from.
 
 `--bind VAR=VALUE` (MCP: `bind`) gives a variable a value. It binds `?VAR` and `$VAR` alike, as a plain
-literal in a `VALUES` clause added to the end of the query, so a value is never read as SPARQL:
+literal in a `VALUES` clause put first into the query's `WHERE` group, so a value is never read as
+SPARQL, and every pattern and `FILTER` of that group sees it:
 
 ```sh
 cockpit ask sparql --name inbox-open --bind LANE=kton-cockpit
+cockpit ask sparql --name overdue --bind asOf=2026-11-18    # FILTER (?due < xsd:date(?asOf))
 ```
 
-A query with a `VALUES` clause of its own at the end cannot take a binding as well; write the binding
-into that clause instead.
+A bound value is a plain literal: cast it where the query compares it with a typed one, as above. A
+rule with an as-of date takes it as a parameter rather than `NOW()`, so a recorded run answers the same
+again. A subquery, or a `FILTER` inside a nested `{ … }` group, does not see the binding.
 
 ## Examples
 
