@@ -61,20 +61,18 @@ The public binary links the `tool` module. A build without it behaves exactly as
 
 ### 2 `cockpit tool install <package>`: one class per program
 
-`tool install` installs a `profile/tool` package as `install` does: it verifies the package and records the
-installation. It also **binds the tool to the programs it serves**, in the config:
+`tool install` installs a `profile/tool` package as `install` does: it verifies the package
+(`Revision.ToolProblems` must be empty), installs it, and says so in a signed installation claim. The
+package names the programs it serves (`tool.json` `programs`, for example `Rscript` or `nmfe75`).
 
-```json
-"tools": {
-  "Rscript": { "package": "jam-r", "revision": "sha256:…", "class": "sha256:e0669ff3…", "envRef": "oci://scinteco/jam-r@sha256:dee2a8cf…" },
-  "nmfe75":  { "package": "nonmem-7.5", "revision": "sha256:…", "class": "sha256:…", "envRef": "oci://…@sha256:…",
-               "hidden": { "licence": "nonmem.lic" } }
-}
-```
+**The binding is derived, not stored.** The binding is the program, package, revision, `class` and
+`envRef`. `class` is the id of the package's spectrum (`Revision.Spectrum().ID()`) and `envRef` is its
+`image`, by digest. All of it is read from the installation claim and the sealed revision it names.
+Nothing is written to the config and no operator types anything in, so nothing can drift from the
+package. One Go function in kton-cockpit, `tool.Binding(cfg, program)`, answers the lookup for both
+backends. It replaces `repo.improve.tools.<prog>`. Two installed packages that serve one program are an
+error until the operator removes one; the cockpit does not pick between them.
 
-- The programs a tool serves are named by the package (`tool.json` `programs`). `class` is the id of
-  its spectrum (`Revision.Spectrum().ID()`); `envRef` is its `image`, by digest. All of them come from
-  the sealed revision, which `Revision.ToolProblems` has passed, and none is typed in by the operator.
 - A publish resolves its class in this order:
   1. the call's `environment` (PR #98);
   2. the binding of the program the command starts with (`argv[0]`, or the shim's program);
@@ -82,28 +80,46 @@ installation. It also **binds the tool to the programs it serves**, in the confi
   The cockpit says which one it took. With `execution` enabled, a call that names a class different from
   the binding's is refused, as PR #98 refuses one against the repo's class.
 - The improve defaults a package carries (run-server name, instance) are ignored by every site except
-  improve's (MH, D2). Facts that exist only after an install there (an instance id, step ids) are said as
-  claims at install or run time. They never go into a package or foton identity.
+  improve's (MH, D2).
+- **Site facts are carried material, not claims.** Facts that exist only after an install or a run (the
+  run server, the instance, the digest an image tag resolved to) travel as `kton-env/v1` env material on
+  the foton: signed by the producer (`foton.SignEnv`), read with `foton.ReadEnv`, and outside every
+  identity (ADR-010 rule 1). No template of their own is needed. `qualifies-as` (section 4) is about that
+  carried `envRef`.
 
 ### 3 The `ToolSite` port: where a tool lives
 
 ```go
 type ToolSite interface {
-    Install(ctx, pkg ToolPackage) (Binding, error) // make the tool available here; what was done
-    Locate(ctx, b Binding) (Environment, error)    // envRef + hidden mounts for one run
+    // Install makes the tool available here. Adopt (the default) uses a matching environment that is
+    // already there; Create makes one, and a site may refuse it (improve: it needs an administrator).
+    Install(ctx, pkg ToolPackage, mode InstallMode) (Installed, error)
+    // Locate says where one run goes: the envRef as the site will run it, and whether that still is
+    // the package's digest. Hidden configuration is passed through by name, opaque to the port.
+    Locate(ctx, b Binding) (Location, error)
+}
+
+type Location struct {
+    EnvRef  string   // what the site will run, resolved to a digest where it can be
+    Drifted string   // non-empty: why EnvRef is not the package's image (e.g. a tag now on another digest)
+    Hidden  []string // the names of hidden configuration this class needs (e.g. "licence")
 }
 ```
 
-The **git/local site** runs the image by digest through the container executor (ADR-003). Hidden
-configuration is a **read-only mount** from the operator's configuration directory
-(`~/.config/kton-cockpit/licences/<name>`), at the path the package declares. It is not an input, not
-hashed, not material, and not committed. The executor refuses to run if the file is missing, and it
-never prints the file. The **improve site** is implemented in kton-cockpit-improve (plan phase P3).
+A drifted location is refused for `qualify` and for a run in the class, with the reason. improve holds
+images by tag, so its site reports drift where the git/local site, which pulls by digest, cannot drift.
+
+**Hidden configuration** is named by the package and supplied by the site, in the site's own way. The
+port sees only names. On the **git/local site** it is a **read-only mount** from the operator's
+configuration directory (`~/.config/kton-cockpit/licences/<name>`), at the target the package declares.
+On **improve** it is a setting of the call frame. Either way it is not an input, not hashed, not material,
+not committed, and never printed. A site refuses to run if it cannot supply it. The **improve site** is
+implemented in kton-cockpit-improve (plan phase P3).
 
 ### 4 `cockpit tool qualify <program|package>`: evidence, then a signed claim
 
 1. For each member of the package's spectrum: run the member's inputs in the bound environment, through
-   the executor, with the package's command frame, and publish the run as a foton of the class. The
+   the executor (ADR-011's seam, so a site needs nothing extra for qualification), with the package's command frame, and publish the run as a foton of the class. The
    package's reference runs are added to the registry first, so they can be compared against.
 2. Check the candidates against the spectrum: `Revision.SpectrumCheck` (ktonpkg ≥ v0.6.0), which is
    `kton.dev/plankton/spectrum.Check` under the spectrum's normaliser. Counter-cases are run and
@@ -137,8 +153,7 @@ consumer's, as ADR-010 says.
   later.
 - The cockpit moves to ktonpkg v0.6.0, which has the tool builder (draft API of 18.11.). It links v0.3.0 today;
   `plankton/spectrum` is already in the plankton v0.3.0 it links.
-- SPEC gains a section for the `tool` operator commands, the `tools` config block (under the ceiling,
-  off when absent), the class resolution order (§7.5), the `qualifies-as` template (§8) and the reuse
+- SPEC gains a section for the `tool` operator commands, the derived binding, the class resolution order (§7.5), the `qualifies-as` template (§8) and the reuse
   gate. Every statement names its test.
 - The licence rule becomes a tested property: no hidden file appears in a record, material, a commit or
   any output.
@@ -149,7 +164,7 @@ consumer's, as ADR-010 says.
 |---|---|---|
 | T0 | this ADR accepted | MH |
 | T1 | `cockpit/module` registry; `install` hands profiles to modules; `tool` module skeleton | — |
-| T2 | `tools` config + class resolution by program; `tool install` on the git/local site | ktonpkg v0.6.0 (`BuildTool`, `ToolProblems`), PR #98 |
+| T2 | the derived binding (`tool.Binding`) + class resolution by program; `tool install` on the git/local site | ktonpkg v0.6.0 (`BuildTool`, `ToolProblems`), PR #98 |
 | T3 | hidden configuration as a read-only mount; the licence tests | T2 |
 | T4 | `qualifies-as` template; `tool qualify` (members → fotons → `SpectrumCheck` → claim) | T2 |
 | T5 | reuse gate in the shim and `ask` | T4 |
