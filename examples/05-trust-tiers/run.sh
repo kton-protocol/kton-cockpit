@@ -5,7 +5,7 @@ cd "$(dirname "$0")"
 source ../lib/common.sh
 WORK="$PWD/.work"; participant "$WORK/repo"; cd "$WORK/repo"
 
-export PLANKTON_DIR="$PWD/registry/plankton"
+export PLANKTON_DIR="$PWD/.kton/plankton"
 
 echo ""
 echo "== our own record =="
@@ -18,10 +18,10 @@ echo "== a stranger's record, put into the SAME registry =="
 # Signed with a key this repo's config knows nothing about. It is a perfectly valid record — not
 # forged, not corrupt — by someone outside this repo's trust configuration. That distinction is the
 # whole subject: "valid" and "trusted here" are different questions.
-./bin/plankton keygen keys/stranger --seed "$(demoseed stranger)" >/dev/null
+(cd "$EXKEYS" && "$OLDPWD/bin/plankton" keygen stranger --seed "$(demoseed stranger)" >/dev/null)
 printf 'theirs\n' > work/theirs.csv
 ./bin/plankton author --in work/theirs.csv --out work/theirs.csv \
-  --cmd "a stranger's computation" --sign keys/stranger.key --add >/dev/null 2>&1
+  --cmd "a stranger's computation" --sign "$EXKEYS/stranger.key" --add >/dev/null 2>&1
 THEIRS=$(./bin/plankton hash work/theirs.csv)
 echo "  ingested, signed by a key that is in no configured tier"
 
@@ -55,10 +55,12 @@ require "though the answer does account for having found it" grep -q "$THEIRS_FO
 
 echo ""
 echo "== now configure that key into a tier =="
-python3 - cockpit.config.json <<'PY'
+# A tier is a folder: trusting the key is putting its public half into .kton/keys/federation/.
+mkdir -p .kton/keys/federation && cp "$EXKEYS/stranger.pub" .kton/keys/federation/
+python3 - .kton/cockpit.config.json <<'PY'
 import json,sys
 p=sys.argv[1]; c=json.load(open(p))
-c["trust"]["tiers"]["federation"] = ["keys/stranger.pub"]
+c["trust"]["tiers"].append("federation")
 json.dump(c, open(p,"w"), indent=2)
 PY
 C=$(cockpit ask "{\"query\":\"producer\",\"ref\":\"$THEIRS\"}")

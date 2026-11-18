@@ -29,7 +29,7 @@ openssl req -x509 -new -key identity/ca.key -subj "/CN=Cockpit Examples Root" -d
 # every machine an example has to run on.
 python3 - <<'SPKI'
 import binascii
-key = open('keys/session-1.pub').read().strip()
+key = open('.kton/keys/self/session-1.pub').read().strip()
 open('identity/signer.spki.der', 'wb').write(binascii.unhexlify('302a300506032b6570032100' + key))
 SPKI
 openssl pkey -pubin -inform DER -in identity/signer.spki.der -out identity/signer.spki.pem 2>/dev/null
@@ -39,7 +39,7 @@ openssl req -new -key identity/ca.key -subj "/CN=Jane Researcher" -out identity/
 openssl x509 -req -in identity/dummy.csr -CA identity/root.pem -CAkey identity/ca.key \
   -force_pubkey identity/signer.spki.pem -days 1 -out identity/signer.pem 2>/dev/null
 rm -f identity/dummy.csr identity/signer.spki.der identity/signer.spki.pem
-echo "  identity/signer.pem: CN=Jane Researcher, issued for keys/session-1.pub"
+echo "  identity/signer.pem: CN=Jane Researcher, issued for .kton/keys/self/session-1.pub"
 
 # A certificate for somebody else's key — a perfectly valid one, from the same root.
 openssl genpkey -algorithm ed25519 -out identity/other.key 2>/dev/null
@@ -53,7 +53,7 @@ echo "  identity/somebody-else.pem: CN=Somebody Else, valid, and about a differe
 printf 'ACME-BADGE-v3\x01\x02\x03not-a-format-anyone-here-knows\n' > identity/house-badge.bin
 
 configure() {
-  python3 - cockpit.config.json "$1" <<'PY'
+  python3 - .kton/cockpit.config.json "$1" <<'PY'
 import json, sys
 path, mode = sys.argv[1], sys.argv[2]
 cfg = json.load(open(path))

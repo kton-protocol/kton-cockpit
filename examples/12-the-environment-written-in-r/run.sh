@@ -138,7 +138,7 @@ mtcars |>
   write.csv("work/mpg-by-cyl.csv", row.names = FALSE)
 RS
 
-python3 - cockpit.config.json "$REF" <<'PY'
+python3 - .kton/cockpit.config.json "$REF" <<'PY'
 import json, sys
 p, ref = sys.argv[1], sys.argv[2]
 c = json.load(open(p))
