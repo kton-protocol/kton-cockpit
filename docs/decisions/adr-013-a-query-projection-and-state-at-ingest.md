@@ -11,8 +11,8 @@ tags: [architecture, index, query, oxigraph, sparql, performance, rules, identit
 
 ## Status
 
-Accepted with the amendment below (MH, 2026-11-18, core round: `kton-coordination/proposals/2026-11-18-core-change.md`
-§3 and §6). **The amendment replaces section 4's "current" and `nk:supersededBy`**; where the two disagree, the
+Accepted with the amendment below (MH, 2026-11-18, core round: `kton-coordination/proposals/2026-11-18-core-change.md`,
+sections 3 and 6). **The amendment replaces section 4's "current" and `nk:supersededBy`**; where the two disagree, the
 amendment holds. Proposed 2026-10-27. Amends ADR-012 (the derived index). It follows the design kton-coordination agreed
 with MH on 2026-10-27 (`kton-coordination/proposals/2026-10-27-index-state-and-rules.md`). That design
 answers mignon's handoff rows 2.3, 2.4, 2.5, 2.8 and 2.12 (`kton-mignon/docs/cockpit-handoff.md`).

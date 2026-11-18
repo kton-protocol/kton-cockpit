@@ -11,7 +11,7 @@ tags: [layout, backend, git, local, keys, identity, packages, federation]
 
 ## Status
 
-Proposed (2026-11-18), for the core round (`kton-coordination/proposals/2026-11-18-core-change.md` §5.2a,
+Proposed (2026-11-18), for the core round (`kton-coordination/proposals/2026-11-18-core-change.md`, section 5.2a,
 MH's direction of 18.11.). To be agreed with ktonpkg (package layout) and cockpit-improve (its private
 folder) before it is accepted. Released with cockpit v0.5.0 on kton v0.4.0, together with the ADR-013
 amendment. **Hard break, no migration** (MH): the only installations are MH's and Lukas's.
@@ -97,7 +97,8 @@ it moves to `.kton/{plankton,nekton}/objects/` in the same release, which is why
 - Sharing a repository no longer shares an identity edit; example 18's `catchup` step disappears.
 - Every example, test fixture (`internal/testrepo`), kton-examples participant and the federation template
   change paths in one release.
-- SPEC §5.1 (config location), §9.8 (federation paths), §10.4 (streams) and §12.4 (stamp exclusions) change.
+- SPEC §5.1 (config location), SPEC §9.8 (federation paths), SPEC §10.4 (streams) and SPEC §12.4 (stamp
+  exclusions) change.
 
 ## Open (to agree)
 
