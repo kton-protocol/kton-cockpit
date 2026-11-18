@@ -13,7 +13,8 @@ tags: [architecture, module, jobs, schedule, workflow, ray, poll, monitoring, ru
 
 Proposed (2026-11-18) by cockpit-runtime, on MH's request of 18.11. relayed by kton-coordination
 ("one cron for everything that runs regularly or long and should be monitored"; owner cockpit-runtime).
-The module door and the operator commands are to be agreed with kton-cockpit. Released after cockpit
+The module door and the commands are to be agreed with kton-cockpit. Revised 18.11. (MH): a schedule is
+admitted by a ray that checks rules over kton, not by a person's signature (section 4). Released after cockpit
 v0.5.0, on its `.kton/` layout (ADR-016). It changes no verb and leaves SPEC §6 untouched.
 
 ## Context
@@ -57,7 +58,7 @@ trusted claim replaces (`nk:replacedBy`, view vocabulary 1).
 |---|---|
 | `name` | the job's name, unique in the repository (`te-poll-robert1`) |
 | `kind` | `workflow` (a ray or workflow package), `poll` (a command whose result is observed), `command` (a regular job: prune, rebuild, delivery) |
-| `what` | `workflow`: the package and its revision by hash, plus `--bind` values. `poll`/`command`: the argv. The program must be on the runner's allow list (section 4). |
+| `what` | `workflow`: the package and its revision by hash, plus `--bind` values. `poll`/`command`: the argv. The admission ray's rules decide which programs are allowed (section 4). |
 | `schedule` | `every <duration>` (`every 10m`) or a five-field cron expression, in the runner's time zone |
 | `concurrency` | runs of this job allowed at once (default 1). A due tick while that many are running is **skipped and reported**, never queued. |
 | `runner` | the machine that runs it (its runner name, section 2). A repository cloned on two machines runs the job once. |
@@ -110,7 +111,7 @@ tool; this ADR does not replace it.
 
 ### 3 Monitored from outside
 
-- **CLI** (operator commands, also `--json`):
+- **CLI** (also `--json`; reading needs no operator rights):
   - `cockpit jobs list` shows each job with its kind, schedule, runner, state, `until`, owner, last tick
     and next tick.
   - `cockpit jobs status <name>` adds what the last ticks did. For a workflow job it shows the plan
@@ -125,21 +126,48 @@ tool; this ADR does not replace it.
 - **`cockpit doctor`** reports two problems: a runner that is registered but has not ticked for three
   intervals, and a job whose `until` is within a week.
 
-### 4 Who may schedule: operator commands, a person confirms
+### 4 Who may schedule: anyone trusted proposes, an admission ray decides (MH, 18.11.)
 
-- `cockpit jobs schedule <job.json> --as <person>`, `jobs pause|resume|stop <name> --as <person>`
-  and `jobs enable` are **operator commands, CLI only** (SPEC §6). They are never on MCP. Over the
-  frontend protocol they are operator commands that need a person's confirmation (ADR-011 §6).
-  Scheduling decides what later runs and publishes unattended, so it is a person's signature.
-- **An agent proposes.** A lane writes a job file (`jobs/<name>.job.json`, the claim's fields) and asks.
-  `cockpit jobs schedule` shows it, and the person signs it. This is the line ADR-015 §1 draws for
-  `tool install`.
-- **The runner trusts only `schedules` claims signed by a key in the tiers `jobs.schedulers` names**
-  (default: the repository's people tier). It fails closed, as the player's gate does. A claim from
-  any other key is listed by `jobs list` as "not trusted to schedule" and never runs.
-- **The allow list.** `poll` and `command` jobs may only start programs on the runner's allow list
-  (`jobs.allow` in the machine configuration, set by the machine's operator). A signed claim does not
-  make an arbitrary command runnable on someone else's machine.
+The rules are checked by a ray, not by a person's signature on each job. "Only a person schedules" would
+put a person in front of every poll a lane needs, and keep the rules in people's heads.
+
+- **Proposing.** Any key in a trusted tier may say a `schedules` claim, a lane's agent key included.
+  `jobs schedule` is not an operator command. It says the claim like any other `say`, so it is reachable
+  from an agent (MCP), a lane and a person alike, under the configuration ceiling (ADR-009).
+- **Admission.** A proposed claim is not run until the repository's **admission ray** has admitted it.
+  - The ray is a `ray` package (`jobs.admission` names it by revision). The runner runs it like any
+    workflow step, through the executor, on each new or replacing `schedules` claim.
+  - Its input is the claim. Its rules are **queries over kton**, named queries of the package run through
+    `Ask`, as QM rules are SPARQL over the registry.
+  - Its output is a verdict: `admitted`, or `refused` with the rule that failed and why.
+  - The run is **published**, so every admission is a record. It names the claim, the rule package's
+    revision, and the verdict.
+  - The runner then says **`admits`** (or `refuses`) about the `schedules` claim with its own key (the
+    checkout's identity), with the ray's foton as evidence.
+- **Running.** The runner starts only jobs whose claim in force has an `admits` from a trusted runner
+  key, with an admission ray of the configured revision. It fails closed: no admission ray configured
+  means nothing runs. A changed claim is a new claim and is checked again.
+- **What the rules can ask.** For example:
+  - the signer's tier;
+  - whether the owner is a lane of the registry with a scope;
+  - the program in `what`, against an allow list that is itself a claim or package;
+  - a minimum interval per kind;
+  - `until` at most 30 days ahead;
+  - the jobs already admitted on that runner (capacity, overlapping polls of one server);
+  - whether a workflow package is installed and qualified (`qualifies-as`, ADR-015);
+  - whether the hidden configuration it names exists on that site.
+
+  These are the package's rules, not the cockpit's. A new rule is a new package revision.
+- **Where the person is.** A person installs and qualifies the admission ray (`cockpit install`,
+  `tool qualify`), and sets `jobs.admission` in the configuration. Those stay operator commands, CLI
+  only (SPEC §6), because they decide what later counts. Changing the rules is a reviewed package
+  revision, not a per-job click.
+- **Stopping always works.** `jobs pause|stop <name>` is also a `schedules` claim. Pausing or stopping
+  is always admitted, by the owner's key or a person's key, without the ray, so nothing can be kept
+  running by a rule. A local `jobs runner stop` (operator command) halts the runner on that machine.
+- **The machine's own limit stays.** A runner's operator can deny programs on that machine
+  (`jobs.deny` in the machine configuration). A rule in a repository cannot make a command runnable on
+  someone else's machine.
 
 ### 5 The module
 
@@ -151,13 +179,15 @@ module.Register(module.Module{
     Name:     "jobs",
     Commands: []module.Command{ /* schedule, pause, resume, stop, list, status, enable, runner */ },
     Profiles: nil,                 // jobs are claims, not packages
-    Words:    jobsWords,           // the `schedules` template; named queries jobs-in-force, job-history
+    Words:    jobsWords,           // templates schedules, admits, refuses; named queries jobs-in-force, job-history
 })
 ```
 
 **To agree with kton-cockpit:**
-- that `schedules` is a built-in template (like `qualifies-as`), so its fields are the same in every
-  repository;
+- that `schedules`, `admits` and `refuses` are built-in templates (like `qualifies-as`), so their fields
+  are the same in every repository;
+- that `jobs schedule`, `pause`, `resume` and `stop` say claims as a verb would (agents may propose),
+  while `install` of the admission ray and `jobs.admission` stay operator business;
 - that the observation graph `urn:kton:observed:jobs` is the jobs module's own;
 - that the module may raise events through the door once events exist.
 
@@ -178,12 +208,13 @@ nudges the lane, so the session no longer has to stay alive for it.
 
 - Everything that runs regularly or for a long time is visible in one place (`jobs list`, the
   workgroup view, the QM Workbench), and survives a session or a machine restart.
-- The declaration is evidence: who scheduled what, why, until when, and every change, all signed. The
+- The declaration is evidence: who proposed what, why, until when, which rules admitted it, and every
+  change, all signed. The
   runs of workflow jobs are records. Polls stay observations, so a health check never becomes a claim.
 - One more daemon per machine, operated like the index daemon. It must run on ai1 and on each workgroup
   member's PC that has jobs.
-- SPEC gains a section for the `jobs` operator commands, the `schedules` template, the trust rule for
-  schedulers, the allow list, and the journal's place among the `.kton/local` paths (SPEC §12.4).
+- SPEC gains a section for the `jobs` operator commands, the `schedules` template, admission (`admits`/`refuses`,
+  `jobs.admission`), the machine's deny list, and the journal's place among the `.kton/local` paths (SPEC §12.4).
   Every statement names its test.
 
 ## Steps
@@ -191,8 +222,9 @@ nudges the lane, so the session no longer has to stay alive for it.
 | step | content | needs |
 |---|---|---|
 | J0 | this ADR accepted; the door and template agreed with kton-cockpit | MH, kton-cockpit |
-| J1 | `schedules` template; `jobs schedule/pause/resume/stop/list` over claims; trust rule | ADR-015 T1 (module registry), cockpit v0.5.0 |
-| J2 | the runner: tick, journal, `poll`/`command` with timeout, allow list, observations, `jobs status`, `doctor` checks | J1 |
+| J1 | `schedules`, `admits`, `refuses` templates; `jobs schedule/pause/resume/stop/list` over claims | ADR-015 T1 (module registry), cockpit v0.5.0 |
+| J2 | the runner: tick, journal, `poll`/`command` with timeout, deny list, observations, `jobs status`, `doctor` checks | J1 |
+| J2a | admission: the runner runs `jobs.admission` on new claims, publishes the run, says `admits`/`refuses`; fail closed | J2, a first admission ray (rules for section 6's jobs) |
 | J3 | `workflow` jobs: steps through the executor, plan and state per step, resumption | J2 |
 | J4 | events over the frontend protocol; workgroup extension and QM Workbench views | J2, `cockpit serve --stdio` |
 | J5 | first users moved (section 6), the in-session loops removed | J2–J3 |
