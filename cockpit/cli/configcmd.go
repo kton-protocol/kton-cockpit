@@ -57,7 +57,7 @@ func runConfig(ctx context.Context, args []string) error {
 	// A key the configuration does not have would be written and then ignored on load: a typo such as
 	// persist.sharee would leave persist.share as it was and say nothing.
 	if !knownKey(reflect.TypeOf(config.Raw{}), path) {
-		return fmt.Errorf("cockpit.config.json has no setting %s (cockpit config lists the main ones, "+
+		return fmt.Errorf(".kton/cockpit.config.json has no setting %s (cockpit config lists the main ones, "+
 			"cockpit.config.schema.json all of them)", key)
 	}
 	before, err := os.ReadFile(cfgPath)
@@ -73,7 +73,7 @@ func runConfig(ctx context.Context, args []string) error {
 	}
 	if _, err := config.Load(ctx, "."); err != nil {
 		os.WriteFile(cfgPath, before, 0o644)
-		return fmt.Errorf("%v\n(cockpit.config.json is unchanged)", strings.TrimPrefix(err.Error(), "cockpit: "))
+		return fmt.Errorf("%v\n(.kton/cockpit.config.json is unchanged)", strings.TrimPrefix(err.Error(), "cockpit: "))
 	}
 	b, _ := os.ReadFile(cfgPath)
 	if v, ok := getPath(b, path); ok {
@@ -81,7 +81,7 @@ func runConfig(ctx context.Context, args []string) error {
 	} else {
 		fmt.Printf("%s unset\n", key)
 	}
-	fmt.Println("  commit cockpit.config.json to keep it")
+	fmt.Println("  commit .kton/cockpit.config.json to keep it")
 	return nil
 }
 

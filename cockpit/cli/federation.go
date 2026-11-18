@@ -105,11 +105,11 @@ func federationAdd(ctx context.Context, args []string) error {
 	}
 	if err != nil {
 		os.WriteFile(cfgPath, before, 0o644)
-		return fmt.Errorf("%v\n(cockpit.config.json is unchanged)", err)
+		return fmt.Errorf("%v\n(.kton/cockpit.config.json is unchanged)", err)
 	}
 	fmt.Printf("source %s added (%s)\n", name, block["kind"])
 	describeSource(ctx, fresh, name)
-	fmt.Println("\ncommit cockpit.config.json to keep it; `cockpit federation pull` reads newer records")
+	fmt.Println("\ncommit .kton/cockpit.config.json to keep it; `cockpit federation pull` reads newer records")
 	return nil
 }
 

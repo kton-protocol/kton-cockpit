@@ -159,8 +159,8 @@ usage:
                    [--scope NAME] their claims chain into that scope, about it by default;
                    [--bind VAR=VALUE]... fixes a query parameter $VAR;
                    [--runs] a tool per installed workflow (run_<name>), its holes as arguments
-  cockpit init     scaffold cockpit.config.json in the current git repo
-  cockpit doctor   validate cockpit.config.json + the repo binding; --json for a program,
+  cockpit init     scaffold .kton/ (configuration, templates) in the current repo
+  cockpit doctor   validate .kton/cockpit.config.json + the repo binding; --json for a program,
                    exit 3 while a step marked ! is left
   cockpit show     serve this repo's records to a kton-web viewer
                    [addr] [--web <kton-web checkout>|$KTON_WEB]

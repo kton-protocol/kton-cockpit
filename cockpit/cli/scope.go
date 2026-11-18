@@ -91,7 +91,7 @@ func scopeSeed(ctx context.Context, args []string) error {
 			"  parent chain, which is what makes a later rewind detectable; a scope that wants one\n" +
 			"  must name its parent at birth, because the seed covers it.\n")
 	}
-	fmt.Printf("\nAdd it to cockpit.config.json so claims may name it:\n")
+	fmt.Printf("\nAdd it to .kton/cockpit.config.json so claims may name it:\n")
 	fmt.Printf("  \"claims\": { \"scopes\": { %q: %q } }\n", name, id)
 	return nil
 }

@@ -56,7 +56,7 @@ func runPin(ctx context.Context, args []string) error {
 		fmt.Printf("was:    %s\n", cfg.Raw.Execution.Image)
 	}
 	fmt.Printf("pinned: %s\n", pinned)
-	fmt.Println("  publish and run now execute in exactly this image; commit cockpit.config.json so a peer runs in it too")
+	fmt.Println("  publish and run now execute in exactly this image; commit .kton/cockpit.config.json so a peer runs in it too")
 	return nil
 }
 
