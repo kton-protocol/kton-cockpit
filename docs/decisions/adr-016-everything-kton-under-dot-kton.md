@@ -62,6 +62,11 @@ amendment. **Hard break, no migration** (MH): the only installations are MH's an
   tier configuration then lists folders, and `trust add` copies into one.
 - **`bin/`** (binaries the cockpit fetched for a run) moves to the machine cache; it never belonged to the
   repository.
+- **Other tools get a folder of their own:** `.kton/<tool>/` belongs to that tool (proposed for kton-mignon:
+  `.kton/mignon/` for its `project.json`, `state.json`, …). The cockpit never reads or writes it, and the
+  tool keeps out of the cockpit's names above. Whether a tool's folder is shared or local is the tool's
+  call; a local one lists itself in `.kton/.gitignore`. The recorder is the cockpit's and uses
+  `.kton/local/`.
 - **`docs/data/`** (`show`'s output for kton-web) stays where the configuration says: it is a publication,
   not kton state.
 
@@ -90,6 +95,19 @@ and this key does not exist.
 Nothing (hard break). The federation's `mirror_once.py` scans `registry/{plankton,nekton}/objects/` today;
 it moves to `.kton/{plankton,nekton}/objects/` in the same release, which is why `plankton_dir` and
 `nekton_dir` stop being configurable: the layout is fixed per backend.
+
+## v0.5.0 work list (MH 18.11., migration plan sections 2a and 3)
+
+No backwards compatibility before 1.0: v0.5.0 reads only this layout and view vocabulary 1 (SPEC §9.11).
+
+| item | where | owner |
+|---|---|---|
+| this layout, the identity file, keys out of the repository | the cockpit, `internal/testrepo`, `uat/`, `acceptance/`, `examples/`, `docs/examples-18` | kton-cockpit |
+| view vocabulary 1 (ADR-013 amendment) | the projection, `docs/sparql.md`, the coverage verticle's `human-verdicts.rq`, `work-taken.rq` | kton-cockpit |
+| `render-claims.rq` (`nk:supersededBy`) | kton-web's and verticleformat's render viewer | kton-web, cockpit-verticleformat |
+| recorder 0.4.24/0.4.25 merged and ported (root config, `registry/keys` watch, derivations) | `recorder/` | cockpit-runtime |
+| `mirror_once.py` reads `.kton/{plankton,nekton}/objects/` | `gitmick/plankton-federation-template` | kton-cockpit |
+| ktonpkg v0.8.0 | branch `adr-016-layout` | cockpit-verticleformat |
 
 ## Consequences
 
