@@ -7,7 +7,8 @@ package main
 //	ktonwatch prune [-older 14d] [-keep <project dir>]… [-cas-total 512MB] [-log-max 20MB] [-archive <name>]… [-dry-run]
 //
 //   - traces (<dir>/*.tsv) and stored sessions (<store>/<id>.json) untouched for longer than -older, except
-//     those of a project under a -keep folder (a workspace still in use or under investigation)
+//     those of a project under a -keep folder (a workspace still in use or under investigation), those the
+//     person kept (Keep in the session list, or published from), and those with draft notes
 //   - the content store (cas/) down to -cas-total, the files written or used longest ago first
 //   - ktonwatch.log above -log-max: its last part kept as ktonwatch.log.1, the log itself emptied
 //   - archive/<name> only when named with -archive; prune lists what archive/ holds
@@ -26,6 +27,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/kton-protocol/kton-cockpit/recorder/watch"
 )
 
 type pruneOpts struct {
@@ -120,6 +123,17 @@ func prune(o pruneOpts) (*pruneReport, error) {
 			}
 		}
 	}
+	// sessions the person kept, and those with draft notes, stay whatever their age (MH 18.11.)
+	w := watch.OpenWatched(o.Store, "")
+	notes := watch.OpenNotes(filepath.Join(o.Store, "notes")).All()
+	hasNotes := func(id string) bool {
+		for k := range notes {
+			if strings.HasPrefix(k, id+"/") {
+				return true
+			}
+		}
+		return false
+	}
 	for id := range ids {
 		var newest time.Time
 		var size int64
@@ -136,7 +150,7 @@ func prune(o pruneOpts) (*pruneReport, error) {
 		if len(files) == 0 || newest.After(cut) {
 			continue
 		}
-		if kept(sessionProject(o.Store, o.Dir, id), o.Keep) {
+		if w.Kept(id) || hasNotes(id) || kept(sessionProject(o.Store, o.Dir, id), o.Keep) {
 			r.Kept++
 			continue
 		}
@@ -162,7 +176,7 @@ func prune(o pruneOpts) (*pruneReport, error) {
 		r.Lines = append(r.Lines, fmt.Sprintf("%s %d logs and %d stored sessions untouched for %s (%s)", verb, r.Traces, r.Sessions, o.Older, human(r.Bytes)))
 	}
 	if r.Kept > 0 {
-		r.Lines = append(r.Lines, fmt.Sprintf("kept %d old sessions of the kept projects", r.Kept))
+		r.Lines = append(r.Lines, fmt.Sprintf("kept %d old sessions (kept, with notes, or of a kept project)", r.Kept))
 	}
 	// 2 the content store, down to its size cap: written or used longest ago first
 	if o.CASTotal > 0 && o.CAS != "" {

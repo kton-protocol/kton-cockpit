@@ -132,6 +132,7 @@ func serve(args []string) {
 	env := fs.String("env", "", "extra environment prefixes")
 	cas := fs.String("cas", cacheDir("cas"), "directory the inputs and outputs of tool calls are kept in, by hash (empty: keep nothing)")
 	casMax := fs.Int64("cas-max", 1<<30, "largest file kept in the cas, in bytes")
+	hashFile := fs.String("hash-file", cacheDir("watched"), "where the watched folders are written for the shim (KTON_TRACE_HASH=@<this file>)")
 	pruneEvery := fs.Duration("prune-every", 0, "run prune this often in the service (0: never; see ktonwatch prune -h)")
 	po := pruneFlags(fs)
 	mcpOn := fs.Bool("mcp", true, "serve the MCP tools at /mcp for an assistant (bearer token in ~/.config/kton/mcp-token)")
@@ -157,7 +158,7 @@ func serve(args []string) {
 	}
 
 	sv := &watch.Service{
-		Dir: *dir, Store: *store, Idle: *idle, Exited: *exited, MaxAge: *maxAge, OldEvery: 30 * time.Second, Web: *web,
+		Dir: *dir, Store: *store, HashFile: *hashFile, Idle: *idle, Exited: *exited, MaxAge: *maxAge, OldEvery: 30 * time.Second, Web: *web,
 		NewClassifier: func() *watch.Classifier { return classifier("", *env) },
 		Logf:          log.Printf,
 	}
