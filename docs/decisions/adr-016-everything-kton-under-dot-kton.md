@@ -42,7 +42,7 @@ amendment. **Hard break, no migration** (MH): the only installations are MH's an
     plankton/                         the kernel's store: objects/sha256/<hex>.json, material.jsonl, .seq, peers.json
     nekton/                           objects/scope/<id>.nekton.jsonl (the root scope too, kton #213), .format
     keys/<tier>/<name>[-claims].pub   PUBLIC keys only, the trust tiers by folder
-    blobs/sha256/<hh>/<hex>           bytes by hash, the kernel's shape
+    blobs/<hh>/<hex>                  bytes by hash, the kernel's blobstore shape
     templates/*.json, aliases.json    the repository's own vocabulary (packages bring theirs)
     packages/<name>@<rev>/            installed packages, each in the package's own layout (section 3)
     local/                            NEVER shared (.kton/.gitignore lists it): this checkout's state
@@ -76,7 +76,7 @@ amendment. **Hard break, no migration** (MH): the only installations are MH's an
 
 An installed package keeps the package's own layout under `.kton/packages/<name>@<rev>/`. With this tree its
 `keys/` holds public keys, the same meaning as the repository's, so the clash is gone. **Asked of ktonpkg:**
-a package's record stores use the same names as above (`plankton/`, `nekton/`, `keys/`, `blobs/sha256/<hh>/`),
+a package's record stores use the same names as above (`plankton/`, `nekton/`, `keys/`, `blobs/<hh>/<hex>`, written with plankton's blobstore),
 so a package and a repository read alike, and a workflow's extracted files go to `work/`, not `packages/`.
 
 ### 4 Runs
@@ -101,7 +101,9 @@ it moves to `.kton/{plankton,nekton}/objects/` in the same release, which is why
 
 ## Open (to agree)
 
-- **ktonpkg:** section 3; whether `keys/` by key id (ktonpkg today) or by tier/name (cockpit) wins inside a
-  package. Proposal: a package's keys by key id (it has no tiers), a repository's by tier/name.
+- **ktonpkg:** built on branch `adr-016-layout` (1601d90): a package's stores are `plankton/`, `nekton/`,
+  `keys/` (public, by key id; readers walk `keys/**/*.pub`, so a repository's tier folders read too) and
+  `blobs/<hh>/<hex>`; `scope union` takes package or repository roots. Blob path confirmed 18.11. To be
+  tagged v0.8.0 once this ADR is accepted.
 - **cockpit-improve:** whether its private `.cockpit-improve/` becomes `.kton/local/` on a local checkout of
   an improve-backed repository, and that its config lookup stops walking upward.
