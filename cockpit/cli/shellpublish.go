@@ -43,6 +43,8 @@ func shellPublish(ctx context.Context, args []string) error {
 			in.OutputDir = v
 		case "--env-ref":
 			in.EnvRef = v
+		case "--environment":
+			in.Environment = v
 		case "--corpus":
 			in.Corpus = append(in.Corpus, v)
 		case "--base":
@@ -90,7 +92,7 @@ func shellPublish(ctx context.Context, args []string) error {
 	return nil
 }
 
-const publishUsage = `usage: cockpit publish [--base DIR] [--in FILE]... [--out FILE]... [--outputs-in DIR | --output-dir DIR] [--env-ref REF] [--json] -- COMMAND...
+const publishUsage = `usage: cockpit publish [--base DIR] [--in FILE]... [--out FILE]... [--outputs-in DIR | --output-dir DIR] [--env-ref REF] [--environment SPECTRUM] [--json] -- COMMAND...
   with an image pinned the cockpit runs COMMAND; without, it records the command you ran
   --base DIR: the files and COMMAND are relative to DIR, and so is the record (same call elsewhere, same action key)`
 
