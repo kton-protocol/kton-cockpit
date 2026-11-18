@@ -21,10 +21,10 @@ var identityName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 // trust tier. The operator fixes the set by what the tiers trust; the request picks one. It returns
 // a refusal's reason, or the key's path.
 func keyAs(cfg *config.Config, name string) (string, string) {
-	ring := cfg.Raw.Identity.Keyring
+	ring := cfg.Identity.Keyring
 	switch {
 	case ring == "":
-		return "", "this repository configures no identity.keyring, so say signs as its own nekton_key only"
+		return "", "this checkout's .kton/local/identity.json names no keyring, so say signs as its own nekton_key only"
 	case !identityName.MatchString(name):
 		return "", fmt.Sprintf("%q is not a key name (letters, digits, '.', '_', '-')", name)
 	case cfg.Raw.Anchor.Enabled:
@@ -33,7 +33,7 @@ func keyAs(cfg *config.Config, name string) (string, string) {
 	key := filepath.Join(expandHome(ring), name+"-claims.key")
 	b, err := os.ReadFile(key)
 	if err != nil {
-		return "", fmt.Sprintf("no key %s-claims.key in identity.keyring: %v", name, err)
+		return "", fmt.Sprintf("no key %s-claims.key in the keyring of .kton/local/identity.json: %v", name, err)
 	}
 	seed, err := hex.DecodeString(strings.TrimSpace(string(b)))
 	if err != nil || len(seed) != ed25519.SeedSize {

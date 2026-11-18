@@ -140,3 +140,21 @@ func run(t *testing.T, dir string, name string, args ...string) string {
 	}
 	return string(out)
 }
+
+// .kton/local/ is this checkout's own and is never shared, whatever .gitignore says: a commit that
+// tracks it is refused before anything is pulled or pushed (ADR-016, kton-review L1).
+func TestSync_RefusesWhileKtonLocalIsTracked(t *testing.T) {
+	ctx := context.Background()
+	r := testrepo.New(t)
+	repo := r.Config(t).Repo
+	before := strings.TrimSpace(run(t, "", "git", "--git-dir", r.Origin, "rev-parse", "main"))
+	run(t, r.Root, "git", "add", "-f", ".kton/local/identity.json")
+	run(t, r.Root, "git", "-c", "user.name=x", "-c", "user.email=x@x", "commit", "--quiet", "-m", "oops")
+	_, err := github.Backend{}.Sync(ctx, repo)
+	if err == nil || !strings.Contains(err.Error(), ".kton/local") {
+		t.Fatalf("Sync shared a tracked .kton/local/: %v", err)
+	}
+	if after := strings.TrimSpace(run(t, "", "git", "--git-dir", r.Origin, "rev-parse", "main")); after != before {
+		t.Fatal("the refused Sync pushed anyway")
+	}
+}

@@ -46,9 +46,9 @@ func runNewBlank(ctx context.Context, slug string, ins []string, script string) 
 	if err != nil {
 		return err
 	}
-	dst := filepath.Join(cfg.RepoRoot, runsDir, slug)
+	dst := filepath.Join(cfg.RepoRoot, runsRel(cfg), slug)
 	if _, serr := os.Stat(dst); serr == nil {
-		return fmt.Errorf("%s/%s already exists", runsDir, slug)
+		return fmt.Errorf("%s/%s already exists", runsRel(cfg), slug)
 	}
 	made := false
 	defer func() {
@@ -83,7 +83,7 @@ func runNewBlank(ctx context.Context, slug string, ins []string, script string) 
 	}
 	made = true
 
-	fmt.Printf("%s/%s\n", runsDir, slug)
+	fmt.Printf("%s/%s\n", runsRel(cfg), slug)
 	fmt.Printf("  inputs/     %d file(s)\n", len(ins))
 	fmt.Printf("  %-11s a start that runs as it is: it lists inputs/ into out/summary.txt\n", script)
 	fmt.Printf("  out/        empty; whatever the run writes here is the record's output\n\n")

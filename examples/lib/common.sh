@@ -99,19 +99,26 @@ participant() {
   git -C "$dir" remote add origin "git@github.com:cockpit-examples/$name.git"
   git -C "$dir" remote set-url --push origin "$base/origin.git"
 
-  mkdir -p "$dir"/{registry/plankton,registry/nekton,registry/keys,templates,keys,data,work}
-  cp "$REPO/uat/participant-skeleton/gitignore" "$dir/.gitignore"
-  cp "$REPO/uat/participant-skeleton/templates/"*.json "$dir/templates/"
+  # The layout is ADR-016's: everything kton under .kton/, the private keys outside the repository
+  # (a folder beside it here, ~/.kton-keys in real use), this checkout's identity in .kton/local/.
+  local keys="$base/keys-$name"
+  rm -rf "$keys"
+  mkdir -p "$dir"/.kton/{plankton,nekton,keys/self,templates,local} "$dir"/{data,work} "$keys"
+  cp "$REPO/uat/participant-skeleton/gitignore" "$dir/.kton/.gitignore"
+  cp "$REPO/uat/participant-skeleton/templates/"*.json "$dir/.kton/templates/"
+  printf '/bin/\n' > "$dir/.gitignore"   # the binaries the examples call, built here, never shared
   build_binaries "$dir/bin"
 
-  (cd "$dir" && ./bin/plankton keygen keys/session-1 --seed "$(demoseed "plankton/$name")" >/dev/null
-                ./bin/nekton  keygen keys/session-1-claims --seed "$(demoseed "nekton/$name")" >/dev/null
-                cp keys/session-1.pub keys/session-1-claims.pub registry/keys/)
+  (cd "$keys" && "$dir/bin/plankton" keygen session-1 --seed "$(demoseed "plankton/$name")" >/dev/null
+                 "$dir/bin/nekton"  keygen session-1-claims --seed "$(demoseed "nekton/$name")" >/dev/null)
+  cp "$keys/session-1.pub" "$keys/session-1-claims.pub" "$dir/.kton/keys/self/"
+  printf '{"session_id": "session-1", "plankton_key": "%s", "nekton_key": "%s"}\n' \
+    "$keys/session-1.key" "$keys/session-1-claims.key" > "$dir/.kton/local/identity.json"
 
-  if [ -n "$cfg" ]; then printf '%s\n' "$cfg" > "$dir/cockpit.config.json"
-  else cp "$EXROOT/lib/cockpit.config.json" "$dir/cockpit.config.json"; fi
+  if [ -n "$cfg" ]; then printf '%s\n' "$cfg" > "$dir/.kton/cockpit.config.json"
+  else cp "$EXROOT/lib/cockpit.config.json" "$dir/.kton/cockpit.config.json"; fi
   # The origin url the guard checks is written above; keep the config's repo binding in step with it.
-  python3 - "$dir/cockpit.config.json" "$name" <<'PY'
+  python3 - "$dir/.kton/cockpit.config.json" "$name" <<'PY'
 import json, sys
 path, name = sys.argv[1], sys.argv[2]
 cfg = json.load(open(path))
@@ -122,6 +129,6 @@ PY
   git -C "$dir" add -A
   git -C "$dir" -c user.name=example -c user.email=example@cockpit.local commit --quiet -m "scaffold"
   git -C "$dir" push --quiet -u origin main
-  export COCKPIT_REPO_DIR="$dir"
+  export COCKPIT_REPO_DIR="$dir" EXKEYS="$keys"
   echo "  participant at $dir (git origin cockpit-examples/$name, pushes to a local bare repo)"
 }

@@ -45,18 +45,19 @@ done
 federate() {
   local fed="$FED" repo
   for repo in "$@"; do
-    PLANKTON_DIR="$fed/registry/plankton" NEKTON_DIR="$fed/registry/nekton" \
-      "$fed/bin/kton" mirror plankton "$repo/registry/plankton" >/dev/null
-    PLANKTON_DIR="$fed/registry/plankton" NEKTON_DIR="$fed/registry/nekton" \
-      "$fed/bin/kton" mirror nekton "$repo/registry/nekton" >/dev/null
+    PLANKTON_DIR="$fed/.kton/plankton" NEKTON_DIR="$fed/.kton/nekton" \
+      "$fed/bin/kton" mirror plankton "$repo/.kton/plankton" >/dev/null
+    PLANKTON_DIR="$fed/.kton/plankton" NEKTON_DIR="$fed/.kton/nekton" \
+      "$fed/bin/kton" mirror nekton "$repo/.kton/nekton" >/dev/null
     # Named after the participant, not copied under its own filename. Every repo built from the
     # skeleton calls its key `session-1.pub`, so a plain copy puts one party's public key exactly
     # where another party's used to be — and the aggregate then verifies the second against the
     # first. Nothing errors; the records simply stop resolving.
     local who; who="$(basename "$(dirname "$repo")")"
     local k
-    for k in "$repo"/registry/keys/*.pub; do
-      [ -e "$k" ] && cp "$k" "$fed/registry/keys/$who-$(basename "$k")"
+    mkdir -p "$fed/.kton/keys/participants"
+    for k in "$repo"/.kton/keys/self/*.pub; do
+      [ -e "$k" ] && cp "$k" "$fed/.kton/keys/participants/$who-$(basename "$k")"
     done
   done
   git -C "$fed" add -A
@@ -68,22 +69,21 @@ federate() {
 # Nothing is trusted by being mirrored in; a record is included because a CONFIGURED key verifies it.
 trust() {
   local dir="$1" tier="$2"; shift 2
-  python3 - "$dir/cockpit.config.json" "$tier" "$@" <<'PY'
-import json, sys, os, shutil
-cfg_path, tier, keys = sys.argv[1], sys.argv[2], sys.argv[3:]
-root = os.path.dirname(cfg_path)
-cfg = json.load(open(cfg_path))
-rel = []
-for k in keys:
-    # Prefixed with whose key it is. Both participants call theirs session-1.pub, so copying one in
-    # under its own name overwrites this repo's own public half — and then the repo cannot verify
-    # its own records, while reporting nothing wrong.
-    who = os.path.basename(os.path.dirname(os.path.dirname(os.path.dirname(k))))
-    dest = os.path.join(root, "registry", "keys", who + "-" + os.path.basename(k))
-    shutil.copyfile(k, dest)
-    rel.append(os.path.relpath(dest, root))
-cfg["trust"]["tiers"][tier] = sorted(set(cfg["trust"]["tiers"].get(tier, []) + rel))
-json.dump(cfg, open(cfg_path, "w"), indent=2)
+  # A tier is a folder (ADR-016): copying the public halves into .kton/keys/<tier>/ is trusting them.
+  # Prefixed with whose key it is, since both participants call theirs session-1.pub.
+  mkdir -p "$dir/.kton/keys/$tier"
+  for k in "$@"; do
+    local root="${k%/.kton/keys/*}"            # the participant's repo
+    local who; who="$(basename "$(dirname "$root")")"
+    cp "$k" "$dir/.kton/keys/$tier/$who-$(basename "$k")"
+  done
+  python3 - "$dir/.kton/cockpit.config.json" "$tier" <<'PY'
+import json, sys
+p, tier = sys.argv[1], sys.argv[2]
+cfg = json.load(open(p))
+if tier not in cfg["trust"]["tiers"]:
+    cfg["trust"]["tiers"].append(tier)
+json.dump(cfg, open(p, "w"), indent=2)
 PY
 }
 
@@ -119,7 +119,7 @@ echo "  $P1_FOTON"
 echo ""
 echo "== aggregated into the federation, before participant 2 exists to it =="
 federate "$R1"
-FED_COUNT=$(PLANKTON_DIR="$FED/registry/plankton" "$FED/bin/plankton" records --json \
+FED_COUNT=$(PLANKTON_DIR="$FED/.kton/plankton" "$FED/bin/plankton" records --json \
             | python3 -c 'import json,sys; print(len(json.load(sys.stdin)))')
 require "the aggregate holds participant 1's record" test "$FED_COUNT" -ge 1
 
@@ -156,9 +156,9 @@ echo "  p2 $P2_HASH"
 echo ""
 echo "== the federation mirrored back into participant 2 =="
 federate "$R2"
-PLANKTON_DIR="$PWD/registry/plankton" NEKTON_DIR="$PWD/registry/nekton" \
-  ./bin/kton mirror plankton "$FED/registry/plankton" >/dev/null
-trust "$PWD" federation "$R1/registry/keys/session-1.pub" "$R1/registry/keys/session-1-claims.pub"
+PLANKTON_DIR="$PWD/.kton/plankton" NEKTON_DIR="$PWD/.kton/nekton" \
+  ./bin/kton mirror plankton "$FED/.kton/plankton" >/dev/null
+trust "$PWD" federation "$R1/.kton/keys/self/session-1.pub" "$R1/.kton/keys/self/session-1-claims.pub"
 git add -A && git -c user.name=uat -c user.email=uat@cockpit.local commit -q -m "mirror the federation"
 
 REPRO=$(cockpit ask "{\"query\":\"reproductions\",\"ref\":\"$P1_HASH\",\"filter\":{\"trustTier\":\"federation\"}}")
@@ -180,7 +180,7 @@ for line in open(sys.argv[1]):
         continue
     st = json.loads(base64.b64decode(json.loads(base64.b64decode(m["material"]))["payload"]))
     print(next(s["uri"][0] for s in st["subject"] if s["name"].endswith("clean.py")))
-    break' "$FED/registry/plankton/objects/material.jsonl" "$P1_FOTON")
+    break' "$FED/.kton/plankton/objects/material.jsonl" "$P1_FOTON")
 SHA=$(sed -E 's#.*/([0-9a-f]{40})/.*#\1#' <<<"$LOCATOR")
 require "participant 1's script is named by a commit-pinned locator" test "${#SHA}" = "40"
 git -C "$WORK/p1/origin.git" show "$SHA:session-1/clean.py" > session-1/theirs.py
@@ -216,9 +216,9 @@ echo ""
 echo "== and the count, by verified signature =="
 federate "$R2"
 cd "$R1"; export COCKPIT_REPO_DIR="$PWD"
-PLANKTON_DIR="$PWD/registry/plankton" NEKTON_DIR="$PWD/registry/nekton" \
-  ./bin/kton mirror plankton "$FED/registry/plankton" >/dev/null
-trust "$PWD" federation "$R2/registry/keys/session-1.pub" "$R2/registry/keys/session-1-claims.pub"
+PLANKTON_DIR="$PWD/.kton/plankton" NEKTON_DIR="$PWD/.kton/nekton" \
+  ./bin/kton mirror plankton "$FED/.kton/plankton" >/dev/null
+trust "$PWD" federation "$R2/.kton/keys/self/session-1.pub" "$R2/.kton/keys/self/session-1-claims.pub"
 
 FINAL=$(cockpit ask "{\"query\":\"reproductions\",\"ref\":\"$P1_HASH\"}")
 N2=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["verifiedSigners"])' <<<"$FINAL")

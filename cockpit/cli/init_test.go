@@ -5,8 +5,9 @@ import (
 	"encoding/json"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"testing"
+
+	"github.com/kton-protocol/kton-cockpit/internal/config"
 )
 
 // init asks the backends how to bind the folder: a git working tree with a GitHub origin becomes
@@ -15,7 +16,7 @@ import (
 func TestInit_TheBackendThatRecognisesTheFolderBindsIt(t *testing.T) {
 	read := func(dir string) map[string]any {
 		t.Helper()
-		b, err := os.ReadFile(filepath.Join(dir, "cockpit.config.json"))
+		b, err := os.ReadFile(config.ConfigPath(dir))
 		must(t, err)
 		var c struct {
 			Repo map[string]any `json:"repo"`

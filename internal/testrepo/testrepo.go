@@ -40,10 +40,15 @@ const (
 
 // Repo is one built participant repo.
 type Repo struct {
-	Root   string // the working repo: git root, cockpit.config.json, registries, keys, bin
+	Root   string // the working repo: git root, .kton/ (configuration, registries, public keys)
 	Origin string // the bare repo that pushes actually land in; unused in local mode
 	Local  bool   // built with no git repository at all
+	Keys   string // the private keys, outside the repository (a ~/.kton-keys of its own)
+	Bin    string // the fixture's kernel binaries, outside the repository
 }
+
+// Key is the absolute path of a private key of this fixture.
+func (r *Repo) Key(name string) string { return filepath.Join(r.Keys, name+".key") }
 
 // New builds a participant repo from nothing and returns it. Every step a human operator would
 // perform is performed here: git init, a remote, the registry/keys/templates/bin layout, a real
@@ -70,6 +75,8 @@ func buildRepo(t *testing.T, local bool) *Repo {
 		Root:   filepath.Join(base, "repo"),
 		Origin: filepath.Join(base, "origin.git"),
 		Local:  local,
+		Keys:   filepath.Join(base, "kton-keys"),
+		Bin:    filepath.Join(base, "bin"),
 	}
 
 	if !local {
@@ -92,35 +99,36 @@ func buildRepo(t *testing.T, local bool) *Repo {
 		git(t, r.Root, "remote", "set-url", "--push", "origin", r.Origin)
 	}
 
-	for _, d := range []string{"registry/plankton", "registry/nekton", "registry/keys", "templates", "keys", "bin", "data"} {
-		if err := os.MkdirAll(filepath.Join(r.Root, d), 0o755); err != nil {
+	k := filepath.Join(r.Root, config.Dir)
+	for _, d := range []string{filepath.Join(k, "plankton"), filepath.Join(k, "nekton"), filepath.Join(k, "keys", "self"),
+		filepath.Join(k, "templates"), filepath.Join(k, "local"), r.Keys, r.Bin, filepath.Join(r.Root, "data")} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
 
 	plankton, nekton, kton := resolveBinaries(t)
-	copyFile(t, plankton, filepath.Join(r.Root, "bin", "plankton"))
-	copyFile(t, nekton, filepath.Join(r.Root, "bin", "nekton"))
-	copyFile(t, kton, filepath.Join(r.Root, "bin", "kton"))
+	copyFile(t, plankton, filepath.Join(r.Bin, "plankton"))
+	copyFile(t, nekton, filepath.Join(r.Bin, "nekton"))
+	copyFile(t, kton, filepath.Join(r.Bin, "kton"))
 
-	// Real keypairs from the real binaries — the trust tiers below name the .pub these emit, so
-	// verification resolves a tier from the actual verifying key, as in production.
-	run(t, r.Root, filepath.Join(r.Root, "bin", "plankton"), "keygen", "keys/"+SessionID)
-	run(t, r.Root, filepath.Join(r.Root, "bin", "nekton"), "keygen", "keys/"+SessionID+"-claims")
-
-	// The two halves go to different places, and this is the layout, not a detail: the private
-	// .key stays in /keys/, which .gitignore excludes, while the .pub is copied to registry/keys/
-	// and IS committed — a peer cannot verify this participant's signatures without it.
+	// Real keypairs from the real binaries, made outside the repository as ADR-016 wants: the
+	// private halves stay in r.Keys, and only the public halves go into the tier folder
+	// .kton/keys/self/, which is committed. Verification resolves the tier from the actual
+	// verifying key, as in production.
+	run(t, r.Keys, filepath.Join(r.Bin, "plankton"), "keygen", SessionID)
+	run(t, r.Keys, filepath.Join(r.Bin, "nekton"), "keygen", SessionID+"-claims")
 	for _, base := range []string{SessionID, SessionID + "-claims"} {
-		copyFile(t, filepath.Join(r.Root, "keys", base+".pub"), filepath.Join(r.Root, "registry", "keys", base+".pub"))
+		copyFile(t, filepath.Join(r.Keys, base+".pub"), filepath.Join(k, "keys", "self", base+".pub"))
 	}
+	r.WriteIdentity(t, config.Identity{SessionID: SessionID, PlanktonKey: r.Key(SessionID), NektonKey: r.Key(SessionID + "-claims")})
 
 	// The claim templates and the key hygiene come from uat/participant-skeleton, so this fixture
 	// and the UAT scaffold participants from one definition rather than two that can drift.
 	skeleton := filepath.Join(cockpitRoot(t), "uat", "participant-skeleton")
-	copyFile(t, filepath.Join(skeleton, "gitignore"), filepath.Join(r.Root, ".gitignore"))
+	copyFile(t, filepath.Join(skeleton, "gitignore"), filepath.Join(k, ".gitignore"))
 	for _, tmpl := range []string{"reproduces.json", "working-on.json", "derived-from.json", "reviewed.json", "describes.json", "rationale.json", "located-at.json", "runs-on.json"} {
-		copyFile(t, filepath.Join(skeleton, "templates", tmpl), filepath.Join(r.Root, "templates", tmpl))
+		copyFile(t, filepath.Join(skeleton, "templates", tmpl), filepath.Join(k, "templates", tmpl))
 	}
 
 	raw := DefaultConfig()
@@ -138,30 +146,30 @@ func buildRepo(t *testing.T, local bool) *Repo {
 	return r
 }
 
-// DefaultConfig is the cockpit.config.json the fixture writes: the same shape `cockpit init`
-// scaffolds, with the trust tier filled in to name this repo's own generated pubkeys.
+// DefaultConfig is the .kton/cockpit.config.json the fixture writes: the same shape `cockpit init`
+// scaffolds, trusting tier self, whose folder holds this repo's own generated public keys.
 func DefaultConfig() config.Raw {
 	return config.Raw{
-		Repo: config.RepoRef{Owner: Owner, Name: Name},
-		Paths: config.Paths{
-			PlanktonDir:  "registry/plankton",
-			NektonDir:    "registry/nekton",
-			TemplatesDir: "templates",
-			KeysDir:      "keys",
-			BinDir:       "bin",
-		},
-		Identity: config.Identity{
-			SessionID:   SessionID,
-			PlanktonKey: "keys/" + SessionID + ".key",
-			NektonKey:   "keys/" + SessionID + "-claims.key",
-		},
-		Verbs:  config.Verbs{Publish: true, Say: true, Ask: true},
-		Claims: config.Claims{AllowedTemplates: []string{"reproduces", "working-on"}},
-		Trust: config.Trust{Tiers: map[string][]string{
-			"self": {"registry/keys/" + SessionID + ".pub", "registry/keys/" + SessionID + "-claims.pub"},
-		}},
+		Repo:         config.RepoRef{Owner: Owner, Name: Name},
+		Verbs:        config.Verbs{Publish: true, Say: true, Ask: true},
+		Claims:       config.Claims{AllowedTemplates: []string{"reproduces", "working-on"}},
+		Trust:        config.Trust{Tiers: []string{"self"}},
 		Reproduction: config.Reproduction{RequiredLevel: "L0"},
 	}
+}
+
+// WriteIdentity replaces this checkout's .kton/local/identity.json.
+func (r *Repo) WriteIdentity(t *testing.T, id config.Identity) {
+	t.Helper()
+	b, err := json.MarshalIndent(id, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := config.IdentityPath(r.Root)
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, p, string(b)+"\n")
 }
 
 // Use points the cockpit at this repo for the duration of the test, via the same COCKPIT_REPO_DIR
@@ -234,7 +242,7 @@ func (r *Repo) WriteConfig(t *testing.T, raw config.Raw) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	writeFile(t, filepath.Join(r.Root, "cockpit.config.json"), string(b)+"\n")
+	writeFile(t, config.ConfigPath(r.Root), string(b)+"\n")
 }
 
 // Bool is a helper for the config's optional booleans, whose zero value has to stay
@@ -272,7 +280,7 @@ func (r *Repo) StubAnchor(t *testing.T, logIndex int64, uuid string) {
 // tests chain against the substrate's own head, never against a hand-written id.
 func (r *Repo) SeedScope(t *testing.T, name string) string {
 	t.Helper()
-	out := runNekton(t, r, "seed", name, "--sign", "keys/"+SessionID+"-claims.key", "--add", "--print-id")
+	out := runNekton(t, r, "seed", name, "--sign", r.Key(SessionID+"-claims"), "--add", "--print-id")
 	id := strings.TrimSpace(out)
 	if !strings.HasPrefix(id, "sha256:") || len(id) != 71 {
 		t.Fatalf("nekton seed --print-id did not return a scope id, got %q", out)
@@ -301,11 +309,11 @@ func (r *Repo) ScopeHead(t *testing.T, scopeID string) (tip string, chainLength 
 // different, empty registry that answers with no scope and no error.
 func runNekton(t *testing.T, r *Repo, args ...string) string {
 	t.Helper()
-	cmd := exec.Command(filepath.Join(r.Root, "bin", "nekton"), args...)
+	cmd := exec.Command(filepath.Join(r.Bin, "nekton"), args...)
 	cmd.Dir = r.Root
 	cmd.Env = append(os.Environ(),
-		"NEKTON_DIR="+filepath.Join(r.Root, "registry", "nekton"),
-		"NEKTON_TEMPLATES="+filepath.Join(r.Root, "templates"))
+		"NEKTON_DIR="+filepath.Join(r.Root, config.Dir, "nekton"),
+		"NEKTON_TEMPLATES="+filepath.Join(r.Root, config.Dir, "templates"))
 	out, err := cmd.Output()
 	if err != nil {
 		t.Fatalf("nekton %s: %v\n%s", strings.Join(args, " "), err, out)
@@ -326,7 +334,7 @@ func (r *Repo) ChainClaimDirectly(t *testing.T, subject, scope, prev, step strin
 		"--set", "step="+step,
 		"--set", "by-session="+SessionID,
 		"--scope", scope, "--prev", prev,
-		"--sign", "keys/"+SessionID+"-claims.key", "--add", "--print-id")
+		"--sign", r.Key(SessionID+"-claims"), "--add", "--print-id")
 	return strings.TrimSpace(id)
 }
 
@@ -338,7 +346,7 @@ func (r *Repo) ChainClaimDirectly(t *testing.T, subject, scope, prev, step strin
 // than able to affect what this repo can do.
 func (r *Repo) ChainClaimAsStranger(t *testing.T, subject, scope, prev, step string) string {
 	t.Helper()
-	key := filepath.Join("keys", "stranger-"+step)
+	key := filepath.Join(r.Keys, "stranger-"+step)
 	runNekton(t, r, "keygen", key)
 	return strings.TrimSpace(runNekton(t, r, "annotate", subject,
 		"--template", "working-on",
@@ -353,7 +361,7 @@ func (r *Repo) ChainClaimAsStranger(t *testing.T, subject, scope, prev, step str
 func (r *Repo) SeedScopeUnder(t *testing.T, name, parent string) string {
 	t.Helper()
 	id := strings.TrimSpace(runNekton(t, r, "seed", name,
-		"--sign", "keys/"+SessionID+"-claims.key", "--parent", parent, "--add", "--print-id"))
+		"--sign", r.Key(SessionID+"-claims"), "--parent", parent, "--add", "--print-id"))
 	if !strings.HasPrefix(id, "sha256:") {
 		t.Fatalf("nekton seed --print-id did not return a scope id, got %q", id)
 	}
@@ -384,7 +392,7 @@ func (r *Repo) SealScope(t *testing.T, name string) string {
 // those apart could not test either.
 func (r *Repo) Cockpit(t *testing.T, args ...string) (output string, exitCode int) {
 	t.Helper()
-	bin := filepath.Join(r.Root, "bin", "cockpit")
+	bin := filepath.Join(r.Bin, "cockpit")
 	if _, err := os.Stat(bin); err != nil {
 		build := exec.Command("go", "build", "-o", bin, "./cmd/cockpit")
 		build.Dir = cockpitRoot(t)
@@ -413,4 +421,32 @@ func runCockpit(t *testing.T, r *Repo, args ...string) string {
 		t.Fatalf("cockpit %s exited %d:\n%s", strings.Join(args, " "), code, out)
 	}
 	return out
+}
+
+// TrustPub puts a public key (hex) into a tier's folder of cfg's repository as <name>.pub, and adds
+// the tier to cfg's in-memory configuration if it is missing. It returns the file's path. Write the
+// configuration with WriteConfig when a later Load must see the tier.
+func TrustPub(t *testing.T, cfg *config.Config, tier, name, hex string) string {
+	t.Helper()
+	dir := cfg.TierDir(tier)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	p := filepath.Join(dir, name+".pub")
+	writeFile(t, p, strings.TrimSpace(hex)+"\n")
+	for _, have := range cfg.Raw.Trust.Tiers {
+		if have == tier {
+			return p
+		}
+	}
+	cfg.Raw.Trust.Tiers = append(cfg.Raw.Trust.Tiers, tier)
+	return p
+}
+
+// SetKeyring sets the keyring of this checkout's identity (say --as signs with its keys); empty
+// removes it.
+func (r *Repo) SetKeyring(t *testing.T, ring string) {
+	t.Helper()
+	r.WriteIdentity(t, config.Identity{SessionID: SessionID, PlanktonKey: r.Key(SessionID),
+		NektonKey: r.Key(SessionID + "-claims"), Keyring: ring})
 }

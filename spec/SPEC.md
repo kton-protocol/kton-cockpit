@@ -108,7 +108,7 @@ valid, and in the wrong project.
 
 ### 5.1 Locating the configuration
 
-The configuration is `cockpit.config.json`, and it MUST be found in exactly one of two places:
+The configuration is `.kton/cockpit.config.json`, and it MUST be found in exactly one of two places:
 
 1. the starting directory, or
 2. the root of the git repository containing it, if there is one.
@@ -173,6 +173,43 @@ act as one backend against a repository configured for another.
 
 > **Checked by:** `TestAPI_AModeNoBackendProvidesIsRefusedByName`, and the conformance suite every
 > backend runs (`cockpit/backend/backendtest`): `TestConformance` in the git and local backends.
+
+### 5.6 The layout (ADR-016)
+
+Everything kton in a repository lives under `.kton/`, and only kton. The layout is fixed, not
+configured, so every reader finds the stores of any repository at the same names:
+
+| name under `.kton/` | holds | shared |
+|---|---|---|
+| `cockpit.config.json` | the configuration | yes |
+| `plankton/`, `nekton/` | the registries | yes |
+| `keys/<tier>/*.pub` | the public keys of each trust tier | yes |
+| `blobs/<hh>/<hex>` | bytes by hash | yes |
+| `templates/`, `aliases.json` | the repository's own vocabulary | yes |
+| `packages/<name>@<rev>/` | installed packages | yes |
+| `local/` | this checkout's own: `identity.json`, tool-shim streams, the jobs journal | **never** |
+| `.gitignore` | lists `local/` | yes |
+
+These names are reserved. Any other name under `.kton/` belongs to another tool (`.kton/<tool>/`),
+which the cockpit MUST NOT read or write.
+
+- **Nothing under `local/` is shared.** A cockpit MUST refuse to persist a path under `.kton/local/`,
+  or `.kton/` as a whole, through any backend, and the git backend MUST refuse to sync while a commit
+  tracks it. `.gitignore` is a convenience, not the guard: tool-shim streams may hold licensed outputs.
+- **Private keys are never in a repository.** The identity (`.kton/local/identity.json`) names keys
+  outside it (by default `~/.kton-keys`). A cockpit MUST refuse an identity that names a key inside
+  the repository, and `keygen` MUST refuse to write one there. A checkout without an identity can
+  still ask; the verbs that sign say what is missing.
+- **A tier is its folder.** `trust.tiers` names the tiers; a tier's keys are the `*.pub` files in
+  `.kton/keys/<tier>/` and nothing else, never a package's `keys/`. A private key in a tier folder, by
+  its extension or by its contents, MUST be refused, since the folders are shared and served.
+- **Publish never writes `.kton/`**, and a container run sees it masked (§10.2).
+
+> **Checked by:** `TestLayout_TheReservedNamesCoverTheLayout`, `TestPersist_NeverTakesKtonLocal`,
+> `TestSync_RefusesWhileKtonLocalIsTracked`, `TestIdentity_AKeyInsideTheRepositoryIsRefused`,
+> `TestKeygen_RefusesAKeyFolderInsideTheRepository`, `TestConfig_RefusesSettingsThatWouldDiscloseOrOverwrite`,
+> `TestFixture_CommitsThePublicKeysAndNeverThePrivateOnes`, `TestTrustAdd_TakesThePeersOwnKeysOnly`,
+> `TestValidatePublishPath_RejectsTheKtonFolder`, `TestContainer_TheTrustBaseIsNotInTheRoom` (`-tags docker`).
 
 ## 6 The surface
 
@@ -564,7 +601,7 @@ does not own.
 
 ### 8.7 Saying as another identity *(optional)*
 
-A repository MAY configure `identity.keyring`, a directory outside it that holds further claim keys
+A checkout MAY name a `keyring` in its identity (§5.6), a directory outside the repository that holds further claim keys
 as `<name>-claims.key` beside `<name>-claims.pub`. A say request MAY then name who it acts as (`as`,
 `say --as <name>`), and the claim is signed with that key instead of `nekton_key`. One registry then
 carries each writer's own signature, for example one key per lane.
@@ -805,9 +842,9 @@ more endpoints: runs, steps, wiring, file candidates and parameter candidates. I
 ### 9.8 Federated sources *(optional)*
 
 Where a record lives is not something the kernels know, so which other registries are read together
-with the own one is said in `cockpit.config.json`, under `federation.sources`. Each source has a
+with the own one is said in the configuration, under `federation.sources`. Each source has a
 `name` and a `kind`; a kind says how one kind of place is read. The core provides `dir` (a directory
-holding `registry/plankton` and `registry/nekton`); an extension MAY register further kinds the same
+holding `.kton/plankton` and `.kton/nekton`, §5.6) and `git`; an extension MAY register further kinds the same
 way a repo backend is registered (§5.5).
 
 - `ask`, the served and published union (§12.2) and search MUST read the union of the own registry

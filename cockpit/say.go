@@ -161,7 +161,7 @@ func (c *Cockpit) Say(ctx context.Context, in SayRequest) (*SayResult, error) {
 		}
 	}
 
-	registryPaths := []string{cfg.Raw.Paths.NektonDir}
+	registryPaths := []string{config.Rel("nekton")}
 	if cfg.Raw.Union.Publish {
 		written, uerr := show.WriteUnion(ctx, cfg)
 		if uerr != nil {

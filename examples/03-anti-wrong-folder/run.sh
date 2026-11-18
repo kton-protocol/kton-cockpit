@@ -14,13 +14,13 @@ echo "  a record exists in the right repo"
 
 echo ""
 echo "== 1. a config bound to a different repo =="
-python3 - cockpit.config.json <<'PY'
+python3 - .kton/cockpit.config.json <<'PY'
 import json,sys
 p=sys.argv[1]; c=json.load(open(p)); c["repo"]["owner"]="someone-else"; json.dump(c,open(p,"w"),indent=2)
 PY
 expect_fail "acting on this repo with a config that names someone-else/…" \
   cockpit ask '{"query":"producer","ref":"sha256:0000000000000000000000000000000000000000000000000000000000000000"}'
-git checkout -- cockpit.config.json
+git checkout -- .kton/cockpit.config.json
 
 echo ""
 echo "== 2. outside any git repository =="
@@ -30,7 +30,7 @@ expect_fail "acting in a directory that is no repository" \
 
 echo ""
 echo "== 3. a config below the repository root =="
-mkdir -p nested && cp cockpit.config.json nested/
+mkdir -p nested/.kton && cp .kton/cockpit.config.json nested/.kton/
 expect_fail "a config sitting somewhere other than the root it binds" \
   env COCKPIT_REPO_DIR="$PWD/nested" cockpit ask '{"query":"producer","ref":"sha256:0000000000000000000000000000000000000000000000000000000000000000"}'
 rm -rf nested

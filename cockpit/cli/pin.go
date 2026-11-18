@@ -14,7 +14,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os/exec"
-	"path/filepath"
 	"strings"
 
 	"github.com/kton-protocol/kton-cockpit/internal/config"
@@ -50,7 +49,7 @@ func runPin(ctx context.Context, args []string) error {
 		fmt.Printf("already pinned: %s\n", pinned)
 		return nil
 	}
-	if err := editConfig(filepath.Join(cfg.RepoRoot, "cockpit.config.json"), set([]string{"execution", "image"}, pinned)); err != nil {
+	if err := editConfig(config.ConfigPath(cfg.RepoRoot), set([]string{"execution", "image"}, pinned)); err != nil {
 		return err
 	}
 	if cfg.Raw.Execution.Image != "" {

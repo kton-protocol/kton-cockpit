@@ -321,7 +321,7 @@ func (c *Cockpit) Publish(ctx context.Context, in PublishRequest) (*PublishResul
 
 	var corpusPath string
 	if len(in.Corpus) > 0 {
-		corpusPath = filepath.Join(base, "corpus", fmt.Sprintf("%s-%d.json", cfg.Raw.Identity.SessionID, time.Now().UnixNano()))
+		corpusPath = filepath.Join(base, "corpus", fmt.Sprintf("%s-%d.json", cfg.Identity.SessionID, time.Now().UnixNano()))
 		abs := filepath.Join(cfg.RepoRoot, corpusPath)
 		if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
 			return nil, refuse("io", "", "could not create corpus manifest dir: %v", err)
@@ -394,7 +394,7 @@ func (c *Cockpit) Publish(ctx context.Context, in PublishRequest) (*PublishResul
 
 	// The union is regenerated AFTER the foton is in the registry and committed in the same commit
 	// as it, so a published aggregate is never one record behind the registry it summarises.
-	registryPaths := []string{cfg.Raw.Paths.PlanktonDir}
+	registryPaths := []string{config.Rel("plankton")}
 	if cfg.Raw.Union.Publish {
 		written, uerr := show.WriteUnion(ctx, cfg)
 		if uerr != nil {
@@ -598,23 +598,16 @@ func validatePublishPath(cfg *config.Config, p string) error {
 		return fmt.Errorf("%q resolves outside the repository root — refusing", p)
 	}
 
-	// Compared against cfg.KeysDir — the already-resolved ABSOLUTE path (config.go joins RepoRoot
-	// with raw.Paths.KeysDir) — not the raw cfg.Raw.Paths.KeysDir string. Comparing against the raw
-	// value directly would silently no-op if an operator ever wrote keys_dir anchored like "/keys"
-	// (config.validate() doesn't forbid it): filepath.Join resolves that correctly into cfg.KeysDir
-	// regardless, but the raw string itself stays "/keys" — which, compared as-is against a
-	// repo-relative cleaned path, never shares a prefix and never matches.
-	absPath := filepath.ToSlash(filepath.Join(cfg.RepoRoot, clean))
-	if pathIsUnderOrEqual(absPath, cfg.KeysDir) {
-		return fmt.Errorf("%q is inside this repo's configured keys_dir (%s) — publish never touches signing keys", p, cfg.Raw.Paths.KeysDir)
+	// Everything kton is under .kton/ (ADR-016): the configuration, the registries, the public keys
+	// and this checkout's local state. Publish writes none of it; the cockpit does, by its own paths.
+	// Compared case-insensitively, since on a case-insensitive filesystem .KTON is the same folder.
+	if first, _, _ := strings.Cut(clean, "/"); strings.EqualFold(first, config.Dir) {
+		return fmt.Errorf("%q is inside %s/, which holds this repository's configuration, registries and keys — publish never touches it", p, config.Dir)
 	}
 	for _, private := range cfg.Raw.Private() {
 		if pathIsUnderOrEqual(clean, private) {
 			return fmt.Errorf("%q is inside %s, which the %s backend keeps for itself — publish never touches it", p, private, cfg.Raw.Repo.ModeOrDefault())
 		}
-	}
-	if strings.EqualFold(clean, "cockpit.config.json") {
-		return fmt.Errorf("%q is this repo's cockpit.config.json — publish never touches its own config", p)
 	}
 	// TrimRight strips trailing dots/spaces before checking the extension: filepath.Ext("x.key.")
 	// is ".", not ".key", so a trailing dot or space would otherwise let a key slip past this

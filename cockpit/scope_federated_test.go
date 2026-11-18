@@ -30,12 +30,12 @@ func federatedScopes(t *testing.T, trust bool) (study, project, programme string
 	}
 	raw.Federation.Sources = []source.Spec{spec}
 	if trust {
-		pub, err := os.ReadFile(filepath.Join(theirs.Root, "registry", "keys", testrepo.SessionID+"-claims.pub"))
+		pub, err := os.ReadFile(filepath.Join(theirs.Root, ".kton", "keys", "self", testrepo.SessionID+"-claims.pub"))
 		if err != nil {
 			t.Fatal(err)
 		}
-		ours.Write(t, "registry/keys/theirs-claims.pub", string(pub))
-		raw.Trust.Tiers["peer"] = []string{"registry/keys/theirs-claims.pub"}
+		ours.Write(t, ".kton/keys/peer/theirs-claims.pub", string(pub))
+		raw.Trust.Tiers = append(raw.Trust.Tiers, "peer")
 	}
 	ours.WriteConfig(t, raw)
 	ours.Use(t)

@@ -6,13 +6,14 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kton-protocol/kton-cockpit/internal/config"
 	"github.com/kton-protocol/kton-cockpit/internal/testrepo"
 )
 
 // One value is set without opening the JSON; a value the configuration refuses is put back.
 func TestConfig_SetsOneValueAndPutsBackWhatDoesNotLoad(t *testing.T) {
 	r := testrepo.New(t)
-	cfgPath := filepath.Join(r.Root, "cockpit.config.json")
+	cfgPath := config.ConfigPath(r.Root)
 
 	if out, code := r.Cockpit(t, "config", "persist.share", "off"); code != 0 || !strings.Contains(out, "persist.share = false") {
 		t.Fatalf("exit %d:\n%s", code, out)
@@ -40,7 +41,7 @@ func TestConfig_SetsOneValueAndPutsBackWhatDoesNotLoad(t *testing.T) {
 // would otherwise leave the real setting as it was, with nothing said.
 func TestConfig_RefusesAKeyTheConfigurationDoesNotHave(t *testing.T) {
 	r := testrepo.New(t)
-	cfgPath := filepath.Join(r.Root, "cockpit.config.json")
+	cfgPath := config.ConfigPath(r.Root)
 	before, _ := os.ReadFile(cfgPath)
 	for _, key := range []string{"persist.sharee", "nonsense.key", "execution.netwerk"} {
 		out, code := r.Cockpit(t, "config", key, "off")
@@ -51,9 +52,9 @@ func TestConfig_RefusesAKeyTheConfigurationDoesNotHave(t *testing.T) {
 	if after, _ := os.ReadFile(cfgPath); string(after) != string(before) {
 		t.Error("a refused key was written")
 	}
-	// Under a map, any key is the configuration's to judge on load.
-	if out, code := r.Cockpit(t, "config", "trust.tiers.peer", `[]`); code != 0 {
-		t.Errorf("a new trust tier name was refused (exit %d):\n%s", code, out)
+	// The negative control: a setting that exists is written. The tiers are a list of names.
+	if out, code := r.Cockpit(t, "config", "trust.tiers", `["self","peer"]`); code != 0 {
+		t.Errorf("setting the trust tiers was refused (exit %d):\n%s", code, out)
 	}
 }
 
@@ -74,7 +75,7 @@ func TestFederation_AddListRemove(t *testing.T) {
 		t.Errorf("list does not name the source:\n%s", out)
 	}
 
-	cfgPath := filepath.Join(r.Root, "cockpit.config.json")
+	cfgPath := config.ConfigPath(r.Root)
 	before, _ := os.ReadFile(cfgPath)
 	if out, code := r.Cockpit(t, "federation", "add", "nothing", filepath.Join(t.TempDir(), "absent")); code == 0 {
 		t.Errorf("an unreadable source was added:\n%s", out)

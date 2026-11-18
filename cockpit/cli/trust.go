@@ -9,9 +9,8 @@ package cli
 //
 // It decides nothing. Which tier a key belongs in is the operator's call, and `add` without --yes
 // only shows what would be trusted — the keyids, and the commit they were read at — so the call is
-// made by someone who has seen them. What it removes is the hand work uat/e2e.sh used to do in
-// Python: copying .pub files in under a name that cannot overwrite this repository's own, and
-// editing trust.tiers.
+// made by someone who has seen them. A tier is a folder (ADR-016): trusting a key is copying its public
+// half into .kton/keys/<tier>/ and naming the tier in trust.tiers.
 
 import (
 	"context"
@@ -19,7 +18,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -74,7 +72,7 @@ func trustAdd(ctx context.Context, args []string) error {
 		return err
 	}
 
-	keys, where, err := peerKeys(ctx, cfg, src, publicKeysDir(&cfg.Raw))
+	keys, where, err := peerKeys(ctx, cfg, src)
 	if err != nil {
 		return err
 	}
@@ -87,14 +85,20 @@ func trustAdd(ctx context.Context, args []string) error {
 	// A key already in another tier stays where the operator put it: one key in two tiers would
 	// make which tier a record counts in depend on lookup order.
 	inTier := map[string]string{}
-	for p, t := range cfg.TierPubkeys() {
-		if b, err := os.ReadFile(p); err == nil && t != tier {
-			inTier[strings.TrimSpace(string(b))] = t
+	have := map[string]bool{} // the keys this tier's folder holds already
+	for _, t := range cfg.Raw.Trust.Tiers {
+		for _, p := range cfg.TierKeys(t) {
+			if b, err := os.ReadFile(p); err == nil {
+				if t == tier {
+					have[strings.TrimSpace(string(b))] = true
+				} else {
+					inTier[strings.TrimSpace(string(b))] = t
+				}
+			}
 		}
 	}
 
-	dst := publicKeysDir(&cfg.Raw)
-	entries := append([]string{}, cfg.Raw.Trust.Tiers[tier]...)
+	dst := cfg.TierDir(tier)
 	type write struct{ to, hex string }
 	var writes []write
 	fmt.Printf("%s, read at %s:\n", src, where)
@@ -107,25 +111,21 @@ func trustAdd(ctx context.Context, args []string) error {
 			fmt.Printf("  %-28s %s  already trusted in tier %s — skipped\n", k.name, shortID(k.keyID), t)
 			continue
 		}
-		// Prefixed with the tier unless it already is: two parties both calling theirs
-		// session-1.pub must not land on one file.
+		if have[k.hex] {
+			fmt.Printf("  %-28s keyid %s  (already in tier %s)\n", k.name, shortID(k.keyID), tier)
+			continue
+		}
+		// Two parties both calling theirs session-1.pub must not land on one file: a name taken by
+		// another key gets the keyid's start appended.
 		file := k.name
-		if !strings.HasPrefix(file, tier) {
-			file = tier + "-" + file
+		to := filepath.Join(dst, file)
+		if b, err := os.ReadFile(to); err == nil && strings.TrimSpace(string(b)) != k.hex {
+			file = strings.TrimSuffix(file, ".pub") + "-" + shortID(k.keyID)[:8] + ".pub"
+			to = filepath.Join(dst, file)
 		}
-		rel := path.Join(dst, file)
-		to := filepath.Join(cfg.RepoRoot, filepath.FromSlash(rel))
-		if have, err := os.ReadFile(to); err == nil && strings.TrimSpace(string(have)) != k.hex {
-			return fmt.Errorf("%s exists with a different key — not overwritten; remove it or use another tier name", rel)
-		}
-		state := "new"
-		if slices.Contains(entries, rel) {
-			state = "already in tier " + tier
-		} else {
-			entries = append(entries, rel)
-			writes = append(writes, write{to, k.hex})
-		}
-		fmt.Printf("  %-28s keyid %s  → %s  (%s)\n", k.name, shortID(k.keyID), rel, state)
+		writes = append(writes, write{to, k.hex})
+		have[k.hex] = true
+		fmt.Printf("  %-28s keyid %s  → %s  (new)\n", k.name, shortID(k.keyID), config.Rel("keys/"+tier+"/"+file))
 	}
 	if len(writes) == 0 {
 		fmt.Println("nothing to add")
@@ -143,18 +143,23 @@ func trustAdd(ctx context.Context, args []string) error {
 			return err
 		}
 	}
-	if err := editConfig(filepath.Join(cfg.RepoRoot, "cockpit.config.json"), set([]string{"trust", "tiers", tier}, entries)); err != nil {
-		return err
+	if !slices.Contains(cfg.Raw.Trust.Tiers, tier) {
+		tiers := append(slices.Clone(cfg.Raw.Trust.Tiers), tier)
+		if err := editConfig(config.ConfigPath(cfg.RepoRoot), set([]string{"trust", "tiers"}, tiers)); err != nil {
+			return err
+		}
 	}
-	fmt.Printf("\ntier %s: %d key(s) added. Commit %s/ and cockpit.config.json.\n", tier, len(writes), dst)
+	fmt.Printf("\ntier %s: %d key(s) added. Commit %s/ and %s.\n", tier, len(writes), config.Rel("keys/"+tier), config.Rel(config.ConfigFile))
 	return nil
 }
 
-// peerKeys reads the public keys a peer publishes, through the federation source kind that reads
-// that kind of place, and says where they were read. src is a configured federation source by name
-// (read through its own kind, whatever kind that is), a checkout on disk with keysDir (read in
-// place), or else a git repository to clone.
-func peerKeys(ctx context.Context, cfg *config.Config, src, keysDir string) ([]peerKey, string, error) {
+// peerKeys reads a peer's own public keys — its tier self, .kton/keys/self/ — through the federation
+// source kind that reads that kind of place, and says where they were read. src is a configured
+// federation source by name (read through its own kind, whatever kind that is), a checkout on disk
+// (read in place), or else a git repository to clone. A peer's other tiers are the keys it trusts,
+// not its own, and are never taken under its name.
+func peerKeys(ctx context.Context, cfg *config.Config, src string) ([]peerKey, string, error) {
+	selfDir := filepath.Join(config.Dir, "keys", "self")
 	var spec source.Spec
 	base := "."
 	for _, s := range cfg.Raw.Federation.Sources {
@@ -164,7 +169,7 @@ func peerKeys(ctx context.Context, cfg *config.Config, src, keysDir string) ([]p
 	}
 	if spec.Kind == "" {
 		block := map[string]string{"name": "peer", "kind": "git", "url": src}
-		if fi, err := os.Stat(filepath.Join(src, filepath.FromSlash(keysDir))); err == nil && fi.IsDir() {
+		if fi, err := os.Stat(filepath.Join(src, selfDir)); err == nil && fi.IsDir() {
 			abs, _ := filepath.Abs(src)
 			block = map[string]string{"name": "peer", "kind": "dir", "path": abs}
 		}
@@ -185,33 +190,20 @@ func peerKeys(ctx context.Context, cfg *config.Config, src, keysDir string) ([]p
 	defer os.RemoveAll(cache)
 	root, rev, err := co.Checkout(ctx, spec, base, cache)
 	if err != nil {
-		return nil, "", fmt.Errorf("%s is neither a checkout with %s/ nor a repository this build can read: %v", src, keysDir, err)
+		return nil, "", fmt.Errorf("%s is neither a checkout with %s/ nor a repository this build can read: %v", src, filepath.ToSlash(selfDir), err)
 	}
 	where := "the working tree"
 	if rev != "" {
 		where = "revision " + rev
 	}
-	dir := filepath.Join(root, filepath.FromSlash(keysDir))
-	if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
-		return nil, "", fmt.Errorf("%s publishes no %s/ (read at %s)", src, keysDir, where)
-	}
-
+	dir := filepath.Join(root, selfDir)
 	ents, err := os.ReadDir(dir)
 	if err != nil {
-		return nil, "", err
+		return nil, "", fmt.Errorf("%s publishes no %s/ (read at %s)", src, filepath.ToSlash(selfDir), where)
 	}
 	var out []peerKey
-	// registry/keys holds every key a repository publishes, including the ones it trusts in its
-	// other tiers. The peer is the keys its own configuration calls self; the rest are its peers',
-	// and taking them would trust them under this peer's name.
-	own, haveCfg := peerSelf(root)
-	skipped := 0
 	for _, e := range ents {
 		if e.IsDir() || filepath.Ext(e.Name()) != ".pub" {
-			continue
-		}
-		if haveCfg && !own[e.Name()] {
-			skipped++
 			continue
 		}
 		b, err := os.ReadFile(filepath.Join(dir, e.Name()))
@@ -221,19 +213,14 @@ func peerKeys(ctx context.Context, cfg *config.Config, src, keysDir string) ([]p
 		h := strings.TrimSpace(string(b))
 		pub, err := core.ParsePublicKeyHex(h)
 		if err != nil || len(pub) != ed25519.PublicKeySize {
-			return nil, "", fmt.Errorf("%s/%s is not a public key", keysDir, e.Name())
+			return nil, "", fmt.Errorf("%s/%s is not a public key", filepath.ToSlash(selfDir), e.Name())
 		}
 		out = append(out, peerKey{e.Name(), h, core.KeyIDHex(pub)})
 	}
 	if len(out) == 0 {
-		return nil, "", fmt.Errorf("%s has no public keys of its own in %s/", src, keysDir)
+		return nil, "", fmt.Errorf("%s has no public keys of its own in %s/", src, filepath.ToSlash(selfDir))
 	}
-	if skipped > 0 {
-		where += fmt.Sprintf(" — its own keys (tier self); %d other key(s) it publishes are those it trusts, not taken", skipped)
-	} else if !haveCfg {
-		where += " — it has no cockpit.config.json, so every key it publishes is shown"
-	}
-	return out, where, nil
+	return out, where + " — its own keys (tier self)", nil
 }
 
 func trustList(ctx context.Context) error {
@@ -241,32 +228,27 @@ func trustList(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	tiers := make([]string, 0, len(cfg.Raw.Trust.Tiers))
-	for t := range cfg.Raw.Trust.Tiers {
-		tiers = append(tiers, t)
-	}
+	tiers := slices.Clone(cfg.Raw.Trust.Tiers)
 	sort.Strings(tiers)
 	for _, t := range tiers {
-		fmt.Printf("%s\n", t)
-		if len(cfg.Raw.Trust.Tiers[t]) == 0 {
+		fmt.Printf("%s  (%s/)\n", t, config.Rel("keys/"+t))
+		keys := cfg.TierKeys(t)
+		if len(keys) == 0 {
 			fmt.Println("  (no keys — nothing counts in this tier)")
 		}
-		for _, p := range cfg.Raw.Trust.Tiers[t] {
-			abs := p
-			if !filepath.IsAbs(abs) {
-				abs = filepath.Join(cfg.RepoRoot, p)
-			}
-			b, err := os.ReadFile(abs)
+		for _, p := range keys {
+			name := filepath.Base(p)
+			b, err := os.ReadFile(p)
 			if err != nil {
-				fmt.Printf("  %-40s MISSING — this entry trusts nothing\n", p)
+				fmt.Printf("  %-40s UNREADABLE\n", name)
 				continue
 			}
 			pub, err := core.ParsePublicKeyHex(strings.TrimSpace(string(b)))
 			if err != nil {
-				fmt.Printf("  %-40s NOT A PUBLIC KEY\n", p)
+				fmt.Printf("  %-40s NOT A PUBLIC KEY\n", name)
 				continue
 			}
-			fmt.Printf("  %-40s keyid %s\n", p, shortID(core.KeyIDHex(pub)))
+			fmt.Printf("  %-40s keyid %s\n", name, shortID(core.KeyIDHex(pub)))
 		}
 	}
 	return nil
@@ -281,22 +263,17 @@ func trustRemove(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	if _, ok := cfg.Raw.Trust.Tiers[tier]; !ok {
+	if !slices.Contains(cfg.Raw.Trust.Tiers, tier) {
 		return fmt.Errorf("no tier %q", tier)
 	}
 	if tier == "self" {
 		return fmt.Errorf("tier self holds this repository's own keys; without it its own records do not verify here")
 	}
-	tiers := map[string][]string{}
-	for t, ks := range cfg.Raw.Trust.Tiers {
-		if t != tier {
-			tiers[t] = ks
-		}
-	}
-	if err := editConfig(filepath.Join(cfg.RepoRoot, "cockpit.config.json"), set([]string{"trust", "tiers"}, tiers)); err != nil {
+	tiers := slices.DeleteFunc(slices.Clone(cfg.Raw.Trust.Tiers), func(t string) bool { return t == tier })
+	if err := editConfig(config.ConfigPath(cfg.RepoRoot), set([]string{"trust", "tiers"}, tiers)); err != nil {
 		return err
 	}
-	fmt.Printf("tier %s removed; records only its keys signed no longer count here. The .pub files stay in place.\n", tier)
+	fmt.Printf("tier %s removed; records only its keys signed no longer count here. %s/ stays in place.\n", tier, config.Rel("keys/"+tier))
 	return nil
 }
 
@@ -305,25 +282,4 @@ func shortID(id string) string {
 		return id[:16]
 	}
 	return id
-}
-
-// peerSelf is the file names of the keys a peer's own configuration trusts as itself.
-func peerSelf(root string) (map[string]bool, bool) {
-	b, err := os.ReadFile(filepath.Join(root, "cockpit.config.json"))
-	if err != nil {
-		return nil, false
-	}
-	var c struct {
-		Trust struct {
-			Tiers map[string][]string `json:"tiers"`
-		} `json:"trust"`
-	}
-	if json.Unmarshal(b, &c) != nil || len(c.Trust.Tiers["self"]) == 0 {
-		return nil, false
-	}
-	own := map[string]bool{}
-	for _, p := range c.Trust.Tiers["self"] {
-		own[filepath.Base(p)] = true
-	}
-	return own, true
 }

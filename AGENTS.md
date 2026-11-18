@@ -126,14 +126,14 @@ cockpit ask     '<json>' [--field NAME]   query the graph, re-verified against c
 cockpit mcp      start the MCP stdio server (cockpit_publish/cockpit_say/cockpit_ask)
 
 human operator only:
-cockpit init        scaffold a cockpit.config.json in the current repo
+cockpit init        scaffold .kton/ (configuration, templates) in the current repo
 cockpit keygen      make a signing identity and bind it into the configuration
 cockpit pin         pin the image every run executes in, by digest
 cockpit config      read or change one setting
 cockpit trust       list, add or remove the keys a trust tier holds
 cockpit federation  add, list, pull or remove the registries read with this one
 cockpit run         a run folder: new, run it, list
-cockpit doctor      validate cockpit.config.json + the repo binding, and say what is left to do
+cockpit doctor      validate .kton/cockpit.config.json + the repo binding, and say what is left to do
 cockpit show        serve this repo's records to a kton-web viewer
 cockpit scope       seed, seal or read a nekton scope
 cockpit version     the binary, its commit, and the kernels linked into it
@@ -177,8 +177,9 @@ go test ./...
 `go test ./...` needs no fixtures and no pre-existing repo. `internal/testrepo` builds a complete
 participant repo from nothing for each test — git init, a real github.com `origin` (so the
 anti-wrong-folder guard runs unmodified; only the remote's *push* url points at a local bare repo,
-so commits and pushes complete offline), the registry/keys/templates/bin layout, signing identities
-from the real `keygen`, the claim templates, and a `cockpit.config.json`. Records are genuinely
+so commits and pushes complete offline), the `.kton/` layout (ADR-016), signing identities from the
+real `keygen` with the private keys outside the repository, the claim templates, and a
+`.kton/cockpit.config.json`. Records are genuinely
 signed; assertions are about what actually happened. `testrepo.NewLocal` builds the same thing with
 no git repository at all, for the local-mode guard (ADR-004).
 

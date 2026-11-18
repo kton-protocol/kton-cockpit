@@ -89,9 +89,7 @@ func printDoctorJSON(ctx context.Context, cfg *config.Config) error {
 	f.NektonKey = doctorPath{cfg.NektonKey, keyState(cfg.NektonKey)}
 	f.AllowedTemplates = append([]string{}, raw.Claims.AllowedTemplates...)
 	f.Scopes = raw.Claims.Scopes
-	for tier := range raw.Trust.Tiers {
-		f.TrustTiers = append(f.TrustTiers, tier)
-	}
+	f.TrustTiers = append(f.TrustTiers, raw.Trust.Tiers...)
 	if f.TrustTiers == nil {
 		f.TrustTiers = []string{}
 	}

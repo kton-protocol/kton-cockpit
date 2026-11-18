@@ -69,7 +69,7 @@ func TestAPI_ATemplateOutsideTheCeilingIsRefusedByCode(t *testing.T) {
 func TestAPI_ADeniedPathIsRefusedByCode(t *testing.T) {
 	r := testrepo.New(t)
 	_, err := New(Start{Dir: r.Root}).Publish(context.Background(), PublishRequest{
-		Cmd: "leak", Outputs: []string{"cockpit.config.json"},
+		Cmd: "leak", Outputs: []string{".kton/cockpit.config.json"},
 	})
 	if ref := refusalOf(t, err); ref.Code != "path.denied" || ref.Clause != "SPEC §7.3" {
 		t.Fatalf("got code %q clause %q, want path.denied / SPEC §7.3", ref.Code, ref.Clause)

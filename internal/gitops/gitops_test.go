@@ -402,7 +402,7 @@ exit 0
 	}
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
-	if sha, err := CommitAndPush(context.Background(), Git{Root: repoDir, Commit: true, SessionID: "session-1"}, []string{"registry/nekton"}, "test"); err != nil || sha == "" {
+	if sha, err := CommitAndPush(context.Background(), Git{Root: repoDir, Commit: true, SessionID: "session-1"}, []string{".kton/nekton"}, "test"); err != nil || sha == "" {
 		t.Fatalf("want the add tried again and the commit made: %q %v", sha, err)
 	}
 }

@@ -3,6 +3,7 @@ package testrepo
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -42,7 +43,11 @@ func TestFederation_LocatorsOfAFederatedRecord(t *testing.T) {
 	if locs, err := verify.Locators(context.Background(), run, oc, a.ID); err != nil || len(locs) != 0 {
 		t.Fatalf("locators signed by a key no tier names: %v %+v", err, locs)
 	}
-	oc.Raw.Trust.Tiers["peer"] = []string{filepath.Join(tc.RepoRoot, "registry", "keys", SessionID+".pub")}
+	theirPub, err := os.ReadFile(filepath.Join(tc.RepoRoot, ".kton", "keys", "self", SessionID+".pub"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	TrustPub(t, oc, "peer", "theirs", string(theirPub))
 	locs, err := verify.Locators(context.Background(), run, oc, a.ID)
 	if err != nil || len(locs) != 1 || locs[0].Path != "data/in.csv" || locs[0].Tier != "peer" ||
 		len(locs[0].URI) != 1 || locs[0].URI[0] != "https://example.test/theirs/data/in.csv" {

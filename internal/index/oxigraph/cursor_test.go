@@ -32,8 +32,8 @@ func TestOxigraph_ACursorNeverSkipsARecordAWriterNumbersLater(t *testing.T) {
 
 	carol := testrepo.New(t)
 	cc := carol.Config(t)
-	src := filepath.Join(carol.Root, "registry", "plankton", "objects")
-	dst := filepath.Join(alice.Root, "registry", "plankton", "objects")
+	src := filepath.Join(carol.Root, ".kton", "plankton", "objects")
+	dst := filepath.Join(alice.Root, ".kton", "plankton", "objects")
 	list := func() map[string]bool {
 		m := map[string]bool{}
 		filepath.WalkDir(src, func(p string, e fs.DirEntry, err error) error {

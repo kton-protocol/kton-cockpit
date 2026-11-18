@@ -64,8 +64,8 @@ func authorParity(t *testing.T, environment string) {
 		args = append(args, "--environment", environment)
 	}
 	args = append(args, "--env-ref", envRef, "--cmd", cmd,
-		"--sign", "keys/"+SessionID+".key", "--add", "--registry", cliDir, "--print-id")
-	cli := exec.Command(filepath.Join(r.Root, "bin", "plankton"), args...)
+		"--sign", r.Key(SessionID), "--add", "--registry", cliDir, "--print-id")
+	cli := exec.Command(filepath.Join(r.Bin, "plankton"), args...)
 	cli.Dir = r.Root
 	cli.Env = append(os.Environ(), "PLANKTON_DIR="+cliDir)
 	out, err := cli.Output()

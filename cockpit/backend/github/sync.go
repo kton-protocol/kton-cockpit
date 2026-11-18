@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/kton-protocol/kton-cockpit/cockpit/backend"
 	"github.com/kton-protocol/kton-cockpit/internal/gitops"
@@ -37,6 +38,15 @@ func (b Backend) Sync(ctx context.Context, r backend.Repo) (backend.Revision, er
 		return backend.Revision{}, err
 	}
 	defer unlock()
+	// .kton/local/ is this checkout's own (identity, shim streams that may hold licensed outputs, the
+	// jobs journal) and is never shared, whatever .gitignore says (ADR-016, kton-review L1). A
+	// commit that tracks it is not pushed.
+	if local, err := gitrepo.TrackedUnder(ctx, r.Dir, ".kton/local"); err != nil {
+		return backend.Revision{}, err
+	} else if len(local) > 0 {
+		return backend.Revision{}, fmt.Errorf("refusing to sync: .kton/local/ is tracked (%s) — it is this checkout's own and never shared; "+
+			"remove it from the index (git rm --cached -r .kton/local) and from history before sharing", strings.Join(local, ", "))
+	}
 	if err := gitrepo.PullMerge(ctx, r.Dir, gitops.IdentityArgs(r.SessionID)...); err != nil {
 		return backend.Revision{}, err
 	}
