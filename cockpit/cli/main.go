@@ -22,6 +22,7 @@ import (
 
 	"github.com/kton-protocol/kton-cockpit/cockpit"
 	"github.com/kton-protocol/kton-cockpit/cockpit/backend"
+	"github.com/kton-protocol/kton-cockpit/cockpit/module"
 	"github.com/kton-protocol/kton-cockpit/internal/binaries"
 	"github.com/kton-protocol/kton-cockpit/internal/config"
 	"github.com/kton-protocol/kton-cockpit/internal/container"
@@ -86,8 +87,12 @@ func Main() {
 		usage()
 		return
 	default:
-		usage()
-		os.Exit(2)
+		m, ok := module.Lookup(os.Args[1])
+		if !ok {
+			usage()
+			os.Exit(2)
+		}
+		err = runModule(ctx, m, os.Args[2:])
 	}
 	if errors.Is(err, errNotReady) {
 		// Doctor ran and said what is missing; the exit code says it to a script.
@@ -152,7 +157,7 @@ usage:
   cockpit config   show the configuration, or set one value (config persist.share off)
   cockpit index    status / start / stop / rebuild — the machine's index daemon (index.kind oxigraph)
   cockpit shim     serve --socket PATH | --listen 127.0.0.1:PORT — answer the tool shims (ADR-014)
-  cockpit keygen   make a signing identity (keys/<name>.key + .pub, and the claims pair)
+%s  cockpit keygen   make a signing identity (keys/<name>.key + .pub, and the claims pair)
   cockpit version  what this binary is, and which kernel is compiled into it
   cockpit mcp      start the MCP stdio server (cockpit_publish/cockpit_say/cockpit_ask)
                    [--vocabulary] also a tool per query (ask_<name>) and template (say_<name>)
@@ -169,7 +174,7 @@ usage:
 a session never invokes 'init'/'doctor'/'show' — they are for the human operator setting up or
 inspecting a participant repo. Only 'mcp' is registered as the tool surface (via .mcp.json), and
 it exposes exactly three verbs — the vocabulary tools are those verbs with arguments fixed.
-`, packageUsage)
+`, packageUsage, moduleUsage())
 }
 
 func runMCP(ctx context.Context, args []string) error {

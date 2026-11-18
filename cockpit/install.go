@@ -9,6 +9,7 @@ import (
 
 	"github.com/gitmick/ktonpkg/scope"
 
+	"github.com/kton-protocol/kton-cockpit/cockpit/module"
 	"github.com/kton-protocol/kton-cockpit/internal/binaries"
 	"github.com/kton-protocol/kton-cockpit/internal/config"
 	"github.com/kton-protocol/kton-cockpit/internal/packages"
@@ -27,6 +28,9 @@ type InstallRequest struct {
 	// Allow also admits the package in this repository's configuration (claims.allowedPackages), so
 	// its templates and queries are in use. The operator's decision, made explicitly.
 	Allow bool `json:"allow,omitempty" jsonschema:"also add the package to claims.allowedPackages, so its templates and queries are used"`
+	// Via is the module installing the package (ADR-015 section 1). A package whose profile a linked
+	// module claims is that module's to install: plain install refuses it and names the command.
+	Via string `json:"-"`
 }
 
 // InstallResult reports an installation.
@@ -81,6 +85,13 @@ func (c *Cockpit) Install(ctx context.Context, in InstallRequest) (*InstallResul
 		return nil, refuse("package.unsealed", "", "%v — only a sealed revision can be installed, since nothing else fixes what was installed", err)
 	}
 	profile, _ := rev.Profile()
+	if m, ok := module.ForProfile(profile); ok && in.Via != m.Name {
+		return nil, refuse("package.module", "", "%s is a %s package, which the %s module installs: cockpit %s install %s",
+			p.Name, strings.TrimPrefix(profile, "https://kton.dev/profile/"), m.Name, m.Name, in.Path)
+	} else if !ok && in.Via != "" {
+		return nil, refuse("package.module", "", "the %s module does not install %s packages; use cockpit install",
+			in.Via, strings.TrimPrefix(profile, "https://kton.dev/profile/"))
+	}
 	out := &InstallResult{Package: p.ID, Name: p.Name, Label: rev.Label, Revision: rev.ID, Profile: profile,
 		Seal: seal.ID, Head: fmt.Sprint(seal.Object["hash"])}
 	out.Ray, _ = rev.RayID()
@@ -193,4 +204,45 @@ func (c *Cockpit) sayIn(ctx context.Context, cfg *config.Config, r *binaries.Run
 		return "", refuse("kernel", "", "nekton annotate failed: %v", err)
 	}
 	return id, nil
+}
+
+// FormatInstall is the human-readable report of an installation, the same for `cockpit install` and
+// a module's install command.
+func FormatInstall(out *InstallResult) string {
+	short := func(id string) string {
+		id = strings.TrimPrefix(id, "sha256:")
+		if len(id) > 12 {
+			return id[:12]
+		}
+		return id
+	}
+	var b strings.Builder
+	state := "installed"
+	if out.AlreadyInstalled {
+		state = "already installed"
+	}
+	fmt.Fprintf(&b, "%s %s, revision %s  →  %s\n", state, out.Name, out.Label, out.Dir)
+	fmt.Fprintf(&b, "  package   %s\n", out.Package)
+	fmt.Fprintf(&b, "  profile   %s\n", strings.TrimPrefix(out.Profile, "https://kton.dev/profile/"))
+	fmt.Fprintf(&b, "  sealed    %s (head %s)\n", short(out.Seal), short(out.Head))
+	if out.Ray != "" {
+		fmt.Fprintf(&b, "  ray       %s\n", out.Ray)
+	}
+	fmt.Fprintf(&b, "  scope     %s@%s (%s)\n", out.Name, out.Label, short(out.Scope))
+	if out.ClaimID != "" {
+		fmt.Fprintf(&b, "  recorded  installed, claim %s\n", short(out.ClaimID))
+	}
+	if strings.HasSuffix(out.Profile, "/templates") {
+		allowed := "no — its templates and queries are not in use"
+		if out.AllowedNow {
+			allowed = "yes, added to claims.allowedPackages — its templates and queries are in use"
+		} else if out.Allowed {
+			allowed = "yes — its templates and queries are in use"
+		}
+		fmt.Fprintf(&b, "  allowed   %s\n", allowed)
+	}
+	if out.Note != "" {
+		fmt.Fprintf(&b, "\n  note: %s\n", out.Note)
+	}
+	return b.String()
 }

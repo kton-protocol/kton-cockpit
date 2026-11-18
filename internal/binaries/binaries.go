@@ -663,7 +663,7 @@ func (r *Runner) Templates() (ntemplate.Set, error) {
 	} else if !os.IsNotExist(err) {
 		return ntemplate.Set{}, fmt.Errorf("template directory %s: %w", r.cfg.TemplatesDir, err)
 	}
-	voc, err := packages.Allowed(r.cfg.RepoRoot, r.cfg.Raw.Claims.AllowedPackages)
+	voc, err := packages.Allowed(r.cfg.RepoRoot, r.cfg.Raw.Claims.AllowedPackages, r.cfg.Raw.Claims.AllowedModules)
 	if err != nil {
 		return ntemplate.Set{}, err
 	}

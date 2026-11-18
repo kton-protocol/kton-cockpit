@@ -86,7 +86,9 @@ func (c *Cockpit) Say(ctx context.Context, in SayRequest) (*SayResult, error) {
 	if !cfg.Raw.Verbs.Say {
 		return nil, refuse("verb.disabled", "SPEC §6", "say is disabled by this repo's cockpit.config.json")
 	}
-	if !allowsTemplate(cfg, in.Template) {
+	if ok, verr := templateAllowed(cfg, in.Template); verr != nil {
+		return nil, refuse("vocabulary", "SPEC §8.1", "%v", verr)
+	} else if !ok {
 		return nil, refuse("template.not-allowed", "SPEC §8.1", "template %q is not in this repo's allowed claim templates", in.Template)
 	}
 	if in.Subject == "" {

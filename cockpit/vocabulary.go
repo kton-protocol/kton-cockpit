@@ -10,13 +10,21 @@ import (
 // admits brings it (claims.allowedPackages). The operator fixes the set either way — by template,
 // or by the package that carries a whole vocabulary.
 func allowsTemplate(cfg *config.Config, name string) bool {
+	ok, _ := templateAllowed(cfg, name)
+	return ok
+}
+
+// templateAllowed is allowsTemplate with the reason the vocabulary could not be read, for a caller
+// that should say it: an allowed package failing its check, or a module the configuration names that
+// this binary does not link, is not the same as a template nobody allowed.
+func templateAllowed(cfg *config.Config, name string) (bool, error) {
 	if cfg.AllowsTemplate(name) {
-		return true
+		return true, nil
 	}
-	voc, err := packages.Allowed(cfg.RepoRoot, cfg.Raw.Claims.AllowedPackages)
+	voc, err := packages.Allowed(cfg.RepoRoot, cfg.Raw.Claims.AllowedPackages, cfg.Raw.Claims.AllowedModules)
 	if err != nil {
-		return false
+		return false, err
 	}
 	_, ok := voc.Templates[name]
-	return ok
+	return ok, nil
 }

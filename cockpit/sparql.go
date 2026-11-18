@@ -115,7 +115,7 @@ func askSparql(ctx context.Context, cfg *config.Config, in AskRequest) (*AskResu
 		if in.Sparql != "" {
 			return nil, refuse("argument", "SPEC §9.9", "query sparql takes sparql or name, not both")
 		}
-		voc, err := packages.Allowed(cfg.RepoRoot, cfg.Raw.Claims.AllowedPackages)
+		voc, err := packages.Allowed(cfg.RepoRoot, cfg.Raw.Claims.AllowedPackages, cfg.Raw.Claims.AllowedModules)
 		if err != nil {
 			return nil, refuse("vocabulary", "SPEC §9.9", "%v", err)
 		}
