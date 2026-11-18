@@ -1,0 +1,11 @@
+{
+  "name": "located-at",
+  "target": "foton",
+  "predicate": "https://kton.dev/v/located-at",
+  "fields": {
+    "server": {"type": "string", "required": true},
+    "step":   {"type": "string", "required": true},
+    "url":    {"type": "string"},
+    "tree":   {"type": "string"}
+  }
+}

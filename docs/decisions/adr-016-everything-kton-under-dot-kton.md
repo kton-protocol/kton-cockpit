@@ -106,5 +106,7 @@ it moves to `.kton/{plankton,nekton}/objects/` in the same release, which is why
   `keys/` (public, by key id; readers walk `keys/**/*.pub`, so a repository's tier folders read too) and
   `blobs/<hh>/<hex>`; `scope union` takes package or repository roots. Blob path confirmed 18.11. To be
   tagged v0.8.0 once this ADR is accepted.
-- **cockpit-improve:** whether its private `.cockpit-improve/` becomes `.kton/local/` on a local checkout of
-  an improve-backed repository, and that its config lookup stops walking upward.
+- **cockpit-improve:** agreed (18.11.). Its private `.cockpit-improve/` becomes `.kton/local/improve/` on a
+  local checkout, and its config lookup stops walking upward.
+
+Both lanes have agreed; what remains is MH's accept.
