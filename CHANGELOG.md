@@ -50,6 +50,8 @@ Fixes found by kton-coordination on `lanes/` with v0.4.1. Tracks kton v0.3.0 and
 
 ### Fixed
 
+- **A reused run directory starts its folder slots empty.** Files of the last run's folder passed for
+  this run's: a document after a report saw the report's evidence.
 - **An optional folder hole left open stages nothing.** It staged the whole package.
 - **`workflow run` stages a folder hole.** Each file in a folder bound to a slot ending in `/` is an
   input under it, recorded by the run; a link in the folder is refused, and an optional folder left

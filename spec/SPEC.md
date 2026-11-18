@@ -348,10 +348,11 @@ than run the step somewhere else.
 
 A folder bound to a folder slot (a slot ending in `/`) MUST reach the step file by file: every regular
 file in it is an input under the slot, so the run records each one, and a link in it MUST be refused. An
-optional folder left open stages nothing.
+optional folder left open stages nothing, and what an earlier run left under a folder slot MUST be gone.
 
 > **Checked by:** `TestWorkflowRun_AStepInAnotherImageIsRefused`, `TestExpandDirSlots_EveryFileIsAnInput`,
 > `TestExpandDirSlots_ALinkInTheFolderIsRefused`, `TestExpandDirSlots_AFolderLeftOpenHasNoFiles`,
+> `TestExpandDirSlots_ALastRunsFolderIsCleared`,
 > `TestMCP_ADeclaredRayToolRunsItsSteps` (`-tags docker`).
 
 ### 7.6 Publishing a ray *(optional)*
