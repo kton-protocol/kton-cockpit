@@ -49,7 +49,7 @@ settings (`~/.positron-server/data/Machine/settings.json`, the "Remote [WSL: …
 "positron.r.kernel.env": {
   "LD_PRELOAD": "/home/<you>/.local/lib/kton/libktontrace.so",
   "KTON_TRACE_LOG": "/home/<you>/.cache/kton-cockpit/trace/positron-%p.tsv",
-  "KTON_TRACE_HASH": "/mnt/c/dev",
+  "KTON_TRACE_HASH": "@/home/<you>/.cache/kton-cockpit/watched",
   "R_PROFILE_USER": "/home/<you>/.local/share/kton/r/Rprofile-kton.R"
 }
 ```
@@ -57,6 +57,15 @@ settings (`~/.positron-server/data/Machine/settings.json`, the "Remote [WSL: …
 and install the extension into the WSL server:
 `~/.positron-server/bin/<commit>/bin/positron-server --install-extension ~/.local/share/kton/kton-recorder-0.0.1.vsix`.
 A changed `kernel.env` applies after "Developer: Reload Window", not after a console restart.
+Put the same three variables into `terminal.integrated.env.linux` for terminals.
+
+**What is recorded and kept** (0.4.26): `KTON_TRACE_HASH=@<file>` makes the shim read its folders from
+the file ktonwatch writes for the recorded folders. Choose them with the status bar item (kton → Record
+this folder / Stop recording), or the explorer's folder menu; a change counts from the next R session or
+terminal on, without a reload. A session that ran outside every recorded folder is not stored. Without
+a list, everything is recorded, as before. Under "Sessions" in each project, a session can be kept or
+deleted; ktonwatch prunes daily what is older than 14 days, except kept sessions, those with notes,
+and those published from (they are kept on publish).
 
 **A Claude Code session:** the project hooks in `.claude/` (see the workstream) point
 `LD_PRELOAD` at the same shim for the Bash tool only and write a `TASK` per command.

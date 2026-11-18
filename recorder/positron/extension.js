@@ -79,12 +79,54 @@ function origin(e) {
 }
 
 // ------------------------------------------------------------------ recording switch
+// Two switches (MH 18.11.: "more control over what is watched"): the global pause (a file the shims
+// and ktonrec look at), and the folders ktonwatch records (/api/watched; the shim hashes under them
+// when KTON_TRACE_HASH is "@~/.cache/kton-cockpit/watched"). Without a folder list everything is recorded.
 const recording = () => !fs.existsSync(pauseFile());
+let watched = { set: false, folders: [], keep: [] };
+async function readWatched() {
+  try { watched = (await getJSON(viewerUrl() + 'api/watched', 3000)) || watched; } catch (e) { /* ktonwatch not up: keep the last */ }
+  showStatus();
+}
+const inFolder = (p, d) => p === d || p.startsWith(d + '/');
+const isWatched = (p) => !watched.set || watched.folders.some((d) => inFolder(p, d));
+// the folder the person is in: the workspace folder of the active editor, else the first one
+function currentFolder() {
+  const ed = vscode.window.activeTextEditor;
+  const ws = (ed && ed.document.uri.scheme === 'file' && vscode.workspace.getWorkspaceFolder(ed.document.uri)) || (vscode.workspace.workspaceFolders || [])[0];
+  return ws ? ws.uri.fsPath : null;
+}
 function showStatus() {
-  const on = recording();
-  status.text = on ? '$(record) kton' : '$(circle-slash) kton off';
-  status.tooltip = on ? 'kton is recording (click: pause)' : 'kton is paused: nothing is recorded (click: resume)';
+  const on = recording(), here = currentFolder(), name = here ? path.basename(here) : '';
+  const recHere = !here || isWatched(here);
+  status.text = !on ? '$(circle-slash) kton off' : recHere ? '$(record) kton' : '$(circle-outline) kton: not here';
+  status.tooltip = !on ? 'kton is paused: nothing is recorded (click: choose)'
+    : recHere ? `kton is recording${here ? ' ' + name : ''}${watched.set ? '' : ' (every folder: no list of recorded folders yet)'} (click: choose)`
+      : `kton does not record ${name}: it is in none of the recorded folders (click: record it)`;
   status.backgroundColor = on ? undefined : new vscode.ThemeColor('statusBarItem.warningBackground');
+}
+async function setFolder(folder, on) {
+  if (!folder) { vscode.window.showWarningMessage('kton: no folder open'); return; }
+  if (on && !watched.set) {
+    const a = await vscode.window.showInformationMessage(`From now on kton records only the folders you choose, starting with ${path.basename(folder)}. Until now it recorded everywhere.`, { modal: true }, 'Record only chosen folders');
+    if (a !== 'Record only chosen folders') return;
+  }
+  try { watched = await sendJSON('POST', viewerUrl() + 'api/watched', { folder, on }); }
+  catch (e) { vscode.window.showErrorMessage(`kton: ${e.message}`); return; }
+  showStatus();
+  vscode.window.setStatusBarMessage(`kton: ${on ? 'recording' : 'no longer recording'} ${path.basename(folder)} (from the next R session or terminal on)`, 5000);
+}
+async function recordingMenu() {
+  await readWatched();
+  const here = currentFolder(), on = recording();
+  const items = [];
+  if (here && watched.set && !isWatched(here)) items.push({ label: `$(record) Record ${path.basename(here)}`, run: () => setFolder(here, true) });
+  if (here && watched.set && watched.folders.includes(here)) items.push({ label: `$(circle-outline) Stop recording ${path.basename(here)}`, run: () => setFolder(here, false) });
+  if (here && !watched.set) items.push({ label: `$(filter) Record only ${path.basename(here)} (and folders you add later)`, run: () => setFolder(here, true) });
+  items.push(on ? { label: '$(debug-pause) Pause all recording', run: toggleRecording } : { label: '$(record) Resume recording', run: toggleRecording });
+  for (const d of watched.folders) items.push({ label: `$(close) Stop recording ${d}`, description: 'recorded folder', run: () => setFolder(d, false) });
+  const pick = await vscode.window.showQuickPick(items, { placeHolder: watched.set ? `Recorded folders: ${watched.folders.length}` : 'kton records every folder' });
+  if (pick) await pick.run();
 }
 function toggleRecording() {
   fs.mkdirSync(traceDir(), { recursive: true });
@@ -200,6 +242,7 @@ async function notesFor(sessions) {
   const q = [...sessions, 'hand'].map((s) => 'prefix=' + encodeURIComponent(s + '/')).join('&');
   return (await getJSON(`${viewerUrl()}api/notes?${q}`, 5000).catch(() => ({}))) || {};
 }
+const keepSession = (id, on) => sendJSON('POST', viewerUrl() + 'api/keep', { id, on });
 const putNote = (key, note) => sendJSON('PUT', viewerUrl() + 'api/notes', Object.assign({ key, by: 'you' }, noteOf(note)));
 async function moveOldNotes(context) {
   if (context.globalState.get('kton.notesMoved')) return;
@@ -224,7 +267,8 @@ async function ensureService() {
   if (!fs.existsSync(exe)) { vscode.window.showErrorMessage(`kton: ${exe} is missing (recorder/install.sh)`); return false; }
   // detached: the service outlives this window; the next one finds it running
   // only what had data in the last three days: all of the logs can take gigabytes (11.11.)
-  const p = spawn(exe, ['serve', '-max-age', '72h'], { detached: true, stdio: 'ignore' });
+  // pruned daily (MH 18.11.): older than 14 days goes, unless kept, with notes, or published from
+  const p = spawn(exe, ['serve', '-max-age', '72h', '-prune-every', '24h'], { detached: true, stdio: 'ignore' });
   p.unref();
   out.appendLine(`ktonwatch serve started (pid ${p.pid})`);
   for (let i = 0; i < 20; i++) {
@@ -506,6 +550,21 @@ class Tree {
     return this.files[project] || [];
   }
   getTreeItem(e) { return e.item; }
+  async sessionsOf(project) {
+    const all = (await getJSON(viewerUrl() + 'api/sessions', 10000).catch(() => [])) || [];
+    return all.filter((s) => s.project === project);
+  }
+  async sessionItems(project) {
+    return (await this.sessionsOf(project)).map((s) => {
+      const when = new Date(s.last_ns / 1e6).toLocaleString(undefined, { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+      const it = new vscode.TreeItem(when, vscode.TreeItemCollapsibleState.None);
+      it.description = [`${s.tasks} steps`, s.kept ? 'kept' : '', s.closed ? '' : 'running'].filter(Boolean).join(' · ');
+      it.tooltip = `session ${s.id}\n${s.kept ? 'Kept: prune leaves it.' : 'Pruned after 14 days unless kept, with notes or published from.'}`;
+      it.iconPath = new vscode.ThemeIcon(s.kept ? 'pinned' : s.closed ? 'circle-outline' : 'record');
+      it.contextValue = s.closed ? (s.kept ? 'session-kept' : 'session') : 'session-running';
+      return { kind: 'session', project, session: s, item: it };
+    });
+  }
   async getChildren(e) {
     if (!e) {
       if (!(await ensureService())) return [];
@@ -521,15 +580,20 @@ class Tree {
         return { kind: 'project', project: p.path, item: it };
       });
     }
+    if (e.kind === 'sessions') return this.sessionItems(e.project);
     if (e.kind === 'project') {
       const all = await this.filesOf(e.project);
+      const ss = await this.sessionsOf(e.project);
+      const sit = new vscode.TreeItem('Sessions', vscode.TreeItemCollapsibleState.Collapsed);
+      sit.description = String(ss.length); sit.tooltip = 'the recorded sessions: keep one (prune leaves it), or delete it';
+      sit.iconPath = new vscode.ThemeIcon('history');
       return GROUPS.map(([role, label, tip]) => {
         const n = all.filter((f) => f.role === role).length;
         const it = new vscode.TreeItem(label, role === 'result' ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.Collapsed);
         it.description = String(n); it.tooltip = tip;
         it.iconPath = new vscode.ThemeIcon(role === 'result' ? 'star-empty' : role === 'source' ? 'arrow-down' : 'debug-step-over');
         return { kind: 'group', project: e.project, role, dir: '', n, item: it };
-      }).filter((g) => g.n > 0);
+      }).filter((g) => g.n > 0).concat(ss.length ? [{ kind: 'sessions', project: e.project, item: sit }] : []);
     }
     // a group, or a directory inside one: directories with many files fold away
     const rel = (f) => (f.path.startsWith(e.project + '/') ? f.path.slice(e.project.length + 1) : f.path);
@@ -1056,6 +1120,8 @@ async function openStory(context, project, file) {
       if (busy) return; // a second click while one runs: ignored, no second publish
       busy = 'publish';
       w.postMessage({ type: 'busy', what: 'publish', text: 'Preparing the publish …' });
+      // the sessions published from are kept: prune leaves them (MH 18.11.)
+      for (const sid of new Set((m.steps || []).map((x) => x.session).filter(Boolean))) keepSession(sid, true).catch(() => {});
       let r;
       try {
         r = await publish(story.repo, await publishText(story, file, m.steps), (pr) => w.postMessage({ type: 'busy', what: 'publish',
@@ -1694,9 +1760,12 @@ function activate(context) {
   extContext = context;
   out = vscode.window.createOutputChannel('kton');
   status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
-  status.command = 'kton.toggleRecording';
+  status.command = 'kton.recordingMenu';
   showStatus(); status.show();
+  readWatched();
   const sync = setInterval(showStatus, 3000); // another window may have switched it
+  const syncW = setInterval(readWatched, 30000);
+  context.subscriptions.push({ dispose: () => clearInterval(syncW) }, vscode.window.onDidChangeActiveTextEditor(showStatus));
   context.subscriptions.push(out, status, { dispose: () => clearInterval(sync) });
   const token = startTerminalToken(context);
   askImproveAccess(token);
@@ -1714,6 +1783,9 @@ function activate(context) {
   runDoctor(true);
   context.subscriptions.push(
     vscode.commands.registerCommand('kton.toggleRecording', toggleRecording),
+    vscode.commands.registerCommand('kton.recordingMenu', recordingMenu),
+    vscode.commands.registerCommand('kton.recordFolder', (uri) => readWatched().then(() => setFolder(uri && uri.fsPath ? uri.fsPath : currentFolder(), true))),
+    vscode.commands.registerCommand('kton.stopRecordingFolder', (uri) => readWatched().then(() => setFolder(uri && uri.fsPath ? uri.fsPath : currentFolder(), false))),
     vscode.commands.registerCommand('kton.openObservations', openObservations),
     vscode.commands.registerCommand('kton.reproduceFile', async (uri) => {
       const r = await recordedFile(uri);
@@ -1728,6 +1800,15 @@ function activate(context) {
   const view = vscode.window.createTreeView('kton.files', { treeDataProvider: tree, showCollapseAll: true });
   context.subscriptions.push(view, view.onDidChangeVisibility((e) => { if (e.visible) tree.refresh(); }),
     vscode.commands.registerCommand('kton.refresh', () => tree.refresh()),
+    vscode.commands.registerCommand('kton.keepSession', (e) => e && e.session && keepSession(e.session.id, true).then(() => tree.refresh(), (x) => vscode.window.showErrorMessage(`kton: ${x.message}`))),
+    vscode.commands.registerCommand('kton.unkeepSession', (e) => e && e.session && keepSession(e.session.id, false).then(() => tree.refresh(), (x) => vscode.window.showErrorMessage(`kton: ${x.message}`))),
+    vscode.commands.registerCommand('kton.deleteSession', async (e) => {
+      if (!e || !e.session) return;
+      const a = await vscode.window.showWarningMessage(`Delete the recorded session of ${new Date(e.session.last_ns / 1e6).toLocaleString()} (${e.session.tasks} steps) in ${path.basename(e.project)}? Its log and observations are deleted; what was published stays in kton.`, { modal: true }, 'Delete');
+      if (a !== 'Delete') return;
+      try { await sendJSON('DELETE', viewerUrl() + 'api/sessions/' + encodeURIComponent(e.session.id), {}); tree.refresh(); }
+      catch (x) { vscode.window.showErrorMessage(`kton: ${x.message}`); }
+    }),
     vscode.commands.registerCommand('kton.openInBrowser', openInBrowser),
     vscode.commands.registerCommand('kton.story', (e) => e && e.file && openStory(context, e.project, e.file)),
     vscode.commands.registerCommand('kton.reproduceItem', (e) => e && e.file && reproduce(e.project, e.file.path, e.file.sha256)),

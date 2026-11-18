@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -47,6 +48,11 @@ type Service struct {
 
 	// UI passes what the MCP tools ask of the editor to the listening windows (Load makes it).
 	UI *UIHub
+
+	// Watched: the folders recorded and the sessions kept (Load opens it); HashFile is where the
+	// folders go for the shim (KTON_TRACE_HASH=@<HashFile>).
+	Watched  *Watched
+	HashFile string
 
 	allowedMu sync.Mutex
 	allowed   map[string]string // registry id → a repository the MCP tools admitted (AllowRegistry)
@@ -94,6 +100,9 @@ func (sv *Service) Load() error {
 	if sv.Notes == nil && sv.Store != "" {
 		sv.Notes = OpenNotes(filepath.Join(sv.Store, "notes")) // not *.json beside the sessions: those are read as sessions
 	}
+	if sv.Watched == nil && sv.Store != "" {
+		sv.Watched = OpenWatched(sv.Store, sv.HashFile)
+	}
 	files, _ := filepath.Glob(filepath.Join(sv.Store, "*.json"))
 	for _, f := range files {
 		b, err := os.ReadFile(f)
@@ -107,7 +116,10 @@ func (sv *Service) Load() error {
 		if _, err := os.Stat(s.Log); err == nil {
 			continue
 		}
-		if sv.MaxAge > 0 && time.Since(time.Unix(0, s.Last)) > sv.MaxAge {
+		if sv.MaxAge > 0 && time.Since(time.Unix(0, s.Last)) > sv.MaxAge && !sv.Watched.Kept(s.ID) {
+			continue
+		}
+		if !sv.Watched.Wanted(s) {
 			continue
 		}
 		s.cls = &Classifier{Project: s.Project}
@@ -224,7 +236,16 @@ func (sv *Service) Poll(now time.Time) {
 			tr.f, tr.r = nil, nil
 		}
 	}
-	for _, tr := range sv.sessions {
+	for id, tr := range sv.sessions {
+		if tr.dirty && !sv.Watched.Wanted(tr.s) {
+			// ran outside every watched folder: not stored; once it has ended, its log goes too
+			tr.dirty = false
+			if tr.s.Closed {
+				sv.drop(id, tr)
+				sv.logf("session %s: not in a watched folder (%s), not kept", id, tr.s.Where)
+			}
+			continue
+		}
 		if tr.dirty {
 			AttachOrigins(tr.s.Tasks, OriginsFor(tr.s, sv.origins))
 			LinkVars(tr.s.Tasks)
@@ -267,6 +288,38 @@ func anyAlive(pids []int) bool {
 	return false
 }
 
+// drop forgets a session and deletes its log and stored observations (sv.mu held).
+func (sv *Service) drop(id string, tr *tracked) {
+	if tr.f != nil {
+		tr.f.Close()
+	}
+	delete(sv.sessions, id)
+	if tr.s.Log != "" {
+		os.Remove(tr.s.Log)
+	}
+	if sv.Store != "" {
+		os.Remove(filepath.Join(sv.Store, id+".json"))
+	}
+}
+
+// DeleteSession deletes an ended session: the person's "Delete" in the session list.
+func (sv *Service) DeleteSession(id string) error {
+	sv.mu.Lock()
+	defer sv.mu.Unlock()
+	tr, ok := sv.sessions[id]
+	if !ok {
+		return fmt.Errorf("no session %s", id)
+	}
+	if !tr.s.Closed {
+		return fmt.Errorf("session %s is still running", id)
+	}
+	sv.drop(id, tr)
+	if sv.Watched != nil && sv.Watched.Kept(id) {
+		sv.Watched.SetKeep(id, false)
+	}
+	return nil
+}
+
 func (sv *Service) save(s *Session) error {
 	if sv.Store == "" {
 		return nil
@@ -290,6 +343,7 @@ type Summary struct {
 	Last    int64  `json:"last_ns"`
 	Closed  bool   `json:"closed"`
 	Tasks   int    `json:"tasks"`
+	Kept    bool   `json:"kept,omitempty"`
 }
 
 // Sessions lists all sessions, newest first.
@@ -299,7 +353,7 @@ func (sv *Service) Sessions() []Summary {
 	var out []Summary
 	for _, tr := range sv.sessions {
 		s := tr.s
-		out = append(out, Summary{s.ID, s.Project, s.Start, s.Last, s.Closed, len(s.Tasks)})
+		out = append(out, Summary{s.ID, s.Project, s.Start, s.Last, s.Closed, len(s.Tasks), sv.Watched.Kept(s.ID)})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Last > out[j].Last })
 	return out
