@@ -3,7 +3,7 @@ title: "A derived index: one per machine, fed by the sync feed, never authoritat
 type: "decision"
 project: "kton-cockpit"
 date: 2026-10-19
-status: "proposed"
+status: "accepted"
 tags: [architecture, index, query, oxigraph, sparql, federation, performance]
 ---
 
@@ -11,7 +11,7 @@ tags: [architecture, index, query, oxigraph, sparql, federation, performance]
 
 ## Status
 
-Proposed (2026-10-19). Builds on ADR-011 (the index is a port). Phase 0 (`none`) holds no state and changes no
+Accepted as built (MH, 2026-11-18, core round). Proposed 2026-10-19. Builds on ADR-011 (the index is a port). Phase 0 (`none`) holds no state and changes no
 behaviour. Phase 1 (`memory`, 2026-10-20) brings the SPEC §13 amendment with it, and adds SPEC §12.4. Phase 2
 (`oxigraph`, 2026-10-20) stored views rather than records, for a reason in the kernel (section "Phase 2 as
 built"). Phase 3 (2026-10-22) stores records once, with kton#232 and kton#233 (section "Phase 3 as built").

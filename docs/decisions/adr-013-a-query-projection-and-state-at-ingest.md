@@ -3,7 +3,7 @@ title: "A query projection per configuration, with state kept at ingest"
 type: "decision"
 project: "kton-cockpit"
 date: 2026-10-27
-status: "proposed"
+status: "accepted"
 tags: [architecture, index, query, oxigraph, sparql, performance, rules, identity]
 ---
 
@@ -11,7 +11,9 @@ tags: [architecture, index, query, oxigraph, sparql, performance, rules, identit
 
 ## Status
 
-Proposed (2026-10-27). Amends ADR-012 (the derived index). It follows the design kton-coordination agreed
+Accepted with the amendment below (MH, 2026-11-18, core round: `kton-coordination/proposals/2026-11-18-core-change.md`
+§3 and §6). **The amendment replaces section 4's "current" and `nk:supersededBy`**; where the two disagree, the
+amendment holds. Proposed 2026-10-27. Amends ADR-012 (the derived index). It follows the design kton-coordination agreed
 with MH on 2026-10-27 (`kton-coordination/proposals/2026-10-27-index-state-and-rules.md`). That design
 answers mignon's handoff rows 2.3, 2.4, 2.5, 2.8 and 2.12 (`kton-mignon/docs/cockpit-handoff.md`).
 Review: `longrunning/kton-review`.
@@ -200,3 +202,69 @@ MH decided on 2026-10-27 that everything from the handoff that can be done goes 
 | standard results (2.8) | yes (PR #53) | |
 | key and mandate claims (2.5) | | template from kton, then names and mandates |
 | rule runner (2.4/2.5) | | gate and findings |
+
+## Amendment (2026-11-18, core round)
+
+MH, 18.11.: the core does not decide what replaces what. `key` then `final` adds up, `open` then `closed`
+replaces, and only the meaning of the field says which. So the view stops guessing.
+
+### A1 Every claim counts; a claim replaces only what it names
+
+- **No implicit state.** `nk:current` and `nk:supersededBy` are removed from the query projection. By
+  default every trusted claim counts, however many share a subject and predicate.
+- **Replacement is explicit.** A claim names the claim it replaces with the field `replaces`
+  (`sha256:<claim id>`, a `ref`, any template may declare it). The view marks the named claim
+  `nk:replacedBy <the replacing claim>`. A claim may be replaced by several (a branch); the view records
+  each, and a rule decides what a branch means.
+- **Only trusted claims replace.** A replacing claim the view's keys do not verify is not in the view and
+  marks nothing, so `nk:replacedBy`, like `nk:current` before it, belongs to the view, not to the record.
+  Whether the replacing signer *may* replace (same signer, a role, four eyes) is a rule's check: the view
+  only records who named what.
+- **The cockpit may fill it in.** A template where replacing is usual (a status) declares
+  `"replace": "previous"` (a template key the kernel ignores today; asked of kernel to make it part of the
+  template format, so it travels with the template's hash). `say` then fills `replaces` with the claim of that template about the same
+  subject, in the same scope, that nothing has replaced yet, as this checkout's view holds it. If there are
+  none it fills nothing; if there are several it refuses and asks the caller to name one. The value is
+  signed like any other field, so a reader sees exactly what was replaced.
+- **"The latest" is a named query** in a rule's vocabulary package, not a view property: for a status, the
+  claim that `nk:replacedBy` does not reach; for anything else, whatever the rule says. The core keeps
+  position and time only.
+- The same mechanism serves ADR-015's tool installations (`replaces`, uninstall).
+
+### A2 Several subjects, claims as subjects
+
+- **Several `nk:about`** (kton #254): a claim about A and B has `nk:about A, B`. Because nothing is
+  superseded implicitly, the per-subject question of the original section 4 drops out: a claim replaces
+  exactly the claim it names.
+- **A claim is a subject like any other.** `nk:about <https://kton.dev/o/<claim hex>>` is the claim's node,
+  so a review of a description joins the description directly (example 18's four-eyes rule does this).
+
+### A3 Positions everywhere; the scope tree
+
+- **Once the root nekton exists** (kton #213), unscoped claims are in the root scope's chain and get a
+  position like every other claim. The rule "outside any scope, the stated time decides" is then gone for
+  new claims. Until then they have none.
+- **The scope tree** (kton #241): a seed's parent is projected (`nk:parent`), so a rule follows "child of"
+  with a join.
+
+### A4 The query projection is never exported
+
+The query projection is the cockpit's internal index shape. It is never exported as a second kton RDF
+format: nanopub (and the kernel's foton projection) is kton's one RDF face.
+
+### What the amendment changes
+
+| | before | after |
+|---|---|---|
+| state | `nk:current`, `nk:supersededBy` (same scope, subject, predicate) | `nk:replacedBy`, only where a claim names it |
+| subjects | one `nk:about` | one or more (#254) |
+| unscoped claims | no position; stated time decides | position in the root scope (#213) |
+| scopes | `nk:scope` | `nk:scope`, and `nk:parent` per seed (#241) |
+
+- **Hard break, no migration** (MH): the release is cockpit v0.5.0 on kton v0.4.0. Queries that ask
+  `nk:current true` change to `FILTER NOT EXISTS { ?claim nk:replacedBy ?any }` where replacement is meant,
+  and to nothing where it is not. That touches `docs/sparql.md`, the recorder's tour queries
+  (`recorder/ktonmcp`, cockpit-runtime's) and the rules qm and storytelling write.
+- Templates whose claims replace one another (qm's statuses, CAPA, releases) declare `replaces` and, where
+  usual, `"replace": "previous"`.
+- Built after kton v0.4.0 (#213, #241, #254), together with the `.kton/` layout (ADR-016).
