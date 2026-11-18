@@ -581,6 +581,22 @@ support `as` yet and is refused with it.
 
 > **Checked by:** `TestSay_AsAnotherIdentitySignsWithThatKey`.
 
+### 8.8 Where a record lives in improve
+
+`cockpit init` admits two more templates, so that improve's facts about a record are signed claims rather
+than carried material, which does not travel on a mirror yet (ADR-015):
+
+| template | about | predicate | fields (required first) |
+|---|---|---|---|
+| `located-at` | a published foton | `https://kton.dev/v/located-at` | `server` (the API root), `step` (improve's entity id); `url`, `tree` |
+| `runs-on` | a tool installation | `https://kton.dev/v/runs-on` | `server`, `runServer`, `instance` (its name), `envRef` (the resolved image, by digest); `instanceId` |
+
+The publishing identity says `located-at` once, at publish time. Facts about a run's environment (the
+digest an image tag resolved to) stay carried material (§7.5). A claim without a required field MUST be
+refused.
+
+> **Checked by:** `TestSay_LocatedAtAndRunsOnAreClaims`, `TestInitTemplates_MatchTheSkeleton`.
+
 ### 8.3 Registration
 
 A cockpit MUST confirm, by querying the record back, that the claim registered — and MUST NOT report

@@ -1,0 +1,12 @@
+{
+  "name": "runs-on",
+  "target": "either",
+  "predicate": "https://kton.dev/v/runs-on",
+  "fields": {
+    "server":     {"type": "string", "required": true},
+    "runServer":  {"type": "string", "required": true},
+    "instance":   {"type": "string", "required": true},
+    "instanceId": {"type": "string"},
+    "envRef":     {"type": "string", "required": true}
+  }
+}
