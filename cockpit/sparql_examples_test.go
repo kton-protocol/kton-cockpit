@@ -65,10 +65,10 @@ func newSparqlFixture(t *testing.T) *sparqlFixture {
 	b, _ := json.Marshal(map[string]string{"name": "theirs", "kind": "dir", "path": theirs.Root})
 	must(t, json.Unmarshal(b, &spec))
 	raw.Federation.Sources = []source.Spec{spec}
-	key, err := os.ReadFile(filepath.Join(theirs.Root, "registry", "keys", testrepo.SessionID+".pub"))
+	key, err := os.ReadFile(filepath.Join(theirs.Root, ".kton", "keys", "self", testrepo.SessionID+".pub"))
 	must(t, err)
-	ours.Write(t, "registry/keys/theirs.pub", string(key))
-	raw.Trust.Tiers["peer"] = []string{"registry/keys/theirs.pub"}
+	ours.Write(t, ".kton/keys/peer/theirs.pub", string(key))
+	raw.Trust.Tiers = append(raw.Trust.Tiers, "peer")
 	raw.Query.Image = oxigraphImage
 	ours.WriteConfig(t, raw)
 	ours.Use(t)
@@ -90,7 +90,7 @@ func newSparqlFixture(t *testing.T) *sparqlFixture {
 		sum := sha256.Sum256([]byte(name))
 		*content = hex.EncodeToString(sum[:])
 	}
-	pk, err := loadPublic(filepath.Join(ours.Root, "registry", "keys", testrepo.SessionID+"-claims.pub"))
+	pk, err := loadPublic(filepath.Join(ours.Root, ".kton", "keys", "self", testrepo.SessionID+"-claims.pub"))
 	must(t, err)
 	f.keyid = core.KeyIDHex(pk)
 	return f

@@ -60,11 +60,11 @@ func TestFederation_ReadingASourceLeavesItAsItWas(t *testing.T) {
 	}
 	// A fresh clone of her registry: the records, as git brings them, and nothing else.
 	clone := filepath.Join(t.TempDir(), "clone")
-	if err := os.MkdirAll(filepath.Join(clone, "registry", "plankton"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(clone, ".kton", "plankton"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if out, err := exec.Command("cp", "-r", filepath.Join(alice.Root, "registry", "plankton", "objects"),
-		filepath.Join(clone, "registry", "plankton")).CombinedOutput(); err != nil {
+	if out, err := exec.Command("cp", "-r", filepath.Join(alice.Root, ".kton", "plankton", "objects"),
+		filepath.Join(clone, ".kton", "plankton")).CombinedOutput(); err != nil {
 		t.Fatalf("%v: %s", err, out)
 	}
 	before := files(t, clone)

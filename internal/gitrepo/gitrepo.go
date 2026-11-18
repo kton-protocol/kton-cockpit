@@ -115,6 +115,15 @@ func Tracked(ctx context.Context, root string, paths []string) (tracked, changed
 	return tracked, changed, nil
 }
 
+// TrackedUnder lists the files HEAD's index tracks under dir (repo-relative, slash-separated).
+func TrackedUnder(ctx context.Context, root, dir string) ([]string, error) {
+	out, err := output(ctx, root, "ls-files", "--", dir)
+	if err != nil || out == "" {
+		return nil, err
+	}
+	return strings.Split(out, "\n"), nil
+}
+
 func output(ctx context.Context, dir string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = dir

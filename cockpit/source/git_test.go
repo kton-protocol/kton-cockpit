@@ -42,7 +42,7 @@ func gitSpec(t *testing.T, url, path string) Spec {
 // An aggregation repository's layout is found, whichever of the ones in use it has.
 func TestGit_FindsTheLayout(t *testing.T) {
 	for _, l := range [][]string{
-		{"registry/plankton", "registry/nekton"},
+		{".kton/plankton", ".kton/nekton"},
 		{"federation/plankton-data", "federation/nekton-data"},
 		{"plankton-data"},
 	} {
@@ -69,7 +69,7 @@ func TestGit_ARepositoryWithoutRegistryIsSaid(t *testing.T) {
 // configurations, and a source of the same name may have pointed elsewhere.
 func TestGit_AClonOfAnotherURLIsReplaced(t *testing.T) {
 	cache := t.TempDir()
-	old := gitRepoWith(t, "registry/plankton")
+	old := gitRepoWith(t, ".kton/plankton")
 	if _, err := (gitKind{}).Fetch(context.Background(), gitSpec(t, old, ""), "", cache); err != nil {
 		t.Fatal(err)
 	}

@@ -43,9 +43,9 @@ func TestAnchor_TheProofIsAttachedToTheRecordAndCommittedWithIt(t *testing.T) {
 	// Attached, and readable back through the substrate that stores it. The registry has to be
 	// pinned the way the cockpit pins it — without it plankton reads its bare ./plankton-data
 	// default, which is a different, empty registry that answers with no material and no error.
-	cmd := exec.Command(r.Root+"/bin/plankton", "material", pub.FotonID, "--json")
+	cmd := exec.Command(r.Bin+"/plankton", "material", pub.FotonID, "--json")
 	cmd.Dir = r.Root
-	cmd.Env = append(os.Environ(), "PLANKTON_DIR="+filepath.Join(r.Root, "registry/plankton"))
+	cmd.Env = append(os.Environ(), "PLANKTON_DIR="+filepath.Join(r.Root, ".kton/plankton"))
 	out, err := cmd.Output()
 	if err != nil {
 		t.Fatalf("plankton material: %v", err)

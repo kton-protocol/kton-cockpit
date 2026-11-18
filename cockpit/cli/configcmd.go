@@ -19,7 +19,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"reflect"
 	"sort"
 	"strings"
@@ -32,7 +31,7 @@ func runConfig(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	cfgPath := filepath.Join(cfg.RepoRoot, "cockpit.config.json")
+	cfgPath := config.ConfigPath(cfg.RepoRoot)
 	switch len(args) {
 	case 0:
 		configOverview(cfg, cfgPath)
@@ -195,10 +194,10 @@ func configOverview(cfg *config.Config, cfgPath string) {
 		row("persist.commit", on(r.Persist.CommitEnabled()), "")
 		row("persist.share", on(r.ShareEnabled()), "")
 	}
-	row("identity", r.Identity.SessionID, "cockpit keygen")
+	row("identity", cfg.Identity.SessionID, "cockpit keygen")
 	tiers := make([]string, 0, len(r.Trust.Tiers))
-	for t, ks := range r.Trust.Tiers {
-		tiers = append(tiers, fmt.Sprintf("%s (%d)", t, len(ks)))
+	for _, t := range r.Trust.Tiers {
+		tiers = append(tiers, fmt.Sprintf("%s (%d)", t, len(cfg.TierKeys(t))))
 	}
 	sort.Strings(tiers)
 	row("trust.tiers", strings.Join(tiers, ", "), "cockpit trust")

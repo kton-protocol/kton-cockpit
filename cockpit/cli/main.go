@@ -14,7 +14,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"path/filepath"
 	"runtime/debug"
 	"slices"
 	"sort"
@@ -285,7 +284,7 @@ func runInit(ctx context.Context) error {
 		return fmt.Errorf("no backend in this build can bind %s", cwd)
 	}
 	root := prop.Root
-	cfgPath := filepath.Join(root, "cockpit.config.json")
+	cfgPath := config.ConfigPath(root)
 	if _, err := os.Stat(cfgPath); err == nil {
 		return fmt.Errorf("%s already exists — remove it first if you want to regenerate", cfgPath)
 	}
@@ -294,26 +293,10 @@ func runInit(ctx context.Context) error {
 		return err
 	}
 	raw := config.Raw{
-		Repo: repo,
-		Paths: config.Paths{
-			PlanktonDir:  "registry/plankton",
-			NektonDir:    "registry/nekton",
-			TemplatesDir: "templates",
-			KeysDir:      "keys",
-			BinDir:       "bin",
-		},
-		Identity: config.Identity{
-			SessionID:   "session-1",
-			PlanktonKey: "keys/session-1.key",
-			NektonKey:   "keys/session-1-claims.key",
-		},
-		Verbs:  config.Verbs{Publish: true, Say: true, Ask: true},
-		Claims: config.Claims{AllowedTemplates: []string{"describes", "rationale", "reproduces", "working-on", "located-at", "runs-on"}},
-		Trust: config.Trust{
-			Tiers: map[string][]string{
-				"self": {},
-			},
-		},
+		Repo:         repo,
+		Verbs:        config.Verbs{Publish: true, Say: true, Ask: true},
+		Claims:       config.Claims{AllowedTemplates: []string{"describes", "rationale", "reproduces", "working-on", "located-at", "runs-on"}},
+		Trust:        config.Trust{Tiers: []string{"self"}},
 		Reproduction: config.Reproduction{RequiredLevel: "L0"},
 	}
 

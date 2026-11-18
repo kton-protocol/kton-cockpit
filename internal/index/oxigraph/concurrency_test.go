@@ -39,8 +39,8 @@ func TestOxigraph_AReaderNeverSeesARegistryHalfRead(t *testing.T) {
 	for _, n := range []string{"c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8", "c9", "c10", "c11", "c12"} {
 		author(t, carol, cc, n)
 	}
-	src := filepath.Join(carol.Root, "registry", "plankton", "objects")
-	dst := filepath.Join(alice.Root, "registry", "plankton", "objects")
+	src := filepath.Join(carol.Root, ".kton", "plankton", "objects")
+	dst := filepath.Join(alice.Root, ".kton", "plankton", "objects")
 	var files []string
 	filepath.WalkDir(src, func(p string, e fs.DirEntry, err error) error {
 		if err == nil && !e.IsDir() && filepath.Base(p) != ".format" {

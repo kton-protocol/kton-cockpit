@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -493,7 +494,7 @@ func validateFilter(ctx context.Context, cfg *config.Config, r index.Reader, f *
 		return ""
 	}
 	if f.TrustTier != "" {
-		if _, ok := cfg.Raw.Trust.Tiers[f.TrustTier]; !ok {
+		if !slices.Contains(cfg.Raw.Trust.Tiers, f.TrustTier) {
 			return fmt.Sprintf(
 				"no trust tier named %q is configured (this repo has: %s) — an unknown tier would match "+
 					"nothing and read as though nothing here verified",
@@ -533,10 +534,7 @@ func validateFilter(ctx context.Context, cfg *config.Config, r index.Reader, f *
 
 // sortedTierNames lists this repo's configured tiers, for an error that says what IS available.
 func sortedTierNames(cfg *config.Config) []string {
-	names := make([]string, 0, len(cfg.Raw.Trust.Tiers))
-	for n := range cfg.Raw.Trust.Tiers {
-		names = append(names, n)
-	}
+	names := slices.Clone(cfg.Raw.Trust.Tiers)
 	sort.Strings(names)
 	return names
 }
@@ -655,9 +653,9 @@ func signerName(cfg *config.Config, keyID string) string {
 	if keyID == "" {
 		return ""
 	}
-	for tier, paths := range cfg.Raw.Trust.Tiers {
-		for _, p := range paths {
-			b, err := os.ReadFile(filepath.Join(cfg.RepoRoot, p))
+	for _, tier := range cfg.Raw.Trust.Tiers {
+		for _, p := range cfg.TierKeys(tier) {
+			b, err := os.ReadFile(p)
 			if err != nil {
 				continue
 			}

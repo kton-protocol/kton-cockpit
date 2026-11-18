@@ -37,10 +37,10 @@ func vocabRepo(t *testing.T, queryImage ...string) string {
 	must(err)
 	must(os.WriteFile(filepath.Join(ring, "lane-a-claims.key"), []byte(hex.EncodeToString(priv.Seed())+"\n"), 0o600))
 	must(os.WriteFile(filepath.Join(ring, "lane-a-claims.pub"), []byte(hex.EncodeToString(pub)+"\n"), 0o644))
-	r.Write(t, "registry/keys/lane-a-claims.pub", hex.EncodeToString(pub)+"\n")
+	r.Write(t, ".kton/keys/lanes/lane-a-claims.pub", hex.EncodeToString(pub)+"\n")
 	raw := testrepo.DefaultConfig()
-	raw.Identity.Keyring = ring
-	raw.Trust.Tiers["lanes"] = []string{"registry/keys/lane-a-claims.pub"}
+	r.SetKeyring(t, ring)
+	raw.Trust.Tiers = append(raw.Trust.Tiers, "lanes")
 	raw.Claims.Scopes = map[string]string{"lane-a": seed}
 	if len(queryImage) > 0 {
 		raw.Query.Image = queryImage[0]

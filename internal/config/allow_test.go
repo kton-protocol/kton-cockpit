@@ -12,13 +12,14 @@ import (
 func TestAllowPackage_AddsTheIdAndKeepsTheFile(t *testing.T) {
 	dir := t.TempDir()
 	orig := "{\n  \"repo\": {\n    \"owner\": \"o\",\n    \"name\": \"n\"\n  },\n  \"claims\": {\n    \"allowedTemplates\": []\n  },\n  \"verbs\": {\n    \"say\": true\n  }\n}\n"
-	os.WriteFile(filepath.Join(dir, "cockpit.config.json"), []byte(orig), 0o644)
+	os.MkdirAll(filepath.Join(dir, Dir), 0o755)
+	os.WriteFile(ConfigPath(dir), []byte(orig), 0o644)
 	id := "sha256:" + strings.Repeat("a", 64)
 	changed, err := AllowPackage(dir, id)
 	if err != nil || !changed {
 		t.Fatalf("changed=%v err=%v", changed, err)
 	}
-	got, _ := os.ReadFile(filepath.Join(dir, "cockpit.config.json"))
+	got, _ := os.ReadFile(ConfigPath(dir))
 	want := strings.Replace(orig, "\"allowedTemplates\": []\n", "\"allowedTemplates\": [],\n    \"allowedPackages\": [\n      \""+id+"\"\n    ]\n", 1)
 	if string(got) != want {
 		t.Fatalf("got\n%s\nwant\n%s", got, want)

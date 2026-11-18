@@ -72,7 +72,7 @@ func federationAdd(ctx context.Context, args []string) error {
 
 	// A checkout on disk with a participant's layout is read in place; anything else is cloned.
 	block := map[string]string{"name": name, "kind": "git", "url": where}
-	if fi, err := os.Stat(filepath.Join(where, "registry")); err == nil && fi.IsDir() && sub == "" {
+	if fi, err := os.Stat(filepath.Join(where, config.Dir, "plankton")); err == nil && fi.IsDir() && sub == "" {
 		abs, _ := filepath.Abs(where)
 		block = map[string]string{"name": name, "kind": "dir", "path": abs}
 	} else if sub != "" {
@@ -83,7 +83,7 @@ func federationAdd(ctx context.Context, args []string) error {
 	if cache, err := binaries.SourceCache(cfg, name); err == nil {
 		os.RemoveAll(cache)
 	}
-	cfgPath := filepath.Join(cfg.RepoRoot, "cockpit.config.json")
+	cfgPath := config.ConfigPath(cfg.RepoRoot)
 	before, err := os.ReadFile(cfgPath)
 	if err != nil {
 		return err
@@ -201,7 +201,7 @@ func federationRemove(ctx context.Context, args []string) error {
 	if keep == nil {
 		keep = []json.RawMessage{}
 	}
-	if err := editConfig(filepath.Join(cfg.RepoRoot, "cockpit.config.json"), set([]string{"federation", "sources"}, keep)); err != nil {
+	if err := editConfig(config.ConfigPath(cfg.RepoRoot), set([]string{"federation", "sources"}, keep)); err != nil {
 		return err
 	}
 	if cache, err := binaries.SourceCache(cfg, args[0]); err == nil {

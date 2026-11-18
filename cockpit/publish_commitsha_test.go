@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/hex"
+	"github.com/kton-protocol/kton-cockpit/internal/config"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -39,12 +40,8 @@ func resultText(result *mcp.CallToolResult) string {
 // HEAD after both commits.
 func TestPublish_ReturnsTheActualFinalCommitSHA(t *testing.T) {
 	repoDir := t.TempDir()
-	// bin_dir is documented as repo-relative (cockpit.config.schema.json: "Repo-relative paths"),
-	// and config.Load's resolution (filepath.Join(repoRoot, raw.Paths.BinDir)) only actually
-	// behaves sensibly for a relative value — joining an absolute path as the second argument
-	// nests it under repoRoot instead of using it as-is. The one binary this test still stands in
-	// for is `git`, and it lives there, matching how a real participant repo is laid out.
-	binDir := filepath.Join(repoDir, "bin")
+	// The one binary this test still stands in for is `git`; it lives outside the repository.
+	binDir := filepath.Join(t.TempDir(), "bin")
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -76,20 +73,18 @@ func TestPublish_ReturnsTheActualFinalCommitSHA(t *testing.T) {
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	// The kernel is linked in, so there is no plankton to fake — `author` really signs and really
-	// writes into `registry/plankton`, which is what makes the SECOND CommitAndPush call have
+	// writes into `.kton/plankton`, which is what makes the SECOND CommitAndPush call have
 	// something to stage. That matters for this test specifically: if both calls took the "nothing
 	// staged" branch it could not distinguish a stale first-commit sha from the correct final one
 	// at all (caught live: an earlier version of this test passed against the pre-fix code for
-	// exactly that reason). So a real signing key, in the shape `keys/` holds them — a hex seed.
-	if err := os.MkdirAll(filepath.Join(repoDir, "keys"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	// exactly that reason). So a real signing key, outside the repository as ADR-016 wants — a hex seed.
+	keys := t.TempDir()
 	seed := make([]byte, ed25519.SeedSize)
 	if _, err := rand.Read(seed); err != nil {
 		t.Fatal(err)
 	}
 	for _, name := range []string{"session-1.key", "session-1-claims.key"} {
-		if err := os.WriteFile(filepath.Join(repoDir, "keys", name),
+		if err := os.WriteFile(filepath.Join(keys, name),
 			[]byte(hex.EncodeToString(seed)), 0o600); err != nil {
 			t.Fatal(err)
 		}
@@ -97,17 +92,26 @@ func TestPublish_ReturnsTheActualFinalCommitSHA(t *testing.T) {
 
 	cfgJSON := `{
   "repo": {"owner": "testowner", "name": "testrepo"},
-  "paths": {"plankton_dir": "registry/plankton", "nekton_dir": "registry/nekton", "templates_dir": "templates", "keys_dir": "keys", "bin_dir": "bin"},
-  "identity": {"session_id": "session-1", "plankton_key": "keys/session-1.key", "nekton_key": "keys/session-1-claims.key"},
   "verbs": {"publish": true, "say": true, "ask": true},
   "claims": {"allowedTemplates": ["reproduces", "working-on"]},
-  "trust": {"tiers": {"self": []}},
+  "trust": {"tiers": ["self"]},
   "reproduction": {"requiredLevel": "L0", "normalizer": ""}
 }`
-	if err := os.WriteFile(filepath.Join(repoDir, "cockpit.config.json"), []byte(cfgJSON), 0o644); err != nil {
+	if err := os.MkdirAll(filepath.Join(repoDir, ".kton", "plankton"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Join(repoDir, "registry", "plankton"), 0o755); err != nil {
+	if err := os.WriteFile(config.ConfigPath(repoDir), []byte(cfgJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	idJSON := `{"session_id": "session-1", "plankton_key": "` + filepath.Join(keys, "session-1.key") +
+		`", "nekton_key": "` + filepath.Join(keys, "session-1-claims.key") + `"}`
+	if err := os.MkdirAll(filepath.Dir(config.IdentityPath(repoDir)), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(config.IdentityPath(repoDir), []byte(idJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repoDir, ".kton", ".gitignore"), []byte("/local/\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(repoDir, "data.csv"), []byte("a,b\n1,2\n"), 0o644); err != nil {

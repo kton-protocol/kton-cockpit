@@ -42,7 +42,7 @@ func sayOverview(ctx context.Context, cfg *config.Config) {
 				req = " (required)"
 			}
 			if name == identityField {
-				fmt.Printf("                 %s=<%s>  filled in: %s (your identity)\n", name, f.Type, cfg.Raw.Identity.SessionID)
+				fmt.Printf("                 %s=<%s>  filled in: %s (your identity)\n", name, f.Type, cfg.Identity.SessionID)
 				continue
 			}
 			vals := ""
@@ -254,7 +254,7 @@ const identityField = "by-session"
 func fillFromIdentity(cfg *config.Config, template string, fields map[string]string) {
 	for _, t := range readTemplates(cfg) {
 		if _, has := t.Fields[identityField]; t.Name == template && has && fields[identityField] == "" {
-			fields[identityField] = cfg.Raw.Identity.SessionID
+			fields[identityField] = cfg.Identity.SessionID
 		}
 	}
 }

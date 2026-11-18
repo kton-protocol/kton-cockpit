@@ -9,7 +9,7 @@ package source
 //	{"name": "hub", "kind": "git", "url": "…", "path": "federation"}   a layout under a subdirectory
 //
 // Where the registries are is found, not configured: the layouts in use are a participant's
-// registry/plankton + registry/nekton, and an aggregator's plankton-data + nekton-data (at the root
+// .kton/plankton + .kton/nekton (ADR-016; the old registry/ layout is not read), and an aggregator's plankton-data + nekton-data (at the root
 // or under federation/). "path" narrows the search to one subdirectory.
 
 import (
@@ -30,10 +30,10 @@ type gitBlock struct {
 
 // layouts are the registry pairs a repository may hold, relative to its root (or to path).
 var layouts = [][2]string{
-	{"registry/plankton", "registry/nekton"},
+	{".kton/plankton", ".kton/nekton"},
 	{"plankton-data", "nekton-data"},
 	{"federation/plankton-data", "federation/nekton-data"},
-	{"federation/registry/plankton", "federation/registry/nekton"},
+	{"federation/.kton/plankton", "federation/.kton/nekton"},
 }
 
 func (gitKind) Validate(s Spec) error {
