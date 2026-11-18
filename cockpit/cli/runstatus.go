@@ -20,7 +20,7 @@ func runStatus(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	entries, err := os.ReadDir(filepath.Join(cfg.RepoRoot, runsDir))
+	entries, err := os.ReadDir(filepath.Join(cfg.RepoRoot, runsRel(cfg)))
 	if os.IsNotExist(err) || len(entries) == 0 {
 		fmt.Println("no runs yet — cockpit run new <slug> --in FILE...   (or --from <dir> | sha256:<record>)")
 		return nil
@@ -34,7 +34,7 @@ func runStatus(ctx context.Context) error {
 		if !e.IsDir() {
 			continue
 		}
-		rel := runsDir + "/" + e.Name()
+		rel := runsRel(cfg) + "/" + e.Name()
 		record, claims := "not run yet", ""
 		if id, err := runFoton(ctx, cfg, rel); err == nil {
 			record = short16(id)

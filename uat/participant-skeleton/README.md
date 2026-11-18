@@ -14,14 +14,15 @@ files, so the claim templates and the key hygiene below have one definition, not
 
 ## What is here, and what is not
 
-- `gitignore` — copied in as `.gitignore`; kept dotless here so it is an inert file in THIS repo
-  rather than a live ignore rule over its own directory. It carries the key hygiene, and the only subtle part: `/keys/` (private `.key` halves) is
-  anchored to the repo root so it does NOT match `registry/keys/`, where the `.pub` halves are
-  committed on purpose. A peer cannot verify your signatures without them.
+- `gitignore` — copied in as `.kton/.gitignore`; kept dotless here so it is an inert file in THIS repo
+  rather than a live ignore rule over its own directory. It lists `local/`, this checkout's own state
+  (identity, shim streams). The cockpit refuses to persist `.kton/local/` with or without it
+  (SPEC §5.6); private keys are never in the repository at all, and the `.pub` halves in `.kton/keys/<tier>/`
+  are committed on purpose. A peer cannot verify your signatures without them.
 - `data/runs.csv` — the input the UAT's publish exercise cleans. Deliberately small, fixed, and
   carrying two all-missing rows, so "drop rows with any missing value" has something to do and two
   independent implementations can be compared byte for byte.
-- `templates/` — the two claim templates the default `claims.allowedTemplates` names. Templates are
+- `templates/` — copied to `.kton/templates/`: the claim templates the default `claims.allowedTemplates` names. Templates are
   federated example data, not protocol: the cockpit only ever passes a name through to nekton.
 
 Not here, and deliberately: `bin/`. The binaries are built from a kton checkout at scaffold time,
