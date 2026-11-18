@@ -14,7 +14,7 @@ tags: [architecture, module, package, tool, environment, qualification, reuse]
 Accepted (MH, 2026-11-18, after the four changes of his review on PR #132; ADR-011 accepted with it).
 Requested by kton-coordination on MH's decision of 18.11. (plan
 `kton-coordination/proposals/2026-11-18-tq-packages.md`, phase P2). The decision covers three things.
-It specifies the module door that ADR-011 §5 left open "until the first module moves". It makes ktonpkg's
+It specifies the module door that ADR-011 section 5 left open "until the first module moves". It makes ktonpkg's
 tool profile that first module. It implements ADR-010 rule 4, the reuse gate, which has been decided but
 not built. It needs ktonpkg's tool builder and its tool-profile verification (plan phase P1) before its
 code can land. It changes no verb and leaves SPEC §6 untouched.
@@ -39,7 +39,7 @@ code can land. It changes no verb and leaves SPEC §6 untouched.
 
 ## Decision
 
-### 1 The module door (ADR-011 §5, specified)
+### 1 The module door (ADR-011 section 5, specified)
 
 A module is a Go package that registers itself from `init` with `cockpit/module.Register`:
 
@@ -53,7 +53,7 @@ type Module struct {
 ```
 
 A module reaches the core only through `Publish`, `Say`, `Ask`, the executor and the index's read side,
-as ADR-011 §5 says. It never opens a registry and never signs anything itself. Operator commands are
+as ADR-011 section 5 says. It never opens a registry and never signs anything itself. Operator commands are
 CLI only. An agent cannot install or qualify a tool, because both decide what later counts as evidence.
 A verb would need ADR-009's route: SPEC, CLI, MCP and Go together, under the configuration ceiling.
 That is not taken here.
@@ -176,7 +176,7 @@ consumer's, as ADR-010 says.
   later.
 - The cockpit moves to ktonpkg v0.6.0, which has the tool builder (draft API of 18.11.). It links v0.3.0 today;
   `plankton/spectrum` is already in the plankton v0.3.0 it links.
-- SPEC gains a section for the `tool` operator commands, the derived binding, the class resolution order (§7.5), the built-in templates `qualifies-as`, `runs-on` and `located-at` (§8), installation, replacement and uninstall claims, and the reuse
+- SPEC gains a section for the `tool` operator commands, the derived binding, the class resolution order (SPEC §7.5), the built-in templates `qualifies-as`, `runs-on` and `located-at` (SPEC §8), installation, replacement and uninstall claims, and the reuse
   gate. Every statement names its test.
 - The licence rule becomes a tested property: no hidden file appears in a record, material, a commit or
   any output.
