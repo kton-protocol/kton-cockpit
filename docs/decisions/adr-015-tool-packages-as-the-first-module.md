@@ -3,7 +3,7 @@ title: "Tool packages as the first module: install a tool for a program, qualify
 type: "decision"
 project: "kton-cockpit"
 date: 2026-11-18
-status: "proposed"
+status: "accepted"
 tags: [architecture, module, package, tool, environment, qualification, reuse]
 ---
 
@@ -11,7 +11,8 @@ tags: [architecture, module, package, tool, environment, qualification, reuse]
 
 ## Status
 
-Proposed (2026-11-18). Requested by kton-coordination on MH's decision of 18.11. (plan
+Accepted (MH, 2026-11-18, after the four changes of his review on PR #132; ADR-011 accepted with it).
+Requested by kton-coordination on MH's decision of 18.11. (plan
 `kton-coordination/proposals/2026-11-18-tq-packages.md`, phase P2). The decision covers three things.
 It specifies the module door that ADR-011 §5 left open "until the first module moves". It makes ktonpkg's
 tool profile that first module. It implements ADR-010 rule 4, the reuse gate, which has been decided but
@@ -70,22 +71,32 @@ package names the programs it serves (`tool.json` `programs`, for example `Rscri
 `image`, by digest. All of it is read from the installation claim and the sealed revision it names.
 Nothing is written to the config and no operator types anything in, so nothing can drift from the
 package. One Go function in kton-cockpit, `tool.Binding(cfg, program)`, answers the lookup for both
-backends. It replaces `repo.improve.tools.<prog>`. Two installed packages that serve one program are an
-error until the operator removes one; the cockpit does not pick between them.
+backends. It replaces `repo.improve.tools.<prog>`.
+
+**Upgrading and removing are claims too.** Claims are never removed, and nothing is superseded
+implicitly (MH, 18.11.). Installing a new revision says a new installation claim that names the one it
+replaces (`replaces sha256:…`); `cockpit tool uninstall` says an uninstall claim about the installation.
+The binding is read only from installations that are neither replaced nor uninstalled. Two such
+installations for one program are an error until one is replaced or uninstalled; the cockpit does not
+pick between them.
 
 - A publish resolves its class in this order:
   1. the call's `environment` (PR #98);
   2. the binding of the program the command starts with (`argv[0]`, or the shim's program);
   3. `environment.spectrum`.
   The cockpit says which one it took. With `execution` enabled, a call that names a class different from
-  the binding's is refused, as PR #98 refuses one against the repo's class.
+  the binding's is refused, as PR #98 refuses one against the repo's class. `argv[0]` serves shims and the
+  recorder; a plain publish through a wrapper (`bash run.sh`) names its class with `--environment`.
 - The improve defaults a package carries (run-server name, instance) are ignored by every site except
   improve's (MH, D2).
-- **Site facts are carried material, not claims.** Facts that exist only after an install or a run (the
-  run server, the instance, the digest an image tag resolved to) travel as `kton-env/v1` env material on
-  the foton: signed by the producer (`foton.SignEnv`), read with `foton.ReadEnv`, and outside every
-  identity (ADR-010 rule 1). No template of their own is needed. `qualifies-as` (section 4) is about that
-  carried `envRef`.
+- **Site facts are split by what they describe.**
+  - Facts about a run's **environment** (the digest an image tag resolved to) travel as `kton-env/v1` env
+    material on the foton: signed by the producer (`foton.SignEnv`), read with `foton.ReadEnv`, outside
+    every identity (ADR-010 rule 1). `qualifies-as` (section 4) is about that carried `envRef`.
+  - Facts about **improve** (run server, instance, step, tree) are nekton claims, with two built-in
+    templates: `runs-on` about a tool installation (where improve runs it), and `located-at` about a
+    published record (the improve step and tree it came from). Carried material does not travel on a
+    mirror yet (kton #225), so what must survive a mirror is a claim.
 
 ### 3 The `ToolSite` port: where a tool lives
 
@@ -109,9 +120,13 @@ type Location struct {
 A drifted location is refused for `qualify` and for a run in the class, with the reason. improve holds
 images by tag, so its site reports drift where the git/local site, which pulls by digest, cannot drift.
 
+**Paths** follow the core round's layout (`kton-coordination/proposals/2026-11-18-core-change.md`): on
+git/local, everything kton, installed packages included, is under `.kton/`, and private things (a licence,
+a key) are outside the repository. This ADR does not fix the paths.
+
 **Hidden configuration** is named by the package and supplied by the site, in the site's own way. The
 port sees only names. On the **git/local site** it is a **read-only mount** from the operator's
-configuration directory (`~/.config/kton-cockpit/licences/<name>`), at the target the package declares.
+configuration directory (outside the repository), at the target the package declares.
 On **improve** it is a setting of the call frame. Either way it is not an input, not hashed, not material,
 not committed, and never printed. A site refuses to run if it cannot supply it. The **improve site** is
 implemented in kton-cockpit-improve (plan phase P3).
@@ -126,9 +141,17 @@ implemented in kton-cockpit-improve (plan phase P3).
    reported, but are not members. `Revision.Coverage` gives each requirement its EARL outcome, as input
    for the report.
 3. If the outcome is `fulfilled`, say **`qualifies-as`** about the `envRef`. The fields are the `class`, the
-   package `revision`, the `level` reached, and `evidence`, the member fotons. The claim is signed with
+   package `revision`, the `level` reached (`L1` exact, `L2` within tolerance), and `evidence`, the
+   member fotons. The claim is signed with
    `--as <person>`: qualification is a person's signature with a meaning (Part 11), not the repo's.
    If a member fails, nothing is said, and the report lists the failure.
+
+**Tolerances (L2)** live in the package's spectrum, as its normaliser's tolerances (provisional values
+until the business review corrects them). A change of tolerance is a new package revision, not a cockpit
+change. NONMEM needs this from the start.
+
+**IQ checks** (version, licence present, health) are members of the package's spectrum, run like any
+other member: one mechanism.
 
 `qualifies-as` is a built-in template, like `reproduces`, so its fields are the same in every repo. The
 release that follows (four-eyes, FOR-QE-04 report) is the `tool-qualification` workflow's (plan phase
@@ -153,7 +176,7 @@ consumer's, as ADR-010 says.
   later.
 - The cockpit moves to ktonpkg v0.6.0, which has the tool builder (draft API of 18.11.). It links v0.3.0 today;
   `plankton/spectrum` is already in the plankton v0.3.0 it links.
-- SPEC gains a section for the `tool` operator commands, the derived binding, the class resolution order (§7.5), the `qualifies-as` template (§8) and the reuse
+- SPEC gains a section for the `tool` operator commands, the derived binding, the class resolution order (§7.5), the built-in templates `qualifies-as`, `runs-on` and `located-at` (§8), installation, replacement and uninstall claims, and the reuse
   gate. Every statement names its test.
 - The licence rule becomes a tested property: no hidden file appears in a record, material, a commit or
   any output.
@@ -164,15 +187,14 @@ consumer's, as ADR-010 says.
 |---|---|---|
 | T0 | this ADR accepted | MH |
 | T1 | `cockpit/module` registry; `install` hands profiles to modules; `tool` module skeleton | — |
-| T2 | the derived binding (`tool.Binding`) + class resolution by program; `tool install` on the git/local site | ktonpkg v0.6.0 (`BuildTool`, `ToolProblems`), PR #98 |
+| T2 | the derived binding (`tool.Binding`) over unreplaced installations + class resolution by program; `tool install` (with `replaces`) and `tool uninstall` on the git/local site; `runs-on`/`located-at` templates | ktonpkg v0.6.0 (`BuildTool`, `ToolProblems`), PR #98 |
 | T3 | hidden configuration as a read-only mount; the licence tests | T2 |
 | T4 | `qualifies-as` template; `tool qualify` (members → fotons → `SpectrumCheck` → claim) | T2 |
 | T5 | reuse gate in the shim and `ask` | T4 |
 | T6 | jam-r through T2–T4 on git, compared with 30.09. (same spectrum, L1) | T4, the jam-r package (P4) |
 
-## Open
+## Decided in review (MH, 18.11.)
 
-- Whether `qualify` should also run the member's IQ checks (version, licence present, health) as members
-  of their own, or the package models them as members. The latter is preferred: one mechanism.
-- How an L2 tolerance result is recorded, once `plankton/spectrum` reports one: as the `level` field, or
-  as its own claim.
+- IQ checks are members of the package (section 4).
+- An L2 result is the `level` field of `qualifies-as`, with the tolerances in the package's spectrum
+  (section 4).

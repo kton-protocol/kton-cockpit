@@ -3,7 +3,7 @@ title: "Ports, bundles and modules: a small core with everything else pluggable"
 type: "decision"
 project: "kton-cockpit"
 date: 2026-10-19
-status: "proposed"
+status: "accepted"
 tags: [architecture, api, extension, backend, executor, index, module, frontend, vscode]
 ---
 
@@ -11,7 +11,7 @@ tags: [architecture, api, extension, backend, executor, index, module, frontend,
 
 ## Status
 
-Proposed (2026-10-19). This builds on ADR-008 (an extension API, a GitHub/Docker reference implementation,
+Accepted (MH, 2026-11-18, together with ADR-015, which specifies its module door). Proposed 2026-10-19. This builds on ADR-008 (an extension API, a GitHub/Docker reference implementation,
 improve as an extension) and on ADR-009 (the verb count is not fixed). It finishes ADR-008's E4 for the
 executor, and it names where ktonpkg and ktonwatch plug in. The read side, the index, is its own decision
 (ADR-012).
