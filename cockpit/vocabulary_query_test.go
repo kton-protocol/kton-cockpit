@@ -36,6 +36,10 @@ func TestVocabulary_AnAllowedPackageBringsItsTemplatesAndQueries(t *testing.T) {
   "predicate": "https://example.org/ln/requests", "fields": {"lane": {"type": "string", "required": true}}}`)
 	write(filepath.Join(src, "queries", "open.rq"), `PREFIX nk: <https://kton.dev/v/>
 SELECT ?msg WHERE { ?msg nk:predicate <https://example.org/ln/requests> ; <https://kton.dev/v/lab/lane> $LANE }`)
+	// a parameter a FILTER compares with: it sees the binding only if the binding is in its group
+	write(filepath.Join(src, "queries", "not-to.rq"), `PREFIX nk: <https://kton.dev/v/>
+SELECT ?msg WHERE { ?msg nk:predicate <https://example.org/ln/requests> ; <https://kton.dev/v/lab/lane> ?lane
+  FILTER(?lane != ?NOT) }`)
 	_, key, err := ed25519.GenerateKey(rand.Reader)
 	must(t, err)
 	pkg := filepath.Join(t.TempDir(), "inbox")
@@ -74,6 +78,10 @@ SELECT ?msg WHERE { ?msg nk:predicate <https://example.org/ln/requests> ; <https
 	out, err = c.Ask(ctx, AskRequest{Query: "sparql", Name: "open", Bind: map[string]string{"LANE": `x" } UNION { ?msg ?p ?o } #`}})
 	if err != nil || len(out.Sparql.Rows) != 0 {
 		t.Fatalf("a value that looks like SPARQL must match nothing: %+v %v", out, err)
+	}
+	out, err = c.Ask(ctx, AskRequest{Query: "sparql", Name: "not-to", Bind: map[string]string{"NOT": "kton-cockpit"}})
+	if err != nil || len(out.Sparql.Rows) != 1 || out.Sparql.Rows[0]["msg"] != "https://kton.dev/o/"+hexOf(said["kton"]) {
+		t.Fatalf("a FILTER must see the bound value: want only the request for kton: %+v %v", out, err)
 	}
 	if _, err := c.Ask(ctx, AskRequest{Query: "sparql", Name: "open", Bind: map[string]string{"LANE x": "y"}}); err == nil {
 		t.Fatal("a binding to something that is not a variable name must be refused")
