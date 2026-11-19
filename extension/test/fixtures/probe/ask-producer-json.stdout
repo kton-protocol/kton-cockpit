@@ -1,0 +1,45 @@
+{
+  "query": "producer",
+  "ref": "sha256:5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03",
+  "raw": "sha256:c46b0a77bdf61d5ce3240ddfd0f13174010b357a90b524e66c8717da727b848a  kind=script  in=1 out=1",
+  "records": [
+    {
+      "id": "sha256:c46b0a77bdf61d5ce3240ddfd0f13174010b357a90b524e66c8717da727b848a",
+      "tier": "self",
+      "verified": true,
+      "locators": [
+        {
+          "path": "data.txt",
+          "hash": "sha256:5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03",
+          "uri": [
+            "https://raw.githubusercontent.com/example/probe/5980f47cca49e9243d6959388c86d649d3a9a196/data.txt"
+          ],
+          "signer": "86ef6828c045a4b1",
+          "tier": "self"
+        },
+        {
+          "path": "out.txt",
+          "hash": "sha256:5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03",
+          "uri": [
+            "https://raw.githubusercontent.com/example/probe/5980f47cca49e9243d6959388c86d649d3a9a196/out.txt"
+          ],
+          "signer": "86ef6828c045a4b1",
+          "tier": "self"
+        }
+      ]
+    }
+  ],
+  "included": [
+    "sha256:c46b0a77bdf61d5ce3240ddfd0f13174010b357a90b524e66c8717da727b848a"
+  ],
+  "fotons": [
+    {
+      "id": "sha256:c46b0a77bdf61d5ce3240ddfd0f13174010b357a90b524e66c8717da727b848a",
+      "kind": "script",
+      "inputs": 1,
+      "outputs": 1
+    }
+  ],
+  "resolvedFrom": "out.txt",
+  "filterApplied": "none — every record verified against a configured trust tier is included; unverified records are always excluded"
+}

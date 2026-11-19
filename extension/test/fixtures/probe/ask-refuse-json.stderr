@@ -1,0 +1,2 @@
+"nosuchfile.txt" is neither a sha256:… hash nor a file that exists here.
+Lineage queries are answered from the CONTENT of a file, so give either the hash or a path to the bytes and this will hash them for you.
