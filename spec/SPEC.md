@@ -521,7 +521,11 @@ The configuration MAY also admit installed packages (`claims.allowedPackages`; `
 name (§9.9). A package that fails its structural check MUST contribute nothing, and the other admitted
 packages MUST keep working. A name two admitted sources bring MUST NOT be resolved by order: it is
 offered only qualified, as `<package>/<name>`, for each of them, and `doctor` says so, as it says which
-admitted package contributes nothing and why. The operator fixes the set either way: by template, or
+admitted package contributes nothing and why. Since the qualifier is a package's own name, two admitted
+packages of one name MUST both be refused, so a qualified name never means another key's package. A
+template MUST declare the name it is filed under, without `/`, or its package is refused; of one package
+installed in several revisions, the latest counts. A qualified template's `nk:template` in the query
+view is its qualified name; the signed claim names its predicate, which qualifying does not change. The operator fixes the set either way: by template, or
 by the package that carries a whole vocabulary.
 
 A linked module's templates and queries are compiled into the binary, and so are the same in every
@@ -545,7 +549,7 @@ already means this is a term a reader may already know.
 > `TestTemplates_NamePredicatesByFullIRI`, `examples/04-claim-ceiling`,
 > `TestVocabulary_AnAllowedPackageBringsItsTemplatesAndQueries` (`-tags docker`),
 > `TestShellSay_ListsAnAllowedPackagesTemplatesAndPointsFlagsToTheJSONFields`,
-> `TestVocabulary_AClashOrAFailingPackageTakesOutOnlyItself`.
+> `TestVocabulary_AClashOrAFailingPackageTakesOutOnlyItself`, `TestVocabulary_QualifiedNamesCannotBeSpoofed`.
 
 ### 8.2 The reproduction precondition
 
