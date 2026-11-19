@@ -15,8 +15,8 @@ import (
 	ntemplate "kton.dev/nekton/template"
 )
 
-// claimview.go builds the query projection of ADR-013 from the kernel's, in view vocabulary 1 (SPEC
-// §9.11): each claim a trusted key signed becomes one node, <https://kton.dev/o/<hex>>, with its
+// claimview.go builds the query projection of ADR-013 from the kernel's, in view vocabulary 1
+// (SPEC §9.11): each claim a trusted key signed becomes one node, <https://kton.dev/o/<hex>>, with its
 // predicate, its subjects and fields, its signers, its scope, predecessor and position in the chain,
 // a seed's parent, and the replacements claims state (nk:replaces, and nk:replacedBy where ADR-013
 // A5 lets one claim retire another). Nothing else is inferred: no claim is "current". It is one
