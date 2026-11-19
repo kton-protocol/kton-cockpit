@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/kton-protocol/kton-cockpit/internal/gitops"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -234,5 +235,44 @@ func TestRay_ABusyCommitLeavesNoFolderAndTheSameExtractWorksAgain(t *testing.T) 
 	restore()
 	if _, err := c.Publish(ctx, req); err != nil {
 		t.Fatalf("the same extract once the lock is gone: %v", err)
+	}
+}
+
+// A write whose commit fails after git add leaves nothing staged, and a later write commits only its
+// own paths: an extract refused by a failing pre-commit hook does not end up in the next claim's
+// commit (kton-review S1 on #163).
+func TestRay_AFailedCommitLeavesNothingForTheNextWriteToCommit(t *testing.T) {
+	r, c, ends := rayRepo(t)
+	ctx := context.Background()
+	prop, err := c.Ask(ctx, AskRequest{Query: "ray", Refs: ends})
+	if err != nil {
+		t.Fatal(err)
+	}
+	hook := filepath.Join(r.Root, ".git", "hooks", "pre-commit")
+	os.MkdirAll(filepath.Dir(hook), 0o755)
+	if err := os.WriteFile(hook, []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Publish(ctx, PublishRequest{Kind: "ray", Ray: &RayPublish{
+		Refs: ends, Dir: "packages/zaehlen",
+		Choice: rayChoice(prop.Proposal, referenceRun(t, prop.Proposal, ends[0])),
+	}}); err == nil {
+		t.Fatal("the extract committed through a failing hook")
+	}
+	git := func(args ...string) string {
+		out, _ := exec.Command("git", append([]string{"-C", r.Root}, args...)...).Output()
+		return strings.TrimSpace(string(out))
+	}
+	if staged := git("diff", "--cached", "--name-only"); staged != "" {
+		t.Fatalf("a failed write left files staged:\n%s", staged)
+	}
+	os.Remove(hook)
+	if _, err := c.Say(ctx, SayRequest{Subject: ends[0], Template: "working-on", Fields: map[string]string{"step": "x"}}); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range strings.Fields(git("show", "--name-only", "--format=", "HEAD")) {
+		if !strings.HasPrefix(f, ".kton/") {
+			t.Errorf("the claim's commit carries %s", f)
+		}
 	}
 }

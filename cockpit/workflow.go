@@ -205,8 +205,8 @@ func (c *Cockpit) WorkflowExtract(ctx context.Context, in WorkflowExtractRequest
 	}
 	revn, err := persist(ctx, cfg, []string{rel}, "workflow: "+in.Choice.Name)
 	if err != nil {
-		// Nothing is committed yet: the package folder goes, so the same extract can be tried again
-		// (kton-review R1 on #158).
+		// Nothing is committed yet (the package's own seal is inside the folder): the folder goes, so
+		// the same extract can be tried again (kton-review R1 on #158).
 		_ = os.RemoveAll(abs)
 		return nil, refuse(storeCode(err), "", "committing the package failed, and it was not kept: %v", err)
 	}

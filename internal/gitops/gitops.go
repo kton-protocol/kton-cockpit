@@ -126,7 +126,9 @@ func commitAndPush(ctx context.Context, cfg Git, paths []string, message string)
 		return "", err
 	}
 
-	if _, err := run(ctx, cfg.Root, "git", "diff", "--cached", "--quiet"); err == nil {
+	// Only this write's paths count, here and in the commit below: a commit without a pathspec takes
+	// whatever else is staged, such as a failed write's leftovers (kton-review S1 on #163).
+	if _, err := run(ctx, cfg.Root, "git", append([]string{"diff", "--cached", "--quiet", "--"}, paths...)...); err == nil {
 		// A repository that does not share never pushes, here or below: a stranded commit is
 		// exactly what persist.share false asks for.
 		if !cfg.Push {
@@ -165,8 +167,17 @@ func commitAndPush(ctx context.Context, cfg Git, paths []string, message string)
 	// doesn't, e.g. a fresh agent sandbox), and -c sidesteps a real failure mode seen in
 	// practice where writing to .git/config directly hit "Device or resource busy" inside that
 	// sandbox. Derived from the session identity already in config — not a new config field.
-	commitArgs := append(commitIdentityArgs(cfg), "commit", "-m", message)
+	// The commit names exactly the files staged under this write's paths: a path that matched
+	// nothing (an empty registry) would make git refuse the whole pathspec.
+	staged, err := run(ctx, cfg.Root, "git", append([]string{"diff", "--cached", "--name-only", "-z", "--"}, paths...)...)
+	if err != nil {
+		return "", err
+	}
+	files := strings.FieldsFunc(staged, func(r rune) bool { return r == 0 })
+	commitArgs := append(append(commitIdentityArgs(cfg), "commit", "-m", message, "--"), files...)
 	if _, err := runWaiting(ctx, cfg.Root, commitArgs...); err != nil {
+		// A failed commit leaves nothing of this write staged, so no later write commits it.
+		_, _ = run(ctx, cfg.Root, "git", append([]string{"reset", "-q", "--"}, files...)...)
 		return "", err
 	}
 	if cfg.Push {

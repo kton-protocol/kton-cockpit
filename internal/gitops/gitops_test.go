@@ -366,7 +366,10 @@ for a in "$@"; do
     exit 0
   fi
 done
-if [ "$1" = "diff" ]; then exit 1; fi
+if [ "$1" = "diff" ]; then
+  for a in "$@"; do if [ "$a" = "--name-only" ]; then shift $(($#-1)); printf '%s\0' "$1"; exit 0; fi; done
+  exit 1
+fi
 if [ "$1" = "rev-parse" ]; then echo "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"; fi
 exit 0
 `
@@ -396,7 +399,10 @@ if [ "$1" = "add" ]; then
   fi
   exit 0
 fi
-if [ "$1" = "diff" ]; then exit 1; fi
+if [ "$1" = "diff" ]; then
+  for a in "$@"; do if [ "$a" = "--name-only" ]; then shift $(($#-1)); printf '%s\0' "$1"; exit 0; fi; done
+  exit 1
+fi
 if [ "$1" = "rev-parse" ]; then echo "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"; fi
 exit 0
 `
@@ -457,7 +463,10 @@ func TestCommitAndPush_ALockHeldPastTheWaitIsBusy(t *testing.T) {
 for a in "$@"; do
   if [ "$a" = "commit" ]; then echo "fatal: Unable to create '/x/.git/index.lock': File exists." >&2; exit 128; fi
 done
-if [ "$1" = "diff" ]; then exit 1; fi
+if [ "$1" = "diff" ]; then
+  for a in "$@"; do if [ "$a" = "--name-only" ]; then shift $(($#-1)); printf '%s\0' "$1"; exit 0; fi; done
+  exit 1
+fi
 exit 0
 `
 	if err := os.WriteFile(filepath.Join(binDir, "git"), []byte(script), 0o755); err != nil {
