@@ -1,15 +1,15 @@
 package cockpit
 
 import (
+	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 
 	"kton.dev/plankton/core"
 
 	"github.com/kton-protocol/kton-cockpit/internal/config"
+	"github.com/kton-protocol/kton-cockpit/internal/repofile"
 )
 
 // iriSubject is a subject that names something by IRI: a scheme with an authority, or one of the
@@ -31,24 +31,14 @@ func resolveSubject(cfg *config.Config, subject string) (id, resolvedFrom, why s
 	if iriSubject.MatchString(subject) {
 		return subject, "", ""
 	}
-	abs := subject
-	if !filepath.IsAbs(abs) {
-		abs = filepath.Join(cfg.RepoRoot, filepath.FromSlash(subject))
-	}
-	rel, err := filepath.Rel(cfg.RepoRoot, abs)
-	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return "", "", fmt.Sprintf("subject %q is outside this repository; name a file in it, a sha256: id or an IRI", subject)
-	}
-	fi, err := os.Stat(abs)
+	h, rel, err := repofile.Hash(cfg.RepoRoot, subject, true)
 	switch {
-	case err != nil:
+	case errors.Is(err, repofile.ErrNotFound):
 		return "", "", fmt.Sprintf("subject %q is not a sha256: id, an IRI, or a file in this repository", subject)
-	case fi.IsDir():
+	case err != nil && strings.Contains(err.Error(), "is a directory"):
 		return "", "", fmt.Sprintf("subject %q is a directory; for a run folder say about its record (cockpit run list --json gives it)", subject)
+	case err != nil:
+		return "", "", fmt.Sprintf("subject: %v", err)
 	}
-	b, err := os.ReadFile(abs)
-	if err != nil {
-		return "", "", fmt.Sprintf("reading %s: %v", subject, err)
-	}
-	return core.HashBytes(b), filepath.ToSlash(rel), ""
+	return h, rel, ""
 }

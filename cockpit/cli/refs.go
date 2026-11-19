@@ -20,6 +20,7 @@ import (
 	"github.com/kton-protocol/kton-cockpit/cockpit"
 	"github.com/kton-protocol/kton-cockpit/internal/binaries"
 	"github.com/kton-protocol/kton-cockpit/internal/config"
+	"github.com/kton-protocol/kton-cockpit/internal/repofile"
 	"kton.dev/plankton/core"
 )
 
@@ -49,11 +50,12 @@ func resolveRef(ctx context.Context, cfg *config.Config, ref string) (string, st
 		}
 		return id, fmt.Sprintf("%s/%s → its record %s", runsRel(cfg), rel, short16(id)), nil
 	}
-	b, err := os.ReadFile(abs)
+	// The one resolver say, ask and this use: a link out of the repository, a FIFO or a device is
+	// refused, never read (kton-review S1/S2 on #148).
+	h, _, err := repofile.Hash(cfg.RepoRoot, abs, true)
 	if err != nil {
 		return "", "", err
 	}
-	h := core.HashBytes(b)
 	return h, fmt.Sprintf("%s → its bytes %s", ref, short16(h)), nil
 }
 

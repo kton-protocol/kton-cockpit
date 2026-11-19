@@ -21,7 +21,9 @@ ktonpkg v0.8.0. Nothing to migrate from v0.5.0.
   `"subject": "data.txt"` was signed as the literal text, so the claim was missing from
   `ask about data.txt` and from the view. Now a `sha256:` id (read in lower case), an IRI, or a file
   in the repository, which stands for its bytes and is reported back (`resolvedFrom`, `subject`).
-  Anything else is refused with code `argument`.
+  Anything else is refused with code `argument`. A file is named by where it resolves: a link out
+  of the repository is refused, and only a regular file is read, so a FIFO or a device cannot hang
+  `say` (kton-review S1, S2). `ask` and the shell's references read files through the same resolver.
 
 ### Documentation
 

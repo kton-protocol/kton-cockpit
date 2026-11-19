@@ -2,6 +2,7 @@ package cockpit
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,6 +14,7 @@ import (
 	"github.com/kton-protocol/kton-cockpit/internal/config"
 	"github.com/kton-protocol/kton-cockpit/internal/index"
 	"github.com/kton-protocol/kton-cockpit/internal/material"
+	"github.com/kton-protocol/kton-cockpit/internal/repofile"
 	"kton.dev/plankton/core"
 
 	"github.com/kton-protocol/kton-cockpit/internal/verify"
@@ -725,25 +727,26 @@ func wantsContentHash(query string) bool {
 // Repo-relative first, then as given. That order matters: inside a participant repo the paths
 // people say out loud are repo-relative, and they are also what the records name.
 func hashLocalFile(ctx context.Context, cfg *config.Config, r index.Reader, ref string) (hash, resolved string, err error) {
+	// The same resolver as say's subject, without its containment: ask signs nothing, so asking
+	// about a file outside the repository is a lookup. Only a regular file is read, and the read
+	// never blocks (kton-review S2 on #148).
 	rel := filepath.Clean(ref)
-	candidates := []struct{ abs, report string }{
-		{filepath.Join(cfg.RepoRoot, filepath.FromSlash(rel)), filepath.ToSlash(rel)},
-		{rel, rel},
-	}
-	for _, c := range candidates {
-		info, serr := os.Stat(c.abs)
-		if serr != nil {
+	cwdAbs, _ := filepath.Abs(rel)
+	for _, c := range []struct{ root, path string }{{cfg.RepoRoot, rel}, {filepath.Dir(cwdAbs), cwdAbs}} {
+		h, reported, herr := repofile.Hash(c.root, c.path, false)
+		switch {
+		case errors.Is(herr, repofile.ErrNotFound):
 			continue
-		}
-		if info.IsDir() {
+		case herr != nil && strings.Contains(herr.Error(), "is a directory"):
 			return "", "", fmt.Errorf(
 				"%s is a directory. Ask about one file, or about the hash of the bytes you mean", ref)
-		}
-		h, herr := r.HashFile(ctx, c.abs)
-		if herr != nil {
+		case herr != nil:
 			return "", "", fmt.Errorf("reading %s: %w", ref, herr)
 		}
-		return h, c.report, nil
+		if c.root != cfg.RepoRoot {
+			reported = filepath.ToSlash(rel)
+		}
+		return h, reported, nil
 	}
 	// Not a file. For `about` that is fine — a subject may be a URI. For the lineage queries it is
 	// the mistake this whole function exists to stop being silent.
