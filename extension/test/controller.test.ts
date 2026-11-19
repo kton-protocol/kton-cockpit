@@ -25,13 +25,15 @@ const M1 = iri("2");
 const M2 = iri("3");
 const OPTIONS = JSON.stringify([{ id: "a", label: "Build 39", consequence: "the tested build" }, { id: "b", label: "Build 41", consequence: "newer, untested" }]);
 
+// The query folder holds only display queries; decides and answers come by name from a package.
 const queries = new Map([
   ["proposals", "Q proposals"],
-  ["decides", "Q decides"],
   ["messages", "Q messages"],
-  ["answers", "Q answers"],
   ["lanes", "Q lanes"],
 ]);
+const PKID = "1111222233334444"; // the window's person claim key id
+const AKID = "aaaabbbbccccdddd"; // its agent claim key id
+const agentIri = (kid: string) => `https://kton.dev/agent/${kid}`;
 
 const TEMPLATES: TemplateInfo[] = [
   { name: "decides", fields: { answers: { type: "ref", required: true }, outcome: { type: "enum", required: true, values: ["https://schema.org/AcceptAction", "https://schema.org/RejectAction"] }, choice: { type: "string" } } },
@@ -42,8 +44,8 @@ const TEMPLATES: TemplateInfo[] = [
 
 const identity: WindowIdentity = {
   hintName: "qa-decider",
-  person: { role: "person", keyName: "qa-decider", keyId: "qa-decider" },
-  agent: { role: "agent", keyName: "qa-decider-agent", keyId: "qa-decider-agent" },
+  person: { role: "person", keyName: "qa-decider", keyId: PKID },
+  agent: { role: "agent", keyName: "qa-decider-agent", keyId: AKID },
 };
 
 class FakeTransport implements Transport {
@@ -58,17 +60,21 @@ class FakeTransport implements Transport {
       { msg: P2, area: "qa", title: "Agent decided this one", text: "t", why: "seed", options: OPTIONS, from: "qa-requestor-claims", fromTier: "self", when: "2026-11-18T10:30:00Z" },
     ],
     // an agent key's decides about P2: a record, never a decision (review check 7, S4.5)
-    "Q decides": [{ d: iri("8"), answers: P2, outcome: "https://schema.org/AcceptAction", choice: "a", by: "qa-decider-agent-claims", byTier: "agent", when: "2026-11-18T11:00:00Z" }],
+    "N decides": [{ d: iri("8"), answers: P2, outcome: "https://schema.org/AcceptAction", choice: "a", s: agentIri(AKID), by: "qa-decider-agent-claims", byTier: "agent", when: "2026-11-18T11:00:00Z" }],
     "Q messages": [
       { msg: M1, kind: "https://example.org/v/requests", area: "qa", title: "Check the notes", text: "t", from: "qa-requestor-claims", fromTier: "self", when: "2026-11-18T09:00:00Z" },
       { msg: M2, kind: "https://example.org/v/announces", area: "ops", title: "Answered one", text: "t", from: "qa-requestor-claims", fromTier: "self", when: "2026-11-18T08:00:00Z" },
     ],
-    "Q answers": [{ d: iri("4"), answers: M2, outcome: "done", by: "qa-decider-claims", byTier: "self" }],
+    "N answers": [{ d: iri("4"), answers: M2, outcome: "done", s: agentIri(PKID), by: "qa-decider-claims", byTier: "self" }],
     "Q lanes": [{ lane: "active/qa-lane", areas: "qa" }, { lane: "active/ops-lane", areas: "ops,infra" }],
   };
+  asked: AskRequest[] = [];
   async ask(req: AskRequest): Promise<Outcome<AskResult>> {
     if (this.askError) throw this.askError;
-    return { ok: true, value: { query: "sparql", ref: "", raw: "", sparql: { rows: this.answers[req.sparql ?? ""] ?? [] } } };
+    this.asked.push(req);
+    // a named query (from an admitted package) answers under "N <name>", a query text under itself
+    const key = req.name !== undefined ? `N ${req.name}` : (req.sparql ?? "");
+    return { ok: true, value: { query: "sparql", ref: "", raw: "", sparql: { rows: this.answers[key] ?? [] } } };
   }
   async say(req: SayRequest): Promise<Outcome<SayResult>> {
     const e = this.sayErrors.shift() ?? this.sayError;
@@ -532,11 +538,45 @@ test("review check 7: a decides signed by an agent key is not shown as a decisio
   wb.openDecision(P2);
   assert.match(h.panels.at(-1)?.html ?? "", /data-testid="agent-record">Recorded by qa-decider-agent-claims \(agent\): <b>a<\/b>\. <span class="muted">Not a decision/);
   // a decides by this window's person key closes it
-  t.answers["Q decides"] = [...(t.answers["Q decides"] ?? []), { d: iri("9"), answers: P2, outcome: "https://schema.org/AcceptAction", by: "qa-decider-claims", byTier: "self" }];
+  t.answers["N decides"] = [...(t.answers["N decides"] ?? []), { d: iri("9"), answers: P2, outcome: "https://schema.org/AcceptAction", s: agentIri(PKID), by: "qa-decider-claims", byTier: "self" }];
   await wb.refresh();
   assert.deepEqual(wb.openDecisions().map((d) => d["msg"]), [P1]);
   // and so does one by a signer of a configured person tier; an agent tier never does
-  t.answers["Q decides"] = [{ d: iri("9"), answers: P1, outcome: "x", by: "someone-claims", byTier: "persons" }];
+  t.answers["N decides"] = [{ d: iri("9"), answers: P1, outcome: "x", s: agentIri("9999888877776666"), by: "someone-claims", byTier: "persons" }];
   const { wb: wb2 } = await setup({ personTiers: ["persons"] }, t);
   assert.deepEqual(wb2.openDecisions().map((d) => d["msg"]), [P2]);
+});
+
+test("review check 7 (Q1): a decides.rq in the checkout is never used for the decision filter; decides and answers are asked by name", async () => {
+  const t = new FakeTransport();
+  // the checkout's folder brings a tampered decides.rq (and answers.rq) whose rows would make P2 a person's decision
+  const tampered = new Map([...queries, ["decides", "TAMPERED decides"], ["answers", "TAMPERED answers"]]);
+  t.answers["TAMPERED decides"] = [{ d: iri("8"), answers: P2, outcome: "x", s: agentIri(PKID), by: "qa-decider-claims", byTier: "persons" }];
+  t.answers["TAMPERED answers"] = [{ d: iri("7"), answers: M1, outcome: "x", s: agentIri(PKID), by: "qa-decider-claims", byTier: "self" }];
+  const h = new FakeHost();
+  const wb = new Workbench(t, h, tampered, identity, { ...DEFAULT_CONFIG, surfaces: SURFACES, personTiers: ["persons"] }, new Scheduler(manualClock));
+  await wb.start();
+  await wb.refresh();
+  assert.deepEqual(wb.openDecisions().map((d) => d["msg"]), [P1, P2], "P2 stays open: only an agent key decided it");
+  assert.equal((h.trees["inbox"] ?? []).length, 1, "M1 stays open: the tampered answers.rq did not close it");
+  assert.ok(!t.asked.some((a) => a.sparql?.startsWith("TAMPERED")), "the checkout's text never reached the cockpit");
+  assert.deepEqual(t.asked.filter((a) => a.name !== undefined).map((a) => a.name).sort(), ["answers", "decides"]);
+  assert.ok(t.asked.filter((a) => a.name !== undefined).every((a) => a.sparql === undefined), "by name, with no query text");
+});
+
+test("review check 7 (Q2): an agent-tier key carrying the person key's label is a record, not a decision", async () => {
+  const t = new FakeTransport();
+  // a different key (another key id) in tier agent whose file is also named qa-decider-claims
+  t.answers["N decides"] = [{ d: iri("9"), answers: P1, outcome: "https://schema.org/AcceptAction", choice: "b", s: agentIri("0123456789abcdef"), by: "qa-decider-claims", byTier: "agent" }];
+  const { h, wb } = await setup({ personTiers: ["self"] }, t);
+  assert.deepEqual(wb.openDecisions().map((d) => d["msg"]), [P1, P2], "P1 is still open");
+  wb.openDecision(P1);
+  assert.match(h.panels.at(-1)?.html ?? "", /data-testid="agent-record">Recorded by qa-decider-claims \(agent\)/);
+  // the same label with the window's person key id is the person's decision
+  t.answers["N decides"] = [{ ...t.answers["N decides"]![0]!, s: agentIri(PKID) }];
+  await wb.refresh();
+  assert.deepEqual(wb.openDecisions().map((d) => d["msg"]), [P2]);
+  // and without a person key id (it could not be derived), only a person tier counts
+  const noId = await setup({ personTiers: [] }, t, { ...identity, person: { ...identity.person, keyId: "" } });
+  assert.deepEqual(noId.wb.openDecisions().map((d) => d["msg"]), [P1, P2]);
 });

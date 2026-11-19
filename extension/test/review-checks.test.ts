@@ -8,6 +8,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { fakeCockpit, sparqlAnswer, CLAIM, SUBJECT, PERSON_KEY, AGENT_KEY } from "./helpers.js";
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { claimKeyId, keyIdOfPublicKey, signerKeyId } from "../src/identity.js";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readIdentityHint, showSigner, statusText, type WindowIdentity } from "../src/identity.js";
@@ -234,3 +235,26 @@ function sources(dir = join(process.cwd(), "src")): string[] {
     return statSync(p).isDirectory() ? sources(p) : p.endsWith(".ts") ? [p] : [];
   });
 }
+
+test("check 7 (Q2): the person key id comes from the window's public key, as the kernels make it; doctor must agree when it speaks for that key", async () => {
+  // a v0.5.1 `doctor --json` gave nektonKeyId 819f1c7595e4b466 for a claims key with this public half
+  const pub = "1816edf7de7ef2334957a05873d28013fa6bdf869e80d6a9c084695efd464086";
+  assert.equal(keyIdOfPublicKey(pub), "819f1c7595e4b466");
+  assert.equal(keyIdOfPublicKey("not hex"), undefined);
+  assert.equal(signerKeyId("https://kton.dev/agent/819f1c7595e4b466"), "819f1c7595e4b466");
+  assert.equal(signerKeyId("qa-decider-claims"), undefined, "a label is never a key id");
+  assert.equal(signerKeyId("https://kton.dev/agent/819f1c7595e4b466x"), undefined);
+
+  const ring = mkdtempSync(join(tmpdir(), "keyring-"));
+  writeFileSync(join(ring, "qa-decider-claims.pub"), pub + "\n");
+  const hint = { sessionId: "qa-decider", keyring: ring, nektonKey: join(ring, "qa-decider-claims.key") };
+  const doctor = (nektonKeyId: string) => ({ ready: true, steps: [], fields: { identity: { name: "anything", nektonKeyId, tier: "self" } } });
+  assert.deepEqual(await claimKeyId(hint, "qa-decider", doctor("819f1c7595e4b466")), { ok: true, keyId: "819f1c7595e4b466", checkedByDoctor: true });
+  const wrong = await claimKeyId(hint, "qa-decider", doctor("0000000000000000"));
+  assert.ok(!wrong.ok && /does not belong/.test(wrong.why), "a .pub that is not the signing key's gives no key id");
+  // doctor speaks for another (default) key: the .pub alone; doctor's name is never used
+  assert.deepEqual(await claimKeyId({ ...hint, nektonKey: join(ring, "other-claims.key") }, "qa-decider", doctor("0000000000000000")), { ok: true, keyId: "819f1c7595e4b466", checkedByDoctor: false });
+  assert.ok(!(await claimKeyId(hint, "qa-missing")).ok, "no .pub, no key id");
+  assert.ok(!(await claimKeyId({ sessionId: "x" }, "qa-decider")).ok, "no keyring, no key id");
+  assert.ok(!(await claimKeyId(hint, "")).ok);
+});

@@ -10,15 +10,18 @@
 //   .kton/local/identity.json is a hint and is shown as one.
 // - A key the window was not given is MISSING and named as such; neither key stands in for the other.
 
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { Transport } from "./transport/port.js";
+import type { DoctorReport, Transport } from "./transport/port.js";
 
 /** What .kton/local/identity.json says (ADR-016). A hint: nothing in it is verified. */
 export interface IdentityHint {
   readonly sessionId: string;
   readonly planktonKey?: string;
   readonly nektonKey?: string;
+  /** The folder `say --as NAME` takes NAME's keys from. */
+  readonly keyring?: string;
 }
 
 /** Read the checkout's identity file. Missing or malformed: undefined (the window shows "no identity"). */
@@ -30,6 +33,7 @@ export async function readIdentityHint(repoRoot: string): Promise<IdentityHint |
       sessionId: o["session_id"],
       ...(typeof o["plankton_key"] === "string" ? { planktonKey: o["plankton_key"] } : {}),
       ...(typeof o["nekton_key"] === "string" ? { nektonKey: o["nekton_key"] } : {}),
+      ...(typeof o["keyring"] === "string" ? { keyring: o["keyring"] } : {}),
     };
   } catch {
     return undefined;
@@ -50,7 +54,11 @@ export interface WindowKey {
   readonly role: KeyRole;
   /** Key name of identity.keyring, passed to `say` as `as`. */
   readonly keyName: string;
-  /** Hex key id; the agent IRI is https://kton.dev/agent/<keyId>. */
+  /**
+   * The key id of the key this window's claims are signed with (`<keyName>-claims`), as the claim view
+   * names its signer: https://kton.dev/agent/<keyId>. Derived from that key's public half (see
+   * claimKeyId); "" when it could not be. A decision is recognised by this id, never by a label.
+   */
   readonly keyId: string;
 }
 
@@ -109,4 +117,45 @@ export function statusText(person: ShownSigner | "missing", agent: ShownSigner |
 /** A key the window was given (a key name), or not. */
 export function hasKey(k: WindowKey): boolean {
   return k.keyName !== "";
+}
+
+/** A key id as the kernels make it: the first 16 hex digits of the SHA-256 of the 32-byte public key. */
+export function keyIdOfPublicKey(publicHex: string): string | undefined {
+  const hex = publicHex.trim().toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(hex)) return undefined;
+  return createHash("sha256").update(Buffer.from(hex, "hex")).digest("hex").slice(0, 16);
+}
+
+/** The key id in a claim view signer IRI (https://kton.dev/agent/<keyid>); undefined for anything else. */
+export function signerKeyId(signer: string | undefined): string | undefined {
+  const m = /^https:\/\/kton\.dev\/agent\/([0-9a-f]{16})$/.exec(signer ?? "");
+  return m?.[1];
+}
+
+export type ClaimKeyId = { readonly ok: true; readonly keyId: string; readonly checkedByDoctor: boolean } | { readonly ok: false; readonly why: string };
+
+/**
+ * The key id a window key signs its claims with, from the public key the window is configured with:
+ * `<keyring>/<keyName>-claims.pub`, the public half of what `say --as keyName` signs with. Never from a
+ * label. When the cockpit's `doctor` answers for the same key (its default claim key is that file's
+ * private half), its key id, which it derives from the private seed, must agree; if it does not, the
+ * .pub is not this key's and the window has no key id.
+ */
+export async function claimKeyId(hint: IdentityHint | undefined, keyName: string, doctor?: DoctorReport): Promise<ClaimKeyId> {
+  if (!keyName) return { ok: false, why: "no key configured" };
+  if (!hint?.keyring) return { ok: false, why: "the identity file names no keyring" };
+  let id: string | undefined;
+  try {
+    id = keyIdOfPublicKey(await readFile(join(hint.keyring, `${keyName}-claims.pub`), "utf8"));
+  } catch {
+    return { ok: false, why: `no public key ${keyName}-claims.pub in the keyring` };
+  }
+  if (!id) return { ok: false, why: `${keyName}-claims.pub is not an ed25519 public key in hex` };
+  const ident = doctor?.fields["identity"] as { nektonKeyId?: unknown } | undefined;
+  const same = hint.nektonKey !== undefined && hint.nektonKey === join(hint.keyring, `${keyName}-claims.key`);
+  if (same && typeof ident?.nektonKeyId === "string" && ident.nektonKeyId !== "") {
+    if (ident.nektonKeyId !== id) return { ok: false, why: `${keyName}-claims.pub does not belong to the key the cockpit signs with (doctor: ${ident.nektonKeyId})` };
+    return { ok: true, keyId: id, checkedByDoctor: true };
+  }
+  return { ok: true, keyId: id, checkedByDoctor: false };
 }

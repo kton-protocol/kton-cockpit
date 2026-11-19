@@ -36,8 +36,13 @@ A window has a **person key** (setting `kton.identity.personKey`) and an **agent
   says so and the actions that need it are disabled.
 - **Identity**: one per window. Open a second VS Code window to work as someone else.
 - **Decisions**: a `decides` counts as a decision only when a person signed it. A person here is
-  this window's person key, or a signer in one of the tiers named in `kton.identity.personTiers`.
-  A `decides` signed by an agent key is shown as a record.
+  this window's person key, recognised by its **key id**, or a signer in one of the tiers named in
+  `kton.identity.personTiers`. A `decides` signed by any other key is shown as a record.
+  - **Key id**: derived from the public key the window is configured with,
+    `<keyring>/<personKey>-claims.pub` (keyring from `.kton/local/identity.json`). When
+    `cockpit doctor --json` answers for the same key, its `nektonKeyId` must agree.
+  - **Labels**: a signer's label (a key file name, unique only within a tier) is shown, never
+    compared.
 
 ### Identity is "unverified"
 
@@ -61,9 +66,17 @@ never through a shell:
 - **Later**: when `cockpit serve --stdio` (ADR-011 P5, planned for cockpit v0.6.0) exists, the
   transport switches to it. The `Transport` interface in `src/transport/port.ts` is the seam.
 
-The queries the views run are SPARQL files in a folder: `kton.queries.dir`, default
-`<workspace>/.kton/queries`. It needs `proposals.rq`, `decides.rq`, `messages.rq`, `answers.rq`
-and `lanes.rq`. `test/e2e/vocabulary/queries/` has a neutral example set.
+The queries the views run come from two places:
+
+- **By name from an admitted package**: `decides` and `answers`, which decide what is a decision
+  and what is closed. The shell asks `ask {query: "sparql", name}`; the package is installed with
+  `cockpit install <package> --allow` (`claims.allowedPackages`). A `decides.rq` or `answers.rq`
+  in the checkout is never used. `decides` must return the signer IRI `?s` and its tier `?byTier`.
+- **From a folder** (display only, until `ui list`): `proposals.rq`, `messages.rq` and
+  `lanes.rq` in `kton.queries.dir`, default `<workspace>/.kton/queries`.
+
+`test/e2e/vocabulary/` has a neutral example of both: `queries/` and `package-queries/`. The
+latter is built into `test/e2e/vocabulary-package/` by `test/e2e/build-vocabulary-package.sh`.
 
 No network calls, no telemetry. Every webview has a host-owned Content Security Policy:
 

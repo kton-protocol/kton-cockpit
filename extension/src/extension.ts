@@ -5,7 +5,8 @@
 import * as vscode from "vscode";
 import { randomBytes } from "node:crypto";
 import { CliTransport } from "./transport/cli.js";
-import { readIdentityHint, type WindowIdentity } from "./identity.js";
+import { claimKeyId, readIdentityHint, type WindowIdentity } from "./identity.js";
+import type { DoctorReport } from "./transport/port.js";
 import { loadQueries } from "./ui/queries.js";
 import { loadSurfaces } from "./ui/surfaces.js";
 import { CMD, DEFAULT_CONFIG, Workbench } from "./ui/controller.js";
@@ -175,14 +176,28 @@ async function build(host: VsHost): Promise<void> {
   // the identity file's name).
   const personKey = cfg.get<string>("identity.personKey") || "";
   const agentKey = cfg.get<string>("identity.agentKey") || "";
-  const identity: WindowIdentity = {
-    hintName: hint?.sessionId ?? "",
-    person: { role: "person", keyName: personKey, keyId: personKey },
-    agent: { role: "agent", keyName: agentKey, keyId: agentKey },
-  };
   const executable = cfg.get<string>("cockpit.path") || "cockpit";
   const timeout = Math.max(1, cfg.get<number>("cockpit.timeoutSeconds") ?? 120);
   const transport = new CliTransport({ executable, cwd: folder, timeoutMs: timeout * 1000 });
+  // Each key's id from its public half in the keyring (never a label), checked against doctor's answer
+  // when doctor speaks for the same key. Without a person key id only person tiers count as persons.
+  let doctor: DoctorReport | undefined;
+  try {
+    doctor = await transport.doctor();
+  } catch {
+    doctor = undefined;
+  }
+  const [pk, ak] = await Promise.all([claimKeyId(hint, personKey, doctor), claimKeyId(hint, agentKey, doctor)]);
+  for (const [role, name, r] of [["person", personKey, pk], ["agent", agentKey, ak]] as const) {
+    if (!name) continue;
+    host.log(r.ok ? `${role} key ${name}: key id ${r.keyId} from ${name}-claims.pub${r.checkedByDoctor ? ", agrees with doctor" : ""}` : `${role} key ${name}: no key id (${r.why})`);
+    if (!r.ok && role === "person" && hint) host.error(`The person key's id is unknown (${r.why}): only signers in kton.identity.personTiers count as persons here.`);
+  }
+  const identity: WindowIdentity = {
+    hintName: hint?.sessionId ?? "",
+    person: { role: "person", keyName: personKey, keyId: pk.ok ? pk.keyId : "" },
+    agent: { role: "agent", keyName: agentKey, keyId: ak.ok ? ak.keyId : "" },
+  };
   const queries = await loadQueries(cfg.get<string>("queries.dir") || `${folder}/.kton/queries`);
   const surfaces = await loadSurfaces(cfg.get<string>("surfaces.file") || undefined);
   const pattern = cfg.get<string>("surfaces.folderPattern");

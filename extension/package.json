@@ -130,12 +130,12 @@
         "kton.queries.dir": {
           "type": "string",
           "default": "",
-          "description": "Folder with the SPARQL texts the views read (proposals, decides, messages, answers, lanes .rq). Templates are never read from a folder: they come from the cockpit's listing."
+          "description": "Folder with the SPARQL texts of the display-only views (proposals, messages, lanes .rq). decides and answers are asked by name from an admitted package, never from this folder; templates come from the cockpit's listing."
         },
         "kton.identity.personKey": {
           "type": "string",
           "default": "",
-          "description": "Key name of the person key (decisions, always through the sign dialog)."
+          "description": "Key name of the person key (decisions, always through the sign dialog). Its key id is derived from <keyring>/<name>-claims.pub."
         },
         "kton.identity.agentKey": {
           "type": "string",

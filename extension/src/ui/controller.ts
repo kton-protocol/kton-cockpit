@@ -5,7 +5,7 @@ import { randomBytes } from "node:crypto";
 import type { TemplateInfo, Transport } from "../transport/port.js";
 import { TransportError, TransportTimeout } from "../transport/port.js";
 import type { WindowIdentity, ShownSigner } from "../identity.js";
-import { hasKey, showSigner, statusText } from "../identity.js";
+import { hasKey, showSigner, signerKeyId, statusText } from "../identity.js";
 import type { ControlInfo } from "../sign.js";
 import { DialogConsent, plan, sign, FOOTER } from "../sign.js";
 import type { UiEntry, SlotContext } from "../intents.js";
@@ -19,17 +19,22 @@ import type { Surface } from "./surfaces.js";
 import { ALL, areasByLane, surfaceAreas, surfaceFolder } from "./surfaces.js";
 
 export interface WorkbenchConfig {
-  /** Query names (files in the query folder) feeding the views. */
+  /**
+   * Query names feeding the views. decides and answers decide what is a decision and what is closed
+   * (review check 7), so they are asked BY NAME from an admitted package (`ask {query: "sparql", name}`,
+   * claims.allowedPackages): a query file in the checkout is never used for them. The others only
+   * select what is shown and come from the query folder (kton.queries.dir) until `ui list` exists.
+   */
   readonly queries: {
-    /** Proposals: msg, area, title, text, why, options, recommended, from, fromTier, when. */
+    /** Folder. Proposals: msg, area, title, text, why, options, recommended, from, fromTier, when. */
     readonly proposals: string;
-    /** Claims of the decision template: d, answers, outcome, choice, by, byTier, when. */
+    /** Package, by name. Claims of the decision template: d, answers, outcome, choice, s (signer IRI), by (label, display only), byTier, when. */
     readonly decides: string;
-    /** Messages: msg, kind, area, title, text, why, from, fromTier, when. */
+    /** Folder. Messages: msg, kind, area, title, text, why, from, fromTier, when. */
     readonly messages: string;
-    /** Closing claims: d, answers, outcome, text, by, byTier, when. */
+    /** Package, by name. Closing claims: d, answers, outcome, text, s, by, byTier, when. */
     readonly answers: string;
-    /** Lanes and their areas: lane, areas. */
+    /** Folder. Lanes and their areas: lane, areas. */
     readonly lanes: string;
   };
   /** The control a decision is signed with (O1: kind decision → person key, dialog). */
@@ -172,6 +177,20 @@ export class Workbench {
       : "This window has no agent key (setting kton.identity.agentKey): record writes are disabled. The person key never stands in for it.";
   }
 
+  /**
+   * A query an admitted package brings, asked by its name: the cockpit takes the text from the
+   * package, never from this checkout (review check 7, Q1).
+   */
+  private async named(name: string): Promise<Row[]> {
+    this.host.log(`ask sparql --name ${name}`);
+    const out = await this.t.ask({ query: "sparql", name });
+    if (!out.ok) {
+      const hint = out.refusal.code === "query.unknown" ? " (no admitted package brings it: install the vocabulary package with --allow)" : "";
+      throw new Error(`the cockpit refused ${name}: ${out.refusal.reason}${hint}`);
+    }
+    return rowsOf(out.value);
+  }
+
   private async rows(name: string): Promise<Row[]> {
     const sparql = this.queries.get(name);
     if (sparql === undefined) throw new Error(`query ${name} is not in the query folder (setting kton.queries.dir)`);
@@ -188,9 +207,9 @@ export class Workbench {
       if (!tpl.ok) throw new Error(`the cockpit refused its template listing: ${tpl.refusal.reason}`);
       const [proposals, decides, messages, answers, lanes] = await Promise.all([
         this.rows(this.cfg.queries.proposals),
-        this.rows(this.cfg.queries.decides),
+        this.named(this.cfg.queries.decides),
         this.rows(this.cfg.queries.messages),
-        this.rows(this.cfg.queries.answers),
+        this.named(this.cfg.queries.answers),
         this.queries.has(this.cfg.queries.lanes) ? this.rows(this.cfg.queries.lanes) : Promise.resolve([]),
       ]);
       Object.assign(this, { templates: tpl.value, proposals, decides, messages, answers, lanes });
@@ -239,11 +258,14 @@ export class Workbench {
     }
   }
 
-  /** Is this claim's signer a person (review check 7)? This window's person key, or a person tier. */
+  /**
+   * Is this claim's signer a person (review check 7)? Its signer's key id (from ?s, the signer IRI)
+   * is this window's person key id, or its tier (from the cockpit's answer) is a person tier. The
+   * label (?by) is a key file name, unique only within a tier: it is shown, never compared (Q2).
+   */
   private byPerson(r: Row): boolean {
-    const by = r["by"] ?? "";
-    const pk = this.identity.person.keyName;
-    if (pk && (by === pk || by === `${pk}-claims`)) return true;
+    const kid = signerKeyId(r["s"]);
+    if (kid !== undefined && this.identity.person.keyId !== "" && kid === this.identity.person.keyId) return true;
     return !!r["byTier"] && this.cfg.personTiers.includes(r["byTier"]);
   }
 
