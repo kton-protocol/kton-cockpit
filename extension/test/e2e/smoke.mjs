@@ -75,8 +75,12 @@ async function sparql(q) {
   return JSON.parse(r.stdout).results.bindings.map((b) => Object.fromEntries(Object.entries(b).map(([k, v]) => [k, v.value])));
 }
 /** The decides claims about a proposal, with their signer and choice. */
-const decidesAbout = (pid) => sparql(`SELECT ?d ?by ?choice WHERE { ?d nk:predicate t:decides ; lab:answers <${iriOf(pid)}> ; nk:signer ?s . ?s rdfs:label ?by . OPTIONAL { ?d lab:choice ?choice } }`);
-const claimsWithTitle = (template, title) => sparql(`SELECT ?c ?by ?area WHERE { ?c nk:predicate t:${template} ; lab:title ${JSON.stringify(title)} ; nk:signer ?s . ?s rdfs:label ?by . OPTIONAL { ?c lab:area ?area } }`);
+// Signers are compared by key id (the signer IRI), never by label: the look-alike key carries the
+// person key's label in another tier (review check 7, Q2).
+const PERSON = `https://kton.dev/agent/${seed.personKeyId}`;
+const LOOKALIKE = `https://kton.dev/agent/${seed.lookalikeKeyId}`;
+const decidesAbout = (pid) => sparql(`SELECT ?d ?s ?by ?choice WHERE { ?d nk:predicate t:decides ; lab:answers <${iriOf(pid)}> ; nk:signer ?s . ?s rdfs:label ?by . OPTIONAL { ?d lab:choice ?choice } }`);
+const claimsWithTitle = (template, title) => sparql(`SELECT ?c ?s ?by ?area WHERE { ?c nk:predicate t:${template} ; lab:title ${JSON.stringify(title)} ; nk:signer ?s . ?s rdfs:label ?by . OPTIONAL { ?c lab:area ?area } }`);
 
 // ---- the window
 /** The frame (webview) that contains `text`. VS Code nests webviews two iframes deep. */
@@ -238,8 +242,8 @@ await step("S2", 3, "answer with done through the sign dialog; the registry has 
   await signInDialog(d);
   await d.locator('[data-testid="sign-outcome"][data-state="signed"]').waitFor({ timeout: 30000 });
   await shot("s2-answered");
-  const done = await sparql(`SELECT ?d ?by ?outcome WHERE { ?d nk:predicate t:done ; lab:answers <${iriOf(seed.requests[0])}> ; lab:outcome ?outcome ; nk:signer ?s . ?s rdfs:label ?by }`);
-  check(done.length === 1 && done[0].by === "qa-decider-claims" && done[0].outcome === "Checked, the notes are fine.", "one done about the request, signed by qa-decider's person key", [{ by: "qa-decider-claims", outcome: "Checked, the notes are fine." }], done.map(({ by, outcome }) => ({ by, outcome })));
+  const done = await sparql(`SELECT ?d ?s ?outcome WHERE { ?d nk:predicate t:done ; lab:answers <${iriOf(seed.requests[0])}> ; lab:outcome ?outcome ; nk:signer ?s }`);
+  check(done.length === 1 && done[0].s === PERSON && done[0].outcome === "Checked, the notes are fine.", "one done about the request, signed by qa-decider's person key (by key id)", [{ s: PERSON, outcome: "Checked, the notes are fine." }], done.map(({ s, outcome }) => ({ s, outcome })));
   await clearToasts();
 });
 
@@ -279,7 +283,7 @@ await step("S2", 6, "compose: Cancel in the dialog keeps the draft and makes no 
   await signInDialog(await dialog());
   await toast(/Signed sha256:[0-9a-f]{64}/).waitFor({ timeout: 30000 });
   const c = await claimsWithTitle("requests", "Composed request");
-  check(c.length === 1 && c[0].area === "qa" && c[0].by === "qa-decider-claims", "the composed request exists with its area and title", [{ area: "qa", by: "qa-decider-claims" }], c.map(({ area, by }) => ({ area, by })));
+  check(c.length === 1 && c[0].area === "qa" && c[0].s === PERSON, "the composed request exists with its area and title, by the person key", [{ area: "qa", s: PERSON }], c.map(({ area, s }) => ({ area, s })));
   await clearToasts();
 });
 
@@ -345,7 +349,7 @@ await step("S3", 5, "choose b and sign: the dialog showed the plan; the registry
   await d.locator("#sign").click();
   await d.locator('[data-testid="sign-outcome"][data-state="signed"]').waitFor({ timeout: 30000 });
   const dec = await decidesAbout(P.P1);
-  check(dec.length === 1 && dec[0].by === "qa-decider-claims" && dec[0].choice === "b", "one decides about P1", [{ by: "qa-decider-claims", choice: "b" }], dec.map(({ by, choice }) => ({ by, choice })));
+  check(dec.length === 1 && dec[0].s === PERSON && dec[0].choice === "b", "one decides about P1, by the person key id", [{ s: PERSON, choice: "b" }], dec.map(({ s, choice }) => ({ s, choice })));
   await shot("s3-signed");
   await clearToasts();
 });
@@ -380,20 +384,33 @@ await step("S4", 1, "every decision path (Decision panel, Home card, palette say
   await signInDialog(d);
   await d.locator('[data-testid="sign-outcome"][data-state="signed"]').waitFor({ timeout: 30000 });
   const by = {};
-  for (const [k, pid] of [["panel", P.P1], ["home card", P.P2], ["palette", P.P3]]) by[k] = (await decidesAbout(pid)).map((x) => x.by);
-  check(JSON.stringify(by) === JSON.stringify({ panel: ["qa-decider-claims"], "home card": ["qa-decider-claims"], palette: ["qa-decider-claims"] }), "each path signed one decides with the person key", { panel: ["qa-decider-claims"], "home card": ["qa-decider-claims"], palette: ["qa-decider-claims"] }, by);
+  for (const [k, pid] of [["panel", P.P1], ["home card", P.P2], ["palette", P.P3]]) by[k] = (await decidesAbout(pid)).map((x) => x.s);
+  const want = { panel: [PERSON], "home card": [PERSON], palette: [PERSON] };
+  check(JSON.stringify(by) === JSON.stringify(want), "each path signed one decides with the person key (by key id)", want, by);
   await clearToasts();
 });
 
-await step("S4", 5, "a decides signed by an agent key does not count: the proposal stays open, the claim shows as a record", async () => {
+await step("S4", 5, "decides by agent keys do not count, nor does one by a key with the person's label in tier agent; a tampered decides.rq in the checkout changes nothing", async () => {
   const dec = await decidesAbout(P.P4);
-  check(dec.length === 1 && dec[0].by === "qa-decider-agent-claims", "the seeded agent-key decides exists", [{ by: "qa-decider-agent-claims" }], dec.map(({ by }) => ({ by })));
+  const seen = dec.map(({ s, by }) => ({ s, by })).sort((a, b) => a.by.localeCompare(b.by));
+  check(dec.length === 2 && dec.every((d) => d.s !== PERSON) && dec.some((d) => d.s === LOOKALIKE && d.by === "qa-decider-claims"),
+    "the seed: an agent key's decides, and the look-alike's (label qa-decider-claims, another key id)", "2, neither by the person key id", seen);
   await row("Decided by an agent key only").waitFor({ timeout: 15000 });
   await row("Decided by an agent key only").click();
   const f = await frameWith("An agent signed a decides here.");
-  const rec = await f.locator('[data-testid="agent-record"]').textContent();
-  check(/qa-decider-agent-claims \(agent\)/.test(rec) && /Not a decision/.test(rec), "shown as a record by an agent", "Recorded by qa-decider-agent-claims (agent) … Not a decision", rec);
+  const recs = (await f.locator('[data-testid="agent-record"]').allTextContents()).sort();
+  check(recs.length === 2 && recs.every((r) => /\(agent\)/.test(r) && /Not a decision/.test(r)) && recs.some((r) => /Recorded by qa-decider-claims \(agent\)/.test(r)),
+    "both shown as records, the look-alike too (Q2)", "2 records, one 'Recorded by qa-decider-claims (agent)'", recs);
   await shot("s4-agent-record");
+  // Q1: the checkout's query folder gets a decides.rq and answers.rq that would close P4 and every request
+  const inboxBefore = await row("Inbox").textContent();
+  writeFileSync(`${WORK}/queries/decides.rq`, `PREFIX nk: <https://kton.dev/v/>\nPREFIX lab: <https://kton.dev/v/lab/>\nSELECT ?d ?answers ?outcome ?s ?by ?byTier WHERE { ?d lab:answers ?answers ; lab:outcome ?outcome ; nk:signer ?s . BIND("self" AS ?byTier) BIND("qa-decider-claims" AS ?by) }\n`);
+  writeFileSync(`${WORK}/queries/answers.rq`, `PREFIX nk: <https://kton.dev/v/>\nSELECT ?d ?answers ?outcome WHERE { ?answers nk:predicate ?p . BIND(?answers AS ?d) BIND("x" AS ?outcome) }\n`);
+  rebuild(); // the folder is read when the window is built
+  await page.waitForTimeout(8000); // several polls of the rebuilt window
+  await row("Decided by an agent key only").waitFor({ timeout: 5000 });
+  check((await row("Inbox").textContent()) === inboxBefore, "the inbox is unchanged", inboxBefore, await row("Inbox").textContent());
+  await shot("s4-tampered-queries-ignored");
 });
 
 await step("S1", 3, "a claim by a key outside the trust config is never shown by name", async () => {
@@ -497,7 +514,7 @@ await step("S7", 2, "ask answers non-JSON: an error, and the last good data stay
   check((await rowCount("Stale: the last poll failed")) === 0, "fresh again after a good poll");
 });
 
-const p4Person = async () => (await decidesAbout(P.P4)).filter((d) => d.by === "qa-decider-claims");
+const p4Person = async () => (await decidesAbout(P.P4)).filter((d) => d.s === PERSON);
 
 await step("S7", 5, "say refused (exit 2, JSON refusal): Not signed with the reason; no claim", async () => {
   faults("say-refuse");

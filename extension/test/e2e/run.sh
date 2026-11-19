@@ -40,7 +40,8 @@ DOCKER_MOUNT="-v $WORK/bin/docker:/usr/local/bin/docker:ro"
 
 echo "== seed"
 docker run --rm -u "$UIDGID" -v "$WORK:$WORK" -v "$HERE/seed.sh:/seed.sh:ro" \
-  -v "$COCKPIT:/usr/local/bin/cockpit:ro" -v "$VOCAB:/vocab:ro" "$NODE_IMAGE" sh /seed.sh "$WORK" /vocab
+  -v "$COCKPIT:/usr/local/bin/cockpit:ro" -v "$VOCAB:/vocab:ro" -v "$HERE/vocabulary-package:/vocab-package:ro" \
+  "$NODE_IMAGE" sh /seed.sh "$WORK" /vocab /vocab-package
 
 # S7: one stand-in that answers through the real cockpit unless $WORK/faults/mode says otherwise.
 # Listings (say --json) always pass through: the shell keeps reading its templates.
@@ -61,6 +62,8 @@ EOF
 chmod +x "$WORK/bin/cockpit-faults"
 echo normal > "$WORK/faults/mode"
 
+# No person tiers: the window's person is recognised only by its key id (from qa-decider-claims.pub,
+# checked against doctor), so every decision step depends on it, never on a tier or a label.
 cat > "$WORK/cs/data/User/settings.json" <<EOF
 {
   "kton.cockpit.path": "$WORK/bin/cockpit-faults",
@@ -68,7 +71,7 @@ cat > "$WORK/cs/data/User/settings.json" <<EOF
   "kton.queries.dir": "$WORK/queries",
   "kton.identity.personKey": "qa-decider",
   "kton.identity.agentKey": "qa-decider-agent",
-  "kton.identity.personTiers": ["self"],
+  "kton.identity.personTiers": [],
   "kton.poll.seconds": 2,
   "kton.surfaces.file": "$WORK/surfaces.json",
   "security.workspace.trust.enabled": false,

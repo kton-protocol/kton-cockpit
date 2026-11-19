@@ -1,13 +1,15 @@
 #!/bin/sh
 # Build a throwaway registry for the shell's e2e flows. Runs INSIDE a container. Arguments: the work
-# dir (absolute; mounted at the same path everywhere) and the vocabulary folder (read only). The cockpit
-# binary is /usr/local/bin/cockpit (mounted read only).
+# dir (absolute; mounted at the same path everywhere), the vocabulary folder and the vocabulary package
+# (both read only). The cockpit binary is /usr/local/bin/cockpit (mounted read only).
 #
 # Test identities are generated here, under $E2E/home, and discarded with the dir: never a person's keys,
 # never a real registry. qa-decider is the window's person key, qa-decider-agent its agent key (in a
-# trust tier of its own, "agent"), qa-requestor a second person.
+# trust tier of its own, "agent"), qa-requestor a second person. qa-lookalike is a different key whose
+# public files sit in tier "agent" under the person key's names (qa-decider-claims.pub): its label is
+# the person's, its key id is not (review check 7, Q2).
 set -eu
-E2E="$1"; VOCAB="$2"
+E2E="$1"; VOCAB="$2"; PACKAGE="$3"
 export HOME="$E2E/home"
 mkdir -p "$HOME" "$E2E/repo" "$E2E/queries"
 cp "$VOCAB"/queries/*.rq "$E2E/queries/"
@@ -30,6 +32,7 @@ fs.writeFileSync(p,JSON.stringify(c,null,2));'
 cockpit keygen qa-decider >/dev/null
 cockpit keygen qa-decider-agent >/dev/null
 cockpit keygen qa-requestor >/dev/null
+cockpit keygen qa-lookalike >/dev/null
 # the agent key in a tier of its own: a decides it signs is a record, never a decision (review check 7)
 mkdir -p .kton/keys/agent
 for f in .kton/keys/self/qa-decider-agent*.pub; do mv "$f" .kton/keys/agent/; done
@@ -39,6 +42,8 @@ const p=".kton/cockpit.config.json";const c=JSON.parse(fs.readFileSync(p));
 c.trust=Object.assign(c.trust||{},{tiers:["self","agent"]});fs.writeFileSync(p,JSON.stringify(c,null,2));
 const i=".kton/local/identity.json";const id=JSON.parse(fs.readFileSync(i));
 id.keyring=process.env.HOME+"/.kton-keys";fs.writeFileSync(i,JSON.stringify(id,null,2));'
+# decides and answers come by name from an admitted package, never from the checkout (review check 7, Q1)
+cockpit install "$PACKAGE" --allow --json >/dev/null
 SEED=$(cockpit scope seed lanes 2>&1 | sed -n 's/.*"lanes": "\(sha256:[0-9a-f]*\)".*/\1/p')
 [ -n "$SEED" ] || { echo "seed failed" >&2; exit 1; }
 node -e '
@@ -62,12 +67,23 @@ P3=$(say proposes "$SEED" area=qa title="Which release name?" text="Two names ar
 P4=$(say proposes "$SEED" area=qa title="Decided by an agent key only" text="An agent signed a decides here." why="e2e seed" \
   options='[{"id":"a","label":"Yes"},{"id":"b","label":"No"}]' --as qa-requestor)
 say decides "$P4" answers="$P4" outcome=https://schema.org/AcceptAction choice=a --as qa-decider-agent >/dev/null
+say decides "$P4" answers="$P4" outcome=https://schema.org/RejectAction choice=b --as qa-lookalike >/dev/null
+# the look-alike's public keys go to tier agent under the person key's file names
+mv .kton/keys/self/qa-lookalike-claims.pub .kton/keys/agent/qa-decider-claims.pub
+mv .kton/keys/self/qa-lookalike.pub .kton/keys/agent/qa-decider.pub
+# key ids, for the registry checks: the person's from doctor (derived from the private seed), checked
+# against its public key; the look-alike's from its public key
+kid() { node -e 'const c=require("crypto");const h=require("fs").readFileSync(process.argv[1],"utf8").trim();console.log(c.createHash("sha256").update(Buffer.from(h,"hex")).digest("hex").slice(0,16))' "$1"; }
+PKID=$(cockpit doctor --json | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s).fields.identity.nektonKeyId))')
+[ "$PKID" = "$(kid "$HOME/.kton-keys/qa-decider-claims.pub")" ] || { echo "doctor's key id is not qa-decider-claims.pub's" >&2; exit 1; }
+LKID=$(kid "$HOME/.kton-keys/qa-lookalike-claims.pub")
 cat > "$E2E/surfaces.json" <<EOF
 {"_doc": "throwaway surfaces for the e2e (workgroup format)",
  "core": {"lanes": {"qa-lane":  {"lane": "active/qa-lane"}},  "folder": "$E2E/surfaces/core"},
  "ops":  {"lanes": {"ops-lane": {"lane": "active/ops-lane"}}}}
 EOF
 cat > "$E2E/seed.json" <<EOF
-{"scope": "$SEED", "requests": ["$R1", "$R2"], "announce": "$ANN", "proposals": {"P1": "$P1", "P2": "$P2", "P3": "$P3", "P4": "$P4"}}
+{"scope": "$SEED", "requests": ["$R1", "$R2"], "announce": "$ANN", "proposals": {"P1": "$P1", "P2": "$P2", "P3": "$P3", "P4": "$P4"},
+ "personKeyId": "$PKID", "lookalikeKeyId": "$LKID"}
 EOF
 echo "seeded: scope $SEED"

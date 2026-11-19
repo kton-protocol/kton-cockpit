@@ -1,10 +1,11 @@
-# Closing claims (done): what they answer and how, with the signer's label and tier.
+# Closing claims (done): what they answer and how, with the signer's IRI, label and tier. Asked BY
+# NAME from the admitted package.
 PREFIX nk:   <https://kton.dev/v/>
 PREFIX t:    <https://example.org/workbench-e2e/>
 PREFIX lab:  <https://kton.dev/v/lab/>
 PREFIX dct:  <http://purl.org/dc/terms/>
 PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
-SELECT ?d ?answers ?outcome ?text ?by ?byTier ?when WHERE {
+SELECT ?d ?answers ?outcome ?text ?s ?by ?byTier ?when WHERE {
   ?d nk:predicate t:done ; lab:outcome ?outcome ; nk:signer ?s ; dct:created ?when .
   OPTIONAL { ?d lab:answers ?answers }
   OPTIONAL { ?d lab:text ?text }

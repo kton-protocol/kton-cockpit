@@ -2,7 +2,8 @@
 // schema, and so does the run.json of the last e2e run if there is one (RUN_JSON=<path> to point at it).
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { createRequire } from "node:module";
 
@@ -49,4 +50,17 @@ test("run record: the last e2e run's out/run.json validates (when there is one)"
   const validate = validator();
   const rec = JSON.parse(readFileSync(file, "utf8")) as unknown;
   assert.ok(validate(rec), JSON.stringify(validate.errors));
+});
+
+test("e2e vocabulary package: it brings exactly the queries in vocabulary/package-queries, byte for byte", () => {
+  const e2e = join(process.cwd(), "test", "e2e");
+  const src = readdirSync(join(e2e, "vocabulary", "package-queries")).filter((f) => f.endsWith(".rq")).sort();
+  assert.deepEqual(src, ["answers.rq", "decides.rq"]);
+  const blobs = readdirSync(join(e2e, "vocabulary-package", "blobs")).flatMap((d) => readdirSync(join(e2e, "vocabulary-package", "blobs", d))).sort();
+  const want = src.map((f) => createHash("sha256").update(readFileSync(join(e2e, "vocabulary", "package-queries", f))).digest("hex")).sort();
+  assert.deepEqual(blobs, want, "rebuild the package: test/e2e/build-vocabulary-package.sh");
+  // and the checkout's query folder of the e2e carries no decision query
+  assert.ok(!readdirSync(join(e2e, "vocabulary", "queries")).some((f) => /^(decides|answers)\.rq$/.test(f)));
+  // a package never carries a private key
+  assert.deepEqual(readdirSync(join(e2e, "vocabulary-package", "keys")).filter((f) => !f.endsWith(".pub")), []);
 });
