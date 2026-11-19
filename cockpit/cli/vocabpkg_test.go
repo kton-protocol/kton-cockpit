@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -181,6 +182,59 @@ func TestVocabulary_QualifiedNamesCannotBeSpoofed(t *testing.T) {
 	for _, tm := range []string{"decides", "records"} {
 		if err := say(tm); err != nil {
 			t.Errorf("say %s with area@v1 and area@v2 installed: %v", tm, err)
+		}
+	}
+}
+
+// The listing says what say signs with, by the name say takes (kton-review N3 on #180): a template name
+// two packages bring is listed only qualified, and a package template left out because an earlier one
+// declares its predicate is not listed at all.
+func TestSay_TheListingIsWhatSayOffers(t *testing.T) {
+	r := testrepo.New(t)
+	r.Use(t)
+	ctx := context.Background()
+	c := cockpit.New(cockpit.Start{})
+	pkg := func(name string, templates map[string]string) {
+		src := t.TempDir()
+		os.MkdirAll(filepath.Join(src, "templates"), 0o755)
+		for tm, pred := range templates {
+			os.WriteFile(filepath.Join(src, "templates", tm+".json"), []byte(`{"name": "`+tm+`", "target": "either",
+  "predicate": "`+pred+`", "fields": {"note": {"type": "string"}}}`), 0o644)
+		}
+		_, key, _ := ed25519.GenerateKey(rand.Reader)
+		dir := filepath.Join(t.TempDir(), name)
+		if _, _, err := scope.BuildTemplates(dir, name, "v1", filepath.Join(src, "templates"), "", key, scope.Options{}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := c.Install(ctx, cockpit.InstallRequest{Path: dir, Allow: true}); err != nil {
+			t.Fatalf("install %s: %v", name, err)
+		}
+	}
+	pkg("area-one", map[string]string{"approves": "https://example.org/one/approves", "deviation": "https://example.org/one/deviation"})
+	pkg("area-two", map[string]string{"approves": "https://example.org/two/approves", "same": "https://example.org/one/deviation"})
+
+	stdout, _, _ := r.CockpitSplit(t, "say", "--json")
+	var ts []Template
+	if json.Unmarshal([]byte(stdout), &ts) != nil {
+		t.Fatalf("say --json: %s", stdout)
+	}
+	listed := map[string]string{}
+	for _, x := range ts {
+		listed[x.Name] = x.Predicate
+	}
+	for _, want := range []string{"area-one/approves", "area-two/approves", "deviation"} {
+		if _, ok := listed[want]; !ok {
+			t.Errorf("%s is not listed: %v", want, listed)
+		}
+	}
+	for _, not := range []string{"approves", "same"} {
+		if _, ok := listed[not]; ok {
+			t.Errorf("%s is listed though say does not offer it: %v", not, listed)
+		}
+	}
+	for _, name := range []string{"area-one/approves", "area-two/approves", "deviation"} {
+		if out, code := r.Cockpit(t, "say", name, "urn:example:item", "note=x"); code != 0 {
+			t.Errorf("listed %s, but say refuses it (exit %d):\n%s", name, code, out)
 		}
 	}
 }
