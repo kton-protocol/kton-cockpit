@@ -60,7 +60,20 @@ func readiness(ctx context.Context, cfg *config.Config) []nextStep {
 		}
 	}
 
+	// A template say serves: the repository's own, or one an admitted package brings (SPEC §9.11).
+	// When that set cannot be read, say refuses every template, so doctor says that once rather than
+	// name a missing file per template (kton-review N1 on #180).
+	offered, offeredErr := binaries.New(cfg).Templates()
+	if offeredErr != nil && len(cfg.Raw.Claims.AllowedTemplates) > 0 {
+		steps = append(steps, nextStep{false, fmt.Sprintf("`say` will refuse every template: the vocabulary cannot be read (%v)", offeredErr)})
+	}
 	for _, t := range cfg.Raw.Claims.AllowedTemplates {
+		if offeredErr != nil {
+			break
+		}
+		if _, ok := offered.Get(t); ok {
+			continue
+		}
 		if _, err := os.Stat(filepath.Join(cfg.TemplatesDir, t+".json")); err != nil {
 			steps = append(steps, nextStep{false, fmt.Sprintf("`say` with template %s will be refused: no %s/%s.json",
 				t, rel(cfg.RepoRoot, cfg.TemplatesDir), t)})
