@@ -144,6 +144,43 @@ type Vocabulary struct {
 	Clashes []string
 }
 
+// contains reports whether in's package chain holds the revision id.
+func contains(in Installed, rev string) bool {
+	revs, err := in.Package.Revisions()
+	if err != nil {
+		return false
+	}
+	for _, r := range revs {
+		if r.ID == rev {
+			return true
+		}
+	}
+	return false
+}
+
+// declaredNameProblem says why a package's templates cannot be offered: one declaring a name other
+// than the one it is filed under, or a name with '/'.
+func declaredNameProblem(ts map[string][]byte) string {
+	names := make([]string, 0, len(ts))
+	for n := range ts {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	for _, file := range names {
+		var t struct {
+			Name string `json:"name"`
+		}
+		_ = json.Unmarshal(ts[file], &t)
+		switch {
+		case strings.Contains(file, "/") || strings.Contains(t.Name, "/"):
+			return fmt.Sprintf("its template %q declares a name with '/', which is the cockpit's qualified form", file)
+		case t.Name != "" && t.Name != file:
+			return fmt.Sprintf("its template %s declares the name %q: a template declares the name it is filed under", file, t.Name)
+		}
+	}
+	return ""
+}
+
 // Refused is an admitted package that contributes nothing, and why.
 type Refused struct {
 	Source
@@ -210,17 +247,69 @@ func Allowed(repoRoot string, allowed, modules []string) (*Vocabulary, error) {
 	}{}
 	var broken []string
 	seen := map[string]bool{}
+	// The admitted, readable installations, then: one per package id, the latest revision (an
+	// installation of the same package whose revision the other's chain contains is older; two whose
+	// chains do not meet are both refused; kton-review V3 on #162); and one per package name, since
+	// the name qualifies a clashing word: two admitted packages of one name are both refused, so a
+	// qualified name can never mean another key's package (kton-review V1 on #162).
+	var admitted []Installed
 	for _, e := range entries {
 		if e.Err != nil {
 			broken = append(broken, e.Dir+": "+e.Err.Error())
 			continue
 		}
-		in := e.Installed
-		if !ok[in.Package.ID] {
+		if ok[e.Package.ID] {
+			seen[e.Package.ID] = true
+			admitted = append(admitted, e.Installed)
+		}
+	}
+	source := func(in Installed) Source { return Source{Package: in.Package.ID, Name: in.Package.Name, Dir: in.Dir} }
+	byID := map[string][]Installed{}
+	for _, in := range admitted {
+		byID[in.Package.ID] = append(byID[in.Package.ID], in)
+	}
+	var latest []Installed
+	for _, ins := range byID {
+		best, ambiguous := ins[0], false
+		for _, in := range ins[1:] {
+			switch {
+			case contains(in, best.Revision.ID):
+				best = in
+			case contains(best, in.Revision.ID):
+			default:
+				ambiguous = true
+			}
+		}
+		if ambiguous {
+			for _, in := range ins {
+				v.Refused = append(v.Refused, Refused{Source: source(in), Reason: "installed more than once, as revisions neither of which follows the other"})
+			}
 			continue
 		}
-		seen[in.Package.ID] = true
-		src := Source{Package: in.Package.ID, Name: in.Package.Name, Dir: in.Dir}
+		latest = append(latest, best)
+	}
+	byName := map[string][]Installed{}
+	for _, in := range latest {
+		byName[in.Package.Name] = append(byName[in.Package.Name], in)
+	}
+	var usable []Installed
+	for name, ins := range byName {
+		if len(ins) == 1 {
+			usable = append(usable, ins[0])
+			continue
+		}
+		var dirs []string
+		for _, in := range ins {
+			dirs = append(dirs, in.Dir)
+		}
+		sort.Strings(dirs)
+		for _, in := range ins {
+			v.Refused = append(v.Refused, Refused{Source: source(in), Reason: fmt.Sprintf("two admitted packages are named %s (%s): a name must say which package it is", name, strings.Join(dirs, ", "))})
+		}
+	}
+	sort.Slice(usable, func(i, j int) bool { return usable[i].Dir < usable[j].Dir })
+	for _, in := range usable {
+		src := source(in)
 		refuse := func(reason string) { v.Refused = append(v.Refused, Refused{Source: src, Reason: reason}) }
 		if probs := in.Package.Verify(); len(probs) > 0 {
 			refuse("fails its check: " + probs[0])
@@ -229,6 +318,13 @@ func Allowed(repoRoot string, allowed, modules []string) (*Vocabulary, error) {
 		ts, err := in.Revision.Templates()
 		if err != nil {
 			refuse(err.Error())
+			continue
+		}
+		// A template declares the name it is filed under, and no '/': the qualified form is the
+		// cockpit's to give, and a declared one would make the kernel's set refuse every say
+		// (kton-review V2 on #162).
+		if why := declaredNameProblem(ts); why != "" {
+			refuse(why)
 			continue
 		}
 		qs, err := in.Revision.Queries()
