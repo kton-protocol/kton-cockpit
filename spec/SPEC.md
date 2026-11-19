@@ -272,15 +272,25 @@ that is admitted (`allowed`) but fails its check (`refused` not empty) contribut
 vocabulary of the admitted packages is refused while it fails, and a broken package directory that
 is not admitted takes nothing away from the others.
 
+A frontend may use exactly the packages the vocabulary uses: admitted, the latest installed revision
+of each package, one package per name, passing its check. An admitted package that is not one of them
+is listed with `refused` `package.unusable` and why. A package whose member names a path that leaves
+its folder (a `..` segment, an absolute or drive path, a backslash) fails its check, whatever signed it,
+and install refuses it.
+
 For a package a frontend may use, `ui list` also lists its `members` (the sealed revision's parts, each
 `{role, name, hash}`), gives each composition its `hash`, and names a `ui` entry by its path
-(`ui/<name>.json`). `ui cat <package> <hash>` writes a member's bytes to stdout; it MUST refuse a hash
-that is not a member of that package's sealed revision, and a package that is not admitted or fails
-its check, so a frontend never reads a package folder.
+(`ui/<name>.json`). `ui cat <package> <hash>` writes a member's bytes to stdout; `ui cat <package>
+<hash>... --json` gives several in one call, `{package, name, dir, members: [{hash, bytes}]}` with the
+bytes base64, in the order asked. It MUST refuse a hash that is not a member of that package's sealed
+revision (the whole call, with nothing else written), a package a frontend may not use, and a reference
+that names two packages, so a frontend never reads a package folder.
 
 > **Checked by:** `TestUIList_ListsInstalledPackagesWithWhatFailsTheirCheck`,
 > `TestUIList_ListsAVerticlesUIBlocksAndCompositions`, `TestAllowed_ABrokenUnadmittedPackageTakesNothingAway`,
-> `TestUICat_ServesAMembersBytesAndNothingElse`.
+> `TestUICat_ServesAMembersBytesAndNothingElse`, `TestUICat_OnlyUsablePackagesAndByNameDirOrID`,
+> `TestUICat_AReferenceNamingTwoPackagesIsRefused`, `TestUICat_SeveralMembersInOneCall`,
+> `TestUIList_MembersOnlyForUsablePackages`, `TestUIList_APackageWithAClimbingMemberNameIsRefused`.
 
 ### 6.1 Which kernel
 

@@ -70,6 +70,21 @@ func uiListing(cfg *config.Config) (UIListing, error) {
 	for _, id := range cfg.Raw.Claims.AllowedPackages {
 		admitted[id] = true
 	}
+	// The packages a frontend may use are the vocabulary's: admitted, the latest revision of each id,
+	// one per name, passing its check; ui cat serves only those, so ui list lists members only for those.
+	usable, unusable, err := packages.Usable(cfg.RepoRoot, cfg.Raw.Claims.AllowedPackages)
+	if err != nil {
+		return out, err
+	}
+	isUsable, whyNot := map[string]bool{}, map[string]string{}
+	for _, in := range usable {
+		isUsable[in.Dir] = true
+	}
+	for _, r := range unusable {
+		if r.Dir != "" && whyNot[r.Dir] == "" {
+			whyNot[r.Dir] = r.Reason
+		}
+	}
 	for _, e := range entries {
 		p := UIPackage{Dir: e.Dir, Refused: []UIRefusal{}}
 		if e.Err != nil {
@@ -82,6 +97,13 @@ func uiListing(cfg *config.Config) (UIListing, error) {
 		p.Allowed = admitted[e.Package.ID]
 		for _, why := range e.Package.Verify() {
 			p.Refused = append(p.Refused, UIRefusal{Code: "package.check", Reason: why})
+		}
+		if p.Allowed && len(p.Refused) == 0 && !isUsable[e.Dir] {
+			why := whyNot[e.Dir]
+			if why == "" {
+				why = "not usable"
+			}
+			p.Refused = append(p.Refused, UIRefusal{Code: "package.unusable", Reason: why})
 		}
 		r := e.Revision
 		var errs []error
@@ -153,11 +175,23 @@ func declared[T any](m map[string]T, key string, err error) []map[string]any {
 }
 
 func runUI(ctx context.Context, args []string) error {
-	if len(args) == 3 && args[0] == "cat" {
-		return uiCat(ctx, args[1], args[2])
+	if len(args) >= 3 && args[0] == "cat" {
+		var hashes []string
+		asJSON := false
+		for _, a := range args[2:] {
+			if a == "--json" {
+				asJSON = true
+				continue
+			}
+			hashes = append(hashes, a)
+		}
+		if len(hashes) == 0 || (len(hashes) > 1 && !asJSON) {
+			return fmt.Errorf("usage: cockpit ui cat <package> <sha256:hash> | cockpit ui cat <package> <sha256:hash>... --json")
+		}
+		return uiCat(ctx, args[1], hashes, asJSON)
 	}
 	if len(args) == 0 || args[0] != "list" {
-		return fmt.Errorf("usage: cockpit ui list [--json] | cockpit ui cat <package> <sha256:hash>")
+		return fmt.Errorf("usage: cockpit ui list [--json] | cockpit ui cat <package> <sha256:hash>... [--json]")
 	}
 	cfg, err := config.Load(ctx, ".")
 	if err != nil {
@@ -194,7 +228,22 @@ func runUI(ctx context.Context, args []string) error {
 // second installed revision of the same name does not stand in the way, and an unusable one is
 // refused explicitly (kton-review U3, T7 on #170). The package is named by its name, its dir or its
 // id. The bytes come through ktonpkg's MemberBytes, which checks membership and refuses records.
-func uiCat(ctx context.Context, ref, hash string) error {
+// UICatMember is one member in ui cat --json: its hash and its bytes, base64 (standard encoding).
+type UICatMember struct {
+	Hash  string `json:"hash"`
+	Bytes []byte `json:"bytes"`
+}
+
+// UICat is ui cat --json: the package the reference named, and the members asked for, in the order
+// asked. Every hash is read before anything is written: one that is not a member refuses the call.
+type UICat struct {
+	Package string        `json:"package"`
+	Name    string        `json:"name"`
+	Dir     string        `json:"dir"`
+	Members []UICatMember `json:"members"`
+}
+
+func uiCat(ctx context.Context, ref string, hashes []string, asJSON bool) error {
 	cfg, err := config.Load(ctx, ".")
 	if err != nil {
 		return err
@@ -218,10 +267,17 @@ func uiCat(ctx context.Context, ref, hash string) error {
 	if pkg == nil {
 		return &cockpit.Refusal{Code: "ui.package", Clause: "SPEC §6", Reason: fmt.Sprintf("%q is not a usable installed package (admitted and passing its check): ui list says why", ref)}
 	}
-	b, err := pkg.Revision.MemberBytes(hash)
-	if err != nil {
-		return &cockpit.Refusal{Code: "ui.member", Clause: "SPEC §6", Reason: fmt.Sprintf("%s of %s: %v", hash, pkg.Package.Name, err)}
+	out := UICat{Package: pkg.Package.ID, Name: pkg.Package.Name, Dir: pkg.Dir, Members: []UICatMember{}}
+	for _, hash := range hashes {
+		b, err := pkg.Revision.MemberBytes(hash)
+		if err != nil {
+			return &cockpit.Refusal{Code: "ui.member", Clause: "SPEC §6", Reason: fmt.Sprintf("%s of %s: %v", hash, pkg.Package.Name, err)}
+		}
+		out.Members = append(out.Members, UICatMember{Hash: hash, Bytes: b})
 	}
-	_, err = os.Stdout.Write(b)
-	return err
+	if !asJSON {
+		_, err = os.Stdout.Write(out.Members[0].Bytes)
+		return err
+	}
+	return json.NewEncoder(os.Stdout).Encode(out)
 }

@@ -10,6 +10,7 @@ const packageUsage = `  cockpit install <package-dir> [--allow]
   cockpit workflow trace <result>        the steps behind a result, in the order they ran
   cockpit ui list [--json]               the installed packages for a frontend: allowed, and what fails its check
   cockpit ui cat <package> <sha256:hash> a member of a usable package's sealed revision, its bytes on stdout
+  cockpit ui cat <package> <sha256:hash>... --json  several members in one call: {package, name, dir, members: [{hash, bytes (base64)}]}
 
 
 `
