@@ -1,5 +1,39 @@
 # Changelog
 
+## v0.5.5 — 2026-11-19
+
+Package aliases scoped to their own package, several members per `ui cat`, and `say` held to the
+template a person was shown, each reviewed by kton-review. Tracks kton v0.4.0 and ktonpkg v0.9.9.
+
+### Migrating from v0.5.4
+
+- **The repository's alias file is read from `.kton/aliases.json`**, as SPEC has said since v0.5.0.
+  Earlier releases read `aliases.json` at the repository root and silently ignored `.kton/aliases.json`.
+  A repository that keeps it at the root has to move it: until then `say` refuses (`vocabulary`) and
+  `doctor` reports it as blocking.
+
+### Added
+
+- **`say --expect-template`, `--expect-revision`, `--expect-predicate`** (SPEC §8.5): `say` refuses
+  (`template.changed`) when the template it would sign under is not the one a person was shown. The
+  hash covers the template with its predicate and context resolved, and the alias file. `say --json`
+  lists each template's resolved predicate, `context`, `hash` and the package `revision` it comes from.
+- **`ui cat <package> <hash>... --json`** (SPEC §6): several members in one call, as
+  `{package, name, dir, members: [{hash, bytes}]}`; one hash that is not a member refuses the whole call.
+
+### Changed
+
+- **A package's aliases resolve only its own templates** (SPEC §9.11): its terms and prefixes no longer
+  reach the repository's templates or another package's. The view resolves a package's fields through its
+  own aliases first, then the repository's; view version 6.
+- **One predicate, one template**: when two templates resolve to the same predicate, the repository's
+  wins, then packages in `claims.allowedPackages` order; the later one is not offered and `doctor` names
+  the clash. A template whose predicate or context is not an IRI is not offered either.
+- **`ui list` gives members only for usable packages**; an admitted but unusable package carries
+  `members: null`.
+- **ktonpkg v0.9.9**: a member name that climbs out of the package (`..`) is refused when reading and
+  when writing; such a package is not usable.
+
 ## v0.5.4 — 2026-11-19
 
 What the QM Workbench's PR 2 needs to open a composition from a real install, each reviewed by
