@@ -1,0 +1,27 @@
+{
+  "name": "decides",
+  "target": "either",
+  "predicate": "https://example.org/workbench-e2e/decides",
+  "fields": {
+    "answers": {
+      "type": "ref",
+      "required": true
+    },
+    "outcome": {
+      "type": "enum",
+      "required": true,
+      "values": [
+        "https://schema.org/AcceptAction",
+        "https://schema.org/RejectAction"
+      ]
+    },
+    "choice": {
+      "type": "string",
+      "required": false
+    },
+    "text": {
+      "type": "string",
+      "required": false
+    }
+  }
+}

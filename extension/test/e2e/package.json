@@ -1,0 +1,10 @@
+{
+  "name": "kton-workbench-e2e",
+  "private": true,
+  "type": "module",
+  "description": "The e2e runner's own dependencies: Playwright, pinned with a committed lockfile and installed with npm ci.",
+  "license": "Apache-2.0",
+  "dependencies": {
+    "playwright": "1.49.1"
+  }
+}

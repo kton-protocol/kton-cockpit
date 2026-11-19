@@ -1,0 +1,7 @@
+# Lanes and the areas they are responsible for.
+PREFIX nk:   <https://kton.dev/v/>
+PREFIX t:    <https://example.org/workbench-e2e/>
+PREFIX lab:  <https://kton.dev/v/lab/>
+SELECT ?lane ?areas WHERE {
+  ?r nk:predicate t:responsible ; lab:lane ?lane ; lab:areas ?areas .
+} ORDER BY ?lane

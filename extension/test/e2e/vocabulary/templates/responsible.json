@@ -1,0 +1,19 @@
+{
+  "name": "responsible",
+  "target": "either",
+  "predicate": "https://example.org/workbench-e2e/responsible",
+  "fields": {
+    "lane": {
+      "type": "string",
+      "required": true
+    },
+    "areas": {
+      "type": "string",
+      "required": true
+    },
+    "note": {
+      "type": "string",
+      "required": false
+    }
+  }
+}
