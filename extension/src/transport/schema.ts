@@ -22,6 +22,11 @@ export function assertSayResult(v: unknown): SayResult {
   if (!/^sha256:[0-9a-f]{64}$/.test(o["claimId"] as string)) throw new TransportError("say: claimId is not a sha256 id", 0, "");
   str(o, "confirmation", "say", true);
   str(o, "level", "say", true);
+  if (o["pending"] !== undefined) {
+    const pnd = obj(o["pending"], "say pending");
+    str(pnd, "code", "say pending");
+    str(pnd, "reason", "say pending", true);
+  }
   return { confirmation: "", ...o } as unknown as SayResult;
 }
 

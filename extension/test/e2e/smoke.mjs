@@ -565,6 +565,26 @@ await step("S7", 4, "the registry is locked: the retry is shown in the status ba
   await clearToasts();
 });
 
+await step("S7", 8, "say answers pending store.busy: shown as signed, not yet committed; never signed twice", async () => {
+  // A proposal of its own, made now (the seeded ones are decided by this point).
+  const opts = JSON.stringify([{ id: "a", label: "Yes" }, { id: "b", label: "No" }]);
+  const made = await cockpit(["say", "proposes", seed.scope, "area=qa", "title=Signed while the registry was busy", "text=t", "why=e2e S7.8", `options=${opts}`, "--as", "qa-requestor", "--scope", "lanes", "--json"]);
+  check(made.code === 0, "the proposal is made", 0, made.code);
+  const P5 = JSON.parse(made.stdout).claimId;
+  await row("Signed while the registry was busy").waitFor({ timeout: 30000 });
+  faults("say-pending");
+  const d = await chooseOnPanel("Signed while the registry was busy", "a");
+  await signInDialog(d);
+  await d.locator('[data-testid="sign-outcome"][data-state="signed"]').waitFor({ timeout: 30000 });
+  const text = await d.locator('[data-testid="sign-outcome"]').innerText();
+  check(/not yet committed/.test(text), "the outcome says not yet committed", "not yet committed", text);
+  await shot("s7-pending");
+  faults("normal");
+  const dec = (await decidesAbout(P5)).filter((x) => x.s === PERSON);
+  check(dec.length === 1 && dec[0].choice === "a", "exactly one decides by the person key: the pending claim was not signed again", 1, dec.length);
+  await clearToasts();
+});
+
 await browser.close();
 const native = { file: "smoke-results.json", results };
 const nativeText = JSON.stringify(native, null, 2);

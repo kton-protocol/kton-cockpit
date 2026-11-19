@@ -522,7 +522,24 @@ export class Workbench {
     for (let attempt = 1; ; attempt++) {
       try {
         const out = await sign(this.t, p.value, consent);
-        if (!out.ok) return fail(`Not signed: the cockpit refused: ${out.refusal.reason}`);
+        if (!out.ok) {
+          // A refusal store.busy (cockpit v0.5.2) means the registry was busy and NOTHING was signed: retry.
+          if (out.refusal.code === "store.busy" && attempt < this.cfg.lockRetry.attempts) {
+            this.host.setStatus("poll", `registry locked: retrying say (${attempt}/${this.cfg.lockRetry.attempts - 1})`, out.refusal.reason);
+            this.host.log(`registry busy, nothing signed, retry ${attempt}: ${out.refusal.reason}`);
+            await sleep(this.cfg.lockRetry.delayMs);
+            continue;
+          }
+          return fail(`Not signed: the cockpit refused: ${out.refusal.reason}`);
+        }
+        if (out.value.pending) {
+          // Signed and stored, not yet committed: the next write commits it. Never sign it again.
+          const text = `Signed ${out.value.id}, not yet committed (${out.value.pending.reason || out.value.pending.code}); the next write commits it`;
+          if (viaDialog) this.host.signOutcome(true, text);
+          this.host.info(text);
+          this.host.log(`signed, pending ${out.value.pending.code}: ${out.value.id}`);
+          break;
+        }
         if (viaDialog) this.host.signOutcome(true, `Signed ${out.value.id}`);
         this.host.info(`Signed ${out.value.id}`);
         break;
@@ -530,13 +547,8 @@ export class Workbench {
         if (e instanceof TransportTimeout) {
           return fail(`Not signed: ${e.message}. Whether a claim was made is for the registry to say: check it before signing again.`);
         }
-        if (e instanceof TransportError && isLocked(e) && attempt < this.cfg.lockRetry.attempts) {
-          this.host.setStatus("poll", `registry locked: retrying say (${attempt}/${this.cfg.lockRetry.attempts - 1})`, firstLine(e.stderr) || e.message);
-          this.host.log(`registry locked, retry ${attempt}: ${firstLine(e.stderr) || e.message}`);
-          await sleep(this.cfg.lockRetry.delayMs);
-          continue;
-        }
-        return fail(`Not signed: ${describe(e)}`);
+        // Any other error is never retried: the claim may already be signed (kton-review, cockpit v0.5.2).
+        return fail(`Not signed: ${describe(e)}. Whether a claim was made is for the registry to say: check it before signing again.`);
       }
     }
     await this.scheduler.runNow("inbox");
@@ -666,14 +678,6 @@ export function describe(e: unknown): string {
     return e.message;
   }
   return e instanceof Error ? e.message : String(e);
-}
-
-/**
- * Does the cockpit say the registry is locked? On v0.5.0 there is no refusal code for it (asked of
- * kton-cockpit); the shell recognises the words until there is one.
- */
-export function isLocked(e: TransportError): boolean {
-  return /\block(ed)?\b/i.test(`${e.message}\n${e.stderr}`);
 }
 
 function firstLine(s: string): string {
