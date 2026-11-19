@@ -11,6 +11,7 @@ package binaries
 import (
 	"context"
 	"crypto/ed25519"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -48,7 +49,61 @@ type Runner struct {
 	// material of many records opens each once. wrote drops them with the union.
 	ownP *pregistry.Registry
 	ownN *nregistry.Registry
+	// ExpectTemplate and ExpectRevision bind Annotate to the template a caller saw: the sha256 of its
+	// bytes, and the package revision it came from. Checked against the set Annotate signs with, so
+	// nothing can change between the check and the signature (SPEC §8).
+	ExpectTemplate, ExpectRevision, ExpectPredicate string
 }
+
+// TemplatesWithOrigins is TemplatesAndAliases with where each template came from, for a listing a
+// frontend shows before say (SPEC §8.5).
+func (r *Runner) TemplatesWithOrigins() (ntemplate.Set, map[string]TemplateOrigin, error) {
+	set, _, _, origins, err := r.templatesFull()
+	return set, origins, err
+}
+
+// TemplateOrigin is what a template of the set signs and where it came from. Hash is the sha256 of the
+// template as say signs with it: its canonical JSON with predicate and context resolved, followed by
+// the sha256 of the repository's alias file, so a change of either the template or what its words
+// resolve to changes it (kton-review E1 on #178). For a package template, Package and Revision name
+// the sealed revision it came from.
+type TemplateOrigin struct {
+	Hash, Package, Revision string
+	// Problem says why say refuses the template: its predicate or context is no IRI once resolved.
+	Problem string
+}
+
+// MisplacedAliases names an alias file left at the repository root while .kton/aliases.json is absent:
+// the cockpit read it there before v0.5.5 and nekton's CLI defaults to it, so ignoring it silently would
+// sign its CURIEs as written (kton-review M1 on #178). "" when there is none.
+func MisplacedAliases(cfg *config.Config) string {
+	root := filepath.Join(cfg.RepoRoot, "aliases.json")
+	if _, err := os.Stat(root); err != nil {
+		return ""
+	}
+	if _, err := os.Stat(filepath.Join(cfg.KtonDir, "aliases.json")); err == nil {
+		return ""
+	}
+	return fmt.Sprintf("%s is the repository's alias file in the old place: the cockpit reads .kton/aliases.json (SPEC §5.6) since v0.5.5; move it there", root)
+}
+
+// isIRI says whether x is an IRI a predicate or context may be: scheme:// or urn:, tag:, did:, mailto:.
+func isIRI(x string) bool {
+	if strings.Contains(x, "://") {
+		return true
+	}
+	for _, p := range []string{"urn:", "tag:", "did:", "mailto:"} {
+		if strings.HasPrefix(strings.ToLower(x), p) {
+			return true
+		}
+	}
+	return false
+}
+
+// TemplateChanged is Annotate's refusal when the template is not the one the caller expected.
+type TemplateChanged struct{ Reason string }
+
+func (e *TemplateChanged) Error() string { return e.Reason }
 
 func New(cfg *config.Config) *Runner {
 	return &Runner{cfg: cfg, opener: Fresh}
@@ -563,7 +618,7 @@ func errOr(primary, fallback error) error {
 // session can say is decided by files an operator put in `templates/`, not by this function.
 func (r *Runner) Annotate(ctx context.Context, subject, tmplName string, sets map[string]string, signKey string, chain *Chain) (string, error) {
 	defer r.wrote()
-	set, own, clashes, err := r.templatesFull()
+	set, own, clashes, origins, err := r.templatesFull()
 	if err != nil {
 		return "", err
 	}
@@ -577,6 +632,21 @@ func (r *Runner) Annotate(ctx context.Context, subject, tmplName string, sets ma
 			}
 		}
 		return "", fmt.Errorf("no template %q in %s or in an allowed package", tmplName, r.cfg.TemplatesDir)
+	}
+	if p := origins[t.Name].Problem; p != "" {
+		return "", fmt.Errorf("%s", p)
+	}
+	if pred := set.Resolve(t.Predicate); r.ExpectPredicate != "" && pred != r.ExpectPredicate {
+		return "", &TemplateChanged{fmt.Sprintf("the template %q signs the predicate %s, not the %s expected: read it again, then say again", t.Name, pred, r.ExpectPredicate)}
+	}
+	if origin := origins[t.Name]; r.ExpectTemplate != "" && !strings.EqualFold(origin.Hash, r.ExpectTemplate) {
+		return "", &TemplateChanged{fmt.Sprintf("the template %q is %s, not the %s expected: read it again, then say again", t.Name, origin.Hash, r.ExpectTemplate)}
+	} else if r.ExpectRevision != "" && origin.Revision != r.ExpectRevision {
+		from := "the repository's own template directory"
+		if origin.Revision != "" {
+			from = "revision " + origin.Revision
+		}
+		return "", &TemplateChanged{fmt.Sprintf("the template %q comes from %s, not revision %s as expected: read it again, then say again", t.Name, from, r.ExpectRevision)}
 	}
 
 	// A `file` field carries BYTES, not a path: the package never touches a filesystem, so that it
@@ -661,24 +731,27 @@ func (r *Runner) Templates() (ntemplate.Set, error) {
 // aliases resolve only that package's templates: its predicate and context before they reach the set,
 // its fields in the view and its iri values at say. No package alias enters the set (kton-review A1).
 func (r *Runner) TemplatesAndAliases() (ntemplate.Set, map[string]packages.Aliases, error) {
-	set, own, _, err := r.templatesFull()
+	set, own, _, _, err := r.templatesFull()
 	return set, own, err
 }
 
 // TemplateClashes are the package templates left out because an earlier source declares their
 // predicate (SPEC §9.11): for doctor.
 func (r *Runner) TemplateClashes() []string {
-	_, _, clashes, _ := r.templatesFull()
+	_, _, clashes, _, _ := r.templatesFull()
 	return clashes
 }
 
-func (r *Runner) templatesFull() (ntemplate.Set, map[string]packages.Aliases, []string, error) {
-	aliasPath := filepath.Join(r.cfg.RepoRoot, "aliases.json")
+func (r *Runner) templatesFull() (ntemplate.Set, map[string]packages.Aliases, []string, map[string]TemplateOrigin, error) {
+	if why := MisplacedAliases(r.cfg); why != "" {
+		return ntemplate.Set{}, nil, nil, nil, fmt.Errorf("%s", why)
+	}
+	aliasPath := filepath.Join(r.cfg.KtonDir, "aliases.json") // .kton/aliases.json (SPEC §5.6)
 	var aliases []byte
 	if b, err := os.ReadFile(aliasPath); err == nil {
 		aliases = b
 	} else if !os.IsNotExist(err) {
-		return ntemplate.Set{}, nil, nil, fmt.Errorf("alias file %s: %w", aliasPath, err)
+		return ntemplate.Set{}, nil, nil, nil, fmt.Errorf("alias file %s: %w", aliasPath, err)
 	}
 	// Two sources, one set: the repository's own template directory, and the templates the allowed
 	// installed packages bring (claims.allowedPackages). A name declared by both is refused by the
@@ -692,16 +765,16 @@ func (r *Runner) templatesFull() (ntemplate.Set, map[string]packages.Aliases, []
 			}
 			b, err := os.ReadFile(filepath.Join(r.cfg.TemplatesDir, n))
 			if err != nil {
-				return ntemplate.Set{}, nil, nil, err
+				return ntemplate.Set{}, nil, nil, nil, err
 			}
 			raw[strings.TrimSuffix(n, ".json")] = b
 		}
 	} else if !os.IsNotExist(err) {
-		return ntemplate.Set{}, nil, nil, fmt.Errorf("template directory %s: %w", r.cfg.TemplatesDir, err)
+		return ntemplate.Set{}, nil, nil, nil, fmt.Errorf("template directory %s: %w", r.cfg.TemplatesDir, err)
 	}
 	voc, err := packages.Allowed(r.cfg.RepoRoot, r.cfg.Raw.Claims.AllowedPackages, r.cfg.Raw.Claims.AllowedModules)
 	if err != nil {
-		return ntemplate.Set{}, nil, nil, err
+		return ntemplate.Set{}, nil, nil, nil, err
 	}
 	// A package template whose name the repository's own template directory also declares is offered
 	// under its qualified name, <package>/<name>, so the two do not take the whole set down.
@@ -712,6 +785,7 @@ func (r *Runner) templatesFull() (ntemplate.Set, map[string]packages.Aliases, []
 	// the packages in the order they were admitted (claims.allowedPackages), each one's templates by
 	// name; a package template whose predicate an earlier one declares is not offered, and doctor
 	// names it.
+	origins := map[string]TemplateOrigin{}
 	repoOnly, _ := ntemplate.New(raw, aliases)
 	claimed := map[string]string{}
 	for _, n := range repoOnly.Names() {
@@ -743,6 +817,7 @@ func (r *Runner) templatesFull() (ntemplate.Set, map[string]packages.Aliases, []
 	for _, name := range names {
 		b := voc.Templates[name]
 		src := voc.From["template:"+name]
+		origin := TemplateOrigin{Package: src.Package, Revision: src.Revision}
 		al := voc.Aliases[src.Name]
 		b = packages.ResolvedTemplate(b, al)
 		var decl struct {
@@ -761,22 +836,41 @@ func (r *Runner) templatesFull() (ntemplate.Set, map[string]packages.Aliases, []
 			b = packages.Renamed(b, name)
 		}
 		raw["package:"+name] = b
+		origins[name] = origin
 		if !al.Empty() {
 			own[name] = al
 		}
 	}
 	set, err := ntemplate.New(raw, aliases)
 	if err != nil {
-		return ntemplate.Set{}, nil, clashes, err
+		return ntemplate.Set{}, nil, clashes, nil, err
+	}
+	aliasHash := hashOf(aliases)
+	for _, name := range set.Names() {
+		t, _ := set.Get(name)
+		t.Predicate = set.Resolve(t.Predicate)
+		if t.Context != "" {
+			t.Context = set.Resolve(t.Context)
+		}
+		canon, _ := json.Marshal(t)
+		o := origins[name]
+		for _, x := range []struct{ what, v string }{{"predicate", t.Predicate}, {"context", t.Context}} {
+			if x.v != "" && !isIRI(x.v) && o.Problem == "" {
+				o.Problem = fmt.Sprintf("the template %s's %s %s is no IRI: its prefix is declared by no alias file", name, x.what, x.v)
+				clashes = append(clashes, o.Problem)
+			}
+		}
+		o.Hash = hashOf(append(append(canon, '\n'), aliasHash...))
+		origins[name] = o
 	}
 	// Reported rather than absorbed: a file in the template directory that is not a template is
 	// usually a typo'd one, and silence there means a claim shape the operator believes is
 	// configured simply is not.
 	if skipped := set.Skipped(); len(skipped) > 0 {
-		return set, own, clashes, fmt.Errorf("%s holds %d file(s) that are not templates: %s",
+		return set, own, clashes, origins, fmt.Errorf("%s holds %d file(s) that are not templates: %s",
 			r.cfg.TemplatesDir, len(skipped), strings.Join(skipped, ", "))
 	}
-	return set, own, clashes, nil
+	return set, own, clashes, origins, nil
 }
 
 // readRepoFile reads a repo-relative path, refusing anything that leaves the repository or names a
@@ -1483,4 +1577,10 @@ func (r *Runner) OwnHits(actionKey, signKey string) ([]Reused, error) {
 		out = append(out, rec)
 	}
 	return out, nil
+}
+
+// hashOf is the sha256 content hash of b, as ktonpkg names a member.
+func hashOf(b []byte) string {
+	h := sha256.Sum256(b)
+	return "sha256:" + hex.EncodeToString(h[:])
 }

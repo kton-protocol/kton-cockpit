@@ -102,6 +102,9 @@ func readiness(ctx context.Context, cfg *config.Config) []nextStep {
 		}
 	}
 
+	if why := binaries.MisplacedAliases(cfg); why != "" {
+		steps = append(steps, nextStep{true, why})
+	}
 	if !cfg.Raw.Execution.Enabled() {
 		steps = append(steps, nextStep{false, "optional: `cockpit pin <image>` runs every publish in a digest-pinned container, so the environment is observed, not asserted"})
 	}

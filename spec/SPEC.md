@@ -662,6 +662,30 @@ head refuses it, trusted or not. The caller reads what was written and decides.
 > `TestScope_NeitherABranchNorAGapStopsAClaimBeingRecorded`,
 > `TestScope_ExpectHeadAppendsOnlyToTheHeadTheCallerSaw`.
 
+**A caller MAY name the template it showed (`expectTemplate`, `expectRevision`).** `expectTemplate`
+is the `hash` `say --json` lists for the template: the sha256 of the template as `say` signs with it
+(its canonical JSON with predicate and context resolved, followed by the sha256 of
+`.kton/aliases.json`), so a change of the template or of what its words resolve to changes it;
+`expectRevision` is the sealed package revision it came from (`say --json`'s and `ui list`'s
+`revision`).
+`say` refuses `template.changed` when the template it would sign with, read in the same load it signs
+from, is another: so a person's consent to what a frontend showed holds through an upgrade of the
+package between the showing and the signature. A repository template has no revision, so
+`expectRevision` refuses it. `expectPredicate` is the predicate as `say --json` listed it: an alias
+file's change alters what is signed without changing a template's bytes. `say --json` lists each
+template's `predicate` and `context` as `say` will sign them (resolved through the template's package
+aliases and `.kton/aliases.json`), its `hash`, and, for a package template, its `revision`.
+
+> **Checked by:** `TestSay_ExpectTemplateAndRevisionRefuseATemplateThatChanged`, `TestSay_TheListingGivesThePredicateAsSigned`,
+> `TestSay_ExpectTemplateHoldsForAQualifiedTemplate`, `TestSay_TheHashCoversTheAliasFile`.
+
+A template whose predicate or context is no IRI once resolved (a CURIE whose prefix no alias file
+declares) is refused by `say` and named by `doctor`, never signed as written. An `aliases.json` at the
+repository root while `.kton/aliases.json` is absent (where the cockpit read it before v0.5.5, and
+nekton's CLI still defaults) makes `say` and `say --json` refuse and `doctor` name it.
+
+> **Checked by:** `TestSay_AMisplacedAliasFileAndAnUnresolvedPredicateAreRefused`.
+
 **Why refusing was wrong.** An earlier version of this clause refused to write on both conditions.
 Besides contradicting the two clauses above, it was exploitable: a scope id is public and the
 substrate restricts nobody from chaining under it, so one claim from a key in no configured trust
