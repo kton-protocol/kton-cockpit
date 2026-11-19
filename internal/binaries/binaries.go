@@ -744,13 +744,20 @@ func (r *Runner) TemplatesAndAliases() (ntemplate.Set, map[string]packages.Alias
 // packages' bare names, so the refusal that follows says why it is missing.
 func (r *Runner) TemplateAllowed(name string) (bool, error) {
 	set, _, _, origins, err := r.templatesFull()
-	if err == nil {
-		if _, ok := set.Get(name); ok {
-			if origins[name].Package != "" {
-				return true, nil
-			}
-			return r.cfg.AllowsTemplate(name), nil
+	if err != nil {
+		// The set cannot be read, so nothing tells a package's template from the repository's: only a
+		// name the operator configured passes, and the step that reads the set says why it fails;
+		// anything else is refused with that reason (kton-review N4 on #181).
+		if r.cfg.AllowsTemplate(name) {
+			return true, nil
 		}
+		return false, err
+	}
+	if _, ok := set.Get(name); ok {
+		if origins[name].Package != "" {
+			return true, nil
+		}
+		return r.cfg.AllowsTemplate(name), nil
 	}
 	if r.cfg.AllowsTemplate(name) {
 		return true, nil

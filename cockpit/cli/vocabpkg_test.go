@@ -298,4 +298,12 @@ func TestSay_TheCeilingIsByOriginAndTheListingFollowsIt(t *testing.T) {
 	if listed["aliased"] != "https://example.org/release/aliased" {
 		t.Errorf("the listed predicate is not the one say signs (T14): %q", listed["aliased"])
 	}
+
+	// N4: with a file in .kton/templates that is no template, the set cannot be read; the ceiling then
+	// refuses a name the configuration does not name, with that reason, rather than pass it on the
+	// package's bare name.
+	r.Write(t, ".kton/templates/stray.json", `{"not": "a template"}`)
+	if out, code := r.Cockpit(t, "say", "retracts", "urn:example:x", "note=x"); code == 0 || !strings.Contains(out, "not templates") || strings.Contains(out, "finding the claim") {
+		t.Errorf("with an unreadable set, say retracts is not refused for it (exit %d):\n%s", code, out)
+	}
 }
