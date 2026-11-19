@@ -1,5 +1,29 @@
 # Changelog
 
+## v0.5.2 — 2026-11-19
+
+Three needs of the QM Workbench shell (userinterface), and the advisory CI job. Tracks kton v0.4.0
+and ktonpkg v0.8.0. Nothing to migrate from v0.5.1.
+
+### Added
+
+- **`cockpit ui list [--json]`** (SPEC §6): the installed packages for a frontend, each with its
+  name, package id, revision, label, profile, whether the configuration admits it, and what fails its
+  check under `refused` (code `package.check`), listed rather than hidden. A frontend reads what
+  packages declare from here, never from package folders. A package's `ui/`, blocks and compositions
+  follow with ktonpkg v0.9.0. `ui` is a reserved core command name.
+- **Every claim key in `doctor --json`** (SPEC §6): `fields.identity.keys` lists the checkout's own
+  claim key and each key of the keyring, with its key id from the seed, whether the `.pub` beside it
+  matches, and its trust tier.
+
+### Fixed
+
+- **A locked repository is `store.busy`, not `store`** (SPEC §12.1). A write that still meets git's
+  lock after the 30 s wait is refused with its own code, so a caller can try again rather than
+  give up. Every write path: say, publish, install, rays and workflows.
+- **CI against kton main fetches the kton modules from git**, not the module proxy, which kept
+  answering `@main` with the commit before the v0.4.0 release.
+
 ## v0.5.1 — 2026-11-19
 
 A fix found by userinterface on v0.5.0, and the module door of ADR-015. Tracks kton v0.4.0 and
