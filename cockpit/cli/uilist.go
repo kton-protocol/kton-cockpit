@@ -13,7 +13,6 @@ import (
 	"github.com/gitmick/ktonpkg/scope"
 	"github.com/kton-protocol/kton-cockpit/cockpit"
 	"os"
-	"path/filepath"
 	"sort"
 
 	"github.com/kton-protocol/kton-cockpit/internal/config"
@@ -188,48 +187,35 @@ func runUI(ctx context.Context, args []string) error {
 	return nil
 }
 
-// uiCat writes one member of an installed package's sealed revision to stdout, by its hash: the
-// bytes a frontend needs (a composition body, a carried viewer's file) without reading package
-// folders itself (contract C1.5). Only for a package a frontend may use (admitted, passing its
-// check), and only for a hash that is a member of its sealed revision; anything else is refused.
-func uiCat(ctx context.Context, name, hash string) error {
+// uiCat writes one member of a usable package's sealed revision to stdout, by its hash: the bytes a
+// frontend needs (a composition body, a carried viewer's file) without reading package folders
+// itself (contract C1.5). It looks only among the usable packages, as the vocabulary does (admitted,
+// passing its check, the latest revision per package, one per name), so an unadmitted package or a
+// second installed revision of the same name does not stand in the way, and an unusable one is
+// refused explicitly (kton-review U3, T7 on #170). The package is named by its name, its dir or its
+// id. The bytes come through ktonpkg's MemberBytes, which checks membership and refuses records.
+func uiCat(ctx context.Context, ref, hash string) error {
 	cfg, err := config.Load(ctx, ".")
 	if err != nil {
 		return err
 	}
-	l, err := uiListing(cfg)
+	usable, _, err := packages.Usable(cfg.RepoRoot, cfg.Raw.Claims.AllowedPackages)
 	if err != nil {
 		return err
 	}
-	var pkg *UIPackage
-	for i := range l.Packages {
-		if l.Packages[i].Name == name {
-			if pkg != nil {
-				return &cockpit.Refusal{Code: "ui.package", Clause: "SPEC §6", Reason: fmt.Sprintf("two installed packages are named %s; name it by its dir", name)}
-			}
-			pkg = &l.Packages[i]
+	var pkg *packages.Installed
+	for i := range usable {
+		in := &usable[i]
+		if in.Package.Name == ref || in.Dir == ref || in.Package.ID == ref {
+			pkg = in
 		}
 	}
-	switch {
-	case pkg == nil:
-		return &cockpit.Refusal{Code: "ui.package", Clause: "SPEC §6", Reason: fmt.Sprintf("no installed package %q", name)}
-	case pkg.Members == nil:
-		return &cockpit.Refusal{Code: "ui.package", Clause: "SPEC §6", Reason: fmt.Sprintf("%s is not admitted or fails its check: ui list says why", name)}
+	if pkg == nil {
+		return &cockpit.Refusal{Code: "ui.package", Clause: "SPEC §6", Reason: fmt.Sprintf("%q is not a usable installed package (admitted and passing its check): ui list says why", ref)}
 	}
-	member := false
-	for _, m := range pkg.Members {
-		member = member || m.Hash == hash
-	}
-	if !member {
-		return &cockpit.Refusal{Code: "ui.member", Clause: "SPEC §6", Reason: fmt.Sprintf("%s is not a member of %s's sealed revision", hash, name)}
-	}
-	p, err := scope.Open(filepath.Join(cfg.RepoRoot, filepath.FromSlash(pkg.Dir)))
+	b, err := pkg.Revision.MemberBytes(hash)
 	if err != nil {
-		return err
-	}
-	b, err := p.Blob(hash)
-	if err != nil {
-		return err
+		return &cockpit.Refusal{Code: "ui.member", Clause: "SPEC §6", Reason: fmt.Sprintf("%s of %s: %v", hash, pkg.Package.Name, err)}
 	}
 	_, err = os.Stdout.Write(b)
 	return err

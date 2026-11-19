@@ -174,3 +174,96 @@ func TestUICat_ServesAMembersBytesAndNothingElse(t *testing.T) {
 		}
 	}
 }
+
+// ui cat looks only among usable packages: an unadmitted package of the same name does not stand in
+// the way, and the package can be named by dir or id too (kton-review U3 on #170); a package that is
+// installed but not admitted, or whose bytes changed after install, is refused ui.package and has
+// members null in ui list (T7).
+func TestUICat_OnlyUsablePackagesAndByNameDirOrID(t *testing.T) {
+	r := testrepo.New(t)
+	r.Use(t)
+	ctx := context.Background()
+	c := cockpit.New(cockpit.Start{})
+	build := func(name, label string, allow bool, templates map[string]string) string {
+		src := t.TempDir()
+		os.MkdirAll(filepath.Join(src, "templates"), 0o755)
+		for f, b := range templates {
+			os.WriteFile(filepath.Join(src, "templates", f+".json"), []byte(b), 0o644)
+		}
+		_, key, _ := ed25519.GenerateKey(rand.Reader)
+		dir := filepath.Join(t.TempDir(), name+label)
+		if _, _, err := scope.BuildTemplates(dir, name, label, filepath.Join(src, "templates"), "", key, scope.Options{}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := c.Install(ctx, cockpit.InstallRequest{Path: dir, Allow: allow}); err != nil {
+			t.Fatal(err)
+		}
+		return dir
+	}
+	build("words", "v1", true, map[string]string{"notes": tmpl("notes", "https://example.org/notes")})
+	build("words", "v2", false, map[string]string{"other": tmpl("other", "https://example.org/other")}) // same name, not admitted
+	build("plain", "v1", false, map[string]string{"memo": tmpl("memo", "https://example.org/memo")})
+	build("changed", "v1", true, map[string]string{"x": tmpl("x", "https://example.org/x")})
+
+	stdout, _, _ := r.CockpitSplit(t, "ui", "list", "--json")
+	var l struct {
+		Packages []struct {
+			Name    string     `json:"name"`
+			Package string     `json:"package"`
+			Dir     string     `json:"dir"`
+			Allowed bool       `json:"allowed"`
+			Members []UIMember `json:"members"`
+		} `json:"packages"`
+	}
+	if json.Unmarshal([]byte(stdout), &l) != nil {
+		t.Fatalf("ui list --json: %s", stdout)
+	}
+	var words struct{ id, dir, hash string }
+	plainHash := ""
+	for _, p := range l.Packages {
+		switch {
+		case p.Name == "words" && p.Allowed:
+			words.id, words.dir, words.hash = p.Package, p.Dir, p.Members[0].Hash
+		case p.Name == "plain":
+			if p.Members != nil {
+				t.Errorf("an unadmitted package lists members: %+v", p.Members)
+			}
+		}
+	}
+	// The plain package's member hash, read from its own folder, to ask for it by hash.
+	pp, err := scope.Open(filepath.Join(r.Root, ".kton", "packages", "plain@v1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	prev, _, _ := pp.Sealed()
+	if ms, err := prev.Members(); err == nil && len(ms) > 0 {
+		plainHash = ms[0].Hash
+	}
+
+	for _, ref := range []string{"words", words.dir, words.id} {
+		if _, stderr, code := r.CockpitSplit(t, "ui", "cat", ref, words.hash); code != 0 {
+			t.Errorf("ui cat %s: exit %d\n%s", ref, code, stderr)
+		}
+	}
+	if out, code := r.Cockpit(t, "ui", "cat", "plain", plainHash); code != 2 || !strings.Contains(out, "not a usable installed package") {
+		t.Errorf("ui cat of an unadmitted package (exit %d):\n%s", code, out)
+	}
+
+	blobs, _ := filepath.Glob(filepath.Join(r.Root, ".kton", "packages", "changed@v1", "blobs", "*", "*"))
+	cp, _ := scope.Open(filepath.Join(r.Root, ".kton", "packages", "changed@v1"))
+	crev, _, _ := cp.Sealed()
+	cms, _ := crev.Members()
+	for _, b := range blobs {
+		os.WriteFile(b, []byte("tampered"), 0o644)
+	}
+	if out, code := r.Cockpit(t, "ui", "cat", "changed", cms[0].Hash); code != 2 || !strings.Contains(out, "not a usable installed package") {
+		t.Errorf("ui cat of a package changed after install (exit %d):\n%s", code, out)
+	}
+	stdout, _, _ = r.CockpitSplit(t, "ui", "list", "--json")
+	json.Unmarshal([]byte(stdout), &l)
+	for _, p := range l.Packages {
+		if p.Name == "changed" && p.Members != nil {
+			t.Errorf("a package changed after install lists members")
+		}
+	}
+}

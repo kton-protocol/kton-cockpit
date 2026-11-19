@@ -144,6 +144,102 @@ type Vocabulary struct {
 	Clashes []string
 }
 
+// Usable are the admitted installed packages a vocabulary or a frontend may use, and the admitted ones
+// it may not, with why: one per package id, the latest revision (an installation whose revision the
+// other's chain contains is older; two whose chains do not meet are both refused; kton-review V3 on
+// #162); one per package name, since the name qualifies a clashing word (two admitted packages of one
+// name are both refused; V1); and each passing its check. A broken directory nobody admitted takes
+// nothing away (U2 on #152); an admitted package missing while some directory is broken may be that
+// package, so it is refused and names them.
+func Usable(repoRoot string, allowed []string) (usable []Installed, refused []Refused, err error) {
+	ok := map[string]bool{}
+	for _, id := range allowed {
+		ok[id] = true
+	}
+	entries, err := ListEach(repoRoot)
+	if err != nil {
+		return nil, nil, err
+	}
+	var broken []string
+	seen := map[string]bool{}
+	// The admitted, readable installations, then: one per package id, the latest revision (an
+	// installation of the same package whose revision the other's chain contains is older; two whose
+	// chains do not meet are both refused; kton-review V3 on #162); and one per package name, since
+	// the name qualifies a clashing word: two admitted packages of one name are both refused, so a
+	// qualified name can never mean another key's package (kton-review V1 on #162).
+	var admitted []Installed
+	for _, e := range entries {
+		if e.Err != nil {
+			broken = append(broken, e.Dir+": "+e.Err.Error())
+			continue
+		}
+		if ok[e.Package.ID] {
+			seen[e.Package.ID] = true
+			admitted = append(admitted, e.Installed)
+		}
+	}
+	source := func(in Installed) Source { return Source{Package: in.Package.ID, Name: in.Package.Name, Dir: in.Dir} }
+	byID := map[string][]Installed{}
+	for _, in := range admitted {
+		byID[in.Package.ID] = append(byID[in.Package.ID], in)
+	}
+	var latest []Installed
+	for _, ins := range byID {
+		best, ambiguous := ins[0], false
+		for _, in := range ins[1:] {
+			switch {
+			case contains(in, best.Revision.ID):
+				best = in
+			case contains(best, in.Revision.ID):
+			default:
+				ambiguous = true
+			}
+		}
+		if ambiguous {
+			for _, in := range ins {
+				refused = append(refused, Refused{Source: source(in), Reason: "installed more than once, as revisions neither of which follows the other"})
+			}
+			continue
+		}
+		latest = append(latest, best)
+	}
+	byName := map[string][]Installed{}
+	for _, in := range latest {
+		byName[in.Package.Name] = append(byName[in.Package.Name], in)
+	}
+	for name, ins := range byName {
+		if len(ins) == 1 {
+			usable = append(usable, ins[0])
+			continue
+		}
+		var dirs []string
+		for _, in := range ins {
+			dirs = append(dirs, in.Dir)
+		}
+		sort.Strings(dirs)
+		for _, in := range ins {
+			refused = append(refused, Refused{Source: source(in), Reason: fmt.Sprintf("two admitted packages are named %s (%s): a name must say which package it is", name, strings.Join(dirs, ", "))})
+		}
+	}
+	sort.Slice(usable, func(i, j int) bool { return usable[i].Dir < usable[j].Dir })
+	var checked []Installed
+	for _, in := range usable {
+		if probs := in.Package.Verify(); len(probs) > 0 {
+			refused = append(refused, Refused{Source: source(in), Reason: "fails its check: " + probs[0]})
+			continue
+		}
+		checked = append(checked, in)
+	}
+	if len(broken) > 0 {
+		for _, id := range allowed {
+			if !seen[id] {
+				refused = append(refused, Refused{Source: Source{Package: id}, Reason: "not among the readable installed packages; some cannot be read: " + strings.Join(broken, "; ")})
+			}
+		}
+	}
+	return checked, refused, nil
+}
+
 // contains reports whether in's package chain holds the revision id.
 func contains(in Installed, rev string) bool {
 	revs, err := in.Package.Revisions()
@@ -225,13 +321,6 @@ func Allowed(repoRoot string, allowed, modules []string) (*Vocabulary, error) {
 	for _, id := range allowed {
 		ok[id] = true
 	}
-	// Each package directory on its own: a broken directory nobody admitted takes nothing away
-	// (kton-review U2 on #152). One that cannot be read while an admitted package is missing may be
-	// that package, so the vocabulary is then refused and names it.
-	entries, err := ListEach(repoRoot)
-	if err != nil {
-		return nil, err
-	}
 	// Each admitted package on its own (userinterface's PR 2 (3), S6 (3)): one that fails its check or
 	// cannot be read is listed under Refused and contributes nothing, and the others keep working. A
 	// name two of them bring is offered under each one's qualified name, <package>/<name>, and under no
@@ -245,76 +334,14 @@ func Allowed(repoRoot string, allowed, modules []string) (*Vocabulary, error) {
 		src  Source
 		tool scope.MCPTool
 	}{}
-	var broken []string
-	seen := map[string]bool{}
-	// The admitted, readable installations, then: one per package id, the latest revision (an
-	// installation of the same package whose revision the other's chain contains is older; two whose
-	// chains do not meet are both refused; kton-review V3 on #162); and one per package name, since
-	// the name qualifies a clashing word: two admitted packages of one name are both refused, so a
-	// qualified name can never mean another key's package (kton-review V1 on #162).
-	var admitted []Installed
-	for _, e := range entries {
-		if e.Err != nil {
-			broken = append(broken, e.Dir+": "+e.Err.Error())
-			continue
-		}
-		if ok[e.Package.ID] {
-			seen[e.Package.ID] = true
-			admitted = append(admitted, e.Installed)
-		}
+	usable, refused, err := Usable(repoRoot, allowed)
+	if err != nil {
+		return nil, err
 	}
-	source := func(in Installed) Source { return Source{Package: in.Package.ID, Name: in.Package.Name, Dir: in.Dir} }
-	byID := map[string][]Installed{}
-	for _, in := range admitted {
-		byID[in.Package.ID] = append(byID[in.Package.ID], in)
-	}
-	var latest []Installed
-	for _, ins := range byID {
-		best, ambiguous := ins[0], false
-		for _, in := range ins[1:] {
-			switch {
-			case contains(in, best.Revision.ID):
-				best = in
-			case contains(best, in.Revision.ID):
-			default:
-				ambiguous = true
-			}
-		}
-		if ambiguous {
-			for _, in := range ins {
-				v.Refused = append(v.Refused, Refused{Source: source(in), Reason: "installed more than once, as revisions neither of which follows the other"})
-			}
-			continue
-		}
-		latest = append(latest, best)
-	}
-	byName := map[string][]Installed{}
-	for _, in := range latest {
-		byName[in.Package.Name] = append(byName[in.Package.Name], in)
-	}
-	var usable []Installed
-	for name, ins := range byName {
-		if len(ins) == 1 {
-			usable = append(usable, ins[0])
-			continue
-		}
-		var dirs []string
-		for _, in := range ins {
-			dirs = append(dirs, in.Dir)
-		}
-		sort.Strings(dirs)
-		for _, in := range ins {
-			v.Refused = append(v.Refused, Refused{Source: source(in), Reason: fmt.Sprintf("two admitted packages are named %s (%s): a name must say which package it is", name, strings.Join(dirs, ", "))})
-		}
-	}
-	sort.Slice(usable, func(i, j int) bool { return usable[i].Dir < usable[j].Dir })
+	v.Refused = append(v.Refused, refused...)
 	for _, in := range usable {
-		src := source(in)
+		src := Source{Package: in.Package.ID, Name: in.Package.Name, Dir: in.Dir}
 		refuse := func(reason string) { v.Refused = append(v.Refused, Refused{Source: src, Reason: reason}) }
-		if probs := in.Package.Verify(); len(probs) > 0 {
-			refuse("fails its check: " + probs[0])
-			continue
-		}
 		ts, err := in.Revision.Templates()
 		if err != nil {
 			refuse(err.Error())
@@ -394,13 +421,6 @@ func Allowed(repoRoot string, allowed, modules []string) (*Vocabulary, error) {
 		v.From["mcp:"+name] = ts[0].src
 	}
 	sort.Strings(v.Clashes)
-	if len(broken) > 0 {
-		for _, id := range allowed {
-			if !seen[id] {
-				v.Refused = append(v.Refused, Refused{Source: Source{Package: id}, Reason: "not among the readable installed packages; some cannot be read: " + strings.Join(broken, "; ")})
-			}
-		}
-	}
 	return v, nil
 }
 
