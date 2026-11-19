@@ -2,6 +2,8 @@ package cockpit
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -44,7 +46,15 @@ func TestSay_ASubjectThatIsAFileIsItsBytes(t *testing.T) {
 			t.Errorf("say about %s: %v %s", s, err, errText(res))
 		}
 	}
+	// A link in the repository to a file outside it is that outside file: refused, never hashed into
+	// a shared claim (kton-review S1 on #148).
+	outside := filepath.Join(t.TempDir(), "secret.txt")
+	os.WriteFile(outside, []byte("pin 1234\n"), 0o644)
+	if err := os.Symlink(outside, filepath.Join(r.Root, "link.txt")); err != nil {
+		t.Skipf("no symlinks here: %v", err)
+	}
 	for s, why := range map[string]string{
+		"link.txt":         "outside this repository",
 		"no-such-file.txt": "not a sha256: id, an IRI, or a file",
 		"work":             "directory",
 		"../outside.txt":   "outside this repository",

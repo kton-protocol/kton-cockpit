@@ -486,7 +486,13 @@ the repository, which stands for the hash of its bytes; the answer then reports 
 (`resolvedFrom`). This holds for every form of say. Anything else MUST be refused, never signed as a
 literal: a claim about the text of a path is about nothing a query can find.
 
-> **Checked by:** `TestSay_ASubjectThatIsAFileIsItsBytes`.
+A file is named by where it resolves: a symbolic link in the repository to a file outside it MUST be
+refused, since the claim is shared and a small file's hash can be guessed back. Only a regular file
+MUST be read; a directory, a FIFO or a device MUST be refused before it is opened, so a say never
+waits on a read that does not end. `ask` reads a file the same way, but may read one outside the
+repository: it signs nothing.
+
+> **Checked by:** `TestSay_ASubjectThatIsAFileIsItsBytes`, `TestHash_RefusesALinkOutAndAnythingButARegularFile`.
 
 ### 8.1 The claim ceiling
 

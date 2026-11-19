@@ -22,6 +22,12 @@ ktonpkg v0.8.0. Nothing to migrate from v0.5.0.
   `ask about data.txt` and from the view. Now a `sha256:` id (read in lower case), an IRI, or a file
   in the repository, which stands for its bytes and is reported back (`resolvedFrom`, `subject`).
   Anything else is refused with code `argument`.
+- **A file is read where it resolves, and only if it is a regular file** (kton-review S1, S2 on
+  #148; #150). `say` takes a file subject only inside the repository: a symbolic link to a file
+  outside it is refused, never hashed into a shared claim. `say`, `ask` and the shell's references
+  read a file through one resolver that refuses a directory, a FIFO or a device before opening it,
+  so a read never hangs. `ask`, which signs nothing, may still read a regular file outside the
+  repository.
 
 ### Documentation
 
