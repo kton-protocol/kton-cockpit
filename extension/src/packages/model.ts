@@ -47,6 +47,9 @@ export interface LeafViewer {
 }
 export interface MirrorPackage {
   readonly name: string;
+  /** the package id (`ui cat`'s first argument) and the revision it was loaded at */
+  readonly id: string;
+  readonly revision: string;
   readonly blocks: Record<string, { decl: Record<string, unknown>; hash: string }>;
   readonly compositions: Record<string, { decl: Record<string, unknown>; hash: string; text: string }>;
   readonly queries: Record<string, { path: string; hash: string; text: string }>;
@@ -72,7 +75,13 @@ export interface Loaded {
   /** installed, not admitted (claims.allowedPackages): shown, never loaded */
   readonly notAdmitted: readonly string[];
   /** the content hash of each member a package's content role holds, for content@1 */
-  readonly byHash: ReadonlyMap<string, { readonly pkg: string; readonly hash: string; readonly type: string }>;
+  readonly byHash: ReadonlyMap<string, ReadonlyMap<string, PackageFile>>;
+}
+/** A content member of a package: by content hash, then package id (two packages may carry the same bytes). */
+export interface PackageFile {
+  readonly pkg: string;
+  readonly hash: string;
+  readonly type: string;
 }
 /** A member's bytes by package (its id) and content hash: `cockpit ui cat`. */
 export type ReadBlob = (pkg: string, hash: string) => Promise<Uint8Array>;
@@ -131,15 +140,57 @@ const ROLE_DIR: Record<string, string> = { ui: "ui", block: "ui/blocks", composi
 const fileOf = (m: Member) => (m.role === "content" || m.role === "viewer-file" ? m.name : `${ROLE_DIR[m.role] ?? m.role}/${m.name}${m.role === "query" ? ".rq" : ".json"}`);
 
 /**
- * Why a member name is not a plain path, or undefined. ktonpkg refuses such names only when it writes them
- * (AddViewerFile, AddContent); a signed claim can still carry one (F1 on #174), so the shell checks them again.
+ * Why a member name is not a plain path, or undefined. The one member-name rule of ktonpkg v0.9.9
+ * (scope/profile.go memberNameProblem, checked there on write and on read; the cockpit relies on it): a relative
+ * path of non-empty segments separated by "/"; no "." or ".." segment; no leading or trailing "/"; no backslash;
+ * no colon anywhere (on NTFS "a:b" writes the alternate data stream b of a). The shell checks it again before it
+ * writes any member to disk (F1 on #174). Same order and wording as ktonpkg.
  */
 export function nameProblem(name: string): string | undefined {
-  if (name.startsWith("/")) return "starts with /";
-  if (name.includes("\\")) return "contains a backslash";
-  if (name.includes(":")) return "contains a colon";
-  if (name.split("/").some((s) => s === "" || s === "." || s === "..")) return "has an empty, . or .. segment";
+  if (/[\\:]/.test(name)) return "has a backslash or a colon";
+  for (const seg of name.split("/")) {
+    if (seg === "") return "has an empty segment or a leading or trailing /";
+    if (seg === "." || seg === "..") return `has a ${seg} segment`;
+  }
   return undefined;
+}
+
+/** How many `ui cat` reads run at once. */
+export const READ_WIDTH = 8;
+
+/**
+ * A package's member bytes, each re-verified against its admitted hash. One `ui cat` per member, READ_WIDTH at a
+ * time; the first refusal (unreadable or tampered) stops the batch: no member is read after it. The multi-member
+ * `ui cat` (cockpit #176) replaces `fetch` below and keeps the checks: one place to change.
+ */
+async function readMembers(p: UiPackage, read: ReadBlob): Promise<Map<Member, Uint8Array>> {
+  const bytes = new Map<Member, Uint8Array>();
+  const check = (m: Member, b: Uint8Array) => {
+    // re-verify at load: the bytes must still be the bytes the package was admitted with
+    if (`sha256:${sha(b)}` !== m.hash) throw new Refuse("package.tampered", fileOf(m), `${fileOf(m)} changed after admission: its bytes no longer hash to ${m.hash}`);
+    bytes.set(m, b);
+  };
+  const fetch = async (m: Member): Promise<Uint8Array> => {
+    try {
+      return await read(p.package, m.hash);
+    } catch (e) {
+      throw new Refuse("package.unreadable", fileOf(m), `${fileOf(m)} cannot be read: ${(e as Error).message}`);
+    }
+  };
+  const queue = [...p.members];
+  let refused = false;
+  await Promise.all(Array.from({ length: Math.min(READ_WIDTH, queue.length) }, async () => {
+    for (let m = queue.shift(); m && !refused; m = queue.shift()) {
+      try {
+        check(m, await fetch(m));
+      } catch (e) {
+        refused = true;
+        queue.length = 0;
+        throw e;
+      }
+    }
+  }));
+  return bytes;
 }
 
 async function loadOne(p: UiPackage, read: ReadBlob, vendored: ReadonlyMap<string, ViewerTree>, byHash: Map<string, { pkg: string; hash: string; type: string }>): Promise<{ pkg: MirrorPackage; controls: Control[] }> {
@@ -149,26 +200,10 @@ async function loadOne(p: UiPackage, read: ReadBlob, vendored: ReadonlyMap<strin
     const why = nameProblem(m.name);
     if (why) throw new Refuse(m.role === "viewer-file" ? "viewer.file" : "member.name", "", `member ${JSON.stringify(m.name)} (${m.role}) ${why}: the package is not loaded`);
   }
-  const bytes = new Map<Member, Uint8Array>();
-  // one `ui cat` per member, a few at a time (a package has tens of members; one after another is slow)
-  const one = async (m: Member) => {
-    let b: Uint8Array;
-    try {
-      b = await read(p.package, m.hash);
-    } catch (e) {
-      throw new Refuse("package.unreadable", fileOf(m), `${fileOf(m)} cannot be read: ${(e as Error).message}`);
-    }
-    // re-verify at load: the bytes must still be the bytes the package was admitted with
-    if (`sha256:${sha(b)}` !== m.hash) throw new Refuse("package.tampered", fileOf(m), `${fileOf(m)} changed after admission: its bytes no longer hash to ${m.hash}`);
-    bytes.set(m, b);
-  };
-  const queue = [...p.members];
-  await Promise.all(Array.from({ length: Math.min(8, queue.length) }, async () => {
-    for (let m = queue.shift(); m; m = queue.shift()) await one(m);
-  }));
+  const bytes = await readMembers(p, read);
   const of = (role: string) => p.members.filter((m) => m.role === role);
   const text = (m: Member) => Buffer.from(bytes.get(m) as Uint8Array).toString("utf8");
-  const pkg: MirrorPackage = { name: p.name, blocks: {}, compositions: {}, queries: {}, content: {}, controls: {}, templates: {}, viewers: {}, leaves: {} };
+  const pkg: MirrorPackage = { name: p.name, id: p.package, revision: p.revision, blocks: {}, compositions: {}, queries: {}, content: {}, controls: {}, templates: {}, viewers: {}, leaves: {} };
   for (const m of of("query")) pkg.queries[m.name] = { path: `queries/${m.name}.rq`, hash: m.hash, text: text(m) };
   for (const m of of("template")) pkg.templates[m.name] = { decl: json(bytes.get(m) as Uint8Array, fileOf(m)) };
   for (const m of of("composition")) {
@@ -261,7 +296,7 @@ export async function loadPackages(listing: UiListing, read: ReadBlob, vendored:
   const controls = new Map<string, Control>();
   const refusals: PackageRefusal[] = [];
   const notAdmitted: string[] = [];
-  const byHash = new Map<string, { pkg: string; hash: string; type: string }>();
+  const byHash = new Map<string, Map<string, PackageFile>>();
   for (const p of listing.packages) {
     const who = p.name || p.dir;
     if (p.refused.length) {
@@ -277,7 +312,11 @@ export async function loadPackages(listing: UiListing, read: ReadBlob, vendored:
       const { pkg, controls: cs } = await loadOne(p, read, vendored, own);
       packages[p.name] = pkg;
       for (const c of cs) controls.set(`${c.package}/${c.name}`, c);
-      for (const [k, v] of own) byHash.set(k, v);
+      // keyed by (hash, package): a second package with the same bytes does not take the first one's place
+      for (const [k, v] of own) {
+        if (!byHash.has(k)) byHash.set(k, new Map());
+        byHash.get(k)?.set(v.pkg, v);
+      }
       for (const e of p.ui) entries.push({ ...e, package: p.name, revision: p.revision });
     } catch (e) {
       if (!(e instanceof Refuse)) throw e;

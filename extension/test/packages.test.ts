@@ -8,6 +8,7 @@ import { createHash } from "node:crypto";
 import { assertUiListing } from "../src/packages/listing.js";
 import { loadPackages, nameProblem, treeId } from "../src/packages/model.js";
 import { writeTree } from "../src/packages/store.js";
+import { answerBytes, type Backend } from "../src/composition/host.js";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { TransportError } from "../src/transport/port.js";
@@ -167,7 +168,7 @@ test("F1 on #174: a package carrying a climbing viewer file is refused at load, 
   const l = await loadPackages({ packages: [hostile, kwt().pkg] }, async (p, x) => (reads.push(x), read(p, x)));
   assert.deepEqual(Object.keys(l.packages), ["kton-web-test"], "the other package is unaffected");
   assert.equal(l.refusals[0]?.code, "viewer.file");
-  assert.match(l.refusals[0]?.reason ?? "", /ZZ-escape\.txt.*has an empty, \. or \.\. segment/);
+  assert.match(l.refusals[0]?.reason ?? "", /ZZ-escape\.txt.*has a \.\. segment/);
   assert.ok(!reads.includes(h), "the climbing member was never read");
   for (const n of ["/etc/x", "viewers/t/a\\b", "viewers/t/c:x", "viewers/t//x", "viewers/./x", "content/../x"]) assert.ok(nameProblem(n), n);
   for (const n of ["viewers/table/index.js", "content/SOP-02.md"]) assert.equal(nameProblem(n), undefined, n);
@@ -182,5 +183,50 @@ test("F1 on #174: a package carrying a climbing viewer file is refused at load, 
     assert.ok(existsSync(join(dir, "a", "b.js")));
   } finally {
     rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("member names: the one rule of ktonpkg v0.9.9 (memberNameProblem), case by case", () => {
+  const cases: Array<[string, string | undefined]> = [
+    ["viewers/table/index.html", undefined],
+    ["viewers/table/index.js", undefined],
+    ["content/SOP-02.md", undefined],
+    ["a", undefined],
+    ["review 10.30.md", undefined],
+    ["a/", "has an empty segment or a leading or trailing /"],
+    ["/a", "has an empty segment or a leading or trailing /"],
+    ["a//b", "has an empty segment or a leading or trailing /"],
+    ["", "has an empty segment or a leading or trailing /"],
+    ["a:b", "has a backslash or a colon"],
+    ["review 10:30.md", "has a backslash or a colon"],
+    ["C:/x", "has a backslash or a colon"],
+    ["a\\b", "has a backslash or a colon"],
+    ["./a", "has a . segment"],
+    ["a/..", "has a .. segment"],
+    ["viewers/table/../../../ZZ-escape.txt", "has a .. segment"],
+  ];
+  for (const [name, why] of cases) assert.equal(nameProblem(name), why, JSON.stringify(name));
+});
+
+test("byHash by (package, hash): two packages carrying the same bytes each serve their own file to their own leaf", async () => {
+  const bytes = Buffer.from("# the same note in two packages");
+  const h = `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
+  const withNote = (name: string) => {
+    const f = listed(join(PKGS, "hostile", "good"), name);
+    f.blobs.set(h, bytes);
+    return { ...f, pkg: { ...f.pkg, members: [...f.pkg.members, { role: "content", name: "content/note.md", hash: h }] } };
+  };
+  const a = withNote("pkg-a");
+  const b = withNote("pkg-b");
+  const l = await loadPackages({ packages: [a.pkg, b.pkg] }, reader(a, b));
+  assert.deepEqual(l.refusals, []);
+  assert.deepEqual([...(l.byHash.get(h)?.keys() ?? [])].sort(), [a.pkg.package, b.pkg.package].sort());
+  for (const name of ["pkg-a", "pkg-b"]) {
+    const own = l.packages[name];
+    const asked: string[] = [];
+    const backend = { bytes: async (pkg: string) => (asked.push(pkg), new Uint8Array(bytes)) } as unknown as Backend;
+    const out = await answerBytes(backend, l, h, undefined, "product@1", { id: own?.id as string, name });
+    assert.equal(out["bytes"], bytes.toString("base64"), name);
+    assert.deepEqual(asked, [own?.id], `${name} is served from its own package`);
   }
 });

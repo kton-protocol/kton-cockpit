@@ -49,6 +49,8 @@ export interface CliTransportOptions {
   readonly env?: Readonly<Record<string, string>>;
   /** How long one call may take; a call that takes longer is killed and reported as timed out. */
   readonly timeoutMs?: number;
+  /** How much one call may write to stdout (default MAX_BUFFER); more is reported as too large, not as "cannot run". */
+  readonly maxBufferBytes?: number;
 }
 
 interface RunResult {
@@ -58,6 +60,9 @@ interface RunResult {
   /** stdout as bytes (ui cat) */
   readonly bytes?: Uint8Array;
 }
+
+/** What one cockpit call may write to stdout (a member through `ui cat`, a listing). */
+export const MAX_BUFFER = 64 * 1024 * 1024;
 
 export class CliTransport implements Transport {
   /** Every argv the transport ran, newest last. For the local output channel (O7) and tests. */
@@ -77,11 +82,16 @@ export class CliTransport implements Transport {
           env: { ...process.env, ...(this.opts.env ?? {}) },
           shell: false,
           timeout: this.opts.timeoutMs ?? 120_000,
-          maxBuffer: 64 * 1024 * 1024,
+          maxBuffer: this.opts.maxBufferBytes ?? MAX_BUFFER,
           windowsHide: true,
           encoding: "buffer",
         },
         (err, stdout, stderr) => {
+          if (err && (err as NodeJS.ErrnoException).code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER") {
+            // it ran, and answered more than the transport reads: not "cannot run"
+            reject(new TransportError(`cockpit ${argv.slice(0, 2).join(" ")}: the answer is larger than ${this.opts.maxBufferBytes ?? MAX_BUFFER} bytes, more than the workbench reads`, null, ""));
+            return;
+          }
           if (err && typeof (err as NodeJS.ErrnoException).code === "string") {
             // ENOENT, EACCES, …: the executable could not be started at all.
             reject(new TransportError(`cannot run ${this.opts.executable}: ${err.message}`, null, String(stderr)));
@@ -312,7 +322,7 @@ function parseTemplates(v: unknown): TemplateInfo[] {
     for (const [k, f] of Object.entries(o.fields)) {
       if (typeof f !== "object" || f === null || typeof (f as { type?: unknown }).type !== "string") throw new TransportError(`template listing: ${o.name}.${k} has no type`, 0, "");
     }
-    return { name: o.name, fields: o.fields, ...(typeof o.about === "string" ? { target: o.about } : {}), ...(typeof o.package === "string" ? { package: o.package } : {}) };
+    return { name: o.name, fields: o.fields, ...(typeof o.about === "string" ? { target: o.about } : {}), ...(typeof o.package === "string" ? { package: o.package } : {}), ...(typeof o.predicate === "string" ? { predicate: o.predicate } : {}) };
   });
 }
 

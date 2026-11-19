@@ -136,7 +136,7 @@ test("templates come from the cockpit's listing (say --json, v0.5.0), shape-chec
   const { transport, argvLog } = fakeCockpit([{ argv0: "say", argv1: "--json", stdout: JSON.stringify(listing) }]);
   const out = await transport.templates();
   assert.ok(out.ok);
-  assert.deepEqual(out.value, [{ name: "decides", fields: listing[0]!.fields, target: "either" }]);
+  assert.deepEqual(out.value, [{ name: "decides", fields: listing[0]!.fields, target: "either", predicate: "https://example.org/v/decides" }]);
   assert.deepEqual(argvLog()[0], ["say", "--json"]);
   const { transport: bad } = fakeCockpit([{ argv0: "say", argv1: "--json", stdout: JSON.stringify([{ name: "x", fields: { a: {} } }]) }]);
   await assert.rejects(bad.templates(), TransportError);
@@ -197,4 +197,13 @@ test("ui cat refusals (cockpit v0.5.4): ui.package and ui.member each say what i
     const t = new CliTransport({ executable: bin, cwd: dir });
     await assert.rejects(t.uiCat("pkg-a", `sha256:${"a".repeat(64)}`), re);
   }
+});
+
+test("an answer larger than the transport reads is reported as too large, not as cannot run", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "wb-big-"));
+  const exe = join(dir, "cockpit");
+  writeFileSync(exe, "#!/bin/sh\nhead -c 5000 /dev/zero\n");
+  chmodSync(exe, 0o755);
+  const t = new CliTransport({ executable: exe, cwd: dir, maxBufferBytes: 1000 });
+  await assert.rejects(t.uiList(), (e: Error) => /cockpit ui list: the answer is larger than 1000 bytes/.test(e.message) && !/cannot run/.test(e.message));
 });
