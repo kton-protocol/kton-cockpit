@@ -32,7 +32,7 @@ var toolProgram = regexp.MustCompile(`^(nmfe\d*|execute|bbi|quarto|Rscript)$`)
 
 // MakeDraft proposes what to publish for a task.
 func MakeDraft(s *Session, t *Task) Draft {
-	repo := toolcall.RepoRoot(s.Project)
+	repo := RepoRoot(s.Project)
 	d := Draft{Repo: repo, Cmd: draftCmd(t, repo)}
 	d.Notes = append(d.Notes, sourcedNotes(t, d.Cmd)...)
 	tool := toolScopeOf(t, d.Cmd)
