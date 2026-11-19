@@ -255,7 +255,8 @@ export class LeafHost {
           if (v === undefined) throw new Refused(`input ${input}: ${k} is not bound by the slot entry from the closed set`);
           bind[k] = v;
         }
-        result = await this.backend.query(this.entry.package ?? "", spec.query, Object.fromEntries(Object.entries(bind).map(([k, v]) => [k, { type: "literal" as const, value: v }])));
+        if (!this.entry.package) throw new Refused(`input ${input}: the slot entry names no package to ask the query of`);
+        result = await this.backend.query(this.entry.package, spec.query, Object.fromEntries(Object.entries(bind).map(([k, v]) => [k, { type: "literal" as const, value: v }])));
       } else if (cap === "product@1") {
         const hash = String(args["hash"] ?? "");
         result = await answerBytes(this.backend, this.loaded, hash, undefined, "product@1");
@@ -276,6 +277,9 @@ export class LeafHost {
       if (i.kind === "approve") {
         const c = this.entry.control;
         if (!c || !this.subject.claim) return refuse("this slot entry names no control to approve with");
+        // an approval is a decision: only a decision control (person key, through the sign dialog) may carry it. A
+        // record control would let an untrusted frame write with the agent key, with no dialog and no click (review on #174)
+        if (c.kind !== "decision") return refuse(`control ${c.package}/${c.name} is a ${c.kind} control: an approval is a decision, signed through the dialog`);
         const r = await this.backend.act(c, this.subject.claim, {}, `${this.entry.label}: approve`);
         return r === "failed" ? refuse("not signed") : this.ui.post({ type: "kton:data", id: i.id, result: { signed: r === "signed" } });
       }
@@ -354,8 +358,10 @@ export class CompositionHost {
         if (!u.content?.binary || args["hash"] !== u.content.hash) throw new Refused(`${u.key}: the content differs from the plan's`);
         result = await answerBytes(this.backend, this.loaded, u.content.hash, u.content.type, "content@1");
       } else if (cap === "product@1") {
-        const hash = typeof args["hash"] === "string" ? args["hash"] : u.product?.hash;
-        if (!hash || (u.product && hash !== u.product.hash)) throw new Refused(`${u.key}: the product differs from the plan's`);
+        // only the product the plan names for this use (review on #174): a use without one is served nothing
+        if (!u.product) throw new Refused(`${u.key}: the plan names no product for this use`);
+        const hash = typeof args["hash"] === "string" ? args["hash"] : u.product.hash;
+        if (hash !== u.product.hash) throw new Refused(`${u.key}: the product differs from the plan's`);
         result = await answerBytes(this.backend, this.loaded, hash, undefined, "product@1");
       } else throw new Refused(`${cap} is an act: it is an intent, not a request`);
       this.ui.post({ type: "kton:data", id, result });

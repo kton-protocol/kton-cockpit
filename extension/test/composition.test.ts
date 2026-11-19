@@ -212,3 +212,40 @@ test("typed bind (cockpit v0.5.3): a planned IRI param goes as an IRI, a typed l
     L: { type: "literal", value: "x" },
   });
 });
+
+test("review on #174 (blocking): a leaf's approve with a RECORD control is refused, nothing is signed; with a decision control it goes through the act path", async () => {
+  const { LeafHost } = await import("../src/composition/host.js");
+  const l = await goodPackage();
+  for (const kind of ["record", "decision"] as const) {
+    const { backend, calls } = backendLog();
+    const posted: Array<Record<string, unknown>> = [];
+    const control = { package: "p", name: "c", template: "t", kind };
+    const h = new LeafHost({ decl: { requires: [], optional: [] }, slot: "review-view" }, { label: "L", control, package: "p" }, { id: SUBJECT.id, claim: SUBJECT.claim, closed: {} }, l, backend, { post: (m) => posted.push(m as Record<string, unknown>), log: () => undefined });
+    await h.onMessage({ type: "kton:intent", intent: { id: "a#x.1", kind: "approve" } });
+    if (kind === "record") {
+      assert.deepEqual(calls, [], "no act, so no say");
+      assert.match(JSON.stringify(posted.at(-1)), /kton:refused.*is a record control: an approval is a decision/);
+    } else assert.deepEqual(calls.map((c) => [c[0], (c[1] as { kind: string }).kind]), [["act", "decision"]]);
+  }
+});
+
+test("review on #174 (minor): a leaf query without the entry's package is refused; product@1 without a planned product serves nothing", async () => {
+  const { LeafHost } = await import("../src/composition/host.js");
+  const l = await goodPackage();
+  const { backend, calls } = backendLog();
+  const posted: Array<Record<string, unknown>> = [];
+  const decl = { requires: ["query@1"], optional: [], inputs: { doc: { query: "q", bind: {} } } };
+  const h = new LeafHost({ decl, slot: "review-view" }, { label: "L" }, { id: SUBJECT.id, closed: {} }, l, backend, { post: (m) => posted.push(m as Record<string, unknown>), log: () => undefined });
+  await h.onMessage({ type: "kton:request", id: "q#x.1", cap: "query@1", args: { input: "doc" } });
+  assert.match(JSON.stringify(posted.at(-1)), /names no package/);
+  assert.deepEqual(calls, []);
+  // the composition: a use that may ask product@1 but whose plan names no product
+  const plan = await planEntry(l.entries[0] as SlotEntry, SUBJECT, l, "qa-decider", async () => ({ results: { bindings: [] } }));
+  const key = plan.uses[0]?.key as string;
+  const loose = { ...plan, uses: plan.uses.map((u) => ({ ...u, optional: [...u.optional, "product@1"] })) } as Plan;
+  const out: unknown[] = [];
+  const c = new CompositionHost(loose, l, backend, { post: (m) => out.push(m), log: () => undefined });
+  const any = [...l.byHash.keys()][0] ?? `sha256:${"1".repeat(64)}`;
+  await c.onMessage({ type: "kton:request", id: "p#x.1", cap: "product@1", args: { use: key, hash: any } });
+  assert.match(JSON.stringify(out.at(-1)), /the plan names no product for this use/);
+});
