@@ -705,17 +705,19 @@ function index(){
 // the CONFIGURED trust tiers), so a record whose signer is not in it cannot be checked here at all - that
 // is "not in the trusted keys", not a signature that failed. Only a signer the ring holds and whose
 // signature does not check is a failure. The wasm's verdict stays as it is; this only names the reason.
-// A third state (kton-cockpit v0.5.3, /data/packages.json): a signer that is an admitted package's build
-// key, {keyid: {package, id, dir, key}}, is named as that package - admitted by the cockpit, not a trust
-// tier. With `key` (hex) the signature is re-checked here: the wasm verifies against the ring plus these
-// keys, and such a node then reads "signed by admitted package X" (checked) or counts as unverified (the
-// signature fails). It never counts as verified: verified means signed by a trusted key. A key whose
-// sha256 does not derive its keyid is dropped, whatever the map says.
+// A third state (kton-cockpit v0.5.3, /data/packages.json): {keyid: {key, packages: [{package, id, dir}]}}
+// - one author's key may sign several admitted packages. A signer that is such a key is named by its
+// packages - admitted by the cockpit, not a trust tier. With `key` (hex) the signature is re-checked here:
+// the wasm verifies against the ring plus these keys, and such a node then reads "signed by admitted
+// package X" (checked) or counts as unverified (the signature fails). It never counts as verified:
+// verified means signed by a trusted key. A key whose sha256 does not derive its keyid is dropped.
 let PACKAGES={}, PKG_KEYS={};
 async function usePackages(map){ PACKAGES={}; PKG_KEYS={};
   if(!map||typeof map!=="object") return;
-  for(const [kid,e] of Object.entries(map)){ if(!e||typeof e!=="object"||!e.package) continue;
-    PACKAGES[kid]=e;
+  for(const [kid,e] of Object.entries(map)){
+    const names=(e&&Array.isArray(e.packages)?e.packages:[]).map(p=>p&&p.package).filter(x=>typeof x==="string"&&x);
+    if(!names.length) continue;
+    PACKAGES[kid]={ package:[...new Set(names)].sort().join(", ") };
     if(typeof e.key==="string" && /^[0-9a-f]{64}$/i.test(e.key)){
       const raw=new Uint8Array(e.key.match(/../g).map(h=>parseInt(h,16)));
       const d=[...new Uint8Array(await crypto.subtle.digest("SHA-256", raw))].map(b=>b.toString(16).padStart(2,"0")).join("").slice(0,16);

@@ -1,8 +1,6 @@
 #!/bin/sh
-# Build the cockpit of this checkout for the e2e, linked against ktonpkg v0.9.5: the test packages' compositions
-# carry `layout` (ktonpkg v0.9.5), which an older ktonpkg refuses at install as an unknown field. The checkout
-# links an older ktonpkg until kton-cockpit moves to v0.9.5; this build pins it on a copy of HEAD, and nothing in
-# the checkout changes (drop the `go get` once go.mod requires v0.9.5 or later).
+# Build the cockpit of this checkout for the e2e (v0.5.3 and later link ktonpkg v0.9.5, which the test packages'
+# layouts need). The build runs on a copy of HEAD; nothing in the checkout changes.
 #
 #   test/e2e/build-cockpit.sh <out file (absolute)>
 #
@@ -19,5 +17,5 @@ git -C "$ROOT" archive HEAD | tar -x -C "$SRC"
 mkdir -p "$(dirname "$OUT")"
 docker run --rm --network host -u "$(id -u):$(id -g)" -e HOME=/tmp -e GOPATH=/tmp/go -e CGO_ENABLED=0 -e GOTOOLCHAIN=local \
   -v "$SRC:/src" -v "$(dirname "$OUT"):/out" -w /src "$GO_IMAGE" \
-  sh -c "go get github.com/gitmick/ktonpkg@v0.9.5 && go build -o /out/$(basename "$OUT") ./cmd/cockpit"
-echo "built $OUT (this checkout's cockpit, ktonpkg v0.9.5)"
+  sh -c "go build -o /out/$(basename "$OUT") ./cmd/cockpit"
+echo "built $OUT (this checkout's cockpit)"

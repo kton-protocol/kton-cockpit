@@ -187,7 +187,11 @@ export class PackagesArea {
         if (!out.ok) throw new Error(`the cockpit refused ${ray}: ${out.refusal.reason}`);
         return `ran ${ray}`;
       },
-      graph: () => this.t.graph(),
+      graph: async () => {
+        const out = await this.t.graph();
+        if (!out.ok) throw new Error(`the cockpit refused show: ${out.refusal.reason}`);
+        return out.value;
+      },
     };
   }
 

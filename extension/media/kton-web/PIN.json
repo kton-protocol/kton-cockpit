@@ -1,7 +1,7 @@
 {
   "repo": "https://github.com/gitmick/kton-web",
   "branch": "compose-v3",
-  "commit": "4b98962aae325fcae6d6041fabe7c622b38d4bea",
+  "commit": "99095975f5776953163802f7af8a2c32a98bf3b6",
   "license": "Apache-2.0 (LICENSE)",
   "wasm": {
     "recipe": "wasm/fetch-kernel.sh && GOFLAGS=-buildvcs=false wasm/build.sh full",
@@ -31,8 +31,8 @@
     "viewers/diagram/diagram.js": "1d0d9760788f325ec657d047ae08a792e5ab22c4e7519f78e3d3a58e59c4d64e",
     "viewers/diagram/viewer.json": "87488b7f3c649d3310917b04aff694320d7c3754710dbefdba40e8912c2bd6f4",
     "viewers/graph/index.html": "158a23753f6d194c23e7b6a7b8ab359d12d7335eedef78ae550d227ed69fc4fd",
-    "viewers/graph/app.js": "08eb5e89e5f5778c515bb559683daf2a862a40a21e343889defe9e193d02f775",
-    "viewers/graph/viewer.json": "1352a0ff67930146fb3f8a1ec49fa6febb1fbb14ce0032de9c2f5cabbf690ac7",
+    "viewers/graph/app.js": "3a399193ff51a39da9a40b3fea3ba3bd4558ebf213930fed17a9e71d30af705e",
+    "viewers/graph/viewer.json": "2f719dc1697b0ceb983be442f720be2b6ef871eea48dce6d465f3607d3a6e682",
     "core/kton.css": "686a4aab7c3bb61331e8674b341543cc37f23947eee13c9f168cd0f6af3e2974",
     "core/logo.png": "8352395f179e2ed406251f157c75a6d877657e133505b95d8ebc781329944570",
     "core/annotate.js": "3ccf24460ea2c2f2af514e69a54ff7c4a27eba82be83d6a7e1fa16c469efbc81",
@@ -66,6 +66,7 @@
     "tests/packages/kton-web-test/ui/compositions/test-shell.json": "8d34f5370c11404c5b78c000d1b5fb6f61150f43a7bd2a8427b59db98a9bdab7",
     "tests/packages/kton-web-test/ui/compositions/test-layout.json": "734c965442c25663d509edcd44128bffe35e2de03127d230ba1d10eca7419d99",
     "tests/packages/kton-web-test/ui/test-shell.json": "f66aee21492d26441794c3886e69ed2426a981427336c2742d49ff8c406b9032",
+    "tests/packages/kton-web-test/ui/test-layout.json": "1b396712ed243ed387d23cf07ddd1b156c0ad73221a83802a6e9843c5186799e",
     "tests/packages/kton-web-test/viewers/needs/needs.js": "84e6c5a2f36cf9e91143175b47915540ddaea69fa9276109f318435309a7693d",
     "tests/packages/kton-web-test/viewers/needs/viewer.json": "3377b7d6c7123c6dffc27e31b09958534ada4bc57ffa6bd67d05ddb73bd98678",
     "tests/packages/kton-web-test/viewers/probe/probe.js": "ce946dff68b3db73045c2f7290e033bd17a1bd830fc5f7d208b4377c253afa94",

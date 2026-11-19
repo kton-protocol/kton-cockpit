@@ -21,7 +21,7 @@ test("TreeID: our tree id of kton-web-test's probe folder is the pin kton-web wr
 
 test("ui list: the shape is checked; a member hash or name that is not plain is refused", () => {
   const ok = assertUiListing({ packages: [kwt().pkg] });
-  assert.equal(ok.packages[0]?.members.length, 16);
+  assert.equal(ok.packages[0]?.members.length, 17);
   assert.throws(() => assertUiListing({ packages: [{ ...kwt().pkg, allowed: "yes" }] }), TransportError);
   assert.throws(() => assertUiListing({ packages: [{ ...kwt().pkg, members: [{ role: "block", name: "x", hash: "md5:1" }] }] }), /not sha256/);
   assert.throws(() => assertUiListing({ packages: [{ ...kwt().pkg, members: [{ role: "viewer-file", name: "viewers/../../x", hash: `sha256:${"a".repeat(64)}` }] }] }), /not a plain path/);
@@ -39,7 +39,7 @@ test("load: kton-web-test's controls keep their kind (decision/record), its view
   assert.equal(l.controls.get("kton-web-test/test-record")?.template, "test-note");
   const probe = l.packages["kton-web-test"]?.viewers["probe"];
   assert.equal(probe?.module, "packages/kton-web-test@test/viewers/probe/probe.js");
-  assert.deepEqual(l.entries.map((e) => [e.slot, e.composition]), [["review-view", "test-shell"]]);
+  assert.deepEqual(l.entries.map((e) => [e.slot, e.composition]).sort(), [["review-view", "test-layout"], ["review-view", "test-shell"]]);
 });
 
 test("load: a control that says no kind is a decision (ktonpkg EffectiveKind); a malformed control is refused", async () => {

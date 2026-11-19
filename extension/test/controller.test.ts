@@ -785,7 +785,7 @@ test("slot items (MH's demo): the entry's label once, with its package; no item 
   const { h } = await setup({}, t);
   const p1 = (h.trees["home"] ?? [])[0]?.children?.find((d) => d.label === "Which build?");
   const items = (p1?.children ?? []).filter((n) => n.command?.id === "ktonWorkbench.openSlot").map((n) => n.label);
-  assert.deepEqual(items.sort(), ["Record · Provenance", "Review", "Review · Test shell"]);
+  assert.deepEqual(items.sort(), ["Record · Provenance", "Review", "Review · Test layout", "Review · Test shell"]);
   for (const l of items) {
     const w = l.split(/[\s·:]+/).filter(Boolean).map((x) => x.toLowerCase());
     assert.ok(w.length === new Set(w).size || w[0] !== w[1], `${l} repeats a word`);

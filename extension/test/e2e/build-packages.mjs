@@ -81,11 +81,7 @@ function hostile(name, variant) {
 }
 
 try {
-  // kton-web-test as vendored, plus one review-view entry for its test-layout composition (the layout steps)
-  const kwt = mkdtempSync(join(tmpdir(), "kton-web-test-"));
-  cpSync(join(SRC, "kton-web-test"), kwt, { recursive: true });
-  writeFileSync(join(kwt, "ui", "test-layout.json"), JSON.stringify({ slot: "review-view", label: "Test layout", when: { kind: "claim" }, composition: "test-layout", order: 11 }, null, 1));
-  build("kton-web-test", "test", kwt);
+  build("kton-web-test", "test", join(SRC, "kton-web-test"));
   // a record-view entry with kton-web's graph viewer as a leaf, pinned at the vendored commit and tree
   build("workbench-graph", "1", join(SRC, "workbench-graph"));
   hostile("hostile-good", "good");
