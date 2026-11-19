@@ -55,9 +55,12 @@ func TestScope_ASeedFromASourceIsVerifiedAndCarriesItsContext(t *testing.T) {
 	if v.SeedTier != "peer" || v.Name != "study-af-2026" || v.Parent != project {
 		t.Fatalf("want the study verified in tier peer under its project, got %+v", v)
 	}
-	if len(v.Context) != 2 || v.Context[0].Scope != project || v.Context[0].Name != "project-af" ||
-		v.Context[1].Scope != programme || v.Context[1].Name != "programme-cardio" || v.Context[1].Tier != "peer" {
-		t.Fatalf("want project then programme, both verified, got %+v", v.Context)
+	// Since kton v0.4.0 a seed with no named parent hangs under its store's root scope, so the walk
+	// ends there (SPEC §9.6).
+	if len(v.Context) != 3 || v.Context[0].Scope != project || v.Context[0].Name != "project-af" ||
+		v.Context[1].Scope != programme || v.Context[1].Name != "programme-cardio" || v.Context[1].Tier != "peer" ||
+		!strings.HasPrefix(v.Context[2].Name, "root/") || v.Context[2].Tier != "peer" {
+		t.Fatalf("want project, programme, then the store's root, all verified, got %+v", v.Context)
 	}
 	if !strings.Contains(out.Raw, "programme-cardio") {
 		t.Errorf("the text does not show the context:\n%s", out.Raw)
