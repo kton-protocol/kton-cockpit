@@ -266,7 +266,8 @@ frontend: each with its name, revision, profile, whether the configuration admit
 its check, under `refused`, never hidden. A frontend reads what packages declare from here, never
 from package folders. What a package declares for a frontend (its `ui/` entries, blocks and
 compositions) is read by ktonpkg, not by the cockpit, and listed as ktonpkg reads it, each under its
-file name: an empty list when it declares none, null when the package could not be read. A package
+file name: an empty list when it declares none, null when the package is not admitted, fails its
+check or could not be read, so a frontend uses only what is listed. A package
 that is admitted (`allowed`) but fails its check (`refused` not empty) contributes nothing: the
 vocabulary of the admitted packages is refused while it fails, and a broken package directory that
 is not admitted takes nothing away from the others.

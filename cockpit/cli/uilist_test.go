@@ -58,15 +58,15 @@ func TestUIList_ListsInstalledPackagesWithWhatFailsTheirCheck(t *testing.T) {
 	if p := by[".kton/packages/admitted@v1"]; p.Name != "admitted" || !p.Allowed || p.Revision == "" || len(p.Refused) != 0 {
 		t.Errorf("the admitted package: %+v", p)
 	}
-	if p := by[".kton/packages/plain@v1"]; p.Name != "plain" || p.Allowed || len(p.Refused) != 0 {
-		t.Errorf("the installed, not admitted package: %+v", p)
+	if p := by[".kton/packages/plain@v1"]; p.Name != "plain" || p.Allowed || len(p.Refused) != 0 || p.UI != nil {
+		t.Errorf("the installed, not admitted package (declarations null): %+v", p)
 	}
 	if p := by[".kton/packages/broken@v1"]; len(p.Refused) != 1 || p.Refused[0].Code != "package.check" || p.Refused[0].Reason == "" || p.UI != nil {
 		t.Errorf("the broken package is not listed with its refusal, ui null: %+v", p)
 	}
-	// A package that declares nothing for a frontend says so with empty lists, not null.
-	if p := by[".kton/packages/plain@v1"]; p.UI == nil || len(p.UI) != 0 || p.Blocks == nil || p.Compositions == nil {
-		t.Errorf("a templates package's declarations should be empty lists: %+v", p)
+	// An admitted package that declares nothing for a frontend says so with empty lists, not null.
+	if p := by[".kton/packages/admitted@v1"]; p.UI == nil || len(p.UI) != 0 || p.Blocks == nil || p.Compositions == nil {
+		t.Errorf("an admitted templates package's declarations should be empty lists: %+v", p)
 	}
 }
 

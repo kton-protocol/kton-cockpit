@@ -27,7 +27,8 @@ type UIPackage struct {
 	Allowed  bool   `json:"allowed"`
 	// UI, Blocks and Compositions are what the package declares, as ktonpkg reads them: each entry
 	// is ktonpkg's own object plus its file name (file for ui/, name for blocks and compositions).
-	// An empty list when it declares none; null when it could not be read (see refused).
+	// An empty list when it declares none; null when the package is not admitted, fails its check
+	// or could not be read (see allowed and refused): a frontend uses only what is listed.
 	UI           []map[string]any `json:"ui"`
 	Blocks       []map[string]any `json:"blocks"`
 	Compositions []map[string]any `json:"compositions"`
@@ -84,6 +85,12 @@ func uiListing(cfg *config.Config) (UIListing, error) {
 			if err != nil {
 				p.Refused = append(p.Refused, UIRefusal{Code: "ui.check", Reason: err.Error()})
 			}
+		}
+		// Declarations are for a frontend to use, so they are listed only for a package it may use:
+		// admitted and passing its check. Otherwise they are null, and refused or allowed says why
+		// (kton-review V1).
+		if !p.Allowed || len(p.Refused) > 0 {
+			p.UI, p.Blocks, p.Compositions = nil, nil, nil
 		}
 		out.Packages = append(out.Packages, p)
 	}
