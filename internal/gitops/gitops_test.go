@@ -366,7 +366,10 @@ for a in "$@"; do
     exit 0
   fi
 done
-if [ "$1" = "diff" ]; then exit 1; fi
+if [ "$1" = "diff" ]; then
+  for a in "$@"; do if [ "$a" = "--name-only" ]; then shift $(($#-1)); printf '%s\0' "$1"; exit 0; fi; done
+  exit 1
+fi
 if [ "$1" = "rev-parse" ]; then echo "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"; fi
 exit 0
 `
@@ -396,7 +399,10 @@ if [ "$1" = "add" ]; then
   fi
   exit 0
 fi
-if [ "$1" = "diff" ]; then exit 1; fi
+if [ "$1" = "diff" ]; then
+  for a in "$@"; do if [ "$a" = "--name-only" ]; then shift $(($#-1)); printf '%s\0' "$1"; exit 0; fi; done
+  exit 1
+fi
 if [ "$1" = "rev-parse" ]; then echo "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"; fi
 exit 0
 `
@@ -457,7 +463,10 @@ func TestCommitAndPush_ALockHeldPastTheWaitIsBusy(t *testing.T) {
 for a in "$@"; do
   if [ "$a" = "commit" ]; then echo "fatal: Unable to create '/x/.git/index.lock': File exists." >&2; exit 128; fi
 done
-if [ "$1" = "diff" ]; then exit 1; fi
+if [ "$1" = "diff" ]; then
+  for a in "$@"; do if [ "$a" = "--name-only" ]; then shift $(($#-1)); printf '%s\0' "$1"; exit 0; fi; done
+  exit 1
+fi
 exit 0
 `
 	if err := os.WriteFile(filepath.Join(binDir, "git"), []byte(script), 0o755); err != nil {
@@ -467,5 +476,44 @@ exit 0
 	_, err := CommitAndPush(context.Background(), Git{Root: t.TempDir(), Commit: true, SessionID: "session-1"}, []string{"a.csv"}, "test")
 	if !errors.Is(err, ErrBusy) {
 		t.Fatalf("want ErrBusy, got %v", err)
+	}
+}
+
+// A write commits only its own staged files: a file staged by someone else stays staged and out of
+// the commit, and a rename staged under the write's paths is committed whole, its deletion included
+// (kton-review S1, T1, T2 on #163).
+func TestCommitAndPush_CommitsOnlyTheWritesOwnStagedFiles(t *testing.T) {
+	dir := t.TempDir()
+	git := func(args ...string) string {
+		t.Helper()
+		c := exec.Command("git", args...)
+		c.Dir = dir
+		out, err := c.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	git("init", "--quiet")
+	os.MkdirAll(filepath.Join(dir, "reg"), 0o755)
+	os.WriteFile(filepath.Join(dir, "reg", "a.txt"), []byte("a"), 0o644)
+	os.WriteFile(filepath.Join(dir, "other.txt"), []byte("o"), 0o644)
+	git("add", "--", "reg/a.txt")
+	git("-c", "user.name=t", "-c", "user.email=t@x", "commit", "--quiet", "-m", "init")
+
+	git("add", "--", "other.txt") // staged by someone else
+	git("mv", "reg/a.txt", "reg/b.txt")
+	cfg := Git{Root: dir, Commit: true, Push: false, SessionID: "session-1"}
+	if _, err := CommitAndPush(context.Background(), cfg, []string{"reg"}, "the write"); err != nil {
+		t.Fatal(err)
+	}
+	if got := git("show", "--name-status", "--format=", "HEAD"); strings.Contains(got, "other.txt") {
+		t.Errorf("the write's commit carries another's staged file:\n%s", got)
+	}
+	if tree := git("ls-tree", "-r", "--name-only", "HEAD"); strings.Contains(tree, "reg/a.txt") || !strings.Contains(tree, "reg/b.txt") {
+		t.Errorf("the rename was not committed whole; HEAD holds:\n%s", tree)
+	}
+	if staged := git("diff", "--cached", "--name-only"); staged != "other.txt" {
+		t.Errorf("want only other.txt still staged, got:\n%s", staged)
 	}
 }

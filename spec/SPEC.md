@@ -1276,7 +1276,8 @@ outside the cockpit is waited out for a bounded time, as is a store's own lock o
 another writer removes while it is being added. A lock still held when that time runs out is
 `store.busy`, never `store`: the repository is busy, not broken. What exists afterwards decides the
 answer. A write that met the lock before anything was signed MUST be refused with code `store.busy`:
-nothing exists, and the same write can be tried again. A write whose record or claim is already
+nothing exists, and the same write can be tried again. An extract (a ray, a workflow) removes the
+package folder it wrote, so a retry does not meet the folder. A write whose record or claim is already
 signed and stored MUST NOT be refused: it answers with the record's id and `pending`
 `{code: store.busy, reason}` (and `persisted: false` where it says so), the next write commits it, and
 a caller MUST NOT sign it again.
@@ -1285,7 +1286,8 @@ a caller MUST NOT sign it again.
 > `TestPublish_WithPushOffItCommitsLocallyAndSaysSo`, `TestCommitAndPush_NeverPushesWhenNotSharing`,
 > `TestSay_ParallelProcessesEachCommitTheirClaim`, `TestCommitAndPush_WaitsOutALockAnotherGitHolds`,
 > `TestCommitAndPush_TriesAgainWhenAFileVanishesUnderAdd`, `TestCommitAndPush_ALockHeldPastTheWaitIsBusy`,
-> `TestSay_ALockedRepositoryLeavesTheClaimPendingNotRefused`.
+> `TestSay_ALockedRepositoryLeavesTheClaimPendingNotRefused`,
+> `TestRay_ABusyCommitLeavesNoFolderAndTheSameExtractWorksAgain`.
 
 `cockpit sync` takes in what others shared and then shares what is durable here only. It MUST NOT
 rewrite a local revision — records already signed pin it in their locators — and where both sides

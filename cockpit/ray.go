@@ -248,7 +248,10 @@ func (c *Cockpit) publishRay(ctx context.Context, cfg *config.Config, in Publish
 
 	rev, err := persist(ctx, cfg, []string{rp.Dir}, "ray: "+rp.Choice.Name)
 	if err != nil {
-		return nil, refuse(storeCode(err), "", "committing the package failed: %v", err)
+		// Nothing is committed or signed yet: the package folder goes, so the same extract can be
+		// tried again rather than meeting ray.exists (kton-review R1 on #158).
+		_ = os.RemoveAll(abs)
+		return nil, refuse(storeCode(err), "", "committing the package failed, and it was not kept: %v", err)
 	}
 	shareRejected, sha := rev.Rejected, rev.ID
 
