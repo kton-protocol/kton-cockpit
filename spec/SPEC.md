@@ -272,8 +272,15 @@ that is admitted (`allowed`) but fails its check (`refused` not empty) contribut
 vocabulary of the admitted packages is refused while it fails, and a broken package directory that
 is not admitted takes nothing away from the others.
 
+For a package a frontend may use, `ui list` also lists its `members` (the sealed revision's parts, each
+`{role, name, hash}`), gives each composition its `hash`, and names a `ui` entry by its path
+(`ui/<name>.json`). `ui cat <package> <hash>` writes a member's bytes to stdout; it MUST refuse a hash
+that is not a member of that package's sealed revision, and a package that is not admitted or fails
+its check, so a frontend never reads a package folder.
+
 > **Checked by:** `TestUIList_ListsInstalledPackagesWithWhatFailsTheirCheck`,
-> `TestUIList_ListsAVerticlesUIBlocksAndCompositions`, `TestAllowed_ABrokenUnadmittedPackageTakesNothingAway`.
+> `TestUIList_ListsAVerticlesUIBlocksAndCompositions`, `TestAllowed_ABrokenUnadmittedPackageTakesNothingAway`,
+> `TestUICat_ServesAMembersBytesAndNothingElse`.
 
 ### 6.1 Which kernel
 

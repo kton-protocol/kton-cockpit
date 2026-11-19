@@ -10,6 +10,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/gitmick/ktonpkg/scope"
+	"github.com/kton-protocol/kton-cockpit/cockpit"
+	"os"
+	"path/filepath"
 	"sort"
 
 	"github.com/kton-protocol/kton-cockpit/internal/config"
@@ -32,7 +36,17 @@ type UIPackage struct {
 	UI           []map[string]any `json:"ui"`
 	Blocks       []map[string]any `json:"blocks"`
 	Compositions []map[string]any `json:"compositions"`
-	Refused      []UIRefusal      `json:"refused"`
+	// Members are the sealed revision's parts, each by role, name and content hash: what ui cat
+	// serves. Null with the declarations, for a package a frontend may not use.
+	Members []UIMember  `json:"members"`
+	Refused []UIRefusal `json:"refused"`
+}
+
+// UIMember is one part of a package's sealed revision (ktonpkg Revision.Members).
+type UIMember struct {
+	Role string `json:"role"`
+	Name string `json:"name"`
+	Hash string `json:"hash"`
 }
 
 // UIRefusal is one part of a package that fails its check: file "" for the package as a whole.
@@ -81,6 +95,24 @@ func uiListing(cfg *config.Config) (UIListing, error) {
 		cs, err := r.Compositions()
 		errs = append(errs, err)
 		p.Compositions = declared(cs, "name", err)
+		ms, err := r.Members()
+		errs = append(errs, err)
+		if err == nil {
+			p.Members = []UIMember{}
+			hashOf := map[string]string{}
+			for _, m := range ms {
+				p.Members = append(p.Members, UIMember{m.Role, m.Name, m.Hash})
+				hashOf[m.Role+":"+m.Name] = m.Hash
+			}
+			// A ui entry is named by its path in the package, a composition carries its hash, so a
+			// frontend fetches its body with ui cat (userinterface's PR 2).
+			for _, u := range p.UI {
+				u["file"] = "ui/" + u["file"].(string) + ".json"
+			}
+			for _, c := range p.Compositions {
+				c["hash"] = hashOf[scope.RoleComposition+":"+c["name"].(string)]
+			}
+		}
 		for _, err := range errs {
 			if err != nil {
 				p.Refused = append(p.Refused, UIRefusal{Code: "ui.check", Reason: err.Error()})
@@ -90,7 +122,7 @@ func uiListing(cfg *config.Config) (UIListing, error) {
 		// admitted and passing its check. Otherwise they are null, and refused or allowed says why
 		// (kton-review V1).
 		if !p.Allowed || len(p.Refused) > 0 {
-			p.UI, p.Blocks, p.Compositions = nil, nil, nil
+			p.UI, p.Blocks, p.Compositions, p.Members = nil, nil, nil, nil
 		}
 		out.Packages = append(out.Packages, p)
 	}
@@ -122,8 +154,11 @@ func declared[T any](m map[string]T, key string, err error) []map[string]any {
 }
 
 func runUI(ctx context.Context, args []string) error {
+	if len(args) == 3 && args[0] == "cat" {
+		return uiCat(ctx, args[1], args[2])
+	}
 	if len(args) == 0 || args[0] != "list" {
-		return fmt.Errorf("usage: cockpit ui list [--json]")
+		return fmt.Errorf("usage: cockpit ui list [--json] | cockpit ui cat <package> <sha256:hash>")
 	}
 	cfg, err := config.Load(ctx, ".")
 	if err != nil {
@@ -151,4 +186,51 @@ func runUI(ctx context.Context, args []string) error {
 		fmt.Printf("%-24s %-10s %-12s %s\n", orDefault(p.Name, p.Dir), p.Label, p.Profile, state)
 	}
 	return nil
+}
+
+// uiCat writes one member of an installed package's sealed revision to stdout, by its hash: the
+// bytes a frontend needs (a composition body, a carried viewer's file) without reading package
+// folders itself (contract C1.5). Only for a package a frontend may use (admitted, passing its
+// check), and only for a hash that is a member of its sealed revision; anything else is refused.
+func uiCat(ctx context.Context, name, hash string) error {
+	cfg, err := config.Load(ctx, ".")
+	if err != nil {
+		return err
+	}
+	l, err := uiListing(cfg)
+	if err != nil {
+		return err
+	}
+	var pkg *UIPackage
+	for i := range l.Packages {
+		if l.Packages[i].Name == name {
+			if pkg != nil {
+				return &cockpit.Refusal{Code: "ui.package", Clause: "SPEC §6", Reason: fmt.Sprintf("two installed packages are named %s; name it by its dir", name)}
+			}
+			pkg = &l.Packages[i]
+		}
+	}
+	switch {
+	case pkg == nil:
+		return &cockpit.Refusal{Code: "ui.package", Clause: "SPEC §6", Reason: fmt.Sprintf("no installed package %q", name)}
+	case pkg.Members == nil:
+		return &cockpit.Refusal{Code: "ui.package", Clause: "SPEC §6", Reason: fmt.Sprintf("%s is not admitted or fails its check: ui list says why", name)}
+	}
+	member := false
+	for _, m := range pkg.Members {
+		member = member || m.Hash == hash
+	}
+	if !member {
+		return &cockpit.Refusal{Code: "ui.member", Clause: "SPEC §6", Reason: fmt.Sprintf("%s is not a member of %s's sealed revision", hash, name)}
+	}
+	p, err := scope.Open(filepath.Join(cfg.RepoRoot, filepath.FromSlash(pkg.Dir)))
+	if err != nil {
+		return err
+	}
+	b, err := p.Blob(hash)
+	if err != nil {
+		return err
+	}
+	_, err = os.Stdout.Write(b)
+	return err
 }

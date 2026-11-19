@@ -107,7 +107,7 @@ func TestUIList_ListsAVerticlesUIBlocksAndCompositions(t *testing.T) {
 	if p.Name != "review" || !p.Allowed || len(p.Refused) != 0 {
 		t.Fatalf("the verticle: %+v", p)
 	}
-	if len(p.UI) != 1 || p.UI[0]["file"] != "review" || p.UI[0]["slot"] == nil {
+	if len(p.UI) != 1 || p.UI[0]["file"] != "ui/review.json" || p.UI[0]["slot"] == nil {
 		t.Errorf("ui entries: %v", p.UI)
 	}
 	if len(p.Blocks) != 1 || p.Blocks[0]["name"] != "table" || p.Blocks[0]["viewer"] == nil {
@@ -115,5 +115,62 @@ func TestUIList_ListsAVerticlesUIBlocksAndCompositions(t *testing.T) {
 	}
 	if len(p.Compositions) != 1 || p.Compositions[0]["name"] != "list" || p.Compositions[0]["kind"] == nil {
 		t.Errorf("compositions: %v", p.Compositions)
+	}
+}
+
+// ui list gives each usable package its members (role, name, hash), each composition its hash, and
+// each ui entry its path; ui cat serves a member's bytes by hash, and only a member's, so a frontend
+// never reads a package folder (userinterface's PR 2; ktonpkg v0.9.6 Revision.Members).
+func TestUICat_ServesAMembersBytesAndNothingElse(t *testing.T) {
+	r := testrepo.New(t)
+	r.Use(t)
+	out, err := exec.Command("go", "list", "-m", "-f", "{{.Dir}}", "github.com/gitmick/ktonpkg").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	good := filepath.Join(strings.TrimSpace(string(out)), "scope", "testdata", "hostile", "good")
+	_, key, _ := ed25519.GenerateKey(rand.Reader)
+	dir := filepath.Join(t.TempDir(), "review")
+	if _, _, err := scope.BuildVerticle(dir, "review", "v1", good, key, scope.Options{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := cockpit.New(cockpit.Start{}).Install(context.Background(), cockpit.InstallRequest{Path: dir, Allow: true}); err != nil {
+		t.Fatal(err)
+	}
+	stdout, stderr, code := r.CockpitSplit(t, "ui", "list", "--json")
+	var l struct {
+		Packages []struct {
+			UI           []map[string]any `json:"ui"`
+			Compositions []map[string]any `json:"compositions"`
+			Members      []UIMember       `json:"members"`
+		} `json:"packages"`
+	}
+	if code != 0 || json.Unmarshal([]byte(stdout), &l) != nil || len(l.Packages) != 1 {
+		t.Fatalf("ui list --json (exit %d):\n%s\n%s", code, stdout, stderr)
+	}
+	p := l.Packages[0]
+	if len(p.Members) == 0 {
+		t.Fatalf("no members listed: %s", stdout)
+	}
+	if p.UI[0]["file"] != "ui/review.json" {
+		t.Errorf("a ui entry's file should be its path, got %v", p.UI[0]["file"])
+	}
+	hash, _ := p.Compositions[0]["hash"].(string)
+	if !strings.HasPrefix(hash, "sha256:") {
+		t.Fatalf("the composition carries no hash: %v", p.Compositions[0])
+	}
+
+	body, stderr2, code := r.CockpitSplit(t, "ui", "cat", "review", hash)
+	want, _ := os.ReadFile(filepath.Join(good, "ui", "compositions", "list.json"))
+	if code != 0 || body != string(want) {
+		t.Fatalf("ui cat of the composition (exit %d): got %q, want the file's bytes\n%s", code, body, stderr2)
+	}
+	for _, args := range [][]string{
+		{"ui", "cat", "review", "sha256:" + strings.Repeat("0", 64)},
+		{"ui", "cat", "nosuch", hash},
+	} {
+		if out, code := r.Cockpit(t, args...); code != 2 {
+			t.Errorf("%v: want a refusal (exit 2), got exit %d:\n%s", args, code, out)
+		}
 	}
 }
