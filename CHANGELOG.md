@@ -2,16 +2,20 @@
 
 ## v0.5.2 — 2026-11-19
 
-Three needs of the QM Workbench shell (userinterface), and the advisory CI job. Tracks kton v0.4.0
-and ktonpkg v0.8.0. Nothing to migrate from v0.5.1.
+What the QM Workbench shell (userinterface) needs for its PR 2, kton-review's findings on it, and
+the advisory CI job. Tracks kton v0.4.0 and ktonpkg v0.9.1. Nothing to migrate from v0.5.1.
 
 ### Added
 
 - **`cockpit ui list [--json]`** (SPEC §6): the installed packages for a frontend, each with its
   name, package id, revision, label, profile, whether the configuration admits it, and what fails its
   check under `refused` (code `package.check`), listed rather than hidden. A frontend reads what
-  packages declare from here, never from package folders. A package's `ui/`, blocks and compositions
-  follow with ktonpkg v0.9.0. `ui` is a reserved core command name.
+  packages declare from here, never from package folders: a verticle's `ui` entries, blocks and
+  compositions as ktonpkg v0.9.1 reads them, each under its file name, an empty list when it declares
+  none and null when the package cannot be read. `ui` is a reserved core command name.
+- **Install checks a viewer the package carries** (ktonpkg v0.9.1, `viewers/<viewer>/`): its tree id
+  against the pin, its `viewer.json`, and that every block on it emits and takes only what
+  `viewer.json` declares. A viewer pinned to a kton-web commit is not fetched and checked yet.
 - **Every claim key in `doctor --json`** (SPEC §6): `fields.identity.keys` lists the checkout's own
   claim key and each key of the keyring, with its key id from the seed, whether the `.pub` beside it
   matches, and its trust tier.
@@ -19,8 +23,15 @@ and ktonpkg v0.8.0. Nothing to migrate from v0.5.1.
 ### Fixed
 
 - **A locked repository is `store.busy`, not `store`** (SPEC §12.1). A write that still meets git's
-  lock after the 30 s wait is refused with its own code, so a caller can try again rather than
-  give up. Every write path: say, publish, install, rays and workflows.
+  lock after the 30 s wait gets its own code. What exists afterwards decides the answer: a write that
+  met the lock before anything was signed (publish's first commit, install, workflow) is refused
+  `store.busy` and can be tried again; a write whose record or claim is already signed and stored
+  (say, publish's registry commit, a ray's claim) is not refused but answers with the id and
+  `pending: {code: store.busy}`, and the next write commits it, so a retry never signs twice
+  (kton-review B1).
+- **A broken package directory nobody admitted takes nothing away** (kton-review U2): it no longer
+  makes every package template refuse. An admitted package that fails its check contributes nothing.
+- **The shell form of `say` takes an IRI subject**, as every other form does (SPEC §8).
 - **CI against kton main fetches the kton modules from git**, not the module proxy, which kept
   answering `@main` with the commit before the v0.4.0 release.
 
