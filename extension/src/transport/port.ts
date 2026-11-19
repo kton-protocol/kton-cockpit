@@ -55,6 +55,11 @@ export interface SayResult {
   readonly level?: string;
   readonly confirmation: string;
   readonly chain?: { readonly scope: string; readonly prev: string; readonly length?: number };
+  /**
+   * cockpit v0.5.2: the claim is signed and stored, but the registry was busy, so it is not committed yet; the next
+   * write commits it. Never a reason to sign again.
+   */
+  readonly pending?: { readonly code: string; readonly reason: string };
 }
 
 export interface AskRequest {

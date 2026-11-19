@@ -18,6 +18,8 @@ VOCAB="${3:-$HERE/vocabulary}"
 EXT=$(cd "$HERE/../.." && pwd)
 OUTDIR="$HERE/out"
 PORT=${PORT:-18099}
+# Container names carry the run so two runs can share a machine (they also need different PORTs).
+RUN_ID=$(basename "$WORK" | tr -c 'a-zA-Z0-9-' '-' | cut -c1-40)
 UIDGID="$(id -u):$(id -g)"
 DOCKER_GID=$(stat -c %g /var/run/docker.sock)
 NODE_IMAGE=node:22@sha256:3218f0d1b9e4b63def322e9ae362d581fbeac1ef21b51fc502ef91386667ce92
@@ -59,7 +61,8 @@ if [ "\$1" = say ] && [ "\${2:-}" != --json ]; then
     say-refuse) echo '{"code":"template.not-allowed","reason":"the template decides is not allowed here"}'; exit 2;;
     say-garbage) echo "this is not json"; exit 0;;
     say-slow) sleep 120; exec /usr/local/bin/cockpit "\$@";;
-    say-locked) if [ -e "$WORK/faults/registry.lock" ]; then echo "the registry is locked by another process (store lock held)" >&2; exit 1; fi;;
+    say-locked) if [ -e "$WORK/faults/registry.lock" ]; then echo '{"code":"store.busy","clause":"store","reason":"the registry is busy (git lock held); nothing was signed"}'; exit 2; fi;;
+    say-pending) /usr/local/bin/cockpit "\$@" | sed '0,/{/s//{"pending":{"code":"store.busy","reason":"the registry was busy; the next write commits it"},/'; exit 0;;
   esac
 fi
 if [ "\$1" = ask ] && [ "\$MODE" = ask-garbage ]; then echo "this is not json"; exit 0; fi
@@ -88,7 +91,7 @@ cat > "$WORK/cs/data/User/settings.json" <<EOF
 EOF
 
 echo "== sidecar (registry side)"
-SIDE=$(docker run -d --rm --name kton-wb-e2e-sidecar -u "$UIDGID" --group-add "$DOCKER_GID" -e HOME="$WORK/home" -e TMPDIR="$WORK/tmp" \
+SIDE=$(docker run -d --rm --name kton-wb-e2e-sidecar-$RUN_ID -u "$UIDGID" --group-add "$DOCKER_GID" -e HOME="$WORK/home" -e TMPDIR="$WORK/tmp" \
   -v "$WORK:$WORK" -v /var/run/docker.sock:/var/run/docker.sock $DOCKER_MOUNT -v "$COCKPIT:/usr/local/bin/cockpit:ro" \
   -v "$HERE/sidecar.mjs:/sidecar.mjs:ro" "$NODE_IMAGE" node /sidecar.mjs "$WORK")
 
@@ -98,11 +101,11 @@ CS_COMMON="-u $UIDGID --group-add $DOCKER_GID --network host -e HOME=$WORK/home 
   -v $COCKPIT:/usr/local/bin/cockpit:ro -v $EXT/out:/vsix:ro --entrypoint code-server"
 docker run --rm $CS_COMMON "$CS_IMAGE" --user-data-dir "$WORK/cs/data" --extensions-dir "$WORK/cs/ext" \
   --install-extension /vsix/kton-workbench.vsix
-CID=$(docker run -d --rm --name kton-wb-e2e $CS_COMMON "$CS_IMAGE" --user-data-dir "$WORK/cs/data" --extensions-dir "$WORK/cs/ext" \
+CID=$(docker run -d --rm --name kton-wb-e2e-$RUN_ID $CS_COMMON "$CS_IMAGE" --user-data-dir "$WORK/cs/data" --extensions-dir "$WORK/cs/ext" \
   --auth none --bind-addr "127.0.0.1:$PORT" --disable-telemetry --disable-update-check --disable-workspace-trust "$WORK/repo")
 cleanup() {
-  docker stop kton-wb-e2e >/dev/null 2>&1 || true
-  docker stop kton-wb-e2e-sidecar >/dev/null 2>&1 || true
+  docker stop kton-wb-e2e-$RUN_ID >/dev/null 2>&1 || true
+  docker stop kton-wb-e2e-sidecar-$RUN_ID >/dev/null 2>&1 || true
   # Discard the throwaway registry and its test keys unless KEEP=1.
   [ "${KEEP:-0}" = 1 ] || rm -r -f -- "$WORK"
 }

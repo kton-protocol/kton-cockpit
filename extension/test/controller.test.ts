@@ -2,7 +2,7 @@
 // Test names start with the flow step of the shell flows (S1–S10) they stand for, where there is one.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { Workbench, DEFAULT_CONFIG, isLocked } from "../src/ui/controller.js";
+import { Workbench, DEFAULT_CONFIG } from "../src/ui/controller.js";
 import type { TreeNode, UiHost, StatusId, ViewId } from "../src/ui/host.js";
 import { rowsOf } from "../src/ui/queries.js";
 import { decisionPage, esc, signDialogPage } from "../src/ui/pages.js";
@@ -53,6 +53,9 @@ class FakeTransport implements Transport {
   templateList: TemplateInfo[] = TEMPLATES;
   sayError: Error | undefined;
   sayErrors: Error[] = [];
+  /** Queued answers for say (refusals, pending); each call takes one before the default answer. */
+  sayOutcomes: Outcome<SayResult>[] = [];
+  sayCalls = 0;
   askError: Error | undefined;
   answers: Record<string, Array<Record<string, string>>> = {
     "Q proposals": [
@@ -79,6 +82,12 @@ class FakeTransport implements Transport {
   async say(req: SayRequest): Promise<Outcome<SayResult>> {
     const e = this.sayErrors.shift() ?? this.sayError;
     if (e) throw e;
+    this.sayCalls++;
+    const queued = this.sayOutcomes.shift();
+    if (queued) {
+      if (queued.ok) this.says.push(req);
+      return queued;
+    }
     this.says.push(req);
     return { ok: true, value: { claimId: sha("9"), confirmation: "registered" } };
   }
@@ -507,26 +516,45 @@ test("S7.3: say times out: the dialog shows it failed, and the registry decides;
   assert.ok(!h.infos.some((i) => i.startsWith("Signed")));
 });
 
-test("S7.4: a locked registry is retried, shown in the status bar, and completes once released", async () => {
+test("S7.4: a refusal store.busy (nothing signed) is retried, shown in the status bar, and completes once released", async () => {
   const { t, h, wb } = await setup();
-  const locked = new TransportError("the registry is locked by another process", 1, "nekton: store is locked\n");
-  t.sayErrors = [locked, locked];
+  const busy: Outcome<SayResult> = { ok: false, refusal: { code: "store.busy", reason: "the registry is busy (git lock)" } };
+  t.sayOutcomes = [busy, busy];
   h.confirmAnswer = true;
   assert.equal(await wb.onDecisionIntent({ msg: P1 }, decisionIntent("b")), "signed");
   assert.deepEqual(h.statusHistory.filter((s) => s.startsWith("registry locked")), ["registry locked: retrying say (1/2)", "registry locked: retrying say (2/2)"]);
-  assert.equal(t.says.length, 1);
-  assert.ok(isLocked(locked));
-  assert.ok(!isLocked(new TransportError("git commit failed", 1, "")));
+  assert.equal(t.says.length, 1, "one claim signed, after two busy refusals that signed nothing");
 });
 
-test("S7.4: a lock that is not released gives up with a clear message and signs nothing", async () => {
+test("S7.4: a busy registry that is not released gives up with a clear message and signs nothing", async () => {
   const { t, h, wb } = await setup();
-  const locked = new TransportError("locked", 1, "store is locked");
-  t.sayErrors = [locked, locked, locked];
+  const busy: Outcome<SayResult> = { ok: false, refusal: { code: "store.busy", reason: "the registry is busy (git lock)" } };
+  t.sayOutcomes = [busy, busy, busy];
   h.confirmAnswer = true;
   assert.equal(await wb.onDecisionIntent({ msg: P1 }, decisionIntent("b")), "failed");
-  assert.match(h.errors.at(-1) ?? "", /Not signed: locked/);
+  assert.match(h.errors.at(-1) ?? "", /Not signed: the cockpit refused: the registry is busy/);
   assert.equal(t.says.length, 0);
+});
+
+test("S7.8: a say answered with pending store.busy is signed, shown as not yet committed, and never retried", async () => {
+  const { t, h, wb } = await setup();
+  t.sayOutcomes = [{ ok: true, value: { claimId: sha("8"), confirmation: "registered", pending: { code: "store.busy", reason: "the registry was busy; the next write commits it" } } }];
+  h.confirmAnswer = true;
+  assert.equal(await wb.onDecisionIntent({ msg: P1 }, decisionIntent("b")), "signed");
+  assert.equal(t.sayCalls, 1, "say is called once: a pending claim is never signed again");
+  assert.equal(h.outcomes.at(-1)?.ok, true);
+  assert.match(h.outcomes.at(-1)?.text ?? "", /Signed sha256:8+, not yet committed/);
+  assert.ok(!h.errors.some((e) => /Not signed/.test(e)), "never told 'not signed' about a signed claim");
+});
+
+test("S7.4: an error that mentions a lock is NOT retried (the claim may be signed); the registry decides", async () => {
+  const { t, h, wb } = await setup();
+  t.sayErrors = [new TransportError("git commit failed: index.lock exists", 1, "fatal: Unable to create '.git/index.lock': File exists.\n")];
+  h.confirmAnswer = true;
+  assert.equal(await wb.onDecisionIntent({ msg: P1 }, decisionIntent("b")), "failed");
+  assert.equal(t.sayErrors.length, 0, "the one queued error was used");
+  assert.equal(t.sayCalls, 0, "no second call: never retried");
+  assert.match(h.errors.at(-1) ?? "", /check it before signing again/);
 });
 
 test("review check 7: a decides signed by an agent key is not shown as a decision (S4.5); a person's decides is", async () => {

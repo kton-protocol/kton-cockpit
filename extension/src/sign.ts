@@ -116,14 +116,14 @@ export class DialogConsent {
  * Sign. A plan that signs with the person key (or is marked as needing the dialog) without the dialog's
  * consent for this very plan is refused before the cockpit is called.
  */
-export async function sign(t: Transport, p: SignPlan, consent: DialogConsent | undefined): Promise<Outcome<{ readonly id: string }>> {
+export async function sign(t: Transport, p: SignPlan, consent: DialogConsent | undefined): Promise<Outcome<{ readonly id: string; readonly pending?: { readonly code: string; readonly reason: string } }>> {
   if (p.keyRole === "person" || p.needsDialog) {
     if (!(consent instanceof DialogConsent)) return refuse("dialog.required", "a decision is signed through the sign dialog, never in one click");
     if (consent.digest !== p.digest) return refuse("dialog.mismatch", "the dialog showed something else than what would be signed");
   }
   const out = await t.say({ template: p.template, subject: p.subject, fields: p.fields, as: p.as });
   if (!out.ok) return out;
-  return { ok: true, value: { id: out.value.claimId } };
+  return { ok: true, value: { id: out.value.claimId, ...(out.value.pending ? { pending: out.value.pending } : {}) } };
 }
 
 function refuse(code: string, reason: string): { ok: false; refusal: Refusal } {
