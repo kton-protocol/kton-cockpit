@@ -1,0 +1,21 @@
+{
+  "composition": "test-layout",
+  "kind": "view",
+  "subject": {"kind": "claim"},
+  "vars": {"picked": {"type": "literal", "default": ""}},
+  "layout": {"type": "grid", "columns": ["1fr", "2fr", "1fr"], "areas": [["filter", "main", "side"], ["filter", "main", "."]], "narrow": "tabs"},
+  "parts": [
+    {"id": "filter", "heading": "Filter", "blocks": [
+      {"id": "f", "use": "probe", "options": {"label": "filter"}, "emits": {"pick": "picked"}}
+    ]},
+    {"id": "main", "heading": "Record", "layout": {"type": "tabs", "active": "history"}, "parts": [
+      {"id": "details", "heading": "Details", "blocks": [{"id": "d", "use": "probe", "options": {"label": "details"}}]},
+      {"id": "history", "heading": "History", "blocks": [{"id": "h", "use": "probe", "options": {"label": "var.picked"}}]},
+      {"id": "approvals", "heading": "Approvals", "blocks": [{"id": "n", "use": "needs"}]}
+    ]},
+    {"id": "side", "heading": "Side", "layout": {"type": "split", "ratio": 0.3, "direction": "row"}, "parts": [
+      {"id": "left", "heading": "Left", "blocks": [{"id": "l", "use": "probe", "options": {"label": "left"}}]},
+      {"id": "right", "heading": "Right", "blocks": [{"id": "r", "use": "probe", "options": {"label": "right"}}]}
+    ]}
+  ]
+}

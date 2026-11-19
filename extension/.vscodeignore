@@ -8,3 +8,4 @@ out/*.vsix
 tsconfig.json
 .nvmrc
 .gitignore
+scripts/**

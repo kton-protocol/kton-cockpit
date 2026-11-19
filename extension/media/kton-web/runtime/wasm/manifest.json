@@ -1,0 +1,19 @@
+{
+  "full": {
+    "file": "kton-full.wasm",
+    "bytes": 4110417,
+    "gzip": 1152155,
+    "exports": [
+      "plktBuildGraph",
+      "plktSha256Init",
+      "plktSha256Update",
+      "plktSha256Final",
+      "plktBuildClaim",
+      "plktSealClaim",
+      "plktKeyIRI",
+      "plktBuildFoton",
+      "plktSealFoton",
+      "plktFotonID"
+    ]
+  }
+}

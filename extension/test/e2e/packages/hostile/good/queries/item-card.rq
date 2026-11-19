@@ -1,0 +1,1 @@
+SELECT ?p ?o WHERE { $item ?p ?o }

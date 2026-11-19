@@ -105,6 +105,10 @@
       {
         "command": "ktonWorkbench.chooseOption",
         "title": "kton workbench: choose an option of a decision"
+      },
+      {
+        "command": "ktonWorkbench.openSlot",
+        "title": "kton workbench: open a package view for a subject"
       }
     ],
     "configuration": {
@@ -195,6 +199,10 @@
         },
         {
           "command": "ktonWorkbench.chooseOption",
+          "when": "false"
+        },
+        {
+          "command": "ktonWorkbench.openSlot",
           "when": "false"
         }
       ]

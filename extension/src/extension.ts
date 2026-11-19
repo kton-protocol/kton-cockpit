@@ -4,6 +4,16 @@
 
 import * as vscode from "vscode";
 import { randomBytes } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { inside, writeTree } from "./packages/store.js";
+
+const STALE_TITLE = " (stale: the last poll failed)";
+import { compositionPage, leafPage } from "./composition/page.js";
+import { loadVendored } from "./packages/vendored.js";
+import { startMermaidServer } from "./composition/mermaid-server.js";
+import type { Subject } from "./composition/slots.js";
+import type { LeafViewer, LoadedViewer, ViewerTree } from "./packages/model.js";
 import { CliTransport } from "./transport/cli.js";
 import { claimKeyId, readIdentityHint, type WindowIdentity } from "./identity.js";
 import type { DoctorReport } from "./transport/port.js";
@@ -11,6 +21,7 @@ import { loadQueries } from "./ui/queries.js";
 import { loadSurfaces } from "./ui/surfaces.js";
 import { CMD, DEFAULT_CONFIG, Workbench } from "./ui/controller.js";
 import { signDialogPage } from "./ui/pages.js";
+import { workbenchCommands } from "./ui/commands.js";
 import type { StatusId, TreeNode, UiHost, ViewId } from "./ui/host.js";
 
 class Tree implements vscode.TreeDataProvider<TreeNode> {
@@ -53,8 +64,10 @@ class VsHost implements UiHost {
   readonly trees: Record<ViewId, Tree> = { home: new Tree(), inbox: new Tree(), lanes: new Tree() };
   readonly out = vscode.window.createOutputChannel("kton cockpit workbench");
 
-  constructor(ctx: vscode.ExtensionContext) {
-    const order: StatusId[] = ["surface", "identity", "mode", "poll"];
+  /** the Mermaid frame's URL as the webview reaches it (asExternalUri of 127.0.0.1), once the server runs */
+  mermaidFrame: string | undefined;
+  constructor(private readonly ctx: vscode.ExtensionContext) {
+    const order: StatusId[] = ["surface", "identity", "mode", "poll", "slots"];
     order.forEach((id, i) => {
       const s = vscode.window.createStatusBarItem(`ktonWorkbench.${id}`, vscode.StatusBarAlignment.Left, 100 - i);
       s.name = `kton workbench ${id}`;
@@ -95,6 +108,68 @@ class VsHost implements UiHost {
     p.webview.html = html;
     if (reveal) p.reveal();
   }
+  /**
+   * A composition panel: the vendored kton-web frame, a CSP the host owns, and exactly the viewer trees the
+   * plan uses, written (already checked against their tree ids) to a folder named by tree id.
+   */
+  showComposition(key: string, title: string, viewers: readonly LoadedViewer[], onMessage: (msg: unknown) => void): { post: (msg: unknown) => void; urls: ReadonlyMap<string, string> } {
+    const kit = vscode.Uri.joinPath(this.ctx.extensionUri, "media", "kton-web");
+    const store = vscode.Uri.joinPath(this.ctx.globalStorageUri, "viewers");
+    // the trees first, each path checked to stay under its tree's folder (F1 on #174): a refusal opens no panel
+    const written = viewers.map((v) => {
+      const dir = join(store.fsPath, v.tree.replace(/^sha256:/, ""));
+      writeTree(dir, v.files);
+      return { v, module: inside(dir, String(v.decl["module"])) };
+    });
+    this.handlers.set(key, onMessage);
+    let p = this.panels.get(key);
+    if (!p) {
+      p = vscode.window.createWebviewPanel("ktonWorkbench.composition", title, vscode.ViewColumn.Active, { enableScripts: true, retainContextWhenHidden: false, localResourceRoots: [kit, store] });
+      const panel = p;
+      this.panels.set(key, panel);
+      panel.onDidDispose(() => {
+        this.panels.delete(key);
+        this.handlers.delete(key);
+      });
+      panel.webview.onDidReceiveMessage((m: unknown) => this.handlers.get(key)?.(m));
+    }
+    const webview = p.webview;
+    const urls = new Map<string, string>();
+    for (const { v, module } of written) urls.set(v.module, webview.asWebviewUri(vscode.Uri.file(module)).toString());
+    p.title = title;
+    webview.html = compositionPage(title, randomBytes(16).toString("base64url"), {
+      cspSource: webview.cspSource,
+      frame: webview.asWebviewUri(vscode.Uri.joinPath(kit, "viewers", "compose", "frame.js")).toString(),
+      css: webview.asWebviewUri(vscode.Uri.joinPath(kit, "core", "compose.css")).toString(),
+      ...(this.mermaidFrame ? { mermaidFrame: this.mermaidFrame } : {}),
+    });
+    p.reveal();
+    const panel = p;
+    return { post: (m) => void panel.webview.postMessage(m), urls };
+  }
+  /** A leaf: the vendored viewer's own page (its tree was checked against the package's pin at load). */
+  showLeaf(key: string, title: string, leaf: LeafViewer, onMessage: (msg: unknown) => void): { post: (msg: unknown) => void } {
+    const kit = vscode.Uri.joinPath(this.ctx.extensionUri, "media", "kton-web");
+    this.handlers.set(key, onMessage);
+    let p = this.panels.get(key);
+    if (!p) {
+      p = vscode.window.createWebviewPanel("ktonWorkbench.leaf", title, vscode.ViewColumn.Active, { enableScripts: true, localResourceRoots: [kit] });
+      const panel = p;
+      this.panels.set(key, panel);
+      panel.onDidDispose(() => {
+        this.panels.delete(key);
+        this.handlers.delete(key);
+      });
+      panel.webview.onDidReceiveMessage((m: unknown) => this.handlers.get(key)?.(m));
+    }
+    const dir = vscode.Uri.joinPath(kit, ...leaf.dir.replace(/^kton-web\//, "").split("/"));
+    const html = readFileSync(vscode.Uri.joinPath(dir, "index.html").fsPath, "utf8");
+    p.title = title;
+    p.webview.html = leafPage(html, randomBytes(16).toString("base64url"), p.webview.cspSource, `${p.webview.asWebviewUri(dir).toString()}/`);
+    p.reveal();
+    const panel = p;
+    return { post: (m) => void panel.webview.postMessage(m) };
+  }
   /** The open sign dialog after its Sign was pressed: it shows "Signing…" and then the outcome. */
   private signing: vscode.WebviewPanel | undefined;
   signDialog(title: string, detail: string, person: string): Promise<boolean> {
@@ -132,6 +207,13 @@ class VsHost implements UiHost {
   closePanel(key: string): void {
     this.panels.get(key)?.dispose();
   }
+  /** A stale panel says so in its title (the last ui list poll failed); it stays open and usable. */
+  markStale(key: string, stale: boolean): void {
+    const p = this.panels.get(key);
+    if (!p) return;
+    const base = p.title.endsWith(STALE_TITLE) ? p.title.slice(0, -STALE_TITLE.length) : p.title;
+    p.title = stale ? `${base}${STALE_TITLE}` : base;
+  }
   pick(title: string, items: readonly string[]): Promise<string | undefined> {
     return Promise.resolve(vscode.window.showQuickPick([...items], { title }));
   }
@@ -158,6 +240,8 @@ class VsHost implements UiHost {
 }
 
 let wb: Workbench | undefined;
+/** The viewers vendored from kton-web, read and tree-hashed once (src/packages/vendored.ts). */
+let vendored: ReadonlyMap<string, ViewerTree> = new Map();
 /** Builds are numbered: a setting changed twice in a row starts two, and only the last may run. */
 let generation = 0;
 
@@ -207,6 +291,7 @@ async function build(host: VsHost): Promise<void> {
   wb = new Workbench(transport, host, queries, identity, {
     ...DEFAULT_CONFIG,
     personTiers: cfg.get<string[]>("identity.personTiers") ?? [],
+    vendoredViewers: vendored,
     pollSeconds: Math.max(1, cfg.get<number>("poll.seconds") ?? 30),
     cockpitLabel: executable.split(/[\\/]/).pop() ?? executable,
     surfaces,
@@ -217,21 +302,24 @@ async function build(host: VsHost): Promise<void> {
 }
 
 export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
+  vendored = loadVendored(join(ctx.extensionUri.fsPath, "media", "kton-web"));
   const host = new VsHost(ctx);
+  // H13: the sandboxed Mermaid frame from 127.0.0.1, reached through asExternalUri; without it diagrams say why
+  try {
+    const m = await startMermaidServer(join(ctx.extensionUri.fsPath, "media", "kton-web"));
+    ctx.subscriptions.push({ dispose: () => m.close() });
+    // map the server's root (code-server maps a port to its /proxy/<port>/ path), then name the frame below it
+    const root = (await vscode.env.asExternalUri(vscode.Uri.parse(`http://127.0.0.1:${m.port}/`))).toString(true);
+    host.mermaidFrame = new URL("mermaid/frame.html", root.endsWith("/") ? root : `${root}/`).toString();
+    host.out.appendLine(`the Mermaid frame: ${host.mermaidFrame}`);
+  } catch (e) {
+    host.out.appendLine(`the Mermaid frame is not served: ${(e as Error).message}`);
+  }
   ctx.subscriptions.push(
     vscode.window.registerTreeDataProvider("ktonWorkbench.home", host.trees.home),
     vscode.window.registerTreeDataProvider("ktonWorkbench.inbox", host.trees.inbox),
     vscode.window.registerTreeDataProvider("ktonWorkbench.lanes", host.trees.lanes),
-    vscode.commands.registerCommand(CMD.refresh, () => wb?.refresh()),
-    vscode.commands.registerCommand(CMD.openDecision, (msg: string) => wb?.openDecision(msg)),
-    vscode.commands.registerCommand(CMD.chooseOption, (msg: string, option: string) => wb?.chooseOption(msg, option)),
-    vscode.commands.registerCommand(CMD.openThread, (msg: string) => wb?.openThread(msg)),
-    vscode.commands.registerCommand(CMD.switchSurface, (name?: string) => wb?.switchSurface(name)),
-    vscode.commands.registerCommand(CMD.openSurfaceWindow, (name?: string) => wb?.openSurfaceWindow(name)),
-    vscode.commands.registerCommand(CMD.openRecorder, () => wb?.openRecorder()),
-    vscode.commands.registerCommand(CMD.ask, () => wb?.askCommand()),
-    vscode.commands.registerCommand(CMD.say, () => wb?.sayCommand()),
-    vscode.commands.registerCommand(CMD.compose, () => wb?.composeCommand()),
+    ...workbenchCommands(() => wb).map(([id, run]) => vscode.commands.registerCommand(id, run as (...args: unknown[]) => unknown)),
     // A changed setting (cockpit path, queries, surfaces, keys) rebuilds the workbench in place.
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration("kton")) void build(host);

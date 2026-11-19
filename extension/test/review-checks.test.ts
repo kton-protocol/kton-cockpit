@@ -11,7 +11,7 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileS
 import { claimKeyId, keyIdOfPublicKey, signerKeyId } from "../src/identity.js";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { readIdentityHint, showSigner, statusText, type WindowIdentity } from "../src/identity.js";
+import { readIdentityHint, showSigner, statusText, statusTooltip, type WindowIdentity } from "../src/identity.js";
 import { plan, sign, DialogConsent, type ControlInfo } from "../src/sign.js";
 import { OperatorConfirmation, TransportError, type TemplateInfo } from "../src/transport/port.js";
 
@@ -36,7 +36,7 @@ test("check 1: an unknown key is shown as unverified with the hint, never as ver
   const { transport } = fakeCockpit([{ argv0: "ask", stdout: sparqlAnswer([]) }]);
   const s = await showSigner(transport, AGENT_KEY, identity.hintName, "view");
   assert.ok(!s.verified);
-  assert.match(statusText(s, s), /unverified/);
+  assert.match(statusText(s, s, { person: "p", agent: "a" }), /unverified/);
 });
 
 test("check 1: no cache: every render asks again", async () => {
@@ -51,7 +51,8 @@ test("until kton-cockpit has an identity verb, name and tier are shown unverifie
   const s = await showSigner(transport, PERSON_KEY, "probe");
   assert.ok(!s.verified);
   assert.equal(argvLog().length, 0);
-  assert.match(statusText(s, s), /probe \(unverified: this cockpit has no identity verb yet\)/);
+  assert.match(statusTooltip(s, s), /probe — unverified: this cockpit has no identity verb yet/);
+  assert.match(statusText(s, s, { person: "p", agent: "a" }), / · unverified$/);
 });
 
 test("the identity file is read as a hint (ADR-016 .kton/local/identity.json)", async () => {
@@ -198,9 +199,15 @@ test("check 5: workflow run and install answers are shape-checked, and the shell
     const { transport } = fakeCockpit([{ argv0, stdout: "[1, 2]" }]);
     await assert.rejects(call(transport), TransportError, `${argv0}: a list is not an answer`);
   }
-  // nothing outside the transport calls them, so nothing reads a field of their answers
+  // outside the transport, an answer of theirs is read for ok/refusal only, never a field of its value
+  // (PR 2: run@1 calls workflowRun from src/composition/area.ts)
   for (const f of sources().filter((f) => !f.includes(`${join("src", "transport")}`))) {
-    assert.ok(!/\.(workflowRun|install)\(/.test(readFileSync(f, "utf8")), `${f} calls workflowRun or install`);
+    const lines = readFileSync(f, "utf8").split("\n");
+    lines.forEach((l, i) => {
+      if (!/\.(workflowRun|install)\(/.test(l)) return;
+      const after = lines.slice(i, i + 4).join("\n");
+      assert.ok(!/\.value\b/.test(after), `${f}:${i + 1} reads a field of a workflow run or install answer`);
+    });
   }
 });
 
@@ -257,4 +264,22 @@ test("check 7 (Q2): the person key id comes from the window's public key, as the
   assert.ok(!(await claimKeyId(hint, "qa-missing")).ok, "no .pub, no key id");
   assert.ok(!(await claimKeyId({ sessionId: "x" }, "qa-decider")).ok, "no keyring, no key id");
   assert.ok(!(await claimKeyId(hint, "")).ok);
+});
+
+test("a template two packages bring is signed as <package>/<name> (cockpit v0.5.3); the control's own package's, never another's", async () => {
+  const control: ControlInfo = { package: "pkg-a", name: "approve", template: "approves", kind: "decision" };
+  const listed: TemplateInfo[] = [
+    { name: "pkg-b/approves", fields: {}, package: "pkg-b" },
+    { name: "pkg-a/approves", fields: {}, package: "pkg-a" },
+  ];
+  const p = plan({ kind: "sign", about: SUBJECT, fields: {} }, control, listed, identity);
+  assert.ok(p.ok);
+  assert.equal(p.value.template, "pkg-a/approves");
+  const other = plan({ kind: "sign", about: SUBJECT, fields: {} }, control, [listed[0] as TemplateInfo], identity);
+  assert.ok(!other.ok, "another package's template of that name is not this control's");
+  // and the transport passes the qualified name as one argv element
+  const { transport, argvLog } = fakeCockpit([{ argv0: "say", stdout: JSON.stringify({ claimId: CLAIM, confirmation: "" }) }]);
+  await transport.say({ template: "pkg-a/approves", subject: SUBJECT });
+  assert.equal(argvLog()[0]?.[1], "pkg-a/approves");
+  assert.ok(!(await transport.say({ template: "pkg-a/../x", subject: SUBJECT })).ok);
 });

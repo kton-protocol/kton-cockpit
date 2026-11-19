@@ -1,0 +1,7 @@
+{
+ "slot": "review-view",
+ "label": "Test shell",
+ "when": {"kind": "claim"},
+ "composition": "test-shell",
+ "order": 10
+}

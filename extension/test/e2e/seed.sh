@@ -84,8 +84,24 @@ cat > "$E2E/surfaces.json" <<EOF
  "core": {"lanes": {"qa-lane":  {"lane": "active/qa-lane"}},  "folder": "$E2E/surfaces/core"},
  "ops":  {"lanes": {"ops-lane": {"lane": "active/ops-lane"}}}}
 EOF
+AKID=$(kid "$HOME/.kton-keys/qa-decider-agent-claims.pub")
+
+# PR 2: the verticle packages (ktonpkg v0.9.7), built with throwaway keys and admitted (claims.allowedPackages)
+node /e2e/build-packages.mjs "$E2E/bin/scope" "$E2E/pkgs" >/dev/null
+for p in kton-web-test workbench-graph hostile-good hostile-tampered hostile-network hostile-pin; do cockpit install "$E2E/pkgs/$p" --allow --json >/dev/null; done
+# S5.3 tampered after admission (the harness, not the shell, touches the package folder): the carried viewer
+# module changes on disk under the same pin. Its member hash is the original file's sha256; the seed records it.
+# The package stays admitted: since v0.5.3 a package that fails its check takes out only itself.
+node -e '
+const fs=require("fs"),c=require("crypto");
+const orig=fs.readFileSync("/e2e/packages/hostile/good/viewers/table/index.js");
+const hex=c.createHash("sha256").update(orig).digest("hex");
+const b=process.argv[1]+"/.kton/packages/hostile-tampered@1/blobs/"+hex.slice(0,2)+"/"+hex;
+fs.chmodSync(b,0o644);fs.writeFileSync(b,"export function mount(el) { el.textContent = \"tampered\"; }\n");
+fs.writeFileSync(process.argv[2],JSON.stringify({member:"viewers/table/index.js",hash:"sha256:"+hex}));' "$E2E/repo" "$E2E/tampered.json"
+
 cat > "$E2E/seed.json" <<EOF
 {"scope": "$SEED", "requests": ["$R1", "$R2"], "announce": "$ANN", "proposals": {"P1": "$P1", "P2": "$P2", "P3": "$P3", "P4": "$P4"},
- "personKeyId": "$PKID", "lookalikeKeyId": "$LKID"}
+ "personKeyId": "$PKID", "agentKeyId": "$AKID", "lookalikeKeyId": "$LKID"}
 EOF
 echo "seeded: scope $SEED"
