@@ -1,5 +1,33 @@
 # Changelog
 
+## v0.5.1 — 2026-11-19
+
+A fix found by userinterface on v0.5.0, and the module door of ADR-015. Tracks kton v0.4.0 and
+ktonpkg v0.8.0. Nothing to migrate from v0.5.0.
+
+### Added
+
+- **Modules** (ADR-015, step T1). A module registers itself with `cockpit/module`: its commands,
+  run as `cockpit <module> <command>` (on the command line only, never over MCP), the package
+  profiles it handles, and the templates and queries it brings. `claims.allowedModules` admits a
+  module's words as `claims.allowedPackages` admits a package's (SPEC §8.1). `cockpit install`
+  refuses a package of a profile a module handles and names the module's command
+  (code `package.module`). The first module is `tool`, a skeleton for tool packages:
+  `cockpit tool install <dir>`.
+
+### Fixed
+
+- **`say` resolves its subject in every form** (SPEC §8). With a JSON argument or over MCP,
+  `"subject": "data.txt"` was signed as the literal text, so the claim was missing from
+  `ask about data.txt` and from the view. Now a `sha256:` id (read in lower case), an IRI, or a file
+  in the repository, which stands for its bytes and is reported back (`resolvedFrom`, `subject`).
+  Anything else is refused with code `argument`.
+
+### Documentation
+
+- **ADR-016 is accepted** (MH, 19.11.), with its addition for the jobs runner: the journal under
+  `.kton/local/jobs/`, machine configuration under `~/.config/kton-cockpit/`.
+
 ## v0.5.0 — 2026-11-19
 
 Everything kton in a repository is under `.kton/` (ADR-016), the query view is vocabulary 1
