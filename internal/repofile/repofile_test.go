@@ -36,6 +36,19 @@ func TestHash_RefusesALinkOutAndAnythingButARegularFile(t *testing.T) {
 			t.Errorf("%s: got %s %s %v, want %s", p, h, rep, err, want)
 		}
 	}
+	// within runs Hash under a deadline: a read that never ends fails here, not by the CI timeout.
+	within := func(p string, inside bool) error {
+		t.Helper()
+		ch := make(chan error, 1)
+		go func() { _, _, err := Hash(root, p, inside); ch <- err }()
+		select {
+		case err := <-ch:
+			return err
+		case <-time.After(2 * time.Second):
+			t.Fatalf("%s: Hash did not return within 2s (a read that never ends)", p)
+			return nil
+		}
+	}
 	for p, why := range map[string]string{
 		"link-out.txt": "outside this repository",
 		"../x.txt":     "outside this repository",
@@ -43,15 +56,8 @@ func TestHash_RefusesALinkOutAndAnythingButARegularFile(t *testing.T) {
 		"zero":         "outside this repository",
 		"dir":          "is a directory",
 	} {
-		ch := make(chan error, 1)
-		go func() { _, _, err := Hash(root, p, true); ch <- err }()
-		select {
-		case err := <-ch:
-			if err == nil || !strings.Contains(err.Error(), why) {
-				t.Errorf("%s: want refused with %q, got %v", p, why, err)
-			}
-		case <-time.After(2 * time.Second):
-			t.Fatalf("%s: Hash did not return within 2s (a read that never ends)", p)
+		if err := within(p, true); err == nil || !strings.Contains(err.Error(), why) {
+			t.Errorf("%s: want refused with %q, got %v", p, why, err)
 		}
 	}
 	// Without containment (ask: a lookup, nothing signed) an outside file is read, a FIFO or a
@@ -60,7 +66,7 @@ func TestHash_RefusesALinkOutAndAnythingButARegularFile(t *testing.T) {
 		t.Errorf("link-out.txt without containment: %v", err)
 	}
 	for _, p := range []string{"fifo", "zero"} {
-		if _, _, err := Hash(root, p, false); err == nil || !strings.Contains(err.Error(), "not a regular file") {
+		if err := within(p, false); err == nil || !strings.Contains(err.Error(), "not a regular file") {
 			t.Errorf("%s without containment: want not a regular file, got %v", p, err)
 		}
 	}
