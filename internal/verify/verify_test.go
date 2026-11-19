@@ -32,15 +32,18 @@ func writeKey(t *testing.T, dir, name string, pub ed25519.PublicKey) string {
 	return p
 }
 
+// cfgWithTier is a configuration whose tier self holds the given key files (copied into
+// .kton/keys/self/ under root). A path that does not exist is left out, as a tier folder cannot
+// name a file it does not hold.
 func cfgWithTier(root string, keys ...string) *config.Config {
-	rel := make([]string, 0, len(keys))
+	cfg := config.Layout(root, config.Raw{Trust: config.Trust{Tiers: []string{"self"}}})
+	os.MkdirAll(cfg.TierDir("self"), 0o755)
 	for _, k := range keys {
-		rel = append(rel, filepath.Base(k))
+		if b, err := os.ReadFile(k); err == nil {
+			os.WriteFile(filepath.Join(cfg.TierDir("self"), filepath.Base(k)), b, 0o644)
+		}
 	}
-	return &config.Config{
-		RepoRoot: root,
-		Raw:      config.Raw{Trust: config.Trust{Tiers: map[string][]string{"self": rel}}},
-	}
+	return cfg
 }
 
 func TestTierKeys_IndexesEveryConfiguredKeyByItsKeyid(t *testing.T) {
@@ -67,18 +70,6 @@ func TestTierKeys_AnUnusableKeyIsAnErrorNotASilentNarrowing(t *testing.T) {
 	dir := t.TempDir()
 	pub, _, _ := ed25519.GenerateKey(rand.Reader)
 	good := writeKey(t, dir, "good.pub", pub)
-
-	t.Run("a path that does not exist", func(t *testing.T) {
-		cfg := cfgWithTier(dir, good, filepath.Join(dir, "typo.pub"))
-		_, _, err := tierKeys(cfg)
-		if err == nil {
-			t.Fatal("a trust tier naming an unreadable key was accepted; every record that key signed " +
-				"would now report as untrusted, which is a working configuration's answer")
-		}
-		if !strings.Contains(err.Error(), "typo.pub") {
-			t.Errorf("the error does not name the key that could not be read: %v", err)
-		}
-	})
 
 	t.Run("a file that is not a key", func(t *testing.T) {
 		bad := filepath.Join(dir, "notakey.pub")

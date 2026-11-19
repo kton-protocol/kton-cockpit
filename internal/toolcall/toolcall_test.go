@@ -86,3 +86,25 @@ func TestRepoRoot_ASubmoduleIsPartOfItsParent(t *testing.T) {
 		t.Fatalf("worktree root %q, want %q", got, lone)
 	}
 }
+
+// The configuration that marks a root is .kton/cockpit.config.json (ADR-016). A worktree with its own
+// checked-in configuration is its own root; one at the old place, cockpit.config.json at the top,
+// marks nothing (no reads of old paths).
+func TestRepoRoot_FindsTheKtonConfig(t *testing.T) {
+	root := t.TempDir()
+	os.MkdirAll(filepath.Join(root, ".git"), 0o755)
+	wt := filepath.Join(root, ".claude", "worktrees", "w")
+	os.MkdirAll(filepath.Join(wt, ".kton"), 0o755)
+	os.MkdirAll(filepath.Join(wt, "models"), 0o755)
+	os.WriteFile(filepath.Join(wt, ".git"), []byte("gitdir: /elsewhere\n"), 0o644)
+	os.WriteFile(filepath.Join(wt, ".kton", "cockpit.config.json"), []byte("{}"), 0o644)
+	if got := RepoRoot(filepath.Join(wt, "models")); got != wt {
+		t.Fatalf("a worktree with .kton/cockpit.config.json: root %q, want %q", got, wt)
+	}
+	old := filepath.Join(root, "old")
+	os.MkdirAll(filepath.Join(old, "models"), 0o755)
+	os.WriteFile(filepath.Join(old, "cockpit.config.json"), []byte("{}"), 0o644)
+	if got := RepoRoot(filepath.Join(old, "models")); got != root {
+		t.Fatalf("a root-level cockpit.config.json marked %q; want the repository %q", got, root)
+	}
+}

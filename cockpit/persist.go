@@ -3,6 +3,9 @@ package cockpit
 import (
 	"context"
 	"fmt"
+	"path"
+	"path/filepath"
+	"strings"
 
 	"github.com/kton-protocol/kton-cockpit/cockpit/backend"
 	"github.com/kton-protocol/kton-cockpit/internal/config"
@@ -10,8 +13,32 @@ import (
 
 // persist makes paths durable through the backend repo.mode selected (ADR-008). The verbs do not
 // know whether that is a commit and a push, a check-in, or nothing at all.
+//
+// Nothing under .kton/local/ is ever persisted, by any backend: it is this checkout's own (identity,
+// tool-shim streams that may hold licensed outputs, the jobs journal), and the refusal does not rest
+// on .gitignore (ADR-016, kton-review L1). Nor is .kton/ as a whole, which would include it.
 func persist(ctx context.Context, cfg *config.Config, paths []string, message string) (backend.Revision, error) {
+	for _, p := range paths {
+		if err := shareable(p); err != nil {
+			return backend.Revision{}, err
+		}
+	}
 	return cfg.Backend.Persist(ctx, cfg.Repo, paths, message)
+}
+
+// shareable refuses a repo-relative path that is, or contains, .kton/local/.
+func shareable(p string) error {
+	// A leading ':' is git pathspec magic (':(top)…', ':/…'). git runs with literal pathspecs, so it
+	// would name a file of that name; it is refused here too, so the guard rests on neither alone.
+	if strings.HasPrefix(p, ":") {
+		return fmt.Errorf("%q starts with ':', which git reads as pathspec magic — refusing", p)
+	}
+	c := strings.ToLower(path.Clean(filepath.ToSlash(p)))
+	local := strings.ToLower(config.Rel("local"))
+	if c == "." || c == strings.ToLower(config.Dir) || c == local || strings.HasPrefix(c, local+"/") {
+		return fmt.Errorf("%s is never persisted: %s/ is this checkout's own and never shared", p, local)
+	}
+	return nil
 }
 
 // locators are the "path=uri" pairs for a revision, in the form the kernel's author step takes.

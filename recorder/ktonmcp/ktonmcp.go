@@ -25,7 +25,6 @@ import (
 	"time"
 
 	"github.com/kton-protocol/kton-cockpit/internal/mcpsurface"
-	"github.com/kton-protocol/kton-cockpit/internal/toolcall"
 	"github.com/kton-protocol/kton-cockpit/recorder/watch"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -319,7 +318,7 @@ func (t *tools) ask(ctx context.Context, in AskIn) (*AskOut, error) {
 	if project == "" {
 		return nil, fmt.Errorf("project is needed with a sha256 reference")
 	}
-	repo := toolcall.RepoRoot(project)
+	repo := watch.RepoRoot(project)
 	ask := watch.CockpitAsk
 	if t.sv.Placer != nil {
 		ask = t.sv.Placer.Ask
@@ -350,14 +349,14 @@ Needs a cockpit with SPARQL (v0.4.0-rc6 or later for the claims as nodes below):
 Prefixes: prov: <http://www.w3.org/ns/prov#> rdfs: <http://www.w3.org/2000/01/rdf-schema#> dct: <http://purl.org/dc/terms/> ep: <https://w3id.org/ep-plan#> nk: <https://kton.dev/v/> xsd: <http://www.w3.org/2001/XMLSchema#>
 Nodes: a file or record sha256:<hex> is <https://kton.dev/o/<hex>>; a signer is <https://kton.dev/agent/<keyid>> (16 hex).
 A step (default graph): ?step a prov:Activity ; prov:used ?input ; nk:protocolRef ?hash ; prov:wasAttributedTo ?signer . ?output prov:wasGeneratedBy ?step ; prov:wasDerivedFrom ?input . ?file rdfs:label "data/in.csv" (the path the step named it by).
-A claim (dataset "claims", the default; no named graphs, a query names none) is one node: ?c a nk:Claim ; nk:about ?subject ; nk:predicate ?predicate ; <https://kton.dev/v/lab/<field>> ?value ; dct:created ?when ; nk:signer ?agent ; nk:scope ?seed ; nk:position ?n ; nk:current true (no later trusted claim with the same scope, subject and predicate: ask this for "the latest"; nk:position for order). ?agent rdfs:label "alice" ; nk:tier "peers". describes is dct:description, rationale is ep:hasRationale, both with field nk:lab/value. Other templates under their own predicate with fields nk:lab/<field>: the model development is <https://kton.dev/v/pmx/parent-step>, pmx/based-on, pmx/key-step, pmx/base-model, pmx/final-model, pmx/qc-passed, pmx/rests-on (field nk:lab/value, often nk:lab/why). A field that refers to a step or file is that node itself, e.g. ?c <https://kton.dev/v/lab/parent-step> ?parent . ?parent a prov:Activity. A scope's seed is a claim with nk:genesis true and rdfs:label its name. The signed form, four named graphs per claim, is the dataset "nanopub": write "# dataset: nanopub" as the query's first line (slower).
-Not in the dataset: a step's time and command text (match input paths; kton_ask record shows the command), a scope's parent (kton_ask about / the story's context).
+A claim (dataset "claims", the default; no named graphs, a query names none) is one node: ?c a nk:Claim ; nk:about ?subject ; nk:predicate ?predicate ; <https://kton.dev/v/lab/<field>> ?value ; dct:created ?when ; nk:signer ?agent ; nk:scope ?seed ; nk:position ?n ; nk:template ?name (view vocabulary 1, SPEC §9.11; a claim can be about several subjects). A claim that a later trusted claim replaces (names in its replaces field) has nk:replacedBy ?newer; nothing else is inferred, there is no "current" or "superseded": for the claims still standing write FILTER NOT EXISTS { ?c nk:replacedBy ?newer }; nk:position for order. ?agent rdfs:label "alice" ; nk:tier "peers". describes is dct:description, rationale is ep:hasRationale, both with field nk:lab/value. Other templates under their own predicate with fields nk:lab/<field>: the model development is <https://kton.dev/v/pmx/parent-step>, pmx/based-on, pmx/key-step, pmx/base-model, pmx/final-model, pmx/qc-passed, pmx/rests-on (field nk:lab/value, often nk:lab/why). A field that refers to a step or file is that node itself, e.g. ?c <https://kton.dev/v/lab/parent-step> ?parent . ?parent a prov:Activity. A scope's seed is a claim with nk:genesis true and rdfs:label its name, and nk:parent the parent scope's seed. The signed form, four named graphs per claim, is the dataset "nanopub": write "# dataset: nanopub" as the query's first line (slower).
+Not in the dataset: a step's time and command text (match input paths; kton_ask record shows the command).
 
 Examples (replace FILE, STEP, KEYID with hex):
 1. Every step that used a file, and who signed it:
 SELECT ?step ?signer WHERE { ?step prov:used <https://kton.dev/o/FILE> . OPTIONAL { ?step prov:wasAttributedTo ?signer } }
 2. Descriptions and rationales of a step:
-SELECT ?kind ?text ?signer ?when WHERE { VALUES (?predicate ?kind) { (dct:description "description") (ep:hasRationale "rationale") } ?c nk:about <https://kton.dev/o/STEP> ; nk:predicate ?predicate ; <https://kton.dev/v/lab/value> ?text ; dct:created ?when ; nk:current true ; nk:signer ?a . OPTIONAL { ?a rdfs:label ?signer } } ORDER BY ?when
+SELECT ?kind ?text ?signer ?when WHERE { VALUES (?predicate ?kind) { (dct:description "description") (ep:hasRationale "rationale") } ?c nk:about <https://kton.dev/o/STEP> ; nk:predicate ?predicate ; <https://kton.dev/v/lab/value> ?text ; dct:created ?when ; nk:signer ?a . FILTER NOT EXISTS { ?c nk:replacedBy ?newer } OPTIONAL { ?a rdfs:label ?signer } } ORDER BY ?when
 3. What one signer said in a time window:
 SELECT ?claim ?predicate ?when WHERE { ?claim nk:signer <https://kton.dev/agent/KEYID> ; nk:predicate ?predicate ; dct:created ?when . FILTER (?when >= "2026-01-01T00:00:00Z"^^xsd:dateTime) } ORDER BY ?when
 4. The claims in a scope, by its name (e.g. a study), in order:
@@ -370,7 +369,7 @@ SELECT DISTINCT ?step ?path WHERE { ?step prov:used ?script ; prov:wasAttributed
 SELECT DISTINCT ?source ?path WHERE { <https://kton.dev/o/FILE> prov:wasDerivedFrom+ ?source . OPTIONAL { ?source rdfs:label ?path } }
 8. Did a trusted key produce this file? ASK { <https://kton.dev/o/FILE> prov:wasGeneratedBy ?step . ?step prov:wasAttributedTo ?signer }
 9. Final and base models, and why (model development; same rule, not in the cockpit's tests):
-SELECT ?step ?kind ?model ?why ?signer WHERE { VALUES (?p ?kind) { (<https://kton.dev/v/pmx/final-model> "final") (<https://kton.dev/v/pmx/base-model> "base") } ?c nk:predicate ?p ; nk:about ?step ; <https://kton.dev/v/lab/value> ?model ; nk:current true ; nk:signer ?a . OPTIONAL { ?c <https://kton.dev/v/lab/why> ?why } OPTIONAL { ?a rdfs:label ?signer } }
+SELECT ?step ?kind ?model ?why ?signer WHERE { VALUES (?p ?kind) { (<https://kton.dev/v/pmx/final-model> "final") (<https://kton.dev/v/pmx/base-model> "base") } ?c nk:predicate ?p ; nk:about ?step ; <https://kton.dev/v/lab/value> ?model ; nk:signer ?a . FILTER NOT EXISTS { ?c nk:replacedBy ?newer } OPTIONAL { ?c <https://kton.dev/v/lab/why> ?why } OPTIONAL { ?a rdfs:label ?signer } }
 10. A model development: each step and the step it was developed from (same rule, not in the cockpit's tests):
 SELECT ?child ?parent ?why WHERE { ?c nk:predicate <https://kton.dev/v/pmx/parent-step> ; nk:about ?child ; <https://kton.dev/v/lab/parent-step> ?parent . OPTIONAL { ?c <https://kton.dev/v/lab/why> ?why } }
 Write the PREFIX lines you use at the top of the query.`
@@ -401,7 +400,7 @@ func (t *tools) sparql(ctx context.Context, in SparqlIn) (*AskOut, error) {
 	}
 	ctx, cancel := context.WithTimeout(ctx, wait)
 	defer cancel()
-	repo := toolcall.RepoRoot(in.Project)
+	repo := watch.RepoRoot(in.Project)
 	b, err := askJSON(ctx, repo, req)
 	if err != nil {
 		if strings.Contains(err.Error(), `unknown field "sparql"`) || strings.Contains(err.Error(), "sparql.unavailable") {

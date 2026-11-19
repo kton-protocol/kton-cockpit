@@ -40,14 +40,14 @@ func TestOxigraph_AttributionIsTheRegistrysOwn(t *testing.T) {
 	// bob pulls (a plain copy of the object files, as git would bring them)
 	bob := testrepo.New(t)
 	bc := indexed(t, bob)
-	if out, err := exec.Command("cp", "-rn", filepath.Join(alice.Root, "registry", "plankton", "objects")+"/.",
-		filepath.Join(bob.Root, "registry", "plankton", "objects")).CombinedOutput(); err != nil {
+	if out, err := exec.Command("cp", "-rn", filepath.Join(alice.Root, ".kton", "plankton", "objects")+"/.",
+		filepath.Join(bob.Root, ".kton", "plankton", "objects")).CombinedOutput(); err != nil {
 		t.Fatalf("%v: %s", err, out)
 	}
 
 	// carol co-signs f in alice's registry afterwards
 	cpub, cpriv, _ := ed25519.GenerateKey(rand.Reader)
-	ra, err := pregistry.Open(filepath.Join(alice.Root, "registry", "plankton"))
+	ra, err := pregistry.Open(filepath.Join(alice.Root, ".kton", "plankton"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +88,7 @@ func TestOxigraph_AttributionIsTheRegistrysOwn(t *testing.T) {
 	}
 
 	// kernel truth for bob's registry
-	rb, err := pregistry.Open(filepath.Join(bob.Root, "registry", "plankton"))
+	rb, err := pregistry.Open(filepath.Join(bob.Root, ".kton", "plankton"))
 	if err != nil {
 		t.Fatal(err)
 	}

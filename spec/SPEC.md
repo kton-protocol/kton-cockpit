@@ -108,7 +108,7 @@ valid, and in the wrong project.
 
 ### 5.1 Locating the configuration
 
-The configuration is `cockpit.config.json`, and it MUST be found in exactly one of two places:
+The configuration is `.kton/cockpit.config.json`, and it MUST be found in exactly one of two places:
 
 1. the starting directory, or
 2. the root of the git repository containing it, if there is one.
@@ -174,6 +174,43 @@ act as one backend against a repository configured for another.
 > **Checked by:** `TestAPI_AModeNoBackendProvidesIsRefusedByName`, and the conformance suite every
 > backend runs (`cockpit/backend/backendtest`): `TestConformance` in the git and local backends.
 
+### 5.6 The layout (ADR-016)
+
+Everything kton in a repository lives under `.kton/`, and only kton. The layout is fixed, not
+configured, so every reader finds the stores of any repository at the same names:
+
+| name under `.kton/` | holds | shared |
+|---|---|---|
+| `cockpit.config.json` | the configuration | yes |
+| `plankton/`, `nekton/` | the registries | yes |
+| `keys/<tier>/*.pub` | the public keys of each trust tier | yes |
+| `blobs/<hh>/<hex>` | bytes by hash | yes |
+| `templates/`, `aliases.json` | the repository's own vocabulary | yes |
+| `packages/<name>@<rev>/` | installed packages | yes |
+| `local/` | this checkout's own: `identity.json`, tool-shim streams, the jobs journal | **never** |
+| `.gitignore` | lists `local/` | yes |
+
+These names are reserved. Any other name under `.kton/` belongs to another tool (`.kton/<tool>/`),
+which the cockpit MUST NOT read or write.
+
+- **Nothing under `local/` is shared.** A cockpit MUST refuse to persist a path under `.kton/local/`,
+  or `.kton/` as a whole, through any backend, and the git backend MUST refuse to sync while a commit
+  tracks it. `.gitignore` is a convenience, not the guard: tool-shim streams may hold licensed outputs.
+- **Private keys are never in a repository.** The identity (`.kton/local/identity.json`) names keys
+  outside it (by default `~/.kton-keys`). A cockpit MUST refuse an identity that names a key inside
+  the repository, and `keygen` MUST refuse to write one there. A checkout without an identity can
+  still ask; the verbs that sign say what is missing.
+- **A tier is its folder.** `trust.tiers` names the tiers; a tier's keys are the `*.pub` files in
+  `.kton/keys/<tier>/` and nothing else, never a package's `keys/`. A private key in a tier folder, by
+  its extension or by its contents, MUST be refused, since the folders are shared and served.
+- **Publish never writes `.kton/`**, and a container run sees it masked (§10.2).
+
+> **Checked by:** `TestLayout_TheReservedNamesCoverTheLayout`, `TestPersist_NeverTakesKtonLocal`,
+> `TestSync_RefusesWhileKtonLocalIsTracked`, `TestIdentity_AKeyInsideTheRepositoryIsRefused`,
+> `TestKeygen_RefusesAKeyFolderInsideTheRepository`, `TestConfig_RefusesSettingsThatWouldDiscloseOrOverwrite`,
+> `TestFixture_CommitsThePublicKeysAndNeverThePrivateOnes`, `TestTrustAdd_TakesThePeersOwnKeysOnly`,
+> `TestValidatePublishPath_RejectsTheKtonFolder`, `TestContainer_TheTrustBaseIsNotInTheRoom` (`-tags docker`).
+
 ## 6 The surface
 
 A cockpit MUST expose exactly three verbs: `publish`, `say`, `ask`. It MUST NOT expose a fourth, and
@@ -198,6 +235,20 @@ script does not have to parse prose to learn it. `doctor --json` MUST print the 
 steps as one JSON object (`ready`, `steps[]{must, text}`, `fields`) and nothing else.
 
 > **Checked by:** `TestDoctorJSON_SaysReadyAndWhatIsMissing`.
+
+A program that drives the binary reads stdout. Under `--json`, and for a verb called with its JSON
+argument, stdout MUST be one JSON document whatever happens:
+- the listings (`say --json`, `ask --json`), `version`, `trust list`, `federation list`, `config`,
+  `index status`, `sync` and `run list` MUST have a `--json` form;
+- a refusal MUST be `{code, clause, reason}` on stdout with exit 2, and any other error the same
+  object with code `error` and exit 1; the reason is on stderr as well;
+- a note for the person, such as what a file or a run folder resolved to, MUST go to stderr.
+
+`doctor --json` names who the checkout signs as in `fields.identity`: the session name, the key
+ids of its two keys, and the trust tier its claim key is in.
+
+> **Checked by:** `TestShellJSON_EveryListingAndRefusalIsOneDocument`,
+> `TestShellVerbs_JSONAnswerIsAllOfStdout`, `TestSync_TakesInWhatAnotherCloneShared`.
 
 ### 6.1 Which kernel
 
@@ -422,6 +473,13 @@ record; the locators still say where the bytes live in the repository.
 
 Binds a claim to a record.
 
+The subject MUST be a record or claim id (`sha256:<hex>`, read in lower case), an IRI, or a file in
+the repository, which stands for the hash of its bytes; the answer then reports the path it resolved
+(`resolvedFrom`). This holds for every form of say. Anything else MUST be refused, never signed as a
+literal: a claim about the text of a path is about nothing a query can find.
+
+> **Checked by:** `TestSay_ASubjectThatIsAFileIsItsBytes`.
+
 ### 8.1 The claim ceiling
 
 The configuration names the permitted claim templates. A cockpit MUST refuse any other, and MUST NOT
@@ -564,7 +622,7 @@ does not own.
 
 ### 8.7 Saying as another identity *(optional)*
 
-A repository MAY configure `identity.keyring`, a directory outside it that holds further claim keys
+A checkout MAY name a `keyring` in its identity (§5.6), a directory outside the repository that holds further claim keys
 as `<name>-claims.key` beside `<name>-claims.pub`. A say request MAY then name who it acts as (`as`,
 `say --as <name>`), and the claim is signed with that key instead of `nekton_key`. One registry then
 carries each writer's own signature, for example one key per lane.
@@ -579,7 +637,11 @@ refuse the request when:
 Everything else about the call is unchanged, the guard of §5 included. Anchoring (§11.3) does not
 support `as` yet and is refused with it.
 
-> **Checked by:** `TestSay_AsAnotherIdentitySignsWithThatKey`.
+When a template declares a `by-session` field and the request leaves it out, say MUST fill it with
+the identity it signs as: the `session_id` of the identity, or the name given as `as`. A value the
+request gives is kept. This holds for every form of say: the shell, the JSON argument and the MCP tool.
+
+> **Checked by:** `TestSay_AsAnotherIdentitySignsWithThatKey`, `TestSay_FillsBySessionFromTheIdentityItSignsAs`.
 
 ### 8.8 Where a record lives in improve
 
@@ -749,7 +811,9 @@ answer (§9.4), and its parent MUST NOT be followed.
 
 The answer MUST carry the scope's context: its parents, nearest first, each verified the same way.
 The walk ends at a seed with no parent, at one no source holds (reported as missing: the chain goes
-on, but not here), at one that does not verify, or at a seed already on the path.
+on, but not here), at one that does not verify, or at a seed already on the path. Since kton v0.4.0
+a scope seeded without a named parent is registered under its store's root scope (`root/<keyid>`),
+so the walk normally ends at that root.
 
 > **Checked by:** `TestScope_ASeedFromASourceIsVerifiedAndCarriesItsContext`,
 > `TestScope_AnUntrustedSeedFromASourceSaysNothingItClaims`.
@@ -805,9 +869,9 @@ more endpoints: runs, steps, wiring, file candidates and parameter candidates. I
 ### 9.8 Federated sources *(optional)*
 
 Where a record lives is not something the kernels know, so which other registries are read together
-with the own one is said in `cockpit.config.json`, under `federation.sources`. Each source has a
+with the own one is said in the configuration, under `federation.sources`. Each source has a
 `name` and a `kind`; a kind says how one kind of place is read. The core provides `dir` (a directory
-holding `registry/plankton` and `registry/nekton`); an extension MAY register further kinds the same
+holding `.kton/plankton` and `.kton/nekton`, §5.6) and `git`; an extension MAY register further kinds the same
 way a repo backend is registered (§5.5).
 
 - `ask`, the served and published union (§12.2) and search MUST read the union of the own registry
@@ -871,7 +935,7 @@ example there is run by a test.
 > `TestSparql_RefusesWhatItWouldNotAnswer`, `TestSparql_ChecksTheQueryAndNeedsAnEngine`,
 > `TestVocabulary_AnAllowedPackageBringsItsTemplatesAndQueries` (`-tags docker`),
 > `TestShellSparql_ReadsTheQueryFromAFile`,
-> `TestParseResults_ReadsASelectAndAnAsk`, `TestClaimView_KeepsPositionAndCurrent`,
+> `TestParseResults_ReadsASelectAndAnAsk`, `TestClaimView_KeepsPositionAndInfersNothing`,
 > `TestClaimView_AppliesTheTemplatesTermsAndTypes`, `TestBind_GoesFirstIntoTheWhereClause`, `TestSparql_TheExamplesAnswerOverAFixture` (with its
 > standard-results subtests; `-tags docker`).
 
@@ -920,18 +984,19 @@ with every other store that names records by hash. Nanopub's Trusty URIs belong 
 | `nk:position` | its place in the chain; the seed is 0. Unscoped claims are in the root scope's chain (kton #213) |
 | `nk:genesis` | `true` on a seed |
 | `nk:parent` | on a seed: the parent scope's seed (kton #241) |
-| `nk:replacedBy` | on a claim another trusted claim names in its `replaces` field: that claim (ADR-013 amendment) |
+| `nk:replacedBy` | on a claim that a trusted claim names in its `replaces` field, when every signer of the replaced claim also signed the replacing one, with the same template and a shared `nk:about`: that claim (ADR-013 amendment, A5) |
+| `nk:replaces` | from a trusted claim to every claim its `replaces` field names, whoever signed either; a rule decides what a name by another signer means (ADR-013 amendment, A5) |
 | a field | under the term the template's aliases give it, else `lab:<field>` (`https://kton.dev/v/lab/`), typed by the field's type (`docs/sparql.md`) |
 
 No other state is inferred: nothing is "current", nothing is superseded unless a claim says so. An alias
-MUST NOT name a term of this table. Until v0.5.0 the projection still writes the vocabulary 0 terms
-`nk:current` and `nk:supersededBy`, one `nk:about`, and no `nk:parent`; they go with v0.5.0, without a
-compatibility period.
+MUST NOT name a term of this table. A claim id in `replaces` and in a `ref` field is named in lower case.
+The vocabulary 0 terms `nk:current` and `nk:supersededBy` are gone with v0.5.0, without a compatibility
+period.
 
-> **Checked by:** `TestClaimView_KeepsPositionAndCurrent`, `TestClaimView_AppliesTheTemplatesTermsAndTypes`,
+> **Checked by:** `TestClaimView_KeepsPositionAndInfersNothing`, `TestClaimView_AppliesTheTemplatesTermsAndTypes`,
 > `TestClaimView_ARefFieldPointsAtWhatItNames`, `TestClaimView_AnAliasCannotNameATermTheViewWrites`,
-> `TestSparql_TheExamplesAnswerOverAFixture` (`-tags docker`). The vocabulary 1 terms are checked by the
-> tests that land with them in v0.5.0.
+> `TestClaimView_ReplacedByOnlyForTheSameSignerTemplateAndSubject`, `TestClaimView_EveryAboutAndASeedsParent`,
+> `TestSparql_TheExamplesAnswerOverAFixture` (`-tags docker`).
 
 ## 10 Execution *(optional)*
 

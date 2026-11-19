@@ -48,14 +48,52 @@ func askOverview() {
 		fmt.Printf("  %-14s %-34s %s\n", q.name, q.arg, q.what)
 	}
 	fmt.Println()
-	fmt.Println("a reference is a file (its bytes), a run folder (runs/<slug>: the record its run made), or sha256:…")
+	fmt.Println("a reference is a file (its bytes), a run folder (work/<slug>: the record its run made), or sha256:…")
 	fmt.Println("only records a key in your trust tiers verifies are answered; the rest are counted, never shown.")
+}
+
+// Question is one entry of `ask --json`: a built-in question, or a package's named query, which is
+// asked as `ask sparql --name <name>` with its $VAR parameters bound by --bind.
+type Question struct {
+	Name    string   `json:"name"`
+	Arg     string   `json:"arg,omitempty"`
+	What    string   `json:"what"`
+	Package string   `json:"package,omitempty"`
+	Params  []string `json:"params,omitempty"`
+}
+
+func askListing(cfg *config.Config) []Question {
+	out := []Question{}
+	for _, q := range askQueries {
+		out = append(out, Question{Name: q.name, Arg: q.arg, What: q.what})
+	}
+	if cfg == nil {
+		return out
+	}
+	voc, err := packages.Allowed(cfg.RepoRoot, cfg.Raw.Claims.AllowedPackages)
+	if err != nil {
+		return out
+	}
+	names := make([]string, 0, len(voc.Queries))
+	for n := range voc.Queries {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	for _, n := range names {
+		params, about := queryParams(string(voc.Queries[n]))
+		out = append(out, Question{Name: n, Arg: "--name " + n, What: about, Package: voc.From["query:"+n].Name, Params: params})
+	}
+	return out
 }
 
 func shellAsk(ctx context.Context, args []string) error {
 	if len(args) == 0 {
 		askOverview()
 		return nil
+	}
+	if len(args) == 1 && args[0] == "--json" {
+		cfg, _ := config.Load(ctx, ".")
+		return printJSON(askListing(cfg))
 	}
 	if args[0] == "sparql" {
 		return shellSparql(ctx, args[1:])
@@ -141,7 +179,7 @@ func shellAsk(ctx context.Context, args []string) error {
 			if rerr != nil {
 				return rerr
 			}
-			fmt.Printf("(%s)\n", note)
+			fmt.Fprintf(os.Stderr, "(%s)\n", note)
 			in.Ref = id
 		} else if serr == nil && (in.Query == "record" || in.Query == "about") {
 			// record wants a record; about over a file asks about its bytes.
@@ -156,7 +194,7 @@ func shellAsk(ctx context.Context, args []string) error {
 					note = in.Ref + " → the record that made it " + short16(id)
 				}
 			}
-			fmt.Printf("(%s)\n", note)
+			fmt.Fprintf(os.Stderr, "(%s)\n", note)
 			in.Ref = id
 		}
 	}

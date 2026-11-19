@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/kton-protocol/kton-cockpit/recorder/watch"
 )
 
 func TestPrune_ByAgeKeepCASAndLog(t *testing.T) {
@@ -53,5 +55,30 @@ func TestPrune_ByAgeKeepCASAndLog(t *testing.T) {
 	o.Archives = []string{"old"}
 	if _, err := prune(o); err != nil || exists(filepath.Join(o.Archive, "old")) {
 		t.Fatalf("named archive not deleted: %v", err)
+	}
+}
+
+// Sessions the person kept, and those with draft notes, stay whatever their age (MH 18.11.).
+func TestPrune_KeepsKeptSessionsAndSessionsWithNotes(t *testing.T) {
+	root := t.TempDir()
+	o := pruneOpts{Dir: filepath.Join(root, "trace"), Store: filepath.Join(root, "obs"), Older: time.Hour}
+	os.MkdirAll(o.Dir, 0o755)
+	os.MkdirAll(o.Store, 0o755)
+	old := time.Now().Add(-48 * time.Hour)
+	for _, id := range []string{"gone", "pinned", "noted"} {
+		p := filepath.Join(o.Store, id+".json")
+		os.WriteFile(p, []byte(`{"project":"/w"}`), 0o644)
+		os.Chtimes(p, old, old)
+	}
+	w := watch.OpenWatched(o.Store, "")
+	w.SetKeep("pinned", true)
+	watch.OpenNotes(filepath.Join(o.Store, "notes")).Put("noted/1", watch.Note{Description: "why"})
+	if _, err := prune(o); err != nil {
+		t.Fatal(err)
+	}
+	for id, want := range map[string]bool{"gone": false, "pinned": true, "noted": true} {
+		if _, err := os.Stat(filepath.Join(o.Store, id+".json")); (err == nil) != want {
+			t.Errorf("%s: exists=%v, want %v", id, err == nil, want)
+		}
 	}
 }

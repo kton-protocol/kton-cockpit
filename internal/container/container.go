@@ -41,22 +41,14 @@ import (
 // objects/ can plant records the cockpit will later read back as its own — the same silent
 // divergence, one layer down. Nothing a published command legitimately does needs to reach it.
 //
-// cockpit.config.json is the ceiling every call is measured against, and config.go promises it is
-// not something a session reaches through any tool — hiding it keeps that true once a repo executes.
+// .kton/cockpit.config.json is the ceiling every call is measured against, and config.go promises it
+// is not something a session reaches through any tool. With the fixed layout (ADR-016) everything
+// kton is under .kton/, so masking that one folder hides the registries, the public keys, the
+// configuration and the checkout's local state together; private keys and binaries live outside the
+// repository altogether.
 func hidden(cfg *config.Config) (dirs, files []string) {
-	for _, rel := range []string{
-		cfg.Raw.Paths.KeysDir,
-		cfg.Raw.Paths.BinDir,
-		cfg.Raw.Paths.PlanktonDir,
-		cfg.Raw.Paths.NektonDir,
-	} {
-		if rel != "" {
-			dirs = append(dirs, rel)
-		}
-	}
-	// What the backend keeps for itself (git: .git) is part of the same base.
-	dirs = append(dirs, cfg.Raw.Private()...)
-	return dirs, []string{"cockpit.config.json"}
+	dirs = append([]string{config.Dir}, cfg.Raw.Private()...)
+	return dirs, nil
 }
 
 // stdoutLimit caps what a run hands back. Generous for a status line, far too small to be a way of

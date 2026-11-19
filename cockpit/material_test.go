@@ -36,7 +36,7 @@ import (
 // key, writes both into the repo, and returns their repo-relative paths.
 func certifyRepoKey(t *testing.T, r *testrepo.Repo, commonName string, notAfter time.Time) (certPath, rootPath string) {
 	t.Helper()
-	pubHex, err := os.ReadFile(filepath.Join(r.Root, "registry/keys", testrepo.SessionID+".pub"))
+	pubHex, err := os.ReadFile(filepath.Join(r.Root, ".kton/keys/self", testrepo.SessionID+".pub"))
 	if err != nil {
 		t.Fatalf("reading the fixture's signing pubkey: %v", err)
 	}
@@ -189,7 +189,7 @@ func TestMaterial_NoConfiguredMaterialMeansNoneReported(t *testing.T) {
 // attributable exactly as who produced it is.
 func TestMaterial_ClaimsCarryItToo(t *testing.T) {
 	r := testrepo.New(t)
-	pubHex, err := os.ReadFile(filepath.Join(r.Root, "registry/keys", testrepo.SessionID+"-claims.pub"))
+	pubHex, err := os.ReadFile(filepath.Join(r.Root, ".kton/keys/self", testrepo.SessionID+"-claims.pub"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -278,14 +278,14 @@ func TestMaterial_EvidenceOnAnExcludedRecordIsNotReported(t *testing.T) {
 	if _, err := rand.Read(strangerPub); err != nil {
 		t.Fatal(err)
 	}
-	r.Write(t, "registry/keys/stranger.pub", hex.EncodeToString(strangerPub)+"\n")
+	r.Write(t, ".kton/keys/partners/stranger.pub", hex.EncodeToString(strangerPub)+"\n")
 
 	raw := testrepo.DefaultConfig()
 	raw.Material = config.Material{
 		Attach:    []config.Attachment{{Scheme: "x509-cert", MediaType: "application/x-pem-file", File: certPath}},
 		X509Roots: []string{rootPath},
 	}
-	raw.Trust.Tiers["partners"] = []string{"registry/keys/stranger.pub"}
+	raw.Trust.Tiers = append(raw.Trust.Tiers, "partners")
 	r.WriteConfig(t, raw)
 	r.Use(t)
 
@@ -362,7 +362,7 @@ func TestMaterial_PreflightReportsTheVerdictBeforeAnythingIsPublished(t *testing
 		// Preflight tries both signing keys. A certificate issued for the nekton key must not report
 		// FAILED merely because the plankton key was tried first.
 		r := testrepo.New(t)
-		pubHex, err := os.ReadFile(filepath.Join(r.Root, "keys", testrepo.SessionID+"-claims.pub"))
+		pubHex, err := os.ReadFile(filepath.Join(r.Keys, testrepo.SessionID+"-claims.pub"))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -412,9 +412,9 @@ func TestMaterial_TheVerdictIsNeverStored(t *testing.T) {
 		t.Fatalf("control: this repo should report the certificate verified, got %+v", got.Material)
 	}
 
-	cmd := exec.Command(r.Root+"/bin/plankton", "material", pub.FotonID, "--json")
+	cmd := exec.Command(r.Bin+"/plankton", "material", pub.FotonID, "--json")
 	cmd.Dir = r.Root
-	cmd.Env = append(os.Environ(), "PLANKTON_DIR="+filepath.Join(r.Root, "registry/plankton"))
+	cmd.Env = append(os.Environ(), "PLANKTON_DIR="+filepath.Join(r.Root, ".kton/plankton"))
 	out, err := cmd.Output()
 	if err != nil {
 		t.Fatalf("plankton material: %v", err)

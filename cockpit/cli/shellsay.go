@@ -12,6 +12,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -31,7 +32,7 @@ func sayOverview(ctx context.Context, cfg *config.Config) {
 	for _, t := range ts {
 		fmt.Printf("  %-14s about %s\n", t.Name, targetWords[orDefault(t.Target, "foton")])
 		if t.Name == "reproduces" {
-			fmt.Println("                 cockpit say reproduces runs/<slug>   — a run made with run new --from sha256:…;")
+			fmt.Println("                 cockpit say reproduces work/<slug>   — a run made with run new --from sha256:…;")
 			fmt.Println("                 the cockpit compares the bytes and sets level and reproducedBy itself")
 			continue
 		}
@@ -42,7 +43,7 @@ func sayOverview(ctx context.Context, cfg *config.Config) {
 				req = " (required)"
 			}
 			if name == identityField {
-				fmt.Printf("                 %s=<%s>  filled in: %s (your identity)\n", name, f.Type, cfg.Raw.Identity.SessionID)
+				fmt.Printf("                 %s=<%s>  filled in: %s (your identity)\n", name, f.Type, cfg.Identity.SessionID)
 				continue
 			}
 			vals := ""
@@ -59,6 +60,39 @@ func sayOverview(ctx context.Context, cfg *config.Config) {
 	fmt.Println("a run folder stands for the record its run made; a file for its bytes.")
 }
 
+// Template is one entry of `say --json`: an allowed template, what it is about, and its fields.
+// A field say fills itself names what it fills in (filledBy, the identity it signs as).
+type Template struct {
+	Name      string                   `json:"name"`
+	About     string                   `json:"about"`
+	Predicate string                   `json:"predicate,omitempty"`
+	Fields    map[string]TemplateField `json:"fields"`
+}
+
+// TemplateField is one field of a template.
+type TemplateField struct {
+	Type     string   `json:"type"`
+	Required bool     `json:"required,omitempty"`
+	Values   []string `json:"values,omitempty"`
+	FilledBy string   `json:"filledBy,omitempty"`
+}
+
+func sayListing(cfg *config.Config) []Template {
+	out := []Template{}
+	for _, t := range readTemplates(cfg) {
+		e := Template{Name: t.Name, About: orDefault(t.Target, "foton"), Predicate: t.Predicate, Fields: map[string]TemplateField{}}
+		for name, f := range t.Fields {
+			tf := TemplateField{Type: f.Type, Required: f.Required, Values: f.Values}
+			if name == identityField {
+				tf.FilledBy = cfg.Identity.SessionID
+			}
+			e.Fields[name] = tf
+		}
+		out = append(out, e)
+	}
+	return out
+}
+
 func shellSay(ctx context.Context, args []string) error {
 	cfg, err := config.Load(ctx, ".")
 	if err != nil {
@@ -67,6 +101,9 @@ func shellSay(ctx context.Context, args []string) error {
 	if len(args) == 0 {
 		sayOverview(ctx, cfg)
 		return nil
+	}
+	if len(args) == 1 && args[0] == "--json" {
+		return printJSON(sayListing(cfg))
 	}
 	in := cockpit.SayRequest{Template: args[0], Fields: map[string]string{}}
 	asJSON := false
@@ -120,15 +157,17 @@ func shellSay(ctx context.Context, args []string) error {
 			return err
 		}
 		if note != "" {
-			fmt.Printf("(%s)\n", note)
+			fmt.Fprintf(os.Stderr, "(%s)\n", note)
 		}
 		in.Subject = id
-		fillFromIdentity(cfg, in.Template, in.Fields)
+		fillFromIdentity(cfg, in.Template, in.As, in.Fields)
 		if err := checkFields(cfg, in.Template, in.Fields); err != nil {
+			// Nothing was signed: the cockpit declines the claim as it stands, which is a refusal.
+			reason := err.Error()
 			if used := usedValues(ctx, cfg, in.Template, "step"); len(used) > 0 && in.Fields["step"] == "" {
-				return fmt.Errorf("%v\n  steps used here so far: %s", err, strings.Join(used, " · "))
+				reason += "\n  steps used here so far: " + strings.Join(used, " · ")
 			}
-			return err
+			return &cockpit.Refusal{Code: "argument", Clause: "SPEC §8.1", Reason: reason}
 		}
 		if len(in.Fields) == 0 {
 			in.Fields = nil
@@ -185,7 +224,7 @@ func checkFields(cfg *config.Config, template string, given map[string]string) e
 // record from RUN.md, this run's record, and an output whose bytes both name.
 func reproducesFromRun(ctx context.Context, cfg *config.Config, ref string, in *cockpit.SayRequest) error {
 	if strings.HasPrefix(ref, "sha256:") {
-		return fmt.Errorf("say reproduces takes the run folder that reproduced it (runs/<slug>, made with run new --from %s);\n"+
+		return fmt.Errorf("say reproduces takes the run folder that reproduced it (work/<slug>, made with run new --from %s);\n"+
 			"  for anything else use the JSON form: cockpit say --help", ref)
 	}
 	abs, _ := filepath.Abs(ref)
@@ -246,17 +285,11 @@ var targetWords = map[string]string{
 	"":       "anything",
 }
 
-// identityField names who is speaking. A claim is signed, so the signature already says it; with
-// the one identity this repository signs as, asking the person to type it again only invites a
-// value that disagrees with the signature. Given explicitly, it is kept.
-const identityField = "by-session"
+// identityField is the field say fills from the identity it signs as (cockpit.FillIdentity).
+const identityField = cockpit.IdentityField
 
-func fillFromIdentity(cfg *config.Config, template string, fields map[string]string) {
-	for _, t := range readTemplates(cfg) {
-		if _, has := t.Fields[identityField]; t.Name == template && has && fields[identityField] == "" {
-			fields[identityField] = cfg.Raw.Identity.SessionID
-		}
-	}
+func fillFromIdentity(cfg *config.Config, template, as string, fields map[string]string) {
+	cockpit.FillIdentity(cfg, template, as, fields)
 }
 
 // usedValues are the values a template's field has had in verified claims here — the step names

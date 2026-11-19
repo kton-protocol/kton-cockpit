@@ -19,7 +19,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"reflect"
 	"sort"
 	"strings"
@@ -27,12 +26,27 @@ import (
 	"github.com/kton-protocol/kton-cockpit/internal/config"
 )
 
+// ConfigShown is `config --json`: the configuration file as it stands (defaults are not filled in;
+// cockpit.config.schema.json names them) and the session this checkout signs as.
+type ConfigShown struct {
+	Path      string          `json:"path"`
+	SessionID string          `json:"sessionId"`
+	Config    json.RawMessage `json:"config"`
+}
+
 func runConfig(ctx context.Context, args []string) error {
 	cfg, err := config.Load(ctx, ".")
 	if err != nil {
 		return err
 	}
-	cfgPath := filepath.Join(cfg.RepoRoot, "cockpit.config.json")
+	cfgPath := config.ConfigPath(cfg.RepoRoot)
+	if len(args) == 1 && args[0] == "--json" {
+		b, err := os.ReadFile(cfgPath)
+		if err != nil {
+			return err
+		}
+		return printJSON(ConfigShown{Path: cfgPath, SessionID: cfg.Identity.SessionID, Config: json.RawMessage(b)})
+	}
 	switch len(args) {
 	case 0:
 		configOverview(cfg, cfgPath)
@@ -58,7 +72,7 @@ func runConfig(ctx context.Context, args []string) error {
 	// A key the configuration does not have would be written and then ignored on load: a typo such as
 	// persist.sharee would leave persist.share as it was and say nothing.
 	if !knownKey(reflect.TypeOf(config.Raw{}), path) {
-		return fmt.Errorf("cockpit.config.json has no setting %s (cockpit config lists the main ones, "+
+		return fmt.Errorf(".kton/cockpit.config.json has no setting %s (cockpit config lists the main ones, "+
 			"cockpit.config.schema.json all of them)", key)
 	}
 	before, err := os.ReadFile(cfgPath)
@@ -74,7 +88,7 @@ func runConfig(ctx context.Context, args []string) error {
 	}
 	if _, err := config.Load(ctx, "."); err != nil {
 		os.WriteFile(cfgPath, before, 0o644)
-		return fmt.Errorf("%v\n(cockpit.config.json is unchanged)", strings.TrimPrefix(err.Error(), "cockpit: "))
+		return fmt.Errorf("%v\n(.kton/cockpit.config.json is unchanged)", strings.TrimPrefix(err.Error(), "cockpit: "))
 	}
 	b, _ := os.ReadFile(cfgPath)
 	if v, ok := getPath(b, path); ok {
@@ -82,7 +96,7 @@ func runConfig(ctx context.Context, args []string) error {
 	} else {
 		fmt.Printf("%s unset\n", key)
 	}
-	fmt.Println("  commit cockpit.config.json to keep it")
+	fmt.Println("  commit .kton/cockpit.config.json to keep it")
 	return nil
 }
 
@@ -195,10 +209,10 @@ func configOverview(cfg *config.Config, cfgPath string) {
 		row("persist.commit", on(r.Persist.CommitEnabled()), "")
 		row("persist.share", on(r.ShareEnabled()), "")
 	}
-	row("identity", r.Identity.SessionID, "cockpit keygen")
+	row("identity", cfg.Identity.SessionID, "cockpit keygen")
 	tiers := make([]string, 0, len(r.Trust.Tiers))
-	for t, ks := range r.Trust.Tiers {
-		tiers = append(tiers, fmt.Sprintf("%s (%d)", t, len(ks)))
+	for _, t := range r.Trust.Tiers {
+		tiers = append(tiers, fmt.Sprintf("%s (%d)", t, len(cfg.TierKeys(t))))
 	}
 	sort.Strings(tiers)
 	row("trust.tiers", strings.Join(tiers, ", "), "cockpit trust")

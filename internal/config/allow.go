@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 )
 
 // AllowPackage adds a package id to claims.allowedPackages in the configuration file at root and
@@ -16,7 +15,7 @@ import (
 // The file is rewritten with its keys in their original order and two-space indentation, so the
 // change is the one line that matters and not a reformatted file.
 func AllowPackage(root, id string) (bool, error) {
-	path := filepath.Join(root, "cockpit.config.json")
+	path := ConfigPath(root)
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return false, err

@@ -2,9 +2,9 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/kton-protocol/kton-cockpit/cockpit.config.schema.json",
   "title": "cockpit.config.json",
-  "description": "Static, per-repo configuration for the kton-cockpit. Never written by the cockpit itself; a session never sees or edits it through any MCP tool. See projectdocs/kton-cockpit/phases/design/cockpit-config-schema.md for the full design rationale.",
+  "description": "Static, per-repo configuration for the kton-cockpit, at .kton/cockpit.config.json (ADR-016). The layout under .kton/ is fixed and not configured here; this checkout's signing identity is in .kton/local/identity.json, never in this shared file. Never written by the cockpit itself; a session never sees or edits it through any MCP tool. See projectdocs/kton-cockpit/phases/design/cockpit-config-schema.md for the full design rationale.",
   "type": "object",
-  "required": ["repo", "paths", "identity", "verbs", "claims", "trust", "reproduction"],
+  "required": ["repo", "verbs", "claims", "trust", "reproduction"],
   "additionalProperties": false,
   "properties": {
     "repo": {
@@ -15,31 +15,6 @@
         "owner": { "type": "string", "minLength": 1, "description": "Required in git mode." },
         "name": { "type": "string", "minLength": 1, "description": "Required in git mode." },
         "root": { "type": "string", "minLength": 1, "description": "Required in local mode: the absolute path this config belongs to. In local mode there are no commits, no pushes, and fotons carry no locators, because a permalink needs an owner/repo and a commit." }
-      }
-    },
-    "paths": {
-      "type": "object",
-      "description": "Repo-relative paths. Resolved to absolute paths from the verified repo root at load time — never inherited from PLANKTON_DIR/NEKTON_DIR/etc. environment variables.",
-      "required": ["plankton_dir", "nekton_dir", "templates_dir", "keys_dir", "bin_dir"],
-      "additionalProperties": false,
-      "properties": {
-        "plankton_dir": { "type": "string", "minLength": 1, "description": "Not a free choice: the federation template's mirror_once.py hardcodes the prefix `registry/plankton/objects/` when scanning a participant's committed tree, so this must stay `registry/plankton` for federation aggregation to see this participant at all. Deliberately NOT the plankton binary's own bare fallback (`plankton-data`, used when PLANKTON_DIR is unset) — that bare default belongs to a different tool with a different, incompatible expectation." },
-        "nekton_dir": { "type": "string", "minLength": 1, "description": "Same constraint as plankton_dir: must stay `registry/nekton` to match mirror_once.py's hardcoded `registry/nekton/objects/` scan." },
-        "templates_dir": { "type": "string", "minLength": 1 },
-        "keys_dir": { "type": "string", "minLength": 1 },
-        "bin_dir": { "type": "string", "minLength": 1 }
-      }
-    },
-    "identity": {
-      "type": "object",
-      "description": "This cockpit instance's own signing identity. Reused across sessions — never regenerated automatically (regenerating orphans any claims already signed under the old key).",
-      "required": ["session_id", "plankton_key", "nekton_key"],
-      "additionalProperties": false,
-      "properties": {
-        "session_id": { "type": "string", "minLength": 1 },
-        "plankton_key": { "type": "string", "minLength": 1 },
-        "nekton_key": { "type": "string", "minLength": 1 },
-        "keyring": { "type": "string", "minLength": 1, "description": "A directory outside the repository holding further claim keys as <name>-claims.key beside <name>-claims.pub (absolute, or starting with ~/). With it, say may sign as one of them (say --as <name>), and only as a key whose public half is in a trust tier. Absent, say signs with nekton_key only." }
       }
     },
     "verbs": {
@@ -105,17 +80,23 @@
     },
     "trust": {
       "type": "object",
-      "description": "Named trust tiers, each a list of pubkey paths (repo-relative or absolute). The ceiling for cockpit_ask's filter — a query can narrow within these tiers, never surface a tier/signer outside them.",
+      "description": "The trust tiers, by name. A tier's keys are the public keys in .kton/keys/<tier>/ (*.pub, ADR-016): trusting a key is putting its public half into the tier's folder (`cockpit trust add`), and the folder is what a reviewer reads. A tier's keys are read from its folder only, never from a package's keys/. The ceiling for cockpit_ask's filter — a query can narrow within these tiers, never surface a tier or signer outside them.",
       "required": ["tiers"],
       "additionalProperties": false,
       "properties": {
         "tiers": {
-          "type": "object",
-          "additionalProperties": {
-            "type": "array",
-            "items": { "type": "string" }
-          }
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]*$" }
         }
+      }
+    },
+    "runs": {
+      "type": "object",
+      "description": "Where runs happen in this checkout: `cockpit run`, a workflow run and a reproduction, one folder per run (ADR-016 section 4).",
+      "additionalProperties": false,
+      "properties": {
+        "dir": { "type": "string", "minLength": 1, "description": "Repo-relative; default work/. Never inside .kton/ or a folder the backend keeps for itself." }
       }
     },
     "environment": {

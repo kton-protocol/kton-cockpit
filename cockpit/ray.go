@@ -261,7 +261,7 @@ func (c *Cockpit) publishRay(ctx context.Context, cfg *config.Config, in Publish
 	if err != nil {
 		return nil, refuse("kernel", "", "the package is written but recording where it came from failed: %v", err)
 	}
-	finalRev, err := persist(ctx, cfg, []string{cfg.Raw.Paths.NektonDir}, "claim: "+rayTemplate+" on "+rayID)
+	finalRev, err := persist(ctx, cfg, []string{config.Rel("nekton")}, "claim: "+rayTemplate+" on "+rayID)
 	if err != nil {
 		return nil, refuse("store", "", "committing the claim failed: %v", err)
 	}

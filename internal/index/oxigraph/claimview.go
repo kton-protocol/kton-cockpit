@@ -11,16 +11,17 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"time"
 
 	ntemplate "kton.dev/nekton/template"
 )
 
-// claimview.go builds the query projection of ADR-013 from the kernel's: each claim a trusted key
-// signed becomes one node, <https://kton.dev/o/<hex>>, with its predicate, subject and fields, its
-// signers, its scope and predecessor, and two things kept here instead of walked by every query —
-// its position in its scope's chain and whether it is current. It is one function of the kernel's
-// quads, so a container started for one query and the daemon build the same view.
+// claimview.go builds the query projection of ADR-013 from the kernel's, in view vocabulary 1
+// (SPEC §9.11): each claim a trusted key signed becomes one node, <https://kton.dev/o/<hex>>, with its
+// predicate, its subjects and fields, its signers, its scope, predecessor and position in the chain,
+// a seed's parent, and the replacements claims state (nk:replaces, and nk:replacedBy where ADR-013
+// A5 lets one claim retire another). Nothing else is inferred: no claim is "current". It is one
+// function of the kernel's quads, so a container started for one query and the daemon build the
+// same view.
 
 const (
 	nkNS     = "https://kton.dev/v/"
@@ -78,7 +79,7 @@ type ViewConfig struct {
 
 // viewVersion changes whenever ClaimView builds something else from the same quads: a view kept
 // from an older build is then built again rather than answered from.
-const viewVersion = 3
+const viewVersion = 4 // 4: view vocabulary 1
 
 // Fingerprint changes whenever the view a ViewConfig builds would.
 func (vc ViewConfig) Fingerprint() string {
@@ -109,7 +110,10 @@ func (vc ViewConfig) Fingerprint() string {
 
 type claimNode struct {
 	hex              string
-	pred, about      Term
+	pred             Term
+	about            []Term   // one or more (kton #254)
+	replaces         []string // the hexes its replaces field names, lower case
+	parent           Term     // on a seed: the parent scope it names
 	fields, other    []Quad
 	nested           map[string][]Quad // a field's own node (#o.<field>), such as a ref's hash
 	created          Term
@@ -122,7 +126,7 @@ type claimNode struct {
 // ClaimView is the query projection of the claims in trusted (their nanopublication graphs and the
 // attribution graphs of trusted keys, as the kernel projects them), in the default graph. structure
 // is the publication info of every claim of the union, trusted or not: a chain's positions count
-// every claim in it, while only trusted claims are shown and only they supersede one another.
+// every claim in it, while only trusted claims are shown and only they replace one another.
 func ClaimView(trusted, structure []Quad, vc ViewConfig) []Quad {
 	claims := map[string]*claimNode{}
 	node := func(h string) *claimNode {
@@ -160,7 +164,10 @@ func ClaimView(trusted, structure []Quad, vc ViewConfig) []Quad {
 			case q.S.Value == helper:
 				c.fields = append(c.fields, q)
 			case q.O.Value == helper:
-				c.about, c.pred, c.hasPred = q.S, q.P, true
+				if !containsTerm(c.about, q.S) {
+					c.about = append(c.about, q.S)
+				}
+				c.pred, c.hasPred = q.P, true
 			default:
 				c.other = append(c.other, q)
 			}
@@ -217,38 +224,40 @@ func ClaimView(trusted, structure []Quad, vc ViewConfig) []Quad {
 		l := links[h]
 		c.scope, c.prev = l[0], l[1]
 		c.position = pos(h, 0)
+		for _, f := range c.fields {
+			if f.P.Value == nkNS+"replaces" {
+				if x := strings.ToLower(claimHex(f.O.Value)); x != "" && !contains(c.replaces, x) {
+					c.replaces = append(c.replaces, x)
+				}
+			}
+		}
+		for _, q := range c.other {
+			if c.genesis && q.P.Value == nkNS+"parent" {
+				c.parent = q.O
+			}
+		}
 	}
 
-	// Current: the latest trusted claim per scope, subject and predicate, by one total order, so the
-	// same quads give the same answer however they arrive: a claim with a position in its chain
-	// beats one without (its predecessor is outside the union), then the higher position, then the
-	// later signed time as an instant, then the hex. A branched scope (equal positions) and claims
-	// outside any scope are decided by the time their signer stated.
-	latest := map[string]*claimNode{}
-	later := func(a, b *claimNode) bool {
-		if (a.position >= 0) != (b.position >= 0) {
-			return a.position >= 0
-		}
-		if a.position != b.position {
-			return a.position > b.position
-		}
-		if ta, tb := instant(a.created), instant(b.created); !ta.Equal(tb) {
-			return ta.After(tb)
-		}
-		return a.hex > b.hex
-	}
-	group := func(c *claimNode) string { return c.scope + "\x00" + c.about.Value + "\x00" + c.pred.Value }
-	for _, c := range claims {
-		if len(c.signers) == 0 || !c.hasPred {
+	// Replaced (ADR-013 A5): a claim names what it replaces in its replaces field, and every such
+	// name is projected as nk:replaces whoever signed either claim. A replacement retires a claim
+	// (nk:replacedBy) only when every trusted signer of the replaced claim signed the replacement too,
+	// it has the same template, and the two share a subject: one of two co-signers cannot withdraw
+	// the other's signature (kton-review C1 on #146). What any other name means is a rule's decision.
+	replacedBy := map[string][]string{}
+	for _, r := range claims {
+		if len(r.signers) == 0 || !r.hasPred {
 			continue
 		}
-		if cur := latest[group(c)]; cur == nil || later(c, cur) {
-			latest[group(c)] = c
+		for _, x := range r.replaces {
+			old := claims[x]
+			if old == nil || old == r || len(old.signers) == 0 || !old.hasPred || old.pred.Value != r.pred.Value ||
+				!subsetOf(old.signers, r.signers) || !sharesTerm(old.about, r.about) {
+				continue
+			}
+			if !contains(replacedBy[x], r.hex) {
+				replacedBy[x] = append(replacedBy[x], r.hex)
+			}
 		}
-	}
-	current := map[string]bool{}
-	for _, c := range latest {
-		current[c.hex] = true
 	}
 
 	byPred := map[string]ntemplate.Template{}
@@ -274,7 +283,10 @@ func ClaimView(trusted, structure []Quad, vc ViewConfig) []Quad {
 		out = append(out, triple(n, rdfType, iri(nkNS+"Claim")))
 		if c.hasPred {
 			t, known := byPred[c.pred.Value]
-			out = append(out, triple(n, nkNS+"predicate", c.pred), Quad{S: iri(n), P: iri(nkNS + "about"), O: c.about})
+			out = append(out, triple(n, nkNS+"predicate", c.pred))
+			for _, a := range c.about {
+				out = append(out, Quad{S: iri(n), P: iri(nkNS + "about"), O: a})
+			}
 			if known {
 				out = append(out, triple(n, nkNS+"template", lit(t.Name)))
 			}
@@ -299,12 +311,18 @@ func ClaimView(trusted, structure []Quad, vc ViewConfig) []Quad {
 						}
 					}
 				}
+				if p.Value == nkNS+"replaces" {
+					// A name in lower case, so it is the node of the claim it names (A5, M3).
+					if x := claimHex(o.Value); x != "" {
+						o = iri(oNS + strings.ToLower(x))
+					}
+				}
 				out = append(out, Quad{S: iri(n), P: p, O: o})
 			}
-			out = append(out, triple(n, nkNS+"current", typed(strconv.FormatBool(current[h]), xsdNS+"boolean")))
-			if !current[h] {
-				// Which claim hid it, so a rule can see whose later claim superseded whose.
-				out = append(out, triple(n, nkNS+"supersededBy", iri(oNS+latest[group(c)].hex)))
+			later := replacedBy[h]
+			sort.Strings(later)
+			for _, r := range later {
+				out = append(out, triple(n, nkNS+"replacedBy", iri(oNS+r)))
 			}
 		}
 		for _, q := range c.other {
@@ -317,6 +335,15 @@ func ClaimView(trusted, structure []Quad, vc ViewConfig) []Quad {
 		}
 		if c.genesis {
 			out = append(out, triple(n, nkNS+"genesis", typed("true", xsdNS+"boolean")))
+			// The parent scope a seed names (kton #241), on the seed node: the hierarchy is walked
+			// from seed to seed without joining through the assertion.
+			if c.parent.Value != "" {
+				parent := c.parent
+				if x := claimHex(parent.Value); x != "" {
+					parent = iri(oNS + strings.ToLower(x))
+				}
+				out = append(out, triple(n, nkNS+"parent", parent))
+			}
 		}
 		if c.created.Value != "" {
 			out = append(out, Quad{S: iri(n), P: iri(dctTime), O: c.created})
@@ -352,6 +379,7 @@ func ClaimView(trusted, structure []Quad, vc ViewConfig) []Quad {
 var (
 	isInteger  = regexp.MustCompile(`^[+-]?\d+$`)
 	isDate     = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
+	isIRI      = regexp.MustCompile(`^(https?://|urn:|tag:|did:|mailto:)\S+$`)
 	isDateTime = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$`)
 )
 
@@ -383,7 +411,17 @@ func typedValue(o Term, fieldType string, resolve func(string) string) Term {
 		}
 	case "ref":
 		if strings.HasPrefix(o.Value, "sha256:") {
-			return iri(oNS + strings.TrimPrefix(o.Value, "sha256:"))
+			return iri(oNS + strings.ToLower(strings.TrimPrefix(o.Value, "sha256:")))
+		}
+	case "iri":
+		// The kernel makes a value with :// an IRI already; urn:, tag:, did: and mailto: values, and a
+		// CURIE the alias file resolves, stay literals there and become IRIs here.
+		v := o.Value
+		if r := resolve(v); strings.Contains(r, "://") {
+			v = r
+		}
+		if isIRI.MatchString(v) && !strings.ContainsAny(v, " <>\"{}|^`\\") && !Reserved(v) {
+			return iri(v)
 		}
 	}
 	return o
@@ -398,6 +436,34 @@ func values(qs []Quad, s, p string) []string {
 		}
 	}
 	return out
+}
+
+func containsTerm(ts []Term, t Term) bool {
+	for _, u := range ts {
+		if u.Type == t.Type && u.Value == t.Value {
+			return true
+		}
+	}
+	return false
+}
+
+func sharesTerm(a, b []Term) bool {
+	for _, t := range a {
+		if containsTerm(b, t) {
+			return true
+		}
+	}
+	return false
+}
+
+// subsetOf reports whether every element of a is in b.
+func subsetOf(a, b []string) bool {
+	for _, x := range a {
+		if !contains(b, x) {
+			return false
+		}
+	}
+	return true
 }
 
 func contains(xs []string, x string) bool {
@@ -547,17 +613,7 @@ func ntQuote(v string) string {
 	return b.String()
 }
 
-// instant is a signed time as a point in time: the kernel takes any RFC 3339 time, with an offset or
-// fractions, so the text does not order them. A time that will not parse orders first.
-func instant(t Term) time.Time {
-	v, err := time.Parse(time.RFC3339Nano, t.Value)
-	if err != nil {
-		return time.Time{}
-	}
-	return v
-}
-
-// Reserved tells whether a term is one the query projection writes itself (nk:signer, nk:current,
+// Reserved tells whether a term is one the query projection writes itself (nk:signer, nk:replacedBy,
 // nk:position, …): a field aliased to one would put a second value beside the computed one.
 func Reserved(term string) bool {
 	return strings.HasPrefix(term, nkNS) && !strings.HasPrefix(term, labNS)
