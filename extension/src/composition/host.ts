@@ -173,9 +173,11 @@ const sha256 = async (b: Uint8Array) => {
 
 /** content@1 and product@1 (d): {type, hash, size, bytes} up to the cap, else {type, hash, size, url}. */
 export async function answerBytes(backend: Backend, loaded: Loaded, hash: string, type: string | undefined, what: string, only?: { readonly id: string; readonly name: string }): Promise<Record<string, unknown>> {
-  const blob = loaded.byHash.get(hash);
-  if (!blob) throw new Refused(`${what}: ${hash} is no file of an admitted package`);
-  if (only && blob.pkg !== only.id) throw new Refused(`${what}: ${hash} is no file of package ${only.name}`);
+  // the plan pins the hash, so any package holding these bytes serves them; a leaf asks for its own package's file
+  const holders = loaded.byHash.get(hash);
+  if (!holders?.size) throw new Refused(`${what}: ${hash} is no file of an admitted package`);
+  const blob = only ? holders.get(only.id) : [...holders.values()][0];
+  if (!blob) throw new Refused(`${what}: ${hash} is no file of package ${only?.name}`);
   const bytes = await backend.bytes(blob.pkg, hash);
   const got = `sha256:${await sha256(bytes)}`;
   if (got !== hash) throw new Refused(`${what}: the bytes hash to ${got}, not ${hash}`);

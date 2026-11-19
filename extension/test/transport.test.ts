@@ -136,7 +136,7 @@ test("templates come from the cockpit's listing (say --json, v0.5.0), shape-chec
   const { transport, argvLog } = fakeCockpit([{ argv0: "say", argv1: "--json", stdout: JSON.stringify(listing) }]);
   const out = await transport.templates();
   assert.ok(out.ok);
-  assert.deepEqual(out.value, [{ name: "decides", fields: listing[0]!.fields, target: "either" }]);
+  assert.deepEqual(out.value, [{ name: "decides", fields: listing[0]!.fields, target: "either", predicate: "https://example.org/v/decides" }]);
   assert.deepEqual(argvLog()[0], ["say", "--json"]);
   const { transport: bad } = fakeCockpit([{ argv0: "say", argv1: "--json", stdout: JSON.stringify([{ name: "x", fields: { a: {} } }]) }]);
   await assert.rejects(bad.templates(), TransportError);

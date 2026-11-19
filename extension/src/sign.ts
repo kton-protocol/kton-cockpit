@@ -42,8 +42,21 @@ export interface SignPlan {
   readonly needsDialog: boolean;
   readonly footer: string;
   readonly rules: string;
+  /** What the claim says (the template's predicate), when the listing names it. Shown in the dialog. */
+  readonly predicate?: string;
+  /** The template as the listing defined it when the plan was made (templateFingerprint); the digest covers it. */
+  readonly templateSig: string;
   /** Hash of exactly what is shown; a dialog confirmation is bound to it. */
   readonly digest: string;
+}
+
+/**
+ * A template's definition as the listing gives it: name, predicate, target, package and fields. say resolves the
+ * name when it signs, so the sign path compares this, read fresh, with the plan's before say (kton-review R1 on #177).
+ */
+export function templateFingerprint(t: TemplateInfo): string {
+  const fields = Object.keys(t.fields).sort().map((k) => [k, t.fields[k]]);
+  return createHash("sha256").update(JSON.stringify([t.name, t.predicate ?? null, t.target ?? null, t.package ?? null, fields])).digest("hex");
 }
 
 /** Build the plan from an intent. The intent supplies only `about` and field values. */
@@ -79,7 +92,8 @@ export function plan(
   const key = keyFor(identity, control.kind);
   // No fallback: a decision needs the person key, a record the agent key; a missing one is named.
   if (!key.keyName) return refuse("identity.key-missing", `this window has no ${key.role} key, so it cannot sign a ${control.kind}`);
-  const shown = { template: tpl.name, subject: intent.about, fields, as: key.keyName, control: `${control.package}/${control.name}` };
+  const templateSig = templateFingerprint(tpl);
+  const shown = { template: tpl.name, templateSig, subject: intent.about, fields, as: key.keyName, control: `${control.package}/${control.name}` };
   const digest = createHash("sha256").update(JSON.stringify(shown, Object.keys(shown).sort())).update(JSON.stringify(Object.entries(fields).sort())).digest("hex");
   const meaning = fields["meaning"];
   return {
@@ -87,6 +101,8 @@ export function plan(
     value: {
       control,
       template: tpl.name,
+      ...(tpl.predicate !== undefined ? { predicate: tpl.predicate } : {}),
+      templateSig,
       subject: intent.about,
       fields,
       ...(meaning !== undefined ? { meaning } : {}),

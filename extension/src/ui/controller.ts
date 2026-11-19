@@ -6,12 +6,12 @@ import type { TemplateInfo, Transport } from "../transport/port.js";
 import { TransportError, TransportTimeout } from "../transport/port.js";
 import type { WindowIdentity, ShownSigner } from "../identity.js";
 import { hasKey, showSigner, signerKeyId, statusText, statusTooltip } from "../identity.js";
-import type { ControlInfo } from "../sign.js";
-import { DialogConsent, plan, sign, FOOTER } from "../sign.js";
+import type { ControlInfo, SignPlan } from "../sign.js";
+import { DialogConsent, plan, sign, templateFingerprint, FOOTER } from "../sign.js";
 import type { UiEntry, SlotContext } from "../intents.js";
 import { checkIntent } from "../intents.js";
 import { Scheduler } from "../poll.js";
-import { PackagesArea, SLOT_CMD } from "../composition/area.js";
+import { PackagesArea, SLOT_CMD, type ExpectRevision } from "../composition/area.js";
 import type { Subject } from "../composition/slots.js";
 import type { Control, ViewerTree } from "../packages/model.js";
 import type { TreeNode, UiHost } from "./host.js";
@@ -83,6 +83,9 @@ const DECISION_ENTRY: UiEntry = { package: "workbench", name: "decision", slot: 
 /** The thread panel's entry: it may only emit the answer (sign) intent about its own message. */
 const THREAD_ENTRY: UiEntry = { package: "workbench", name: "thread", slot: "thread", control: "answer", intents: ["sign"] };
 
+/** What a refusal before say asks of the person: nothing was signed, the changed thing must be seen again. */
+const AGAIN = ". Nothing was signed: open it again and sign again";
+
 export const CMD = {
   refresh: "ktonWorkbench.refresh",
   openDecision: "ktonWorkbench.openDecision",
@@ -132,7 +135,7 @@ export class Workbench {
   ) {
     this.scheduler = scheduler ?? new Scheduler();
     this.packages = new PackagesArea(t, host, {
-      act: (c, about, fields, title) => this.signAct(c, about, fields, title),
+      act: (c, about, fields, title, expect) => this.signAct(c, about, fields, title, expect),
       open: async (target) => this.openTarget(target),
       identityName: () => this.identity.hintName,
     }, cfg.vendoredViewers);
@@ -517,7 +520,7 @@ export class Workbench {
    * Plan, dialog (for the person key), sign. Never throws. A locked registry is retried and shown in the
    * status bar (S7.4); a timeout is reported as failed, and the registry decides whether a claim exists (S7.3).
    */
-  private async signThroughDialog(intent: { kind: "sign"; about: string; fields: Readonly<Record<string, string>> }, control: ControlInfo, title: string): Promise<SignResult> {
+  private async signThroughDialog(intent: { kind: "sign"; about: string; fields: Readonly<Record<string, string>> }, control: ControlInfo, title: string, expect?: ExpectRevision): Promise<SignResult> {
     const cannot = this.cannotSign(control.kind);
     if (cannot) {
       this.host.error(`Not signed: ${cannot}`);
@@ -545,6 +548,9 @@ export class Workbench {
       this.host.error(text);
       return "failed";
     };
+    // after the yes, just before say: still what the person saw (one seam; see changedSinceDialog)
+    const changed = await this.changedSinceDialog(p.value, expect);
+    if (changed) return fail(`Not signed: ${changed}`);
     for (let attempt = 1; ; attempt++) {
       try {
         const out = await sign(this.t, p.value, consent);
@@ -586,9 +592,37 @@ export class Workbench {
    * control through the one sign dialog with the person key, a record control with the agent key and no
    * dialog. Same path as every other signature (signThroughDialog), so the dialog has one call site.
    */
-  async signAct(c: Control, about: string, fields: Readonly<Record<string, string>>, title: string): Promise<SignResult> {
+  async signAct(c: Control, about: string, fields: Readonly<Record<string, string>>, title: string, expect?: ExpectRevision): Promise<SignResult> {
     const control: ControlInfo = { package: c.package, name: c.name, template: c.template, kind: c.kind };
-    return this.signThroughDialog({ kind: "sign", about, fields }, control, title);
+    return this.signThroughDialog({ kind: "sign", about, fields }, control, title, expect);
+  }
+
+  /**
+   * The one seam between the dialog's yes and say (kton-review R1 on #177): say resolves the template NAME when it
+   * signs, so the plan the person saw must still be what the cockpit would sign. Read fresh, never from the poll:
+   * - the template the name resolves to now (`say --json`): its definition must be the plan's (templateSig, which
+   *   the dialog's digest covers: predicate, target, package, fields);
+   * - for a package's act, the package's installed revision (`ui list`) must be the one the panel was opened at.
+   * Returns why not, or undefined. When say takes these expectations itself (asked of kton-cockpit:
+   * an expected template and package revision, like expectHead), put them in the say request and drop this read.
+   */
+  private async changedSinceDialog(p: SignPlan, expect: ExpectRevision | undefined): Promise<string | undefined> {
+    try {
+      const [tpl, list] = await Promise.all([this.t.templates(), expect ? this.t.uiList() : Promise.resolve(undefined)]);
+      if (!tpl.ok) return `the template ${p.template} cannot be confirmed: ${tpl.refusal.reason}`;
+      const now = tpl.value.find((t) => t.name === p.template);
+      if (!now) return `the template ${p.template} is no longer installed${AGAIN}`;
+      if (templateFingerprint(now) !== p.templateSig) return `the template ${p.template} changed since the dialog showed it${now.predicate !== p.predicate ? ` (it now says ${now.predicate ?? "nothing"})` : ""}${AGAIN}`;
+      if (expect && list) {
+        if (!list.ok) return `the installed revision of ${expect.package} cannot be confirmed: ${list.refusal.reason}`;
+        const pkg = list.value.packages.find((x) => x.name === expect.package);
+        if (!pkg || pkg.refused.length || !pkg.allowed) return `package ${expect.package} is no longer installed and admitted${AGAIN}`;
+        if (pkg.revision !== expect.revision) return `package ${expect.package} changed (revision ${pkg.revision.slice(0, 19)}…) since it was shown${AGAIN}`;
+      }
+      return undefined;
+    } catch (e) {
+      return describe(e);
+    }
   }
 
   /** open@1: a claim this window knows opens its thread or decision; anything else is named, not fetched. */

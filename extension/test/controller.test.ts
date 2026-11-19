@@ -17,6 +17,8 @@ import { TransportError, TransportTimeout } from "../src/transport/port.js";
 import type { WindowIdentity } from "../src/identity.js";
 import type { UiListing } from "../src/packages/listing.js";
 import { Scheduler, type Clock } from "../src/poll.js";
+import { workbenchCommands } from "../src/ui/commands.js";
+import { CMD } from "../src/ui/controller.js";
 
 const HEX = (c: string) => c.repeat(64);
 const iri = (c: string) => `https://kton.dev/o/${HEX(c)}`;
@@ -819,4 +821,63 @@ test("the user's Refresh runs the poll job through the scheduler: never a second
   assert.equal(n, 1, "the second Refresh was skipped while the first ran");
   await wb.refreshNow();
   assert.equal(n, 2);
+});
+
+test("the registered Refresh command reaches scheduler.runNow (the command table extension.ts registers)", async () => {
+  const { wb } = await setup();
+  const ran: string[] = [];
+  const runNow = wb.scheduler.runNow.bind(wb.scheduler);
+  wb.scheduler.runNow = async (name: string) => {
+    ran.push(name);
+    return runNow(name);
+  };
+  const refresh = workbenchCommands(() => wb).find(([id]) => id === CMD.refresh)?.[1] as () => Promise<void>;
+  assert.ok(refresh, "Refresh is registered");
+  await refresh();
+  assert.deepEqual(ran, ["inbox"]);
+});
+
+// kton-review R1 on #177: say resolves the template NAME when it signs; the dialog showed what it meant then.
+const QM_V1: TemplateInfo = { name: "approves", package: "qm", predicate: "https://example.org/qm/approves-for-release", fields: { outcome: { type: "string" } } };
+const QM_V2: TemplateInfo = { ...QM_V1, predicate: "https://example.org/qm/rejects-release" };
+const APPROVE = { package: "qm", name: "approve", template: "approves", kind: "decision" as const };
+function qmCockpit() {
+  const t = new FakeTransport();
+  t.templateList = [...TEMPLATES, QM_V1];
+  let revision = `sha256:${"a".repeat(64)}`;
+  t.uiList = async () => ({ ok: true, value: { packages: [{ name: "qm", package: `sha256:${"9".repeat(64)}`, revision, label: "1", dir: ".kton/packages/qm@1", allowed: true, refused: [], ui: [], blocks: [], compositions: [], members: [] }] } as UiListing });
+  return { t, upgrade: (r: string) => (revision = r), revision: () => revision };
+}
+
+test("R1 on #177: approves means approves-for-release in the dialog and rejects-release after the upgrade: no claim, sign again", async () => {
+  const { t } = qmCockpit();
+  const { h, wb } = await setup({}, t);
+  h.signDialog = async (title: string, detail: string) => {
+    h.dialogs.push({ title, detail });
+    t.templateList = [...TEMPLATES, QM_V2]; // qm v2 installed while the dialog is open
+    return true;
+  };
+  assert.equal(await wb.signAct(APPROVE, sha("2"), { outcome: "ok" }, "Approve"), "failed");
+  assert.match(h.dialogs[0]?.detail ?? "", /Says: https:\/\/example\.org\/qm\/approves-for-release/);
+  assert.equal(t.says.length, 0, "no claim");
+  assert.match(h.outcomes.at(-1)?.text ?? "", /Not signed: the template approves changed since the dialog showed it \(it now says https:\/\/example\.org\/qm\/rejects-release\)\. Nothing was signed: open it again and sign again/);
+});
+
+test("R1/(c) on #177: a package upgrade between the dialog and say (a new revision, not yet polled) gives no claim; unchanged, it signs", async () => {
+  const q = qmCockpit();
+  const { h, wb } = await setup({}, q.t);
+  const r1 = q.revision();
+  h.signDialog = async (title: string, detail: string) => {
+    h.dialogs.push({ title, detail });
+    q.upgrade(`sha256:${"b".repeat(64)}`);
+    return true;
+  };
+  assert.equal(await wb.signAct(APPROVE, sha("2"), { outcome: "ok" }, "Approve", { package: "qm", revision: r1 }), "failed");
+  assert.equal(q.t.says.length, 0, "no claim");
+  assert.match(h.outcomes.at(-1)?.text ?? "", /package qm changed \(revision sha256:b+…\) since it was shown\. Nothing was signed/);
+  // nothing changed: the same act signs
+  h.signDialog = async (title: string, detail: string) => (h.dialogs.push({ title, detail }), true);
+  assert.equal(await wb.signAct(APPROVE, sha("2"), { outcome: "ok" }, "Approve", { package: "qm", revision: q.revision() }), "signed");
+  assert.equal(q.t.says.length, 1);
+  assert.equal(q.t.says[0]?.template, "approves");
 });

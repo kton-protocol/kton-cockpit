@@ -21,6 +21,7 @@ import { loadQueries } from "./ui/queries.js";
 import { loadSurfaces } from "./ui/surfaces.js";
 import { CMD, DEFAULT_CONFIG, Workbench } from "./ui/controller.js";
 import { signDialogPage } from "./ui/pages.js";
+import { workbenchCommands } from "./ui/commands.js";
 import type { StatusId, TreeNode, UiHost, ViewId } from "./ui/host.js";
 
 class Tree implements vscode.TreeDataProvider<TreeNode> {
@@ -318,18 +319,7 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
     vscode.window.registerTreeDataProvider("ktonWorkbench.home", host.trees.home),
     vscode.window.registerTreeDataProvider("ktonWorkbench.inbox", host.trees.inbox),
     vscode.window.registerTreeDataProvider("ktonWorkbench.lanes", host.trees.lanes),
-    // the user's Refresh runs the poll job itself (skipped while a poll runs), never a second poll beside it
-    vscode.commands.registerCommand(CMD.refresh, () => wb?.refreshNow()),
-    vscode.commands.registerCommand(CMD.openDecision, (msg: string) => wb?.openDecision(msg)),
-    vscode.commands.registerCommand(CMD.chooseOption, (msg: string, option: string) => wb?.chooseOption(msg, option)),
-    vscode.commands.registerCommand(CMD.openThread, (msg: string) => wb?.openThread(msg)),
-    vscode.commands.registerCommand(CMD.switchSurface, (name?: string) => wb?.switchSurface(name)),
-    vscode.commands.registerCommand(CMD.openSurfaceWindow, (name?: string) => wb?.openSurfaceWindow(name)),
-    vscode.commands.registerCommand(CMD.openRecorder, () => wb?.openRecorder()),
-    vscode.commands.registerCommand(CMD.ask, () => wb?.askCommand()),
-    vscode.commands.registerCommand(CMD.say, () => wb?.sayCommand()),
-    vscode.commands.registerCommand(CMD.compose, () => wb?.composeCommand()),
-    vscode.commands.registerCommand(CMD.openSlot, (key: string, subject: Subject) => wb?.openSlot(key, subject)),
+    ...workbenchCommands(() => wb).map(([id, run]) => vscode.commands.registerCommand(id, run as (...args: unknown[]) => unknown)),
     // A changed setting (cockpit path, queries, surfaces, keys) rebuilds the workbench in place.
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration("kton")) void build(host);

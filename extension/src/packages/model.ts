@@ -75,7 +75,13 @@ export interface Loaded {
   /** installed, not admitted (claims.allowedPackages): shown, never loaded */
   readonly notAdmitted: readonly string[];
   /** the content hash of each member a package's content role holds, for content@1 */
-  readonly byHash: ReadonlyMap<string, { readonly pkg: string; readonly hash: string; readonly type: string }>;
+  readonly byHash: ReadonlyMap<string, ReadonlyMap<string, PackageFile>>;
+}
+/** A content member of a package: by content hash, then package id (two packages may carry the same bytes). */
+export interface PackageFile {
+  readonly pkg: string;
+  readonly hash: string;
+  readonly type: string;
 }
 /** A member's bytes by package (its id) and content hash: `cockpit ui cat`. */
 export type ReadBlob = (pkg: string, hash: string) => Promise<Uint8Array>;
@@ -134,14 +140,18 @@ const ROLE_DIR: Record<string, string> = { ui: "ui", block: "ui/blocks", composi
 const fileOf = (m: Member) => (m.role === "content" || m.role === "viewer-file" ? m.name : `${ROLE_DIR[m.role] ?? m.role}/${m.name}${m.role === "query" ? ".rq" : ".json"}`);
 
 /**
- * Why a member name is not a plain path, or undefined. ktonpkg refuses such names only when it writes them
- * (AddViewerFile, AddContent); a signed claim can still carry one (F1 on #174), so the shell checks them again.
+ * Why a member name is not a plain path, or undefined. The one member-name rule of ktonpkg v0.9.9
+ * (scope/profile.go memberNameProblem, checked there on write and on read; the cockpit relies on it): a relative
+ * path of non-empty segments separated by "/"; no "." or ".." segment; no leading or trailing "/"; no backslash;
+ * no colon anywhere (on NTFS "a:b" writes the alternate data stream b of a). The shell checks it again before it
+ * writes any member to disk (F1 on #174). Same order and wording as ktonpkg.
  */
 export function nameProblem(name: string): string | undefined {
-  if (name.startsWith("/")) return "starts with /";
-  if (name.includes("\\")) return "contains a backslash";
-  if (name.includes(":")) return "contains a colon";
-  if (name.split("/").some((s) => s === "" || s === "." || s === "..")) return "has an empty, . or .. segment";
+  if (/[\\:]/.test(name)) return "has a backslash or a colon";
+  for (const seg of name.split("/")) {
+    if (seg === "") return "has an empty segment or a leading or trailing /";
+    if (seg === "." || seg === "..") return `has a ${seg} segment`;
+  }
   return undefined;
 }
 
@@ -286,7 +296,7 @@ export async function loadPackages(listing: UiListing, read: ReadBlob, vendored:
   const controls = new Map<string, Control>();
   const refusals: PackageRefusal[] = [];
   const notAdmitted: string[] = [];
-  const byHash = new Map<string, { pkg: string; hash: string; type: string }>();
+  const byHash = new Map<string, Map<string, PackageFile>>();
   for (const p of listing.packages) {
     const who = p.name || p.dir;
     if (p.refused.length) {
@@ -302,7 +312,11 @@ export async function loadPackages(listing: UiListing, read: ReadBlob, vendored:
       const { pkg, controls: cs } = await loadOne(p, read, vendored, own);
       packages[p.name] = pkg;
       for (const c of cs) controls.set(`${c.package}/${c.name}`, c);
-      for (const [k, v] of own) byHash.set(k, v);
+      // keyed by (hash, package): a second package with the same bytes does not take the first one's place
+      for (const [k, v] of own) {
+        if (!byHash.has(k)) byHash.set(k, new Map());
+        byHash.get(k)?.set(v.pkg, v);
+      }
       for (const e of p.ui) entries.push({ ...e, package: p.name, revision: p.revision });
     } catch (e) {
       if (!(e instanceof Refuse)) throw e;

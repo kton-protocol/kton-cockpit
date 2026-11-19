@@ -322,7 +322,7 @@ function parseTemplates(v: unknown): TemplateInfo[] {
     for (const [k, f] of Object.entries(o.fields)) {
       if (typeof f !== "object" || f === null || typeof (f as { type?: unknown }).type !== "string") throw new TransportError(`template listing: ${o.name}.${k} has no type`, 0, "");
     }
-    return { name: o.name, fields: o.fields, ...(typeof o.about === "string" ? { target: o.about } : {}), ...(typeof o.package === "string" ? { package: o.package } : {}) };
+    return { name: o.name, fields: o.fields, ...(typeof o.about === "string" ? { target: o.about } : {}), ...(typeof o.package === "string" ? { package: o.package } : {}), ...(typeof o.predicate === "string" ? { predicate: o.predicate } : {}) };
   });
 }
 

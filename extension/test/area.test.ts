@@ -5,7 +5,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
-import { PackagesArea, type ActPath, type CompositionUi } from "../src/composition/area.js";
+import { PackagesArea, type ActPath, type CompositionUi, type ExpectRevision } from "../src/composition/area.js";
 import { CompositionHost, LeafHost, type Backend } from "../src/composition/host.js";
 import { loadPackages, READ_WIDTH, type Control, type Loaded } from "../src/packages/model.js";
 import type { Transport } from "../src/transport/port.js";
@@ -50,15 +50,17 @@ function windowUi() {
 
 function actPath(answer: () => Promise<"signed" | "cancelled" | "failed"> = async () => "signed") {
   const acts: Control[] = [];
+  const expects: Array<ExpectRevision | undefined> = [];
   const path: ActPath = {
-    act: async (c) => {
+    act: async (c, _about, _fields, _title, expect) => {
       acts.push(c);
+      expects.push(expect);
       return answer();
     },
     open: async () => "opened",
     identityName: () => "qa-decider",
   };
-  return { path, acts };
+  return { path, acts, expects };
 }
 
 const signIntent = (h: CompositionHost, n: number) => ({ type: "kton:intent", intent: { id: `s#t.${n}`, kind: "sign", from: h.plan.uses[0]?.key, about: SUBJECT.claim, control: { package: "hostile-good", name: "approve" } } });
@@ -117,17 +119,20 @@ test("failed poll: a failed ui list closes no panel; the panels are marked stale
   assert.deepEqual(o.log.closed, []);
 });
 
-test("a panel with a sign dialog open is never closed under it: it closes when the dialog is answered", async () => {
-  let answer: (r: "signed") => void = () => undefined;
-  const { path, acts } = actPath(() => new Promise((r) => (answer = r)));
+test("a panel with a sign dialog open is never closed under it: it closes when the dialog is answered; the act carries the revision it was offered at", async () => {
+  let answer: (r: "failed") => void = () => undefined;
+  const { path, acts, expects } = actPath(() => new Promise((r) => (answer = r)));
   const o = await opened(path);
+  const r1 = o.area.loaded?.packages["hostile-good"]?.revision;
   const signing = o.host.onMessage(signIntent(o.host, 1));
   await new Promise((r) => setImmediate(r));
   assert.equal(acts.length, 1, "the dialog is open");
+  // the sign path confirms this revision fresh before say (R1 on #177; controller tests): after revision 2, no claim
+  assert.deepEqual(expects[0], { package: "hostile-good", revision: r1 });
   o.state.fx = good("2");
   await o.area.refresh();
   assert.deepEqual(o.log.closed, [], "not closed under the dialog");
-  answer("signed");
+  answer("failed");
   await signing;
   assert.deepEqual(o.log.closed, [o.panel], "closed once the dialog was answered");
 });
@@ -155,8 +160,8 @@ test("a leaf's product@1 serves its own entry's package only, never another admi
   const loaded = {
     packages: { mine: { name: "mine", id: "id-mine", revision: "r1" }, other: { name: "other", id: "id-other", revision: "r1" } },
     byHash: new Map([
-      [hash("own"), { pkg: "id-mine", hash: hash("own"), type: "text/plain" }],
-      [hash("theirs"), { pkg: "id-other", hash: hash("theirs"), type: "text/plain" }],
+      [hash("own"), new Map([["id-mine", { pkg: "id-mine", hash: hash("own"), type: "text/plain" }]])],
+      [hash("theirs"), new Map([["id-other", { pkg: "id-other", hash: hash("theirs"), type: "text/plain" }]])],
     ]),
     controls: new Map(),
   } as unknown as Loaded;

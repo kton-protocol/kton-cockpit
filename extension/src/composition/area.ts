@@ -22,9 +22,14 @@ export interface CompositionUi {
   error(text: string): void;
   log(line: string): void;
 }
+/** The package revision an act was offered at: the sign path confirms it is still the installed one before say. */
+export interface ExpectRevision {
+  readonly package: string;
+  readonly revision: string;
+}
 export interface ActPath {
   /** The shell's one sign path (Workbench.signAct): the dialog for a decision control, the agent key for a record. */
-  act(control: Control, about: string, fields: Readonly<Record<string, string>>, title: string): Promise<"signed" | "cancelled" | "failed">;
+  act(control: Control, about: string, fields: Readonly<Record<string, string>>, title: string, expect?: ExpectRevision): Promise<"signed" | "cancelled" | "failed">;
   open(target: Readonly<Record<string, unknown>>): Promise<string>;
   identityName(): string;
 }
@@ -135,7 +140,7 @@ export class PackagesArea {
       const p = h as OpenPanel;
       p.busy++;
       try {
-        return await this.path.act(c, about, fields, title);
+        return await this.path.act(c, about, fields, title, { package: c.package, revision: p.revisions.get(c.package) as string });
       } finally {
         p.busy--;
         if (p.retired && p.busy === 0) this.retire(key, p, p.retired);

@@ -155,6 +155,8 @@ export interface TemplateInfo {
   readonly fields: Readonly<Record<string, TemplateField>>;
   /** The package that brings the template, when it comes from one. */
   readonly package?: string;
+  /** What a claim from it says (`say --json`'s predicate): the dialog shows it, and say must still mean it. */
+  readonly predicate?: string;
 }
 
 export interface QueryInfo {

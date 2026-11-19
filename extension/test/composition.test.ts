@@ -254,7 +254,7 @@ test("review on #174 (minor): a leaf query without the entry's package is refuse
 test("T1 on #174: answerBytes re-hashes what ui cat serves after load: other bytes for an admitted hash are refused", async () => {
   const admitted = Buffer.from("the admitted bytes");
   const hash = `sha256:${createHash("sha256").update(admitted).digest("hex")}`;
-  const l = { byHash: new Map([[hash, { pkg: "p", hash, type: "text/plain" }]]) } as unknown as Loaded;
+  const l = { byHash: new Map([[hash, new Map([["p", { pkg: "p", hash, type: "text/plain" }]])]]) } as unknown as Loaded;
   const { backend } = backendLog();
   // the admitted bytes are served
   assert.equal((await answerBytes({ ...backend, bytes: async () => new Uint8Array(admitted) }, l, hash, undefined, "content@1"))["bytes"], admitted.toString("base64"));
