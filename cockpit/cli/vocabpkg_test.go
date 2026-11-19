@@ -184,3 +184,38 @@ func TestVocabulary_QualifiedNamesCannotBeSpoofed(t *testing.T) {
 		}
 	}
 }
+
+// doctor counts a template an admitted package brings as one say serves: named in
+// claims.allowedTemplates, it is not reported as refused for lacking a file under .kton/templates
+// (the cockpit lane, training package, 19.11.). A name nothing brings is still reported.
+func TestDoctor_APackageTemplateIsNotReportedMissing(t *testing.T) {
+	r := testrepo.New(t)
+	r.Use(t)
+	ctx := context.Background()
+	c := cockpit.New(cockpit.Start{})
+	src := t.TempDir()
+	os.MkdirAll(filepath.Join(src, "templates"), 0o755)
+	os.WriteFile(filepath.Join(src, "templates", "attended.json"), []byte(`{"name": "attended", "target": "either",
+  "predicate": "https://example.org/training/attended", "fields": {"note": {"type": "string"}}}`), 0o644)
+	_, key, _ := ed25519.GenerateKey(rand.Reader)
+	dir := filepath.Join(t.TempDir(), "training")
+	if _, _, err := scope.BuildTemplates(dir, "training", "v1", filepath.Join(src, "templates"), "", key, scope.Options{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Install(ctx, cockpit.InstallRequest{Path: dir, Allow: true}); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	raw := r.Config(t).Raw
+	raw.Claims.AllowedTemplates = append(raw.Claims.AllowedTemplates, "attended", "nowhere")
+	r.WriteConfig(t, raw)
+	if _, err := c.Say(ctx, cockpit.SayRequest{Subject: "urn:example:p1", Template: "attended", Fields: map[string]string{"note": "x"}}); err != nil {
+		t.Fatalf("say attended: %v", err)
+	}
+	out, _ := r.Cockpit(t, "doctor")
+	if strings.Contains(out, "template attended will be refused") {
+		t.Errorf("doctor reports the package's template as refused:\n%s", out)
+	}
+	if !strings.Contains(out, "template nowhere will be refused") {
+		t.Errorf("doctor no longer reports a template nothing brings:\n%s", out)
+	}
+}

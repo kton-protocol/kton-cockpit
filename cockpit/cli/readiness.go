@@ -60,7 +60,14 @@ func readiness(ctx context.Context, cfg *config.Config) []nextStep {
 		}
 	}
 
+	// A template say serves: the repository's own, or one an admitted package brings (SPEC §9.11).
+	offered, offeredErr := binaries.New(cfg).Templates()
 	for _, t := range cfg.Raw.Claims.AllowedTemplates {
+		if offeredErr == nil {
+			if _, ok := offered.Get(t); ok {
+				continue
+			}
+		}
 		if _, err := os.Stat(filepath.Join(cfg.TemplatesDir, t+".json")); err != nil {
 			steps = append(steps, nextStep{false, fmt.Sprintf("`say` with template %s will be refused: no %s/%s.json",
 				t, rel(cfg.RepoRoot, cfg.TemplatesDir), t)})
