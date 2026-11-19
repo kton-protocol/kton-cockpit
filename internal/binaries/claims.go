@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"kton.dev/plankton/core"
 	"strings"
 )
 
@@ -36,6 +37,9 @@ type ClaimAxis struct {
 	Scope           string   `json:"scope,omitempty"`
 	Prev            string   `json:"prev,omitempty"`
 	SignatureKeyIDs []string `json:"signatureKeyIds,omitempty"`
+	// Envelope is the signed claim, kept so a caller can verify who signed it: SignatureKeyIDs are
+	// only the keyids the envelope declares, which the signature does not cover.
+	Envelope core.Envelope `json:"-"`
 }
 
 // Line renders one claim as a single human-readable line, for AskOutput.Raw.
@@ -60,13 +64,8 @@ func (c ClaimAxis) Line() string {
 }
 
 type claimEnvelopeJSON struct {
-	ClaimID  string `json:"claimId"`
-	Envelope struct {
-		Payload    string `json:"payload"`
-		Signatures []struct {
-			KeyID string `json:"keyid"`
-		} `json:"signatures"`
-	} `json:"envelope"`
+	ClaimID  string        `json:"claimId"`
+	Envelope core.Envelope `json:"envelope"` // whole, signatures included, so it can be verified
 }
 
 // statementJSON is the in-toto statement inside the DSSE payload. Predicate stays raw: the claim
@@ -122,7 +121,7 @@ func parseClaimsJSON(out string) ([]ClaimAxis, error) {
 
 	claims := make([]ClaimAxis, 0, len(envs))
 	for _, e := range envs {
-		c := ClaimAxis{ID: e.ClaimID}
+		c := ClaimAxis{ID: e.ClaimID, Envelope: e.Envelope}
 		for _, s := range e.Envelope.Signatures {
 			c.SignatureKeyIDs = append(c.SignatureKeyIDs, s.KeyID)
 		}

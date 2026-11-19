@@ -511,6 +511,15 @@ repository: it signs nothing.
 
 > **Checked by:** `TestSay_ASubjectThatIsAFileIsItsBytes`, `TestHash_RefusesALinkOutAndAnythingButARegularFile`.
 
+For a template with `"replace": "previous"`, say MUST fill `replaces`, when the request names none,
+with the newest claim of that template about the same subject that the signing key itself signed
+and has not replaced since, and the answer MUST name it (`replaces`). It MUST NOT name a claim
+another key signed (ADR-013 A1, A5): the signer is the key the signature verifies under, never the
+keyid an envelope declares.
+
+> **Checked by:** `TestSay_ReplacePreviousNamesTheSignersOwnLastClaim`,
+> `TestSay_ReplacePreviousNeverNamesAClaimThatOnlyDeclaresTheKeyid`, `TestNewestUnreplaced_SkipsAReplacedNewerClaim`.
+
 ### 8.1 The claim ceiling
 
 The configuration names the permitted claim templates. A cockpit MUST refuse any other, and MUST NOT
