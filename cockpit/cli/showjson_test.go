@@ -8,6 +8,7 @@ import (
 	"kton.dev/plankton/core"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
@@ -57,8 +58,10 @@ func TestShowJSON_LabelsAnAdmittedPackagesKeyOutsideTheRing(t *testing.T) {
 	var snap struct {
 		Keys     map[string]any `json:"keys"`
 		Packages map[string]struct {
-			Package string `json:"package"`
-			Key     string `json:"key"`
+			Key      string `json:"key"`
+			Packages []struct {
+				Package string `json:"package"`
+			} `json:"packages"`
 		} `json:"packages"`
 	}
 	if code != 0 || json.Unmarshal([]byte(stdout), &snap) != nil {
@@ -68,8 +71,8 @@ func TestShowJSON_LabelsAnAdmittedPackagesKeyOutsideTheRing(t *testing.T) {
 		t.Fatalf("want the one admitted package's key labelled: %s", stdout)
 	}
 	for kid, p := range snap.Packages {
-		if p.Package != "words" {
-			t.Errorf("labelled as %q, want words", p.Package)
+		if len(p.Packages) != 1 || p.Packages[0].Package != "words" {
+			t.Errorf("labelled as %+v, want words", p.Packages)
 		}
 		// The key comes along, so a viewer can re-check the signatures; it derives the keyid.
 		if pub, err := core.ParsePublicKeyHex(p.Key); err != nil || core.KeyIDHex(pub) != kid {
@@ -113,7 +116,9 @@ func TestShowJSON_LabelsOnlyTheVerifyingKeyAndNeverARingKey(t *testing.T) {
 		stdout, stderr, code := r.CockpitSplit(t, "show", "--json")
 		var snap struct {
 			Packages map[string]struct {
-				Package string `json:"package"`
+				Packages []struct {
+					Package string `json:"package"`
+				} `json:"packages"`
 			} `json:"packages"`
 		}
 		if code != 0 || json.Unmarshal([]byte(stdout), &snap) != nil {
@@ -121,7 +126,12 @@ func TestShowJSON_LabelsOnlyTheVerifyingKeyAndNeverARingKey(t *testing.T) {
 		}
 		out := map[string]string{}
 		for k, p := range snap.Packages {
-			out[k] = p.Package
+			var names []string
+			for _, q := range p.Packages {
+				names = append(names, q.Package)
+			}
+			sort.Strings(names)
+			out[k] = strings.Join(names, ",")
 		}
 		return out
 	}
@@ -169,4 +179,57 @@ func loadPriv(t *testing.T, path string) ed25519.PrivateKey {
 		t.Fatalf("%s is not a seed", path)
 	}
 	return ed25519.NewKeyFromSeed(seed)
+}
+
+// One author's key that signed two admitted packages lists both (K2); a foreign key that is not in the
+// ring, dropped into a package's keys/, is not labelled, since the seal does not verify under it
+// (T5); and an admitted package whose bytes changed after install is not labelled (T6). kton-review on
+// #167.
+func TestShowJSON_LabelsEveryPackageOfAKeyAndNothingUnverified(t *testing.T) {
+	r := testrepo.New(t)
+	r.Use(t)
+	_, author, _ := ed25519.GenerateKey(rand.Reader)
+	authorKID := core.KeyIDHex(author.Public().(ed25519.PublicKey))
+	buildPkg(t, filepath.Join(t.TempDir(), "words"), "words", "v1", author, map[string]string{"notes": tmpl("notes", "https://example.org/notes")})
+	buildPkg(t, filepath.Join(t.TempDir(), "terms"), "terms", "v1", author, map[string]string{"memo": tmpl("memo", "https://example.org/memo")})
+
+	// T5: a stranger's key, not in the ring, put into words' keys/.
+	strangerPub, _, _ := ed25519.GenerateKey(rand.Reader)
+	strangerKID := core.KeyIDHex(strangerPub)
+	os.WriteFile(filepath.Join(r.Root, ".kton", "packages", "words@v1", "keys", strangerKID+".pub"), []byte(hex.EncodeToString(strangerPub)), 0o644)
+
+	// T6: a third admitted package by its own key, whose bytes change after install.
+	_, other, _ := ed25519.GenerateKey(rand.Reader)
+	otherKID := core.KeyIDHex(other.Public().(ed25519.PublicKey))
+	buildPkg(t, filepath.Join(t.TempDir(), "changed"), "changed", "v1", other, map[string]string{"x": tmpl("x", "https://example.org/x")})
+	blobs, _ := filepath.Glob(filepath.Join(r.Root, ".kton", "packages", "changed@v1", "blobs", "*", "*"))
+	for _, b := range blobs {
+		os.WriteFile(b, []byte("tampered"), 0o644)
+	}
+
+	stdout, stderr, code := r.CockpitSplit(t, "show", "--json")
+	var snap struct {
+		Packages map[string]struct {
+			Packages []struct {
+				Package string `json:"package"`
+			} `json:"packages"`
+		} `json:"packages"`
+	}
+	if code != 0 || json.Unmarshal([]byte(stdout), &snap) != nil {
+		t.Fatalf("show --json (exit %d):\n%s\n%s", code, stdout, stderr)
+	}
+	var names []string
+	for _, p := range snap.Packages[authorKID].Packages {
+		names = append(names, p.Package)
+	}
+	sort.Strings(names)
+	if strings.Join(names, ",") != "terms,words" {
+		t.Errorf("the author's key should list both packages, got %v", names)
+	}
+	if _, bad := snap.Packages[strangerKID]; bad {
+		t.Error("a stranger's key in keys/ is labelled though the seal does not verify under it")
+	}
+	if _, bad := snap.Packages[otherKID]; bad {
+		t.Error("a package whose bytes changed after install is labelled")
+	}
 }

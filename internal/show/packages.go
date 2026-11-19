@@ -18,17 +18,23 @@ import (
 	"github.com/kton-protocol/kton-cockpit/internal/packages"
 )
 
-// PackageKey is one admitted package's build key: the key that signed the package's records, which
+// PackageKey is a build key that signed admitted packages: the key that signed their records, which
 // install --allow takes in. It is a label, not trust: the ring (keys.json) stays the configured tiers
-// only (ADR-016 L2), and a viewer shows a record signed by such a key as "an admitted package's",
-// a third state beside trusted and unknown (userinterface's graph@1).
+// only (ADR-016 L2), and a viewer shows a record signed by such a key as "an admitted package's", a
+// third state beside trusted and unknown (userinterface's graph@1). One author's key may sign several
+// packages, so it lists them all (kton-review K2 on #167).
 type PackageKey struct {
+	// Key is the public key in hex, so a viewer can re-check what it signed: the key the packages'
+	// seals verify under.
+	Key      string        `json:"key"`
+	Packages []PackageInfo `json:"packages"`
+}
+
+// PackageInfo is one admitted package a build key signed.
+type PackageInfo struct {
 	Package string `json:"package"` // the package's name
 	ID      string `json:"id"`      // the package id
 	Dir     string `json:"dir"`
-	// Key is the build key's public key in hex, from the package's keys/<keyid>.pub, so a viewer can
-	// re-check what it signed: the key the package's seal verifies under.
-	Key string `json:"key"`
 }
 
 // Packages maps each key an admitted package's seal verifies under to the package, and names the
@@ -81,7 +87,10 @@ func Packages(cfg *config.Config) (labels map[string]PackageKey, collisions []st
 				collisions = append(collisions, fmt.Sprintf("the admitted package %s is signed by %s, a key of the trusted ring: not labelled as the package's", e.Package.Name, kid))
 				continue
 			}
-			labels[kid] = PackageKey{Package: e.Package.Name, ID: e.Package.ID, Dir: e.Dir, Key: hex.EncodeToString(pubs[i])}
+			l := labels[kid]
+			l.Key = hex.EncodeToString(pubs[i])
+			l.Packages = append(l.Packages, PackageInfo{Package: e.Package.Name, ID: e.Package.ID, Dir: e.Dir})
+			labels[kid] = l
 		}
 	}
 	sort.Strings(collisions)
