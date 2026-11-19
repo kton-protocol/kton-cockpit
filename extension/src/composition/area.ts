@@ -128,7 +128,7 @@ export class PackagesArea {
 
   /** The review-view / record-view entries for a subject: children of its node (a click opens the panel). */
   slotNodes(s: Subject): TreeNode[] {
-    return (this.loaded?.entries ?? []).filter((e) => (e.slot === "review-view" || e.slot === "record-view") && applies(e, s)).map((e) => ({ id: `rv:${s.id}:${entryKey(e)}`, label: `${e.slot === "review-view" ? "Review" : "Record"}: ${e.label}`, description: e.package, command: { id: SLOT_CMD, args: [entryKey(e), s] } }));
+    return (this.loaded?.entries ?? []).filter((e) => (e.slot === "review-view" || e.slot === "record-view") && applies(e, s)).map((e) => ({ id: `rv:${s.id}:${entryKey(e)}`, label: slotLabel(e), description: e.package, tooltip: `${e.slot} of ${e.package} (${e.file})`, command: { id: SLOT_CMD, args: [entryKey(e), s] } }));
   }
 
   /** Open an entry for a subject in its panel (a second open with a new subject updates it, C1.5). */
@@ -207,4 +207,13 @@ export class PackagesArea {
   hostOf(key: string): CompositionHost | LeafHost | undefined {
     return this.hosts.get(`${PANEL}${key}`)?.host;
   }
+}
+
+/**
+ * A slot entry's label for a tree item: the entry's own label, once; the slot kind ("Review", "Record") is put in
+ * front only when the label does not already say it ("Review" stays "Review", "Test shell" becomes "Review · Test shell").
+ */
+export function slotLabel(e: { readonly slot: string; readonly label: string }): string {
+  const kind = e.slot === "review-view" ? "Review" : e.slot === "record-view" ? "Record" : e.slot;
+  return new RegExp(`\\b${kind}\\b`, "i").test(e.label) ? e.label : `${kind} · ${e.label}`;
 }

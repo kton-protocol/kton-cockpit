@@ -11,7 +11,7 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileS
 import { claimKeyId, keyIdOfPublicKey, signerKeyId } from "../src/identity.js";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { readIdentityHint, showSigner, statusText, type WindowIdentity } from "../src/identity.js";
+import { readIdentityHint, showSigner, statusText, statusTooltip, type WindowIdentity } from "../src/identity.js";
 import { plan, sign, DialogConsent, type ControlInfo } from "../src/sign.js";
 import { OperatorConfirmation, TransportError, type TemplateInfo } from "../src/transport/port.js";
 
@@ -36,7 +36,7 @@ test("check 1: an unknown key is shown as unverified with the hint, never as ver
   const { transport } = fakeCockpit([{ argv0: "ask", stdout: sparqlAnswer([]) }]);
   const s = await showSigner(transport, AGENT_KEY, identity.hintName, "view");
   assert.ok(!s.verified);
-  assert.match(statusText(s, s), /unverified/);
+  assert.match(statusText(s, s, { person: "p", agent: "a" }), /unverified/);
 });
 
 test("check 1: no cache: every render asks again", async () => {
@@ -51,7 +51,8 @@ test("until kton-cockpit has an identity verb, name and tier are shown unverifie
   const s = await showSigner(transport, PERSON_KEY, "probe");
   assert.ok(!s.verified);
   assert.equal(argvLog().length, 0);
-  assert.match(statusText(s, s), /probe \(unverified: this cockpit has no identity verb yet\)/);
+  assert.match(statusTooltip(s, s), /probe — unverified: this cockpit has no identity verb yet/);
+  assert.match(statusText(s, s, { person: "p", agent: "a" }), / · unverified$/);
 });
 
 test("the identity file is read as a hint (ADR-016 .kton/local/identity.json)", async () => {

@@ -189,11 +189,10 @@ await page.locator(".monaco-workbench").waitFor({ timeout: 90000 });
 await views();
 
 await step("S1", 1, "status bar: both keys, unverified, no name from a claim; test mode; one poller", async () => {
-  await status().getByText(/person key: .*qa-decider.*unverified/).waitFor({ timeout: 60000 });
-  await status().getByText(/agent key: .*qa-decider-agent.*unverified/).waitFor();
+  await status().getByText("person key qa-decider · agent key qa-decider-agent · unverified", { exact: true }).waitFor({ timeout: 60000 });
   await status().getByText("TEST MODE").waitFor();
   await status().getByText(/polling: inbox every 2s · 2 open · 4 decisions/).waitFor({ timeout: 60000 });
-  const id = await status().getByText(/person key:/).first().textContent();
+  const id = await status().getByText(/person key /).first().textContent();
   check(!/qa-requestor/.test(id), "the identity shows no name from a claim's signer", false, /qa-requestor/.test(id));
   await shot("s1-status-bar");
 });
@@ -202,7 +201,7 @@ await step("S9", 1, "surfaces and lanes: the switch filters the same window; Lan
   await views();
   await row("qa-lane").waitFor({ timeout: 15000 });
   await row("ops-lane").getByText("1 open").waitFor();
-  await row("Open in terminal").getByText("not yet available").waitFor();
+  await row("Open in terminal").getByText("comes with the workgroup extension").waitFor();
   await status().getByText("surface: all").click();
   await pickQuick("ops");
   await status().getByText("surface: ops").waitFor();
@@ -327,8 +326,8 @@ const shell = () => frameWithSel('[data-composition="kton-web-test/test-shell"]'
 const probeOut = async (k) => (await (await shell()).locator(`[data-use="acts#probe"] [data-probe-out="${k}"]`).textContent()) ?? "";
 
 await step("S5", 1, "a package's review-view entry is offered on a proposal and opens its composition from the checked package", async () => {
-  await row("Review: Test shell").first().waitFor({ timeout: 30000 });
-  await openReview(P1_TITLE, "Review: Test shell", "kton-web-test");
+  await row("Review · Test shell").first().waitFor({ timeout: 30000 });
+  await openReview(P1_TITLE, "Review · Test shell", "kton-web-test");
   const f = await shell();
   await f.locator('[data-use="acts#probe"] [data-probe="label"]', { hasText: "the acting block" }).waitFor({ timeout: 30000 });
   const v = await f.locator("#kton-root").getAttribute("data-csp-violations");
@@ -439,11 +438,11 @@ await step("S5", 3, "hostile packages: refusals reach the Packages view with the
   check(!/Sidebar ad\b(?!not)/.test(texts.replace(/Sidebar adnot rendered/g, "")), "the unknown slot has no place of its own");
   await shot("s5-packages-refused");
   // the positive control renders
-  await openReview(P1_TITLE, "Review: Review", "hostile-good");
+  await openReview(P1_TITLE, "Review", "hostile-good");
   const g = await frameWithSel('[data-block="hostile-good/table"]');
   await g.locator('[data-block="hostile-good/table"]', { hasText: "table" }).waitFor({ timeout: 30000 });
   // viewer-calls-network: renders, but the host CSP blocks the fetch: 0 requests leave, one violation recorded
-  await openReview(P1_TITLE, "Review: Review", "hostile-network");
+  await openReview(P1_TITLE, "Review", "hostile-network");
   const n = await frameWithSel('[data-block="hostile-network/table"]');
   await n.locator("#kton-root[data-csp-violations]").waitFor({ state: "attached", timeout: 15000 });
   const csp = JSON.parse((await n.locator("#kton-root").getAttribute("data-csp")) ?? "{}");
@@ -453,7 +452,7 @@ await step("S5", 3, "hostile packages: refusals reach the Packages view with the
 });
 
 await step("S5", 5, "record view: kton-web's graph as a leaf; graph@1 answered with records the block verifies in its wasm", async () => {
-  await openReview(P1_TITLE, "Record: Provenance", "workbench-graph");
+  await openReview(P1_TITLE, "Record · Provenance", "workbench-graph");
   const g = await frameWithSel("#stats", 60000);
   await g.locator("#stats").filter({ hasText: /\d/ }).waitFor({ timeout: 60000 });
   const err = (await g.locator("#err").isVisible().catch(() => false)) ? await g.locator("#err").innerText() : "";
@@ -677,23 +676,23 @@ await step("S1", 5, "no identity file: reading works, signing is disabled", asyn
   await shot("s1-no-identity");
   renameSync(`${WORK}/repo/.kton/local/identity.json.away`, `${WORK}/repo/.kton/local/identity.json`);
   rebuild();
-  await status().getByText(/person key: .*qa-decider.*unverified/).waitFor({ timeout: 30000 });
+  await status().getByText(/person key qa-decider · agent key qa-decider-agent · unverified/).waitFor({ timeout: 30000 });
 });
 
 await step("S1", 7, "a missing person or agent key is named; neither stands in for the other", async () => {
   setWorkspace({ "kton.identity.personKey": "" });
-  await status().getByText(/person key: missing · agent key: .*qa-decider-agent/).waitFor({ timeout: 30000 });
+  await status().getByText(/person key missing · agent key qa-decider-agent/).waitFor({ timeout: 30000 });
   await row("a · Yes").getByText("signing disabled").waitFor({ timeout: 15000 });
   await shot("s1-no-person-key");
   setWorkspace({ "kton.identity.personKey": "qa-decider", "kton.identity.agentKey": "" });
-  await status().getByText(/person key: .*qa-decider.*agent key: missing/).waitFor({ timeout: 30000 });
+  await status().getByText(/person key qa-decider · agent key missing/).waitFor({ timeout: 30000 });
   await runCommand("kton workbench: say");
   await pickQuick("announces");
   await toast(/no agent key.*person key never stands in/).waitFor({ timeout: 10000 });
   await shot("s1-no-agent-key");
   await clearToasts();
   setWorkspace({ "kton.identity.agentKey": "qa-decider-agent" });
-  await status().getByText(/agent key: .*qa-decider-agent.*unverified/).waitFor({ timeout: 30000 });
+  await status().getByText(/agent key qa-decider-agent · unverified/).waitFor({ timeout: 30000 });
 });
 
 await step("S7", 1, "cockpit missing: one clear error with the setting to check; the views say no data", async () => {

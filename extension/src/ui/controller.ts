@@ -5,7 +5,7 @@ import { randomBytes } from "node:crypto";
 import type { TemplateInfo, Transport } from "../transport/port.js";
 import { TransportError, TransportTimeout } from "../transport/port.js";
 import type { WindowIdentity, ShownSigner } from "../identity.js";
-import { hasKey, showSigner, signerKeyId, statusText } from "../identity.js";
+import { hasKey, showSigner, signerKeyId, statusText, statusTooltip } from "../identity.js";
 import type { ControlInfo } from "../sign.js";
 import { DialogConsent, plan, sign, FOOTER } from "../sign.js";
 import type { UiEntry, SlotContext } from "../intents.js";
@@ -170,8 +170,8 @@ export class Workbench {
     const a = hasKey(this.identity.agent) ? await this.signer("agent") : "missing";
     this.host.setStatus(
       "identity",
-      statusText(p, a),
-      "One person per window; another identity means another window. Person key: decisions, always through the sign dialog. Agent key: records, no dialog. A missing key is never replaced by the other.",
+      statusText(p, a, { person: this.identity.person.keyName, agent: this.identity.agent.keyName }),
+      `${statusTooltip(p, a)}\nOne person per window; another identity means another window. Person key: decisions, always through the sign dialog. Agent key: records, no dialog. A missing key is never replaced by the other.`,
     );
   }
 
@@ -429,7 +429,7 @@ export class Workbench {
         description: `${n} open · ${areas.join(", ")}`,
         tooltip: l,
         children: [
-          { id: `l:${l}:terminal`, label: "Open in terminal", description: "not yet available", disabled: true, tooltip: "Comes when the workgroup extension folds in; use the workgroup extension until then." },
+          { id: `l:${l}:terminal`, label: "Open in terminal", description: "comes with the workgroup extension", disabled: true, tooltip: "Not here yet: opening a lane's terminal comes with the workgroup extension (C1.7). Use the workgroup extension until then." },
         ],
       };
     });

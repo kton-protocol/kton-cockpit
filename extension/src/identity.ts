@@ -107,11 +107,22 @@ export function keyFor(identity: WindowIdentity, kind: "decision" | "record"): W
   return kind === "decision" ? identity.person : identity.agent;
 }
 
-/** Status bar text: both keys, each with its verified name, marked unverified, or named as missing. */
-export function statusText(person: ShownSigner | "missing", agent: ShownSigner | "missing"): string {
+/**
+ * Status bar text: the two key NAMES, short and distinct ("person key demo-person · agent key demo-person-agent ·
+ * unverified"); a verified key shows its verified name and tier; a missing key is named as missing. The hint
+ * from identity.json and the reason a key is unverified go in the tooltip (statusTooltip), not in the bar.
+ */
+export function statusText(person: ShownSigner | "missing", agent: ShownSigner | "missing", names: { readonly person: string; readonly agent: string }): string {
+  const one = (label: string, s: ShownSigner | "missing", name: string) => (s === "missing" ? `${label} missing` : s.verified ? `${label} ${s.name} (${s.tier})` : `${label} ${name}`);
+  const unverified = [person, agent].some((s) => s !== "missing" && !s.verified);
+  return `${one("person key", person, names.person)} · ${one("agent key", agent, names.agent)}${unverified ? " · unverified" : ""}`;
+}
+
+/** The status bar item's tooltip: per key, the hint from identity.json and why it is unverified (or its tier). */
+export function statusTooltip(person: ShownSigner | "missing", agent: ShownSigner | "missing"): string {
   const one = (label: string, s: ShownSigner | "missing") =>
-    s === "missing" ? `${label}: missing` : s.verified ? `${label}: ${s.name} (${s.tier})` : `${label}: ${s.hint} (unverified: ${s.why})`;
-  return `${one("person key", person)} · ${one("agent key", agent)}`;
+    s === "missing" ? `${label}: missing` : s.verified ? `${label}: ${s.name}, tier ${s.tier} (verified by the cockpit)` : `${label}: ${s.hint} — unverified: ${s.why}`;
+  return `${one("Person key", person)}\n${one("Agent key", agent)}`;
 }
 
 /** A key the window was given (a key name), or not. */

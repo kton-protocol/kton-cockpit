@@ -176,8 +176,7 @@ const decisionIntent = (choice: string, extra: Record<string, string> = {}) => (
 test("S1.1: status bar shows both keys, unverified until the cockpit has an identity verb, and test mode", async () => {
   const { h } = await setup();
   const s = h.status.get("identity") ?? "";
-  assert.match(s, /person key: qa-decider · qa-decider \(unverified/);
-  assert.match(s, /agent key: qa-decider · qa-decider-agent \(unverified/);
+  assert.equal(s, "person key qa-decider · agent key qa-decider-agent · unverified");
   assert.ok(!/qa-requestor/.test(s), "no name comes from a claim's signer");
   assert.equal(h.status.get("mode"), "TEST MODE");
   assert.match(h.status.get("poll") ?? "", /polling: inbox every 30s · 1 open · 2 decisions/);
@@ -228,14 +227,14 @@ test("S1.5: after a rebuild (identity file back) the open panels are rendered ag
 
 test("S1.7: a missing person or agent key is named, and neither key stands in for the other", async () => {
   const noPerson = await setup({}, new FakeTransport(), { ...identity, person: { role: "person", keyName: "", keyId: "" } });
-  assert.match(noPerson.h.status.get("identity") ?? "", /person key: missing · agent key: qa-decider/);
+  assert.match(noPerson.h.status.get("identity") ?? "", /^person key missing · agent key qa-decider-agent · unverified$/);
   noPerson.h.confirmAnswer = true;
   assert.equal(await noPerson.wb.chooseOption(P1, "a"), "failed");
   assert.match(noPerson.h.errors.at(-1) ?? "", /no person key.*agent key never stands in/);
   assert.equal(noPerson.t.says.length, 0);
 
   const noAgent = await setup({}, new FakeTransport(), { ...identity, agent: { role: "agent", keyName: "", keyId: "" } });
-  assert.match(noAgent.h.status.get("identity") ?? "", /person key: qa-decider · qa-decider \(unverified.*agent key: missing/);
+  assert.match(noAgent.h.status.get("identity") ?? "", /^person key qa-decider · agent key missing · unverified$/);
   noAgent.h.picks = ["announces"];
   assert.equal(await noAgent.wb.sayCommand(), "failed");
   assert.match(noAgent.h.errors.at(-1) ?? "", /no agent key.*person key never stands in/);
@@ -430,7 +429,8 @@ test("S9: Lanes view: open counts per lane; Open in terminal is shown disabled w
   assert.deepEqual(lanes.map((n) => [n.label, n.description]), [["ops-lane", "0 open · ops, infra"], ["qa-lane", "1 open · qa"]]);
   const term = lanes[0]?.children?.[0];
   assert.equal(term?.disabled, true);
-  assert.match(term?.tooltip ?? "", /workgroup extension folds in/);
+  assert.match(term?.tooltip ?? "", /comes with the workgroup extension/);
+  assert.equal(term?.description, "comes with the workgroup extension");
   assert.equal(term?.command, undefined);
 });
 
@@ -667,7 +667,7 @@ test("S5.1: a package's review-view entry is offered on a proposal; it opens the
   const home = h.trees["home"] ?? [];
   const p1 = home[0]?.children?.find((d) => d.label === "Which build?");
   const review = p1?.children?.find((n) => n.command?.id === "ktonWorkbench.openSlot");
-  assert.equal(review?.label, "Review: Test shell");
+  assert.equal(review?.label, "Review · Test shell");
   assert.ok(home.some((n) => n.label === "Packages" && /1 admitted/.test(n.description ?? "")));
   const c = await openTestShell(h, wb);
   const set = c.posted[0] as { type: string; plan: { uses: Array<{ module: string }> }; host: { provides: string[] } };
@@ -766,4 +766,29 @@ test("H8: an act that ends after the frame reloaded (the dialog took its column)
   const sets = c.posted.slice(before).filter((m) => (m as { type: string }).type === "kton:set") as Array<{ state: { acts: Record<string, { status: string }> } }>;
   assert.equal(sets.length, 1, "a fresh set after the act ended");
   assert.equal(sets[0]?.state.acts["s#old.1"]?.status, "done");
+});
+
+test("status bar (MH's demo): both key names, distinct and short; the hint and the reason are in the tooltip", async () => {
+  const id = { ...identity, hintName: "demo-person", person: { ...identity.person, keyName: "demo-person" }, agent: { ...identity.agent, keyName: "demo-person-agent" } };
+  const { h } = await setup({}, new FakeTransport(), id);
+  const s = h.status.get("identity") ?? "";
+  assert.equal(s, "person key demo-person · agent key demo-person-agent · unverified");
+  assert.ok(s.length < 80, `${s.length} characters`);
+  assert.ok(!/identity verb|\(/.test(s), "no reason in the bar");
+});
+
+test("slot items (MH's demo): the entry's label once, with its package; no item repeats its first word", async () => {
+  const t = withTestPackage();
+  const f = t.fixtures[0] as ReturnType<typeof listed>;
+  // a second package whose review-view entry is labelled "Review", like the hostile fixtures, and a record-view
+  t.fixtures = [f, { ...f, pkg: { ...f.pkg, name: "other", dir: ".kton/packages/other@1", ui: [{ ...(f.pkg.ui[0] as UiListing["packages"][number]["ui"][number]), label: "Review" }, { ...(f.pkg.ui[0] as UiListing["packages"][number]["ui"][number]), file: "ui/rec.json", slot: "record-view", label: "Provenance" }] } }];
+  const { h } = await setup({}, t);
+  const p1 = (h.trees["home"] ?? [])[0]?.children?.find((d) => d.label === "Which build?");
+  const items = (p1?.children ?? []).filter((n) => n.command?.id === "ktonWorkbench.openSlot").map((n) => n.label);
+  assert.deepEqual(items.sort(), ["Record · Provenance", "Review", "Review · Test shell"]);
+  for (const l of items) {
+    const w = l.split(/[\s·:]+/).filter(Boolean).map((x) => x.toLowerCase());
+    assert.ok(w.length === new Set(w).size || w[0] !== w[1], `${l} repeats a word`);
+    assert.ok(!new RegExp(`^(\\w+)\\W+\\1\\b`, "i").test(l), `${l} repeats its first word`);
+  }
 });
