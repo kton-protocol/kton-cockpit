@@ -8,6 +8,7 @@ const packageUsage = `  cockpit install <package-dir> [--allow]
   cockpit workflow show <name>           steps, holes, parameters, reference
   cockpit workflow run <name> [--check] [--bind NAME=VALUE]...
   cockpit workflow trace <result>        the steps behind a result, in the order they ran
+  cockpit ui list [--json]               the installed packages for a frontend: allowed, and what fails its check
 
 
 `

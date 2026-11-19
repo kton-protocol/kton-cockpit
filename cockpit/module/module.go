@@ -48,7 +48,7 @@ type Module struct {
 // Reserved are the core's own commands. A module cannot take one of them as its name.
 var Reserved = []string{
 	"mcp", "init", "show", "doctor", "scope", "publish", "say", "ask", "version", "run", "keygen", "pin",
-	"trust", "federation", "sync", "config", "index", "install", "workflow", "shim", "help",
+	"trust", "federation", "sync", "config", "index", "install", "workflow", "shim", "ui", "help",
 }
 
 var (
