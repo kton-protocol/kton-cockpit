@@ -1,21 +1,13 @@
 package cockpit
 
 import (
-	"path/filepath"
 	"testing"
 
 	"github.com/kton-protocol/kton-cockpit/internal/config"
 )
 
 func denylistTestConfig() *config.Config {
-	repoRoot := "/repo/root"
-	return &config.Config{
-		RepoRoot: repoRoot,
-		KeysDir:  filepath.Join(repoRoot, "keys"), // what config.Load actually resolves KeysDir to
-		Raw: config.Raw{
-			Paths: config.Paths{KeysDir: "keys"},
-		},
-	}
+	return config.Layout("/repo/root", config.Raw{})
 }
 
 func TestValidatePublishPath_AllowsOrdinaryRepoRelativePaths(t *testing.T) {
@@ -79,41 +71,26 @@ func TestValidatePublishPath_RejectsLeadingDashPaths(t *testing.T) {
 	}
 }
 
-func TestValidatePublishPath_RejectsKeysDirAndNestedFiles(t *testing.T) {
+// Everything kton is under .kton/ (ADR-016): the configuration, the registries, the public keys and
+// this checkout's local state. Publish writes none of it, in any spelling of the folder's name.
+func TestValidatePublishPath_RejectsTheKtonFolder(t *testing.T) {
 	cfg := denylistTestConfig()
-	for _, p := range []string{"keys", "keys/session-1.key", "keys/nested/dir/file.txt", "KEYS/session-1.key"} {
+	for _, p := range []string{".kton", ".kton/cockpit.config.json", ".kton/keys/self/session-1.pub",
+		".kton/local/identity.json", ".kton/plankton/objects/x.json", ".KTON/cockpit.config.json",
+		":(top).kton/local", ":/.kton/local/identity.json"} { // pathspec magic: kton-review L1 on #143
 		if err := validatePublishPath(cfg, p); err == nil {
-			t.Errorf("expected path under keys_dir %q to be rejected", p)
+			t.Errorf("expected %q under .kton/ to be rejected", p)
 		}
 	}
 }
 
-// TestValidatePublishPath_AnchoredKeysDirSpellingStillDetected is a regression test for a bug an
-// independent cold-session review found: comparing against the RAW cfg.Raw.Paths.KeysDir string
-// (rather than the already-resolved absolute cfg.KeysDir) would silently stop matching anything if
-// an operator ever wrote keys_dir anchored like "/keys" - config.validate() doesn't forbid that
-// spelling, and config.Load still resolves cfg.KeysDir correctly regardless, but the raw string
-// itself stays "/keys", which never shares a prefix with a repo-relative cleaned path.
-func TestValidatePublishPath_AnchoredKeysDirSpellingStillDetected(t *testing.T) {
-	repoRoot := "/repo/root"
-	cfg := &config.Config{
-		RepoRoot: repoRoot,
-		KeysDir:  filepath.Join(repoRoot, "keys"), // what config.Load actually produces
-		Raw: config.Raw{
-			Paths: config.Paths{KeysDir: "/keys"}, // anchored spelling in the raw config file
-		},
-	}
-	if err := validatePublishPath(cfg, "keys/session-1.key"); err == nil {
-		t.Fatal("expected a key under an anchored keys_dir spelling to still be rejected")
-	}
-}
-
 func TestValidatePublishPath_DoesNotFalsePositiveOnSimilarlyNamedDir(t *testing.T) {
-	// "keys2" is a real, different directory - must not collide with the configured "keys" dir via
-	// a naive string-prefix check.
+	// ".kton2" and "keys" are ordinary folders now: only .kton/ itself is the cockpit's.
 	cfg := denylistTestConfig()
-	if err := validatePublishPath(cfg, "keys2/file.txt"); err != nil {
-		t.Fatalf("expected keys2/file.txt (NOT the configured keys_dir) to be allowed, got: %v", err)
+	for _, p := range []string{".kton2/file.txt", "keys/notes.txt", "cockpit.config.json"} {
+		if err := validatePublishPath(cfg, p); err != nil {
+			t.Errorf("expected %s to be allowed, got: %v", p, err)
+		}
 	}
 }
 
@@ -126,19 +103,9 @@ func TestValidatePublishPath_RejectsGitInternals(t *testing.T) {
 	}
 }
 
-func TestValidatePublishPath_RejectsOwnConfigFile(t *testing.T) {
-	cfg := denylistTestConfig()
-	for _, p := range []string{"cockpit.config.json", "Cockpit.Config.JSON"} {
-		if err := validatePublishPath(cfg, p); err == nil {
-			t.Errorf("expected %q (this repo's own config) to be rejected", p)
-		}
-	}
-}
-
 func TestValidatePublishPath_RejectsDotKeyExtensionAnywhere(t *testing.T) {
 	cfg := denylistTestConfig()
-	// Not under keys_dir at all - the *.key check must be a floor of protection independent of
-	// keys_dir being configured correctly.
+	// Not under .kton/ at all - the *.key check is a floor of protection wherever a key turns up.
 	for _, p := range []string{"session-1.key", "some/other/dir/rogue.KEY", "outputs/oops.key"} {
 		if err := validatePublishPath(cfg, p); err == nil {
 			t.Errorf("expected *.key path %q to be rejected regardless of location", p)
@@ -156,13 +123,5 @@ func TestValidatePublishPath_RejectsKeyExtensionWithTrailingDotOrSpace(t *testin
 		if err := validatePublishPath(cfg, p); err == nil {
 			t.Errorf("expected %q (a .key hidden behind a trailing dot/space) to be rejected", p)
 		}
-	}
-}
-
-func TestValidatePublishPath_UnsetKeysDirMatchesNothing(t *testing.T) {
-	cfg := &config.Config{RepoRoot: "/repo/root"} // KeysDir left empty (misconfigured repo)
-	// Must not match everything just because dir=="" - that would deny all publishes outright.
-	if err := validatePublishPath(cfg, "data/runs.csv"); err != nil {
-		t.Fatalf("expected an ordinary path to still be allowed when keys_dir is unset, got: %v", err)
 	}
 }

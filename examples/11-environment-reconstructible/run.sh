@@ -82,7 +82,7 @@ echo "  on this machine   -> ${U_OUT:0:24}"
 # 2. In the pinned image. The cockpit RUNS it this time, so the string handed to the engine and
 #    the string recorded are one string — and nix/env.nix rides along as an input, which is what
 #    makes the environment reconstructible rather than merely named.
-python3 - cockpit.config.json "$REF" <<'PY'
+python3 - .kton/cockpit.config.json "$REF" <<'PY'
 import json, sys
 p, ref = sys.argv[1], sys.argv[2]
 c = json.load(open(p))

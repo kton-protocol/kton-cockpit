@@ -14,15 +14,18 @@ import (
 // sees the program they run.
 var ScriptRunners = map[string]bool{"sh": true, "bash": true, "dash": true, "perl": true, "env": true}
 
-// RepoRoot is the nearest ancestor of dir holding cockpit.config.json or a .git directory. A
-// .git file (a submodule, a worktree) counts only when no such ancestor is above it: a path in
-// the parent repository stays a path of that repository. A worktree inside the repository
-// (.claude/worktrees/w) without a cockpit.config.json of its own so resolves to the main
+// RepoRoot is the nearest ancestor of dir holding .kton/cockpit.config.json (ADR-016) or a .git
+// directory. A .git file (a submodule, a worktree) counts only when no such ancestor is above it: a
+// path in the parent repository stays a path of that repository. A worktree inside the repository
+// (.claude/worktrees/w) without a .kton/cockpit.config.json of its own so resolves to the main
 // repository; with the checked-in one it is its own root. dir itself when there is none.
+//
+// The path is written out rather than taken from internal/config, which would pull the backends into
+// the recorder's binaries; TestRepoRoot_FindsTheKtonConfig keeps the two in step.
 func RepoRoot(dir string) string {
 	gitFile := ""
 	for d := dir; d != "" && d != "/" && d != "."; d = filepath.Dir(d) {
-		if _, err := os.Stat(filepath.Join(d, "cockpit.config.json")); err == nil {
+		if _, err := os.Stat(filepath.Join(d, ".kton", "cockpit.config.json")); err == nil {
 			return d
 		}
 		if fi, err := os.Stat(filepath.Join(d, ".git")); err == nil {

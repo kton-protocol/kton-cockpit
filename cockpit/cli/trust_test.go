@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/kton-protocol/kton-cockpit/cockpit/source"
+	"github.com/kton-protocol/kton-cockpit/internal/config"
 	"github.com/kton-protocol/kton-cockpit/internal/testrepo"
 )
 
@@ -22,20 +23,31 @@ func peerCheckout(t *testing.T, name string) string {
 	dir := t.TempDir()
 	pub, _, err := ed25519.GenerateKey(rand.Reader)
 	must(t, err)
-	must(t, os.MkdirAll(filepath.Join(dir, "registry", "keys"), 0o755))
-	must(t, os.WriteFile(filepath.Join(dir, "registry", "keys", name+".pub"), []byte(hex.EncodeToString(pub)+"\n"), 0o644))
+	must(t, os.MkdirAll(filepath.Join(dir, ".kton", "keys", "self"), 0o755))
+	must(t, os.WriteFile(filepath.Join(dir, ".kton", "keys", "self", name+".pub"), []byte(hex.EncodeToString(pub)+"\n"), 0o644))
 	return dir
+}
+
+// tierFiles lists the public keys in a tier's folder by file name.
+func tierFiles(t *testing.T, root, tier string) []string {
+	t.Helper()
+	m, _ := filepath.Glob(filepath.Join(root, ".kton", "keys", tier, "*.pub"))
+	var out []string
+	for _, p := range m {
+		out = append(out, filepath.Base(p))
+	}
+	return out
 }
 
 func readConfig(t *testing.T, root string) string {
 	t.Helper()
-	b, err := os.ReadFile(filepath.Join(root, "cockpit.config.json"))
+	b, err := os.ReadFile(config.ConfigPath(root))
 	must(t, err)
 	return string(b)
 }
 
-// Without --yes nothing is written; with it the key is copied in under the tier's name — never over
-// this repository's own key of the same name — and the tier names it.
+// Without --yes nothing is written; with it the key is copied into the tier's folder — never over
+// this repository's own key of the same name — and the configuration names the tier.
 func TestTrustAdd_ShowsFirstThenWrites(t *testing.T) {
 	r := testrepo.New(t)
 	t.Chdir(r.Root)
@@ -43,27 +55,26 @@ func TestTrustAdd_ShowsFirstThenWrites(t *testing.T) {
 	before := readConfig(t, r.Root)
 
 	must(t, runTrust(context.Background(), []string{"add", "peer", peer}))
-	if readConfig(t, r.Root) != before {
-		t.Fatal("trust add without --yes changed the configuration")
+	if readConfig(t, r.Root) != before || len(tierFiles(t, r.Root, "peer")) != 0 {
+		t.Fatal("trust add without --yes changed something")
 	}
 
 	must(t, runTrust(context.Background(), []string{"add", "peer", peer, "--yes"}))
-	rel := "registry/keys/peer-" + testrepo.SessionID + ".pub"
-	if _, err := os.Stat(filepath.Join(r.Root, rel)); err != nil {
-		t.Fatalf("%s not written: %v", rel, err)
+	if got := tierFiles(t, r.Root, "peer"); len(got) != 1 || got[0] != testrepo.SessionID+".pub" {
+		t.Fatalf("tier peer holds %v", got)
 	}
-	if !strings.Contains(readConfig(t, r.Root), rel) {
-		t.Errorf("tier peer does not name %s:\n%s", rel, readConfig(t, r.Root))
+	if !strings.Contains(readConfig(t, r.Root), `"peer"`) {
+		t.Errorf("the configuration does not name tier peer:\n%s", readConfig(t, r.Root))
 	}
-	own, _ := os.ReadFile(filepath.Join(r.Root, "registry", "keys", testrepo.SessionID+".pub"))
-	theirs, _ := os.ReadFile(filepath.Join(peer, "registry", "keys", testrepo.SessionID+".pub"))
+	own, _ := os.ReadFile(filepath.Join(r.Root, ".kton", "keys", "self", testrepo.SessionID+".pub"))
+	theirs, _ := os.ReadFile(filepath.Join(peer, ".kton", "keys", "self", testrepo.SessionID+".pub"))
 	if string(own) == string(theirs) {
 		t.Error("the peer's key landed on this repository's own")
 	}
 
 	// The negative control: the same key under a second tier is not taken twice.
 	must(t, runTrust(context.Background(), []string{"add", "other", peer, "--yes"}))
-	if strings.Contains(readConfig(t, r.Root), `"other"`) {
+	if strings.Contains(readConfig(t, r.Root), `"other"`) || len(tierFiles(t, r.Root, "other")) != 0 {
 		t.Errorf("a key already in tier peer was added to tier other")
 	}
 }
@@ -79,23 +90,24 @@ func TestTrust_SelfIsNotAPeerTier(t *testing.T) {
 	}
 }
 
-// A peer publishes the keys it trusts beside its own. Only its own — its tier self — are the peer;
-// the others were taken into the peer's tier, so a third party counted under the peer's name.
+// A peer publishes the keys it trusts beside its own, in its other tiers' folders. Only its own —
+// its tier self — are the peer; a third party in its tier "partners" is not taken under its name.
 func TestTrustAdd_TakesThePeersOwnKeysOnly(t *testing.T) {
 	peer := testrepo.New(t)
 	third := peerCheckout(t, "third")
-	b, _ := os.ReadFile(filepath.Join(third, "registry", "keys", "third.pub"))
-	must(t, os.WriteFile(filepath.Join(peer.Root, "registry", "keys", "third.pub"), b, 0o644))
+	b, _ := os.ReadFile(filepath.Join(third, ".kton", "keys", "self", "third.pub"))
+	must(t, os.MkdirAll(filepath.Join(peer.Root, ".kton", "keys", "partners"), 0o755))
+	must(t, os.WriteFile(filepath.Join(peer.Root, ".kton", "keys", "partners", "third.pub"), b, 0o644))
 
 	r := testrepo.New(t)
 	t.Chdir(r.Root)
 	must(t, runTrust(context.Background(), []string{"add", "peer", peer.Root, "--yes"}))
-	cfg := readConfig(t, r.Root)
-	if !strings.Contains(cfg, "peer-"+testrepo.SessionID+".pub") {
-		t.Errorf("the peer's own key was not taken:\n%s", cfg)
+	got := strings.Join(tierFiles(t, r.Root, "peer"), " ")
+	if !strings.Contains(got, testrepo.SessionID+".pub") {
+		t.Errorf("the peer's own key was not taken: %s", got)
 	}
-	if strings.Contains(cfg, "third") {
-		t.Errorf("a key the peer only trusts was taken as the peer:\n%s", cfg)
+	if strings.Contains(got, "third") {
+		t.Errorf("a key the peer only trusts was taken as the peer: %s", got)
 	}
 }
 
@@ -120,8 +132,8 @@ func TestTrustAdd_ReadsAPeerFromAGitRepository(t *testing.T) {
 	r := testrepo.New(t)
 	t.Chdir(r.Root)
 	must(t, runTrust(context.Background(), []string{"add", "peer", bare, "--yes"}))
-	if cfg := readConfig(t, r.Root); !strings.Contains(cfg, "remote-peer.pub") {
-		t.Errorf("the key the git repository publishes was not taken:\n%s", cfg)
+	if got := tierFiles(t, r.Root, "peer"); len(got) != 1 || got[0] != "remote-peer.pub" {
+		t.Errorf("the key the git repository publishes was not taken: %v", got)
 	}
 }
 
@@ -138,9 +150,9 @@ func TestTrustAdd_ReadsAPeerFromAConfiguredSourceByName(t *testing.T) {
 	must(t, json.Unmarshal(b, &spec))
 	raw.Federation.Sources = []source.Spec{spec}
 	r.WriteConfig(t, raw)
-	t.Chdir(filepath.Join(r.Root, "registry")) // a relative source path is the configuration's, not the shell's
+	t.Chdir(filepath.Join(r.Root, "data")) // a relative source path is the configuration's, not the shell's
 	must(t, runTrust(context.Background(), []string{"add", "peer", "hub", "--yes"}))
-	if cfg := readConfig(t, r.Root); !strings.Contains(cfg, "hub-peer.pub") {
-		t.Errorf("the key the configured source publishes was not taken:\n%s", cfg)
+	if got := tierFiles(t, r.Root, "peer"); len(got) != 1 || got[0] != "hub-peer.pub" {
+		t.Errorf("the key the configured source publishes was not taken: %v", got)
 	}
 }

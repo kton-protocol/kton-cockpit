@@ -160,9 +160,9 @@ func (c *Cockpit) Install(ctx context.Context, in InstallRequest) (*InstallResul
 			"run install again with --allow, or add %s to claims.allowedPackages", out.Package)
 	}
 
-	paths := []string{out.Dir, cfg.Raw.Paths.PlanktonDir, cfg.Raw.Paths.NektonDir}
+	paths := []string{out.Dir, config.Rel("plankton"), config.Rel("nekton")}
 	if out.AllowedNow {
-		paths = append(paths, "cockpit.config.json")
+		paths = append(paths, config.Rel(config.ConfigFile))
 	}
 	if _, err := persist(ctx, cfg, paths,
 		"install: "+scopeName); err != nil {

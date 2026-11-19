@@ -63,7 +63,7 @@ func TestAuthor_CoSignsWorkTheRegistryAlreadyHolds(t *testing.T) {
 		t.Errorf("a foton/v1 record carries no locator in its signed bytes (kton §6.6.1)")
 	}
 	// Each producer's locators are its own statement beside the record.
-	cfg.Raw.Trust.Tiers["fremd"] = []string{writePub(t, foreignPub)}
+	TrustPub(t, cfg, "fremd", "fremd", hex.EncodeToString(foreignPub))
 	locs, err := verify.Locators(context.Background(), run, cfg, a.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -92,15 +92,6 @@ func TestAuthor_RepublishingOwnWorkIsNotACoSignature(t *testing.T) {
 			t.Fatalf("publish %d: %+v %v", i+1, got, err)
 		}
 	}
-}
-
-func writePub(t *testing.T, pub ed25519.PublicKey) string {
-	t.Helper()
-	path := filepath.Join(t.TempDir(), "fremd.pub")
-	if err := os.WriteFile(path, []byte(hex.EncodeToString(pub)), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	return path
 }
 
 func keyFile(t *testing.T) (string, ed25519.PublicKey) {

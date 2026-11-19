@@ -48,7 +48,7 @@ func askOverview() {
 		fmt.Printf("  %-14s %-34s %s\n", q.name, q.arg, q.what)
 	}
 	fmt.Println()
-	fmt.Println("a reference is a file (its bytes), a run folder (runs/<slug>: the record its run made), or sha256:…")
+	fmt.Println("a reference is a file (its bytes), a run folder (work/<slug>: the record its run made), or sha256:…")
 	fmt.Println("only records a key in your trust tiers verifies are answered; the rest are counted, never shown.")
 }
 

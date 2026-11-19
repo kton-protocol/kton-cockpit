@@ -134,8 +134,8 @@ func Validate(specs []Spec) error {
 	return nil
 }
 
-// dir is a registry in a directory: `path` holding registry/plankton and registry/nekton, the layout
-// every cockpit repository and every site has.
+// dir is a registry in a directory: `path` holding .kton/plankton and .kton/nekton, the layout every
+// cockpit repository has (ADR-016).
 type dir struct{}
 
 type dirBlock struct {
@@ -148,7 +148,7 @@ func (dir) Validate(s Spec) error {
 		return err
 	}
 	if b.Path == "" {
-		return fmt.Errorf("kind dir needs \"path\" (a directory holding registry/plankton and registry/nekton)")
+		return fmt.Errorf("kind dir needs \"path\" (a directory holding .kton/plankton and .kton/nekton)")
 	}
 	return nil
 }
@@ -162,7 +162,7 @@ func (dir) Fetch(_ context.Context, s Spec, base, _ string) ([]Registry, error) 
 	if !filepath.IsAbs(p) {
 		p = filepath.Join(base, p)
 	}
-	return []Registry{{PlanktonDir: filepath.Join(p, "registry", "plankton"), NektonDir: filepath.Join(p, "registry", "nekton")}}, nil
+	return []Registry{{PlanktonDir: filepath.Join(p, ".kton", "plankton"), NektonDir: filepath.Join(p, ".kton", "nekton")}}, nil
 }
 
 // Checkout is the directory itself; a plain directory has no revision.

@@ -87,7 +87,7 @@ var verbExamples = map[string]string{
 `,
 	"say": `  cockpit say '{"template": "working-on", "subject": "sha256:<fotonId>", "fields": {"step": "cleaning", "by-session": "alice"}}'
   cockpit say '{"template": "reproduces", "subject": "sha256:<their fotonId>", "subjectOutputHash": "sha256:<their output>",
-                "reproducedOutput": "runs/check/out/clean.csv", "reproducedFotonId": "sha256:<your fotonId>"}'
+                "reproducedOutput": "work/check/out/clean.csv", "reproducedFotonId": "sha256:<your fotonId>"}'
 `,
 	"ask": `  cockpit ask '{"query": "record", "ref": "sha256:<fotonId>"}'
   cockpit ask '{"query": "producer", "ref": "out/clean.csv"}'

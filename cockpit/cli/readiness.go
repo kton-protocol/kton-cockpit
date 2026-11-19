@@ -9,6 +9,7 @@ import (
 	"crypto/ed25519"
 	"encoding/hex"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -34,13 +35,20 @@ func readiness(ctx context.Context, cfg *config.Config) []nextStep {
 			trusted[strings.TrimSpace(string(b))] = true
 		}
 	}
+	if cfg.Identity.SessionID == "" {
+		steps = append(steps, nextStep{true, fmt.Sprintf("this checkout has no signing identity (%s) — run `cockpit keygen <name>`",
+			config.Rel("local/"+config.IdentityFile))})
+	}
 	for _, k := range []struct{ path, what string }{
 		{cfg.PlanktonKey, "fotons"}, {cfg.NektonKey, "claims"},
 	} {
+		if k.path == "" {
+			continue
+		}
 		pub, err := publicOf(k.path)
 		if err != nil {
-			steps = append(steps, nextStep{true, fmt.Sprintf("no signing key for %s at %s — run `cockpit keygen <name>` and set identity as it says",
-				k.what, rel(cfg.RepoRoot, k.path))})
+			steps = append(steps, nextStep{true, fmt.Sprintf("no signing key for %s at %s — run `cockpit keygen <name>`",
+				k.what, k.path)})
 			continue
 		}
 		if !trusted[pub] {
@@ -60,7 +68,7 @@ func readiness(ctx context.Context, cfg *config.Config) []nextStep {
 	// peer could read either, so there is nothing to warn about.
 	if insp, ok := cfg.Backend.(backend.Inspector); ok {
 		keys := privateKeyFiles(cfg)
-		want := append([]string{"cockpit.config.json"}, tierFilesIn(cfg)...)
+		want := append([]string{config.Rel(config.ConfigFile)}, tierFilesIn(cfg)...)
 		if st, err := insp.Status(ctx, cfg.Repo, append(keys, want...)); err == nil {
 			var leaked, missing []string
 			for _, p := range keys {
@@ -148,19 +156,24 @@ func tierFilesIn(cfg *config.Config) []string {
 	return out
 }
 
-// privateKeyFiles are the private key files on disk in keys_dir, repo-relative.
+// privateKeyFiles are private key files found anywhere under .kton/, repo-relative. There should be
+// none (ADR-016: keys live in ~/.kton-keys); any that is persisted is reported as leaked.
 func privateKeyFiles(cfg *config.Config) []string {
-	ents, err := os.ReadDir(cfg.KeysDir)
-	if err != nil {
-		return nil
-	}
 	var out []string
-	for _, e := range ents {
-		if !e.IsDir() && filepath.Ext(e.Name()) == ".key" {
-			out = append(out, filepath.ToSlash(filepath.Join(cfg.Raw.Paths.KeysDir, e.Name())))
+	filepath.WalkDir(cfg.KtonDir, func(p string, d fs.DirEntry, err error) error {
+		if err == nil && !d.IsDir() && strings.EqualFold(filepath.Ext(d.Name()), ".key") {
+			out = append(out, filepath.ToSlash(rel(cfg.RepoRoot, p)))
 		}
-	}
+		return nil
+	})
 	return out
+}
+
+func rel(root, p string) string {
+	if r, err := filepath.Rel(root, p); err == nil {
+		return filepath.ToSlash(r)
+	}
+	return p
 }
 
 // checkMadePath is checkPath for a directory publish or say creates when it first writes.

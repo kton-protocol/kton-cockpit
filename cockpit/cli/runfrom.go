@@ -52,9 +52,9 @@ func runNewFromFoton(ctx context.Context, slug, id string) error {
 		return fmt.Errorf("reading the locators of %s: %w", id, err)
 	}
 	addLocators(rec, locs)
-	dst := filepath.Join(cfg.RepoRoot, runsDir, slug)
+	dst := filepath.Join(cfg.RepoRoot, runsRel(cfg), slug)
 	if _, serr := os.Stat(dst); serr == nil {
-		return fmt.Errorf("%s/%s already exists", runsDir, slug)
+		return fmt.Errorf("%s/%s already exists", runsRel(cfg), slug)
 	}
 	made := false
 	defer func() {
@@ -98,7 +98,7 @@ func runNewFromFoton(ctx context.Context, slug, id string) error {
 	}
 	made = true
 
-	fmt.Printf("\n%s/%s — every input matches the hash %s records\n", runsDir, slug, short16(id))
+	fmt.Printf("\n%s/%s — every input matches the hash %s records\n", runsRel(cfg), slug, short16(id))
 	fmt.Printf("  %-11s %s\n", script, rec.Cmd)
 	if rec.EnvRef != "" && rec.EnvRef != cfg.Raw.Execution.Image {
 		fmt.Printf("\n  it ran in   %s\n  you pin     %s\n", rec.EnvRef, orNone(cfg.Raw.Execution.Image))

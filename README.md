@@ -65,29 +65,29 @@ installation, workflows, ray extraction and the vocabulary queries.
 mkdir study && cd study
 git init -b main
 git remote add origin https://github.com/alice/study.git
-cockpit init                       # configuration, claim templates, .gitignore
-cockpit keygen alice               # signing identity; binds itself into the configuration
+cockpit init                       # .kton/: configuration, claim templates, .gitignore
+cockpit keygen alice               # signing identity in ~/.kton-keys; binds itself to this checkout
 cockpit pin python:3.12-slim       # the image every run executes in, pinned by digest
 cockpit doctor                     # "ready: publish · say · ask" (or "not ready"), then what is left to do
 git add -A && git commit -m "cockpit set up" && git push -u origin main
 ```
 
-What that creates, all inside the repository:
+What that creates. Everything kton is under `.kton/` (ADR-016, SPEC §5.6):
 
 | Path | What | In git |
 |---|---|---|
-| `cockpit.config.json` | binding to `alice/study` (must match `origin`), identity, trust tier `self`, pinned image | yes |
-| `.gitignore` | keeps `/keys/` out | yes |
-| `templates/working-on.json`, `templates/reproduces.json`, `templates/describes.json`, `templates/rationale.json` | the claims this repository allows | yes |
-| `registry/keys/alice.pub`, `alice-claims.pub` | the public keys — a peer verifies with them | yes |
-| `keys/alice.key`, `alice-claims.key` | the **private** signing keys | **no** |
-| `keys/alice.pub`, `alice-claims.pub` | the public keys again, beside their private keys | **no** |
+| `.kton/cockpit.config.json` | binding to `alice/study` (must match `origin`), trust tier `self`, pinned image | yes |
+| `.kton/.gitignore` | keeps `.kton/local/` out | yes |
+| `.kton/templates/working-on.json`, `reproduces.json`, `describes.json`, `rationale.json`, … | the claims this repository allows | yes |
+| `.kton/keys/self/alice.pub`, `alice-claims.pub` | the public keys of tier self — a peer verifies with them | yes |
+| `.kton/local/identity.json` | which keys this checkout signs with | **never** (refused by the cockpit, not only ignored) |
+| `~/.kton-keys/alice.key`, `alice-claims.key` | the **private** signing keys, outside every repository | — |
 
-Work adds `registry/plankton/` (records), `registry/nekton/` (claims) and `runs/<slug>/`, all
-committed and pushed by the verbs themselves. A run folder holds a `RUN.md`, which matters: for
+Work adds `.kton/plankton/` (records), `.kton/nekton/` (claims) and `work/<slug>/` (runs; `runs.dir`),
+all committed and pushed by the verbs themselves. A run folder holds a `RUN.md`, which matters: for
 `run new --from sha256:…` it names the record it reproduces, and `say reproduces` reads it from there.
 
-Outside the repository the cockpit writes only to its cache (`kton-cockpit/` in the user cache
+Outside the repository the cockpit writes only to `~/.kton-keys` (keygen), its cache (`kton-cockpit/` in the user cache
 directory, `~/.cache` on Linux, for federation sources) and to temporary directories it removes
 again. `run new --from sha256:…` goes to the network for the
 record's files; asking does not.

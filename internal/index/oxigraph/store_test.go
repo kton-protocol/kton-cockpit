@@ -142,8 +142,8 @@ func TestOxigraph_RecordsAreStoredOnceAndTrustIsChosenPerQuery(t *testing.T) {
 	carol := testrepo.New(t)
 	third := author(t, carol, carol.Config(t), "c")
 	query(t, d, ac, activities)
-	if out, err := exec.Command("cp", "-rn", filepath.Join(carol.Root, "registry", "plankton", "objects")+"/.",
-		filepath.Join(alice.Root, "registry", "plankton", "objects")).CombinedOutput(); err != nil {
+	if out, err := exec.Command("cp", "-rn", filepath.Join(carol.Root, ".kton", "plankton", "objects")+"/.",
+		filepath.Join(alice.Root, ".kton", "plankton", "objects")).CombinedOutput(); err != nil {
 		t.Fatalf("%v: %s", err, out)
 	}
 	if a := query(t, d, ac, activities); a.Kept || !holds(a, "a", third) {

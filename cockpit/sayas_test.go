@@ -34,10 +34,10 @@ func TestSay_AsAnotherIdentitySignsWithThatKey(t *testing.T) {
 	ring := t.TempDir()
 	lane := keyringKey(t, ring, "lane-a")
 	keyringKey(t, ring, "stranger")
-	r.Write(t, "registry/keys/lane-a-claims.pub", lane+"\n")
+	r.Write(t, ".kton/keys/lanes/lane-a-claims.pub", lane+"\n")
 	raw := testrepo.DefaultConfig()
-	raw.Identity.Keyring = ring
-	raw.Trust.Tiers["lanes"] = []string{"registry/keys/lane-a-claims.pub"}
+	r.SetKeyring(t, ring)
+	raw.Trust.Tiers = append(raw.Trust.Tiers, "lanes")
 	r.WriteConfig(t, raw)
 	r.Use(t)
 	subject := publishOne(t, r).FotonID
@@ -85,9 +85,9 @@ func TestSay_AsAnotherIdentitySignsWithThatKey(t *testing.T) {
 		t.Errorf("a .pub that is not the key's: want refused, got %q", why)
 	}
 
-	raw.Identity.Keyring = ""
+	r.SetKeyring(t, "")
 	r.WriteConfig(t, raw)
-	if _, why := say("lane-a"); !strings.Contains(why, "no identity.keyring") {
+	if _, why := say("lane-a"); !strings.Contains(why, "names no keyring") {
 		t.Errorf("no keyring: want refused, got %q", why)
 	}
 }

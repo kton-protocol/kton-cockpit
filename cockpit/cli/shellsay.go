@@ -31,7 +31,7 @@ func sayOverview(ctx context.Context, cfg *config.Config) {
 	for _, t := range ts {
 		fmt.Printf("  %-14s about %s\n", t.Name, targetWords[orDefault(t.Target, "foton")])
 		if t.Name == "reproduces" {
-			fmt.Println("                 cockpit say reproduces runs/<slug>   — a run made with run new --from sha256:…;")
+			fmt.Println("                 cockpit say reproduces work/<slug>   — a run made with run new --from sha256:…;")
 			fmt.Println("                 the cockpit compares the bytes and sets level and reproducedBy itself")
 			continue
 		}
@@ -42,7 +42,7 @@ func sayOverview(ctx context.Context, cfg *config.Config) {
 				req = " (required)"
 			}
 			if name == identityField {
-				fmt.Printf("                 %s=<%s>  filled in: %s (your identity)\n", name, f.Type, cfg.Raw.Identity.SessionID)
+				fmt.Printf("                 %s=<%s>  filled in: %s (your identity)\n", name, f.Type, cfg.Identity.SessionID)
 				continue
 			}
 			vals := ""
@@ -185,7 +185,7 @@ func checkFields(cfg *config.Config, template string, given map[string]string) e
 // record from RUN.md, this run's record, and an output whose bytes both name.
 func reproducesFromRun(ctx context.Context, cfg *config.Config, ref string, in *cockpit.SayRequest) error {
 	if strings.HasPrefix(ref, "sha256:") {
-		return fmt.Errorf("say reproduces takes the run folder that reproduced it (runs/<slug>, made with run new --from %s);\n"+
+		return fmt.Errorf("say reproduces takes the run folder that reproduced it (work/<slug>, made with run new --from %s);\n"+
 			"  for anything else use the JSON form: cockpit say --help", ref)
 	}
 	abs, _ := filepath.Abs(ref)
@@ -254,7 +254,7 @@ const identityField = "by-session"
 func fillFromIdentity(cfg *config.Config, template string, fields map[string]string) {
 	for _, t := range readTemplates(cfg) {
 		if _, has := t.Fields[identityField]; t.Name == template && has && fields[identityField] == "" {
-			fields[identityField] = cfg.Raw.Identity.SessionID
+			fields[identityField] = cfg.Identity.SessionID
 		}
 	}
 }

@@ -79,7 +79,7 @@ func scopeSeed(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	if _, err := cockpit.PersistStrict(ctx, cfg, []string{cfg.Raw.Paths.NektonDir}, "scope: seed "+name); err != nil {
+	if _, err := cockpit.PersistStrict(ctx, cfg, []string{config.Rel("nekton")}, "scope: seed "+name); err != nil {
 		return fmt.Errorf("the scope was opened but committing it failed: %w", err)
 	}
 
@@ -91,7 +91,7 @@ func scopeSeed(ctx context.Context, args []string) error {
 			"  parent chain, which is what makes a later rewind detectable; a scope that wants one\n" +
 			"  must name its parent at birth, because the seed covers it.\n")
 	}
-	fmt.Printf("\nAdd it to cockpit.config.json so claims may name it:\n")
+	fmt.Printf("\nAdd it to .kton/cockpit.config.json so claims may name it:\n")
 	fmt.Printf("  \"claims\": { \"scopes\": { %q: %q } }\n", name, id)
 	return nil
 }
@@ -148,7 +148,7 @@ func scopeSeal(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	if _, err := cockpit.PersistStrict(ctx, cfg, []string{cfg.Raw.Paths.NektonDir}, "scope: seal "+args[0]); err != nil {
+	if _, err := cockpit.PersistStrict(ctx, cfg, []string{config.Rel("nekton")}, "scope: seal "+args[0]); err != nil {
 		return fmt.Errorf("the seal was recorded but committing it failed: %w", err)
 	}
 
