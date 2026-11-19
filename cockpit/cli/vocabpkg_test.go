@@ -219,3 +219,21 @@ func TestDoctor_APackageTemplateIsNotReportedMissing(t *testing.T) {
 		t.Errorf("doctor no longer reports a template nothing brings:\n%s", out)
 	}
 }
+
+// When the template set cannot be read, doctor says so once, not a missing file per template
+// (kton-review N1 on #180).
+func TestDoctor_AnUnreadableVocabularyIsNamedAsSuch(t *testing.T) {
+	r := testrepo.New(t)
+	r.Use(t)
+	r.Write(t, ".kton/aliases.json", `{"prefixes": `)
+	raw := r.Config(t).Raw
+	raw.Claims.AllowedTemplates = append(raw.Claims.AllowedTemplates, "from-a-package")
+	r.WriteConfig(t, raw)
+	out, _ := r.Cockpit(t, "doctor")
+	if !strings.Contains(out, "the vocabulary cannot be read") {
+		t.Errorf("doctor does not say the vocabulary cannot be read:\n%s", out)
+	}
+	if strings.Contains(out, "template from-a-package will be refused: no") {
+		t.Errorf("doctor gives a missing file as the reason:\n%s", out)
+	}
+}
