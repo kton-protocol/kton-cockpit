@@ -6,7 +6,9 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/gitmick/ktonpkg/scope"
@@ -17,7 +19,7 @@ import (
 
 // ui list --json lists every installed package for a frontend: name, revision, profile, whether
 // the configuration admits it, and what fails its check, under refused rather than hidden
-// (userinterface's PR 2, C2.4). ui, blocks and compositions are absent until ktonpkg reads them.
+// (userinterface's PR 2, C2.4).
 func TestUIList_ListsInstalledPackagesWithWhatFailsTheirCheck(t *testing.T) {
 	r := testrepo.New(t)
 	r.Use(t)
@@ -59,16 +61,59 @@ func TestUIList_ListsInstalledPackagesWithWhatFailsTheirCheck(t *testing.T) {
 	if p := by[".kton/packages/plain@v1"]; p.Name != "plain" || p.Allowed || len(p.Refused) != 0 {
 		t.Errorf("the installed, not admitted package: %+v", p)
 	}
-	if p := by[".kton/packages/broken@v1"]; len(p.Refused) != 1 || p.Refused[0].Code != "package.check" || p.Refused[0].Reason == "" {
-		t.Errorf("the broken package is not listed with its refusal: %+v", p)
+	if p := by[".kton/packages/broken@v1"]; len(p.Refused) != 1 || p.Refused[0].Code != "package.check" || p.Refused[0].Reason == "" || p.UI != nil {
+		t.Errorf("the broken package is not listed with its refusal, ui null: %+v", p)
 	}
-	var raw map[string][]map[string]any
-	json.Unmarshal([]byte(stdout), &raw)
-	for _, p := range raw["packages"] {
-		for _, k := range []string{"ui", "blocks", "compositions"} {
-			if _, ok := p[k]; ok {
-				t.Errorf("%s present before ktonpkg reads it: %v", k, p)
-			}
-		}
+	// A package that declares nothing for a frontend says so with empty lists, not null.
+	if p := by[".kton/packages/plain@v1"]; p.UI == nil || len(p.UI) != 0 || p.Blocks == nil || p.Compositions == nil {
+		t.Errorf("a templates package's declarations should be empty lists: %+v", p)
+	}
+}
+
+// A verticle's ui/, blocks and compositions are listed as ktonpkg (v0.9) reads them, each under its
+// file name, for a frontend to read instead of the package folder (C2.4). The package is ktonpkg's own
+// test verticle (scope/testdata/hostile/good), read from the module ktonpkg is built from.
+func TestUIList_ListsAVerticlesUIBlocksAndCompositions(t *testing.T) {
+	r := testrepo.New(t)
+	r.Use(t)
+	out, err := exec.Command("go", "list", "-m", "-f", "{{.Dir}}", "github.com/gitmick/ktonpkg").Output()
+	if err != nil {
+		t.Fatalf("locating ktonpkg: %v", err)
+	}
+	good := filepath.Join(strings.TrimSpace(string(out)), "scope", "testdata", "hostile", "good")
+	_, key, _ := ed25519.GenerateKey(rand.Reader)
+	dir := filepath.Join(t.TempDir(), "review")
+	if _, _, err := scope.BuildVerticle(dir, "review", "v1", good, key, scope.Options{}); err != nil {
+		t.Fatalf("building ktonpkg's good verticle: %v", err)
+	}
+	if _, err := cockpit.New(cockpit.Start{}).Install(context.Background(), cockpit.InstallRequest{Path: dir, Allow: true}); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	stdout, stderr, code := r.CockpitSplit(t, "ui", "list", "--json")
+	var l struct {
+		Packages []struct {
+			Name         string           `json:"name"`
+			Allowed      bool             `json:"allowed"`
+			UI           []map[string]any `json:"ui"`
+			Blocks       []map[string]any `json:"blocks"`
+			Compositions []map[string]any `json:"compositions"`
+			Refused      []UIRefusal      `json:"refused"`
+		} `json:"packages"`
+	}
+	if code != 0 || json.Unmarshal([]byte(stdout), &l) != nil || len(l.Packages) != 1 {
+		t.Fatalf("ui list --json (exit %d):\n%s\n%s", code, stdout, stderr)
+	}
+	p := l.Packages[0]
+	if p.Name != "review" || !p.Allowed || len(p.Refused) != 0 {
+		t.Fatalf("the verticle: %+v", p)
+	}
+	if len(p.UI) != 1 || p.UI[0]["file"] != "review" || p.UI[0]["slot"] == nil {
+		t.Errorf("ui entries: %v", p.UI)
+	}
+	if len(p.Blocks) != 1 || p.Blocks[0]["name"] != "table" || p.Blocks[0]["viewer"] == nil {
+		t.Errorf("blocks: %v", p.Blocks)
+	}
+	if len(p.Compositions) != 1 || p.Compositions[0]["name"] != "list" || p.Compositions[0]["kind"] == nil {
+		t.Errorf("compositions: %v", p.Compositions)
 	}
 }
