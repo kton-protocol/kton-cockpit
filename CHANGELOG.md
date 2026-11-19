@@ -11,8 +11,9 @@ the advisory CI job. Tracks kton v0.4.0 and ktonpkg v0.9.1. Nothing to migrate f
   name, package id, revision, label, profile, whether the configuration admits it, and what fails its
   check under `refused` (code `package.check`), listed rather than hidden. A frontend reads what
   packages declare from here, never from package folders: a verticle's `ui` entries, blocks and
-  compositions as ktonpkg v0.9.1 reads them, each under its file name, an empty list when it declares
-  none and null when the package cannot be read. `ui` is a reserved core command name.
+  compositions as ktonpkg v0.9.1 reads them, each under its file name: an empty list when it declares
+  none, null when the package is not admitted, fails its check or cannot be read, so a frontend uses
+  only what is listed (kton-review V1). `ui` is a reserved core command name.
 - **Install checks a viewer the package carries** (ktonpkg v0.9.1, `viewers/<viewer>/`): its tree id
   against the pin, its `viewer.json`, and that every block on it emits and takes only what
   `viewer.json` declares. A viewer pinned to a kton-web commit is not fetched and checked yet.
