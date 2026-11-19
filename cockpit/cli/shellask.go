@@ -211,7 +211,7 @@ func shellAsk(ctx context.Context, args []string) error {
 	return nil
 }
 
-// shellSparql is `cockpit ask sparql <file|-|--name QUERY> [--bind VAR=VALUE]... [--limit N] [--timeout S]
+// shellSparql is `cockpit ask sparql <file|-|--name QUERY> [--bind VAR=VALUE]... [--bind-iri VAR=IRI]... [--bind-typed VAR=VALUE^^DATATYPE]... [--limit N] [--timeout S]
 // [--json|--results-json]`: the query from a file, stdin, or an allowed vocabulary package by name, the rows as tab-separated lines under the variables. --results-json prints the
 // answer alone in the standard SPARQL 1.1 Query Results JSON, for a tool that reads that.
 func shellSparql(ctx context.Context, args []string) error {
@@ -242,6 +242,28 @@ func shellSparql(ctx context.Context, args []string) error {
 				in.Bind = map[string]string{}
 			}
 			in.Bind[k] = v
+		case "--bind-iri", "--bind-typed":
+			// A typed term (SPEC §9.9): --bind-iri VAR=IRI, --bind-typed VAR=VALUE^^xsd:integer.
+			if i+1 >= len(args) {
+				return fmt.Errorf("%s needs VAR=VALUE", a)
+			}
+			i++
+			k, v, ok := strings.Cut(args[i], "=")
+			if !ok {
+				return fmt.Errorf("%s takes VAR=VALUE, not %q", a, args[i])
+			}
+			term := cockpit.BoundTerm{Type: "iri", Value: v}
+			if a == "--bind-typed" {
+				j := strings.LastIndex(v, "^^")
+				if j < 0 {
+					return fmt.Errorf("--bind-typed takes VAR=VALUE^^DATATYPE (e.g. N=12^^xsd:integer), not %q", args[i])
+				}
+				term = cockpit.BoundTerm{Type: "literal", Value: v[:j], Datatype: v[j+2:]}
+			}
+			if in.BindTerms == nil {
+				in.BindTerms = map[string]cockpit.BoundTerm{}
+			}
+			in.BindTerms[k] = term
 		case "--limit", "--timeout":
 			if i+1 >= len(args) {
 				return fmt.Errorf("%s needs a value", a)
@@ -258,13 +280,13 @@ func shellSparql(ctx context.Context, args []string) error {
 			}
 		default:
 			if strings.HasPrefix(a, "--") {
-				return fmt.Errorf("unknown flag %s — usage: cockpit ask sparql <query.rq|-|--name QUERY> [--bind VAR=VALUE]... [--limit N] [--timeout S] [--json|--results-json]", a)
+				return fmt.Errorf("unknown flag %s — usage: cockpit ask sparql <query.rq|-|--name QUERY> [--bind VAR=VALUE]... [--bind-iri VAR=IRI]... [--bind-typed VAR=VALUE^^DATATYPE]... [--limit N] [--timeout S] [--json|--results-json]", a)
 			}
 			pos = append(pos, a)
 		}
 	}
 	if len(pos) != 1 && !(in.Name != "" && len(pos) == 0) {
-		return fmt.Errorf("usage: cockpit ask sparql <query.rq|-|--name QUERY> [--bind VAR=VALUE]... [--limit N] [--timeout S] [--json|--results-json]")
+		return fmt.Errorf("usage: cockpit ask sparql <query.rq|-|--name QUERY> [--bind VAR=VALUE]... [--bind-iri VAR=IRI]... [--bind-typed VAR=VALUE^^DATATYPE]... [--limit N] [--timeout S] [--json|--results-json]")
 	}
 	if in.Name == "" {
 		var q []byte

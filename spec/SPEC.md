@@ -966,6 +966,10 @@ reaches no record outside that dataset, so it is under the same ceiling as every
   the query's outermost group (the `WHERE` clause), so a `FILTER` of that group sees it. A value MUST NOT
   become query text, a name that is not a variable name MUST be refused, and so MUST a query without a
   group to bind into.
+- `bindTerms` MAY give variables typed terms in the same clause: an IRI, or a literal with a datatype
+  (`--bind-iri VAR=IRI`, `--bind-typed VAR=VALUE^^xsd:integer`). Each MUST be written as one RDF term:
+  an IRI MUST be absolute and contain nothing that ends it, an xsd datatype's lexical form MUST be
+  valid for it, and anything else MUST be refused. A variable bound in both MUST be refused.
 
 The vocabulary of the projection, with examples, is in [docs/sparql.md](../docs/sparql.md). Every
 example there is run by a test.
@@ -973,7 +977,7 @@ example there is run by a test.
 > **Checked by:** `TestCheckFreeQuery_TakesSelectAndAskOverTheCockpitsDataset`,
 > `TestSparql_RefusesWhatItWouldNotAnswer`, `TestSparql_ChecksTheQueryAndNeedsAnEngine`,
 > `TestVocabulary_AnAllowedPackageBringsItsTemplatesAndQueries` (`-tags docker`),
-> `TestShellSparql_ReadsTheQueryFromAFile`,
+> `TestShellSparql_ReadsTheQueryFromAFile`, `TestBind_TypedTermsAreOneTermEach`,
 > `TestParseResults_ReadsASelectAndAnAsk`, `TestClaimView_KeepsPositionAndInfersNothing`,
 > `TestClaimView_AppliesTheTemplatesTermsAndTypes`, `TestBind_GoesFirstIntoTheWhereClause`, `TestSparql_TheExamplesAnswerOverAFixture` (with its
 > standard-results subtests; `-tags docker`).
