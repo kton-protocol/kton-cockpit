@@ -36,7 +36,7 @@ func runTrust(ctx context.Context, args []string) error {
 	case "add":
 		return trustAdd(ctx, args[1:])
 	case "list":
-		return trustList(ctx)
+		return trustList(ctx, hasFlag(args[1:], "--json"))
 	case "remove":
 		return trustRemove(ctx, args[1:])
 	}
@@ -223,32 +223,62 @@ func peerKeys(ctx context.Context, cfg *config.Config, src string) ([]peerKey, s
 	return out, where + " — its own keys (tier self)", nil
 }
 
-func trustList(ctx context.Context) error {
+// Tier is one entry of `trust list --json`: a tier, its folder, and the keys in it.
+type Tier struct {
+	Name string    `json:"name"`
+	Dir  string    `json:"dir"`
+	Keys []TierKey `json:"keys"`
+}
+
+// TierKey is one key file of a tier: its key id, or why it is not one.
+type TierKey struct {
+	File    string `json:"file"`
+	KeyID   string `json:"keyId,omitempty"`
+	Problem string `json:"problem,omitempty"`
+}
+
+func trustTiers(cfg *config.Config) []Tier {
+	names := slices.Clone(cfg.Raw.Trust.Tiers)
+	sort.Strings(names)
+	out := []Tier{}
+	for _, t := range names {
+		tier := Tier{Name: t, Dir: config.Rel("keys/" + t), Keys: []TierKey{}}
+		for _, p := range cfg.TierKeys(t) {
+			k := TierKey{File: filepath.Base(p)}
+			if b, err := os.ReadFile(p); err != nil {
+				k.Problem = "unreadable"
+			} else if pub, err := core.ParsePublicKeyHex(strings.TrimSpace(string(b))); err != nil {
+				k.Problem = "not a public key"
+			} else {
+				k.KeyID = core.KeyIDHex(pub)
+			}
+			tier.Keys = append(tier.Keys, k)
+		}
+		out = append(out, tier)
+	}
+	return out
+}
+
+func trustList(ctx context.Context, asJSON bool) error {
 	cfg, err := config.Load(ctx, ".")
 	if err != nil {
 		return err
 	}
-	tiers := slices.Clone(cfg.Raw.Trust.Tiers)
-	sort.Strings(tiers)
+	tiers := trustTiers(cfg)
+	if asJSON {
+		return printJSON(tiers)
+	}
 	for _, t := range tiers {
-		fmt.Printf("%s  (%s/)\n", t, config.Rel("keys/"+t))
-		keys := cfg.TierKeys(t)
-		if len(keys) == 0 {
+		fmt.Printf("%s  (%s/)\n", t.Name, t.Dir)
+		if len(t.Keys) == 0 {
 			fmt.Println("  (no keys — nothing counts in this tier)")
 		}
-		for _, p := range keys {
-			name := filepath.Base(p)
-			b, err := os.ReadFile(p)
-			if err != nil {
-				fmt.Printf("  %-40s UNREADABLE\n", name)
+		for _, k := range t.Keys {
+			if k.Problem != "" {
+				fmt.Printf("  %-40s %s\n", k.File, strings.ToUpper(k.Problem))
 				continue
 			}
-			pub, err := core.ParsePublicKeyHex(strings.TrimSpace(string(b)))
-			if err != nil {
-				fmt.Printf("  %-40s NOT A PUBLIC KEY\n", name)
-				continue
-			}
-			fmt.Printf("  %-40s keyid %s\n", name, shortID(core.KeyIDHex(pub)))
+			fmt.Printf("  %-40s keyid %s\n", k.File, shortID(k.KeyID))
 		}
 	}
 	return nil

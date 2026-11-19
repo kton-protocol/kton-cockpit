@@ -16,45 +16,96 @@ import (
 	"github.com/kton-protocol/kton-cockpit/internal/index/oxigraph"
 )
 
+// IndexStatus is `index status --json`: the configured index, and its daemon when one runs.
+type IndexStatus struct {
+	Kind     string       `json:"kind"`
+	URL      string       `json:"url,omitempty"` // index.url: a daemon this cockpit does not start
+	Daemon   *IndexDaemon `json:"daemon,omitempty"`
+	Store    string       `json:"store,omitempty"`
+	Warnings []string     `json:"warnings,omitempty"`
+}
+
+// IndexDaemon is the daemon this machine runs. Answering is false when it was started but does
+// not answer; the next query starts it again.
+type IndexDaemon struct {
+	URL        string `json:"url"`
+	Container  string `json:"container"`
+	Answering  bool   `json:"answering"`
+	Image      string `json:"image,omitempty"`
+	Schema     int    `json:"schema,omitempty"`
+	Memory     string `json:"memory,omitempty"`
+	Registries int    `json:"registries,omitempty"`
+}
+
+func indexStatus(ctx context.Context, cfg *config.Config) (IndexStatus, error) {
+	st := IndexStatus{Kind: cfg.Raw.Index.KindOrDefault(), URL: cfg.Raw.Index.URL}
+	if st.URL != "" {
+		return st, nil
+	}
+	d, l, err := oxigraph.Running(ctx)
+	if err != nil {
+		return st, err
+	}
+	if l != nil {
+		st.Daemon = &IndexDaemon{URL: l.URL, Container: l.Container}
+	}
+	if d != nil {
+		n, err := d.Registries(ctx)
+		if err != nil {
+			return st, err
+		}
+		st.Daemon.Answering = true
+		st.Daemon.Image, st.Daemon.Schema, st.Daemon.Memory, st.Daemon.Registries = l.Image, l.Schema, l.MemoryOrDefault(), n
+		if want := cfg.Raw.Index.MemoryOrDefault(); config.MemoryAbove(want, l.MemoryOrDefault()) {
+			st.Warnings = append(st.Warnings, fmt.Sprintf("this configuration asks for %s (index.memory): the next query restarts it with that, on the same store", want))
+		}
+		if l.Schema != oxigraph.Schema {
+			st.Warnings = append(st.Warnings, fmt.Sprintf("its store schema is not this cockpit's (%d): cockpit index stop", oxigraph.Schema))
+		}
+	}
+	st.Store, _ = oxigraph.Dir()
+	return st, nil
+}
+
 func runIndex(ctx context.Context, args []string) error {
-	if len(args) != 1 {
-		return fmt.Errorf("usage: cockpit index status|start|stop|rebuild")
+	asJSON := len(args) == 2 && args[0] == "status" && args[1] == "--json"
+	if len(args) != 1 && !asJSON {
+		return fmt.Errorf("usage: cockpit index status [--json]|start|stop|rebuild")
 	}
 	cfg, err := config.Load(ctx, ".")
 	if err != nil {
 		return err
 	}
-	fmt.Printf("index.kind: %s\n", cfg.Raw.Index.KindOrDefault())
-	switch args[0] {
-	case "status":
-		if cfg.Raw.Index.URL != "" {
-			fmt.Printf("connects to %s (index.url); this cockpit starts nothing\n", cfg.Raw.Index.URL)
-			return nil
-		}
-		d, l, err := oxigraph.Running(ctx)
+	if asJSON {
+		st, err := indexStatus(ctx, cfg)
 		if err != nil {
 			return err
 		}
-		switch {
-		case l == nil:
-			fmt.Println("daemon: not started")
+		return printJSON(st)
+	}
+	fmt.Printf("index.kind: %s\n", cfg.Raw.Index.KindOrDefault())
+	switch args[0] {
+	case "status":
+		st, err := indexStatus(ctx, cfg)
+		if err != nil {
+			return err
+		}
+		if st.URL != "" {
+			fmt.Printf("connects to %s (index.url); this cockpit starts nothing\n", st.URL)
+			return nil
+		}
+		switch d := st.Daemon; {
 		case d == nil:
-			fmt.Printf("daemon: not answering at %s (container %s) — the next query starts it again\n", l.URL, l.Container)
+			fmt.Println("daemon: not started")
+		case !d.Answering:
+			fmt.Printf("daemon: not answering at %s (container %s) — the next query starts it again\n", d.URL, d.Container)
 		default:
-			n, err := d.Registries(ctx)
-			if err != nil {
-				return err
-			}
-			fmt.Printf("daemon: %s, container %s\n  image  %s\n  schema %d\n  memory %s\n  registries %d\n", l.URL, l.Container, l.Image, l.Schema, l.MemoryOrDefault(), n)
-			if want := cfg.Raw.Index.MemoryOrDefault(); config.MemoryAbove(want, l.MemoryOrDefault()) {
-				fmt.Printf("  ! this configuration asks for %s (index.memory): the next query restarts it with that, on the same store\n", want)
-			}
-			if l.Schema != oxigraph.Schema {
-				fmt.Printf("  ! its store schema is not this cockpit's (%d): cockpit index stop\n", oxigraph.Schema)
+			fmt.Printf("daemon: %s, container %s\n  image  %s\n  schema %d\n  memory %s\n  registries %d\n", d.URL, d.Container, d.Image, d.Schema, d.Memory, d.Registries)
+			for _, w := range st.Warnings {
+				fmt.Printf("  ! %s\n", w)
 			}
 		}
-		dir, _ := oxigraph.Dir()
-		fmt.Printf("store: %s\n", dir)
+		fmt.Printf("store: %s\n", st.Store)
 		return nil
 	case "start":
 		d, err := oxigraph.Ensure(ctx, cfg)

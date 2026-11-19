@@ -236,6 +236,20 @@ steps as one JSON object (`ready`, `steps[]{must, text}`, `fields`) and nothing 
 
 > **Checked by:** `TestDoctorJSON_SaysReadyAndWhatIsMissing`.
 
+A program that drives the binary reads stdout. Under `--json`, and for a verb called with its JSON
+argument, stdout MUST be one JSON document whatever happens:
+- the listings (`say --json`, `ask --json`), `version`, `trust list`, `federation list`, `config`,
+  `index status`, `sync` and `run list` MUST have a `--json` form;
+- a refusal MUST be `{code, clause, reason}` on stdout with exit 2, and any other error the same
+  object with code `error` and exit 1; the reason is on stderr as well;
+- a note for the person, such as what a file or a run folder resolved to, MUST go to stderr.
+
+`doctor --json` names who the checkout signs as in `fields.identity`: the session name, the key
+ids of its two keys, and the trust tier its claim key is in.
+
+> **Checked by:** `TestShellJSON_EveryListingAndRefusalIsOneDocument`,
+> `TestShellVerbs_JSONAnswerIsAllOfStdout`, `TestSync_TakesInWhatAnotherCloneShared`.
+
 ### 6.1 Which kernel
 
 A cockpit MUST NOT reimplement kernel logic, and MUST NOT let which kernel build it runs against be
@@ -616,7 +630,11 @@ refuse the request when:
 Everything else about the call is unchanged, the guard of §5 included. Anchoring (§11.3) does not
 support `as` yet and is refused with it.
 
-> **Checked by:** `TestSay_AsAnotherIdentitySignsWithThatKey`.
+When a template declares a `by-session` field and the request leaves it out, say MUST fill it with
+the identity it signs as: the `session_id` of the identity, or the name given as `as`. A value the
+request gives is kept. This holds for every form of say: the shell, the JSON argument and the MCP tool.
+
+> **Checked by:** `TestSay_AsAnotherIdentitySignsWithThatKey`, `TestSay_FillsBySessionFromTheIdentityItSignsAs`.
 
 ### 8.8 Where a record lives in improve
 
