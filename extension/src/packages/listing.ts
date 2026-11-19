@@ -66,7 +66,8 @@ const str = (o: Record<string, unknown>, k: string, what: string, optional = fal
   if (typeof v !== "string") return bad(`${what}.${k} must be a string`);
   return v;
 };
-const list = (v: unknown, what: string): unknown[] => (v === undefined ? [] : Array.isArray(v) ? v : bad(`${what} must be a list`));
+// v0.5.2 writes null for declarations it could not read (the reason is under refused): nothing to load
+const list = (v: unknown, what: string): unknown[] => (v === undefined || v === null ? [] : Array.isArray(v) ? v : bad(`${what} must be a list`));
 const obj = (v: unknown, what: string): Record<string, unknown> => (typeof v === "object" && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>) : bad(`${what} must be an object`));
 
 /** The shape check for every field the shell reads (review check 5). Unknown fields are kept, not read. */

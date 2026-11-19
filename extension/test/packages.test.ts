@@ -88,3 +88,32 @@ test("load: refused and not admitted packages are listed, never loaded", async (
   assert.deepEqual(l.notAdmitted, ["kton-web-test"]);
   assert.deepEqual(l.refusals.map((r) => [r.package, r.reason]), [["hostile-good", "seal does not verify"]]);
 });
+
+test("a package with allowed: false, or a non-empty refused, contributes nothing to slots or compositions (v0.5.2 lists their declarations anyway)", async () => {
+  const f = kwt();
+  const g = good();
+  // as cockpit v0.5.2's ui list: declarations filled for every installed package, admitted or not, checked or not
+  const listing = { packages: [{ ...f.pkg, allowed: false }, { ...g.pkg, refused: [{ file: "ui/review.json", code: "ui.check", reason: "viewer table: pin mismatch" }] }] };
+  assert.ok(listing.packages.every((p) => p.ui.length > 0 && p.blocks.length > 0 && p.compositions.length > 0));
+  const l = await loadPackages(listing, reader(f, g));
+  assert.deepEqual(l.entries, [], "no slot entry");
+  assert.deepEqual(Object.keys(l.packages), [], "no package for compositions, blocks or viewers");
+  assert.deepEqual([...l.controls.keys()], [], "no control");
+  assert.deepEqual([...l.blobs.keys()], [], "no content");
+  assert.deepEqual(l.notAdmitted, ["kton-web-test"]);
+  assert.deepEqual(l.refusals.map((r) => [r.package, r.file, r.reason]), [["hostile-good", "ui/review.json", "viewer table: pin mismatch"]], "shown with its reason, never rendered");
+});
+
+test("ui list as cockpit v0.5.2 answers it (null for unreadable declarations, no members) is read; without members nothing loads", async () => {
+  const real = {
+    packages: [
+      { name: "kton-web-test", package: "sha256:1", revision: "sha256:2", label: "test", profile: "https://kton.dev/profile/verticle", dir: ".kton/packages/kton-web-test@test", allowed: true, ui: [{ slot: "review-view", label: "Test shell", composition: "test-shell", file: "test-shell" }], blocks: [], compositions: [{ name: "test-shell", kind: "view", parts: [] }], refused: [] },
+      { dir: ".kton/packages/broken@1", allowed: false, ui: null, blocks: null, compositions: null, refused: [{ file: "", code: "package.check", reason: "no seal" }] },
+    ],
+  };
+  const l = assertUiListing(real);
+  assert.equal(l.packages[1]?.ui.length, 0);
+  const loaded = await loadPackages(l, async () => new Uint8Array());
+  assert.equal(loaded.refusals[0]?.code, "package.members", "the shell asks kton-cockpit for members: without them nothing can be loaded by hash");
+  assert.equal(loaded.refusals[1]?.reason, "no seal");
+});
