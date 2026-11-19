@@ -159,14 +159,25 @@ func Allowed(repoRoot string, allowed, modules []string) (*Vocabulary, error) {
 	for _, id := range allowed {
 		ok[id] = true
 	}
-	all, err := List(repoRoot)
+	// Each package directory on its own: a broken directory nobody admitted takes nothing away
+	// (kton-review U2 on #152). One that cannot be read while an admitted package is missing may be
+	// that package, so the vocabulary is then refused and names it.
+	entries, err := ListEach(repoRoot)
 	if err != nil {
 		return nil, err
 	}
-	for _, in := range all {
+	var broken []string
+	seen := map[string]bool{}
+	for _, e := range entries {
+		if e.Err != nil {
+			broken = append(broken, e.Dir+": "+e.Err.Error())
+			continue
+		}
+		in := e.Installed
 		if !ok[in.Package.ID] {
 			continue
 		}
+		seen[in.Package.ID] = true
 		if probs := in.Package.Verify(); len(probs) > 0 {
 			return nil, fmt.Errorf("the allowed package %s (%s) fails its check: %s", in.Package.Name, in.Dir, probs[0])
 		}
@@ -202,6 +213,14 @@ func Allowed(repoRoot string, allowed, modules []string) (*Vocabulary, error) {
 				}
 				dst[name] = body
 				v.From[key] = src
+			}
+		}
+	}
+	if len(broken) > 0 {
+		for _, id := range allowed {
+			if !seen[id] {
+				return nil, fmt.Errorf("the allowed package %s is not among the readable installed packages, and some cannot be read: %s",
+					id, strings.Join(broken, "; "))
 			}
 		}
 	}

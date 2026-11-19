@@ -55,3 +55,19 @@ func storeCode(err error) string {
 	}
 	return "store"
 }
+
+// Pending is a write that is done but not yet committed: the record is signed and stored, and only
+// the git commit met another git's lock past the wait. It is not refused, since the record exists
+// and a retry would sign a second one (kton-review B1 on #152); the next write commits it with its own.
+type Pending struct {
+	Code   string `json:"code"`
+	Reason string `json:"reason"`
+}
+
+// pendingIfBusy turns a store.busy after signing into Pending; any other error stays an error.
+func pendingIfBusy(err error, what string) (*Pending, error) {
+	if err == nil || !errors.Is(err, gitops.ErrBusy) {
+		return nil, err
+	}
+	return &Pending{Code: "store.busy", Reason: what + " is signed and stored, but not committed: another git held the repository's lock. The next write commits it; do not sign it again."}, nil
+}

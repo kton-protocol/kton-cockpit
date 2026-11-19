@@ -30,6 +30,13 @@ func resolveRef(ctx context.Context, cfg *config.Config, ref string) (string, st
 	if strings.HasPrefix(ref, "sha256:") {
 		return ref, "", nil
 	}
+	// An IRI is a subject as it is, as in every other form of say (SPEC §8), unless a file of
+	// that name exists here (kton-review's observation on #152).
+	if cockpit.IsIRI(ref) {
+		if _, err := os.Stat(ref); err != nil {
+			return ref, "", nil
+		}
+	}
 	abs := ref
 	if !filepath.IsAbs(abs) {
 		cwd, _ := os.Getwd()

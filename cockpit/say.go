@@ -57,6 +57,9 @@ type SayResult struct {
 	// (Subject), and this is the path it was given as.
 	ResolvedFrom string `json:"resolvedFrom,omitempty"`
 	Subject      string `json:"subject,omitempty"`
+	// Pending is set when the claim is signed and stored but its commit met the repository's lock
+	// (store.busy): it exists, and the next write commits it. A caller must not say it again.
+	Pending *Pending `json:"pending,omitempty"`
 	// RekorLogIndex and RekorUUID are set when this repo anchors its records — see PublishResult.
 	RekorLogIndex int64  `json:"rekorLogIndex,omitempty"`
 	RekorUUID     string `json:"rekorUuid,omitempty"`
@@ -183,7 +186,9 @@ func (c *Cockpit) Say(ctx context.Context, in SayRequest) (*SayResult, error) {
 		}
 		registryPaths = append(registryPaths, written...)
 	}
-	if _, err := persistStrict(ctx, cfg, registryPaths, "claim: "+in.Template+" on "+in.Subject); err != nil {
+	_, perr := persistStrict(ctx, cfg, registryPaths, "claim: "+in.Template+" on "+in.Subject)
+	pending, err := pendingIfBusy(perr, "the claim "+claimID)
+	if err != nil {
 		return nil, refuse(storeCode(err), "", "git commit/push of the claim registry failed: %v", err)
 	}
 
@@ -215,6 +220,7 @@ func (c *Cockpit) Say(ctx context.Context, in SayRequest) (*SayResult, error) {
 		Confirmation: fmt.Sprintf("registered: nekton reports %s among the %d claim(s) about %s", claimID, len(claims), in.Subject),
 		Subject:      in.Subject,
 		ResolvedFrom: resolvedFrom,
+		Pending:      pending,
 	}
 	out.Via, out.ViaFrom = reproducedVia, reproducedViaFrom
 	if anchored != nil {

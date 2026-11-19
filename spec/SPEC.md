@@ -266,10 +266,13 @@ frontend: each with its name, revision, profile, whether the configuration admit
 its check, under `refused`, never hidden. A frontend reads what packages declare from here, never
 from package folders. What a package declares for a frontend (its `ui/` entries, blocks and
 compositions) is read by ktonpkg, not by the cockpit, and listed as ktonpkg reads it, each under its
-file name: an empty list when it declares none, null when the package could not be read.
+file name: an empty list when it declares none, null when the package could not be read. A package
+that is admitted (`allowed`) but fails its check (`refused` not empty) contributes nothing: the
+vocabulary of the admitted packages is refused while it fails, and a broken package directory that
+is not admitted takes nothing away from the others.
 
 > **Checked by:** `TestUIList_ListsInstalledPackagesWithWhatFailsTheirCheck`,
-> `TestUIList_ListsAVerticlesUIBlocksAndCompositions`.
+> `TestUIList_ListsAVerticlesUIBlocksAndCompositions`, `TestAllowed_ABrokenUnadmittedPackageTakesNothingAway`.
 
 ### 6.1 Which kernel
 
@@ -1252,15 +1255,19 @@ Several verbs MAY write to one working tree at once, for example many writers sa
 registry. Each MUST make what it wrote durable exactly once and succeed. One MUST NOT fail because
 another holds the store's lock: the cockpit's own writes take turns, and a lock held by a tool
 outside the cockpit is waited out for a bounded time, as is a store's own lock or temporary file that
-another writer removes while it is being added. A lock still held when that time runs out MUST be
-refused with code `store.busy`, not `store`: the repository is busy, not broken, and the same write
-can be tried again.
+another writer removes while it is being added. A lock still held when that time runs out is
+`store.busy`, never `store`: the repository is busy, not broken. What exists afterwards decides the
+answer. A write that met the lock before anything was signed MUST be refused with code `store.busy`:
+nothing exists, and the same write can be tried again. A write whose record or claim is already
+signed and stored MUST NOT be refused: it answers with the record's id and `pending`
+`{code: store.busy, reason}` (and `persisted: false` where it says so), the next write commits it, and
+a caller MUST NOT sign it again.
 
 > **Checked by:** `TestConfigGuard_StillRefusesTheWrongRepoWithCommitsOff`,
 > `TestPublish_WithPushOffItCommitsLocallyAndSaysSo`, `TestCommitAndPush_NeverPushesWhenNotSharing`,
 > `TestSay_ParallelProcessesEachCommitTheirClaim`, `TestCommitAndPush_WaitsOutALockAnotherGitHolds`,
 > `TestCommitAndPush_TriesAgainWhenAFileVanishesUnderAdd`, `TestCommitAndPush_ALockHeldPastTheWaitIsBusy`,
-> `TestSay_ALockedRepositoryIsRefusedAsBusy`.
+> `TestSay_ALockedRepositoryLeavesTheClaimPendingNotRefused`.
 
 `cockpit sync` takes in what others shared and then shares what is durable here only. It MUST NOT
 rewrite a local revision — records already signed pin it in their locators — and where both sides
