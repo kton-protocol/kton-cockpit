@@ -3,7 +3,7 @@ title: "Everything kton under .kton/: the git and local layout, private things o
 type: "decision"
 project: "kton-cockpit"
 date: 2026-11-18
-status: "proposed"
+status: "accepted"
 tags: [layout, backend, git, local, keys, identity, packages, federation]
 ---
 
@@ -11,10 +11,9 @@ tags: [layout, backend, git, local, keys, identity, packages, federation]
 
 ## Status
 
-Proposed (2026-11-18), for the core round (`kton-coordination/proposals/2026-11-18-core-change.md`, section 5.2a,
-MH's direction of 18.11.). To be agreed with ktonpkg (package layout) and cockpit-improve (its private
-folder) before it is accepted. Released with cockpit v0.5.0 on kton v0.4.0, together with the ADR-013
-amendment. **Hard break, no migration** (MH): the only installations are MH's and Lukas's.
+Accepted by MH (2026-11-19). Proposed 2026-11-18 for the core round
+(`kton-coordination/proposals/2026-11-18-core-change.md`, section 5.2a, MH's direction of 18.11.).
+Released with cockpit v0.5.0 on kton v0.4.0, together with the ADR-013 amendment. **Hard break, no migration** (MH): the only installations are MH's and Lukas's.
 
 ## Context
 
