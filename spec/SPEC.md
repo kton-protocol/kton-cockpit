@@ -1347,7 +1347,18 @@ does not reliably refetch ES modules or wasm.
 `show --json` prints the same snapshot a viewer fetches, `{union, keys, names}`, as one JSON document on
 stdout, so a frontend that reads everything through the command line need not start a server.
 
-> **Checked by:** `TestShowJSON_PrintsTheSnapshotAViewerFetches`.
+An admitted package's build key (its seal's signer) is labelled in `packages`, keyid to the key itself
+and every admitted package it signed (`{key, packages: [{package, id, dir}]}`), so a viewer can
+re-check what it signed (`/data/packages.json`, and in `show --json`).
+The label MUST be a key the package's seal verifies under, among the public keys in its `keys/`,
+never the keyid an envelope declares. A package that fails its check MUST NOT be labelled, and a key
+of the trusted ring MUST NOT be labelled as a package's: the ring wins, and `doctor` names the
+collision. It MUST NOT be in `keys`, the ring of the configured
+tiers: admitting a package admits its words, not its key, so a record it signed is shown as an admitted
+package's, never as trusted.
+
+> **Checked by:** `TestShowJSON_PrintsTheSnapshotAViewerFetches`, `TestShowJSON_LabelsAnAdmittedPackagesKeyOutsideTheRing`,
+> `TestShowJSON_LabelsOnlyTheVerifyingKeyAndNeverARingKey`, `TestShowJSON_LabelsEveryPackageOfAKeyAndNothingUnverified`.
 
 ### 12.4 A derived index *(optional)*
 
