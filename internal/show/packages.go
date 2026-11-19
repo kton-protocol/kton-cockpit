@@ -1,7 +1,14 @@
 package show
 
 import (
+	"encoding/hex"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"github.com/gitmick/ktonpkg/scope"
+	"kton.dev/plankton/core"
 
 	"github.com/kton-protocol/kton-cockpit/internal/config"
 	"github.com/kton-protocol/kton-cockpit/internal/packages"
@@ -15,6 +22,9 @@ type PackageKey struct {
 	Package string `json:"package"` // the package's name
 	ID      string `json:"id"`      // the package id
 	Dir     string `json:"dir"`
+	// Key is the build key's public key in hex, from the package's keys/<keyid>.pub, so a viewer can
+	// re-check what it signed. An entry is listed only when that key derives the keyid.
+	Key string `json:"key"`
 }
 
 // Packages maps the keyid of each admitted, readable package's seal signer to the package.
@@ -32,7 +42,15 @@ func Packages(cfg *config.Config) (map[string]PackageKey, error) {
 		if e.Err != nil || !admitted[e.Package.ID] || e.Seal.Signer == "" {
 			continue
 		}
-		out[e.Seal.Signer] = PackageKey{Package: e.Package.Name, ID: e.Package.ID, Dir: e.Dir}
+		b, err := os.ReadFile(filepath.Join(cfg.RepoRoot, filepath.FromSlash(e.Dir), scope.KeyDir, e.Seal.Signer+".pub"))
+		if err != nil {
+			continue
+		}
+		pub, err := core.ParsePublicKeyHex(strings.TrimSpace(string(b)))
+		if err != nil || core.KeyIDHex(pub) != e.Seal.Signer {
+			continue
+		}
+		out[e.Seal.Signer] = PackageKey{Package: e.Package.Name, ID: e.Package.ID, Dir: e.Dir, Key: hex.EncodeToString(pub)}
 	}
 	return out, nil
 }

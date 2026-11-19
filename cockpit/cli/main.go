@@ -350,9 +350,6 @@ func runInit(ctx context.Context) error {
 	return nil
 }
 
-// runShow serves this repo's records to a kton-web viewer. It is an operator subcommand alongside
-// init and doctor — NOT a fourth verb: the MCP surface is unchanged at three, and nothing here
-// is reachable from it.
 // ShowSnapshot is `show --json`: the union, the keys and the names a viewer fetches from a running
 // show, as one JSON object.
 type ShowSnapshot struct {
@@ -379,6 +376,9 @@ func showJSON(ctx context.Context) error {
 	return printJSON(ShowSnapshot{Union: union, Keys: keys, Names: names, Packages: pkgs})
 }
 
+// runShow serves this repo's records to a kton-web viewer. It is an operator subcommand alongside
+// init and doctor — NOT a fourth verb: the MCP surface is unchanged at three, and nothing here
+// is reachable from it.
 func runShow(ctx context.Context, args []string) error {
 	// Loopback, not every interface. ":8377" would bind all of them while the URL printed below says
 	// localhost — so a repo's whole graph, including a private one's, would be reachable from the

@@ -1336,8 +1336,9 @@ does not reliably refetch ES modules or wasm.
 `show --json` prints the same snapshot a viewer fetches, `{union, keys, names}`, as one JSON document on
 stdout, so a frontend that reads everything through the command line need not start a server.
 
-An admitted package's build key (its seal's signer) is labelled in `packages`, keyid to package
-(`/data/packages.json`, and in `show --json`). It MUST NOT be in `keys`, the ring of the configured
+An admitted package's build key (its seal's signer) is labelled in `packages`, keyid to package and
+the key itself, so a viewer can re-check what it signed (`/data/packages.json`, and in `show --json`);
+an entry is listed only when the key in the package's `keys/` derives its keyid. It MUST NOT be in `keys`, the ring of the configured
 tiers: admitting a package admits its words, not its key, so a record it signed is shown as an admitted
 package's, never as trusted.
 

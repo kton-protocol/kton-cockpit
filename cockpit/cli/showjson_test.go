@@ -4,6 +4,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/json"
+	"kton.dev/plankton/core"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -55,6 +56,7 @@ func TestShowJSON_LabelsAnAdmittedPackagesKeyOutsideTheRing(t *testing.T) {
 		Keys     map[string]any `json:"keys"`
 		Packages map[string]struct {
 			Package string `json:"package"`
+			Key     string `json:"key"`
 		} `json:"packages"`
 	}
 	if code != 0 || json.Unmarshal([]byte(stdout), &snap) != nil {
@@ -66,6 +68,10 @@ func TestShowJSON_LabelsAnAdmittedPackagesKeyOutsideTheRing(t *testing.T) {
 	for kid, p := range snap.Packages {
 		if p.Package != "words" {
 			t.Errorf("labelled as %q, want words", p.Package)
+		}
+		// The key comes along, so a viewer can re-check the signatures; it derives the keyid.
+		if pub, err := core.ParsePublicKeyHex(p.Key); err != nil || core.KeyIDHex(pub) != kid {
+			t.Errorf("the entry's key %q does not derive its keyid %s: %v", p.Key, kid, err)
 		}
 		if _, trusted := snap.Keys[kid]; trusted {
 			t.Errorf("the package's build key %s is in the trusted ring", kid)
