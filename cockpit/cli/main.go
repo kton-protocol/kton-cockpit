@@ -243,7 +243,7 @@ func mcpServer(ctx context.Context, o mcpOptions) (*mcp.Server, error) {
 			"steps (prov:Activity, prov:used, prov:wasGeneratedBy), attributed with prov:wasAttributedTo " +
 			"only where a trusted key verified them; and every claim a trusted key signed as a node " +
 			"(nk:about, nk:predicate, its fields nk:lab/<field>, nk:signer with rdfs:label and nk:tier, " +
-			"dct:created, nk:scope, nk:position, nk:current), nk: = https://kton.dev/v/. " +
+			"dct:created, nk:scope, nk:position, nk:replaces, nk:replacedBy), nk: = https://kton.dev/v/. " +
 			"dataset nanopub reads the claims as nanopublication graphs instead. " +
 			"A file or record sha256:<hex> is <https://kton.dev/o/<hex>>. No FROM, no SERVICE. " +
 			"query feed returns the trusted records after a cursor (field cursor, empty for the start), " +

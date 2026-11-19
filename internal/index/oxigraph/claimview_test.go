@@ -32,9 +32,9 @@ func claimQuads(h, subject, pred string, fields map[string]string, created, scop
 	return all, pubinfo
 }
 
-// Positions count every claim of a chain, trusted or not; only trusted claims are shown, and only
-// they supersede one another: the latest trusted claim per scope, subject and predicate is current.
-func TestClaimView_KeepsPositionAndCurrent(t *testing.T) {
+// Positions count every claim of a chain, trusted or not; only trusted claims are shown. Nothing is
+// inferred from the order (view vocabulary 1): a later claim does not make an earlier one anything.
+func TestClaimView_KeepsPositionAndInfersNothing(t *testing.T) {
 	const seed, c1, u, c2, other = "aa", "b1", "cc", "d2", "ee"
 	const step = oNS + "f00d"
 	desc := "http://purl.org/dc/terms/description"
@@ -66,9 +66,11 @@ func TestClaimView_KeepsPositionAndCurrent(t *testing.T) {
 			t.Errorf("position of %s: got %v, want %s (the untrusted claim counts)", h, got, want)
 		}
 	}
-	for h, want := range map[string]string{c1: "false", c2: "true", other: "true"} {
-		if got := values(view, oNS+h, nkNS+"current"); len(got) != 1 || got[0] != want {
-			t.Errorf("current of %s: got %v, want %s", h, got, want)
+	for _, h := range []string{c1, c2, other} {
+		for _, p := range []string{"current", "supersededBy", "replacedBy"} {
+			if got := values(view, oNS+h, nkNS+p); len(got) != 0 {
+				t.Errorf("nk:%s inferred on %s: %v", p, h, got)
+			}
 		}
 	}
 	if got := values(view, oNS+c2, nkNS+"about"); len(got) != 1 || got[0] != step {
@@ -91,14 +93,16 @@ func TestClaimView_AppliesTheTemplatesTermsAndTypes(t *testing.T) {
 		"reviewed": []byte(`{"name":"reviewed","target":"either","predicate":"https://example.org/q/reviewed",
 		  "fields":{"on":{"type":"date"},"outcome":{"type":"string"},"basis":{"type":"ref"},"revision":{"type":"integer"},
 		    "state":{"type":"enum","values":["q:Effective","q:Draft"]},"owner":{"type":"enum","values":["https://example.org/r/qa"]},
-		    "verdict":{"type":"enum","values":["approve","reject"]}}}`),
+		    "verdict":{"type":"enum","values":["approve","reject"]},
+		    "document":{"type":"iri"},"spec":{"type":"iri"},"note":{"type":"iri"}}}`),
 	}, []byte(`{"prefixes":{"q":"https://example.org/q/"},"terms":{"outcome":"q:outcome"}}`))
 	if err != nil {
 		t.Fatal(err)
 	}
 	all, pub := claimQuads("ab", oNS+"f00d", "https://example.org/q/reviewed",
 		map[string]string{"on": "2026-03-04", "outcome": "accepted", "basis": "sha256:beef", "revision": "12",
-			"state": "q:Effective", "owner": "https://example.org/r/qa", "verdict": "approve"}, "2026-03-04T10:00:00Z", "", "", "k1")
+			"state": "q:Effective", "owner": "https://example.org/r/qa", "verdict": "approve",
+			"document": "urn:qms:doc:SOP-12", "spec": "q:spec-7", "note": "not an iri"}, "2026-03-04T10:00:00Z", "", "", "k1")
 	view := ClaimView(all, pub, ViewConfig{Templates: set})
 	n := oNS + "ab"
 	if got := values(view, n, "https://example.org/q/outcome"); len(got) != 1 || got[0] != "accepted" {
@@ -132,6 +136,18 @@ func TestClaimView_AppliesTheTemplatesTermsAndTypes(t *testing.T) {
 		case labNS + "verdict":
 			if q.O.Type != "literal" || q.O.Value != "approve" {
 				t.Errorf("a bare enum value stays a literal: %+v", q.O)
+			}
+		case labNS + "document":
+			if q.O.Type != "uri" || q.O.Value != "urn:qms:doc:SOP-12" {
+				t.Errorf("an iri field with a urn: %+v", q.O)
+			}
+		case labNS + "spec":
+			if q.O.Type != "uri" || q.O.Value != "https://example.org/q/spec-7" {
+				t.Errorf("an iri field written as a CURIE: %+v", q.O)
+			}
+		case labNS + "note":
+			if q.O.Type != "literal" {
+				t.Errorf("an iri field that is not one stays as signed: %+v", q.O)
 			}
 		}
 	}
@@ -180,59 +196,78 @@ func TestParseNQuads_ReadsWhatNTriplesWrites(t *testing.T) {
 	}
 }
 
-// current is one answer for one set of quads, however they arrive. A claim whose predecessor is
-// outside the union has no position; it loses to a positioned one whatever the clocks say, and
-// positioned claims are ordered by position, not by the time their signer stated (ADR-013 review
-// Q1: A at 3 signed 10 March, B at 5 signed 5 March, C with no position signed 7 March).
-func TestClaimView_CurrentIsOneAnswerHoweverTheQuadsArrive(t *testing.T) {
+// replacing is one quad of the replacing claim's field node, as the kernel projects the reserved
+// field: helper nk:replaces <o/hex> (kton #257, #258).
+func replacing(h, old string) Quad {
+	return Quad{G: npNS + h + ".#assertion", S: iri(npNS + h + ".#o"), P: iri(nkNS + "replaces"), O: iri(oNS + old)}
+}
+
+// ADR-013 A5: every name in replaces is projected as nk:replaces, whoever signed either claim; only
+// a replacement by the same signer, of the same template, about a shared subject, retires a claim
+// with nk:replacedBy. kton-review M1: (a) a different key's replaces leaves an approval standing;
+// M3: (b) a name in upper case still marks.
+func TestClaimView_ReplacedByOnlyForTheSameSignerTemplateAndSubject(t *testing.T) {
+	const model, other = "https://ex.org/model", "https://ex.org/other"
+	approval, status := "https://ex.org/approval", "https://ex.org/status"
 	var trusted, structure []Quad
-	add := func(all, pub []Quad) { trusted, structure = append(trusted, all...), append(structure, pub...) }
-	add(claimQuads("aa", "https://ex.org/s", "https://ex.org/seed", nil, "2026-01-01T00:00:00Z", "aa", "", "k1"))
-	for _, l := range [][3]string{{"01", "2026-01-02T00:00:00Z", "aa"}, {"02", "2026-01-03T00:00:00Z", "01"}, {"04", "2026-01-04T00:00:00Z", "a3"}} {
-		_, p := claimQuads(l[0], "https://ex.org/o", "https://ex.org/other", nil, l[1], "aa", l[2], "")
-		structure = append(structure, p...)
+	add := func(all, pub []Quad, extra ...Quad) {
+		trusted, structure = append(trusted, append(all, extra...)...), append(structure, pub...)
 	}
-	status := "https://ex.org/status"
-	add(claimQuads("a3", "https://ex.org/model", status, nil, "2026-03-10T00:00:00Z", "aa", "02", "k1"))
-	add(claimQuads("b5", "https://ex.org/model", status, nil, "2026-03-05T00:00:00Z", "aa", "04", "k1"))
-	add(claimQuads("c9", "https://ex.org/model", status, nil, "2026-03-07T00:00:00Z", "aa", "gone", "k1"))
+	add(claimQuads("a1", model, approval, nil, "2026-01-01T00:00:00Z", "", "", "k1"))
+	add(claimQuads("a2", model, approval, nil, "2026-01-02T00:00:00Z", "", "", "k1"), replacing("a2", "a1"))
+	// (a) another trusted key names a2: projected, but a2 stands.
+	add(claimQuads("b1", model, approval, nil, "2026-01-03T00:00:00Z", "", "", "k2"), replacing("b1", "a2"))
+	// (b) upper case still names c1.
+	add(claimQuads("c1", other, approval, nil, "2026-01-04T00:00:00Z", "", "", "k1"))
+	add(claimQuads("c2", other, approval, nil, "2026-01-05T00:00:00Z", "", "", "k1"), replacing("c2", "C1"))
+	// Another template, or another subject, by the same key: projected, retires nothing.
+	add(claimQuads("d1", model, status, nil, "2026-01-06T00:00:00Z", "", "", "k1"))
+	add(claimQuads("d2", model, approval, nil, "2026-01-07T00:00:00Z", "", "", "k1"), replacing("d2", "d1"))
+	add(claimQuads("e1", other, approval, nil, "2026-01-08T00:00:00Z", "", "", "k1"))
+	add(claimQuads("e2", model, approval, nil, "2026-01-09T00:00:00Z", "", "", "k1"), replacing("e2", "e1"))
 
 	rng := rand.New(rand.NewSource(1))
 	for i := 0; i < 50; i++ {
 		rng.Shuffle(len(trusted), func(a, b int) { trusted[a], trusted[b] = trusted[b], trusted[a] })
 		rng.Shuffle(len(structure), func(a, b int) { structure[a], structure[b] = structure[b], structure[a] })
 		view := ClaimView(trusted, structure, ViewConfig{})
-		for h, want := range map[string]string{"a3": "false", "b5": "true", "c9": "false"} {
-			if got := values(view, oNS+h, nkNS+"current"); len(got) != 1 || got[0] != want {
-				t.Fatalf("build %d: current of %s: got %v, want %s", i, h, got, want)
+		for h, want := range map[string]string{"a1": "a2", "a2": "", "c1": "c2", "d1": "", "e1": ""} {
+			got := values(view, oNS+h, nkNS+"replacedBy")
+			if (want == "" && len(got) != 0) || (want != "" && (len(got) != 1 || got[0] != oNS+want)) {
+				t.Fatalf("build %d: %s replacedBy %v, want %q", i, h, got, want)
 			}
 		}
-		for _, h := range []string{"a3", "c9"} {
-			if got := values(view, oNS+h, nkNS+"supersededBy"); len(got) != 1 || got[0] != oNS+"b5" {
-				t.Fatalf("build %d: %s superseded by %v, want b5", i, h, got)
+		for h, want := range map[string]string{"a2": "a1", "b1": "a2", "c2": "c1", "d2": "d1", "e2": "e1"} {
+			if got := values(view, oNS+h, nkNS+"replaces"); len(got) != 1 || got[0] != oNS+want {
+				t.Fatalf("build %d: %s replaces %v, want %s (every name is projected, in lower case)", i, h, got, want)
 			}
 		}
 	}
 }
 
-// Outside a chain the later signed time wins, compared as instants: an offset and fractions of a
-// second order by the time they name, not by their text (review Q2).
-func TestClaimView_SignedTimesAreComparedAsInstants(t *testing.T) {
-	var trusted, structure []Quad
-	for _, c := range [][3]string{
-		{"e1", "https://ex.org/e", "2026-03-05T10:00:00+02:00"}, // 08:00Z
-		{"e2", "https://ex.org/e", "2026-03-05T09:30:00Z"},
-		{"f1", "https://ex.org/f", "2026-03-05T10:00:00.5Z"},
-		{"f2", "https://ex.org/f", "2026-03-05T10:00:00Z"},
-	} {
-		a, p := claimQuads(c[0], c[1], "https://ex.org/status", nil, c[2], "", "", "k1")
-		trusted, structure = append(trusted, a...), append(structure, p...)
+// A claim about several things is about each of them (kton #254), and a seed names its parent
+// scope's seed (kton #241).
+func TestClaimView_EveryAboutAndASeedsParent(t *testing.T) {
+	const parent, seed = "a0", "b0"
+	np := npNS + "c1."
+	all, pub := claimQuads("c1", "https://ex.org/x", "https://ex.org/status", nil, "2026-01-01T00:00:00Z", "", "", "k1")
+	all = append(all, Quad{G: np + "#assertion", S: iri("https://ex.org/y"), P: iri("https://ex.org/status"), O: iri(np + "#o")})
+
+	sa, sp := claimQuads(seed, "urn:nekton:scope:study", rdfType, nil, "2026-01-01T00:00:00Z", seed, "", "k1")
+	sa = append(sa[1:],
+		Quad{G: npNS + seed + ".#assertion", S: iri("urn:nekton:scope:study"), P: iri(rdfsLbl), O: lit("study")},
+		Quad{G: npNS + seed + ".#assertion", S: iri("urn:nekton:scope:study"), P: iri(nkNS + "parent"), O: iri(oNS + "A0")},
+		Quad{G: npNS + seed + ".#pubinfo", S: iri(npNS + seed + "."), P: iri(nkNS + "genesis"), O: typed("true", xsdNS+"boolean")})
+
+	view := ClaimView(append(all, sa...), append(pub, sp...), ViewConfig{})
+	if got := values(view, oNS+"c1", nkNS+"about"); len(got) != 2 {
+		t.Errorf("a claim about two things: nk:about %v", got)
 	}
-	view := ClaimView(trusted, structure, ViewConfig{})
-	for h, want := range map[string]string{"e1": "false", "e2": "true", "f1": "true", "f2": "false"} {
-		if got := values(view, oNS+h, nkNS+"current"); len(got) != 1 || got[0] != want {
-			t.Errorf("current of %s: got %v, want %s", h, got, want)
-		}
+	if got := values(view, oNS+seed, nkNS+"parent"); len(got) != 1 || got[0] != oNS+parent {
+		t.Errorf("the seed's parent: %v, want %s", got, oNS+parent)
+	}
+	if got := values(view, oNS+"c1", nkNS+"parent"); len(got) != 0 {
+		t.Errorf("only a seed has a parent: %v", got)
 	}
 }
 

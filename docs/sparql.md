@@ -28,8 +28,8 @@ your trust moves (ADR-013):
 
 - **`claims`, the default: the query projection.** The default graph holds every step (foton) of
   the union with its attribution to the keys your tiers trust, and **every claim a key you trust
-  signed, as one node**, with its subject, its fields, its signer, its scope, its position in the
-  scope's chain and whether it is current. There are no named graphs: a query names nothing, and
+  signed, as one node**, with its subjects, its fields, its signer, its scope, its position in the
+  scope's chain and what it replaces. There are no named graphs: a query names nothing, and
   stays fast as the work grows.
 - **`nanopub`: the kernel's projection.** The same steps, and each trusted claim as a
   nanopublication of four named graphs (`"dataset":"nanopub"`, or `# dataset: nanopub` as the
@@ -75,7 +75,7 @@ A step carries no time and no command text.
 
 ```
 ?claim a nk:Claim ;
-       nk:about ?subject ;                 # what it is about: a step, a file, any IRI
+       nk:about ?subject ;                 # what it is about: a step, a file, any IRI; one or more
        nk:predicate ?predicate ;           # the template's predicate
        nk:template "describes" ;           # where your templates name it
        <https://kton.dev/v/lab/value> "…" ;  # each field: nk:lab/<field>, or the term your aliases give it
@@ -83,8 +83,8 @@ A step carries no time and no command text.
        nk:signer ?agent ;                  # every key you trust that verifies it
        nk:scope ?seed ; nk:prev ?previous ;  # when it is chained in a scope
        nk:position 3 ;                     # its place in the scope's chain; the seed is 0
-       nk:current true ;                   # no later claim you trust, same scope, subject, predicate
-       nk:supersededBy ?later .            # when not current: the claim that is
+       nk:replaces ?earlier ;              # each claim its replaces field names
+       nk:replacedBy ?later .              # a later claim by the same signer that retires it (below)
 ?agent rdfs:label "alice" ; nk:tier "peers" .   # from your trust configuration
 ```
 
@@ -93,21 +93,27 @@ A step carries no time and no command text.
 your aliases name (`aliases.json`, kton's alias format) is under that term; a field a template types
 `date` is an `xsd:date` or `xsd:dateTime`, and one it types `integer` is an `xsd:integer`. An `enum`
 value written as an IRI, or as a CURIE your aliases resolve (`qms:Effective`), is that IRI; a bare
-value such as `approve` stays a literal. A value that does not read as its type stays as signed. A field that names a file or a step (a `ref`, such as
+value such as `approve` stays a literal. A field typed `iri` is an IRI when it is one (`https://…`,
+`urn:`, `tag:`, `did:`, `mailto:`, or a CURIE your aliases resolve). A value that does not read as its type stays as signed. A field that names a file or a step (a `ref`, such as
 `parent-step`) points at its node `<https://kton.dev/o/<hex>>`, so it joins the steps directly.
 
-**Position and current are kept, not walked.** The index computes them once per change, so a query
-that wants the latest of something asks `nk:current true` and one that wants order asks
-`nk:position`, without `nk:prev+`. Positions count every claim of the chain, including ones you do not
-trust; only claims you trust supersede one another, whatever their tier (`nk:supersededBy` says
-which one did). "Later" is one order: a claim with a position beats one whose predecessor is outside
-your union, then the higher position, then the later signed time, then the id. Where a scope
-branched (two claims after the same one) or outside any scope, the time the signer stated decides.
-An alias may not name a term the projection writes itself (`nk:signer`, `nk:current`, …): the
-query is refused.
+**Positions are kept, not walked.** The index computes them once per change, so a query that wants
+order asks `nk:position`, without `nk:prev+`. Positions count every claim of the chain, including
+ones you do not trust. Nothing else is inferred from order (view vocabulary 1, SPEC §9.11): a later
+claim does not make an earlier one anything unless it says so.
+
+**A claim says what it replaces.** A template with `"replace": "previous"` has the signing tool fill
+the reserved field `replaces` with the claim it replaces. Every name in it is `nk:replaces`, whoever
+signed either claim. `nk:replacedBy` is only where the replacing claim has the same signer (a key
+that verifies both), the same template, and a subject in common (ADR-013 A5). What a name by another
+signer means is your rule's decision, so a query that wants what still stands asks
+`FILTER NOT EXISTS { ?claim nk:replacedBy ?any }`, and a rule that also accepts another key's
+replacement asks `nk:replaces` with that key. An alias may not name a term the projection writes
+itself (`nk:signer`, `nk:replacedBy`, …): the query is refused.
 
 **A scope**'s seed is a claim node with `nk:genesis true`, `rdfs:label "<name>"` and `nk:scope` its own
-node. Its parent is not in the projection: `ask scope` reports it.
+node. `nk:parent` is the parent scope's seed. Since kton v0.4.0 every store has a root scope, and a scope
+seeded without a named parent has the root as its parent.
 
 **In the `nanopub` dataset** a claim is the nanopublication `<https://kton.dev/np/<hex>.>`:
 
@@ -169,20 +175,21 @@ SELECT ?kind ?text ?signer ?when WHERE {
 ORDER BY ?when
 ```
 
-A second description does not replace the first (SPEC §8.6): both are answered, and `nk:current`
-says which is the latest.
+A second description does not replace the first (SPEC §8.6): both are answered.
 
-### The current description of a step
+### The latest description of a step
 
 ```sparql
 PREFIX dct:  <http://purl.org/dc/terms/>
 PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
 PREFIX nk:   <https://kton.dev/v/>
 SELECT ?text ?by WHERE {
-  ?claim nk:about <https://kton.dev/o/STEP> ; nk:predicate dct:description ; nk:current true ;
+  ?claim nk:about <https://kton.dev/o/STEP> ; nk:predicate dct:description ; dct:created ?when ;
          <https://kton.dev/v/lab/value> ?text ; nk:signer ?signer .
   OPTIONAL { ?signer rdfs:label ?by }
 }
+ORDER BY DESC(?when)
+LIMIT 1
 ```
 
 ### What one signer said in a time window
