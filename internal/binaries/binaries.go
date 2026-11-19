@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -653,12 +654,24 @@ func (r *Runner) Templates() (ntemplate.Set, error) {
 // aliases resolve only that package's templates: its predicate and context before they reach the set,
 // its fields in the view and its iri values at say. No package alias enters the set (kton-review A1).
 func (r *Runner) TemplatesAndAliases() (ntemplate.Set, map[string]packages.Aliases, error) {
+	set, own, _, err := r.templatesFull()
+	return set, own, err
+}
+
+// TemplateClashes are the package templates left out because an earlier source declares their
+// predicate (SPEC §9.11): for doctor.
+func (r *Runner) TemplateClashes() []string {
+	_, _, clashes, _ := r.templatesFull()
+	return clashes
+}
+
+func (r *Runner) templatesFull() (ntemplate.Set, map[string]packages.Aliases, []string, error) {
 	aliasPath := filepath.Join(r.cfg.RepoRoot, "aliases.json")
 	var aliases []byte
 	if b, err := os.ReadFile(aliasPath); err == nil {
 		aliases = b
 	} else if !os.IsNotExist(err) {
-		return ntemplate.Set{}, nil, fmt.Errorf("alias file %s: %w", aliasPath, err)
+		return ntemplate.Set{}, nil, nil, fmt.Errorf("alias file %s: %w", aliasPath, err)
 	}
 	// Two sources, one set: the repository's own template directory, and the templates the allowed
 	// installed packages bring (claims.allowedPackages). A name declared by both is refused by the
@@ -672,23 +685,70 @@ func (r *Runner) TemplatesAndAliases() (ntemplate.Set, map[string]packages.Alias
 			}
 			b, err := os.ReadFile(filepath.Join(r.cfg.TemplatesDir, n))
 			if err != nil {
-				return ntemplate.Set{}, nil, err
+				return ntemplate.Set{}, nil, nil, err
 			}
 			raw[strings.TrimSuffix(n, ".json")] = b
 		}
 	} else if !os.IsNotExist(err) {
-		return ntemplate.Set{}, nil, fmt.Errorf("template directory %s: %w", r.cfg.TemplatesDir, err)
+		return ntemplate.Set{}, nil, nil, fmt.Errorf("template directory %s: %w", r.cfg.TemplatesDir, err)
 	}
 	voc, err := packages.Allowed(r.cfg.RepoRoot, r.cfg.Raw.Claims.AllowedPackages, r.cfg.Raw.Claims.AllowedModules)
 	if err != nil {
-		return ntemplate.Set{}, nil, err
+		return ntemplate.Set{}, nil, nil, err
 	}
 	// A package template whose name the repository's own template directory also declares is offered
 	// under its qualified name, <package>/<name>, so the two do not take the whole set down.
+	//
+	// One predicate, one template: the view finds a claim's template, and so the aliases its fields
+	// resolve through, by predicate, so a second source declaring a predicate would change how the
+	// first's claims read (kton-review P1 on #175). The repository's own templates come first, then
+	// the packages in the order they were admitted (claims.allowedPackages), each one's templates by
+	// name; a package template whose predicate an earlier one declares is not offered, and doctor
+	// names it.
+	repoOnly, _ := ntemplate.New(raw, aliases)
+	claimed := map[string]string{}
+	for _, n := range repoOnly.Names() {
+		if t, ok := repoOnly.Get(n); ok && t.Predicate != "" {
+			if p := repoOnly.Resolve(t.Predicate); claimed[p] == "" {
+				claimed[p] = "the repository's template " + n
+			}
+		}
+	}
+	rank := map[string]int{}
+	for i, id := range r.cfg.Raw.Claims.AllowedPackages {
+		if _, seen := rank[id]; !seen {
+			rank[id] = i
+		}
+	}
+	names := make([]string, 0, len(voc.Templates))
+	for name := range voc.Templates {
+		names = append(names, name)
+	}
+	sort.Slice(names, func(i, j int) bool {
+		ri, rj := rank[voc.From["template:"+names[i]].Package], rank[voc.From["template:"+names[j]].Package]
+		if ri != rj {
+			return ri < rj
+		}
+		return names[i] < names[j]
+	})
+	var clashes []string
 	own := map[string]packages.Aliases{}
-	for name, b := range voc.Templates {
-		al := voc.Aliases[voc.From["template:"+name].Name]
+	for _, name := range names {
+		b := voc.Templates[name]
+		src := voc.From["template:"+name]
+		al := voc.Aliases[src.Name]
 		b = packages.ResolvedTemplate(b, al)
+		var decl struct {
+			Predicate string `json:"predicate"`
+		}
+		if json.Unmarshal(b, &decl) == nil && decl.Predicate != "" {
+			p := repoOnly.Resolve(decl.Predicate)
+			if by := claimed[p]; by != "" {
+				clashes = append(clashes, fmt.Sprintf("the template %s of the package %s declares the predicate %s, which %s declares already: not offered", name, src.Name, p, by))
+				continue
+			}
+			claimed[p] = "the template " + name + " of the package " + src.Name
+		}
 		if _, local := raw[name]; local && !strings.Contains(name, "/") {
 			name = voc.From["template:"+name].Name + "/" + name
 			b = packages.Renamed(b, name)
@@ -700,16 +760,16 @@ func (r *Runner) TemplatesAndAliases() (ntemplate.Set, map[string]packages.Alias
 	}
 	set, err := ntemplate.New(raw, aliases)
 	if err != nil {
-		return ntemplate.Set{}, nil, err
+		return ntemplate.Set{}, nil, clashes, err
 	}
 	// Reported rather than absorbed: a file in the template directory that is not a template is
 	// usually a typo'd one, and silence there means a claim shape the operator believes is
 	// configured simply is not.
 	if skipped := set.Skipped(); len(skipped) > 0 {
-		return set, own, fmt.Errorf("%s holds %d file(s) that are not templates: %s",
+		return set, own, clashes, fmt.Errorf("%s holds %d file(s) that are not templates: %s",
 			r.cfg.TemplatesDir, len(skipped), strings.Join(skipped, ", "))
 	}
-	return set, own, nil
+	return set, own, clashes, nil
 }
 
 // readRepoFile reads a repo-relative path, refusing anything that leaves the repository or names a

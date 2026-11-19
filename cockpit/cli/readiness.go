@@ -9,6 +9,7 @@ import (
 	"crypto/ed25519"
 	"encoding/hex"
 	"fmt"
+	"github.com/kton-protocol/kton-cockpit/internal/binaries"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -111,6 +112,9 @@ func readiness(ctx context.Context, cfg *config.Config) []nextStep {
 			steps = append(steps, nextStep{false, fmt.Sprintf("the allowed package %s contributes nothing: %s", orDefault(r.Name, r.Package), r.Reason)})
 		}
 		for _, c := range voc.Clashes {
+			steps = append(steps, nextStep{false, c})
+		}
+		for _, c := range binaries.New(cfg).TemplateClashes() {
 			steps = append(steps, nextStep{false, c})
 		}
 	}
