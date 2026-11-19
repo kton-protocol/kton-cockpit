@@ -449,14 +449,10 @@ func readTemplates(cfg *config.Config) []templateInfo {
 	if err != nil {
 		return nil
 	}
-	var fromPackages map[string][]byte
-	if voc, err := packages.Allowed(cfg.RepoRoot, cfg.Raw.Claims.AllowedPackages, cfg.Raw.Claims.AllowedModules); err == nil {
-		fromPackages = voc.Templates
-	}
 	var out []templateInfo
 	for _, name := range set.Names() {
-		if _, ok := fromPackages[name]; !ok && !cfg.AllowsTemplate(name) {
-			continue
+		if origins[name].Package == "" && !cfg.AllowsTemplate(name) {
+			continue // the ceiling, as say applies it (binaries.TemplateAllowed)
 		}
 		if origins[name].Problem != "" {
 			continue

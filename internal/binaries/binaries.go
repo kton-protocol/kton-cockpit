@@ -735,6 +735,34 @@ func (r *Runner) TemplatesAndAliases() (ntemplate.Set, map[string]packages.Alias
 	return set, own, err
 }
 
+// TemplateAllowed is the claim-template ceiling (SPEC §8.1) over the set say signs with, by origin: a
+// name the set gives an admitted package's template is allowed, the package admitted it; a name the
+// set gives the repository's own template is allowed only when claims.allowedTemplates names it. So a
+// package bringing a template of a repository template's name, which the set offers as
+// <package>/<name>, neither opens the ceiling for the repository's template nor locks out its own
+// (kton-review C1 on #181). A name the set does not hold falls back to the configured names and the
+// packages' bare names, so the refusal that follows says why it is missing.
+func (r *Runner) TemplateAllowed(name string) (bool, error) {
+	set, _, _, origins, err := r.templatesFull()
+	if err == nil {
+		if _, ok := set.Get(name); ok {
+			if origins[name].Package != "" {
+				return true, nil
+			}
+			return r.cfg.AllowsTemplate(name), nil
+		}
+	}
+	if r.cfg.AllowsTemplate(name) {
+		return true, nil
+	}
+	voc, verr := packages.Allowed(r.cfg.RepoRoot, r.cfg.Raw.Claims.AllowedPackages, r.cfg.Raw.Claims.AllowedModules)
+	if verr != nil {
+		return false, verr
+	}
+	_, ok := voc.Templates[name]
+	return ok, nil
+}
+
 // TemplateClashes are the package templates left out because an earlier source declares their
 // predicate (SPEC §9.11): for doctor.
 func (r *Runner) TemplateClashes() []string {

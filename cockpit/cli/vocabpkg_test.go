@@ -13,6 +13,7 @@ import (
 	"github.com/gitmick/ktonpkg/scope"
 
 	"github.com/kton-protocol/kton-cockpit/cockpit"
+	"github.com/kton-protocol/kton-cockpit/internal/config"
 	"github.com/kton-protocol/kton-cockpit/internal/testrepo"
 )
 
@@ -236,5 +237,65 @@ func TestSay_TheListingIsWhatSayOffers(t *testing.T) {
 		if out, code := r.Cockpit(t, "say", name, "urn:example:item", "note=x"); code != 0 {
 			t.Errorf("listed %s, but say refuses it (exit %d):\n%s", name, code, out)
 		}
+	}
+}
+
+// The ceiling is by origin (kton-review C1 on #181): a package bringing a template of a repository
+// template's name neither opens the ceiling for the repository's template nor locks out its own. And
+// the listing keeps to what say signs (T12–T14): a template whose predicate resolves to no IRI is not
+// listed, a repository template claims.allowedTemplates does not name is not listed, and the predicate
+// listed is the one say signs, resolved through the alias file.
+func TestSay_TheCeilingIsByOriginAndTheListingFollowsIt(t *testing.T) {
+	r := testrepo.New(t)
+	r.Use(t)
+	ctx := context.Background()
+	c := cockpit.New(cockpit.Start{})
+	r.Write(t, ".kton/templates/retracts.json", `{"name": "retracts", "target": "either", "predicate": "https://example.org/repo/retracts-ALL", "fields": {"note": {"type": "string"}}}`)
+	r.Write(t, ".kton/templates/unprefixed.json", `{"name": "unprefixed", "target": "either", "predicate": "nowhere:x", "fields": {"note": {"type": "string"}}}`)
+	r.Write(t, ".kton/templates/aliased.json", `{"name": "aliased", "target": "either", "predicate": "rel:aliased", "fields": {"note": {"type": "string"}}}`)
+	r.Write(t, ".kton/aliases.json", `{"prefixes": {"rel": "https://example.org/release/"}}`)
+	raw := r.Config(t).Raw
+	raw.Claims.AllowedTemplates = append(raw.Claims.AllowedTemplates, "unprefixed", "aliased")
+	r.WriteConfig(t, raw)
+
+	src := t.TempDir()
+	os.MkdirAll(filepath.Join(src, "templates"), 0o755)
+	os.WriteFile(filepath.Join(src, "templates", "retracts.json"), []byte(`{"name": "retracts", "target": "either",
+  "predicate": "https://example.org/train/retracts", "fields": {"note": {"type": "string"}}}`), 0o644)
+	_, key, _ := ed25519.GenerateKey(rand.Reader)
+	dir := filepath.Join(t.TempDir(), "train")
+	if _, _, err := scope.BuildTemplates(dir, "train", "v1", filepath.Join(src, "templates"), "", key, scope.Options{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Install(ctx, cockpit.InstallRequest{Path: dir, Allow: true}); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+
+	if out, code := r.Cockpit(t, "say", "retracts", "urn:example:x", "note=x"); code == 0 || !strings.Contains(out, "not in this repo's allowed claim templates") {
+		t.Errorf("say retracts signed the repository's unallowed template (exit %d):\n%s", code, out)
+	}
+	if out, code := r.Cockpit(t, "say", "train/retracts", "urn:example:x", "note=x", "--expect-predicate", "https://example.org/train/retracts"); code != 0 {
+		t.Errorf("say train/retracts (exit %d):\n%s", code, out)
+	}
+
+	cfg, err := config.Load(ctx, ".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	listed := map[string]string{}
+	for _, x := range readTemplates(cfg) {
+		listed[x.Name] = x.Predicate
+	}
+	if listed["train/retracts"] != "https://example.org/train/retracts" {
+		t.Errorf("train/retracts is not listed with its predicate: %v", listed)
+	}
+	if _, ok := listed["retracts"]; ok {
+		t.Errorf("the repository's unallowed retracts is listed (ceiling, T13): %v", listed)
+	}
+	if _, ok := listed["unprefixed"]; ok {
+		t.Errorf("a template whose predicate is no IRI is listed (T12): %v", listed)
+	}
+	if listed["aliased"] != "https://example.org/release/aliased" {
+		t.Errorf("the listed predicate is not the one say signs (T14): %q", listed["aliased"])
 	}
 }
