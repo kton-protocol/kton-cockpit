@@ -14,6 +14,9 @@ export const FLOWS = {
   S7: "Transport errors",
   S9: "Surfaces and lanes",
   S10: "Recorder handover",
+  S5: "Packages: review view, open intent, hostile packages, uninstall",
+  C1: "A composition in VS Code: wiring, held acts, refusals shown at the act",
+  C2: "Layout in a composition (ktonpkg v0.9.5): grid, tabs, split, restored after a reload, host narrow",
 };
 
 /**

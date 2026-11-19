@@ -94,6 +94,50 @@ No network calls, no telemetry. Every webview has a host-owned Content Security 
 A kton signature is not yet a QMS e-signature: the extension runs in **TEST MODE**, and every
 signature it makes is test-only.
 
+## Packages and compositions
+
+The admitted packages' ui declarations (C2) come from `cockpit ui list --json`:
+
+- **Loading.** A package's bytes are read by content hash from its installed folder and checked again at
+  load. A package that fails any check renders nothing and is listed under **Packages** on Home with
+  its reason; so is one that is not admitted. Only a package with `allowed: true` and no refusal
+  contributes slots and compositions.
+- **Slots.** A `review-view` or `record-view` entry is offered on the subjects its `when` names (today:
+  under each open proposal on Home). `home-tile` and `status-item` show their query's one number. A
+  slot name this shell does not know is listed, never rendered.
+- **Compositions.** They are planned with the ktonpkg JS mirror and rendered by kton-web's
+  `core/compose.js` in a panel. Both are vendored at a pinned kton-web commit in `media/kton-web/`
+  (`PIN.json`; `scripts/vendor-kton-web.mjs --check`). The panel's CSP is the host's: scripts by
+  nonce and from the webview origin, `connect-src 'none'`, no `'unsafe-inline'`.
+- **What a block may ask.**
+  - `query@1` runs the package's named query (`cockpit ask {query: sparql, name, bind}`), never
+    query text.
+  - `content@1` and `product@1` answer from package bytes by hash.
+  - An act runs only as the plan declares it, through its control, whose kind decides the key: a
+    decision goes through the sign dialog with the person key, a record is written with the agent
+    key and no dialog.
+
+- **Leaf viewers.** A page viewer that runs in its own frame (kton-web's graph, `frame: leaf`) is pinned by a
+  package at a kton-web commit and must be the tree this shell vendors. It gets the state its slot binds and
+  asks for its data: `graph@1` is answered with the registry's records, keys and names, which the viewer
+  verifies in its own wasm. A leaf may fetch its pinned files (the wasm) from its own resource origin
+  (`connect-src` the webview origin); a composition frame keeps `connect-src 'none'` (C1.5 v3).
+- **Layout** (ktonpkg v0.9.5). The renderer places parts in grids, tabs and splits. The host tells it
+  `host.narrow = 640`: a layout that declares `narrow` switches below 640 px of composition width (a full
+  editor column is wider; a split editor or a narrow window is not); a layout without `narrow` never changes.
+  The open tab and a split's ratio are view state: the host holds them like vars (never as acts) and gives
+  them back when the webview reloads.
+- **Diagrams.** Mermaid runs only in a sandboxed frame, served from 127.0.0.1 on a random port (exactly its
+  three pinned files) and named in the composition frame's `frame-src`; the diagram is shown as an `<img>`.
+
+Everything about packages comes from the cockpit: `cockpit ui list --json` (v0.5.4) for packages, admission,
+refusals, ui entries, blocks, compositions (with their hash) and members (role, name, hash), and
+`cockpit ui cat <package> <hash>` for a member's bytes, checked against the hash again. The shell reads no
+package folder. `graph@1` reads
+`cockpit show --json`: union, keys, names and the admitted packages' build keys (`packages`, passed on
+unchanged; a label, never trust). Planned params go to the cockpit as typed terms (`bindTerms`); a query or
+template name two packages bring is asked for as `<package>/<name>`.
+
 ## Build and test
 
 Node 22 (`.nvmrc`). From `extension/`:
@@ -123,7 +167,8 @@ needs `COCKPIT_IT_BIN` and `COCKPIT_IT_REPO`, and fails without them: it is not 
 
 ```console
 $ npm run package
-$ test/e2e/run.sh /tmp/wb-e2e-$$ /path/to/cockpit      # a fresh, absolute work dir
+$ test/e2e/build-cockpit.sh /tmp/wb-cockpit/cockpit       # this checkout's cockpit (ktonpkg v0.9.1)
+$ test/e2e/run.sh /tmp/wb-e2e-$$ /tmp/wb-cockpit/cockpit   # a fresh, absolute work dir
 ```
 
 - **Pinning**: images are pinned by digest: node 22, code-server 4.96.4, Playwright 1.49.1, and a

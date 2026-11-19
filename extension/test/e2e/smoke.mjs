@@ -17,7 +17,12 @@ let current = null;
 const started = new Date();
 
 const browser = await chromium.launch();
-const page = await browser.newPage({ viewport: { width: 1600, height: 1800 } });
+const page = await browser.newPage({ viewport: { width: 1600, height: 4500 } });
+// S5.3 viewer-calls-network: every request the page or its frames make to example.org (there must be none)
+const leaked = [];
+page.on("request", (r) => {
+  if (/example\.org/.test(r.url())) leaked.push(r.url());
+});
 async function shot(name) {
   const file = `${name}.png`;
   await page.screenshot({ path: `${OUT}/${file}` });
@@ -51,10 +56,10 @@ function check(ok, message, expected, received) {
 
 // ---- the registry, from outside the shell (sidecar)
 let rpcN = 0;
-async function cockpit(argv, stdin) {
+async function cockpit(argv, stdin, extra = {}) {
   const id = `${process.pid}-${++rpcN}`;
   const req = `${WORK}/rpc/${id}.req.json`;
-  writeFileSync(`${req}.tmp`, JSON.stringify({ argv, ...(stdin !== undefined ? { stdin } : {}) }));
+  writeFileSync(`${req}.tmp`, JSON.stringify({ argv, ...(stdin !== undefined ? { stdin } : {}), ...extra }));
   renameSync(`${req}.tmp`, req);
   const end = Date.now() + 180_000;
   while (Date.now() < end) {
@@ -79,6 +84,7 @@ async function sparql(q) {
 // person key's label in another tier (review check 7, Q2).
 const PERSON = `https://kton.dev/agent/${seed.personKeyId}`;
 const LOOKALIKE = `https://kton.dev/agent/${seed.lookalikeKeyId}`;
+const AGENT = `https://kton.dev/agent/${seed.agentKeyId}`;
 const decidesAbout = (pid) => sparql(`SELECT ?d ?s ?by ?choice WHERE { ?d nk:predicate t:decides ; lab:answers <${iriOf(pid)}> ; nk:signer ?s . ?s rdfs:label ?by . OPTIONAL { ?d lab:choice ?choice } }`);
 const claimsWithTitle = (template, title) => sparql(`SELECT ?c ?s ?by ?area WHERE { ?c nk:predicate t:${template} ; lab:title ${JSON.stringify(title)} ; nk:signer ?s . ?s rdfs:label ?by . OPTIONAL { ?c lab:area ?area } }`);
 
@@ -183,11 +189,10 @@ await page.locator(".monaco-workbench").waitFor({ timeout: 90000 });
 await views();
 
 await step("S1", 1, "status bar: both keys, unverified, no name from a claim; test mode; one poller", async () => {
-  await status().getByText(/person key: .*qa-decider.*unverified/).waitFor({ timeout: 60000 });
-  await status().getByText(/agent key: .*qa-decider-agent.*unverified/).waitFor();
+  await status().getByText("person key qa-decider · agent key qa-decider-agent · unverified", { exact: true }).waitFor({ timeout: 60000 });
   await status().getByText("TEST MODE").waitFor();
   await status().getByText(/polling: inbox every 2s · 2 open · 4 decisions/).waitFor({ timeout: 60000 });
-  const id = await status().getByText(/person key:/).first().textContent();
+  const id = await status().getByText(/person key /).first().textContent();
   check(!/qa-requestor/.test(id), "the identity shows no name from a claim's signer", false, /qa-requestor/.test(id));
   await shot("s1-status-bar");
 });
@@ -196,7 +201,7 @@ await step("S9", 1, "surfaces and lanes: the switch filters the same window; Lan
   await views();
   await row("qa-lane").waitFor({ timeout: 15000 });
   await row("ops-lane").getByText("1 open").waitFor();
-  await row("Open in terminal").getByText("not yet available").waitFor();
+  await row("Open in terminal").getByText("comes with the workgroup extension").waitFor();
   await status().getByText("surface: all").click();
   await pickQuick("ops");
   await status().getByText("surface: ops").waitFor();
@@ -285,6 +290,313 @@ await step("S2", 6, "compose: Cancel in the dialog keeps the draft and makes no 
   const c = await claimsWithTitle("requests", "Composed request");
   check(c.length === 1 && c[0].area === "qa" && c[0].s === PERSON, "the composed request exists with its area and title, by the person key", [{ area: "qa", s: PERSON }], c.map(({ area, s }) => ({ area, s })));
   await clearToasts();
+});
+
+
+// ---- PR 2: packages and compositions (C2, C1.5 v3), on P1 while it is still open
+/** The claims of a package template about a proposal, with their signer. */
+const templateClaims = (tpl, pid) => sparql(`SELECT ?c ?s WHERE { ?c nk:template ?t ; nk:about <${iriOf(pid)}> ; nk:signer ?s . FILTER(CONTAINS(STR(?t), ${JSON.stringify(tpl)})) }`);
+/** The frame (webview) whose document has this selector, visible. */
+async function frameWithSel(sel, timeout = 30000) {
+  const end = Date.now() + timeout;
+  while (Date.now() < end) {
+    for (const f of page.frames()) {
+      if (f === page.mainFrame()) continue;
+      try {
+        if (await f.locator(sel).first().isVisible()) return f;
+      } catch {}
+    }
+    await page.waitForTimeout(300);
+  }
+  throw new Error(`no webview shows ${sel}`);
+}
+/** Click the slot entry row `label` (with `pkg` in its description) under the proposal titled `title`. */
+async function openReview(title, label, pkg) {
+  await views();
+  const rows = page.locator(".monaco-list-row");
+  const texts = await rows.allTextContents();
+  const at = texts.findIndex((t) => t.includes(title));
+  if (at < 0) throw new Error(`no row ${title}`);
+  const i = texts.findIndex((t, j) => j > at && t.includes(label) && t.includes(pkg));
+  if (i < 0) throw new Error(`no row ${label} (${pkg}) under ${title}`);
+  await rows.nth(i).click();
+}
+const P1_TITLE = "Which build goes to qualification?";
+const shell = () => frameWithSel('[data-composition="kton-web-test/test-shell"]');
+const probeOut = async (k) => (await (await shell()).locator(`[data-use="acts#probe"] [data-probe-out="${k}"]`).textContent()) ?? "";
+
+await step("S5", 1, "a package's review-view entry is offered on a proposal and opens its composition from the checked package", async () => {
+  await row("Review · Test shell").first().waitFor({ timeout: 30000 });
+  await openReview(P1_TITLE, "Review · Test shell", "kton-web-test");
+  const f = await shell();
+  await f.locator('[data-use="acts#probe"] [data-probe="label"]', { hasText: "the acting block" }).waitFor({ timeout: 30000 });
+  const v = await f.locator("#kton-root").getAttribute("data-csp-violations");
+  check(!v || v === "0", "the composition frame ran without a CSP violation", "0", v ?? "0");
+  await shot("s5-review-view");
+});
+
+await step("S4", 2, "a decision act goes through the one sign dialog and signs with the person key", async () => {
+  await (await shell()).locator('[data-use="acts#probe"] button[data-intent="sign"]').click();
+  const d = await dialog();
+  await d.getByText("Template: test-note", { exact: false }).first().waitFor();
+  await d.getByText('person key "qa-decider"', { exact: false }).first().waitFor();
+  await signInDialog(d);
+  await d.locator('[data-testid="sign-outcome"][data-state="signed"]').waitFor({ timeout: 30000 });
+  await shot("s4-act-sign-dialog");
+  const c = await templateClaims("test-note", P.P1);
+  check(c.length === 1 && c[0].s === PERSON, "one test-note about P1, by the person key id", [{ s: PERSON }], c.map(({ s }) => ({ s })));
+  await clearToasts();
+});
+
+await step("C1", 1, "the act's outcome is shown at the act after the dialog took its column (held by the host if the frame was reloaded)", async () => {
+  await page.locator(".tab", { hasText: "Test shell" }).first().click();
+  // VS Code may or may not have discarded the hidden webview: then the outcome comes back held (data-held, from
+  // the next set), else it arrived live. Either way it must be shown at the act (held replay: unit-tested).
+  const note = (await shell()).locator('[data-use="acts#probe"] .kton-act-note[data-state="done"]');
+  await note.waitFor({ timeout: 30000 });
+  check(/Signed with the person key/.test((await note.textContent()) ?? ""), "the act's outcome is shown at the act", "Signed with the person key…", await note.textContent());
+  current.checks.push({ ok: true, message: `the outcome came ${(await note.getAttribute("data-held")) === "true" ? "held, after the frame reloaded" : "live (the frame was kept)"}` });
+  await shot("c1-held-act");
+});
+
+await step("S4", 3, "a record act is written with the agent key, with no dialog", async () => {
+  const dialogsBefore = page.frames().filter((f) => f.url().includes("ktonWorkbench.sign")).length;
+  await (await shell()).locator('[data-use="acts#probe"] button[data-intent="record"]').click();
+  await (await shell()).locator('[data-use="acts#probe"] .kton-act-note[data-state="done"]', { hasText: "Recorded with the agent key" }).waitFor({ timeout: 30000 });
+  check(page.frames().filter((f) => f.url().includes("ktonWorkbench.sign")).length <= dialogsBefore, "no sign dialog opened");
+  const c = (await templateClaims("test-note", P.P1)).filter((x) => x.s === AGENT);
+  check(c.length === 1, "one test-note about P1 by the agent key id", 1, c.length);
+  await shot("s4-act-record");
+});
+
+await step("S4", 4, "an intent that names a decision control under record is refused: the intent cannot change the kind", async () => {
+  const before = (await templateClaims("test-note", P.P1)).length;
+  await (await shell()).locator('[data-use="acts#probe"] button[data-probe-do="kind"]').click();
+  await (await shell()).locator('[data-use="acts#probe"] [data-probe-out="kind"]', { hasText: "refused" }).waitFor({ timeout: 15000 });
+  check(/cannot change the kind/.test(await probeOut("kind")), "refused with the reason", "…cannot change the kind", await probeOut("kind"));
+  check((await templateClaims("test-note", P.P1)).length === before, "nothing was signed", before, (await templateClaims("test-note", P.P1)).length);
+});
+
+await step("S4", 6, "say is no act of the shell; a capability the viewer does not declare is refused in the frame", async () => {
+  const f = await shell();
+  await f.locator('[data-use="acts#probe"] button[data-probe-do="say"]').click();
+  await f.locator('[data-use="acts#probe"] [data-probe-out="say"]', { hasText: "refused" }).waitFor({ timeout: 15000 });
+  check(/say is not an act this shell performs/.test(await probeOut("say")), "say refused by the host", "say is not an act…", await probeOut("say"));
+  await f.locator('[data-use="acts#probe"] button[data-probe-do="cap"]').click();
+  await f.locator('[data-use="acts#probe"] [data-probe-out="cap"]', { hasText: "refused" }).waitFor({ timeout: 15000 });
+  check(/does not declare sign@1/.test(await probeOut("cap")), "sign@1 refused before it left the frame", "…does not declare sign@1", await probeOut("cap"));
+  await shot("s4-refused-intents");
+});
+
+await step("C1", 2, "wiring: a pick in one block reaches its sibling through a var; a wired intent is consumed in the frame", async () => {
+  const f = await shell();
+  await f.locator('[data-use="acts#probe"] button[data-probe-do="pick-a"]').click();
+  await f.locator('[data-use="wired#echo"] [data-probe="label"]', { hasText: "A" }).waitFor({ timeout: 15000 });
+  await f.locator('[data-use="acts#probe"] button[data-probe-do="focus"]').click();
+  await f.locator('[data-use="acts#probe"] [data-probe-out="focus"]', { hasText: "wired" }).waitFor({ timeout: 15000 });
+  const stats = JSON.parse((await f.locator("#kton-root").getAttribute("data-wiring")) ?? "{}");
+  check(stats.consumed >= 1 && stats.emits >= 2, "the focus intent was consumed in the frame (never sent to the host); the pick wrote its var", ">= 1 consumed, >= 2 emits", stats);
+  await shot("c1-wiring");
+});
+
+await step("C1", 3, "a diagram in the composition: drawn in the sandboxed Mermaid frame (127.0.0.1, H13), no foreignObject, labels intact", async () => {
+  const f = await shell();
+  const d = f.locator(".kton-diagram");
+  await f.locator('.kton-diagram[data-drawn]').waitFor({ state: "attached", timeout: 60000 });
+  const named = await f.locator('meta[name="kton-mermaid-frame"]').getAttribute("content").catch(() => null);
+  const status = named ? await page.request.get(named).then((r) => r.status(), (e) => String(e.message ?? e)) : "no meta";
+  current.checks.push({ ok: true, message: `the Mermaid frame the page names: ${named} (${status})` });
+  const drawn = await d.getAttribute("data-drawn");
+  check(drawn === "true", "the diagram was drawn", "true", drawn === "true" ? "true" : await d.innerText());
+  check((await d.getAttribute("data-foreign-objects")) === "0", "no foreignObject (htmlLabels false)", "0", await d.getAttribute("data-foreign-objects"));
+  const labels = JSON.parse((await d.getAttribute("data-labels")) ?? "[]");
+  for (const l of ["Bug Reporting & Triage", "Fix in a branch", "Review passed?", "Merge"]) check(labels.includes(l), `label "${l}" intact`, l, labels);
+  const src = (await d.locator("img").getAttribute("src")) ?? "";
+  check(src.startsWith("data:image/svg+xml"), "shown as an <img> from a data: URL", "data:image/svg+xml…", src.slice(0, 40));
+  const v = await f.locator("#kton-root").getAttribute("data-csp-violations");
+  check(!v || v === "0", "the composition frame stayed within its CSP", "0", v ?? "0");
+  await shot("c1-diagram");
+});
+
+// ---- layout (ktonpkg v0.9.5, VERTICLE-HOSTS §17): kton-web-test's test-layout, opened from its review-view entry
+const layout = () => frameWithSel('[data-composition="kton-web-test/test-layout"]');
+const boxIn = (f, sel) => f.locator(sel).first().evaluate((e) => { const r = e.getBoundingClientRect(); return { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) }; });
+const selectedTab = async (f) => (await f.locator('[data-layout="tabs"] [role="tab"][aria-selected="true"]').first().innerText()).trim();
+
+await step("C2", 1, "grid: filter | record | side side by side, 2fr wider than 1fr, side's second row an empty cell", async () => {
+  await openReview(P1_TITLE, "Review · Test layout", "kton-web-test");
+  const f = await layout();
+  await f.locator('#kton-root[data-settled="true"]').waitFor({ timeout: 30000 });
+  const grid = f.locator('.kton-composition > [data-layout="grid"]');
+  check((await grid.getAttribute("data-mode")) === "wide", "wide in this editor", "wide", await grid.getAttribute("data-mode"));
+  const [a, b, c] = [await boxIn(f, '[data-cell="filter"]'), await boxIn(f, '[data-cell="main"]'), await boxIn(f, '[data-cell="side"]')];
+  check(a.x < b.x && b.x < c.x && Math.abs(a.y - b.y) < 3 && Math.abs(b.y - c.y) < 3, "three cells side by side", "filter < main < side", { a, b, c });
+  check(b.w > a.w * 1.5, "2fr is wider than 1fr", `> ${a.w * 1.5}`, b.w);
+  const root = await boxIn(f, "#kton-root");
+  current.checks.push({ ok: true, message: `the composition's width in this editor: ${root.w}px (host.narrow 640)` });
+  await shot("c2-grid");
+});
+
+await step("C2", 2, "tabs: History open first; Details mounts on first show; arrow keys and End move", async () => {
+  const f = await layout();
+  check((await selectedTab(f)) === "History", "History is the active tab", "History", await selectedTab(f));
+  check((await f.locator('[data-use="main/details#d"]').count()) === 0, "Details not mounted before it is shown", 0, await f.locator('[data-use="main/details#d"]').count());
+  await f.locator('[role="tab"]', { hasText: "Details" }).click();
+  await f.locator('[data-use="main/details#d"]').waitFor({ timeout: 10000 });
+  await f.locator('[role="tab"]', { hasText: "Details" }).press("ArrowRight");
+  check((await selectedTab(f)) === "History", "ArrowRight moves to History", "History", await selectedTab(f));
+  await f.locator('[role="tab"]', { hasText: "History" }).press("End");
+  check((await selectedTab(f)) === "Approvals", "End moves to Approvals", "Approvals", await selectedTab(f));
+  await shot("c2-tabs");
+});
+
+await step("C2", 3, "split: 0.3 on the left; the divider moves by keys (ArrowRight: 0.35)", async () => {
+  const f = await layout();
+  const [l, r] = [await boxIn(f, '[data-cell="left"]'), await boxIn(f, '[data-cell="right"]')];
+  const share = l.w / (l.w + r.w);
+  check(Math.abs(share - 0.3) <= 0.05, "the left part has 0.3 of the width", 0.3, Number(share.toFixed(3)));
+  await f.locator(".kton-divider").press("ArrowRight");
+  const ratio = await f.locator('[data-layout="split"]').getAttribute("data-ratio");
+  check(ratio === "0.35", "ArrowRight moves the ratio to 0.35", "0.35", ratio);
+  await shot("c2-split");
+});
+
+await step("C2", 4, "a webview reload restores the open tab and the ratio (host-held view state)", async () => {
+  let f = await layout();
+  const load = await f.locator("#kton-root").getAttribute("data-load");
+  await page.waitForTimeout(1500); // the frame reports its state
+  await runCommand("Developer: Reload Webviews");
+  const end = Date.now() + 60000;
+  for (;;) {
+    f = await layout();
+    const now = await f.locator("#kton-root").getAttribute("data-load").catch(() => null);
+    if (now && now !== load && (await f.locator('#kton-root[data-settled="true"]').count())) break;
+    if (Date.now() > end) throw new Error(`the composition frame did not reload (load ${load} -> ${now})`);
+    await page.waitForTimeout(500);
+  }
+  current.checks.push({ ok: true, message: `the frame reloaded (load ${load} -> ${await f.locator("#kton-root").getAttribute("data-load")})` });
+  check((await selectedTab(f)) === "Approvals", "the open tab came back", "Approvals", await selectedTab(f));
+  const ratio = await f.locator('[data-layout="split"]').getAttribute("data-ratio");
+  check(ratio === "0.35", "the ratio came back", "0.35", ratio);
+  await shot("c2-restored");
+});
+
+await step("C2", 5, "narrow: an editor narrower than host.narrow (640) turns the grid into tabs; wide again after", async () => {
+  await page.setViewportSize({ width: 900, height: 4500 });
+  let f = await layout();
+  await f.locator('.kton-composition > .kton-layout[data-mode="narrow"]').waitFor({ timeout: 15000 });
+  const w = (await boxIn(f, "#kton-root")).w;
+  const top = await f.locator('.kton-composition > .kton-layout > [role="tablist"] [role="tab"]').allInnerTexts();
+  check(JSON.stringify(top.map((t) => t.trim())) === JSON.stringify(["Filter", "Record", "Side"]), "the top parts became tabs", ["Filter", "Record", "Side"], top);
+  current.checks.push({ ok: true, message: `narrow at a composition width of ${w}px (window 900px)` });
+  await shot("c2-narrow");
+  await page.setViewportSize({ width: 1600, height: 4500 });
+  f = await layout();
+  await f.locator('.kton-composition > .kton-layout[data-mode="wide"]').waitFor({ timeout: 15000 });
+});
+
+await step("C2", 6, "the layouts ran under the composition frame's strict CSP: no violation, no style attribute needed", async () => {
+  const f = await layout();
+  const v = await f.locator("#kton-root").getAttribute("data-csp-violations");
+  check(!v || v === "0", "no CSP violation", "0", v ?? "0");
+  check(leaked.length === 0, "nothing left the page", 0, leaked);
+});
+
+await step("S5", 2, "an unwired open intent goes up to the shell, which performs it (and fetches nothing)", async () => {
+  await page.locator(".tab", { hasText: "Test shell" }).first().click(); // the layout panel took the column
+  await (await shell()).locator('[data-use="acts#probe"] button[data-probe-do="open"]').click();
+  await toast(/Open: https:\/\/kton\.dev\/ \(not a claim in this window; nothing was fetched\)/).waitFor({ timeout: 15000 });
+  await (await shell()).locator('[data-use="acts#probe"] [data-probe-out="open"]', { hasText: "done" }).waitFor({ timeout: 15000 });
+  await clearToasts();
+});
+
+await step("S5", 3, "hostile packages: refusals reach the Packages view with their reasons; good renders; a network call is blocked", async () => {
+  await views();
+  const texts = (await page.locator(".monaco-list-row").allTextContents()).join("\n");
+  for (const [what, re] of [
+    ["tampered after admission (the cockpit's own check: only that package goes)", /hostile-tamperedrefused: package\.check/],
+    ["viewer-pin-mismatch, with its reason", /hostile-pinrefused: viewer-pin-mismatch/],
+    ["unknown slot (version skew): listed, not rendered", /hostile-good: Sidebar adnot rendered/],
+  ]) check(re.test(texts), what, String(re), "not in the Home tree");
+  const tampered = JSON.parse(readFileSync(`${WORK}/tampered.json`, "utf8")).hash;
+  const why = new RegExp(`the bytes for ${tampered.slice(0, 20)}[0-9a-f]* have the hash sha256:[0-9a-f]`);
+  check(why.test(texts), "the reason is in English and names the tampered member (ktonpkg v0.9.7)", `the bytes for ${tampered} have the hash …`, texts.split("\n").find((l) => l.includes(tampered.slice(7, 19))) ?? "not in the Home tree");
+  check(/pins viewer kton-web\/table at kton-web 39242b9f0bfc, which this shell does not carry/.test(texts), "the pin's reason is shown", "…which this shell does not carry", "");
+  check(!/Sidebar ad\b(?!not)/.test(texts.replace(/Sidebar adnot rendered/g, "")), "the unknown slot has no place of its own");
+  await shot("s5-packages-refused");
+  // the positive control renders
+  await openReview(P1_TITLE, "Review", "hostile-good");
+  const g = await frameWithSel('[data-block="hostile-good/table"]');
+  await g.locator('[data-block="hostile-good/table"]', { hasText: "table" }).waitFor({ timeout: 30000 });
+  // viewer-calls-network: renders, but the host CSP blocks the fetch: 0 requests leave, one violation recorded
+  await openReview(P1_TITLE, "Review", "hostile-network");
+  const n = await frameWithSel('[data-block="hostile-network/table"]');
+  await n.locator("#kton-root[data-csp-violations]").waitFor({ state: "attached", timeout: 15000 });
+  const csp = JSON.parse((await n.locator("#kton-root").getAttribute("data-csp")) ?? "{}");
+  check((csp["connect-src"] ?? 0) >= 1, "the fetch was a connect-src violation in the composition frame", ">= 1", csp);
+  check(leaked.length === 0, "no request to example.org left the page", 0, leaked);
+  await shot("s5-network-blocked");
+});
+
+await step("S5", 5, "record view: kton-web's graph as a leaf; graph@1 answered with records the block verifies in its wasm", async () => {
+  await openReview(P1_TITLE, "Record · Provenance", "workbench-graph");
+  const g = await frameWithSel("#stats", 60000);
+  await g.locator("#stats").filter({ hasText: /\d/ }).waitFor({ timeout: 60000 });
+  const err = (await g.locator("#err").isVisible().catch(() => false)) ? await g.locator("#err").innerText() : "";
+  check(err === "", "the graph drew without an error", "", err);
+  const stats = (await g.locator("#stats").innerText()).replace(/\s+/g, " ").trim();
+  current.checks.push({ ok: true, message: `the graph's stats: ${stats}` });
+  // what graph@1 was answered with (`cockpit show --json`, v0.5.3): every record's signers, against the trusted
+  // ring (keys, the configured tiers) and the admitted packages' build keys (packages: a label, never trust).
+  //   in keys                 -> verified
+  //   in packages             -> "signed by an admitted package" (checked against the package's key), never verified
+  //   neither                 -> "not in the trusted keys" (the tampered package: v0.5.3 labels no package failing its check)
+  //   in keys, does not check -> "unverified": there must be none
+  const shown = await cockpit(["show", "--json"]);
+  check(shown.code === 0, "cockpit show --json answered", 0, shown.code);
+  const m = JSON.parse(shown.stdout);
+  const kidOf = (pubHex) => createHash("sha256").update(Buffer.from(pubHex.trim(), "hex")).digest("hex").slice(0, 16);
+  const who = new Map(Object.entries(m.names));
+  for (const p of readdirSync(`${WORK}/pkgs`)) for (const f of readdirSync(`${WORK}/pkgs/${p}/keys`)) who.set(f.replace(/\.pub$/, ""), `package ${p}`);
+  for (const f of readdirSync(`${WORK}/vocab-package/keys`)) who.set(f.replace(/\.pub$/, ""), "package workbench-e2e-queries");
+  for (const f of (existsSync(`${WORK}/outside`) ? readdirSync(`${WORK}/outside`) : []).filter((x) => x.endsWith("-claims.pub"))) who.set(kidOf(readFileSync(`${WORK}/outside/${f}`, "utf8")), `${f.replace(/\.pub$/, "")} (moved out of the trust config, S1.3)`);
+  const count = { ring: 0, pkg: new Map(), outside: new Map() };
+  for (const r of m.union) {
+    const kids = (r.envelope?.signatures ?? []).map((x) => x.keyid);
+    if (kids.some((k) => k in m.keys)) count.ring++;
+    else if (kids.some((k) => k in m.packages)) for (const k of kids.filter((x) => x in m.packages)) count.pkg.set(k, (count.pkg.get(k) ?? 0) + 1);
+    else for (const k of kids) count.outside.set(k, (count.outside.get(k) ?? 0) + 1);
+  }
+  const sum = (mp) => [...mp.values()].reduce((a, b) => a + b, 0);
+  const list = (mp) => [...mp.entries()].map(([k, n]) => `${k} ${who.get(k) ?? "?"}${m.packages[k] ? ` [labelled: ${m.packages[k].packages.map((p) => p.package).join(", ")}]` : ""}: ${n}`).sort().join("; ");
+  current.checks.push({ ok: true, message: `records ${m.union.length}: ${count.ring} in the trusted ring; ${sum(count.pkg)} by admitted packages' build keys: ${list(count.pkg)}; ${sum(count.outside)} by keys in neither: ${list(count.outside)}` });
+  current.checks.push({ ok: true, message: `keys.json (trusted): ${Object.keys(m.keys).map((k) => `${k} ${who.get(k) ?? "?"}`).sort().join("; ")}` });
+  const num = (re) => Number(re.exec(stats)?.[1] ?? 0);
+  check(num(/(\d+) signed by an admitted package/) === sum(count.pkg), "records by admitted packages' build keys show as 'signed by an admitted package' (not a trust tier)", sum(count.pkg), num(/(\d+) signed by an admitted package/));
+  check(sum(count.pkg) > 0, "the seed has package-signed records", "> 0", sum(count.pkg));
+  check(num(/(\d+)\/\d+ verified/) === count.ring, "verified counts only the trusted ring, never a package's key", count.ring, num(/(\d+)\/\d+ verified/));
+  check(num(/(\d+) signer not in the trusted keys/) === sum(count.outside), "'not in the trusted keys' are the records signed by keys in neither", sum(count.outside), num(/(\d+) signer not in the trusted keys/));
+  check(!/\d+ unverified/.test(stats), "0 unverified: every signature by a key the ring holds checks", "no 'unverified'", stats);
+  check([...count.outside.keys(), ...count.pkg.keys()].every((k) => who.has(k)), "every signer outside the ring is accounted for", "all known", list(count.outside));
+  check(leaked.length === 0, "nothing left the page", 0, leaked);
+  await shot("s5-graph-leaf");
+});
+
+await step("S5", 4, "a package that is no longer admitted: its open panel closes at the next poll", async () => {
+  // the operator takes the package out of claims.allowedPackages: the cockpit's ui list says allowed: false
+  const id = JSON.parse((await cockpit(["ui", "list", "--json"])).stdout).packages.find((p) => p.name === "hostile-good").package;
+  const cf = `${WORK}/repo/.kton/cockpit.config.json`;
+  const cfg = JSON.parse(readFileSync(cf, "utf8"));
+  cfg.claims.allowedPackages = cfg.claims.allowedPackages.filter((x) => x !== id);
+  writeFileSync(`${cf}.tmp`, JSON.stringify(cfg, null, 2));
+  renameSync(`${cf}.tmp`, cf);
+  await toast(/Closed hostile-good\/ui\/review\.json: package hostile-good is no longer admitted or loaded/).waitFor({ timeout: 30000 });
+  await page.waitForTimeout(1000);
+  let stale = 0;
+  for (const fr of page.frames()) if (fr !== page.mainFrame()) stale += await fr.locator('[data-block="hostile-good/table"]').count().catch(() => 0);
+  check(stale === 0, "no frame shows the package's block any more", 0, stale);
+  await clearToasts();
+  await shot("s5-uninstalled");
 });
 
 await step("S3", 1, "Home lists the proposals with their options; the recommendation is marked", async () => {
@@ -461,23 +773,23 @@ await step("S1", 5, "no identity file: reading works, signing is disabled", asyn
   await shot("s1-no-identity");
   renameSync(`${WORK}/repo/.kton/local/identity.json.away`, `${WORK}/repo/.kton/local/identity.json`);
   rebuild();
-  await status().getByText(/person key: .*qa-decider.*unverified/).waitFor({ timeout: 30000 });
+  await status().getByText(/person key qa-decider · agent key qa-decider-agent · unverified/).waitFor({ timeout: 30000 });
 });
 
 await step("S1", 7, "a missing person or agent key is named; neither stands in for the other", async () => {
   setWorkspace({ "kton.identity.personKey": "" });
-  await status().getByText(/person key: missing · agent key: .*qa-decider-agent/).waitFor({ timeout: 30000 });
+  await status().getByText(/person key missing · agent key qa-decider-agent/).waitFor({ timeout: 30000 });
   await row("a · Yes").getByText("signing disabled").waitFor({ timeout: 15000 });
   await shot("s1-no-person-key");
   setWorkspace({ "kton.identity.personKey": "qa-decider", "kton.identity.agentKey": "" });
-  await status().getByText(/person key: .*qa-decider.*agent key: missing/).waitFor({ timeout: 30000 });
+  await status().getByText(/person key qa-decider · agent key missing/).waitFor({ timeout: 30000 });
   await runCommand("kton workbench: say");
   await pickQuick("announces");
   await toast(/no agent key.*person key never stands in/).waitFor({ timeout: 10000 });
   await shot("s1-no-agent-key");
   await clearToasts();
   setWorkspace({ "kton.identity.agentKey": "qa-decider-agent" });
-  await status().getByText(/agent key: .*qa-decider-agent.*unverified/).waitFor({ timeout: 30000 });
+  await status().getByText(/agent key qa-decider-agent · unverified/).waitFor({ timeout: 30000 });
 });
 
 await step("S7", 1, "cockpit missing: one clear error with the setting to check; the views say no data", async () => {

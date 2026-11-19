@@ -2,7 +2,8 @@
 // Test names start with the flow step of the shell flows (S1–S10) they stand for, where there is one.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { Workbench, DEFAULT_CONFIG } from "../src/ui/controller.js";
+import { Workbench, DEFAULT_CONFIG, claimSubject } from "../src/ui/controller.js";
+import { listed, PKGS, reader } from "./pkg-helpers.js";
 import type { TreeNode, UiHost, StatusId, ViewId } from "../src/ui/host.js";
 import { rowsOf } from "../src/ui/queries.js";
 import { decisionPage, esc, signDialogPage } from "../src/ui/pages.js";
@@ -14,6 +15,7 @@ import { join } from "node:path";
 import type { AskRequest, AskResult, Outcome, SayRequest, SayResult, TemplateInfo, Transport } from "../src/transport/port.js";
 import { TransportError, TransportTimeout } from "../src/transport/port.js";
 import type { WindowIdentity } from "../src/identity.js";
+import type { UiListing } from "../src/packages/listing.js";
 import { Scheduler, type Clock } from "../src/poll.js";
 
 const HEX = (c: string) => c.repeat(64);
@@ -100,6 +102,9 @@ class FakeTransport implements Transport {
   list(): never { throw new Error("not used"); }
   doctor(): never { throw new Error("not used"); }
   version(): never { throw new Error("not used"); }
+  async uiList(): Promise<Outcome<UiListing>> { return { ok: true, value: { packages: [] } }; }
+  uiCat(_pkg: string, _h: string): Promise<Uint8Array> { return Promise.reject(new Error("not used")); }
+  graph(): never { throw new Error("not used"); }
 }
 
 class FakeHost implements UiHost {
@@ -129,6 +134,17 @@ class FakeHost implements UiHost {
   }
   openPanels(): string[] { return [...new Set(this.panels.map((p) => p.key))].filter((k) => !this.closed.includes(k)); }
   closePanel(key: string): void { this.closed.push(key); }
+  compositions: Array<{ key: string; onMessage: (m: unknown) => void; posted: unknown[]; viewers: number }> = [];
+  showComposition(key: string, _t: string, viewers: readonly { module: string }[], onMessage: (m: unknown) => void) {
+    const c = { key, onMessage, posted: [] as unknown[], viewers: viewers.length };
+    this.compositions.push(c);
+    return { post: (m: unknown) => void c.posted.push(m), urls: new Map(viewers.map((v) => [v.module, `served:${v.module}`])) };
+  }
+  showLeaf(key: string, _t: string, leaf: { viewer: string }, onMessage: (m: unknown) => void) {
+    const c = { key, onMessage, posted: [] as unknown[], viewers: 1, leaf: leaf.viewer };
+    this.compositions.push(c);
+    return { post: (m: unknown) => void c.posted.push(m) };
+  }
   async signDialog(title: string, detail: string): Promise<boolean> { this.dialogs.push({ title, detail }); return this.confirmAnswer; }
   signOutcome(ok: boolean, text: string): void { this.outcomes.push({ ok, text }); }
   async openWindow(folder: string): Promise<void> { this.windows.push(folder); }
@@ -160,8 +176,7 @@ const decisionIntent = (choice: string, extra: Record<string, string> = {}) => (
 test("S1.1: status bar shows both keys, unverified until the cockpit has an identity verb, and test mode", async () => {
   const { h } = await setup();
   const s = h.status.get("identity") ?? "";
-  assert.match(s, /person key: qa-decider · qa-decider \(unverified/);
-  assert.match(s, /agent key: qa-decider · qa-decider-agent \(unverified/);
+  assert.equal(s, "person key qa-decider · agent key qa-decider-agent · unverified");
   assert.ok(!/qa-requestor/.test(s), "no name comes from a claim's signer");
   assert.equal(h.status.get("mode"), "TEST MODE");
   assert.match(h.status.get("poll") ?? "", /polling: inbox every 30s · 1 open · 2 decisions/);
@@ -212,14 +227,14 @@ test("S1.5: after a rebuild (identity file back) the open panels are rendered ag
 
 test("S1.7: a missing person or agent key is named, and neither key stands in for the other", async () => {
   const noPerson = await setup({}, new FakeTransport(), { ...identity, person: { role: "person", keyName: "", keyId: "" } });
-  assert.match(noPerson.h.status.get("identity") ?? "", /person key: missing · agent key: qa-decider/);
+  assert.match(noPerson.h.status.get("identity") ?? "", /^person key missing · agent key qa-decider-agent · unverified$/);
   noPerson.h.confirmAnswer = true;
   assert.equal(await noPerson.wb.chooseOption(P1, "a"), "failed");
   assert.match(noPerson.h.errors.at(-1) ?? "", /no person key.*agent key never stands in/);
   assert.equal(noPerson.t.says.length, 0);
 
   const noAgent = await setup({}, new FakeTransport(), { ...identity, agent: { role: "agent", keyName: "", keyId: "" } });
-  assert.match(noAgent.h.status.get("identity") ?? "", /person key: qa-decider · qa-decider \(unverified.*agent key: missing/);
+  assert.match(noAgent.h.status.get("identity") ?? "", /^person key qa-decider · agent key missing · unverified$/);
   noAgent.h.picks = ["announces"];
   assert.equal(await noAgent.wb.sayCommand(), "failed");
   assert.match(noAgent.h.errors.at(-1) ?? "", /no agent key.*person key never stands in/);
@@ -414,7 +429,8 @@ test("S9: Lanes view: open counts per lane; Open in terminal is shown disabled w
   assert.deepEqual(lanes.map((n) => [n.label, n.description]), [["ops-lane", "0 open · ops, infra"], ["qa-lane", "1 open · qa"]]);
   const term = lanes[0]?.children?.[0];
   assert.equal(term?.disabled, true);
-  assert.match(term?.tooltip ?? "", /workgroup extension folds in/);
+  assert.match(term?.tooltip ?? "", /comes with the workgroup extension/);
+  assert.equal(term?.description, "comes with the workgroup extension");
   assert.equal(term?.command, undefined);
 });
 
@@ -619,4 +635,173 @@ test("review check 7 (Q2): an agent-tier key carrying the person key's label is 
   // and without a person key id (it could not be derived), only a person tier counts
   const noId = await setup({ personTiers: [] }, t, { ...identity, person: { ...identity.person, keyId: "" } });
   assert.deepEqual(noId.wb.openDecisions().map((d) => d["msg"]), [P1, P2]);
+});
+
+// ---- PR 2: packages and compositions (C2, C1.5 v3) through the controller, with kton-web's test package
+class PackagesTransport extends FakeTransport {
+  fixtures = [listed(join(PKGS, "kton-web-test"), "kton-web-test", "test")];
+  override async uiList(): Promise<Outcome<UiListing>> { return { ok: true, value: { packages: this.fixtures.map((f) => f.pkg) } }; }
+  override uiCat(pkg: string, h: string): Promise<Uint8Array> { return reader(...this.fixtures)(pkg, h); }
+}
+const withTestPackage = () => {
+  const t = new PackagesTransport();
+  t.templateList = [...TEMPLATES, { name: "test-note", fields: { about: { type: "string", required: true } }, package: "kton-web-test" }];
+  return t;
+};
+/** Open kton-web-test's composition for P1 and let its frame say ready. */
+async function openTestShell(h: FakeHost, wb: Workbench) {
+  await wb.openSlot("kton-web-test/ui/test-shell.json", claimSubject(P1));
+  const c = h.compositions.at(-1);
+  assert.ok(c, "a composition panel opened");
+  c.onMessage({ type: "kton:ready", requires: [], optional: [] });
+  await new Promise((r) => setImmediate(r));
+  return c;
+}
+const intent = async (c: { onMessage: (m: unknown) => void }, i: Record<string, unknown>) => {
+  c.onMessage({ type: "kton:intent", intent: i });
+  for (let n = 0; n < 5; n++) await new Promise((r) => setImmediate(r));
+};
+
+test("S5.1: a package's review-view entry is offered on a proposal; it opens the composition with its checked viewers", async () => {
+  const { h, wb } = await setup({}, withTestPackage());
+  const home = h.trees["home"] ?? [];
+  const p1 = home[0]?.children?.find((d) => d.label === "Which build?");
+  const review = p1?.children?.find((n) => n.command?.id === "ktonWorkbench.openSlot");
+  assert.equal(review?.label, "Review · Test shell");
+  assert.ok(home.some((n) => n.label === "Packages" && /1 admitted/.test(n.description ?? "")));
+  const c = await openTestShell(h, wb);
+  const set = c.posted[0] as { type: string; plan: { uses: Array<{ module: string }> }; host: { provides: string[] } };
+  assert.equal(set.type, "kton:set");
+  assert.ok(set.plan.uses.every((u) => u.module.startsWith("served:packages/kton-web-test@test/viewers/")), "the frame imports modules from where the host serves the checked trees");
+  assert.ok(set.host.provides.includes("sign@1") && set.host.provides.includes("record@1"));
+  assert.equal(c.viewers, 3, "exactly the viewers the plan uses (probe, needs, diagram)");
+});
+
+test("S4.2: a decision act goes through the one sign dialog and signs with the person key", async () => {
+  const { t, h, wb } = await setup({}, withTestPackage());
+  const c = await openTestShell(h, wb);
+  h.confirmAnswer = true;
+  await intent(c, { id: "acts/probe#x.1", kind: "sign", from: "acts#probe", about: sha("1"), control: { package: "kton-web-test", name: "test-decision" } });
+  assert.equal(h.dialogs.length, 1, "the sign dialog was shown");
+  assert.equal(t.says.at(-1)?.template, "test-note");
+  assert.equal(t.says.at(-1)?.as, "qa-decider", "the person key");
+  assert.equal(t.says.at(-1)?.subject, sha("1"));
+  assert.deepEqual(c.posted.at(-1), { type: "kton:data", id: "acts/probe#x.1", result: { signed: true, key: "person", message: "Signed with the person key (test-only)." } });
+});
+
+test("S4.3: a record act is written with the agent key and no dialog", async () => {
+  const { t, h, wb } = await setup({}, withTestPackage());
+  const c = await openTestShell(h, wb);
+  await intent(c, { id: "r#x.1", kind: "record", from: "acts#probe", about: sha("1"), control: { package: "kton-web-test", name: "test-record" } });
+  assert.equal(h.dialogs.length, 0, "no dialog");
+  assert.equal(t.says.at(-1)?.as, "qa-decider-agent", "the agent key");
+});
+
+test("S4.4 / S4.6: an intent cannot change the kind, and say is no act; neither reaches the cockpit", async () => {
+  const { t, h, wb } = await setup({}, withTestPackage());
+  const c = await openTestShell(h, wb);
+  h.confirmAnswer = true;
+  await intent(c, { id: "k#x.1", kind: "record", from: "acts#probe", about: sha("1"), control: { package: "kton-web-test", name: "test-decision" } });
+  assert.match(JSON.stringify(c.posted.at(-1)), /kton:refused.*declares no record act through kton-web-test\/test-decision: the intent cannot change the kind/);
+  await intent(c, { id: "s#x.1", kind: "say", from: "acts#probe", text: "hello" });
+  assert.match(JSON.stringify(c.posted.at(-1)), /say is not an act this shell performs/);
+  await intent(c, { id: "a#x.1", kind: "sign", from: "acts#probe", about: sha("2"), control: { package: "kton-web-test", name: "test-decision" } });
+  assert.match(JSON.stringify(c.posted.at(-1)), /about another subject than the plan's act/);
+  await intent(c, { id: "w#x.1", kind: "sign", from: "wired#echo", about: sha("1"), control: { package: "kton-web-test", name: "test-decision" } });
+  assert.match(JSON.stringify(c.posted.at(-1)), /wired#echo declares no sign act/);
+  assert.equal(t.says.length, 0);
+  assert.equal(h.dialogs.length, 0);
+});
+
+test("held acts: an outcome is replayed in the next set after a reload, and dropped once the frame reported its state", async () => {
+  const { h, wb } = await setup({}, withTestPackage());
+  const c = await openTestShell(h, wb);
+  await intent(c, { id: "r#x.1", kind: "record", from: "acts#probe", about: sha("1"), control: { package: "kton-web-test", name: "test-record" } });
+  c.onMessage({ type: "kton:ready" }); // the webview was discarded and came back
+  const set = c.posted.at(-1) as { state: { acts: Record<string, { status: string }> } };
+  assert.equal(set.state.acts["r#x.1"]?.status, "done");
+  c.onMessage({ type: "kton:state", state: { parts: {}, acts: { forged: {} } } });
+  c.onMessage({ type: "kton:ready" });
+  const again = c.posted.at(-1) as { state: Record<string, unknown> & { acts: Record<string, unknown> } };
+  assert.deepEqual(again.state.acts, {}, "dropped after delivery; a frame's own acts are never taken");
+});
+
+test("S5.4: a package that is no longer admitted closes its open panel at the next poll", async () => {
+  const t = withTestPackage();
+  const { h, wb } = await setup({}, t);
+  await openTestShell(h, wb);
+  t.fixtures = [];
+  await wb.refresh();
+  assert.deepEqual(h.closed, ["composition:kton-web-test/ui/test-shell.json"]);
+  assert.match(h.infos.at(-1) ?? "", /no longer admitted or loaded/);
+});
+
+test("S5.3 in the Home tree: a refused package is shown with its reason, a newer slot name is listed and not rendered", async () => {
+  const t = withTestPackage();
+  const f = t.fixtures[0] as ReturnType<typeof listed>;
+  t.fixtures = [{ ...f, pkg: { ...f.pkg, ui: [...f.pkg.ui, { file: "ui/sidebar.json", slot: "sidebar-ad", label: "Ad" }] } }, { pkg: { ...f.pkg, name: "broken", dir: ".kton/packages/broken@1", refused: [{ file: "", code: "package.check", reason: "the seal does not verify" }] }, blobs: new Map() }];
+  const { h } = await setup({}, t);
+  const pk = (h.trees["home"] ?? []).find((n) => n.label === "Packages");
+  const labels = (pk?.children ?? []).map((n) => `${n.label} | ${n.description}`);
+  assert.ok(labels.includes("broken | refused: package.check"), labels.join("\n"));
+  assert.ok(labels.includes("kton-web-test: Ad | not rendered"), labels.join("\n"));
+  const why = (pk?.children ?? []).find((n) => n.label === "broken")?.children?.[0]?.label;
+  assert.equal(why, "the seal does not verify");
+});
+
+test("H8: an act that ends after the frame reloaded (the dialog took its column) reaches the new frame in a fresh set", async () => {
+  const { h, wb } = await setup({}, withTestPackage());
+  const c = await openTestShell(h, wb);
+  let release: (v: boolean) => void = () => undefined;
+  h.signDialog = (title: string, detail: string) => {
+    h.dialogs.push({ title, detail });
+    return new Promise<boolean>((r) => (release = r));
+  };
+  c.onMessage({ type: "kton:intent", intent: { id: "s#old.1", kind: "sign", from: "acts#probe", about: sha("1"), control: { package: "kton-web-test", name: "test-decision" } } });
+  await new Promise((r) => setImmediate(r));
+  c.onMessage({ type: "kton:ready" }); // the webview was discarded while the dialog was open
+  const before = c.posted.length;
+  release(true);
+  for (let n = 0; n < 8; n++) await new Promise((r) => setImmediate(r));
+  const sets = c.posted.slice(before).filter((m) => (m as { type: string }).type === "kton:set") as Array<{ state: { acts: Record<string, { status: string }> } }>;
+  assert.equal(sets.length, 1, "a fresh set after the act ended");
+  assert.equal(sets[0]?.state.acts["s#old.1"]?.status, "done");
+});
+
+test("status bar (MH's demo): both key names, distinct and short; the hint and the reason are in the tooltip", async () => {
+  const id = { ...identity, hintName: "demo-person", person: { ...identity.person, keyName: "demo-person" }, agent: { ...identity.agent, keyName: "demo-person-agent" } };
+  const { h } = await setup({}, new FakeTransport(), id);
+  const s = h.status.get("identity") ?? "";
+  assert.equal(s, "person key demo-person · agent key demo-person-agent · unverified");
+  assert.ok(s.length < 80, `${s.length} characters`);
+  assert.ok(!/identity verb|\(/.test(s), "no reason in the bar");
+});
+
+test("slot items (MH's demo): the entry's label once, with its package; no item repeats its first word", async () => {
+  const t = withTestPackage();
+  const f = t.fixtures[0] as ReturnType<typeof listed>;
+  // a second package whose review-view entry is labelled "Review", like the hostile fixtures, and a record-view
+  t.fixtures = [f, { ...f, pkg: { ...f.pkg, name: "other", dir: ".kton/packages/other@1", ui: [{ ...(f.pkg.ui[0] as UiListing["packages"][number]["ui"][number]), label: "Review" }, { ...(f.pkg.ui[0] as UiListing["packages"][number]["ui"][number]), file: "ui/rec.json", slot: "record-view", label: "Provenance" }] } }];
+  const { h } = await setup({}, t);
+  const p1 = (h.trees["home"] ?? [])[0]?.children?.find((d) => d.label === "Which build?");
+  const items = (p1?.children ?? []).filter((n) => n.command?.id === "ktonWorkbench.openSlot").map((n) => n.label);
+  assert.deepEqual(items.sort(), ["Record · Provenance", "Review", "Review · Test layout", "Review · Test shell"]);
+  for (const l of items) {
+    const w = l.split(/[\s·:]+/).filter(Boolean).map((x) => x.toLowerCase());
+    assert.ok(w.length === new Set(w).size || w[0] !== w[1], `${l} repeats a word`);
+    assert.ok(!new RegExp(`^(\\w+)\\W+\\1\\b`, "i").test(l), `${l} repeats its first word`);
+  }
+});
+
+test("layout (ktonpkg v0.9.5): the set names host.narrow; the frame's layout state (tab, ratio) is host-held like vars, never acts, and comes back after a reload", async () => {
+  const { h, wb } = await setup({}, withTestPackage());
+  const c = await openTestShell(h, wb);
+  const set = c.posted[0] as { host: { narrow?: number } };
+  assert.equal(set.host.narrow, 640);
+  c.onMessage({ type: "kton:state", state: { parts: { main: { layout: { tab: "approvals" } }, side: { layout: { ratio: 0.35 } } }, vars: { picked: "B" }, acts: { forged: { status: "done" } } } });
+  c.onMessage({ type: "kton:ready" }); // the webview came back
+  const again = c.posted.at(-1) as { state: Record<string, unknown> & { acts: Record<string, unknown> } };
+  assert.deepEqual(again.state["parts"], { main: { layout: { tab: "approvals" } }, side: { layout: { ratio: 0.35 } } });
+  assert.deepEqual(again.state["vars"], { picked: "B" });
+  assert.deepEqual(again.state.acts, {}, "a frame's own acts are never taken");
 });

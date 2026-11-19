@@ -1,0 +1,21 @@
+{
+ "viewer": "table",
+ "module": "index.js",
+ "requires": [
+  "query@1"
+ ],
+ "optional": [
+  "open@1"
+ ],
+ "accepts": {
+  "columns": {
+   "set": "literal"
+  }
+ },
+ "emits": {
+  "select": {
+   "from": "intent.select",
+   "type": "iri"
+  }
+ }
+}

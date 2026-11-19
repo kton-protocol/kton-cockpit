@@ -1,0 +1,5 @@
+{"viewer": "probe", "module": "probe.js", "requires": [], "optional": ["open@1"],
+ "options": {"label": "literal"},
+ "accepts": {"label": "literal"},
+ "emits": {"pick": {"from": "state.pick", "type": "literal"},
+           "focus": {"from": "intent.focus", "type": "literal"}}}

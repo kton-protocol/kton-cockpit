@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>kton · graph viewer</title>
+<link rel="icon" type="image/png" href="../../core/logo.png">
+<link rel="stylesheet" href="../../core/kton.css">
+<style>
+  /* surface, chrome + the teal accent come from kton.css (this page locks data-theme=dark). Only the
+     graph's data-visualisation palette stays local, where the hues carry meaning (foton/claim/edge kinds). */
+  :root { --a:#38bdf8; --b:#f5b642; --c:#34d399; --d:#c084fc; --e:#fb7185; --f:#e2e8f0;
+          --ok:#34d399; --bad:#f87171; --edge:#3b465e; --about:#7c9cff; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; height:100%; background:var(--bg); color:var(--ink);
+              font:14px/1.55 ui-sans-serif,system-ui,Segoe UI,Roboto,sans-serif; overflow:hidden; }
+  body { display:flex; flex-direction:column; } header { flex:none; }
+  header { padding:11px 18px 9px; border-bottom:1px solid var(--line); }
+  .titlerow { display:flex; align-items:center; gap:11px; }
+  .titlerow img { height:30px; width:auto; filter:invert(1); }
+  header h1 { font-size:16px; margin:0; font-weight:650; } header h1 small{color:var(--dim);font-weight:400;font-size:12.5px}
+  .story { color:var(--dim); font-size:12.5px; max-width:1080px; margin-top:6px; display:none; }
+  #about { cursor:pointer; font-size:12.5px; color:var(--dim); margin-left:auto; user-select:none; } #about:hover, #about.on { color:var(--ink); }
+  #about .ic { display:inline-block; width:13px; height:13px; line-height:12px; margin-right:4px; border:1px solid currentColor; border-radius:50%; text-align:center; font:italic 600 9.5px/12px Georgia,serif; vertical-align:1px; }
+  .story b{color:var(--ink)} .aC{color:var(--a)} .bC{color:var(--b)} .cC{color:var(--c)}
+  #stats { margin-top:5px; display:flex; gap:14px; font-size:12.5px; color:var(--dim); }
+  #stats b{color:var(--ink)} .ok{color:var(--ok)} .bad{color:var(--bad)} .warn{color:var(--muted)}
+  /* identity attestation: an unattested name is a key label, not an authenticated identity. It must not
+     read as vouched-for next to the green signature ring (screenshot-deception). */
+  /* unattested: marked, but not red - red is for a signature that FAILS, and a name nobody vouched
+     for is a key label, not a failure */
+  .idun{ border-bottom:1px dashed var(--dim); }
+  .idself .idmark{ font-size:9.5px; text-transform:uppercase; letter-spacing:.04em; color:var(--dim); border:1px solid var(--line); border-radius:4px; padding:0 4px; margin-left:5px; }
+  .idun .idmark{ font-size:9.5px; text-transform:uppercase; letter-spacing:.04em; color:var(--dim);
+     border:1px solid var(--line); border-radius:3px; padding:0 3px; margin-left:5px; vertical-align:1px; font-weight:600; }
+  #gear{margin-left:12px;cursor:pointer;font-size:16px;color:var(--dim)} #gear:hover{color:var(--ink)}
+  #settings{position:fixed;top:54px;right:18px;z-index:30;width:340px;max-width:92vw;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px;box-shadow:0 12px 40px rgba(0,0,0,.45);font-size:13px;color:var(--ink)}
+  #settings .sthead{font-weight:650;display:flex;justify-content:space-between;margin-bottom:8px}
+  #settings .stx{cursor:pointer;color:var(--dim)} #settings .stx:hover{color:var(--ink)}
+  #settings .strow{display:flex;gap:8px;align-items:center;margin:8px 0}
+  #settings .stlbl{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--dim);margin:12px 0 6px}
+  #settings .srcrow{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:3px 0}
+  #settings .srcrow code{color:var(--ink);font-size:11px;word-break:break-all}
+  #settings .srcx{cursor:pointer;color:var(--bad);font-size:11px;white-space:nowrap}
+  #settings .srcrow.srcoff .srcmain{opacity:.45}
+  #settings .srcmain{flex:1;min-width:0;line-height:1.35}
+  #settings .srcsw input{margin:0;cursor:pointer}
+  #settings .srcst{margin-top:0;white-space:nowrap}
+  #settings .srctag{font-size:10px;padding:0 5px;border-radius:7px;border:1px solid var(--dim);color:var(--dim)}
+  #settings .srctag.dlv{border-color:var(--ok);color:var(--ok)}
+  #settings .srcadd{display:flex;gap:6px;margin-top:8px}
+  #settings .srcadd input{flex:1;min-width:0;background:var(--bg);border:1px solid var(--line);color:var(--ink);border-radius:7px;padding:5px 8px;font-size:12px}
+  #settings .srcadd button{background:var(--accent);color:#fff;border:0;border-radius:7px;padding:5px 12px;cursor:pointer;font-size:12px}
+  #settings .stmuted{color:var(--dim);font-size:11px;margin-top:8px}
+  #main { position:relative; flex:1; min-height:0; }
+  #overview { position:absolute; inset:0; overflow:auto; padding:20px 22px; }
+  .searchrow { display:flex; gap:10px; align-items:center; margin-bottom:16px; flex-wrap:wrap; }
+  #q { background:var(--panel); border:1px solid var(--line); color:var(--ink); border-radius:9px; padding:8px 12px; width:360px; max-width:70vw; font-size:13px; }
+  #q::placeholder{color:var(--dim)}
+  #results { position:absolute; z-index:9; background:var(--panel); border:1px solid var(--line); border-radius:9px; margin-top:2px; max-height:340px; overflow:auto; width:360px; display:none; }
+  #results .r{padding:7px 11px;cursor:pointer;font-size:12.5px;border-bottom:1px solid var(--line)} #results .r:hover{background:#1c2434} #results .m{color:var(--dim)}
+  .h2 { font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:var(--dim); margin:6px 0 10px; }
+  .cards { display:grid; grid-template-columns:repeat(auto-fill,minmax(230px,1fr)); gap:12px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:13px 15px; cursor:pointer; }
+  .card:hover{border-color:var(--accent)} .card .nm{font-weight:650;font-size:14px;display:flex;align-items:center;gap:8px}
+  .card .nm .d{width:11px;height:11px;border-radius:50%} .card .mt{color:var(--dim);font-size:12.5px;margin-top:5px}
+  .bar{height:5px;border-radius:3px;background:#20293b;margin-top:9px;overflow:hidden} .bar>i{display:block;height:100%;background:var(--ok)}
+  .rel{color:var(--dim);font-size:12px;margin-top:8px}
+  .cfacets{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px}
+  .cfacets select{background:var(--panel);border:1px solid var(--line);color:var(--ink);border-radius:8px;padding:6px 10px;font-size:12.5px;cursor:pointer}
+  .cfacets .cmt{color:var(--dim);font-size:12px}
+  .claimlist{display:flex;flex-direction:column;gap:3px;max-width:1080px}
+  .claimlist .crow{display:flex;align-items:center;gap:8px;padding:6px 11px;border:1px solid var(--line);border-radius:8px;background:var(--panel);cursor:pointer;font-size:12.5px}
+  .claimlist .crow:hover{border-color:var(--accent)}
+  .claimlist .cd{width:9px;height:9px;border-radius:50%;flex:none}
+  .claimlist .cpred{color:var(--ink)} .claimlist .cm{color:var(--dim)}
+  .claimlist .crow.cm{cursor:default;border-style:dashed}
+  #panel .navrow{display:flex;flex-wrap:wrap;gap:6px;margin:2px 0 4px}
+  #panel #navout{margin-top:4px} #panel .tcbanner{display:flex;gap:7px;flex-wrap:wrap;margin:6px 0}
+  #panel .tcrow{font-size:12px;color:var(--dim);padding:2px 0} #panel .tcrow b{color:var(--ink)}
+  #explorer { position:absolute; inset:0; display:none; }
+  canvas { display:block; width:100%; height:100%; cursor:grab; }
+  #controls { position:absolute; top:12px; left:12px; background:var(--panel); border:1px solid var(--line); border-radius:11px; padding:10px 12px; font-size:12.5px; width:220px; box-sizing:border-box;
+    max-height:calc(100% - 24px); overflow:auto; }  /* a short window scrolls the column instead of running it off the bottom */
+  #controls .back{color:var(--accent);cursor:pointer;font-size:12.5px;margin-bottom:10px;display:inline-block;border:1px solid var(--accent);border-radius:7px;padding:5px 10px;font-weight:600}
+  #controls .back:hover{background:var(--accent);color:var(--bg)}
+  #controls .lbl{color:var(--dim);font-size:11px;text-transform:uppercase;letter-spacing:.05em;margin:8px 0 5px}
+  #controls .qbar{display:flex;justify-content:space-between;align-items:center;gap:8px;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:6px 9px;margin:9px 0;font-size:11.5px}
+  #controls .qbar .qq{color:var(--b);font-weight:600;min-width:0;overflow-wrap:anywhere}
+  #controls .qbar .qx{color:var(--dim);cursor:pointer;white-space:nowrap;border:1px solid var(--line);border-radius:6px;padding:2px 6px} #controls .qbar .qx:hover{color:var(--bad);border-color:var(--bad)}
+  .arrows{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+  .arrows button{background:#1c2434;border:1px solid var(--line);color:var(--ink);border-radius:7px;padding:6px 4px;cursor:pointer;font-size:11.5px}
+  .arrows button.on{background:var(--accent);color:var(--bg);border-color:var(--accent)}
+  .fchips{display:flex;flex-wrap:wrap;gap:5px} .fchip{cursor:pointer;border:1px solid var(--line);border-radius:20px;padding:2px 8px;font-size:11.5px;display:inline-flex;align-items:center;gap:5px;user-select:none}
+  .fchip .d{width:8px;height:8px;border-radius:50%} .fchip.off{opacity:.35}
+  .hint{position:absolute;bottom:12px;left:50%;transform:translateX(-50%);color:var(--dim);font-size:11.5px;transition:opacity .5s} .hint.gone{opacity:0;pointer-events:none}
+  /* beside the control column, not under it: in the corner it covered the lowest filter chips */
+  .legend{position:absolute;left:244px;bottom:12px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:6px 10px;font-size:11.5px;color:var(--dim)}
+  .legtoggle{cursor:pointer;text-transform:uppercase;letter-spacing:.05em;font-size:10.5px;user-select:none} .legtoggle:hover{color:var(--ink)}
+  .legbody{display:none;margin-top:6px} .legend.open .legbody{display:block} .legend.open .legtoggle{color:var(--ink)}
+  .legend .row{display:flex;align-items:center;gap:7px;margin:2px 0} .dot{width:11px;height:11px;border-radius:50%} .sq{width:11px;height:11px;border-radius:3px} .sw{width:18px;border-top:2px solid}
+  #panel{position:absolute;top:0;right:0;width:360px;max-width:88vw;height:100%;background:var(--panel);border-left:1px solid var(--line);padding:16px 18px;overflow:auto;transform:translateX(100%);transition:transform .18s}
+  #panel.open{transform:none} #panel .x{float:right;color:var(--dim);cursor:pointer;font-size:18px}
+  #cv{touch-action:none}  /* the graph canvas handles pan/zoom itself; stop the browser hijacking touch gestures */
+  #controls .ctoggle{display:none}  /* mobile-only collapse toggle */
+  /* Embedded in the verticle host. Same file, same code - only the surroundings differ. On the open
+     web these panels ARE the interface and nothing steers the view from outside, so they stay. In an
+     editor that already brings two sidebars, tabs and a conversation that re-aims the view, the
+     record panel is a second copy of the compass laid over the canvas, and the filter column is a
+     second copy of kton_show. So here they fold away and the canvas gets the tab. */
+  /* Eingebettet war das Panel ausgeblendet, weil ein Klick in den Kompass sprang und der Graph
+     kein eigenes brauchte. In der kontrahierten Sicht leben die Aussagen aber AM Knoten - dort ist
+     der Klick etwas zu zeigen, und in den Kompass zu springen hiesse das Bild wegwerfen, um drei
+     Zeilen zu lesen. Also schmaler, aber da. */
+  body.embedded #panel{width:300px;max-width:70vw}
+  body.embedded .legend{display:none}
+  body.embedded #controls{max-height:none;overflow:visible}
+  body.embedded #controls .ctoggle{display:inline-block;cursor:pointer;font-weight:600;color:var(--accent);
+    border:1px solid var(--accent);border-radius:7px;padding:4px 10px;font-size:12px;margin-bottom:6px}
+  body.embedded #controls.min{padding:6px 8px}
+  body.embedded #controls.min > :not(.ctoggle){display:none}
+  /* mobile: the record panel becomes a BOTTOM sheet, and the filter panel collapses to a top toggle. */
+  @media (max-width:640px){
+    #panel{width:100%;max-width:100%;height:64%;top:auto;bottom:0;right:0;left:0;
+      border-left:none;border-top:1px solid var(--line);transform:translateY(100%)}
+    #panel.open{transform:none}
+    #controls{left:8px;right:8px;width:auto;top:8px;max-height:44vh;overflow:auto}
+    #controls .ctoggle{display:inline-block;cursor:pointer;font-weight:600;color:var(--accent);border:1px solid var(--accent);border-radius:7px;padding:4px 10px;font-size:12px;margin-bottom:6px}
+    #controls.min{max-height:none;overflow:visible;padding:6px 8px}
+    #controls.min > :not(.ctoggle){display:none}   /* collapsed: only the toggle shows; tap to expand */
+    .legend{display:none}
+  }
+  #panel .who{font-size:15px;font-weight:650} #panel .role{color:var(--dim);margin-bottom:8px}
+  #panel .kv{font-size:12px;color:var(--dim);margin:5px 0} #panel .kv code{color:var(--ink);word-break:break-all}
+  #panel h4{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--dim);margin:14px 0 6px}
+  #panel .nav{font-size:12.5px;color:var(--accent);cursor:pointer;padding:3px 0;display:flex;gap:7px;align-items:center} #panel .nav .d{width:9px;height:9px;border-radius:50%}
+  #panel .frow{font-size:12.5px;padding:3px 0} #panel .frow.nav{color:var(--accent);cursor:pointer;display:block} /* not the flex of .nav: it squeezed the hash to one character per line */ #panel .frow .m{color:var(--dim);font-family:ui-monospace,monospace;font-size:11px;display:block;overflow-wrap:anywhere;margin-top:1px}
+  #panel .uri{display:block;margin:1px 0 3px 0;color:var(--ok);font-size:11.5px;text-decoration:none} #panel .uri:hover{text-decoration:underline}
+  #panel .rc{display:inline-block;margin:2px 0 8px;color:var(--accent);cursor:pointer;font-size:12px;border:1px solid var(--line);border-radius:7px;padding:3px 9px}
+  #panel .txt{margin-top:12px;padding-top:12px;border-top:1px solid var(--line);white-space:pre-wrap;font-size:12.5px}
+  #panel .previmg{max-width:100%;margin-top:9px;border:1px solid var(--line);border-radius:6px;background:#fff}
+  #panel .prevscroll{overflow:auto;max-height:280px;margin-top:9px;border:1px solid var(--line);border-radius:6px}
+  #panel .prevt{border-collapse:collapse;font-size:11.5px;font-family:ui-monospace,monospace}
+  #panel .prevt th,#panel .prevt td{border:1px solid var(--line);padding:2px 6px;text-align:left;color:var(--ink);white-space:nowrap}
+  #panel .prevt th{background:var(--bg);position:sticky;top:0}
+  #panel .prevpre{margin-top:9px;padding:9px 11px;background:var(--panel2);border:1px solid var(--line);border-radius:6px;max-height:300px;overflow:auto;white-space:pre;font-family:ui-monospace,monospace;font-size:11.5px;color:var(--ink)}
+  #panel .pvhead{margin-top:10px}
+  #panel .pvx{float:right;cursor:pointer;color:var(--dim);font-size:16px;line-height:.9} #panel .pvx:hover{color:var(--ink)}
+  #panel .frow-prev{margin:2px 0 6px} #panel .frow-prev:empty{display:none}
+  #panel .rc.pvrow{margin:0 6px 0 4px;padding:1px 7px}
+  .badge{display:inline-block;padding:1px 7px;border-radius:20px;font-size:11px;font-weight:600} .vok{background:rgba(52,211,153,.15);color:var(--ok)} .vno{background:rgba(248,113,113,.15);color:var(--bad)} .vpart{background:rgba(245,182,66,.15);color:var(--b)}
+  #err{position:absolute;inset:0;display:none;place-items:center;color:var(--bad);text-align:center;padding:40px}
+  .drop{max-width:70ch;margin:6vh auto;border:1.5px dashed var(--line);border-radius:14px;padding:34px 30px;text-align:center;transition:border-color .15s,background .15s}
+  .drop.over{border-color:var(--accent);background:rgba(120,160,255,.06)}
+  .drop h2{margin:0 0 8px;font-size:19px} .drop p{color:var(--dim);font-size:13.5px;line-height:1.55;margin:0 auto 18px;max-width:60ch}
+  .drop code{font-family:ui-monospace,monospace;font-size:12px;color:var(--fg)}
+  .drop .picks{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-bottom:14px}
+  .btn{display:inline-block;cursor:pointer;border:1px solid var(--line);border-radius:9px;padding:8px 16px;font-size:13px;color:var(--accent);background:var(--card,transparent)} .btn:hover{border-color:var(--accent)}
+  #trust{width:min(52ch,92%);padding:7px 11px;border:1px solid var(--line);border-radius:8px;background:transparent;color:var(--fg);font-size:12.5px}
+  #dropmsg{margin-top:14px;color:var(--dim);font-size:12.5px;min-height:1.2em}
+  /* view profiles (core/profile.js): body.no-<piece> hides that piece; the canvas measures what is left */
+  body.no-header header{display:none} body.no-stats #stats{display:none} body.no-controls #controls{display:none}
+  body.no-legend #legend{display:none} body.no-hint #hint{display:none}
+  body.no-controls .legend{left:12px}
+  /* a step: what it ran, what it did, why - in the panel and on hover */
+  #panel .cmd{font:600 13px ui-monospace,SFMono-Regular,Menlo,monospace;word-break:break-word;margin:2px 26px 8px 0}
+  .why{margin:0 0 10px} .why .desc{font-size:13px;line-height:1.4} .why .rat,#tip .rat{font-size:12px;color:var(--dim);margin-top:4px} .why .rat b,#tip .rat b{color:var(--ink);font-weight:600;margin-right:4px}
+  #tip{position:absolute;z-index:20;display:none;max-width:340px;pointer-events:none;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 10px;box-shadow:0 6px 24px rgba(0,0,0,.35)}
+  #tip .cmd{font:600 12px ui-monospace,SFMono-Regular,Menlo,monospace;word-break:break-word} #tip .desc{font-size:12.5px;margin-top:4px}
+  #notice{position:fixed;left:12px;right:12px;top:10px;z-index:30;display:none;gap:10px;align-items:center;justify-content:space-between;background:rgba(248,113,113,.15);color:var(--bad);border:1px solid var(--bad);border-radius:8px;padding:6px 10px;font-size:12.5px} #notice .nx{cursor:pointer;color:var(--ink)}
+  #selbar{position:absolute;left:50%;transform:translateX(-50%);bottom:14px;z-index:15;display:none;gap:10px;align-items:center;background:var(--panel);border:1px solid var(--b);border-radius:20px;padding:5px 12px;font-size:12.5px} #selbar b{color:var(--b)} #selbar .rc{cursor:pointer;color:var(--accent)}
+  .marks{margin-top:6px;font-size:12px;line-height:1.7} .mk{display:inline-block;border-radius:6px;padding:0 6px;font:700 10px ui-sans-serif;text-transform:uppercase;color:#0b0f18}
+  .mk-key{background:var(--b)} .mk-base{background:var(--a)} .mk-final,.mk-qc{background:var(--ok)} .why .rel{font-size:12px;color:var(--dim);margin-top:4px} .why .rel b{color:var(--ink);font-weight:600}
+  .facts{display:inline-flex;gap:4px;margin-left:6px;vertical-align:middle} #panel .facts .rc{margin:0;padding:1px 7px;font-size:11px}
+</style>
+</head>
+<body>
+<header>
+  <div class="titlerow"><img src="../../core/logo.png" alt="kton"><h1>kton <small>· graph viewer</small></h1><span id="about" title="what is this?"><span class="ic">i</span>about</span><span id="gear" title="settings">⚙</span></div>
+  <div id="settings" style="display:none"></div>
+  <div class="story" id="story">A provenance graph, assembled in your browser from one or more <b>plankton</b>/<b>nekton</b> registries (federated by content hash). Round nodes are <b>fotons</b> (recorded computations), squares are <b>claims</b> (signed statements about them); edges are lineage (<b>builds-on</b>) and attestation (<b>about</b>, <b>reproduces</b>, <b>reviewed-by</b>). Every node's <b>signature is re-verified here</b> (WASM, Ed25519/DSSE) against the registry's published keys - the <i>record-authentic</i> tier. Click a record to walk its pedigree; click a <b>file</b> to preview its bytes, re-hashed on the spot to confirm they match. Verify with a non-kton tool: <a href="https://github.com/gitmick/kton-examples/blob/main/examples/13-foreign-verify/README.md">kton example 13</a>; re-derive the bytes: <a href="https://github.com/gitmick/kton-examples/blob/main/examples/03-reproduce/README.md">example 03</a>. <b>Esc</b> or browser <b>Back</b> returns to the overview.</div>
+  <div id="stats"></div>
+</header>
+<div id="main">
+  <div id="overview"></div>
+  <div id="explorer">
+    <canvas id="cv"></canvas>
+    <div id="controls"></div>
+    <div class="legend" id="legend">
+      <div class="legtoggle" id="legtoggle">legend</div>
+      <div class="legbody">
+        <div class="row"><span class="dot" style="background:#889"></span>foton&nbsp;<span class="sq" style="background:#889"></span>claim&nbsp;<span class="dot" style="background:#cfd8e6"></span>dataset</div>
+        <div class="row"><span class="sw" style="border-color:var(--dim)"></span>builds-on&nbsp;<span class="sw" style="border-color:var(--about);border-top-style:dashed"></span>about</div>
+        <div class="row"><span style="color:var(--ok)">◎</span>bright ring = signature verifies (the KEY) · colour = participant</div>
+        <div class="row"><span class="idun" style="border:0">name<span class="idmark">key&nbsp;label</span></span> = a key label, not an authenticated identity (no trusted-authority sec:controller)</div>
+      </div>
+    </div>
+    <div class="hint" id="hint">scroll to zoom · drag to pan · double-click a node to re-centre · Esc or browser Back to return</div>
+    <div id="panel"></div>
+  </div>
+  <div id="err"></div>
+</div>
+<!-- external, non-inline: the host CSP blocks inline scripts; the bundled app.js is a plain script. -->
+<script src="app.js"></script>
+</body>
+</html>

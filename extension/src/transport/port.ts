@@ -62,6 +62,12 @@ export interface SayResult {
   readonly pending?: { readonly code: string; readonly reason: string };
 }
 
+export interface BoundTerm {
+  readonly type: "iri" | "literal";
+  readonly value: string;
+  readonly datatype?: string;
+}
+
 export interface AskRequest {
   readonly query: string;
   readonly ref?: string;
@@ -70,6 +76,8 @@ export interface AskRequest {
   readonly name?: string;
   /** Values for the query's variables, appended as VALUES: nothing is spliced into query text. */
   readonly bind?: Readonly<Record<string, string>>;
+  /** Typed values (cockpit v0.5.3, SPEC §9.9): an IRI, or a literal with a datatype; never query text. */
+  readonly bindTerms?: Readonly<Record<string, BoundTerm>>;
   readonly limit?: number;
   readonly dataset?: "claims" | "nanopub";
   readonly format?: "sparql-results+json";
@@ -180,6 +188,8 @@ export class OperatorConfirmation {
   }
 }
 
+import type { UiListing } from "../packages/listing.js";
+
 export interface Transport {
   ask(req: AskRequest): Promise<Outcome<AskResult>>;
   say(req: SayRequest): Promise<Outcome<SayResult>>;
@@ -192,4 +202,10 @@ export interface Transport {
   list(): Promise<Outcome<Listing>>;
   doctor(): Promise<DoctorReport>;
   version(): Promise<Outcome<{ readonly text: string }>>;
+  /** `cockpit ui list --json` (C2.4): the installed packages' ui declarations, checked in shape. */
+  uiList(): Promise<Outcome<UiListing>>;
+  /** A usable package's member bytes by content hash: `cockpit ui cat <package> <hash>` (v0.5.4). Checked again by the caller. */
+  uiCat(pkg: string, hash: string): Promise<Uint8Array>;
+  /** graph@1's data: `cockpit show --json` (v0.5.3): records, the trusted ring, names, admitted packages' build keys. */
+  graph(): Promise<Outcome<{ readonly records: readonly unknown[]; readonly keys: Readonly<Record<string, unknown>>; readonly names: Readonly<Record<string, unknown>>; readonly packages: Readonly<Record<string, unknown>> }>>;
 }

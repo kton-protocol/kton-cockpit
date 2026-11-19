@@ -1,0 +1,7 @@
+{
+ "slot": "review-view",
+ "label": "Test layout",
+ "when": {"kind": "claim"},
+ "composition": "test-layout",
+ "order": 11
+}

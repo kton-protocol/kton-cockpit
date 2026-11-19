@@ -5,12 +5,15 @@ import { randomBytes } from "node:crypto";
 import type { TemplateInfo, Transport } from "../transport/port.js";
 import { TransportError, TransportTimeout } from "../transport/port.js";
 import type { WindowIdentity, ShownSigner } from "../identity.js";
-import { hasKey, showSigner, signerKeyId, statusText } from "../identity.js";
+import { hasKey, showSigner, signerKeyId, statusText, statusTooltip } from "../identity.js";
 import type { ControlInfo } from "../sign.js";
 import { DialogConsent, plan, sign, FOOTER } from "../sign.js";
 import type { UiEntry, SlotContext } from "../intents.js";
 import { checkIntent } from "../intents.js";
 import { Scheduler } from "../poll.js";
+import { PackagesArea, SLOT_CMD } from "../composition/area.js";
+import type { Subject } from "../composition/slots.js";
+import type { Control, ViewerTree } from "../packages/model.js";
 import type { TreeNode, UiHost } from "./host.js";
 import type { Queries, Row } from "./queries.js";
 import { idOf, kindOf, rowsOf } from "./queries.js";
@@ -57,6 +60,8 @@ export interface WorkbenchConfig {
   readonly cockpitLabel?: string;
   /** The recorder stays its own extension; the shell hands over to it. */
   readonly recorder: { readonly extensionId: string; readonly command: string };
+  /** The viewers the shell vendors from kton-web, with their tree ids (src/packages/vendored.ts). */
+  readonly vendoredViewers?: ReadonlyMap<string, ViewerTree>;
   /** A locked registry (S7.4): how often and how far apart a `say` is retried. */
   readonly lockRetry: { readonly attempts: number; readonly delayMs: number };
 }
@@ -90,6 +95,7 @@ export const CMD = {
   ask: "ktonWorkbench.ask",
   say: "ktonWorkbench.say",
   compose: "ktonWorkbench.compose",
+  openSlot: SLOT_CMD,
 } as const;
 
 const SHA = /^sha256:[0-9a-f]{64}$/;
@@ -113,6 +119,8 @@ export class Workbench {
   /** Rendering again in place (after a rebuild): do not move the focus to each panel. */
   private quiet = false;
   readonly scheduler: Scheduler;
+  /** The admitted packages and their slots (C2); compositions in panels (C1.5 v3). */
+  readonly packages: PackagesArea;
 
   constructor(
     private readonly t: Transport,
@@ -123,6 +131,11 @@ export class Workbench {
     scheduler?: Scheduler,
   ) {
     this.scheduler = scheduler ?? new Scheduler();
+    this.packages = new PackagesArea(t, host, {
+      act: (c, about, fields, title) => this.signAct(c, about, fields, title),
+      open: async (target) => this.openTarget(target),
+      identityName: () => this.identity.hintName,
+    }, cfg.vendoredViewers);
     this.surface = cfg.surfaces.some((s) => s.name === cfg.initialSurface) ? (cfg.initialSurface as string) : ALL;
   }
 
@@ -157,8 +170,8 @@ export class Workbench {
     const a = hasKey(this.identity.agent) ? await this.signer("agent") : "missing";
     this.host.setStatus(
       "identity",
-      statusText(p, a),
-      "One person per window; another identity means another window. Person key: decisions, always through the sign dialog. Agent key: records, no dialog. A missing key is never replaced by the other.",
+      statusText(p, a, { person: this.identity.person.keyName, agent: this.identity.agent.keyName }),
+      `${statusTooltip(p, a)}\nOne person per window; another identity means another window. Person key: decisions, always through the sign dialog. Agent key: records, no dialog. A missing key is never replaced by the other.`,
     );
   }
 
@@ -203,16 +216,22 @@ export class Workbench {
   /** One poll: templates, proposals, decision claims, messages, answers and lanes; then the views. */
   async refresh(): Promise<void> {
     try {
-      const tpl = await this.t.templates();
-      if (!tpl.ok) throw new Error(`the cockpit refused its template listing: ${tpl.refusal.reason}`);
-      const [proposals, decides, messages, answers, lanes] = await Promise.all([
+      // one poll's cockpit calls run side by side: the listing, the queries and the packages (ui list, which never
+      // throws: its errors are shown in the Packages node), so a poll takes as long as its slowest call
+      const packages = this.packages.refresh();
+      const [tpl, proposals, decides, messages, answers, lanes] = await Promise.all([
+        this.t.templates(),
         this.rows(this.cfg.queries.proposals),
         this.named(this.cfg.queries.decides),
         this.rows(this.cfg.queries.messages),
         this.named(this.cfg.queries.answers),
         this.queries.has(this.cfg.queries.lanes) ? this.rows(this.cfg.queries.lanes) : Promise.resolve([]),
       ]);
+      if (!tpl.ok) throw new Error(`the cockpit refused its template listing: ${tpl.refusal.reason}`);
       Object.assign(this, { templates: tpl.value, proposals, decides, messages, answers, lanes });
+      await packages;
+      const st = this.packages.statusText();
+      if (st) this.host.setStatus("slots", st, "status-item entries of the admitted packages");
     } catch (e) {
       const msg = describe(e);
       this.stale = this.goodAt !== undefined;
@@ -364,13 +383,14 @@ export class Workbench {
           label: d["title"] ?? "(no title)",
           description: d["area"] ?? "",
           command: { id: CMD.openDecision, args: [d["msg"]] },
-          // S3.7: a/b on the Home card open the same sign dialog (never one click)
-          children: parseOptions(d["options"]).map((o) => ({
+          // S3.7: a/b on the Home card open the same sign dialog (never one click); then the packages'
+          // review-view entries for this proposal (C2.1)
+          children: [...parseOptions(d["options"]).map((o) => ({
             id: `d:${d["msg"]}:${o.id}`,
             label: `${o.id} · ${o.label}`,
             description: [o.id === d["recommended"] ? "recommended" : "", cannot ? "signing disabled" : ""].filter(Boolean).join(" · "),
             ...(cannot ? { disabled: true, tooltip: cannot } : { tooltip: "Opens the sign dialog", command: { id: CMD.chooseOption, args: [d["msg"], o.id] } }),
-          })),
+          })), ...this.packages.slotNodes(claimSubject(d["msg"] ?? "", d["type"]))],
         })),
       },
       { id: "inbox", label: "Inbox", description: `${open.length} open`, command: { id: CMD.focusInbox, args: [] } },
@@ -381,6 +401,7 @@ export class Workbench {
         children: [...areas.entries()].sort().map(([a, n]) => ({ id: `a:${a}`, label: a, description: String(n) })),
       },
       { id: "recorder", label: "Recorded runs (recorder)", tooltip: "Opens the kton recorder extension", command: { id: CMD.openRecorder, args: [] } },
+      ...this.packages.homeNodes(),
     ];
     if (this.stale) nodes.unshift({ id: "stale", label: "Stale: the last poll failed", description: `data from ${time(this.goodAt)}`, tooltip: this.lastError ?? "" });
     return nodes;
@@ -411,7 +432,7 @@ export class Workbench {
         description: `${n} open · ${areas.join(", ")}`,
         tooltip: l,
         children: [
-          { id: `l:${l}:terminal`, label: "Open in terminal", description: "not yet available", disabled: true, tooltip: "Comes when the workgroup extension folds in; use the workgroup extension until then." },
+          { id: `l:${l}:terminal`, label: "Open in terminal", description: "comes with the workgroup extension", disabled: true, tooltip: "Not here yet: opening a lane's terminal comes with the workgroup extension (C1.7). Use the workgroup extension until then." },
         ],
       };
     });
@@ -555,6 +576,37 @@ export class Workbench {
     return "signed";
   }
 
+  /**
+   * sign@1 / record@1 from a package's composition: the act's control decides the key (O1): a decision
+   * control through the one sign dialog with the person key, a record control with the agent key and no
+   * dialog. Same path as every other signature (signThroughDialog), so the dialog has one call site.
+   */
+  async signAct(c: Control, about: string, fields: Readonly<Record<string, string>>, title: string): Promise<SignResult> {
+    const control: ControlInfo = { package: c.package, name: c.name, template: c.template, kind: c.kind };
+    return this.signThroughDialog({ kind: "sign", about, fields }, control, title);
+  }
+
+  /** open@1: a claim this window knows opens its thread or decision; anything else is named, not fetched. */
+  private openTarget(target: Readonly<Record<string, unknown>>): string {
+    const ref = String(target["hash"] ?? target["uri"] ?? target["id"] ?? "");
+    const iri = /^sha256:[0-9a-f]{64}$/.test(ref) ? `https://kton.dev/o/${ref.slice(7)}` : ref;
+    if (this.openDecisions().some((d) => d["msg"] === iri)) {
+      this.openDecision(iri);
+      return `Opened the decision ${ref}`;
+    }
+    if (this.messages.some((m) => m["msg"] === iri)) {
+      this.openThread(iri);
+      return `Opened the thread ${ref}`;
+    }
+    this.host.info(`Open: ${ref} (not a claim in this window; nothing was fetched)`);
+    return `Named ${ref}; this window does not open it`;
+  }
+
+  /** A slot entry for a subject, from the Home tree or a command (C2.1). */
+  async openSlot(key: string, subject: Subject): Promise<void> {
+    await this.packages.openSlot(key, subject);
+  }
+
   /** Command palette: kton: ask. */
   async askCommand(): Promise<void> {
     const name = await this.host.pick("Ask which question?", [...this.queries.keys()]);
@@ -694,4 +746,10 @@ function sleep(ms: number): Promise<void> {
 
 function nonce(): string {
   return randomBytes(16).toString("base64url");
+}
+
+/** A claim of the feed as a slot subject: its IRI and its claim id (the registration claim, subject.claim). */
+export function claimSubject(iri: string, type?: string): Subject {
+  const id = idOf(iri);
+  return { kind: "claim", iri, id, claim: id, ...(type ? { type } : {}) };
 }

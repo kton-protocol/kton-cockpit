@@ -1,0 +1,3 @@
+{"viewer": "diagram", "module": "diagram.js", "requires": [], "optional": [],
+ "about": "A Mermaid diagram from a text content file of the package (carried in the plan). Drawn in the sandboxed Mermaid frame (ctx.kit.mermaid) with htmlLabels false, shown as <img src=data:image/svg+xml>, so the composition frame keeps a strict CSP (img-src data:). No links in a diagram.",
+ "accepts": {}, "emits": {}}

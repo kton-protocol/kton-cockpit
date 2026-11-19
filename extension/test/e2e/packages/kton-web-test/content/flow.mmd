@@ -1,0 +1,5 @@
+flowchart LR
+  A["Bug Reporting & Triage"] --> B["Fix in a branch"]
+  B --> C{"Review passed?"}
+  C -- "yes" --> D["Merge"]
+  C -- "no" --> B

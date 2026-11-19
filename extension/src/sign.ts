@@ -53,7 +53,9 @@ export function plan(
   templates: readonly TemplateInfo[],
   identity: WindowIdentity,
 ): Outcome<SignPlan> {
-  const tpl = templates.find((t) => t.name === control.template && (t.package === undefined || t.package === control.package));
+  // a template name two sources bring is listed as <package>/<name> (cockpit v0.5.3): the control's own package's
+  const mine = (t: TemplateInfo) => t.package === undefined || t.package === control.package;
+  const tpl = templates.find((t) => t.name === `${control.package}/${control.template}` && mine(t)) ?? templates.find((t) => t.name === control.template && mine(t));
   if (!tpl) return refuse("template.not-allowed", `${control.package}/${control.name} signs ${control.template}, which is not installed here`);
 
   const fields: Record<string, string> = {};

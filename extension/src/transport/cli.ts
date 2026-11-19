@@ -19,6 +19,7 @@
 //   `--json`; older builds wrote text on stderr. Both are read.
 
 import { execFile } from "node:child_process";
+import { assertUiListing, type UiListing } from "../packages/listing.js";
 import type {
   AskRequest,
   AskResult,
@@ -54,6 +55,8 @@ interface RunResult {
   readonly code: number | null;
   readonly stdout: string;
   readonly stderr: string;
+  /** stdout as bytes (ui cat) */
+  readonly bytes?: Uint8Array;
 }
 
 export class CliTransport implements Transport {
@@ -62,7 +65,7 @@ export class CliTransport implements Transport {
 
   constructor(private readonly opts: CliTransportOptions) {}
 
-  private run(args: readonly string[]): Promise<RunResult> {
+  private run(args: readonly string[], binary = false): Promise<RunResult> {
     const argv = [...args];
     this.calls.push(argv);
     return new Promise((resolve, reject) => {
@@ -76,6 +79,7 @@ export class CliTransport implements Transport {
           timeout: this.opts.timeoutMs ?? 120_000,
           maxBuffer: 64 * 1024 * 1024,
           windowsHide: true,
+          encoding: "buffer",
         },
         (err, stdout, stderr) => {
           if (err && typeof (err as NodeJS.ErrnoException).code === "string") {
@@ -88,7 +92,7 @@ export class CliTransport implements Transport {
             reject(new TransportTimeout(`${argv[0] ?? "cockpit"} timed out after ${Math.round((this.opts.timeoutMs ?? 120_000) / 1000)} s`, String(stderr)));
             return;
           }
-          resolve({ code, stdout: String(stdout), stderr: String(stderr) });
+          resolve({ code, stdout: String(stdout), stderr: String(stderr), ...(binary ? { bytes: new Uint8Array(stdout as Buffer) } : {}) });
         },
       );
     });
@@ -111,7 +115,7 @@ export class CliTransport implements Transport {
   }
 
   say(req: SayRequest): Promise<Outcome<SayResult>> {
-    if (!NAME.test(req.template)) return bad(`template ${JSON.stringify(req.template)} is not a name`);
+    if (!QNAME.test(req.template)) return bad(`template ${JSON.stringify(req.template)} is not a name`);
     if (!SHA.test(req.subject)) return bad("say takes a sha256 id as its subject, never a path");
     const args = ["say", req.template, req.subject];
     for (const k of Object.keys(req.fields ?? {}).sort()) {
@@ -173,6 +177,50 @@ export class CliTransport implements Transport {
     return this.outcome(args, (v) => assertObject(v, "install"));
   }
 
+  /** `cockpit ui list --json` (v0.5.4): packages, admission, refusals, ui entries, blocks, compositions, members. */
+  uiList(): Promise<Outcome<UiListing>> {
+    return this.outcome(["ui", "list", "--json"], assertUiListing);
+  }
+
+  /**
+   * `cockpit ui cat <package> <sha256:hash>` (v0.5.4): one member's bytes of a usable package, from stdout. The
+   * caller checks them against the hash again; the shell reads no package folder itself (C1.5).
+   */
+  async uiCat(pkg: string, hash: string): Promise<Uint8Array> {
+    if (!/^sha256:[0-9a-f]{64}$/.test(hash)) throw new TransportError(`${JSON.stringify(hash)} is not sha256:<hex>`, 0, "");
+    if (pkg === "" || pkg.startsWith("-")) throw new TransportError(`${JSON.stringify(pkg)} is not a package`, 0, "");
+    const r = await this.run(["ui", "cat", pkg, hash], true);
+    if (r.code === 2) {
+      // v0.5.4: ui.package = the package is not usable here (not admitted, failing its check, not installed);
+      // ui.member = the package has no member with that hash
+      const why = parseRefusal(r);
+      const what = why.code === "ui.package" ? `package ${pkg} is not usable here (not admitted, failing its check or not installed)` : why.code === "ui.member" ? `package ${pkg} has no member ${hash}` : "refused";
+      throw new TransportError(`ui cat: ${what}: ${why.reason}`, 2, r.stderr);
+    }
+    if (r.code !== 0) throw new TransportError(firstLine(r.stderr) || `ui cat: exit ${String(r.code)}`, r.code, r.stderr);
+    return r.bytes ?? new Uint8Array();
+  }
+
+  /**
+   * graph@1's data: `cockpit show --json` (v0.5.3), the snapshot a viewer fetches: every record with the ring to
+   * verify them (union, keys, names) and the admitted packages' build keys, labelled ({keyid: {key, packages:
+   * [{package, id, dir}]}}: a label, never trust). Shape-checked; packages is passed on unchanged.
+   */
+  graph(): Promise<Outcome<{ records: unknown[]; keys: Record<string, unknown>; names: Record<string, unknown>; packages: Record<string, unknown> }>> {
+    return this.outcome(["show", "--json"], (v) => {
+      const o = assertObject(v, "show") as Record<string, unknown>;
+      if (!Array.isArray(o["union"])) throw new TransportError("show: union is not a list of records", 0, "");
+      const keys = assertObject(o["keys"] ?? {}, "show keys") as Record<string, unknown>;
+      const names = assertObject(o["names"] ?? {}, "show names") as Record<string, unknown>;
+      const packages = assertObject(o["packages"] ?? {}, "show packages") as Record<string, unknown>;
+      for (const [k, e] of Object.entries(packages)) {
+        const pk = e as { key?: unknown; packages?: unknown };
+        if (typeof pk !== "object" || pk === null || typeof pk.key !== "string" || !Array.isArray(pk.packages)) throw new TransportError(`show: packages.${k} is not {key, packages: [...]}`, 0, "");
+      }
+      return { records: o["union"] as unknown[], keys, names, packages };
+    });
+  }
+
   /** The templates this checkout's cockpit allows, with their fields (`cockpit say --json`, v0.5.0). */
   templates(): Promise<Outcome<TemplateInfo[]>> {
     return this.outcome(["say", "--json"], parseTemplates);
@@ -217,6 +265,8 @@ export class CliTransport implements Transport {
 }
 
 const NAME = /^[A-Za-z][A-Za-z0-9_.-]*$/;
+/** a name, or <package>/<name> as the cockpit offers a name two sources bring (v0.5.3, per-package vocabulary) */
+const QNAME = /^([A-Za-z][A-Za-z0-9_.-]*\/)?[A-Za-z][A-Za-z0-9_.-]*$/;
 const SHA = /^sha256:[0-9a-f]{64}$/;
 /** Queries whose ref is a record or content hash (cockpit/ask.go). */
 const LINEAGE: ReadonlySet<string> = new Set(["record", "producer", "uses", "lineage", "reproductions", "about"]);

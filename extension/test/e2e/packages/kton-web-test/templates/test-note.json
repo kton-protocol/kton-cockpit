@@ -1,0 +1,1 @@
+{"name": "test-note", "target": "claim", "predicate": "https://example.org/kton-web-test/test-note", "fields": {"about": {"type": "string", "required": true}}}
