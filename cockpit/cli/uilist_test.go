@@ -297,3 +297,159 @@ func TestUICat_AReferenceNamingTwoPackagesIsRefused(t *testing.T) {
 		t.Errorf("ui cat by the unambiguous name: exit %d\n%s", code, stderr)
 	}
 }
+
+// ui cat --json reads several members in one call, in the order asked, each the bytes the single form
+// gives; a hash that is not a member refuses the whole call with nothing on stdout (SPEC §6).
+func TestUICat_SeveralMembersInOneCall(t *testing.T) {
+	r := testrepo.New(t)
+	r.Use(t)
+	_, key, _ := ed25519.GenerateKey(rand.Reader)
+	buildPkg(t, filepath.Join(t.TempDir(), "words"), "words", "v1", key, map[string]string{
+		"notes": tmpl("notes", "https://example.org/notes"), "memo": tmpl("memo", "https://example.org/memo")})
+	stdout, _, _ := r.CockpitSplit(t, "ui", "list", "--json")
+	var l struct {
+		Packages []struct {
+			Members []UIMember `json:"members"`
+		} `json:"packages"`
+	}
+	if json.Unmarshal([]byte(stdout), &l) != nil || len(l.Packages) != 1 || len(l.Packages[0].Members) < 2 {
+		t.Fatalf("ui list --json: %s", stdout)
+	}
+	ms := l.Packages[0].Members
+	a, b := ms[1].Hash, ms[0].Hash
+
+	stdout, stderr, code := r.CockpitSplit(t, "ui", "cat", "words", a, b, "--json")
+	var got UICat
+	if code != 0 || json.Unmarshal([]byte(stdout), &got) != nil || len(got.Members) != 2 {
+		t.Fatalf("ui cat words a b --json (exit %d): %s\n%s", code, stdout, stderr)
+	}
+	for i, h := range []string{a, b} {
+		single, _, _ := r.CockpitSplit(t, "ui", "cat", "words", h)
+		if got.Members[i].Hash != h || string(got.Members[i].Bytes) != single {
+			t.Errorf("member %d is %s with %d bytes, want %s as the single form gives it", i, got.Members[i].Hash, len(got.Members[i].Bytes), h)
+		}
+	}
+	if got.Name != "words" || got.Package == "" {
+		t.Errorf("the answer does not name the package: %+v", got)
+	}
+
+	missing := "sha256:" + strings.Repeat("0", 64)
+	stdout, stderr, code = r.CockpitSplit(t, "ui", "cat", "words", a, missing, "--json")
+	var ref struct {
+		Code    string          `json:"code"`
+		Members json.RawMessage `json:"members"`
+	}
+	if code != 2 || json.Unmarshal([]byte(stdout), &ref) != nil || ref.Code != "ui.member" || ref.Members != nil {
+		t.Errorf("a non-member among several is not refused alone (exit %d), stdout %q:\n%s", code, stdout, stderr)
+	}
+	if _, _, code := r.CockpitSplit(t, "ui", "cat", "words", a, b); code == 0 {
+		t.Error("several hashes without --json are not refused: their bytes would run together")
+	}
+}
+
+// A package whose member claim, signed with its own key, names a path that climbs out of its folder is
+// refused: ui list shows it with no members and package.check, and ui cat serves nothing from it
+// (kton-review F1 on #174).
+func TestUIList_APackageWithAClimbingMemberNameIsRefused(t *testing.T) {
+	r := testrepo.New(t)
+	r.Use(t)
+	_, key, _ := ed25519.GenerateKey(rand.Reader)
+	src := t.TempDir()
+	os.MkdirAll(filepath.Join(src, "templates"), 0o755)
+	os.WriteFile(filepath.Join(src, "templates", "notes.json"), []byte(tmpl("notes", "https://example.org/notes")), 0o644)
+	dir := filepath.Join(t.TempDir(), "words")
+	if _, _, err := scope.BuildTemplates(dir, "words", "v1", filepath.Join(src, "templates"), "", key, scope.Options{}); err != nil {
+		t.Fatal(err)
+	}
+	climb := func(dir string) string {
+		t.Helper()
+		p, err := scope.Open(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rev, _, err := p.WithSigner(key, scope.Options{}).Sealed()
+		if err != nil {
+			t.Fatal(err)
+		}
+		h, err := rev.P.PutBlob([]byte("escape\n"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := rev.Claim(h, scope.PartOf, map[string]any{"value": map[string]any{"role": scope.RoleViewerFile, "name": "viewers/table/../../../ZZ-escape.txt"}}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := rev.Seal(); err != nil {
+			t.Fatal(err)
+		}
+		return h
+	}
+	// Install refuses it.
+	bad := filepath.Join(t.TempDir(), "bad")
+	if _, _, err := scope.BuildTemplates(bad, "bad", "v1", filepath.Join(src, "templates"), "", key, scope.Options{}); err != nil {
+		t.Fatal(err)
+	}
+	climb(bad)
+	if _, err := cockpit.New(cockpit.Start{}).Install(context.Background(), cockpit.InstallRequest{Path: bad, Allow: true}); err == nil {
+		t.Error("install admits a package with a climbing member name")
+	}
+	// One installed and admitted before the check, changed in place, is refused by ui list and ui cat.
+	if _, err := cockpit.New(cockpit.Start{}).Install(context.Background(), cockpit.InstallRequest{Path: dir, Allow: true}); err != nil {
+		t.Fatal(err)
+	}
+	h := climb(filepath.Join(r.Root, ".kton", "packages", "words@v1"))
+
+	stdout, _, _ := r.CockpitSplit(t, "ui", "list", "--json")
+	var l struct {
+		Packages []struct {
+			Name    string      `json:"name"`
+			Members []UIMember  `json:"members"`
+			Refused []UIRefusal `json:"refused"`
+		} `json:"packages"`
+	}
+	if json.Unmarshal([]byte(stdout), &l) != nil {
+		t.Fatalf("ui list --json: %s", stdout)
+	}
+	found := false
+	for _, pk := range l.Packages {
+		if pk.Name != "words" {
+			continue
+		}
+		found = true
+		if pk.Members != nil || len(pk.Refused) == 0 || pk.Refused[0].Code != "package.check" {
+			t.Errorf("a package with a climbing member name is listed as usable: members %v, refused %+v", pk.Members, pk.Refused)
+		}
+	}
+	if !found {
+		t.Fatalf("the package is not listed: %s", stdout)
+	}
+	if out, code := r.Cockpit(t, "ui", "cat", "words", h); code != 2 || !strings.Contains(out, "not a usable installed package") {
+		t.Errorf("ui cat serves the climbing member (exit %d):\n%s", code, out)
+	}
+}
+
+// ui list lists members only for what ui cat serves: two admitted packages of one name are both
+// unusable, so both are listed with members null and package.unusable (the PR #174 review).
+func TestUIList_MembersOnlyForUsablePackages(t *testing.T) {
+	r := testrepo.New(t)
+	r.Use(t)
+	for _, d := range []string{"a", "b"} {
+		_, key, _ := ed25519.GenerateKey(rand.Reader)
+		buildPkg(t, filepath.Join(t.TempDir(), d), "words", "v1-"+d, key, map[string]string{"notes": tmpl("notes", "https://example.org/notes")})
+	}
+	stdout, _, _ := r.CockpitSplit(t, "ui", "list", "--json")
+	var l struct {
+		Packages []struct {
+			Allowed bool        `json:"allowed"`
+			Members []UIMember  `json:"members"`
+			Refused []UIRefusal `json:"refused"`
+		} `json:"packages"`
+	}
+	if json.Unmarshal([]byte(stdout), &l) != nil || len(l.Packages) != 2 {
+		t.Fatalf("ui list --json: %s", stdout)
+	}
+	for _, p := range l.Packages {
+		if !p.Allowed || p.Members != nil || len(p.Refused) != 1 || p.Refused[0].Code != "package.unusable" {
+			t.Errorf("an admitted package ui cat refuses is listed with members %v, refused %+v", p.Members, p.Refused)
+		}
+	}
+}

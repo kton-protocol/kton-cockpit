@@ -231,6 +231,10 @@ func Usable(repoRoot string, allowed []string) (usable []Installed, refused []Re
 			refused = append(refused, Refused{Source: source(in), Reason: "fails its check: " + probs[0]})
 			continue
 		}
+		if why := MemberNameProblem(in.Revision); why != "" {
+			refused = append(refused, Refused{Source: source(in), Reason: "fails its check: " + why})
+			continue
+		}
 		checked = append(checked, in)
 	}
 	if len(broken) > 0 {
@@ -241,6 +245,38 @@ func Usable(repoRoot string, allowed []string) (usable []Installed, refused []Re
 		}
 	}
 	return checked, refused, nil
+}
+
+// MemberNameProblem names a member whose name could leave the folder a reader lays the package out
+// in: a '..' segment, an absolute or drive path, a backslash or a NUL. ktonpkg refuses such names when a
+// package is written but, until v0.9.7, not when it is read, and a member claim signed with the package
+// key can carry any name (kton-review F1 on #174). Every member is checked, whatever its role.
+func MemberNameProblem(rev *scope.Revision) string {
+	if rev == nil {
+		return ""
+	}
+	ms, err := rev.Members()
+	if err != nil {
+		return err.Error()
+	}
+	for _, m := range ms {
+		if unsafeMemberName(m.Name) {
+			return fmt.Sprintf("the member %q (%s) has a name that leaves the package's folder", m.Name, m.Hash)
+		}
+	}
+	return ""
+}
+
+func unsafeMemberName(n string) bool {
+	if strings.ContainsAny(n, "\\\x00") || strings.HasPrefix(n, "/") || (len(n) >= 2 && n[1] == ':' && (n[0]|0x20) >= 'a' && (n[0]|0x20) <= 'z') {
+		return true
+	}
+	for _, seg := range strings.Split(n, "/") {
+		if seg == ".." {
+			return true
+		}
+	}
+	return false
 }
 
 // contains reports whether in's package chain holds the revision id.
