@@ -82,3 +82,49 @@ func TestAliases_APackagesOwnAliasesResolveOnlyItsOwnTemplates(t *testing.T) {
 		}
 	}
 }
+
+// One predicate, one template: a second package declaring a predicate the first already declares does
+// not change how the first's claims are viewed; its template is not offered and doctor names it. The
+// repository's own template comes before every package's (kton-review P1 on #175).
+func TestAliases_ASecondPackageWithTheSamePredicateDoesNotChangeTheFirsts(t *testing.T) {
+	r := testrepo.New(t)
+	r.Use(t)
+	_, key, _ := ed25519.GenerateKey(rand.Reader)
+	buildPkg(t, filepath.Join(t.TempDir(), "area-one"), "area-one", "v1", key, map[string]string{
+		"approves": `{"name": "approves", "target": "either", "predicate": "qm:approves", "fields": {"outcome": {"type": "enum", "values": ["q:ok", "q:rejected"]}}}`,
+		"aliases":  `{"prefixes": {"qm": "https://ex.org/qm/", "q": "https://ex.org/qm/v/"}, "terms": {"outcome": "qm:outcome"}}`,
+	})
+	buildPkg(t, filepath.Join(t.TempDir(), "zz-other"), "zz-other", "v1", key, map[string]string{
+		"zz-approves": `{"name": "zz-approves", "target": "either", "predicate": "https://ex.org/qm/approves", "fields": {"outcome": {"type": "string"}}}`,
+		"notes":       `{"name": "notes", "target": "either", "predicate": "https://ex.org/repo/notes", "fields": {"note": {"type": "string"}}}`,
+		"aliases":     `{"prefixes": {"other": "https://ex.org/other/"}, "terms": {"outcome": "other:outcome"}}`,
+	})
+	r.Write(t, ".kton/templates/notes-here.json", `{"name": "notes-here", "target": "either", "predicate": "https://ex.org/repo/notes", "fields": {"note": {"type": "string"}}}`)
+
+	cfg, err := config.Load(context.Background(), ".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	set, own, err := binaries.New(cfg).TemplatesAndAliases()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := set.Get("zz-approves"); ok {
+		t.Error("a second package's template with the first's predicate is offered")
+	}
+	if _, ok := set.Get("notes"); ok {
+		t.Error("a package template with a repository template's predicate is offered")
+	}
+	if tm, ok := set.Get("approves"); !ok || tm.Predicate != "https://ex.org/qm/approves" {
+		t.Errorf("the first package's template is gone or changed: %+v", tm)
+	}
+	if got := own["approves"].Resolve("outcome"); got != "https://ex.org/qm/outcome" {
+		t.Errorf("the first package's field resolves to %q", got)
+	}
+	out, _ := r.Cockpit(t, "doctor")
+	for _, want := range []string{"zz-approves of the package zz-other", "the repository's template notes-here"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("doctor does not name %q:\n%s", want, out)
+		}
+	}
+}

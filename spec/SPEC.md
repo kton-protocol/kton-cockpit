@@ -1070,7 +1070,13 @@ values in the view, and an `iri` value written in its prefixes at `say`. What th
 is, the repository's alias file resolves. No package alias joins the set the repository's templates
 resolve through, so no package changes what another package's, or the repository's, words mean. A
 package whose alias file names template short names is refused (`doctor` names it): the kernel prefers
-such a name over a real template's, so one package could redirect another's `say` (kton-review A1). A claim id in `replaces` and in a `ref` field is named in lower case.
+such a name over a real template's, so one package could redirect another's `say` (kton-review A1).
+
+One predicate, one template: the view finds a claim's template, and with it the aliases its fields
+resolve through, by its predicate. The repository's own templates come first, then the admitted
+packages in the order they were admitted (`claims.allowedPackages`), each package's templates by name;
+a package template whose resolved predicate an earlier one declares is not offered, and `doctor` names
+it. A second package therefore never changes how the first's claims read (kton-review P1). A claim id in `replaces` and in a `ref` field is named in lower case.
 The vocabulary 0 terms `nk:current` and `nk:supersededBy` are gone with v0.5.0, without a compatibility
 period.
 
@@ -1078,7 +1084,7 @@ period.
 > `TestClaimView_ARefFieldPointsAtWhatItNames`, `TestClaimView_AnAliasCannotNameATermTheViewWrites`,
 > `TestClaimView_ReplacedByOnlyForTheSameSignerTemplateAndSubject`, `TestClaimView_EveryAboutAndASeedsParent`,
 > `TestClaimView_ANestedObjectsFieldsGoThroughTheAliases`, `TestClaimView_APackagesFieldsResolveThroughItsOwnAliasesOnly`,
-> `TestAliases_APackagesOwnAliasesResolveOnlyItsOwnTemplates`,
+> `TestAliases_APackagesOwnAliasesResolveOnlyItsOwnTemplates`, `TestAliases_ASecondPackageWithTheSamePredicateDoesNotChangeTheFirsts`,
 > `TestSparql_TheExamplesAnswerOverAFixture` (`-tags docker`).
 
 ## 10 Execution *(optional)*
