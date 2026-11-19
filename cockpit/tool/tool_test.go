@@ -35,7 +35,7 @@ func TestInstall_HandsToolPackagesToTheModule(t *testing.T) {
 	if err != nil {
 		t.Fatalf("cockpit tool install: %v", err)
 	}
-	if out.Profile != scope.ProfileTool || out.Dir != "packages/nonmem@v1" {
+	if out.Profile != scope.ProfileTool || out.Dir != ".kton/packages/nonmem@v1" {
 		t.Errorf("installed %+v", out)
 	}
 
