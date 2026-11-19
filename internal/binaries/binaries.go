@@ -677,6 +677,11 @@ func (r *Runner) Templates() (ntemplate.Set, error) {
 		}
 		raw["package:"+name] = b
 	}
+	// A package's own aliases resolve its fields and queries too, merged with the repository's;
+	// the repository's win, and a key two packages define differently is left out (doctor names it).
+	if aliases, _, err = voc.AliasesWith(aliases); err != nil {
+		return ntemplate.Set{}, err
+	}
 	set, err := ntemplate.New(raw, aliases)
 	if err != nil {
 		return ntemplate.Set{}, err

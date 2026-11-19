@@ -1037,13 +1037,17 @@ with every other store that names records by hash. Nanopub's Trusty URIs belong 
 | a field | under the term the template's aliases give it, else `lab:<field>` (`https://kton.dev/v/lab/`), typed by the field's type (`docs/sparql.md`) |
 
 No other state is inferred: nothing is "current", nothing is superseded unless a claim says so. An alias
-MUST NOT name a term of this table. A claim id in `replaces` and in a `ref` field is named in lower case.
+MUST NOT name a term of this table. The aliases are the repository's alias file merged with each
+admitted package's own: the repository's definitions win, packages that define a key alike merge, and
+a key two packages define differently is left out for both and named by `doctor`, never resolved by
+order. A claim id in `replaces` and in a `ref` field is named in lower case.
 The vocabulary 0 terms `nk:current` and `nk:supersededBy` are gone with v0.5.0, without a compatibility
 period.
 
 > **Checked by:** `TestClaimView_KeepsPositionAndInfersNothing`, `TestClaimView_AppliesTheTemplatesTermsAndTypes`,
 > `TestClaimView_ARefFieldPointsAtWhatItNames`, `TestClaimView_AnAliasCannotNameATermTheViewWrites`,
 > `TestClaimView_ReplacedByOnlyForTheSameSignerTemplateAndSubject`, `TestClaimView_EveryAboutAndASeedsParent`,
+> `TestAliases_APackagesOwnAliasesResolveMergedWithTheRepositorys`,
 > `TestSparql_TheExamplesAnswerOverAFixture` (`-tags docker`).
 
 ## 10 Execution *(optional)*

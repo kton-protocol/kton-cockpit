@@ -137,11 +137,19 @@ type Vocabulary struct {
 	Queries   map[string][]byte
 	MCPTools  map[string]scope.MCPTool
 	From      map[string]Source // "template:<name>" / "query:<name>" / "mcp:<name>" -> where it came from
+	// Aliases are the admitted packages' own alias files, merged with the repository's by AliasesWith.
+	Aliases []PackageAliases
 	// Refused are the admitted packages that contribute nothing: failing their check, unreadable, or
 	// missing while some package directory cannot be read. The others keep working.
 	Refused []Refused
 	// Clashes are the names two sources bring, each offered only as <package>/<name>.
 	Clashes []string
+}
+
+// PackageAliases is one admitted package's alias file.
+type PackageAliases struct {
+	Source
+	Body []byte
 }
 
 // Refused is an admitted package that contributes nothing, and why.
@@ -240,6 +248,9 @@ func Allowed(repoRoot string, allowed, modules []string) (*Vocabulary, error) {
 		if err != nil {
 			refuse(err.Error())
 			continue
+		}
+		if body, err := in.Revision.Aliases(); err == nil && len(body) > 0 {
+			v.Aliases = append(v.Aliases, PackageAliases{Source: src, Body: body})
 		}
 		for name, t := range ms {
 			tools[name] = append(tools[name], struct {

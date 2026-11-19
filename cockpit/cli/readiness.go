@@ -105,6 +105,12 @@ func readiness(ctx context.Context, cfg *config.Config) []nextStep {
 		for _, c := range voc.Clashes {
 			steps = append(steps, nextStep{false, c})
 		}
+		repoAliases, _ := os.ReadFile(filepath.Join(cfg.RepoRoot, "aliases.json"))
+		if _, clashes, err := voc.AliasesWith(repoAliases); err == nil {
+			for _, c := range clashes {
+				steps = append(steps, nextStep{false, "aliases: " + c})
+			}
+		}
 	}
 	return steps
 }
