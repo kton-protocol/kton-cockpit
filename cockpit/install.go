@@ -177,7 +177,7 @@ func (c *Cockpit) Install(ctx context.Context, in InstallRequest) (*InstallResul
 	}
 	if _, err := persist(ctx, cfg, paths,
 		"install: "+scopeName); err != nil {
-		return nil, refuse("store", "", "committing the installation failed: %v", err)
+		return nil, refuse(storeCode(err), "", "committing the installation failed: %v", err)
 	}
 	return out, nil
 }

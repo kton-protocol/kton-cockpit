@@ -205,7 +205,7 @@ func (c *Cockpit) WorkflowExtract(ctx context.Context, in WorkflowExtractRequest
 	}
 	revn, err := persist(ctx, cfg, []string{rel}, "workflow: "+in.Choice.Name)
 	if err != nil {
-		return nil, refuse("store", "", "committing the package failed: %v", err)
+		return nil, refuse(storeCode(err), "", "committing the package failed: %v", err)
 	}
 	out.Persisted = revn.ID
 	return out, nil

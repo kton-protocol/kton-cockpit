@@ -248,7 +248,7 @@ func (c *Cockpit) publishRay(ctx context.Context, cfg *config.Config, in Publish
 
 	rev, err := persist(ctx, cfg, []string{rp.Dir}, "ray: "+rp.Choice.Name)
 	if err != nil {
-		return nil, refuse("store", "", "committing the package failed: %v", err)
+		return nil, refuse(storeCode(err), "", "committing the package failed: %v", err)
 	}
 	shareRejected, sha := rev.Rejected, rev.ID
 
@@ -263,7 +263,7 @@ func (c *Cockpit) publishRay(ctx context.Context, cfg *config.Config, in Publish
 	}
 	finalRev, err := persist(ctx, cfg, []string{config.Rel("nekton")}, "claim: "+rayTemplate+" on "+rayID)
 	if err != nil {
-		return nil, refuse("store", "", "committing the claim failed: %v", err)
+		return nil, refuse(storeCode(err), "", "committing the claim failed: %v", err)
 	}
 	shareRejected = shareRejected || finalRev.Rejected
 	finalSHA := finalRev.ID

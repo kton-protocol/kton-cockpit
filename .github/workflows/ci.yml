@@ -235,6 +235,14 @@ jobs:
 
       - name: move to kton main HEAD
         working-directory: cockpit
+        # The module proxy caches what @main meant when it was first asked, so after a release
+        # kton.dev/plankton@main stayed the commit before the tag and the kernels disagreed
+        # (userinterface, 19.11.). The kton modules are fetched from git, so @main is the branch head
+        # now; every other dependency still comes through the proxy.
+        env:
+          GONOPROXY: kton.dev
+          GONOSUMDB: kton.dev
+          GOFLAGS: -mod=mod
         run: |
           echo "required: $(go list -m -f '{{.Version}}' kton.dev/plankton)"
           go get kton.dev/plankton@main kton.dev/nekton@main kton.dev/kton@main

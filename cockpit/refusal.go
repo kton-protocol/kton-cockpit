@@ -1,6 +1,11 @@
 package cockpit
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+
+	"github.com/kton-protocol/kton-cockpit/internal/gitops"
+)
 
 // Refusal is the cockpit declining to act, with a reason. It is returned as an error.
 //
@@ -40,4 +45,13 @@ func (r *Refusal) Error() string { return r.Reason }
 
 func refuse(code, clause, format string, args ...any) error {
 	return &Refusal{Code: code, Clause: clause, Reason: fmt.Sprintf(format, args...)}
+}
+
+// storeCode is the refusal code for a failed write to the store: store.busy when another git held
+// the repository's lock past the wait, so a caller can try again, else store (SPEC §12.1).
+func storeCode(err error) string {
+	if errors.Is(err, gitops.ErrBusy) {
+		return "store.busy"
+	}
+	return "store"
 }
