@@ -6,8 +6,9 @@ holds no kton logic of its own: every answer it shows comes from the cockpit, an
 makes goes through the cockpit's own guards.
 
 This is the shell (contract C1). Further surfaces arrive later as kton packages, not as more
-extensions. The recorder (`kton.kton-recorder`, `kton.kton-workgroup`) stays a separate extension.
-The workbench hands over to it and checks that it is installed.
+extensions. The recorder (`kton.kton-recorder`) stays a separate extension: the workbench hands over to it
+and checks that it is installed. The workgroup extension (`kton.kton-workgroup`) folds into the
+workbench later; until then its lanes show "Open in terminal" as not available.
 
 ## What it does
 

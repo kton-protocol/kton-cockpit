@@ -141,7 +141,7 @@ test("templates come from the cockpit's listing (say --json, v0.5.0), shape-chec
 test("list: templates (say --json), queries (ask --json) and workflows", async () => {
   const { transport } = fakeCockpit([
     { argv0: "say", argv1: "--json", stdout: JSON.stringify([{ name: "approves", fields: { meaning: { type: "string", values: ["approved"] } } }]) },
-    { argv0: "ask", argv1: "--json", stdout: JSON.stringify([{ name: "record", arg: "<run|file|sha256:id>", what: "x" }, { name: "inbox-open", parameters: ["LANE"], package: "lanes" }]) },
+    { argv0: "ask", argv1: "--json", stdout: JSON.stringify([{ name: "record", arg: "<run|file|sha256:id>", what: "x" }, { name: "inbox-open", params: ["LANE"], package: "lanes" }]) },
     { argv0: "workflow", argv1: "list", stdout: JSON.stringify([{ name: "render" }]) },
   ]);
   const out = await transport.list();
@@ -149,6 +149,16 @@ test("list: templates (say --json), queries (ask --json) and workflows", async (
   assert.deepEqual(out.value.workflows, ["render"]);
   assert.equal(out.value.templates[0]?.name, "approves");
   assert.deepEqual(out.value.queries[1], { name: "inbox-open", parameters: ["LANE"], package: "lanes" });
+});
+
+test("version reads version --json (cockpit, revision); non-JSON is a TransportError", async () => {
+  const { transport, argvLog } = fakeCockpit([{ argv0: "version", argv1: "--json", stdout: JSON.stringify({ cockpit: "v0.5.1", revision: "e88adfba36a24a93", modified: false, go: "go1.25", kernels: [] }) }]);
+  const out = await transport.version();
+  assert.ok(out.ok);
+  assert.equal(out.value.text, "cockpit v0.5.1 e88adfba36a2");
+  assert.deepEqual(argvLog()[0], ["version", "--json"]);
+  const { transport: bad } = fakeCockpit([{ argv0: "version", argv1: "--json", stdout: "cockpit (devel)" }]);
+  await assert.rejects(bad.version(), TransportError);
 });
 
 test("a call that takes longer than its timeout is a TransportTimeout: nothing is claimed about the registry", async () => {

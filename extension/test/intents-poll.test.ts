@@ -120,3 +120,23 @@ test("one scheduler: runs, never overlaps a job, records errors, settable interv
   assert.throws(() => s.add("fast", 10, async () => {}));
   s.stop();
 });
+
+test("setInterval during a running tick leaves one timer chain", async () => {
+  const clock = new FakeClock();
+  const s = new Scheduler(clock);
+  let runs = 0;
+  let release: () => void = () => {};
+  s.add("inbox", 10_000, async () => {
+    runs++;
+    if (runs === 1) await new Promise<void>((r) => (release = r));
+  });
+  await clock.advance(0);
+  assert.equal(runs, 1, "first tick running");
+  s.setInterval("inbox", 5_000);
+  release();
+  await new Promise((r) => setImmediate(r));
+  await clock.advance(20_000);
+  assert.equal(runs, 5, "one chain at 5 s: ticks at 5, 10, 15, 20 s after the first");
+  assert.equal(clock.timers.length, 1, "exactly one pending timer");
+  s.stop();
+});

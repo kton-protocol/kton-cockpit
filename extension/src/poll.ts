@@ -32,6 +32,8 @@ interface Job {
   lastError?: string;
   runs: number;
   handle?: unknown;
+  /** Bumped by setInterval: a tick that started under an older value does not schedule again. */
+  gen: number;
 }
 
 export class Scheduler {
@@ -44,7 +46,7 @@ export class Scheduler {
   add(name: string, intervalMs: number, fn: () => Promise<void>): void {
     if (this.jobs.has(name)) throw new Error(`a poll named ${name} exists`);
     if (!(intervalMs >= 1000)) throw new Error("a poll runs at most once a second");
-    const job: Job = { name, intervalMs, fn, running: false, runs: 0 };
+    const job: Job = { name, intervalMs, fn, running: false, runs: 0, gen: 0 };
     this.jobs.set(name, job);
     this.schedule(job, 0);
   }
@@ -53,6 +55,7 @@ export class Scheduler {
     const job = this.jobs.get(name);
     if (!job) throw new Error(`no poll named ${name}`);
     job.intervalMs = intervalMs;
+    job.gen++; // a tick running now must not start a second timer chain
     if (job.handle !== undefined) this.clock.clearTimeout(job.handle);
     this.schedule(job, intervalMs);
   }
@@ -81,8 +84,11 @@ export class Scheduler {
 
   private schedule(job: Job, delay: number): void {
     if (this.stopped) return;
+    const gen = job.gen;
     job.handle = this.clock.setTimeout(() => {
-      void this.tick(job).then(() => this.schedule(job, job.intervalMs));
+      void this.tick(job).then(() => {
+        if (job.gen === gen) this.schedule(job, job.intervalMs);
+      });
     }, delay);
   }
 

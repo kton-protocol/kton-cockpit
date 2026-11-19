@@ -117,7 +117,8 @@ class FakeHost implements UiHost {
   async signDialog(title: string, detail: string): Promise<boolean> { this.dialogs.push({ title, detail }); return this.confirmAnswer; }
   signOutcome(ok: boolean, text: string): void { this.outcomes.push({ ok, text }); }
   async openWindow(folder: string): Promise<void> { this.windows.push(folder); }
-  async runExternal(ext: string, cmd: string): Promise<boolean> { if (!this.installed.has(ext)) return false; this.external.push(cmd); return true; }
+  externalFails?: string;
+  async runExternal(ext: string, cmd: string): Promise<boolean> { if (!this.installed.has(ext)) return false; if (this.externalFails) throw new Error(this.externalFails); this.external.push(cmd); return true; }
   async pick(): Promise<string | undefined> { return this.picks.shift(); }
   async input(): Promise<string | undefined> { return this.inputs.shift(); }
   info(t: string): void { this.infos.push(t); }
@@ -428,6 +429,9 @@ test("S10: recorder handover: runs the recorder's command if installed, else say
   h.installed.add("kton.kton-recorder");
   assert.equal(await wb.openRecorder(), true);
   assert.deepEqual(h.external, ["kton.openObservations"]);
+  h.externalFails = "observations unavailable";
+  assert.equal(await wb.openRecorder(), false, "a rejected handover is caught");
+  assert.match(h.errors.at(-1) ?? "", /recorder could not open: observations unavailable/);
 });
 
 /** A cockpit stand-in for S7 that answers the views but misbehaves on say. */

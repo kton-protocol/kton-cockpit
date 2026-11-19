@@ -7,8 +7,9 @@
 //   paths are refused when they start with "-", and field values travel as "key=value", which
 //   starts with the key.
 // - say uses the FLAG form (`cockpit say <template> <sha256:…> k=v … [--as NAME] [--scope NAME]
-//   --json`): on v0.5.0 the JSON argument form does not resolve a file subject the way the flag
-//   form does, and the shell passes ids anyway.
+//   --json`). Since v0.5.1 every form resolves a file subject (#148) and refuses a link out of the
+//   repository or a non-regular file; the shell keeps the flag form because it only ever passes
+//   sha256 ids, which need no resolution, and each field travels as its own argv element.
 // - ask and publish use the JSON argument form (cockpit/cli/main.go callVerb): one argv element
 //   carries the request, unknown fields are refused by the cockpit, the answer is one JSON object.
 // - Templates and queries come from the cockpit's own listings (`say --json`, `ask --json`), never
@@ -200,9 +201,18 @@ export class CliTransport implements Transport {
   }
 
   async version(): Promise<Outcome<{ readonly text: string }>> {
-    const r = await this.run(["version"]);
+    // `version --json` (since v0.5.0): {cockpit, revision, modified, go, kernels}.
+    const r = await this.run(["version", "--json"]);
     if (r.code !== 0) throw new TransportError(firstLine(r.stderr) || "version failed", r.code, r.stderr);
-    return { ok: true, value: { text: r.stdout.trim() } };
+    let v: { cockpit?: unknown; revision?: unknown };
+    try {
+      v = JSON.parse(r.stdout) as typeof v;
+    } catch {
+      throw new TransportError("version: the answer is not JSON", r.code, r.stderr);
+    }
+    if (typeof v.cockpit !== "string") throw new TransportError("version: no cockpit field", r.code, r.stderr);
+    const rev = typeof v.revision === "string" && v.revision ? ` ${v.revision.slice(0, 12)}` : "";
+    return { ok: true, value: { text: `cockpit ${v.cockpit}${rev}` } };
   }
 }
 
@@ -260,8 +270,9 @@ function parseQueries(v: unknown): QueryInfo[] {
   const arr = Array.isArray(v) ? v : (v as { queries?: unknown }).queries;
   if (!Array.isArray(arr)) throw new TransportError("query listing: expected a list", 0, "");
   return arr.map((q) => {
-    const o = q as Partial<QueryInfo>;
+    // `ask --json` names a package query's parameters `params` (v0.5.0, the shipped name).
+    const o = q as { name?: unknown; params?: unknown; package?: unknown };
     if (typeof o.name !== "string") throw new TransportError("query listing: an entry has no name", 0, "");
-    return { name: o.name, parameters: Array.isArray(o.parameters) ? o.parameters.map(String) : [], ...(typeof o.package === "string" ? { package: o.package } : {}) };
+    return { name: o.name, parameters: Array.isArray(o.params) ? o.params.map(String) : [], ...(typeof o.package === "string" ? { package: o.package } : {}) };
   });
 }

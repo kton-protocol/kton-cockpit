@@ -317,7 +317,13 @@ export class Workbench {
 
   /** Recorder handover: it stays its own extension. */
   async openRecorder(): Promise<boolean> {
-    const ok = await this.host.runExternal(this.cfg.recorder.extensionId, this.cfg.recorder.command);
+    let ok: boolean;
+    try {
+      ok = await this.host.runExternal(this.cfg.recorder.extensionId, this.cfg.recorder.command);
+    } catch (e) {
+      this.host.error(`The kton recorder could not open: ${(e as Error).message}`);
+      return false;
+    }
     if (!ok) this.host.info("The kton recorder extension is not installed. Recorded runs are shown there; it stays its own extension.");
     return ok;
   }
