@@ -1,8 +1,8 @@
 package cockpit
 
 import (
+	"github.com/kton-protocol/kton-cockpit/internal/binaries"
 	"github.com/kton-protocol/kton-cockpit/internal/config"
-	"github.com/kton-protocol/kton-cockpit/internal/packages"
 )
 
 // allowsTemplate is the claim-template ceiling (SPEC §8.1): a template is allowed when the
@@ -18,13 +18,5 @@ func allowsTemplate(cfg *config.Config, name string) bool {
 // that should say it: an allowed package failing its check, or a module the configuration names that
 // this binary does not link, is not the same as a template nobody allowed.
 func templateAllowed(cfg *config.Config, name string) (bool, error) {
-	if cfg.AllowsTemplate(name) {
-		return true, nil
-	}
-	voc, err := packages.Allowed(cfg.RepoRoot, cfg.Raw.Claims.AllowedPackages, cfg.Raw.Claims.AllowedModules)
-	if err != nil {
-		return false, err
-	}
-	_, ok := voc.Templates[name]
-	return ok, nil
+	return binaries.New(cfg).TemplateAllowed(name)
 }

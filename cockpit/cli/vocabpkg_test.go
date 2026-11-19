@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"github.com/gitmick/ktonpkg/scope"
 
 	"github.com/kton-protocol/kton-cockpit/cockpit"
+	"github.com/kton-protocol/kton-cockpit/internal/config"
 	"github.com/kton-protocol/kton-cockpit/internal/testrepo"
 )
 
@@ -235,5 +237,126 @@ func TestDoctor_AnUnreadableVocabularyIsNamedAsSuch(t *testing.T) {
 	}
 	if strings.Contains(out, "template from-a-package will be refused: no") {
 		t.Errorf("doctor gives a missing file as the reason:\n%s", out)
+	}
+}
+
+// The listing says what say signs with, by the name say takes (kton-review N3 on #180): a template name
+// two packages bring is listed only qualified, and a package template left out because an earlier one
+// declares its predicate is not listed at all.
+func TestSay_TheListingIsWhatSayOffers(t *testing.T) {
+	r := testrepo.New(t)
+	r.Use(t)
+	ctx := context.Background()
+	c := cockpit.New(cockpit.Start{})
+	pkg := func(name string, templates map[string]string) {
+		src := t.TempDir()
+		os.MkdirAll(filepath.Join(src, "templates"), 0o755)
+		for tm, pred := range templates {
+			os.WriteFile(filepath.Join(src, "templates", tm+".json"), []byte(`{"name": "`+tm+`", "target": "either",
+  "predicate": "`+pred+`", "fields": {"note": {"type": "string"}}}`), 0o644)
+		}
+		_, key, _ := ed25519.GenerateKey(rand.Reader)
+		dir := filepath.Join(t.TempDir(), name)
+		if _, _, err := scope.BuildTemplates(dir, name, "v1", filepath.Join(src, "templates"), "", key, scope.Options{}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := c.Install(ctx, cockpit.InstallRequest{Path: dir, Allow: true}); err != nil {
+			t.Fatalf("install %s: %v", name, err)
+		}
+	}
+	pkg("area-one", map[string]string{"approves": "https://example.org/one/approves", "deviation": "https://example.org/one/deviation"})
+	pkg("area-two", map[string]string{"approves": "https://example.org/two/approves", "same": "https://example.org/one/deviation"})
+
+	stdout, _, _ := r.CockpitSplit(t, "say", "--json")
+	var ts []Template
+	if json.Unmarshal([]byte(stdout), &ts) != nil {
+		t.Fatalf("say --json: %s", stdout)
+	}
+	listed := map[string]string{}
+	for _, x := range ts {
+		listed[x.Name] = x.Predicate
+	}
+	for _, want := range []string{"area-one/approves", "area-two/approves", "deviation"} {
+		if _, ok := listed[want]; !ok {
+			t.Errorf("%s is not listed: %v", want, listed)
+		}
+	}
+	for _, not := range []string{"approves", "same"} {
+		if _, ok := listed[not]; ok {
+			t.Errorf("%s is listed though say does not offer it: %v", not, listed)
+		}
+	}
+	for _, name := range []string{"area-one/approves", "area-two/approves", "deviation"} {
+		if out, code := r.Cockpit(t, "say", name, "urn:example:item", "note=x"); code != 0 {
+			t.Errorf("listed %s, but say refuses it (exit %d):\n%s", name, code, out)
+		}
+	}
+}
+
+// The ceiling is by origin (kton-review C1 on #181): a package bringing a template of a repository
+// template's name neither opens the ceiling for the repository's template nor locks out its own. And
+// the listing keeps to what say signs (T12–T14): a template whose predicate resolves to no IRI is not
+// listed, a repository template claims.allowedTemplates does not name is not listed, and the predicate
+// listed is the one say signs, resolved through the alias file.
+func TestSay_TheCeilingIsByOriginAndTheListingFollowsIt(t *testing.T) {
+	r := testrepo.New(t)
+	r.Use(t)
+	ctx := context.Background()
+	c := cockpit.New(cockpit.Start{})
+	r.Write(t, ".kton/templates/retracts.json", `{"name": "retracts", "target": "either", "predicate": "https://example.org/repo/retracts-ALL", "fields": {"note": {"type": "string"}}}`)
+	r.Write(t, ".kton/templates/unprefixed.json", `{"name": "unprefixed", "target": "either", "predicate": "nowhere:x", "fields": {"note": {"type": "string"}}}`)
+	r.Write(t, ".kton/templates/aliased.json", `{"name": "aliased", "target": "either", "predicate": "rel:aliased", "fields": {"note": {"type": "string"}}}`)
+	r.Write(t, ".kton/aliases.json", `{"prefixes": {"rel": "https://example.org/release/"}}`)
+	raw := r.Config(t).Raw
+	raw.Claims.AllowedTemplates = append(raw.Claims.AllowedTemplates, "unprefixed", "aliased")
+	r.WriteConfig(t, raw)
+
+	src := t.TempDir()
+	os.MkdirAll(filepath.Join(src, "templates"), 0o755)
+	os.WriteFile(filepath.Join(src, "templates", "retracts.json"), []byte(`{"name": "retracts", "target": "either",
+  "predicate": "https://example.org/train/retracts", "fields": {"note": {"type": "string"}}}`), 0o644)
+	_, key, _ := ed25519.GenerateKey(rand.Reader)
+	dir := filepath.Join(t.TempDir(), "train")
+	if _, _, err := scope.BuildTemplates(dir, "train", "v1", filepath.Join(src, "templates"), "", key, scope.Options{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Install(ctx, cockpit.InstallRequest{Path: dir, Allow: true}); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+
+	if out, code := r.Cockpit(t, "say", "retracts", "urn:example:x", "note=x"); code == 0 || !strings.Contains(out, "not in this repo's allowed claim templates") {
+		t.Errorf("say retracts signed the repository's unallowed template (exit %d):\n%s", code, out)
+	}
+	if out, code := r.Cockpit(t, "say", "train/retracts", "urn:example:x", "note=x", "--expect-predicate", "https://example.org/train/retracts"); code != 0 {
+		t.Errorf("say train/retracts (exit %d):\n%s", code, out)
+	}
+
+	cfg, err := config.Load(ctx, ".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	listed := map[string]string{}
+	for _, x := range readTemplates(cfg) {
+		listed[x.Name] = x.Predicate
+	}
+	if listed["train/retracts"] != "https://example.org/train/retracts" {
+		t.Errorf("train/retracts is not listed with its predicate: %v", listed)
+	}
+	if _, ok := listed["retracts"]; ok {
+		t.Errorf("the repository's unallowed retracts is listed (ceiling, T13): %v", listed)
+	}
+	if _, ok := listed["unprefixed"]; ok {
+		t.Errorf("a template whose predicate is no IRI is listed (T12): %v", listed)
+	}
+	if listed["aliased"] != "https://example.org/release/aliased" {
+		t.Errorf("the listed predicate is not the one say signs (T14): %q", listed["aliased"])
+	}
+
+	// N4: with a file in .kton/templates that is no template, the set cannot be read; the ceiling then
+	// refuses a name the configuration does not name, with that reason, rather than pass it on the
+	// package's bare name.
+	r.Write(t, ".kton/templates/stray.json", `{"not": "a template"}`)
+	if out, code := r.Cockpit(t, "say", "retracts", "urn:example:x", "note=x"); code == 0 || !strings.Contains(out, "not templates") || strings.Contains(out, "finding the claim") {
+		t.Errorf("with an unreadable set, say retracts is not refused for it (exit %d):\n%s", code, out)
 	}
 }

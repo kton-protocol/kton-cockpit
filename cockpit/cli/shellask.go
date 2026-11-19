@@ -17,7 +17,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -427,48 +426,49 @@ func printAnswer(ctx context.Context, cfg *config.Config, out *cockpit.AskResult
 }
 
 type templateInfo struct {
-	Name      string `json:"name"`
-	Target    string `json:"target"`
-	Predicate string `json:"predicate"`
-	Fields    map[string]struct {
-		Type     string   `json:"type"`
-		Required bool     `json:"required"`
-		Values   []string `json:"values"`
-	} `json:"fields"`
+	Name      string                       `json:"name"`
+	Target    string                       `json:"target"`
+	Predicate string                       `json:"predicate"`
+	Fields    map[string]templateFieldInfo `json:"fields"`
 }
 
-// readTemplates reads the allowed templates in this repository's template directory.
+type templateFieldInfo struct {
+	Type     string   `json:"type"`
+	Required bool     `json:"required"`
+	Values   []string `json:"values"`
+}
+
+// readTemplates lists the templates say signs with, by the name say takes: the set say reads (the
+// repository's template directory and the admitted packages' templates, SPEC §9.11), less a template
+// the ceiling does not allow (SPEC §8.1) and one say refuses (its predicate or context is no IRI). A
+// package template left out for its predicate is not listed; a qualified <package>/<name> is. The
+// predicate is the one say signs, resolved (kton-review N3 on #180). When the set cannot be read,
+// say refuses every template, and nothing is listed.
 func readTemplates(cfg *config.Config) []templateInfo {
+	set, origins, err := binaries.New(cfg).TemplatesWithOrigins()
+	if err != nil {
+		return nil
+	}
 	var out []templateInfo
-	for _, name := range cfg.Raw.Claims.AllowedTemplates {
-		b, err := os.ReadFile(filepath.Join(cfg.TemplatesDir, name+".json"))
-		if err != nil {
+	for _, name := range set.Names() {
+		if origins[name].Package == "" && !cfg.AllowsTemplate(name) {
+			continue // the ceiling, as say applies it (binaries.TemplateAllowed)
+		}
+		if origins[name].Problem != "" {
 			continue
 		}
-		var t templateInfo
-		if json.Unmarshal(b, &t) == nil {
-			if t.Name == "" {
-				t.Name = name
-			}
-			out = append(out, t)
+		st, ok := set.Get(name)
+		if !ok {
+			continue
 		}
-	}
-	// The templates an allowed package brings are allowed too (SPEC §8.1), so they are listed.
-	if voc, err := packages.Allowed(cfg.RepoRoot, cfg.Raw.Claims.AllowedPackages, cfg.Raw.Claims.AllowedModules); err == nil {
-		have := map[string]bool{}
-		for _, t := range out {
-			have[t.Name] = true
-		}
-		for name, b := range voc.Templates {
-			var t templateInfo
-			if have[name] || json.Unmarshal(b, &t) != nil {
-				continue
+		t := templateInfo{Name: name, Target: st.Target, Predicate: set.Resolve(st.Predicate)}
+		if len(st.Fields) > 0 {
+			t.Fields = map[string]templateFieldInfo{}
+			for fn, f := range st.Fields {
+				t.Fields[fn] = templateFieldInfo{f.Type, f.Required, f.Values}
 			}
-			if t.Name == "" {
-				t.Name = name
-			}
-			out = append(out, t)
 		}
+		out = append(out, t)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
