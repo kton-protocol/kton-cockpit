@@ -369,7 +369,7 @@ func showJSON(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	pkgs, err := show.Packages(cfg)
+	pkgs, _, err := show.Packages(cfg)
 	if err != nil {
 		return err
 	}

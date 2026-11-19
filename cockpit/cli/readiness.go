@@ -18,6 +18,7 @@ import (
 	"github.com/kton-protocol/kton-cockpit/cockpit/backend"
 	"github.com/kton-protocol/kton-cockpit/internal/config"
 	"github.com/kton-protocol/kton-cockpit/internal/packages"
+	"github.com/kton-protocol/kton-cockpit/internal/show"
 )
 
 type nextStep struct {
@@ -90,6 +91,13 @@ func readiness(ctx context.Context, cfg *config.Config) []nextStep {
 				steps = append(steps, nextStep{false, fmt.Sprintf("not persisted yet: %s — a peer needs them to verify your records (%s backend: persist and share them)",
 					strings.Join(missing, ", "), cfg.Raw.Repo.ModeOrDefault())})
 			}
+		}
+	}
+
+	// An admitted package signed by a key of the trusted ring: show leaves its label out, ring wins.
+	if _, collisions, err := show.Packages(cfg); err == nil {
+		for _, c := range collisions {
+			steps = append(steps, nextStep{false, c})
 		}
 	}
 

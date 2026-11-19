@@ -3,8 +3,10 @@ package cli
 import (
 	"crypto/ed25519"
 	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"kton.dev/plankton/core"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -77,4 +79,94 @@ func TestShowJSON_LabelsAnAdmittedPackagesKeyOutsideTheRing(t *testing.T) {
 			t.Errorf("the package's build key %s is in the trusted ring", kid)
 		}
 	}
+}
+
+// The label is the key the package's seal verifies under, never the keyid it declares, and never a
+// key of the trusted ring (kton-review K1 on #167): a package whose seal is relabelled to a ring key's
+// keyid, with that key dropped into its keys/, is still labelled by its real build key only; a package
+// actually signed by a ring key gets no label, and doctor names the collision.
+func TestShowJSON_LabelsOnlyTheVerifyingKeyAndNeverARingKey(t *testing.T) {
+	r := testrepo.New(t)
+	r.Use(t)
+	ringPub := strings.TrimSpace(readFile(t, filepath.Join(r.Root, ".kton", "keys", "self", testrepo.SessionID+"-claims.pub")))
+	ringKID := keyIDOfHex(t, ringPub)
+
+	_, key, _ := ed25519.GenerateKey(rand.Reader)
+	buildKID := core.KeyIDHex(key.Public().(ed25519.PublicKey))
+	buildPkg(t, filepath.Join(t.TempDir(), "words"), "words", "v1", key, map[string]string{"notes": tmpl("notes", "https://example.org/notes")})
+	inst := filepath.Join(r.Root, ".kton", "packages", "words@v1")
+	os.WriteFile(filepath.Join(inst, "keys", ringKID+".pub"), []byte(ringPub), 0o644)
+	files, _ := filepath.Glob(filepath.Join(inst, "nekton", "objects", "*", "*"))
+	more, _ := filepath.Glob(filepath.Join(inst, "nekton", "objects", "*"))
+	relabelled := 0
+	for _, f := range append(files, more...) {
+		if b, err := os.ReadFile(f); err == nil && strings.Contains(string(b), `"keyid":"`+buildKID+`"`) {
+			os.WriteFile(f, []byte(strings.ReplaceAll(string(b), `"keyid":"`+buildKID+`"`, `"keyid":"`+ringKID+`"`)), 0o644)
+			relabelled++
+		}
+	}
+	if relabelled == 0 {
+		t.Fatal("found no seal envelope to relabel")
+	}
+	labels := func() map[string]string {
+		t.Helper()
+		stdout, stderr, code := r.CockpitSplit(t, "show", "--json")
+		var snap struct {
+			Packages map[string]struct {
+				Package string `json:"package"`
+			} `json:"packages"`
+		}
+		if code != 0 || json.Unmarshal([]byte(stdout), &snap) != nil {
+			t.Fatalf("show --json (exit %d):\n%s\n%s", code, stdout, stderr)
+		}
+		out := map[string]string{}
+		for k, p := range snap.Packages {
+			out[k] = p.Package
+		}
+		return out
+	}
+	got := labels()
+	if _, bad := got[ringKID]; bad {
+		t.Fatalf("a ring key is labelled as a package's: %v", got)
+	}
+	if got[buildKID] != "words" {
+		t.Errorf("the real build key is not labelled: %v", got)
+	}
+
+	// A package actually signed by a ring key: no label, and doctor names it.
+	ringPriv := loadPriv(t, r.Key(testrepo.SessionID+"-claims"))
+	buildPkg(t, filepath.Join(t.TempDir(), "mine"), "mine", "v1", ringPriv, map[string]string{"memo": tmpl("memo", "https://example.org/memo")})
+	if _, bad := labels()[ringKID]; bad {
+		t.Error("a package signed by a ring key is labelled")
+	}
+	if out, _ := r.Cockpit(t, "doctor"); !strings.Contains(out, "the admitted package mine is signed by "+ringKID) {
+		t.Errorf("doctor does not name the collision:\n%s", out)
+	}
+}
+
+func readFile(t *testing.T, p string) string {
+	t.Helper()
+	b, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
+func keyIDOfHex(t *testing.T, h string) string {
+	t.Helper()
+	pub, err := core.ParsePublicKeyHex(h)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return core.KeyIDHex(pub)
+}
+
+func loadPriv(t *testing.T, path string) ed25519.PrivateKey {
+	t.Helper()
+	seed, err := hex.DecodeString(strings.TrimSpace(readFile(t, path)))
+	if err != nil || len(seed) != ed25519.SeedSize {
+		t.Fatalf("%s is not a seed", path)
+	}
+	return ed25519.NewKeyFromSeed(seed)
 }
