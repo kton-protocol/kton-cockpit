@@ -79,7 +79,7 @@ type ViewConfig struct {
 
 // viewVersion changes whenever ClaimView builds something else from the same quads: a view kept
 // from an older build is then built again rather than answered from.
-const viewVersion = 4 // 4: view vocabulary 1
+const viewVersion = 5 // 4: view vocabulary 1; 5: nested fields through the aliases
 
 // Fingerprint changes whenever the view a ViewConfig builds would.
 func (vc ViewConfig) Fingerprint() string {
@@ -293,9 +293,7 @@ func ClaimView(trusted, structure []Quad, vc ViewConfig) []Quad {
 			for _, f := range c.fields {
 				p, o := f.P, f.O
 				if key := strings.TrimPrefix(p.Value, labNS); key != p.Value {
-					if r := vc.Templates.Resolve(key); strings.Contains(r, "://") && !Reserved(r) {
-						p = iri(r)
-					}
+					p = aliased(p, vc)
 					if known {
 						o = typedValue(o, t.Fields[key].Type, vc.Templates.Resolve)
 					}
@@ -306,8 +304,10 @@ func ClaimView(trusted, structure []Quad, vc ViewConfig) []Quad {
 					if hash := values(inner, o.Value, labNS+"hash"); len(hash) == 1 {
 						o = iri(hash[0])
 					} else {
+						// A nested object's fields (a list of objects, such as a qualification's
+						// role and level) go through the aliases as a top-level field's do.
 						for _, q := range inner {
-							out = append(out, Quad{S: q.S, P: q.P, O: q.O})
+							out = append(out, Quad{S: q.S, P: aliased(q.P, vc), O: q.O})
 						}
 					}
 				}
@@ -425,6 +425,19 @@ func typedValue(o Term, fieldType string, resolve func(string) string) Term {
 		}
 	}
 	return o
+}
+
+// aliased is a field's term: lab:<field> as the aliases resolve it, when they resolve it to an IRI
+// that is not one the view writes itself; otherwise lab:<field> as it is.
+func aliased(p Term, vc ViewConfig) Term {
+	key := strings.TrimPrefix(p.Value, labNS)
+	if key == p.Value {
+		return p
+	}
+	if r := vc.Templates.Resolve(key); strings.Contains(r, "://") && !Reserved(r) {
+		return iri(r)
+	}
+	return p
 }
 
 // values are the objects of s p among qs.
