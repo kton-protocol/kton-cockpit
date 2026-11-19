@@ -21,7 +21,7 @@ func TestRunNew_FromOutsideTheRepo(t *testing.T) {
 	if err := runNew(context.Background(), []string{"first", "--from", src}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(r.Root, "runs", "first", "inputs", "in.csv")); err != nil {
+	if _, err := os.Stat(filepath.Join(r.Root, "work", "first", "inputs", "in.csv")); err != nil {
 		t.Errorf("input not cloned: %v", err)
 	}
 }
@@ -34,8 +34,8 @@ func TestRunNew_RefusedLeavesNoFolder(t *testing.T) {
 	if err := runNew(context.Background(), []string{"first", "--from", src}); err == nil {
 		t.Fatal("a starting point with nothing in it was accepted")
 	}
-	if _, err := os.Stat(filepath.Join(r.Root, "runs", "first")); !os.IsNotExist(err) {
-		t.Errorf("runs/first is left behind after the refusal")
+	if _, err := os.Stat(filepath.Join(r.Root, "work", "first")); !os.IsNotExist(err) {
+		t.Errorf("work/first is left behind after the refusal")
 	}
 }
 
@@ -48,15 +48,15 @@ func TestRunNew_FromInputsAlone(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, f := range []string{"inputs/a.csv", "run.R", "out"} {
-		if _, err := os.Stat(filepath.Join("runs", "first", f)); err != nil {
-			t.Errorf("runs/first/%s: %v", f, err)
+		if _, err := os.Stat(filepath.Join("work", "first", f)); err != nil {
+			t.Errorf("work/first/%s: %v", f, err)
 		}
 	}
 	// The negative control: a script name it has no start for is refused and leaves nothing.
 	if err := runNew(context.Background(), []string{"second", "--in", "data/a.csv", "--script", "go.go"}); err == nil {
 		t.Error("an unknown --script was accepted")
 	}
-	if _, err := os.Stat(filepath.Join("runs", "second")); !os.IsNotExist(err) {
-		t.Error("runs/second left behind")
+	if _, err := os.Stat(filepath.Join("work", "second")); !os.IsNotExist(err) {
+		t.Error("work/second left behind")
 	}
 }

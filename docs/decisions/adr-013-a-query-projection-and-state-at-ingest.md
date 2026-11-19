@@ -231,6 +231,32 @@ replaces, and only the meaning of the field says which. So the view stops guessi
   position and time only.
 - The same mechanism serves ADR-015's tool installations (`replaces`, uninstall).
 
+### A5 What `nk:replacedBy` takes from a name (kton-review M1–M3, 18.11.; proposed, for MH)
+
+A1's view marked every named claim. The kernel lets key B name key A's claim, about another subject
+(kton #258), so `FILTER NOT EXISTS { ?r nk:replacedBy ?claim }` was A1's "a rule's check" with the signer
+left out: any trusted key, an agent's included, could take a person's approval out of every "latest"
+query by naming it from a claim about something else. A view property stood in for a check.
+
+- **`nk:replacedBy` is marked only for a replacement of one's own claim:** the replacing claim has the
+  same template, at least one `nk:about` in common with the claim it names, and **every signer of the
+  replaced claim** (every key that verifies it) among its own signers. Then "nothing replaces it" means
+  "its signers have not replaced it, about that subject", which is what the migration line assumed. A
+  co-signed claim is retired only by its co-signers together: one of two approvers cannot withdraw the
+  other's signature (kton-review C1 on #146, 19.11.).
+- **Every name is in the view as `nk:replaces`**, the term the kernel projects for the field (kton #258): `?r nk:replaces ?claim` for each `replaces`
+  value, whoever signed it, with the replacing claim's own `nk:signer`. A rule that lets a role replace
+  (a QA manager closing someone's CAPA) says so with a join on `nk:replaces` and that signer's tier. The
+  view never treats it as replacement on its own.
+- **`replace: previous` fills only one's own:** `say` fills `replaces` with this signer's unreplaced
+  claim of that template about the same subject, from this checkout's registry and union, as A1 says.
+  The answer reports which claim it named (M2).
+- **Normalised:** `replaces` is written `sha256:` plus lower-case hex. `say` normalises it before
+  signing, and the projection normalises it before matching (M3).
+- **Checked by** `TestClaimView_ReplacedByOnlyForTheSameSignerTemplateAndSubject`: a claim by another
+  key naming a person's approval leaves the approval in "latest" and shows only as `nk:replaces`; so does
+  one co-signer's replacement of a co-signed claim. Built with view vocabulary 1 in cockpit v0.5.0 (#146).
+
 ### A2 Several subjects, claims as subjects
 
 - **Several `nk:about`** (kton #254): a claim about A and B has `nk:about A, B`. Because nothing is
@@ -256,7 +282,7 @@ format: nanopub (and the kernel's foton projection) is kton's one RDF face.
 
 | | before | after |
 |---|---|---|
-| state | `nk:current`, `nk:supersededBy` (same scope, subject, predicate) | `nk:replacedBy`, only where a claim names it |
+| state | `nk:current`, `nk:supersededBy` (same scope, subject, predicate) | `nk:replacedBy`, only where a claim signed by every signer of it, of the same template and subject, names it (A5); `nk:replaces` for every name |
 | subjects | one `nk:about` | one or more (#254) |
 | unscoped claims | no position; stated time decides | position in the root scope (#213) |
 | scopes | `nk:scope` | `nk:scope`, and `nk:parent` per seed (#241) |

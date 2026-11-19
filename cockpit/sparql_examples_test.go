@@ -65,10 +65,10 @@ func newSparqlFixture(t *testing.T) *sparqlFixture {
 	b, _ := json.Marshal(map[string]string{"name": "theirs", "kind": "dir", "path": theirs.Root})
 	must(t, json.Unmarshal(b, &spec))
 	raw.Federation.Sources = []source.Spec{spec}
-	key, err := os.ReadFile(filepath.Join(theirs.Root, "registry", "keys", testrepo.SessionID+".pub"))
+	key, err := os.ReadFile(filepath.Join(theirs.Root, ".kton", "keys", "self", testrepo.SessionID+".pub"))
 	must(t, err)
-	ours.Write(t, "registry/keys/theirs.pub", string(key))
-	raw.Trust.Tiers["peer"] = []string{"registry/keys/theirs.pub"}
+	ours.Write(t, ".kton/keys/peer/theirs.pub", string(key))
+	raw.Trust.Tiers = append(raw.Trust.Tiers, "peer")
 	raw.Query.Image = oxigraphImage
 	ours.WriteConfig(t, raw)
 	ours.Use(t)
@@ -90,7 +90,7 @@ func newSparqlFixture(t *testing.T) *sparqlFixture {
 		sum := sha256.Sum256([]byte(name))
 		*content = hex.EncodeToString(sum[:])
 	}
-	pk, err := loadPublic(filepath.Join(ours.Root, "registry", "keys", testrepo.SessionID+"-claims.pub"))
+	pk, err := loadPublic(filepath.Join(ours.Root, ".kton", "keys", "self", testrepo.SessionID+"-claims.pub"))
 	must(t, err)
 	f.keyid = core.KeyIDHex(pk)
 	return f
@@ -131,9 +131,11 @@ func standardResults(t *testing.T) {
 	const q = `PREFIX dct: <http://purl.org/dc/terms/>
 PREFIX nk: <https://kton.dev/v/>
 SELECT ?step ?when ?text WHERE {
-  ?c nk:about ?step ; nk:predicate dct:description ; nk:current true ; dct:created ?when ;
+  ?c nk:about ?step ; nk:predicate dct:description ; dct:created ?when ;
      <https://kton.dev/v/lab/value> ?text .
-}`
+}
+ORDER BY DESC(?when)
+LIMIT 1`
 	res, out, err := Ask(context.Background(), nil, AskRequest{Query: "sparql", Sparql: q, Format: SparqlFormatStandard})
 	if err != nil || res.IsError {
 		t.Fatalf("%v %s", err, errText(res))
@@ -206,7 +208,7 @@ func TestSparql_TheExamplesAnswerOverAFixture(t *testing.T) {
 				t.Errorf("want both descriptions and the rationale, from the claim nodes: %v", a.Rows)
 			}
 		}},
-		{"The current description of a step", map[string]string{"STEP": f.step}, func(t *testing.T, a *SparqlAnswer) {
+		{"The latest description of a step", map[string]string{"STEP": f.step}, func(t *testing.T, a *SparqlAnswer) {
 			if len(a.Rows) != 1 || a.Rows[0]["text"] != "dropped rows without a visit date, and duplicates" || a.Rows[0]["by"] == "" {
 				t.Errorf("want the newer description alone, with its signer's name: %v", a.Rows)
 			}

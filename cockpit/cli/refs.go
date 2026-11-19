@@ -39,15 +39,15 @@ func resolveRef(ctx context.Context, cfg *config.Config, ref string) (string, st
 		return "", "", fmt.Errorf("%s is not a file, a run folder, or a sha256: id", ref)
 	}
 	if fi.IsDir() {
-		rel, rerr := filepath.Rel(filepath.Join(cfg.RepoRoot, runsDir), abs)
+		rel, rerr := filepath.Rel(filepath.Join(cfg.RepoRoot, runsRel(cfg)), abs)
 		if rerr != nil || strings.HasPrefix(rel, "..") || strings.Contains(rel, string(filepath.Separator)) {
-			return "", "", fmt.Errorf("%s is a directory but not a run folder (%s/<slug>)", ref, runsDir)
+			return "", "", fmt.Errorf("%s is a directory but not a run folder (%s/<slug>)", ref, runsRel(cfg))
 		}
-		id, err := runFoton(ctx, cfg, runsDir+"/"+rel)
+		id, err := runFoton(ctx, cfg, runsRel(cfg)+"/"+rel)
 		if err != nil {
 			return "", "", err
 		}
-		return id, fmt.Sprintf("%s/%s → its record %s", runsDir, rel, short16(id)), nil
+		return id, fmt.Sprintf("%s/%s → its record %s", runsRel(cfg), rel, short16(id)), nil
 	}
 	b, err := os.ReadFile(abs)
 	if err != nil {
@@ -62,7 +62,7 @@ func resolveRef(ctx context.Context, cfg *config.Config, ref string) (string, st
 func runFoton(ctx context.Context, cfg *config.Config, rel string) (string, error) {
 	outs, _ := filesUnderDir(cfg.RepoRoot, rel+"/out")
 	if len(outs) == 0 {
-		return "", fmt.Errorf("%s has not run yet (out/ is empty): cockpit run %s", rel, strings.TrimPrefix(rel, runsDir+"/"))
+		return "", fmt.Errorf("%s has not run yet (out/ is empty): cockpit run %s", rel, strings.TrimPrefix(rel, runsRel(cfg)+"/"))
 	}
 	ans, err := cockpit.New(cockpit.Start{}).Ask(ctx, cockpit.AskRequest{Query: "producer", Ref: outs[0]})
 	if err != nil {
@@ -75,7 +75,7 @@ func runFoton(ctx context.Context, cfg *config.Config, rel string) (string, erro
 		}
 	}
 	return "", fmt.Errorf("%s has outputs but no record of its own run made them — run it: cockpit run %s",
-		rel, strings.TrimPrefix(rel, runsDir+"/"))
+		rel, strings.TrimPrefix(rel, runsRel(cfg)+"/"))
 }
 
 // ownClaimsKeyID is the keyid this repository signs claims with: `me` in `ask by signer me`.

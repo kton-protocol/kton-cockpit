@@ -40,8 +40,10 @@ const bin = (name) => cfg().get(name + 'Path') || path.join(home, '.local', 'bin
 // extension: its session (provider improve-auth) goes to the cockpit as IMPROVE_TOKEN, in the
 // environment of that process only, never written anywhere. Other repositories get no token.
 // Without a session the cockpit says it cannot reach improve; publish asks to sign in first.
+// cfgFile: the repository's shared cockpit configuration (ADR-016: under .kton/, its presence marks the root)
+const cfgFile = (repo) => path.join(repo, '.kton', 'cockpit.config.json');
 function repoMode(repo) {
-  try { return (JSON.parse(fs.readFileSync(path.join(repo, 'cockpit.config.json'), 'utf8')).repo || {}).mode || ''; } catch (e) { return ''; }
+  try { return (JSON.parse(fs.readFileSync(cfgFile(repo), 'utf8')).repo || {}).mode || ''; } catch (e) { return ''; }
 }
 async function improveToken(repo, signIn) {
   if (!repo || repoMode(repo) !== 'improve') return '';
@@ -79,12 +81,54 @@ function origin(e) {
 }
 
 // ------------------------------------------------------------------ recording switch
+// Two switches (MH 18.11.: "more control over what is watched"): the global pause (a file the shims
+// and ktonrec look at), and the folders ktonwatch records (/api/watched; the shim hashes under them
+// when KTON_TRACE_HASH is "@~/.cache/kton-cockpit/watched"). Without a folder list everything is recorded.
 const recording = () => !fs.existsSync(pauseFile());
+let watched = { set: false, folders: [], keep: [] };
+async function readWatched() {
+  try { watched = (await getJSON(viewerUrl() + 'api/watched', 3000)) || watched; } catch (e) { /* ktonwatch not up: keep the last */ }
+  showStatus();
+}
+const inFolder = (p, d) => p === d || p.startsWith(d + '/');
+const isWatched = (p) => !watched.set || watched.folders.some((d) => inFolder(p, d));
+// the folder the person is in: the workspace folder of the active editor, else the first one
+function currentFolder() {
+  const ed = vscode.window.activeTextEditor;
+  const ws = (ed && ed.document.uri.scheme === 'file' && vscode.workspace.getWorkspaceFolder(ed.document.uri)) || (vscode.workspace.workspaceFolders || [])[0];
+  return ws ? ws.uri.fsPath : null;
+}
 function showStatus() {
-  const on = recording();
-  status.text = on ? '$(record) kton' : '$(circle-slash) kton off';
-  status.tooltip = on ? 'kton is recording (click: pause)' : 'kton is paused: nothing is recorded (click: resume)';
+  const on = recording(), here = currentFolder(), name = here ? path.basename(here) : '';
+  const recHere = !here || isWatched(here);
+  status.text = !on ? '$(circle-slash) kton off' : recHere ? '$(record) kton' : '$(circle-outline) kton: not here';
+  status.tooltip = !on ? 'kton is paused: nothing is recorded (click: choose)'
+    : recHere ? `kton is recording${here ? ' ' + name : ''}${watched.set ? '' : ' (every folder: no list of recorded folders yet)'} (click: choose)`
+      : `kton does not record ${name}: it is in none of the recorded folders (click: record it)`;
   status.backgroundColor = on ? undefined : new vscode.ThemeColor('statusBarItem.warningBackground');
+}
+async function setFolder(folder, on) {
+  if (!folder) { vscode.window.showWarningMessage('kton: no folder open'); return; }
+  if (on && !watched.set) {
+    const a = await vscode.window.showInformationMessage(`From now on kton records only the folders you choose, starting with ${path.basename(folder)}. Until now it recorded everywhere.`, { modal: true }, 'Record only chosen folders');
+    if (a !== 'Record only chosen folders') return;
+  }
+  try { watched = await sendJSON('POST', viewerUrl() + 'api/watched', { folder, on }); }
+  catch (e) { vscode.window.showErrorMessage(`kton: ${e.message}`); return; }
+  showStatus();
+  vscode.window.setStatusBarMessage(`kton: ${on ? 'recording' : 'no longer recording'} ${path.basename(folder)} (from the next R session or terminal on)`, 5000);
+}
+async function recordingMenu() {
+  await readWatched();
+  const here = currentFolder(), on = recording();
+  const items = [];
+  if (here && watched.set && !isWatched(here)) items.push({ label: `$(record) Record ${path.basename(here)}`, run: () => setFolder(here, true) });
+  if (here && watched.set && watched.folders.includes(here)) items.push({ label: `$(circle-outline) Stop recording ${path.basename(here)}`, run: () => setFolder(here, false) });
+  if (here && !watched.set) items.push({ label: `$(filter) Record only ${path.basename(here)} (and folders you add later)`, run: () => setFolder(here, true) });
+  items.push(on ? { label: '$(debug-pause) Pause all recording', run: toggleRecording } : { label: '$(record) Resume recording', run: toggleRecording });
+  for (const d of watched.folders) items.push({ label: `$(close) Stop recording ${d}`, description: 'recorded folder', run: () => setFolder(d, false) });
+  const pick = await vscode.window.showQuickPick(items, { placeHolder: watched.set ? `Recorded folders: ${watched.folders.length}` : 'kton records every folder' });
+  if (pick) await pick.run();
 }
 function toggleRecording() {
   fs.mkdirSync(traceDir(), { recursive: true });
@@ -96,13 +140,13 @@ function toggleRecording() {
 
 // ------------------------------------------------------------------ the doctor badge
 // The cockpit repository a file belongs to: the nearest directory above it with a
-// cockpit.config.json, at most up to the workspace folder it is in.
+// .kton/cockpit.config.json (ADR-016), at most up to the workspace folder it is in.
 function cockpitRepoOf(file) {
   if (!file) return null;
   const ws = vscode.workspace.getWorkspaceFolder(vscode.Uri.file(file));
   const stop = ws ? ws.uri.fsPath : path.parse(file).root;
   for (let d = path.dirname(file); ; d = path.dirname(d)) {
-    if (fs.existsSync(path.join(d, 'cockpit.config.json'))) return d;
+    if (fs.existsSync(cfgFile(d))) return d;
     if (d === stop || d === path.dirname(d)) return null;
   }
 }
@@ -136,7 +180,7 @@ async function runDoctor(force) {
   const ed = vscode.window.activeTextEditor;
   const file = ed && ed.document.uri.scheme === 'file' ? ed.document.uri.fsPath : null;
   const repo = cockpitRepoOf(file) || (vscode.workspace.workspaceFolders || []).map((f) => f.uri.fsPath)
-    .find((w) => fs.existsSync(path.join(w, 'cockpit.config.json'))) || null;
+    .find((w) => fs.existsSync(cfgFile(w))) || null;
   if (!repo) { doctorRepo = null; doctor.hide(); return; }
   if (repo === doctorRepo && !force) return;
   doctorRepo = repo;
@@ -200,6 +244,7 @@ async function notesFor(sessions) {
   const q = [...sessions, 'hand'].map((s) => 'prefix=' + encodeURIComponent(s + '/')).join('&');
   return (await getJSON(`${viewerUrl()}api/notes?${q}`, 5000).catch(() => ({}))) || {};
 }
+const keepSession = (id, on) => sendJSON('POST', viewerUrl() + 'api/keep', { id, on });
 const putNote = (key, note) => sendJSON('PUT', viewerUrl() + 'api/notes', Object.assign({ key, by: 'you' }, noteOf(note)));
 async function moveOldNotes(context) {
   if (context.globalState.get('kton.notesMoved')) return;
@@ -224,7 +269,8 @@ async function ensureService() {
   if (!fs.existsSync(exe)) { vscode.window.showErrorMessage(`kton: ${exe} is missing (recorder/install.sh)`); return false; }
   // detached: the service outlives this window; the next one finds it running
   // only what had data in the last three days: all of the logs can take gigabytes (11.11.)
-  const p = spawn(exe, ['serve', '-max-age', '72h'], { detached: true, stdio: 'ignore' });
+  // pruned daily (MH 18.11.): older than 14 days goes, unless kept, with notes, or published from
+  const p = spawn(exe, ['serve', '-max-age', '72h', '-prune-every', '24h'], { detached: true, stdio: 'ignore' });
   p.unref();
   out.appendLine(`ktonwatch serve started (pid ${p.pid})`);
   for (let i = 0; i < 20; i++) {
@@ -506,6 +552,21 @@ class Tree {
     return this.files[project] || [];
   }
   getTreeItem(e) { return e.item; }
+  async sessionsOf(project) {
+    const all = (await getJSON(viewerUrl() + 'api/sessions', 10000).catch(() => [])) || [];
+    return all.filter((s) => s.project === project);
+  }
+  async sessionItems(project) {
+    return (await this.sessionsOf(project)).map((s) => {
+      const when = new Date(s.last_ns / 1e6).toLocaleString(undefined, { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+      const it = new vscode.TreeItem(when, vscode.TreeItemCollapsibleState.None);
+      it.description = [`${s.tasks} steps`, s.kept ? 'kept' : '', s.closed ? '' : 'running'].filter(Boolean).join(' · ');
+      it.tooltip = `session ${s.id}\n${s.kept ? 'Kept: prune leaves it.' : 'Pruned after 14 days unless kept, with notes or published from.'}`;
+      it.iconPath = new vscode.ThemeIcon(s.kept ? 'pinned' : s.closed ? 'circle-outline' : 'record');
+      it.contextValue = s.closed ? (s.kept ? 'session-kept' : 'session') : 'session-running';
+      return { kind: 'session', project, session: s, item: it };
+    });
+  }
   async getChildren(e) {
     if (!e) {
       if (!(await ensureService())) return [];
@@ -521,15 +582,20 @@ class Tree {
         return { kind: 'project', project: p.path, item: it };
       });
     }
+    if (e.kind === 'sessions') return this.sessionItems(e.project);
     if (e.kind === 'project') {
       const all = await this.filesOf(e.project);
+      const ss = await this.sessionsOf(e.project);
+      const sit = new vscode.TreeItem('Sessions', vscode.TreeItemCollapsibleState.Collapsed);
+      sit.description = String(ss.length); sit.tooltip = 'the recorded sessions: keep one (prune leaves it), or delete it';
+      sit.iconPath = new vscode.ThemeIcon('history');
       return GROUPS.map(([role, label, tip]) => {
         const n = all.filter((f) => f.role === role).length;
         const it = new vscode.TreeItem(label, role === 'result' ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.Collapsed);
         it.description = String(n); it.tooltip = tip;
         it.iconPath = new vscode.ThemeIcon(role === 'result' ? 'star-empty' : role === 'source' ? 'arrow-down' : 'debug-step-over');
         return { kind: 'group', project: e.project, role, dir: '', n, item: it };
-      }).filter((g) => g.n > 0);
+      }).filter((g) => g.n > 0).concat(ss.length ? [{ kind: 'sessions', project: e.project, item: sit }] : []);
     }
     // a group, or a directory inside one: directories with many files fold away
     const rel = (f) => (f.path.startsWith(e.project + '/') ? f.path.slice(e.project.length + 1) : f.path);
@@ -623,7 +689,7 @@ const recordInputs = async (repo, id) => {
 // file) are told apart: "same" (the result is in kton, this run of it is not).
 async function publishedSteps(story, fresh) {
   const done = {}, same = {};
-  if (!fs.existsSync(path.join(story.repo, 'cockpit.config.json'))) return { done, same };
+  if (!fs.existsSync(cfgFile(story.repo))) return { done, same };
   // improve: one preview for the whole story says which steps are in improve already, so in kton
   if (repoMode(story.repo) === 'improve') {
     const plan = await planOf(story, fresh);
@@ -672,7 +738,7 @@ function noteLines(n) {
 // the lines handed to publish(): per step the person's words as comments, then the call
 // whether the repository allows a claim template (claims.allowedTemplates of its config)
 function allowsTemplate(repo, name) {
-  try { return (JSON.parse(fs.readFileSync(path.join(repo, 'cockpit.config.json'), 'utf8')).claims || {}).allowedTemplates.includes(name); } catch (e) { return false; }
+  try { return (JSON.parse(fs.readFileSync(cfgFile(repo), 'utf8')).claims || {}).allowedTemplates.includes(name); } catch (e) { return false; }
 }
 
 // ------------------------------------------------------------------ New run (MH 11.11.)
@@ -813,7 +879,7 @@ function planOf(story, fresh) {
 // (cockpit-improve-backend, MH 12.11.: "child step of EDA v1", "new root step", "already in improve").
 // Per step key session/task: {action, text, step?, parent?}; {error} when there is no preview.
 async function planFor(story) {
-  if (!story || !fs.existsSync(path.join(story.repo, 'cockpit.config.json'))) return null;
+  if (!story || !fs.existsSync(cfgFile(story.repo))) return null;
   const git = repoMode(story.repo) !== 'improve';
   const keys = [], drafts = [];
   for (const s of story.steps) {
@@ -949,7 +1015,7 @@ async function openStory(context, project, file) {
     }
     // notes are kept per line of the story: session/task, or hand/<file>@<hash>
     const mine = await notesFor(new Set(story.steps.map((s) => s.session)));
-    const cockpitRepo = fs.existsSync(path.join(story.repo, 'cockpit.config.json'));
+    const cockpitRepo = fs.existsSync(cfgFile(story.repo));
     const ps = await publishedSteps(story);
     const improve = repoMode(story.repo) === 'improve';
     w.postMessage({ type: 'story', story, notes: mine, cockpitRepo, improve, published: ps.done, sameResult: ps.same,
@@ -957,7 +1023,7 @@ async function openStory(context, project, file) {
     sendPlan();
   };
   // what Publish would do in improve, per step: once per opening, not per keystroke (about a second)
-  const sendPlan = async () => { if (story && fs.existsSync(path.join(story.repo, 'cockpit.config.json'))) { w.postMessage({ type: 'plan', plan: 'pending' }); const plan = await planOf(story); if (plan) w.postMessage({ type: 'plan', plan }); } };
+  const sendPlan = async () => { if (story && fs.existsSync(cfgFile(story.repo))) { w.postMessage({ type: 'plan', plan: 'pending' }); const plan = await planOf(story); if (plan) w.postMessage({ type: 'plan', plan }); } };
   // back in view: read again, so drafts Claude wrote meanwhile (kton_note) show
   p.onDidChangeViewState((e) => { if (e.webviewPanel.active) activeStory = id; if (e.webviewPanel.visible && story) send(); });
   storyInfo.set(id, { project, file, story: () => story, focus: null, refresh: () => (story ? send() : null) });
@@ -1056,6 +1122,8 @@ async function openStory(context, project, file) {
       if (busy) return; // a second click while one runs: ignored, no second publish
       busy = 'publish';
       w.postMessage({ type: 'busy', what: 'publish', text: 'Preparing the publish …' });
+      // the sessions published from are kept: prune leaves them (MH 18.11.)
+      for (const sid of new Set((m.steps || []).map((x) => x.session).filter(Boolean))) keepSession(sid, true).catch(() => {});
       let r;
       try {
         r = await publish(story.repo, await publishText(story, file, m.steps), (pr) => w.postMessage({ type: 'busy', what: 'publish',
@@ -1230,7 +1298,7 @@ async function findBytes(project, sum) {
 }
 async function findInRepo(repo, sum) {
   let cfg = {};
-  try { cfg = JSON.parse(fs.readFileSync(path.join(repo, 'cockpit.config.json'), 'utf8')); } catch (e) { return null; }
+  try { cfg = JSON.parse(fs.readFileSync(cfgFile(repo), 'utf8')); } catch (e) { return null; }
   const dirs = [repo, ...(((cfg.federation || {}).sources) || []).filter((x) => x.kind === 'dir' && x.path).map((x) => path.isAbsolute(x.path) ? x.path : path.join(repo, x.path))];
   const ids = new Set();
   for (const q of ['producer', 'uses']) {
@@ -1408,13 +1476,13 @@ let extContext; // for what opens a story from outside one (the viewer's actions
 // to where it began). cockpit-improve does the work (contract with cockpit-improve-backend, 12.11.):
 //   cockpit-improve reproduce --workflow <file>|--all --tree <name> [--plan] --json
 // prints JSON lines on stdout: {event:"plan", steps}, {event:"step", i, n, call, state, step, original, …},
-// {event:"result", …}; the result is kept in .cockpit-improve/reproduce/<tree>.json. Exit 0 all reproduce,
+// {event:"result", …}; the result is kept in .kton/local/improve/reproduce/<tree>.json (ADR-016). Exit 0 all reproduce,
 // 1 something differs, 2 could not run. The improve token is the person's, re-read from
 // IMPROVE_ACCESS_TOKEN_FILE for each request (a whole run outlives one five-minute token).
 function improveTree(repo) {
-  try { return ((JSON.parse(fs.readFileSync(path.join(repo, 'cockpit.config.json'), 'utf8')).repo || {}).improve || {}).tree || 'kton'; } catch (e) { return 'kton'; }
+  try { return ((JSON.parse(fs.readFileSync(cfgFile(repo), 'utf8')).repo || {}).improve || {}).tree || 'kton'; } catch (e) { return 'kton'; }
 }
-const reproDir = (repo) => path.join(repo, '.cockpit-improve', 'reproduce');
+const reproDir = (repo) => path.join(repo, '.kton', 'local', 'improve', 'reproduce');
 // jsonLines: the JSON objects among a command's output lines (other lines are the command's talk)
 function jsonLines(text) {
   const out = [];
@@ -1694,15 +1762,18 @@ function activate(context) {
   extContext = context;
   out = vscode.window.createOutputChannel('kton');
   status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
-  status.command = 'kton.toggleRecording';
+  status.command = 'kton.recordingMenu';
   showStatus(); status.show();
+  readWatched();
   const sync = setInterval(showStatus, 3000); // another window may have switched it
+  const syncW = setInterval(readWatched, 30000);
+  context.subscriptions.push({ dispose: () => clearInterval(syncW) }, vscode.window.onDidChangeActiveTextEditor(showStatus));
   context.subscriptions.push(out, status, { dispose: () => clearInterval(sync) });
   const token = startTerminalToken(context);
   askImproveAccess(token);
   doctor = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 99);
   doctor.command = 'kton.doctor';
-  const cfgWatch = vscode.workspace.createFileSystemWatcher('**/{cockpit.config.json,keys/*,registry/keys/*,templates/*}');
+  const cfgWatch = vscode.workspace.createFileSystemWatcher('**/.kton/{cockpit.config.json,keys/**/*.pub,templates/*,local/identity.json}');
   const again = () => runDoctor(true);
   context.subscriptions.push(doctor, cfgWatch, cfgWatch.onDidChange(again), cfgWatch.onDidCreate(again), cfgWatch.onDidDelete(again),
     vscode.window.onDidChangeActiveTextEditor(() => runDoctor(false)),
@@ -1714,6 +1785,9 @@ function activate(context) {
   runDoctor(true);
   context.subscriptions.push(
     vscode.commands.registerCommand('kton.toggleRecording', toggleRecording),
+    vscode.commands.registerCommand('kton.recordingMenu', recordingMenu),
+    vscode.commands.registerCommand('kton.recordFolder', (uri) => readWatched().then(() => setFolder(uri && uri.fsPath ? uri.fsPath : currentFolder(), true))),
+    vscode.commands.registerCommand('kton.stopRecordingFolder', (uri) => readWatched().then(() => setFolder(uri && uri.fsPath ? uri.fsPath : currentFolder(), false))),
     vscode.commands.registerCommand('kton.openObservations', openObservations),
     vscode.commands.registerCommand('kton.reproduceFile', async (uri) => {
       const r = await recordedFile(uri);
@@ -1728,6 +1802,15 @@ function activate(context) {
   const view = vscode.window.createTreeView('kton.files', { treeDataProvider: tree, showCollapseAll: true });
   context.subscriptions.push(view, view.onDidChangeVisibility((e) => { if (e.visible) tree.refresh(); }),
     vscode.commands.registerCommand('kton.refresh', () => tree.refresh()),
+    vscode.commands.registerCommand('kton.keepSession', (e) => e && e.session && keepSession(e.session.id, true).then(() => tree.refresh(), (x) => vscode.window.showErrorMessage(`kton: ${x.message}`))),
+    vscode.commands.registerCommand('kton.unkeepSession', (e) => e && e.session && keepSession(e.session.id, false).then(() => tree.refresh(), (x) => vscode.window.showErrorMessage(`kton: ${x.message}`))),
+    vscode.commands.registerCommand('kton.deleteSession', async (e) => {
+      if (!e || !e.session) return;
+      const a = await vscode.window.showWarningMessage(`Delete the recorded session of ${new Date(e.session.last_ns / 1e6).toLocaleString()} (${e.session.tasks} steps) in ${path.basename(e.project)}? Its log and observations are deleted; what was published stays in kton.`, { modal: true }, 'Delete');
+      if (a !== 'Delete') return;
+      try { await sendJSON('DELETE', viewerUrl() + 'api/sessions/' + encodeURIComponent(e.session.id), {}); tree.refresh(); }
+      catch (x) { vscode.window.showErrorMessage(`kton: ${x.message}`); }
+    }),
     vscode.commands.registerCommand('kton.openInBrowser', openInBrowser),
     vscode.commands.registerCommand('kton.story', (e) => e && e.file && openStory(context, e.project, e.file)),
     vscode.commands.registerCommand('kton.reproduceItem', (e) => e && e.file && reproduce(e.project, e.file.path, e.file.sha256)),

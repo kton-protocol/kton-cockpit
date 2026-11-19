@@ -99,14 +99,35 @@ func (r RepoRef) ModeOrDefault() string {
 	return r.Mode
 }
 
-type Paths struct {
-	PlanktonDir  string `json:"plankton_dir"`
-	NektonDir    string `json:"nekton_dir"`
-	TemplatesDir string `json:"templates_dir"`
-	KeysDir      string `json:"keys_dir"`
-	BinDir       string `json:"bin_dir"`
-}
+// The layout is fixed (ADR-016): everything kton lives under .kton/ at the repository root, and only
+// kton. Nothing about it is configurable, so a reader (the federation mirror, a package, another
+// tool) finds the stores of any repository at the same names.
+const (
+	// Dir is the folder that holds everything kton in a repository. Its presence with ConfigFile in it
+	// marks the repository root.
+	Dir = ".kton"
+	// ConfigFile is the shared configuration, under Dir.
+	ConfigFile = "cockpit.config.json"
+	// IdentityFile names this checkout's signing keys, under Dir/local.
+	IdentityFile = "identity.json"
+)
 
+// Reserved are the names under .kton/ that are the cockpit's (ADR-016). Any other name there belongs
+// to another tool (.kton/<tool>/), which the cockpit neither reads nor writes.
+var Reserved = []string{ConfigFile, "plankton", "nekton", "keys", "blobs", "templates", "packages", "local", ".gitignore", "aliases.json"}
+
+// Rel is a repository-relative path under .kton/, slash-separated, as persist and git take it.
+func Rel(name string) string { return Dir + "/" + name }
+
+// ConfigPath is the configuration file of the repository rooted at root.
+func ConfigPath(root string) string { return filepath.Join(root, Dir, ConfigFile) }
+
+// IdentityPath is the identity file of the checkout rooted at root.
+func IdentityPath(root string) string { return filepath.Join(root, Dir, "local", IdentityFile) }
+
+// Identity is this checkout's signing identity, in .kton/local/identity.json: never shared, so who
+// signs is not part of what a repository's participants agree on (ADR-016). The keys live outside
+// every repository, by default in ~/.kton-keys.
 type Identity struct {
 	SessionID   string `json:"session_id"`
 	PlanktonKey string `json:"plankton_key"`
@@ -159,8 +180,19 @@ type Query struct {
 	Image string `json:"image,omitempty"`
 }
 
+// Runs is where runs happen in this checkout: `cockpit run`, a workflow run and a reproduction, one
+// folder per run (ADR-016 section 4). Dir is repo-relative; empty means work/.
+type Runs struct {
+	Dir string `json:"dir,omitempty"`
+}
+
+// DefaultRunsDir is where runs go when runs.dir is not set.
+const DefaultRunsDir = "work"
+
+// Trust names the tiers. A tier's keys are the public keys in .kton/keys/<tier>/ (*.pub), so trusting
+// a key is putting its public half into a tier's folder, and the folder is what a reviewer reads.
 type Trust struct {
-	Tiers map[string][]string `json:"tiers"`
+	Tiers []string `json:"tiers"`
 }
 
 // Environment pins WHICH execution environment produced this repo's fotons.
@@ -393,8 +425,6 @@ type Reproduction struct {
 // Raw is the on-disk shape of cockpit.config.json, with paths still relative to RepoRoot.
 type Raw struct {
 	Repo         RepoRef      `json:"repo"`
-	Paths        Paths        `json:"paths"`
-	Identity     Identity     `json:"identity"`
 	Verbs        Verbs        `json:"verbs"`
 	Claims       Claims       `json:"claims"`
 	Trust        Trust        `json:"trust"`
@@ -408,6 +438,7 @@ type Raw struct {
 	Query        Query        `json:"query,omitempty"`
 	Federation   Federation   `json:"federation,omitempty"`
 	Index        Index        `json:"index,omitempty"`
+	Runs         Runs         `json:"runs,omitempty"`
 	// Shims are the tools a tool shim may call, by the name the shim is installed under (ADR-014).
 	Shims map[string]Shim `json:"shims,omitempty"`
 }
@@ -528,12 +559,20 @@ type Config struct {
 	Raw      Raw
 	RepoRoot string
 
+	KtonDir      string // <root>/.kton
 	PlanktonDir  string
 	NektonDir    string
 	TemplatesDir string
-	KeysDir      string
-	BinDir       string
+	KeysDir      string // public keys only, one folder per tier
+	BlobsDir     string
+	PackagesDir  string
+	LocalDir     string // never shared
+	BinDir       string // the machine cache, not the repository
+	RunsDir      string
 
+	// Identity is this checkout's, from .kton/local/identity.json; empty when there is none yet
+	// (a fresh clone can still ask). PlanktonKey and NektonKey are its keys as absolute paths.
+	Identity    Identity
 	PlanktonKey string
 	NektonKey   string
 }
@@ -564,7 +603,7 @@ func Load(ctx context.Context, startDir string) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	cfgPath := filepath.Join(cfgDir, "cockpit.config.json")
+	cfgPath := ConfigPath(cfgDir)
 
 	b, err := os.ReadFile(cfgPath)
 	if err != nil {
@@ -578,8 +617,14 @@ func Load(ctx context.Context, startDir string) (*Config, error) {
 		return nil, fmt.Errorf("cockpit: cockpit.config.json at %s is invalid: %w", cfgPath, err)
 	}
 
+	id, err := loadIdentity(cfgDir)
+	if err != nil {
+		return nil, err
+	}
+
 	be, _ := backend.Lookup(raw.Repo.Mode) // validate has already refused an unknown mode
 	repo := repoOf(cfgDir, raw)
+	repo.SessionID = id.SessionID
 	if err := be.Bind(ctx, repo); err != nil {
 		return nil, fmt.Errorf("cockpit: refusing to act — %w", err)
 	}
@@ -587,7 +632,7 @@ func Load(ctx context.Context, startDir string) (*Config, error) {
 	// Checked after Bind, not before: a backend whose state lives elsewhere (improve, ADR-008)
 	// brings the working directory up to date as part of binding, and the files these checks read
 	// — trust-tier keys, material — are among what it brings.
-	if err := checkTrustTierContents(cfgDir, &raw); err != nil {
+	if err := checkTrustTierContents(cfgDir, &raw, id); err != nil {
 		return nil, fmt.Errorf("cockpit: cockpit.config.json at %s is invalid: %w", cfgPath, err)
 	}
 
@@ -595,21 +640,110 @@ func Load(ctx context.Context, startDir string) (*Config, error) {
 		return nil, fmt.Errorf("cockpit: cockpit.config.json at %s is invalid: %w", cfgPath, err)
 	}
 
-	repoRoot := cfgDir
-	cfg := &Config{
-		Raw:          raw,
-		RepoRoot:     repoRoot,
-		PlanktonDir:  filepath.Join(repoRoot, raw.Paths.PlanktonDir),
-		NektonDir:    filepath.Join(repoRoot, raw.Paths.NektonDir),
-		TemplatesDir: filepath.Join(repoRoot, raw.Paths.TemplatesDir),
-		KeysDir:      filepath.Join(repoRoot, raw.Paths.KeysDir),
-		BinDir:       filepath.Join(repoRoot, raw.Paths.BinDir),
-		PlanktonKey:  filepath.Join(repoRoot, raw.Identity.PlanktonKey),
-		NektonKey:    filepath.Join(repoRoot, raw.Identity.NektonKey),
-		Backend:      be,
-		Repo:         repo,
-	}
+	cfg := Layout(cfgDir, raw)
+	cfg.Identity = id
+	cfg.PlanktonKey, cfg.NektonKey = ExpandHome(id.PlanktonKey), ExpandHome(id.NektonKey)
+	cfg.Backend, cfg.Repo = be, repo
 	return cfg, nil
+}
+
+// Layout is the configuration's fixed paths for the repository rooted at root (ADR-016), without
+// binding, identity or backend: what a caller that only needs to know where things are uses.
+func Layout(root string, raw Raw) *Config {
+	k := filepath.Join(root, Dir)
+	runs := raw.Runs.Dir
+	if runs == "" {
+		runs = DefaultRunsDir
+	}
+	return &Config{
+		Raw:          raw,
+		RepoRoot:     root,
+		KtonDir:      k,
+		PlanktonDir:  filepath.Join(k, "plankton"),
+		NektonDir:    filepath.Join(k, "nekton"),
+		TemplatesDir: filepath.Join(k, "templates"),
+		KeysDir:      filepath.Join(k, "keys"),
+		BlobsDir:     filepath.Join(k, "blobs"),
+		PackagesDir:  filepath.Join(k, "packages"),
+		LocalDir:     filepath.Join(k, "local"),
+		BinDir:       MachineDir("bin"),
+		RunsDir:      filepath.Join(root, filepath.FromSlash(runs)),
+	}
+}
+
+// MachineDir is a folder of this machine's cache, <UserCacheDir>/kton-cockpit/<name>: state that may be
+// deleted at any time and rebuilt (ADR-016 section 2).
+func MachineDir(name string) string {
+	root, err := os.UserCacheDir()
+	if err != nil {
+		root = filepath.Join(os.TempDir(), "kton-cockpit-cache")
+	}
+	return filepath.Join(root, "kton-cockpit", name)
+}
+
+// ExpandHome resolves a leading ~/ against the home directory.
+func ExpandHome(p string) string {
+	if rest, ok := strings.CutPrefix(p, "~/"); ok {
+		if home, err := os.UserHomeDir(); err == nil {
+			return filepath.Join(home, rest)
+		}
+	}
+	return p
+}
+
+// loadIdentity reads .kton/local/identity.json. No file is not an error: a checkout without an
+// identity can still ask, and the verbs that sign say what is missing. A file that names a key inside
+// the repository is refused, since a private key in a repository is one commit from being shared
+// (ADR-016 section 2, kton-review L3).
+func loadIdentity(root string) (Identity, error) {
+	var id Identity
+	p := IdentityPath(root)
+	b, err := os.ReadFile(p)
+	if os.IsNotExist(err) {
+		return id, nil
+	}
+	if err != nil {
+		return id, fmt.Errorf("cockpit: could not read %s: %w", p, err)
+	}
+	if err := json.Unmarshal(b, &id); err != nil {
+		return id, fmt.Errorf("cockpit: %s is not valid JSON: %w", p, err)
+	}
+	var missing []string
+	for name, v := range map[string]string{"session_id": id.SessionID, "plankton_key": id.PlanktonKey, "nekton_key": id.NektonKey} {
+		if v == "" {
+			missing = append(missing, name)
+		}
+	}
+	if len(missing) > 0 {
+		sort.Strings(missing)
+		return id, fmt.Errorf("cockpit: %s is missing %s", p, strings.Join(missing, ", "))
+	}
+	for name, v := range map[string]string{"plankton_key": id.PlanktonKey, "nekton_key": id.NektonKey, "keyring": id.Keyring} {
+		if v == "" {
+			continue
+		}
+		if !filepath.IsAbs(v) && !strings.HasPrefix(v, "~/") {
+			return id, fmt.Errorf("cockpit: %s: %s %q must be absolute or start with ~/: keys live outside the repository (~/.kton-keys)", p, name, v)
+		}
+		if InsideDir(root, ExpandHome(v)) {
+			return id, fmt.Errorf("cockpit: %s: %s %q is inside the repository; a private key never is (move it to ~/.kton-keys)", p, name, v)
+		}
+	}
+	return id, nil
+}
+
+// InsideDir reports whether p is dir or below it, after resolving symlinks where they exist.
+func InsideDir(dir, p string) bool {
+	resolve := func(x string) string {
+		x, _ = filepath.Abs(x)
+		if r, err := filepath.EvalSymlinks(x); err == nil {
+			return r
+		}
+		return x
+	}
+	d, q := resolve(dir), resolve(p)
+	rel, err := filepath.Rel(d, q)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, "../")
 }
 
 // findConfigDir locates the cockpit.config.json that governs startDir, in exactly two places and no
@@ -650,7 +784,7 @@ func findConfigDir(ctx context.Context, startDir string) (string, error) {
 }
 
 func hasConfig(dir string) bool {
-	_, err := os.Stat(filepath.Join(dir, "cockpit.config.json"))
+	_, err := os.Stat(ConfigPath(dir))
 	return err == nil
 }
 
@@ -673,26 +807,13 @@ func validate(raw *Raw) error {
 			return err
 		}
 	}
-	if raw.Paths.PlanktonDir == "" {
-		missing = append(missing, "paths.plankton_dir")
-	}
-	if raw.Paths.NektonDir == "" {
-		missing = append(missing, "paths.nekton_dir")
-	}
-	if raw.Identity.SessionID == "" {
-		missing = append(missing, "identity.session_id")
-	}
-	if raw.Identity.PlanktonKey == "" {
-		missing = append(missing, "identity.plankton_key")
-	}
-	if raw.Identity.NektonKey == "" {
-		missing = append(missing, "identity.nekton_key")
-	}
 	if len(missing) > 0 {
 		return fmt.Errorf("missing required field(s): %s", strings.Join(missing, ", "))
 	}
-	if k := raw.Identity.Keyring; k != "" && !filepath.IsAbs(k) && !strings.HasPrefix(k, "~/") {
-		return fmt.Errorf("identity.keyring %q must be absolute or start with ~/: it lives outside the repository", k)
+	if raw.Runs.Dir != "" {
+		if err := validateRepoRelativeDir(raw.Runs.Dir, raw.Private()); err != nil {
+			return fmt.Errorf("runs.dir: %w", err)
+		}
 	}
 	if err := validateTrustTiers(raw); err != nil {
 		return err
@@ -750,7 +871,7 @@ func validate(raw *Raw) error {
 		// consequential as a publish path: `../..` escapes the repository, and `keys` or `.git`
 		// aims at exactly what publish's denylist exists to keep out — with the difference that
 		// nobody has to ask for it, since every record rewrites these files.
-		if err := validateRepoRelativeDir(raw.Union.Dir, raw.Paths, raw.Private()); err != nil {
+		if err := validateRepoRelativeDir(raw.Union.Dir, raw.Private()); err != nil {
 			return fmt.Errorf("union.dir: %w", err)
 		}
 	}
@@ -833,7 +954,7 @@ func validateShims(shims map[string]Shim) error {
 }
 
 // validateRepoRelativeDir refuses a directory the cockpit must not write into or commit from.
-func validateRepoRelativeDir(dir string, paths Paths, private []string) error {
+func validateRepoRelativeDir(dir string, private []string) error {
 	if filepath.IsAbs(dir) {
 		return fmt.Errorf("%q is an absolute path; it must be repo-relative", dir)
 	}
@@ -844,7 +965,7 @@ func validateRepoRelativeDir(dir string, paths Paths, private []string) error {
 	if strings.HasPrefix(clean, "-") {
 		return fmt.Errorf("%q starts with a dash and could be read by git as a flag rather than a path", dir)
 	}
-	for _, forbidden := range append([]string{paths.KeysDir, paths.BinDir, paths.PlanktonDir, paths.NektonDir}, private...) {
+	for _, forbidden := range append([]string{Dir}, private...) {
 		if forbidden == "" {
 			continue
 		}
@@ -856,65 +977,73 @@ func validateRepoRelativeDir(dir string, paths Paths, private []string) error {
 	return nil
 }
 
-// validateTrustTiers refuses a tier entry that is a PRIVATE key.
-//
-// A public and a private ed25519 key are the same shape on disk — 64 hex characters — and
-// `plankton keyid` accepts either without complaint. So `keys/session-1.key` where
-// `registry/keys/session-1.pub` was meant is one character, produces no error anywhere, and the
-// consequence is not a wrong answer but a disclosure: `cockpit show` and the published union build
-// keys.json from exactly these entries, so the private key would be written into a committed file
-// and served to every viewer.
-//
-// Two checks, because neither is sufficient alone. The extension is a floor that holds even for a
-// key this config never names. Comparing against the identity keys is exact for the transposition
-// that actually happens — swapping one of THIS repo's own halves — since the config names both.
+// validateTrustTiers refuses a tier name that is not a plain folder name: a tier is the folder
+// .kton/keys/<tier>/, and a name with a separator or a dot-dot would read keys from somewhere else,
+// a package's keys/ included (kton-review L2).
 func validateTrustTiers(raw *Raw) error {
-	for tier, entries := range raw.Trust.Tiers {
-		for _, entry := range entries {
-			if strings.EqualFold(filepath.Ext(entry), ".key") {
-				return fmt.Errorf(
-					"trust.tiers[%q] names %s, which is a private key by its extension — trust tiers hold the "+
-						"PUBLIC halves (.pub). keys.json is built from these and committed, so this would "+
-						"publish a signing key", tier, entry)
-			}
+	seen := map[string]bool{}
+	for _, tier := range raw.Trust.Tiers {
+		if !tierName.MatchString(tier) {
+			return fmt.Errorf("trust.tiers: %q is not a tier name (letters, digits, '_', '-'); a tier is the folder .kton/keys/<tier>/", tier)
 		}
+		if seen[tier] {
+			return fmt.Errorf("trust.tiers names %q twice", tier)
+		}
+		seen[tier] = true
 	}
 	return nil
 }
 
-// checkTrustTierContents is the exact half of the same check, and it lives here rather than in
-// validate because it has to read files: the entries are repo-relative, and resolving them against
-// the process's working directory instead of the repo root would make it read nothing and pass
-// everything — a check that cannot fire.
-func checkTrustTierContents(root string, raw *Raw) error {
+var tierName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]*$`)
+
+// checkTrustTierContents refuses a tier folder holding a private key, by its extension or by its
+// contents. A public and a private ed25519 key are the same shape on disk, 64 hex characters, and
+// keys.json for viewers is built from the tier folders, so a private key there would be served to
+// every viewer. The extension is a floor that holds for any key; the contents check is exact for the
+// transposition that actually happens, this checkout's own key copied in by mistake.
+func checkTrustTierContents(root string, raw *Raw, id Identity) error {
 	private := map[string]string{}
-	for _, p := range []string{raw.Identity.PlanktonKey, raw.Identity.NektonKey} {
+	for _, p := range []string{id.PlanktonKey, id.NektonKey} {
 		if p == "" {
 			continue
 		}
-		if b, err := os.ReadFile(filepath.Join(root, p)); err == nil {
+		if b, err := os.ReadFile(ExpandHome(p)); err == nil {
 			private[strings.TrimSpace(string(b))] = p
 		}
 	}
-	if len(private) == 0 {
-		return nil
-	}
-	for tier, entries := range raw.Trust.Tiers {
-		for _, entry := range entries {
-			path := entry
-			if !filepath.IsAbs(path) {
-				path = filepath.Join(root, entry)
+	// A key in two tiers would be counted in whichever the lookup met first, and that order is a
+	// map's (kton-review L2b on #143): which tier a decision is recognised in must not be chance.
+	type filed struct{ tier, rel string }
+	seen := map[string]filed{}
+	for _, tier := range raw.Trust.Tiers {
+		dir := filepath.Join(root, Dir, "keys", tier)
+		ents, err := os.ReadDir(dir)
+		if err != nil {
+			continue // an empty tier has no folder yet
+		}
+		for _, e := range ents {
+			rel := filepath.ToSlash(filepath.Join(Dir, "keys", tier, e.Name()))
+			if strings.EqualFold(filepath.Ext(e.Name()), ".key") {
+				return fmt.Errorf("%s is a private key by its extension; tier folders hold PUBLIC halves (.pub) only, "+
+					"and keys.json is built from them and shared", rel)
 			}
-			b, err := os.ReadFile(path)
+			b, err := os.ReadFile(filepath.Join(dir, e.Name()))
 			if err != nil {
-				continue // a missing path is reported later, by whatever tries to read it
+				continue
 			}
 			if named, isPrivate := private[strings.TrimSpace(string(b))]; isPrivate {
-				return fmt.Errorf(
-					"trust.tiers[%q] names %s, whose contents are this repo's own signing key (%s) — trust "+
-						"tiers hold public halves, and keys.json is built from them and committed",
-					tier, entry, named)
+				return fmt.Errorf("%s holds this checkout's own signing key (%s); tier folders hold public halves, "+
+					"and keys.json is built from them and shared", rel, named)
 			}
+			if !strings.EqualFold(filepath.Ext(e.Name()), ".pub") {
+				continue
+			}
+			key := strings.ToLower(strings.TrimSpace(string(b)))
+			if prev, ok := seen[key]; ok && prev.tier != tier {
+				return fmt.Errorf("one key is in two trust tiers: %s and %s; a key counts in one tier, so remove it from one of them",
+					prev.rel, rel)
+			}
+			seen[key] = filed{tier, rel}
 		}
 	}
 	return nil
@@ -973,18 +1102,27 @@ func (c *Config) AllowsTemplate(template string) bool {
 // TierPubkeys returns the absolute paths of every pubkey configured across all trust tiers,
 // paired with the tier name each belongs to. Used by the verify package to resolve a record's
 // tier from its actual verifying key, never from a declared keyid.
+//
+// A tier's keys are the *.pub files in .kton/keys/<tier>/, and nothing else: never a package's keys/
+// (kton-review L2), never a file outside the folder.
 func (c *Config) TierPubkeys() map[string]string {
 	out := map[string]string{}
-	for tier, keys := range c.Raw.Trust.Tiers {
-		for _, k := range keys {
-			p := k
-			if !filepath.IsAbs(p) {
-				p = filepath.Join(c.RepoRoot, p)
-			}
+	for _, tier := range c.Raw.Trust.Tiers {
+		for _, p := range c.TierKeys(tier) {
 			out[p] = tier
 		}
 	}
 	return out
+}
+
+// TierDir is the folder of a tier's public keys.
+func (c *Config) TierDir(tier string) string { return filepath.Join(c.KeysDir, tier) }
+
+// TierKeys returns the absolute paths of a tier's public keys, sorted.
+func (c *Config) TierKeys(tier string) []string {
+	m, _ := filepath.Glob(filepath.Join(c.TierDir(tier), "*.pub"))
+	sort.Strings(m)
+	return m
 }
 
 // validateMaterial checks the shape of every attachment, and nothing about its contents.
@@ -1147,7 +1285,7 @@ func (r Raw) Private() []string {
 // repoOf is the configuration as a backend sees it.
 func repoOf(dir string, raw Raw) backend.Repo {
 	return backend.Repo{Mode: raw.Repo.Mode, Block: raw.Repo.block(), Dir: dir,
-		Commit: raw.CommitEnabled(), Share: raw.ShareEnabled(), SessionID: raw.Identity.SessionID}
+		Commit: raw.CommitEnabled(), Share: raw.ShareEnabled()}
 }
 
 // validateQueryImage holds the SPARQL image to the rule execution.image follows: a tag names

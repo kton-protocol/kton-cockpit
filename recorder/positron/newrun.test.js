@@ -62,5 +62,5 @@ n.recordDerivation(root, 'model/pk/run5/run5.ctl', 'model/pk/run3/run3.ctl', fs)
 const all = n.recordDerivation(root, 'model/pk/run4/run4.ctl', 'model/pk/run3/run3.ctl', fs, new Date('2026-11-12T11:00:00Z'));
 assert.deepStrictEqual(all['model/pk/run4/run4.ctl'], { from: 'model/pk/run3/run3.ctl', action: 'new-run', at: '2026-11-12T11:00:00Z' }, 'made again: replaced');
 assert.ok(all['model/pk/run5/run5.ctl'], 'merged, not overwritten');
-assert.deepStrictEqual(JSON.parse(fs.readFileSync(path.join(root, '.kton/derivations.json'), 'utf8')), all);
+assert.deepStrictEqual(JSON.parse(fs.readFileSync(path.join(root, '.kton/local/derivations.json'), 'utf8')), all);
 console.log('newrun ok');

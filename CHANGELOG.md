@@ -1,8 +1,62 @@
 # Changelog
 
-## Unreleased
+## v0.5.0 — 2026-11-19
+
+Everything kton in a repository is under `.kton/` (ADR-016), the query view is vocabulary 1
+(ADR-013 A5), and the kernel is kton v0.4.0. Tracks kton v0.4.0 and ktonpkg v0.8.0; ships with
+recorder 0.5.0.
+
+### Upgrading from 0.4
+
+This is a hard break with no migration (ADR-016): a repository is set up again with `cockpit init`,
+and a 0.4 store layout is not read.
+
+- **The `.kton/` layout** (SPEC §5.6). `.kton/cockpit.config.json` marks and configures the
+  repository; the stores are `.kton/plankton` and `.kton/nekton`, the templates `.kton/templates`,
+  installed packages `.kton/packages`, blobs `.kton/blobs`. A trust tier is a folder of public keys,
+  `.kton/keys/<tier>/*.pub`, and `trust.tiers` is a list of tier names. The checkout's identity is
+  `.kton/local/identity.json` (session, keys, keyring), which is never committed, persisted,
+  published or mounted into a container; private keys live outside the repository, in
+  `~/.kton-keys` (or `KTON_KEYS`). Run folders are `runs.dir`, default `work/`.
+- **kton v0.4.0.** Every nekton store has a root scope: a scope seeded without a named parent hangs
+  under it, so `ask scope` names the root as parent and as the last entry of the context. kton 0.2
+  stores are refused. Content IRIs are lower case.
+- **View vocabulary 1** (SPEC §9.11). `nk:current` and `nk:supersededBy` are gone: nothing is
+  inferred from order. A claim names what it replaces: `nk:replaces` for every name in its
+  `replaces` field, and `nk:replacedBy` only where every signer of the replaced claim signed the
+  replacement, with the same template and a shared subject. A query that asked `nk:current true`
+  asks `FILTER NOT EXISTS { ?c nk:replacedBy ?newer }` where replacement is meant, or orders by
+  `dct:created`. Every subject is an `nk:about`; a seed has `nk:parent`.
+- **Recorder 0.5.0** reads only the new layout: update it together with the cockpit.
 
 ### Added
+
+- **One JSON document on stdout for a shell** (SPEC §6). Under `--json`, or with a verb's JSON
+  argument, a refusal is `{code, clause, reason}` with exit 2 and any other error the same object
+  with code `error` and exit 1. `--json` for `version`, `say` and `ask` without a question (the
+  templates with their fields, the questions with a package query's parameters), `trust list`,
+  `federation list`, `config`, `index status`, `sync` and `run list`. `doctor --json` names who the
+  checkout signs as (`fields.identity`: name, key ids, tier). Asked by userinterface for the QM
+  Workbench shell.
+- **`iri` fields are IRIs in the view** for `urn:`, `tag:`, `did:`, `mailto:` and a resolved CURIE.
+
+### Fixed
+
+- **`say` with a JSON argument, and over MCP, fills `by-session`** from the identity it signs as,
+  as the typed form did (SPEC §8.7).
+- **What a file or run folder resolved to goes to stderr**, so `--json` is all of stdout.
+- **git reads every path literally** (kton-review L1): pathspec magic such as `:(top).kton/local`
+  could stage the checkout's identity once `.kton/.gitignore` was gone. `persist` and `publish` also
+  refuse a path starting with `:`.
+- **A key in two trust tiers is refused** when the configuration loads (kton-review L2b); it was
+  counted in whichever tier a map range met first.
+
+### Also since v0.4.2
+
+Work merged between v0.4.2 and the v0.5.0 changes above.
+
+
+#### Added
 
 - **The normaliser comes with the environment** (MH 11.11., D5; asked by cockpit-improve-backend).
   `publish` takes the environment class per call (`environment`, `--environment`), as it takes
@@ -10,7 +64,7 @@
   uses the normaliser of the reproduced run's class, from a spectrum in an installed package, and
   only then `reproduction.normalizer`; the answer reports `via` and `viaFrom` (SPEC §7.5, SPEC §8.2).
 
-### Fixed
+#### Fixed
 
 - **`cockpit show` marks what it serves for revalidation** (SPEC §12.3): `Cache-Control: no-cache`
   on the viewer's files and the data. A browser kept the old kton-web viewer (ES modules, wasm)
@@ -29,11 +83,11 @@
 - **The shim's NONMEM collector reads a repeatedly included control stream once** (kton-review S6).
   A chain where each level includes the next twice was exponential: 16 levels took 19 s, and now
   take milliseconds.
-### Changed
+#### Changed
 
 - **Requires ktonpkg v0.3.0** (verticle profile, `Protocol.Image`, `Step.Outputs`).
 
-### Added
+#### Added
 
 - **`cockpit mcp --runs`: a package's steps as MCP tools, and the tools a verticle declares**
   (ktonpkg v0.3.0, SPEC §6.2). A verticle's `mcp/<name>.json` is served under its own name and

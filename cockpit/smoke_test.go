@@ -521,7 +521,7 @@ func TestAsk_AboutExcludesAClaimThatVerifiesAgainstNoConfiguredTier(t *testing.T
 	// Empty the trust tiers: the claim is unchanged and still signed, but nothing in this repo's
 	// config can verify it any more.
 	raw := testrepo.DefaultConfig()
-	raw.Trust.Tiers = map[string][]string{"self": {}}
+	raw.Trust.Tiers = []string{"empty"} // a tier with no folder: no key in it
 	r.WriteConfig(t, raw)
 
 	result, out, err := Ask(context.Background(), nil, AskRequest{Query: "about", Ref: pub.FotonID})
@@ -552,12 +552,12 @@ func TestFixture_CommitsThePublicKeysAndNeverThePrivateOnes(t *testing.T) {
 		if strings.HasSuffix(f, ".key") {
 			t.Errorf("a private signing key is tracked by git: %s", f)
 		}
-		if f == "registry/keys/"+testrepo.SessionID+".pub" {
+		if f == ".kton/keys/self/"+testrepo.SessionID+".pub" {
 			sawPub = true
 		}
 	}
 	if !sawPub {
-		t.Errorf("the published public key registry/keys/%s.pub is not tracked; a peer could not verify this participant", testrepo.SessionID)
+		t.Errorf("the published public key .kton/keys/self/%s.pub is not tracked; a peer could not verify this participant", testrepo.SessionID)
 	}
 }
 
@@ -641,11 +641,16 @@ func TestAsk_ReproductionsCountIsScopedToTheRequestedTier(t *testing.T) {
 	// Two tiers, and the key that actually signs fotons is in "other" — so a query scoped to
 	// "self" must find nothing, and one scoped to "other" must find the publisher.
 	raw := testrepo.DefaultConfig()
-	raw.Trust.Tiers = map[string][]string{
-		"self":  {"registry/keys/" + testrepo.SessionID + "-claims.pub"},
-		"other": {"registry/keys/" + testrepo.SessionID + ".pub"},
-	}
+	raw.Trust.Tiers = []string{"self", "other"}
 	r.WriteConfig(t, raw)
+	other := filepath.Join(r.Root, ".kton", "keys", "other")
+	if err := os.MkdirAll(other, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(filepath.Join(r.Root, ".kton", "keys", "self", testrepo.SessionID+".pub"),
+		filepath.Join(other, testrepo.SessionID+".pub")); err != nil {
+		t.Fatal(err)
+	}
 	r.Use(t)
 	pub := publishOne(t, r)
 	hash := pub.OutputHashes["data/out.csv"]
@@ -1075,11 +1080,14 @@ func TestGitMode_RefusesAConfigBelowTheRepositoryRoot(t *testing.T) {
 	if err := os.MkdirAll(sub, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	b, err := os.ReadFile(filepath.Join(r.Root, "cockpit.config.json"))
+	b, err := os.ReadFile(config.ConfigPath(r.Root))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(sub, "cockpit.config.json"), b, 0o644); err != nil {
+	if err := os.MkdirAll(filepath.Join(sub, ".kton"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(config.ConfigPath(sub), b, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("COCKPIT_REPO_DIR", sub)
@@ -1103,8 +1111,8 @@ func TestPublish_RefusesToCommitSigningKey(t *testing.T) {
 	before := r.HeadSHA(t)
 
 	result, out, err := Publish(context.Background(), nil, PublishRequest{
-		Outputs: []string{"keys/session-1.key"},
-		Cmd:     "cat keys/session-1.key",
+		Outputs: []string{"data/session-1.key"},
+		Cmd:     "cat data/session-1.key",
 	})
 	if err != nil {
 		t.Fatalf("expected a tool-level error, not a Go error: %v", err)
@@ -1168,7 +1176,10 @@ func TestConfigGuard_DoesNotBindToAnAncestorsConfig(t *testing.T) {
 	// parent holds one only because the fixture's repo dir is under it — which is exactly the shape
 	// that used to be picked up.
 	parent := filepath.Dir(r.Root)
-	if err := os.WriteFile(filepath.Join(parent, "cockpit.config.json"), []byte("{}"), 0o644); err != nil {
+	if err := os.MkdirAll(filepath.Join(parent, ".kton"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(config.ConfigPath(parent), []byte("{}"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	stray := filepath.Join(parent, "elsewhere")
@@ -1240,26 +1251,42 @@ func TestConfig_RefusesSettingsThatWouldDiscloseOrOverwrite(t *testing.T) {
 		// either, so this is one character — and keys.json is built from these entries, committed,
 		// and served to every viewer.
 		"a private key in a trust tier, by extension": {
-			func(_ *testrepo.Repo, raw *config.Raw) {
-				raw.Trust.Tiers["self"] = []string{"keys/" + testrepo.SessionID + ".key"}
+			func(r *testrepo.Repo, raw *config.Raw) {
+				b, err := os.ReadFile(r.Key(testrepo.SessionID))
+				if err != nil {
+					t.Fatal(err)
+				}
+				r.Write(t, ".kton/keys/self/"+testrepo.SessionID+".key", string(b))
 			}, "private key by its extension",
 		},
 		// The floor above is a filename check; this is the exact one, for a copy under any name.
 		"a private key in a trust tier, by contents": {
 			func(r *testrepo.Repo, raw *config.Raw) {
-				b, err := os.ReadFile(filepath.Join(r.Root, "keys", testrepo.SessionID+".key"))
+				b, err := os.ReadFile(r.Key(testrepo.SessionID))
 				if err != nil {
 					t.Fatal(err)
 				}
-				r.Write(t, "registry/keys/innocuous.pub", string(b))
-				raw.Trust.Tiers["self"] = []string{"registry/keys/innocuous.pub"}
-			}, "this repo's own signing key",
+				r.Write(t, ".kton/keys/self/innocuous.pub", string(b))
+			}, "own signing key",
+		},
+		// A key filed in two tiers counted in whichever the lookup met first, by map order
+		// (kton-review L2b on #143): the same key as mh.pub and mignon.pub in people and agents.
+		"one key in two trust tiers": {
+			func(r *testrepo.Repo, raw *config.Raw) {
+				b, err := os.ReadFile(filepath.Join(r.Root, ".kton", "keys", "self", testrepo.SessionID+".pub"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				r.Write(t, ".kton/keys/people/mh.pub", string(b))
+				r.Write(t, ".kton/keys/agents/mignon.pub", string(b))
+				raw.Trust.Tiers = append(raw.Trust.Tiers, "people", "agents")
+			}, "two trust tiers",
 		},
 		"a union directory that escapes the repo": {
 			func(_ *testrepo.Repo, raw *config.Raw) { raw.Union.Dir = "../elsewhere" }, "escapes the repository",
 		},
 		"a union directory aimed at the keys": {
-			func(_ *testrepo.Repo, raw *config.Raw) { raw.Union.Dir = "keys/data" }, "must not overwrite",
+			func(_ *testrepo.Repo, raw *config.Raw) { raw.Union.Dir = ".kton/data" }, "must not overwrite",
 		},
 	}
 
@@ -1294,7 +1321,7 @@ func TestAsk_RefusesASelfDeclaredReproductionCount(t *testing.T) {
 	pub := publishOne(t, r)
 
 	raw := testrepo.DefaultConfig()
-	raw.Trust.Tiers = map[string][]string{"self": {}}
+	raw.Trust.Tiers = []string{"empty"} // a tier with no folder: no key in it
 	r.WriteConfig(t, raw)
 
 	result, _, err := Ask(context.Background(), nil, AskRequest{

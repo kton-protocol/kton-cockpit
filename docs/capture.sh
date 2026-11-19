@@ -46,7 +46,7 @@ run "cockpit ask '{\"query\":\"producer\",\"ref\":\"$HASH\"}'"
 run "cockpit say '{\"subject\":\"$FOTON\",\"template\":\"working-on\",\"fields\":{\"step\":\"calibration check\",\"by-session\":\"session-1\"}}'"
 run "cockpit ask '{\"query\":\"about\",\"ref\":\"$FOTON\"}'"
 run "cockpit publish '{\"cmd\":\"mean data/sensor.csv > work/summary.csv\",\"inputs\":[\"data/sensor.csv\"],\"output\":[\"work/summary.csv\"]}'"
-python3 - cockpit.config.json <<'PY'
+python3 - .kton/cockpit.config.json <<'PY'
 import json, sys
 c = json.load(open(sys.argv[1])); c["repo"]["owner"] = "someone-else"
 json.dump(c, open(sys.argv[1], "w"), indent=2)

@@ -53,6 +53,10 @@ type SayResult struct {
 	Via          string `json:"via,omitempty"`
 	ViaFrom      string `json:"viaFrom,omitempty"`
 	Confirmation string `json:"confirmation"`
+	// ResolvedFrom is set when the subject was a file in the repository: the claim is about its bytes
+	// (Subject), and this is the path it was given as.
+	ResolvedFrom string `json:"resolvedFrom,omitempty"`
+	Subject      string `json:"subject,omitempty"`
 	// RekorLogIndex and RekorUUID are set when this repo anchors its records — see PublishResult.
 	RekorLogIndex int64  `json:"rekorLogIndex,omitempty"`
 	RekorUUID     string `json:"rekorUuid,omitempty"`
@@ -94,6 +98,11 @@ func (c *Cockpit) Say(ctx context.Context, in SayRequest) (*SayResult, error) {
 	if in.Subject == "" {
 		return nil, refuse("argument", "", "say requires subject (the foton id or hash the claim is about)")
 	}
+	subject, resolvedFrom, why := resolveSubject(cfg, in.Subject)
+	if why != "" {
+		return nil, refuse("argument", "SPEC §8", "%s", why)
+	}
+	in.Subject = subject
 
 	signKey := cfg.NektonKey
 	if in.As != "" {
@@ -105,9 +114,12 @@ func (c *Cockpit) Say(ctx context.Context, in SayRequest) (*SayResult, error) {
 	}
 
 	r := binaries.New(cfg)
-	sets := in.Fields
-	if sets == nil {
-		sets = map[string]string{}
+	sets := map[string]string{}
+	for k, v := range in.Fields {
+		sets[k] = v
+	}
+	if in.Template != "reproduces" {
+		FillIdentity(cfg, in.Template, in.As, sets)
 	}
 
 	var reproducedVia, reproducedViaFrom string
@@ -163,7 +175,7 @@ func (c *Cockpit) Say(ctx context.Context, in SayRequest) (*SayResult, error) {
 		}
 	}
 
-	registryPaths := []string{cfg.Raw.Paths.NektonDir}
+	registryPaths := []string{config.Rel("nekton")}
 	if cfg.Raw.Union.Publish {
 		written, uerr := show.WriteUnion(ctx, cfg)
 		if uerr != nil {
@@ -201,6 +213,8 @@ func (c *Cockpit) Say(ctx context.Context, in SayRequest) (*SayResult, error) {
 		ClaimID:      claimID,
 		Level:        level,
 		Confirmation: fmt.Sprintf("registered: nekton reports %s among the %d claim(s) about %s", claimID, len(claims), in.Subject),
+		Subject:      in.Subject,
+		ResolvedFrom: resolvedFrom,
 	}
 	out.Via, out.ViaFrom = reproducedVia, reproducedViaFrom
 	if anchored != nil {

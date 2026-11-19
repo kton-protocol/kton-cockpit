@@ -287,21 +287,19 @@ func TestContainer_TheTrustBaseIsNotInTheRoom(t *testing.T) {
 	r := executingRepo(t, false)
 	r.Write(t, "data/in.csv", "x\n")
 
-	before := readFile(t, filepath.Join(r.Root, "bin", "plankton"))
-	keyBefore := readFile(t, filepath.Join(r.Root, "keys", testrepo.SessionID+".key"))
+	// Private keys and the kernel binaries are outside the repository (ADR-016), so the room never
+	// had them. What is in the repository and is the trust base is .kton/ and .git.
+	cfgBefore := readFile(t, filepath.Join(r.Root, ".kton", "cockpit.config.json"))
 
-	// One command, reporting what it can see and trying to overwrite each of them.
+	// One command, reporting what it can see and trying to write into each of them.
 	result, out, err := Publish(context.Background(), nil, PublishRequest{
 		Inputs:  []string{"data/in.csv"},
 		Outputs: []string{"data/out.csv"},
 		Cmd: `{
-		   echo "keys: $(ls keys 2>&1 | wc -l)"
-		   echo "bin: $(ls bin 2>&1 | wc -l)"
+		   echo "kton: $(ls -A .kton 2>&1 | wc -l)"
 		   echo "git: $(ls .git 2>&1 | wc -l)"
-		   echo "registry: $(ls registry/plankton 2>&1 | wc -l)"
-		   echo "config: $(wc -c < cockpit.config.json)"
-		   echo replaced > bin/plankton 2>/dev/null || echo "bin/plankton: not writable through to the host"
-		   echo stolen > keys/leak 2>/dev/null || true
+		   echo replaced > .kton/cockpit.config.json 2>/dev/null || true
+		   echo planted > .kton/plankton/planted 2>/dev/null || true
 		 } > data/out.csv 2>&1`,
 	})
 	if err != nil {
@@ -313,24 +311,20 @@ func TestContainer_TheTrustBaseIsNotInTheRoom(t *testing.T) {
 	t.Logf("what the container saw:\n%s", readFile(t, filepath.Join(r.Root, "data", "out.csv")))
 
 	// The assertions that matter are on the HOST, after the run.
-	if got := readFile(t, filepath.Join(r.Root, "bin", "plankton")); got != before {
-		t.Fatal("the container replaced bin/plankton on the host — the cockpit would then author with it")
+	if got := readFile(t, filepath.Join(r.Root, ".kton", "cockpit.config.json")); got != cfgBefore {
+		t.Fatal("the container changed the configuration on the host")
 	}
-	if got := readFile(t, filepath.Join(r.Root, "keys", testrepo.SessionID+".key")); got != keyBefore {
-		t.Fatal("the container reached the signing key")
-	}
-	if _, err := os.Stat(filepath.Join(r.Root, "keys", "leak")); err == nil {
-		t.Fatal("the container wrote into the host's keys directory")
+	if _, err := os.Stat(filepath.Join(r.Root, ".kton", "plankton", "planted")); err == nil {
+		t.Fatal("the container wrote into the host's registry")
 	}
 	if !strings.HasPrefix(out.FotonID, "sha256:") {
 		t.Fatal("the publish itself should still have succeeded")
 	}
 
 	// And the masking is real rather than the command merely having failed: the container saw the
-	// directories as EMPTY, which is what "empty the room" means. `ls` on an empty dir prints
-	// nothing, so wc -l is 0; the config is masked to /dev/null, so it reads as 0 bytes.
+	// directories as EMPTY, which is what "empty the room" means.
 	saw := readFile(t, filepath.Join(r.Root, "data", "out.csv"))
-	for _, want := range []string{"keys: 0", "bin: 0", "git: 0", "registry: 0", "config: 0"} {
+	for _, want := range []string{"kton: 0", "git: 0"} {
 		if !strings.Contains(saw, want) {
 			t.Errorf("expected the container to see %q, got:\n%s", want, saw)
 		}

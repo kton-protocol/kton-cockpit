@@ -33,6 +33,9 @@ participant() {
   git -C "$WORK/$name" config remote.origin.pushurl "$WORK/$name.git"
   git -C "$WORK/$name" config user.name "$name"
   git -C "$WORK/$name" config user.email "$name@uat.local"
+  # Private keys live outside every repository (ADR-016): each participant's in a folder of its own
+  # in the work folder, never in the runner's ~/.kton-keys.
+  export KTON_KEYS="$WORK/kton-keys-$name"
 }
 
 # from_github <cmd...> — run a command whose fetches of github.com/kton-uat/alice reach her local
@@ -56,14 +59,15 @@ require "and says it as JSON"                  bash -c 'cockpit doctor --json | 
 require "and asks for what it must persist"    bash -c 'cockpit doctor | grep -q "not persisted yet"'
 git add -A && git commit -qm "cockpit init" && git push -q origin main
 require "nothing is left to do"                bash -c '! cockpit doctor | grep -qE "^  . [0-9]+\. (not persisted|no signing)"'
-require "no private key is committed"          test -z "$(git ls-files keys)"
-require "the public keys are"                  test -n "$(git ls-files registry/keys)"
+require "no private key is committed"          test -z "$(git ls-files '*.key')"
+require "the public keys are"                  test -n "$(git ls-files .kton/keys/self)"
+require "and the identity is not"              test -z "$(git ls-files .kton/local)"
 
 step "B — alice works in a run folder, in the pinned image"
 mkdir -p data
 printf 'instrument,value\nA,1.5\nB,2.0\nA,2.5\n' > data/runs.csv
 show cockpit run new means --in data/runs.csv
-cat > runs/means/run.py <<'PY'
+cat > work/means/run.py <<'PY'
 import csv
 by = {}
 for r in csv.DictReader(open("inputs/runs.csv")):
@@ -89,43 +93,43 @@ git add -A && git commit -qm "cockpit init" && git push -q origin main
 
 step "C2 — bob reads alice's registry: her repository as a federation source"
 show from_github cockpit federation add alice "https://github.com/kton-uat/alice.git"
-require "it is configured"                     grep -q '"kind": "git"' cockpit.config.json
+require "it is configured"                     grep -q '"kind": "git"' .kton/cockpit.config.json
 
 refused "fetching a record nobody bob trusts signed" from_github cockpit run new early --from "$ALICE_FOTON"
-require "and the refusal leaves no folder"     test ! -e runs/early
+require "and the refusal leaves no folder"     test ! -e work/early
 
 step "C1 — bob takes alice's keys in, seeing them first"
-cfg_before=$(cat cockpit.config.json)
+cfg_before=$(cat .kton/cockpit.config.json)
 show from_github cockpit trust add alice "https://github.com/kton-uat/alice.git"
-require "showing changed nothing"              test "$cfg_before" = "$(cat cockpit.config.json)"
+require "showing changed nothing"              test "$cfg_before" = "$(cat .kton/cockpit.config.json)"
 show from_github cockpit trust add alice "https://github.com/kton-uat/alice.git" --yes
 show cockpit trust list
 
 step "C3 — bob fetches alice's run by its record, every input checked against its hash"
 show from_github cockpit run new check --from "$ALICE_FOTON"
-require "her script is there, byte for byte"   cmp -s runs/check/run.py "$WORK/alice/runs/means/run.py"
+require "her script is there, byte for byte"   cmp -s work/check/run.py "$WORK/alice/work/means/run.py"
 
 step "C4 — bob reruns it and is handed the claim"
 cockpit run check | tee "$WORK/bob-run.txt"
 cd "$WORK/bob"
 require "same bytes"                           grep -q "^same bytes as" "$WORK/bob-run.txt"
-show cockpit say reproduces runs/check
-OUT_HASH="sha256:$(sha256sum "$WORK/alice/runs/means/out/means.csv" | awk '{print $1}')"
+show cockpit say reproduces work/check
+OUT_HASH="sha256:$(sha256sum "$WORK/alice/work/means/out/means.csv" | awk '{print $1}')"
 N=$(cockpit ask '{"query":"reproductions","ref":"'"$OUT_HASH"'"}' --field verifiedSigners)
 require "two parties, two keys, one result: ↻$N" test "$N" = "2"
 
 step "E — bob works with words: claims about a run and a file, questions, his runs"
-show cockpit say working-on runs/check step="checking alice's means"
-show cockpit say working-on runs/check/out/means.csv step="reading the means"
-show cockpit ask about runs/check
-show cockpit ask reproductions runs/check/out/means.csv
+show cockpit say working-on work/check step="checking alice's means"
+show cockpit say working-on work/check/out/means.csv step="reading the means"
+show cockpit ask about work/check
+show cockpit ask reproductions work/check/out/means.csv
 show cockpit ask by signer me
 show cockpit run list
 require "his claims are his"                   bash -c 'cockpit ask by signer me | grep -c "self" | grep -qx 3'
-refused "a claim missing a field"              cockpit say working-on runs/check
+refused "a claim missing a field"              cockpit say working-on work/check
 printf 'a,b\n1,2\n' > notes.csv
-show cockpit publish --in runs/check/out/means.csv --out notes.csv -- cp runs/check/out/means.csv notes.csv
-require "a reported result answers producer"   bash -c 'cockpit ask producer notes.csv | grep -q "cp runs/check"'
+show cockpit publish --in work/check/out/means.csv --out notes.csv -- cp work/check/out/means.csv notes.csv
+require "a reported result answers producer"   bash -c 'cockpit ask producer notes.csv | grep -q "cp work/check"'
 
 step "F — alice publishes again; bob reads it once he pulls"
 cd "$WORK/alice"

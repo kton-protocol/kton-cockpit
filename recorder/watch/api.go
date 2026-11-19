@@ -14,8 +14,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/kton-protocol/kton-cockpit/internal/toolcall"
 )
 
 // maxBlob bounds what /kton/blob reads into memory to serve a file preview.
@@ -249,6 +247,56 @@ func (sv *Service) Handler() http.Handler {
 		}
 		writeJSON(w, map[string]bool{"ok": true})
 	})
+	// what is recorded and what is kept (watched.go): GET; POST {folder, on}; POST /api/keep {id, on};
+	// DELETE /api/sessions/{id} (an ended session, its log and observations)
+	mux.HandleFunc("GET /api/watched", func(w http.ResponseWriter, r *http.Request) {
+		if sv.Watched == nil {
+			writeJSON(w, WatchedState{})
+			return
+		}
+		writeJSON(w, sv.Watched.State())
+	})
+	mux.HandleFunc("POST /api/watched", func(w http.ResponseWriter, r *http.Request) {
+		var in struct {
+			Folder string `json:"folder"`
+			On     bool   `json:"on"`
+		}
+		if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&in); err != nil || !filepath.IsAbs(in.Folder) || sv.Watched == nil {
+			http.Error(w, "want {folder: an absolute path, on}", http.StatusBadRequest)
+			return
+		}
+		if err := sv.Watched.SetFolder(in.Folder, in.On); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, sv.Watched.State())
+	})
+	mux.HandleFunc("POST /api/keep", func(w http.ResponseWriter, r *http.Request) {
+		var in struct {
+			ID string `json:"id"`
+			On bool   `json:"on"`
+		}
+		if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&in); err != nil || in.ID == "" || sv.Watched == nil {
+			http.Error(w, "want {id, on}", http.StatusBadRequest)
+			return
+		}
+		if !sv.With(in.ID, func(*Session) {}) {
+			http.Error(w, "no session "+in.ID, http.StatusNotFound)
+			return
+		}
+		if err := sv.Watched.SetKeep(in.ID, in.On); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, map[string]bool{"ok": true})
+	})
+	mux.HandleFunc("DELETE /api/sessions/{id}", func(w http.ResponseWriter, r *http.Request) {
+		if err := sv.DeleteSession(r.PathValue("id")); err != nil {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		writeJSON(w, map[string]bool{"ok": true})
+	})
 	// the editor windows: events the MCP tools post, and the windows' answers (ui.go)
 	mux.HandleFunc("GET /api/ui/events", func(w http.ResponseWriter, r *http.Request) {
 		if sv.UI == nil {
@@ -279,7 +327,7 @@ func (sv *Service) Handler() http.Handler {
 				}
 				for _, c := range sv.callsOf(s.ID, t) {
 					if c.PID == pid {
-						d := CallDraft(c, toolcall.RepoRoot(s.Project), check.State)
+						d := CallDraft(c, RepoRoot(s.Project), check.State)
 						out = &d
 					}
 				}

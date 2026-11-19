@@ -163,7 +163,7 @@ async function reproduce(o) {
     steps, summary: { n: steps.length, reproduces: count('reproduces'), differs: count('differs'),
       differsOwn: steps.filter((x) => x.state === 'differs' && x.outputs.every((o2) => o2.same || !o2.becauseOf)).length, failed: count('failed') },
   };
-  const dir = o.resultDir || path.join(repo, '.cockpit-improve', 'reproduce');
+  const dir = o.resultDir || path.join(repo, '.kton', 'local', 'improve', 'reproduce');
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, name + '.json'), JSON.stringify(result, null, 2) + '\n');
   return result;

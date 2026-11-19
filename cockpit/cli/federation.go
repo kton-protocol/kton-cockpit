@@ -29,14 +29,14 @@ import (
 const federationUsage = "usage: cockpit federation add <name> <git-URL|checkout> [--path DIR] | list | pull [name] | remove <name>"
 
 func runFederation(ctx context.Context, args []string) error {
-	if len(args) == 0 {
-		return federationList(ctx)
+	if len(args) == 0 || (len(args) == 1 && args[0] == "--json") {
+		return federationList(ctx, len(args) == 1)
 	}
 	switch args[0] {
 	case "add":
 		return federationAdd(ctx, args[1:])
 	case "list":
-		return federationList(ctx)
+		return federationList(ctx, hasFlag(args[1:], "--json"))
 	case "pull":
 		return federationPull(ctx, args[1:])
 	case "remove":
@@ -72,7 +72,7 @@ func federationAdd(ctx context.Context, args []string) error {
 
 	// A checkout on disk with a participant's layout is read in place; anything else is cloned.
 	block := map[string]string{"name": name, "kind": "git", "url": where}
-	if fi, err := os.Stat(filepath.Join(where, "registry")); err == nil && fi.IsDir() && sub == "" {
+	if fi, err := os.Stat(filepath.Join(where, config.Dir, "plankton")); err == nil && fi.IsDir() && sub == "" {
 		abs, _ := filepath.Abs(where)
 		block = map[string]string{"name": name, "kind": "dir", "path": abs}
 	} else if sub != "" {
@@ -83,7 +83,7 @@ func federationAdd(ctx context.Context, args []string) error {
 	if cache, err := binaries.SourceCache(cfg, name); err == nil {
 		os.RemoveAll(cache)
 	}
-	cfgPath := filepath.Join(cfg.RepoRoot, "cockpit.config.json")
+	cfgPath := config.ConfigPath(cfg.RepoRoot)
 	before, err := os.ReadFile(cfgPath)
 	if err != nil {
 		return err
@@ -105,18 +105,25 @@ func federationAdd(ctx context.Context, args []string) error {
 	}
 	if err != nil {
 		os.WriteFile(cfgPath, before, 0o644)
-		return fmt.Errorf("%v\n(cockpit.config.json is unchanged)", err)
+		return fmt.Errorf("%v\n(.kton/cockpit.config.json is unchanged)", err)
 	}
 	fmt.Printf("source %s added (%s)\n", name, block["kind"])
 	describeSource(ctx, fresh, name)
-	fmt.Println("\ncommit cockpit.config.json to keep it; `cockpit federation pull` reads newer records")
+	fmt.Println("\ncommit .kton/cockpit.config.json to keep it; `cockpit federation pull` reads newer records")
 	return nil
 }
 
-func federationList(ctx context.Context) error {
+func federationList(ctx context.Context, asJSON bool) error {
 	cfg, err := config.Load(ctx, ".")
 	if err != nil {
 		return err
+	}
+	if asJSON {
+		out := []SourceStatus{}
+		for _, s := range cfg.Raw.Federation.Sources {
+			out = append(out, sourceStatus(ctx, cfg, s.Name))
+		}
+		return printJSON(out)
 	}
 	if len(cfg.Raw.Federation.Sources) == 0 {
 		fmt.Println("no sources — this repository reads its own records only. Add one: cockpit federation add <name> <git-URL>")
@@ -150,6 +157,33 @@ func federationPull(ctx context.Context, args []string) error {
 // name is given), says where each now is, and returns how many it pulled. A kind read in place has
 // nothing to refresh and is skipped.
 func pullSources(ctx context.Context, cfg *config.Config, args []string) (int, error) {
+	return pullSourcesTo(ctx, cfg, args, printSynced)
+}
+
+// Synced is one line of `sync`: the repository or a source, the revision it was at and is at now.
+type Synced struct {
+	Name string `json:"name"`
+	Was  string `json:"was,omitempty"`
+	Now  string `json:"now,omitempty"`
+	Note string `json:"note,omitempty"`
+}
+
+func printSynced(s Synced) {
+	state := "up to date"
+	if s.Was != s.Now {
+		state = "now at " + shortSHA(s.Now) + " (was " + orNone(shortSHA(s.Was)) + ")"
+	}
+	if s.Note != "" {
+		if s.Now == "" && s.Was == "" {
+			state = s.Note
+		} else {
+			state += "; " + s.Note
+		}
+	}
+	fmt.Printf("%-12s %s\n", s.Name, state)
+}
+
+func pullSourcesTo(ctx context.Context, cfg *config.Config, args []string, emit func(Synced)) (int, error) {
 	n := 0
 	for _, s := range cfg.Raw.Federation.Sources {
 		if len(args) > 0 && s.Name != args[0] {
@@ -168,11 +202,7 @@ func pullSources(ctx context.Context, cfg *config.Config, args []string) (int, e
 		if err != nil {
 			return n, fmt.Errorf("source %s: %v", s.Name, err)
 		}
-		state := "up to date"
-		if was != now {
-			state = "now at " + shortSHA(now) + " (was " + orNone(shortSHA(was)) + ")"
-		}
-		fmt.Printf("%-12s %s\n", s.Name, state)
+		emit(Synced{Name: s.Name, Was: was, Now: now})
 		n++
 	}
 	return n, nil
@@ -201,7 +231,7 @@ func federationRemove(ctx context.Context, args []string) error {
 	if keep == nil {
 		keep = []json.RawMessage{}
 	}
-	if err := editConfig(filepath.Join(cfg.RepoRoot, "cockpit.config.json"), set([]string{"federation", "sources"}, keep)); err != nil {
+	if err := editConfig(config.ConfigPath(cfg.RepoRoot), set([]string{"federation", "sources"}, keep)); err != nil {
 		return err
 	}
 	if cache, err := binaries.SourceCache(cfg, args[0]); err == nil {
@@ -213,7 +243,22 @@ func federationRemove(ctx context.Context, args []string) error {
 
 // describeSource says where a source is, which commit it was read at, and how many of its records a
 // key in this repository's trust tiers verifies.
-func describeSource(ctx context.Context, cfg *config.Config, name string) {
+// SourceStatus is one entry of `federation list --json`: a configured source, where it was read,
+// and how much of it this repository's trust tiers verify.
+type SourceStatus struct {
+	Name            string `json:"name"`
+	Kind            string `json:"kind"`
+	URL             string `json:"url,omitempty"`
+	Path            string `json:"path,omitempty"`
+	ReadAt          string `json:"readAt,omitempty"`
+	Problem         string `json:"problem,omitempty"`
+	Records         int    `json:"records"`
+	Claims          int    `json:"claims"`
+	VerifiedRecords int    `json:"verifiedRecords"`
+	VerifiedClaims  int    `json:"verifiedClaims"`
+}
+
+func sourceStatus(ctx context.Context, cfg *config.Config, name string) SourceStatus {
 	var spec source.Spec
 	for _, s := range cfg.Raw.Federation.Sources {
 		if s.Name == name {
@@ -222,47 +267,61 @@ func describeSource(ctx context.Context, cfg *config.Config, name string) {
 	}
 	var b map[string]string
 	spec.Decode(&b)
-	fmt.Printf("%-12s %s %s", name, spec.Kind, orDefault(b["url"], b["path"]))
-	if b["path"] != "" && spec.Kind == "git" {
-		fmt.Printf(" (under %s)", b["path"])
-	}
-	fmt.Println()
+	st := SourceStatus{Name: name, Kind: spec.Kind, URL: b["url"], Path: b["path"]}
 	cache, _ := binaries.SourceCache(cfg, name)
-	if head, _ := source.Head(ctx, cache); head != "" {
-		fmt.Printf("             read at %s\n", head)
-	}
+	st.ReadAt, _ = source.Head(ctx, cache)
 	k, ok := source.Lookup(spec.Kind)
 	if !ok {
-		return
+		st.Problem = "no source kind " + spec.Kind
+		return st
 	}
 	regs, err := k.Fetch(ctx, spec, cfg.RepoRoot, cache)
 	if err != nil {
-		fmt.Printf("             cannot be read: %v\n", err)
-		return
+		st.Problem = err.Error()
+		return st
 	}
 	keys, _ := binaries.TrustKeys(cfg, "")
-	var fotons, fv, claims, cv int
 	signers := map[string]bool{}
 	for _, reg := range regs {
 		if binaries.Exists(reg.PlanktonDir) {
 			if p, err := binaries.OpenPlanktonSource(reg.PlanktonDir); err == nil {
 				for _, r := range p.Records(0) {
-					fotons++
-					fv += verifiedBy(r.Envelope, keys, signers)
+					st.Records++
+					st.VerifiedRecords += verifiedBy(r.Envelope, keys, signers)
 				}
 			}
 		}
 		if binaries.Exists(reg.NektonDir) {
 			if n, err := binaries.OpenNektonSource(reg.NektonDir); err == nil {
 				for _, r := range n.Records(0) {
-					claims++
-					cv += verifiedBy(r.Envelope, keys, signers)
+					st.Claims++
+					st.VerifiedClaims += verifiedBy(r.Envelope, keys, signers)
 				}
 			}
 		}
 	}
-	fmt.Printf("             %d record(s), %d claim(s); your trust tiers verify %d and %d\n", fotons, claims, fv, cv)
-	if fotons+claims > fv+cv {
+	return st
+}
+
+func describeSource(ctx context.Context, cfg *config.Config, name string) {
+	st := sourceStatus(ctx, cfg, name)
+	fmt.Printf("%-12s %s %s", name, st.Kind, orDefault(st.URL, st.Path))
+	if st.Path != "" && st.Kind == "git" {
+		fmt.Printf(" (under %s)", st.Path)
+	}
+	fmt.Println()
+	if st.ReadAt != "" {
+		fmt.Printf("             read at %s\n", st.ReadAt)
+	}
+	if strings.HasPrefix(st.Problem, "no source kind") {
+		return
+	}
+	if st.Problem != "" {
+		fmt.Printf("             cannot be read: %s\n", st.Problem)
+		return
+	}
+	fmt.Printf("             %d record(s), %d claim(s); your trust tiers verify %d and %d\n", st.Records, st.Claims, st.VerifiedRecords, st.VerifiedClaims)
+	if st.Records+st.Claims > st.VerifiedRecords+st.VerifiedClaims {
 		fmt.Printf("             the rest count only once you trust their signers: cockpit trust add <tier> <their repo>\n")
 	}
 }

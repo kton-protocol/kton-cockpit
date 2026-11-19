@@ -1,6 +1,6 @@
 # 05 - verified, not declared
 
-A record is trusted because a key named in `cockpit.config.json` verifies its signature — never
+A record is trusted because a key in one of the configured tiers (`.kton/keys/<tier>/`) verifies its signature — never
 because it is sitting in the registry, and never because of the `keyid` the envelope declares about
 itself.
 

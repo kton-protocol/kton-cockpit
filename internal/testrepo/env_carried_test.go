@@ -2,6 +2,7 @@ package testrepo
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -47,7 +48,11 @@ func TestAuthor_WithAClassTheImageIsCarriedAndTwoImagesAreOneRecord(t *testing.T
 		t.Fatalf("alice trusts only herself, so only her account counts: %+v", d)
 	}
 
-	ac.Raw.Trust.Tiers["bob"] = []string{filepath.Join(bob.Root, "registry", "keys", SessionID+".pub")}
+	bobPub, err := os.ReadFile(filepath.Join(bob.Root, ".kton", "keys", "self", SessionID+".pub"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	TrustPub(t, ac, "bob", "bob", string(bobPub))
 	d, err = binaries.New(ac).FotonByID(ctx, first.ID)
 	if err != nil {
 		t.Fatal(err)

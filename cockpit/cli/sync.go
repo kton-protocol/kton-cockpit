@@ -18,36 +18,43 @@ import (
 )
 
 func runSync(ctx context.Context, args []string) error {
-	if len(args) > 0 {
-		return fmt.Errorf("usage: cockpit sync")
+	asJSON := len(args) == 1 && args[0] == "--json"
+	if len(args) > 0 && !asJSON {
+		return fmt.Errorf("usage: cockpit sync [--json]")
 	}
 	cfg, err := config.Load(ctx, ".")
 	if err != nil {
 		return err
 	}
+	out := []Synced{}
+	emit := printSynced
+	if asJSON {
+		emit = func(s Synced) { out = append(out, s) }
+	}
 	mode := cfg.Raw.Repo.ModeOrDefault()
+	repo := Synced{Name: "repository"}
 	if sy, ok := cfg.Backend.(backend.Syncer); ok {
 		was, _ := sy.Head(ctx, cfg.Repo)
 		now, err := sy.Sync(ctx, cfg.Repo)
 		if err != nil {
 			return fmt.Errorf("%s: %v\n(nothing was changed here)", mode, err)
 		}
-		state := "up to date"
-		if was.ID != now.ID {
-			state = "now at " + shortSHA(now.ID) + " (was " + orNone(shortSHA(was.ID)) + ")"
-		}
+		repo.Was, repo.Now = was.ID, now.ID
 		switch {
 		case now.Rejected:
-			state += "; sharing was refused: " + now.Reason
+			repo.Note = "sharing was refused: " + now.Reason
 		case !cfg.Repo.Share:
-			state += "; not shared (persist.share is off)"
+			repo.Note = "not shared (persist.share is off)"
 		}
-		fmt.Printf("%-12s %s\n", "repository", state)
 	} else {
-		fmt.Printf("%-12s %s mode keeps nothing shared — nothing to take in\n", "repository", mode)
+		repo.Note = string(mode) + " mode keeps nothing shared — nothing to take in"
 	}
-	if _, err := pullSources(ctx, cfg, nil); err != nil {
+	emit(repo)
+	if _, err := pullSourcesTo(ctx, cfg, nil, emit); err != nil {
 		return err
+	}
+	if asJSON {
+		return printJSON(out)
 	}
 	return nil
 }

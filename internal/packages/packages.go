@@ -20,7 +20,7 @@ import (
 )
 
 // Dir is where installed packages live, relative to the repository root.
-const Dir = "packages"
+const Dir = ".kton/packages"
 
 // Installed is one installed package.
 type Installed struct {

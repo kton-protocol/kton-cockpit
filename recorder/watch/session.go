@@ -25,6 +25,7 @@ type Session struct {
 	Script      string  `json:"script,omitempty"`       // the session is `R -f`/`Rscript` of this file
 	Language    string  `json:"language,omitempty"`     // of its markers: r (ktonrec) or python (ktonrec.py); "" = r
 	ScriptSHA   string  `json:"script_sha256,omitempty"`
+	Where       string  `json:"where,omitempty"` // the directory its first command ran in (what watched folders are matched against)
 	Tasks       []*Task `json:"tasks"`
 
 	cls        *Classifier
@@ -716,7 +717,7 @@ func (s *Session) finish() {
 
 // placeBy settles the project of a session that does not say it (a plain Rscript or python run,
 // a terminal) by where its first command ran: the repository around that directory (.git or
-// cockpit.config.json) when it lies within a hashed prefix, else the most specific prefix that
+// .kton/cockpit.config.json) when it lies within a hashed prefix, else the most specific prefix that
 // holds it. Before, the first hashed prefix was taken, so with several (or a broad one such as
 // /mnt/c/dev) a batch run in a repository was filed under the wrong project.
 func (s *Session) placeBy(cwd string) {
@@ -724,6 +725,7 @@ func (s *Session) placeBy(cwd string) {
 		return
 	}
 	s.placed = true
+	s.Where = cwd
 	base := ""
 	for _, r := range s.roots {
 		r = filepath.Clean(r)
@@ -735,7 +737,7 @@ func (s *Session) placeBy(cwd string) {
 		return // ran outside everything hashed: keep the first prefix, as before
 	}
 	project := base
-	if repo := toolcall.RepoRoot(cwd); repo != cwd || isRepoDir(cwd) {
+	if repo := RepoRoot(cwd); repo != cwd || isRepoDir(cwd) {
 		if repo == base || strings.HasPrefix(repo, base+"/") {
 			project = repo
 		}
@@ -744,7 +746,7 @@ func (s *Session) placeBy(cwd string) {
 }
 
 func isRepoDir(d string) bool {
-	for _, m := range []string{"cockpit.config.json", ".git"} {
+	for _, m := range []string{ConfigFile, ".git"} {
 		if _, err := os.Stat(filepath.Join(d, m)); err == nil {
 			return true
 		}

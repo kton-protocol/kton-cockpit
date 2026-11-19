@@ -115,7 +115,8 @@ func programme(t *testing.T) (string, *fakeCockpit) {
 	cfg, _ := json.Marshal(map[string]any{"federation": map[string]any{"sources": []any{
 		src("program-respiratory"), src("project-theophylline"), src("study-thp-101"),
 		map[string]any{"kind": "git", "name": "elsewhere", "url": "https://example.org/x.git"}}}})
-	os.WriteFile(filepath.Join(repo, "cockpit.config.json"), cfg, 0o644)
+	os.MkdirAll(filepath.Join(repo, ".kton"), 0o755)
+	os.WriteFile(filepath.Join(repo, ".kton", "cockpit.config.json"), cfg, 0o644)
 	f := &fakeCockpit{
 		dirs: map[string]string{repo: "self", filepath.Join(root, "program-respiratory"): "program-respiratory",
 			filepath.Join(root, "project-theophylline"): "project-theophylline", filepath.Join(root, "study-thp-101"): "study-thp-101"},

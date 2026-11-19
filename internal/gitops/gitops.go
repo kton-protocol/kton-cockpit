@@ -20,9 +20,15 @@ import (
 	"github.com/kton-protocol/kton-cockpit/internal/flock"
 )
 
+// literalPathspecs makes git read every path as the path it is. Without it a path given after
+// `--` still has pathspec magic: ':(top).kton/local' or ':/.kton/local/identity.json' name the
+// checkout's own identity, which the cockpit never shares (SPEC §5.6, kton-review L1 on #143).
+func literalPathspecs() []string { return append(os.Environ(), "GIT_LITERAL_PATHSPECS=1") }
+
 func run(ctx context.Context, dir, name string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = dir
+	cmd.Env = literalPathspecs()
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return string(out), fmt.Errorf("%s %s: %w\n%s", name, strings.Join(args, " "), err, out)
@@ -45,6 +51,7 @@ func run(ctx context.Context, dir, name string, args ...string) (string, error) 
 func runRedacted(ctx context.Context, dir, name string, args []string, secrets ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = dir
+	cmd.Env = literalPathspecs()
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		safeArgs := redactSlice(args, secrets...)

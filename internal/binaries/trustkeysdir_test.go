@@ -40,29 +40,6 @@ func TestTrustKeysDir_MaterializesEveryConfiguredPubkey(t *testing.T) {
 	}
 }
 
-func TestTrustKeysDir_SamePubkeyInTwoTiersMaterializesOnce(t *testing.T) {
-	root := t.TempDir()
-	writeKey(t, filepath.Join(root, "shared.pub"), "shared-hex")
-
-	// TierPubkeys keys its map by resolved pubkey path, so the same path listed under two tiers
-	// collapses to one entry — trustKeysDir must not double-write it.
-	cfg := testConfig(root, map[string][]string{
-		"self": {"shared.pub"},
-		"team": {"shared.pub"},
-	})
-
-	dir, cleanup, err := trustKeysDir(cfg, "")
-	if err != nil {
-		t.Fatalf("trustKeysDir: %v", err)
-	}
-	defer cleanup()
-
-	got := readPubDir(t, dir)
-	if len(got) != 1 {
-		t.Fatalf("expected the shared pubkey to materialize exactly once, got %d entries: %v", len(got), got)
-	}
-}
-
 func TestTrustKeysDir_EmptyTrustTiersMaterializesEmptyDir(t *testing.T) {
 	cfg := testConfig(t.TempDir(), map[string][]string{})
 
@@ -77,27 +54,40 @@ func TestTrustKeysDir_EmptyTrustTiersMaterializesEmptyDir(t *testing.T) {
 	}
 }
 
-func TestTrustKeysDir_MissingPubkeyPathFailsAndCleansUp(t *testing.T) {
-	cfg := testConfig(t.TempDir(), map[string][]string{
-		"self": {"does-not-exist.pub"},
-	})
+// A tier is its folder's *.pub files: anything else there is not a key and is not handed on.
+func TestTrustKeysDir_OnlyThePubFilesOfATierFolder(t *testing.T) {
+	root := t.TempDir()
+	writeKey(t, filepath.Join(root, "a.pub"), "keyA-hex")
+	cfg := testConfig(root, map[string][]string{"self": {"a.pub"}})
+	writeKey(t, filepath.Join(cfg.TierDir("self"), "README.md"), "not a key")
 
-	dir, _, err := trustKeysDir(cfg, "")
-	if err == nil {
-		t.Fatal("expected an error for a configured pubkey path that does not exist on disk")
+	dir, cleanup, err := trustKeysDir(cfg, "")
+	if err != nil {
+		t.Fatalf("trustKeysDir: %v", err)
 	}
-	if dir != "" {
-		t.Fatalf("expected no usable directory on error, got %q", dir)
+	defer cleanup()
+	if got := readPubDir(t, dir); len(got) != 1 || got[0] != "keyA-hex" {
+		t.Fatalf("want only a.pub, got %v", got)
 	}
 }
 
+// testConfig is a configuration with the given tiers, each holding copies of the named files
+// from repoRoot in its folder .kton/keys/<tier>/.
 func testConfig(repoRoot string, tiers map[string][]string) *config.Config {
-	return &config.Config{
-		RepoRoot: repoRoot,
-		Raw: config.Raw{
-			Trust: config.Trust{Tiers: tiers},
-		},
+	names := make([]string, 0, len(tiers))
+	for tier := range tiers {
+		names = append(names, tier)
 	}
+	cfg := config.Layout(repoRoot, config.Raw{Trust: config.Trust{Tiers: names}})
+	for tier, files := range tiers {
+		os.MkdirAll(cfg.TierDir(tier), 0o755)
+		for _, f := range files {
+			if b, err := os.ReadFile(filepath.Join(repoRoot, f)); err == nil {
+				os.WriteFile(filepath.Join(cfg.TierDir(tier), f), b, 0o644)
+			}
+		}
+	}
+	return cfg
 }
 
 func writeKey(t *testing.T, path, content string) {

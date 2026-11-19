@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -29,8 +30,14 @@ import (
 	"github.com/kton-protocol/kton-cockpit/internal/config"
 )
 
-// runsDir is where run folders live, relative to the repo root.
-const runsDir = "runs"
+// runsRel is where run folders live, relative to the repo root: runs.dir, by default work/ (ADR-016
+// section 4).
+func runsRel(cfg *config.Config) string {
+	if cfg.Raw.Runs.Dir != "" {
+		return path.Clean(filepath.ToSlash(cfg.Raw.Runs.Dir))
+	}
+	return config.DefaultRunsDir
+}
 
 // entrypoints maps the file a run folder is expected to contain to how it is invoked. A convention
 // rather than a declaration: a run folder with one obvious script in it should not also need a file
@@ -59,7 +66,7 @@ func runRun(ctx context.Context, args []string) error {
 	case "new":
 		return runNew(ctx, args[1:])
 	case "list":
-		return runStatus(ctx)
+		return runStatus(ctx, hasFlag(args[1:], "--json"))
 	default:
 		return runExecute(ctx, args[0])
 	}
@@ -116,9 +123,9 @@ func runNew(ctx context.Context, args []string) error {
 	if fi, serr := os.Stat(src); serr != nil || !fi.IsDir() {
 		return fmt.Errorf("%s is not a directory", from)
 	}
-	dst := filepath.Join(cfg.RepoRoot, runsDir, slug)
+	dst := filepath.Join(cfg.RepoRoot, runsRel(cfg), slug)
 	if _, serr := os.Stat(dst); serr == nil {
-		return fmt.Errorf("%s/%s already exists", runsDir, slug)
+		return fmt.Errorf("%s/%s already exists", runsRel(cfg), slug)
 	}
 	// dst did not exist a moment ago, so a refusal below takes all of it back: a half-made run
 	// folder would otherwise be taken for a run by `cockpit run <slug>` and `run list`.
@@ -178,7 +185,7 @@ func runNew(ctx context.Context, args []string) error {
 	}
 
 	made = true
-	fmt.Printf("%s/%s\n", runsDir, slug)
+	fmt.Printf("%s/%s\n", runsRel(cfg), slug)
 	fmt.Printf("  inputs/     %d file(s), copied from %s\n", copied, from)
 	fmt.Printf("  %-11s yours to change\n", entry)
 	fmt.Printf("  out/        empty; whatever the run writes here is the record's output\n\n")
@@ -191,7 +198,7 @@ func runExecute(ctx context.Context, slug string) error {
 	if err != nil {
 		return err
 	}
-	rel := runsDir + "/" + slug
+	rel := runsRel(cfg) + "/" + slug
 	dir := filepath.Join(cfg.RepoRoot, filepath.FromSlash(rel))
 	if fi, serr := os.Stat(dir); serr != nil || !fi.IsDir() {
 		return fmt.Errorf("no %s — make one with: cockpit run new %s --from <dir>", rel, slug)

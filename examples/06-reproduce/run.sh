@@ -3,9 +3,9 @@
 cd "$(dirname "$0")"
 source ../lib/common.sh
 WORK="$PWD/.work"; participant "$WORK/repo"; cd "$WORK/repo"
-export PLANKTON_DIR="$PWD/registry/plankton"
+export PLANKTON_DIR="$PWD/.kton/plankton"
 
-count_records() { find registry/plankton/objects -name '*.json' 2>/dev/null | wc -l; }
+count_records() { find .kton/plankton/objects -name '*.json' 2>/dev/null | wc -l; }
 
 echo ""
 echo "== publish once =="

@@ -6,12 +6,15 @@ package cli
 
 import (
 	"context"
+	"crypto/ed25519"
 	"encoding/json"
 	"errors"
 	"os"
 	"sort"
 
 	"github.com/kton-protocol/kton-cockpit/internal/config"
+	"github.com/kton-protocol/kton-cockpit/internal/verify"
+	"kton.dev/plankton/core"
 )
 
 // errNotReady is doctor having run and found a step marked ! left. It is not a failure to run, so
@@ -59,6 +62,40 @@ type doctorFields struct {
 	Anchor           bool              `json:"anchor"`
 	Execution        bool              `json:"execution"`
 	Kernel           map[string]string `json:"kernel"`
+	Identity         doctorIdentity    `json:"identity"`
+}
+
+// doctorIdentity is who this checkout signs as (.kton/local/identity.json): its session name, the
+// key ids of its two keys, and the trust tier its claim key is in — the tier its claims are
+// counted in when verified, "" when no tier holds it. A key that cannot be read has no key id.
+type doctorIdentity struct {
+	Name          string `json:"name"`
+	PlanktonKeyID string `json:"planktonKeyId,omitempty"`
+	NektonKeyID   string `json:"nektonKeyId,omitempty"`
+	Tier          string `json:"tier"`
+	Keyring       bool   `json:"keyring"`
+}
+
+func identityOf(cfg *config.Config) doctorIdentity {
+	id := doctorIdentity{Name: cfg.Identity.SessionID, Keyring: cfg.Identity.Keyring != ""}
+	keyID := func(path string) (string, ed25519.PublicKey) {
+		pub, err := publicOf(path)
+		if err != nil {
+			return "", nil
+		}
+		p, err := core.ParsePublicKeyHex(pub)
+		if err != nil {
+			return "", nil
+		}
+		return core.KeyIDHex(p), p
+	}
+	id.PlanktonKeyID, _ = keyID(cfg.PlanktonKey)
+	var claims ed25519.PublicKey
+	id.NektonKeyID, claims = keyID(cfg.NektonKey)
+	if claims != nil {
+		id.Tier, _ = verify.TierOfKey(cfg, claims)
+	}
+	return id
 }
 
 func printDoctorJSON(ctx context.Context, cfg *config.Config) error {
@@ -89,9 +126,7 @@ func printDoctorJSON(ctx context.Context, cfg *config.Config) error {
 	f.NektonKey = doctorPath{cfg.NektonKey, keyState(cfg.NektonKey)}
 	f.AllowedTemplates = append([]string{}, raw.Claims.AllowedTemplates...)
 	f.Scopes = raw.Claims.Scopes
-	for tier := range raw.Trust.Tiers {
-		f.TrustTiers = append(f.TrustTiers, tier)
-	}
+	f.TrustTiers = append(f.TrustTiers, raw.Trust.Tiers...)
 	if f.TrustTiers == nil {
 		f.TrustTiers = []string{}
 	}
@@ -116,6 +151,8 @@ func printDoctorJSON(ctx context.Context, cfg *config.Config) error {
 		}
 		f.Kernel[mod.Path] = v
 	}
+
+	f.Identity = identityOf(cfg)
 
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")

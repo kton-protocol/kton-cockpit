@@ -14,7 +14,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"path/filepath"
 	"runtime/debug"
 	"slices"
 	"sort"
@@ -45,6 +44,7 @@ func Main() {
 		return
 	}
 	ctx := context.Background()
+	jsonMode = wantsJSON(os.Args[1], os.Args[2:])
 	var err error
 	switch os.Args[1] {
 	case "mcp":
@@ -60,7 +60,7 @@ func Main() {
 	case "publish", "say", "ask":
 		err = runVerb(ctx, os.Args[1], os.Args[2:])
 	case "version":
-		err = runVersion()
+		err = runVersion(os.Args[2:])
 	case "run":
 		err = runRun(ctx, os.Args[2:])
 	case "keygen":
@@ -99,10 +99,33 @@ func Main() {
 		os.Exit(exitNotReady)
 	}
 	if err != nil {
+		exitIfRefused(err)
 		// Configuration errors carry the prefix themselves, for the MCP surface; once is enough.
-		fmt.Fprintln(os.Stderr, "cockpit:", strings.TrimPrefix(err.Error(), "cockpit: "))
+		reason := strings.TrimPrefix(err.Error(), "cockpit: ")
+		if jsonMode {
+			printFailure(&cockpit.Refusal{Code: "error", Reason: reason})
+		}
+		fmt.Fprintln(os.Stderr, "cockpit:", reason)
 		os.Exit(1)
 	}
+}
+
+// jsonMode is set when the caller asked for JSON: --json before any "--", or a verb's JSON
+// argument. Then a refusal or an error is a JSON object on stdout as well, so a script that parses
+// stdout gets one document whatever happened (SPEC §6).
+var jsonMode bool
+
+func wantsJSON(cmd string, args []string) bool {
+	if (cmd == "publish" || cmd == "say" || cmd == "ask") && len(args) > 0 && strings.HasPrefix(strings.TrimSpace(args[0]), "{") {
+		return true
+	}
+	return hasFlag(args, "--json")
+}
+
+// printFailure writes {code, clause, reason} to stdout.
+func printFailure(r *cockpit.Refusal) {
+	b, _ := json.Marshal(r)
+	fmt.Println(string(b))
 }
 
 func usage() { fmt.Fprint(os.Stderr, usageText()) }
@@ -165,8 +188,8 @@ usage:
                    [--scope NAME] their claims chain into that scope, about it by default;
                    [--bind VAR=VALUE]... fixes a query parameter $VAR;
                    [--runs] a tool per installed workflow (run_<name>), its holes as arguments
-  cockpit init     scaffold cockpit.config.json in the current git repo
-  cockpit doctor   validate cockpit.config.json + the repo binding; --json for a program,
+  cockpit init     scaffold .kton/ (configuration, templates) in the current repo
+  cockpit doctor   validate .kton/cockpit.config.json + the repo binding; --json for a program,
                    exit 3 while a step marked ! is left
   cockpit show     serve this repo's records to a kton-web viewer
                    [addr] [--web <kton-web checkout>|$KTON_WEB]
@@ -225,7 +248,7 @@ func mcpServer(ctx context.Context, o mcpOptions) (*mcp.Server, error) {
 			"steps (prov:Activity, prov:used, prov:wasGeneratedBy), attributed with prov:wasAttributedTo " +
 			"only where a trusted key verified them; and every claim a trusted key signed as a node " +
 			"(nk:about, nk:predicate, its fields nk:lab/<field>, nk:signer with rdfs:label and nk:tier, " +
-			"dct:created, nk:scope, nk:position, nk:current), nk: = https://kton.dev/v/. " +
+			"dct:created, nk:scope, nk:position, nk:replaces, nk:replacedBy), nk: = https://kton.dev/v/. " +
 			"dataset nanopub reads the claims as nanopublication graphs instead. " +
 			"A file or record sha256:<hex> is <https://kton.dev/o/<hex>>. No FROM, no SERVICE. " +
 			"query feed returns the trusted records after a cursor (field cursor, empty for the start), " +
@@ -290,7 +313,7 @@ func runInit(ctx context.Context) error {
 		return fmt.Errorf("no backend in this build can bind %s", cwd)
 	}
 	root := prop.Root
-	cfgPath := filepath.Join(root, "cockpit.config.json")
+	cfgPath := config.ConfigPath(root)
 	if _, err := os.Stat(cfgPath); err == nil {
 		return fmt.Errorf("%s already exists — remove it first if you want to regenerate", cfgPath)
 	}
@@ -299,26 +322,10 @@ func runInit(ctx context.Context) error {
 		return err
 	}
 	raw := config.Raw{
-		Repo: repo,
-		Paths: config.Paths{
-			PlanktonDir:  "registry/plankton",
-			NektonDir:    "registry/nekton",
-			TemplatesDir: "templates",
-			KeysDir:      "keys",
-			BinDir:       "bin",
-		},
-		Identity: config.Identity{
-			SessionID:   "session-1",
-			PlanktonKey: "keys/session-1.key",
-			NektonKey:   "keys/session-1-claims.key",
-		},
-		Verbs:  config.Verbs{Publish: true, Say: true, Ask: true},
-		Claims: config.Claims{AllowedTemplates: []string{"describes", "rationale", "reproduces", "working-on", "located-at", "runs-on"}},
-		Trust: config.Trust{
-			Tiers: map[string][]string{
-				"self": {},
-			},
-		},
+		Repo:         repo,
+		Verbs:        config.Verbs{Publish: true, Say: true, Ask: true},
+		Claims:       config.Claims{AllowedTemplates: []string{"describes", "rationale", "reproduces", "working-on", "located-at", "runs-on"}},
+		Trust:        config.Trust{Tiers: []string{"self"}},
 		Reproduction: config.Reproduction{RequiredLevel: "L0"},
 	}
 
@@ -679,6 +686,9 @@ func callVerb[In, Out any](ctx context.Context, raw, field string,
 func exitIfRefused(err error) {
 	var r *cockpit.Refusal
 	if errors.As(err, &r) {
+		if jsonMode {
+			printFailure(r)
+		}
 		fmt.Fprintln(os.Stderr, r.Reason)
 		os.Exit(2)
 	}
@@ -801,33 +811,84 @@ var Version = "(devel)"
 // Both, always, and on one screen: the cockpit's own version says nothing about which kton wrote a
 // store, and which kton wrote a store is what decides whether that store reads as populated or as
 // empty-with-exit-0. An operator comparing two machines needs the pair.
-func runVersion() error {
-	fmt.Printf("cockpit %s\n", Version)
-	if info, ok := debug.ReadBuildInfo(); ok {
-		if rev := buildSetting(info, "vcs.revision"); rev != "" {
-			dirty := ""
-			if buildSetting(info, "vcs.modified") == "true" {
-				dirty = " (uncommitted changes)"
-			}
-			fmt.Printf("  built from %s%s\n", rev, dirty)
-		} else if v := info.Main.Version; v != "" && v != "(devel)" {
-			// `go install …@main` stamps no vcs settings; its module version is a pseudo-version,
-			// which ends in the commit.
-			fmt.Printf("  module %s\n", v)
-		}
-		fmt.Printf("  %s\n", info.GoVersion)
+func runVersion(args []string) error {
+	v := versionInfo()
+	if hasFlag(args, "--json") {
+		return printJSON(v)
 	}
-	for _, mod := range linkedKernels() {
-		where := mod.Version
-		if mod.Replace != nil {
-			where = "replaced by " + mod.Replace.Path
-			if mod.Replace.Version != "" {
-				where += " " + mod.Replace.Version
-			}
+	fmt.Printf("cockpit %s\n", v.Cockpit)
+	if v.Revision != "" {
+		dirty := ""
+		if v.Modified {
+			dirty = " (uncommitted changes)"
 		}
-		fmt.Printf("  %-20s %s\n", mod.Path, where)
+		fmt.Printf("  built from %s%s\n", v.Revision, dirty)
+	} else if v.Module != "" {
+		fmt.Printf("  module %s\n", v.Module)
+	}
+	if v.Go != "" {
+		fmt.Printf("  %s\n", v.Go)
+	}
+	for _, k := range v.Kernels {
+		where := k.Version
+		if k.Replace != "" {
+			where = "replaced by " + k.Replace
+		}
+		fmt.Printf("  %-20s %s\n", k.Path, where)
 	}
 	return nil
+}
+
+// Build is what `version --json` prints: this cockpit and the kernels linked into it.
+type Build struct {
+	Cockpit  string        `json:"cockpit"`
+	Revision string        `json:"revision,omitempty"`
+	Modified bool          `json:"modified,omitempty"`
+	Module   string        `json:"module,omitempty"`
+	Go       string        `json:"go,omitempty"`
+	Kernels  []KernelBuild `json:"kernels"`
+}
+
+// KernelBuild is one linked kernel module: its version, or what replaced it.
+type KernelBuild struct {
+	Path    string `json:"path"`
+	Version string `json:"version,omitempty"`
+	Replace string `json:"replace,omitempty"`
+}
+
+func versionInfo() Build {
+	v := Build{Cockpit: Version, Kernels: []KernelBuild{}}
+	if info, ok := debug.ReadBuildInfo(); ok {
+		v.Revision = buildSetting(info, "vcs.revision")
+		v.Modified = v.Revision != "" && buildSetting(info, "vcs.modified") == "true"
+		if m := info.Main.Version; v.Revision == "" && m != "" && m != "(devel)" {
+			// `go install …@main` stamps no vcs settings; its module version is a pseudo-version,
+			// which ends in the commit.
+			v.Module = m
+		}
+		v.Go = info.GoVersion
+	}
+	for _, mod := range linkedKernels() {
+		k := KernelBuild{Path: mod.Path, Version: mod.Version}
+		if mod.Replace != nil {
+			k.Replace = strings.TrimSpace(mod.Replace.Path + " " + mod.Replace.Version)
+		}
+		v.Kernels = append(v.Kernels, k)
+	}
+	return v
+}
+
+// hasFlag reports whether flag is among args before any "--".
+func hasFlag(args []string, flag string) bool {
+	for _, a := range args {
+		if a == "--" {
+			return false
+		}
+		if a == flag {
+			return true
+		}
+	}
+	return false
 }
 
 func buildSetting(info *debug.BuildInfo, key string) string {
