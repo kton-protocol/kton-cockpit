@@ -1,0 +1,31 @@
+{
+  "name": "proposes",
+  "target": "either",
+  "predicate": "https://example.org/workbench-e2e/proposes",
+  "fields": {
+    "area": {
+      "type": "string",
+      "required": true
+    },
+    "title": {
+      "type": "string",
+      "required": true
+    },
+    "text": {
+      "type": "string",
+      "required": true
+    },
+    "why": {
+      "type": "string",
+      "required": true
+    },
+    "options": {
+      "type": "string",
+      "required": true
+    },
+    "recommended": {
+      "type": "string",
+      "required": false
+    }
+  }
+}

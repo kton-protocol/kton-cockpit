@@ -1,0 +1,14 @@
+# Every decides claim, with its signer: ?s is the signer's IRI (https://kton.dev/agent/<keyid>), by
+# which the shell recognises the window's person key; ?by is the signer's label (a key file name,
+# shown only) and ?byTier its trust tier. The shell asks this BY NAME from the admitted package.
+PREFIX nk:   <https://kton.dev/v/>
+PREFIX t:    <https://example.org/workbench-e2e/>
+PREFIX lab:  <https://kton.dev/v/lab/>
+PREFIX dct:  <http://purl.org/dc/terms/>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+SELECT ?d ?answers ?outcome ?choice ?s ?by ?byTier ?when WHERE {
+  ?d nk:predicate t:decides ; lab:answers ?answers ; lab:outcome ?outcome ; nk:signer ?s ; dct:created ?when .
+  OPTIONAL { ?d lab:choice ?choice }
+  OPTIONAL { ?s rdfs:label ?by }
+  OPTIONAL { ?s nk:tier ?byTier }
+}

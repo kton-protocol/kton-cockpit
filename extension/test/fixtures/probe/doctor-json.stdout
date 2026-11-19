@@ -1,0 +1,53 @@
+{
+  "ready": true,
+  "steps": [
+    {
+      "must": false,
+      "text": "optional: `cockpit pin \u003cimage\u003e` runs every publish in a digest-pinned container, so the environment is observed, not asserted"
+    }
+  ],
+  "fields": {
+    "repoRoot": "/work/probe/repo",
+    "mode": "git",
+    "boundTo": "example/probe",
+    "planktonDir": {
+      "path": "/work/probe/repo/.kton/plankton",
+      "state": "ok"
+    },
+    "nektonDir": {
+      "path": "/work/probe/repo/.kton/nekton",
+      "state": "ok"
+    },
+    "templatesDir": {
+      "path": "/work/probe/repo/.kton/templates",
+      "state": "ok"
+    },
+    "planktonKey": {
+      "path": "/work/probe/home/.kton-keys/probe.key",
+      "state": "ok"
+    },
+    "nektonKey": {
+      "path": "/work/probe/home/.kton-keys/probe-claims.key",
+      "state": "ok"
+    },
+    "allowedTemplates": [
+      "describes",
+      "rationale",
+      "reproduces",
+      "working-on",
+      "located-at",
+      "runs-on"
+    ],
+    "trustTiers": [
+      "self"
+    ],
+    "persist": "commit",
+    "anchor": false,
+    "execution": false,
+    "kernel": {
+      "kton.dev/kton": "v0.3.0",
+      "kton.dev/nekton": "v0.3.0",
+      "kton.dev/plankton": "v0.3.0"
+    }
+  }
+}

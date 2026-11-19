@@ -149,6 +149,76 @@ jobs:
           git config --global user.email ci@cockpit.local
           uat/cli.sh
 
+  extension:
+    name: the VS Code extension
+    # extension/ is a TypeScript project of its own (its own package.json and lockfile), so it runs
+    # only when extension/** changed, and on the schedule and on request. The filter is a step and
+    # not a workflow-level `paths:`: that would gate the Go jobs above as well. The e2e
+    # (extension/test/e2e/run.sh) is not here: it needs the host's docker socket, which is root on the
+    # host, so it runs locally or on a dedicated throwaway runner (extension/README.md).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: cockpit
+          fetch-depth: 0
+
+      - name: did extension/ change?
+        id: changed
+        working-directory: cockpit
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          case "$EVENT" in schedule|workflow_dispatch) echo "run=true" >> "$GITHUB_OUTPUT"; exit 0;; esac
+          # A new branch's first push has no "before"; check it rather than guess.
+          if [ -z "$BASE" ] || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then echo "run=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          if git diff --quiet "$BASE" HEAD -- extension/; then
+            echo "extension/ unchanged since $BASE"; echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-node@v4
+        if: steps.changed.outputs.run == 'true'
+        with:
+          node-version-file: cockpit/extension/.nvmrc
+          cache: npm
+          cache-dependency-path: cockpit/extension/package-lock.json
+
+      - name: npm ci
+        if: steps.changed.outputs.run == 'true'
+        working-directory: cockpit/extension
+        run: npm ci
+
+      # No linter is configured for extension/; the type check is the static check.
+      - name: typecheck
+        if: steps.changed.outputs.run == 'true'
+        working-directory: cockpit/extension
+        run: npm run typecheck
+
+      # The same rule as the Go suite: nothing in the default suite skips.
+      - name: unit tests, and no skips in them
+        if: steps.changed.outputs.run == 'true'
+        working-directory: cockpit/extension
+        run: |
+          set -o pipefail   # the default run shell is bash -e without it
+          npm test 2>&1 | tee /tmp/ext-test.log
+          grep -q "^# skipped 0$" /tmp/ext-test.log || { echo "the extension's suite skipped something"; exit 1; }
+          grep -q "^# todo 0$" /tmp/ext-test.log || { echo "the extension's suite has a todo"; exit 1; }
+
+      - name: vsce package
+        if: steps.changed.outputs.run == 'true'
+        working-directory: cockpit/extension
+        run: npm run package
+
+      - uses: actions/upload-artifact@v4
+        if: steps.changed.outputs.run == 'true'
+        with:
+          name: kton-workbench-vsix
+          path: cockpit/extension/out/kton-workbench.vsix
+          if-no-files-found: error
+
   kernel-main:
     name: against kton main (advisory)
     runs-on: ubuntu-latest

@@ -1,0 +1,41 @@
+{
+  "head": {
+    "vars": [
+      "c",
+      "t",
+      "s"
+    ]
+  },
+  "results": {
+    "bindings": [
+      {
+        "c": {
+          "type": "uri",
+          "value": "https://kton.dev/o/7d8958cbde8328c7f6fd8ae32c951ae13dcef521710a64eb5fff04cc80d34cb3"
+        },
+        "s": {
+          "type": "uri",
+          "value": "https://kton.dev/agent/2cf13ea9f898a3b3"
+        },
+        "t": {
+          "type": "literal",
+          "value": "working-on"
+        }
+      },
+      {
+        "c": {
+          "type": "uri",
+          "value": "https://kton.dev/o/c41115d47436b322a63ce30349390f93793e1ea86a08ae9c8256c3284e123791"
+        },
+        "s": {
+          "type": "uri",
+          "value": "https://kton.dev/agent/2cf13ea9f898a3b3"
+        },
+        "t": {
+          "type": "literal",
+          "value": "working-on"
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "head": {
+    "vars": [
+      "s",
+      "l",
+      "tier"
+    ]
+  },
+  "results": {
+    "bindings": [
+      {
+        "l": {
+          "type": "literal",
+          "value": "probe-claims"
+        },
+        "s": {
+          "type": "uri",
+          "value": "https://kton.dev/agent/2cf13ea9f898a3b3"
+        },
+        "tier": {
+          "type": "literal",
+          "value": "self"
+        }
+      },
+      {
+        "l": {
+          "type": "literal",
+          "value": "probe-claims"
+        },
+        "s": {
+          "type": "uri",
+          "value": "https://kton.dev/agent/2cf13ea9f898a3b3"
+        },
+        "tier": {
+          "type": "literal",
+          "value": "self"
+        }
+      }
+    ]
+  }
+}

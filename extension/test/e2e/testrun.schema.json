@@ -1,0 +1,355 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "kton-testrun/1",
+ "title": "Test run record (kton-testrun/1)",
+ "description": "One normalised record per run, written next to the suite's native results and hashed as a run output. Never holds credentials, tokens or secrets.",
+ "type": "object",
+ "required": [
+  "schema",
+  "suite",
+  "world",
+  "result",
+  "units",
+  "native"
+ ],
+ "properties": {
+  "schema": {
+   "const": "kton-testrun/1"
+  },
+  "suite": {
+   "type": "string"
+  },
+  "world": {
+   "type": "string"
+  },
+  "group": {
+   "type": [
+    "string",
+    "null"
+   ],
+   "description": "run group from the side-effect inventory"
+  },
+  "target": {
+   "type": [
+    "object",
+    "null"
+   ],
+   "properties": {
+    "name": {
+     "type": "string"
+    },
+    "host": {
+     "type": "string"
+    },
+    "route": {
+     "type": "string"
+    },
+    "version": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "name"
+   ],
+   "additionalProperties": false
+  },
+  "account": {
+   "type": [
+    "object",
+    "null"
+   ],
+   "properties": {
+    "user": {
+     "type": "string"
+    },
+    "admin": {
+     "type": [
+      "boolean",
+      "null"
+     ]
+    }
+   },
+   "additionalProperties": false
+  },
+  "client": {
+   "type": [
+    "string",
+    "null"
+   ]
+  },
+  "sources": {
+   "type": "array",
+   "items": {
+    "type": "object",
+    "properties": {
+     "repo": {
+      "type": "string"
+     },
+     "ref": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "repo",
+     "ref"
+    ]
+   }
+  },
+  "recorded": {
+   "enum": [
+    "cockpit-run",
+    "publish-after-run",
+    "converted",
+    null
+   ],
+   "description": "converted = made from native results after the fact"
+  },
+  "started": {
+   "type": [
+    "string",
+    "null"
+   ],
+   "format": "date-time"
+  },
+  "durationMs": {
+   "type": [
+    "integer",
+    "null"
+   ],
+   "minimum": 0
+  },
+  "result": {
+   "enum": [
+    "passed",
+    "failed",
+    "soft-failed",
+    "not-run"
+   ]
+  },
+  "counts": {
+   "type": "object",
+   "additionalProperties": {
+    "type": "integer"
+   }
+  },
+  "native": {
+   "type": "object",
+   "description": "where the record came from",
+   "properties": {
+    "format": {
+     "enum": [
+      "junit",
+      "junit5",
+      "testthat",
+      "xray",
+      "kton-testrun"
+     ]
+    },
+    "file": {
+     "type": "string"
+    },
+    "sha256": {
+     "type": "string",
+     "pattern": "^[0-9a-f]{64}$"
+    }
+   },
+   "required": [
+    "format",
+    "file",
+    "sha256"
+   ]
+  },
+  "units": {
+   "type": "array",
+   "items": {
+    "$ref": "#/$defs/unit"
+   }
+  },
+  "notRun": {
+   "type": "array",
+   "items": {
+    "type": "object",
+    "properties": {
+     "id": {
+      "type": "string"
+     },
+     "why": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "id",
+     "why"
+    ]
+   }
+  },
+  "stateDiff": {
+   "type": [
+    "string",
+    "null"
+   ]
+  },
+  "deviations": {
+   "type": "array",
+   "items": {
+    "type": "string"
+   }
+  }
+ },
+ "additionalProperties": false,
+ "$defs": {
+  "check": {
+   "type": "object",
+   "properties": {
+    "element": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "soft": {
+     "type": "boolean"
+    },
+    "ok": {
+     "type": "boolean"
+    },
+    "message": {
+     "type": "string"
+    },
+    "expected": {},
+    "received": {},
+    "line": {
+     "type": [
+      "integer",
+      "null"
+     ]
+    }
+   },
+   "required": [
+    "ok",
+    "message"
+   ]
+  },
+  "step": {
+   "type": "object",
+   "properties": {
+    "n": {
+     "type": "integer"
+    },
+    "title": {
+     "type": "string"
+    },
+    "result": {
+     "enum": [
+      "passed",
+      "failed",
+      "soft-failed",
+      "skipped",
+      "not-run",
+      "error"
+     ]
+    },
+    "durationMs": {
+     "type": [
+      "integer",
+      "null"
+     ]
+    },
+    "elements": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "screenshots": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "checks": {
+     "type": "array",
+     "items": {
+      "$ref": "#/$defs/check"
+     }
+    }
+   },
+   "required": [
+    "n",
+    "title",
+    "result"
+   ]
+  },
+  "unit": {
+   "type": "object",
+   "properties": {
+    "id": {
+     "type": "string",
+     "description": "inventory unit id (state/tests.jsonl) or lane:<native id>"
+    },
+    "inventory": {
+     "type": "boolean"
+    },
+    "nativeId": {
+     "type": "string"
+    },
+    "title": {
+     "type": "string"
+    },
+    "result": {
+     "enum": [
+      "passed",
+      "failed",
+      "soft-failed",
+      "skipped",
+      "not-run",
+      "error"
+     ]
+    },
+    "durationMs": {
+     "type": [
+      "integer",
+      "null"
+     ]
+    },
+    "elements": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "description": "the test's own claim; per-element verdicts come from the coverage judges"
+    },
+    "message": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "attachments": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "steps": {
+     "type": "array",
+     "items": {
+      "$ref": "#/$defs/step"
+     }
+    },
+    "checks": {
+     "type": "array",
+     "items": {
+      "$ref": "#/$defs/check"
+     }
+    }
+   },
+   "required": [
+    "id",
+    "inventory",
+    "title",
+    "result"
+   ]
+  }
+ }
+}

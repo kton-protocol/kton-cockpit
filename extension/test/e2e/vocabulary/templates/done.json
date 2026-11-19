@@ -1,0 +1,19 @@
+{
+  "name": "done",
+  "target": "claim",
+  "predicate": "https://example.org/workbench-e2e/done",
+  "fields": {
+    "answers": {
+      "type": "ref",
+      "required": false
+    },
+    "outcome": {
+      "type": "string",
+      "required": true
+    },
+    "text": {
+      "type": "string",
+      "required": false
+    }
+  }
+}

@@ -1,0 +1,203 @@
+{
+  "name": "kton-workbench",
+  "displayName": "kton workbench",
+  "description": "One VS Code window onto a kton federation through the cockpit CLI: Home, Inbox and threads, decisions, lanes, and the one sign dialog for person-key signatures.",
+  "version": "0.1.0",
+  "publisher": "kton-protocol",
+  "license": "Apache-2.0",
+  "private": true,
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kton-protocol/kton-cockpit",
+    "directory": "extension"
+  },
+  "engines": {
+    "node": ">=22 <23",
+    "vscode": "^1.90.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "tsc -p tsconfig.json && node --test \"dist/test/*.test.js\"",
+    "bundle": "esbuild src/extension.ts --bundle --platform=node --format=cjs --target=node20 --external:vscode --outfile=out/extension.cjs",
+    "package": "npm run bundle && vsce package --no-dependencies -o out/kton-workbench.vsix",
+    "test:integration": "tsc -p tsconfig.json && node --test dist/test/integration.it.js"
+  },
+  "devDependencies": {
+    "@types/node": "22.10.2",
+    "@types/vscode": "1.90.0",
+    "@vscode/vsce": "3.2.1",
+    "ajv": "8.17.1",
+    "ajv-formats": "3.0.1",
+    "esbuild": "0.24.2",
+    "typescript": "5.7.2"
+  },
+  "main": "./out/extension.cjs",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "ktonWorkbench",
+          "title": "kton workbench",
+          "icon": "media/kton.svg"
+        }
+      ]
+    },
+    "views": {
+      "ktonWorkbench": [
+        {
+          "id": "ktonWorkbench.home",
+          "name": "Home"
+        },
+        {
+          "id": "ktonWorkbench.inbox",
+          "name": "Inbox"
+        },
+        {
+          "id": "ktonWorkbench.lanes",
+          "name": "Lanes"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "ktonWorkbench.refresh",
+        "title": "kton workbench: refresh",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "ktonWorkbench.ask",
+        "title": "kton workbench: ask"
+      },
+      {
+        "command": "ktonWorkbench.say",
+        "title": "kton workbench: say"
+      },
+      {
+        "command": "ktonWorkbench.switchSurface",
+        "title": "kton workbench: switch surface",
+        "icon": "$(layers)"
+      },
+      {
+        "command": "ktonWorkbench.openSurfaceWindow",
+        "title": "kton workbench: open a surface session in a new window"
+      },
+      {
+        "command": "ktonWorkbench.openRecorder",
+        "title": "kton workbench: open recorded runs in the recorder"
+      },
+      {
+        "command": "ktonWorkbench.openDecision",
+        "title": "kton workbench: open decision"
+      },
+      {
+        "command": "ktonWorkbench.openThread",
+        "title": "kton workbench: open thread"
+      },
+      {
+        "command": "ktonWorkbench.compose",
+        "title": "kton workbench: compose"
+      },
+      {
+        "command": "ktonWorkbench.chooseOption",
+        "title": "kton workbench: choose an option of a decision"
+      }
+    ],
+    "configuration": {
+      "title": "kton cockpit",
+      "properties": {
+        "kton.cockpit.path": {
+          "type": "string",
+          "default": "cockpit",
+          "description": "The cockpit executable. A setting, never derived from data."
+        },
+        "kton.cockpit.timeoutSeconds": {
+          "type": "number",
+          "default": 120,
+          "minimum": 1,
+          "description": "How long one cockpit call may take. A call that takes longer is reported as failed; whether it signed is then for the registry to say."
+        },
+        "kton.poll.seconds": {
+          "type": "number",
+          "default": 30,
+          "minimum": 1,
+          "description": "How often the inbox is polled (by code, never by a language model)."
+        },
+        "kton.queries.dir": {
+          "type": "string",
+          "default": "",
+          "description": "Folder with the SPARQL texts of the display-only views (proposals, messages, lanes .rq). decides and answers are asked by name from an admitted package, never from this folder; templates come from the cockpit's listing."
+        },
+        "kton.identity.personKey": {
+          "type": "string",
+          "default": "",
+          "description": "Key name of the person key (decisions, always through the sign dialog). Its key id is derived from <keyring>/<name>-claims.pub."
+        },
+        "kton.identity.agentKey": {
+          "type": "string",
+          "default": "",
+          "description": "Key name of the agent/home key (records, no dialog)."
+        },
+        "kton.identity.personTiers": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Trust tiers whose signers are persons. A decision counts only when this window's person key or a signer of one of these tiers signed it; any other signer's claim is shown as a record."
+        },
+        "kton.surfaces.file": {
+          "type": "string",
+          "default": "",
+          "description": "Surfaces file in the workgroup format ({surface: {lanes: {name: {lane}}, folder?}})."
+        },
+        "kton.surfaces.folderPattern": {
+          "type": "string",
+          "default": "",
+          "description": "Folder of a surface session when the surface has no \"folder\", with ${surface}."
+        },
+        "kton.surfaces.current": {
+          "type": "string",
+          "default": "all",
+          "description": "The surface the views show at start (\"all\" for every area)."
+        }
+      }
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "ktonWorkbench.switchSurface",
+          "when": "view == ktonWorkbench.home",
+          "group": "navigation"
+        },
+        {
+          "command": "ktonWorkbench.refresh",
+          "when": "view == ktonWorkbench.home",
+          "group": "navigation"
+        },
+        {
+          "command": "ktonWorkbench.openSurfaceWindow",
+          "when": "view == ktonWorkbench.lanes"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "ktonWorkbench.openDecision",
+          "when": "false"
+        },
+        {
+          "command": "ktonWorkbench.openThread",
+          "when": "false"
+        },
+        {
+          "command": "ktonWorkbench.chooseOption",
+          "when": "false"
+        }
+      ]
+    }
+  }
+}

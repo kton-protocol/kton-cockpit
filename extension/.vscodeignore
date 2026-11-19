@@ -1,0 +1,10 @@
+src/**
+test/**
+dist/**
+node_modules/**
+out/*.vsix
+*.md
+!README.md
+tsconfig.json
+.nvmrc
+.gitignore
