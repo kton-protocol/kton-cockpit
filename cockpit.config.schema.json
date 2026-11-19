@@ -71,6 +71,11 @@
           "items": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
           "description": "Installed packages whose templates and SPARQL queries this cockpit uses, by package id (the hash of the package seed, as `cockpit install` reports it). The operator admits packages, not single templates: a vocabulary package brings its templates, and only its latest sealed revision counts."
         },
+        "allowedModules": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+          "description": "Linked modules whose templates and SPARQL queries this cockpit uses, by module name (ADR-015 section 1), for example \"jobs\". A module's words are compiled into the binary and are the same in every repository; naming the module admits them, as naming a package in allowedPackages admits its own. A module named here that the binary does not link is an error."
+        },
         "scopes": {
           "type": "object",
           "additionalProperties": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },

@@ -94,33 +94,7 @@ func runInstall(ctx context.Context, args []string) error {
 	if a.flags["--json"] {
 		return emitJSON(out)
 	}
-	state := "installed"
-	if out.AlreadyInstalled {
-		state = "already installed"
-	}
-	fmt.Printf("%s %s, revision %s  →  %s\n", state, out.Name, out.Label, out.Dir)
-	fmt.Printf("  package   %s\n", out.Package)
-	fmt.Printf("  profile   %s\n", strings.TrimPrefix(out.Profile, "https://kton.dev/profile/"))
-	fmt.Printf("  sealed    %s (head %s)\n", short(out.Seal), short(out.Head))
-	if out.Ray != "" {
-		fmt.Printf("  ray       %s\n", out.Ray)
-	}
-	fmt.Printf("  scope     %s@%s (%s)\n", out.Name, out.Label, short(out.Scope))
-	if out.ClaimID != "" {
-		fmt.Printf("  recorded  installed, claim %s\n", short(out.ClaimID))
-	}
-	if strings.HasSuffix(out.Profile, "/templates") {
-		allowed := "no — its templates and queries are not in use"
-		if out.AllowedNow {
-			allowed = "yes, added to claims.allowedPackages — its templates and queries are in use"
-		} else if out.Allowed {
-			allowed = "yes — its templates and queries are in use"
-		}
-		fmt.Printf("  allowed   %s\n", allowed)
-	}
-	if out.Note != "" {
-		fmt.Printf("\n  note: %s\n", out.Note)
-	}
+	fmt.Print(cockpit.FormatInstall(out))
 	return nil
 }
 

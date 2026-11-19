@@ -166,7 +166,7 @@ type vocabTool struct {
 // vocabularyTools are the tools of the allowed packages, read once when the server starts: a
 // package allowed later needs a restart, the same as a new .mcp.json entry.
 func vocabularyTools(cfg *config.Config, c *cockpit.Cockpit, o mcpOptions) ([]vocabTool, error) {
-	voc, err := packages.Allowed(cfg.RepoRoot, cfg.Raw.Claims.AllowedPackages)
+	voc, err := packages.Allowed(cfg.RepoRoot, cfg.Raw.Claims.AllowedPackages, cfg.Raw.Claims.AllowedModules)
 	if err != nil {
 		return nil, err
 	}
@@ -374,7 +374,7 @@ func runTools(ctx context.Context, cfg *config.Config, c *cockpit.Cockpit) ([]vo
 // field. A query tool is served with --vocabulary, a ray tool only with --runs, since it runs code.
 // Controls are not served yet: they are reported, not dropped silently.
 func declaredTools(cfg *config.Config, c *cockpit.Cockpit, o mcpOptions) (tools []vocabTool, notes []string, err error) {
-	voc, err := packages.Allowed(cfg.RepoRoot, cfg.Raw.Claims.AllowedPackages)
+	voc, err := packages.Allowed(cfg.RepoRoot, cfg.Raw.Claims.AllowedPackages, cfg.Raw.Claims.AllowedModules)
 	if err != nil {
 		return nil, nil, err
 	}

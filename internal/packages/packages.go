@@ -15,6 +15,8 @@ import (
 	"strings"
 
 	"github.com/gitmick/ktonpkg/scope"
+
+	"github.com/kton-protocol/kton-cockpit/cockpit/module"
 )
 
 // Dir is where installed packages live, relative to the repository root.
@@ -109,8 +111,16 @@ type Vocabulary struct {
 // that fails its structural check contributes nothing and is reported: a vocabulary taken from a
 // package whose signatures or bytes do not hold would be words nobody stands behind. Two allowed
 // packages offering the same name is refused rather than resolved by order.
-func Allowed(repoRoot string, allowed []string) (*Vocabulary, error) {
+//
+// modules are the linked modules the configuration admits (claims.allowedModules): their Words join
+// the vocabulary as an allowed package's do, under the same rule that a name offered twice is
+// refused. A module the configuration names but this binary does not link is an error, not a
+// vocabulary quietly missing words.
+func Allowed(repoRoot string, allowed, modules []string) (*Vocabulary, error) {
 	v := &Vocabulary{Templates: map[string][]byte{}, Queries: map[string][]byte{}, MCPTools: map[string]scope.MCPTool{}, From: map[string]Source{}}
+	if err := v.addModules(modules); err != nil {
+		return nil, err
+	}
 	if len(allowed) == 0 {
 		return v, nil
 	}
@@ -157,7 +167,7 @@ func Allowed(repoRoot string, allowed []string) (*Vocabulary, error) {
 			for name, body := range m {
 				key := kind + ":" + name
 				if prev, dup := v.From[key]; dup {
-					return nil, fmt.Errorf("two allowed packages offer the %s %q: %s and %s", kind, name, prev.Name, in.Package.Name)
+					return nil, fmt.Errorf("two allowed vocabularies offer the %s %q: %s and %s", kind, name, prev.Name, in.Package.Name)
 				}
 				dst[name] = body
 				v.From[key] = src
@@ -165,4 +175,38 @@ func Allowed(repoRoot string, allowed []string) (*Vocabulary, error) {
 		}
 	}
 	return v, nil
+}
+
+// addModules adds the Words of the admitted modules.
+func (v *Vocabulary) addModules(names []string) error {
+	for _, name := range names {
+		m, ok := module.Lookup(name)
+		if !ok {
+			return fmt.Errorf("claims.allowedModules names the module %q, which this cockpit binary does not link", name)
+		}
+		src := Source{Package: "module:" + name, Name: "module " + name, Dir: "built in"}
+		ts, err := m.Templates()
+		if err != nil {
+			return err
+		}
+		qs, err := m.Queries()
+		if err != nil {
+			return err
+		}
+		for kind, words := range map[string]map[string][]byte{"template": ts, "query": qs} {
+			dst := v.Templates
+			if kind == "query" {
+				dst = v.Queries
+			}
+			for w, body := range words {
+				key := kind + ":" + w
+				if prev, dup := v.From[key]; dup {
+					return fmt.Errorf("two allowed vocabularies offer the %s %q: %s and %s", kind, w, prev.Name, src.Name)
+				}
+				dst[w] = body
+				v.From[key] = src
+			}
+		}
+	}
+	return nil
 }

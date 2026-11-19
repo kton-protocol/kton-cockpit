@@ -70,7 +70,7 @@ func askListing(cfg *config.Config) []Question {
 	if cfg == nil {
 		return out
 	}
-	voc, err := packages.Allowed(cfg.RepoRoot, cfg.Raw.Claims.AllowedPackages)
+	voc, err := packages.Allowed(cfg.RepoRoot, cfg.Raw.Claims.AllowedPackages, cfg.Raw.Claims.AllowedModules)
 	if err != nil {
 		return out
 	}
@@ -432,7 +432,7 @@ func readTemplates(cfg *config.Config) []templateInfo {
 		}
 	}
 	// The templates an allowed package brings are allowed too (SPEC §8.1), so they are listed.
-	if voc, err := packages.Allowed(cfg.RepoRoot, cfg.Raw.Claims.AllowedPackages); err == nil {
+	if voc, err := packages.Allowed(cfg.RepoRoot, cfg.Raw.Claims.AllowedPackages, cfg.Raw.Claims.AllowedModules); err == nil {
 		have := map[string]bool{}
 		for _, t := range out {
 			have[t.Name] = true

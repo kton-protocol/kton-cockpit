@@ -167,6 +167,11 @@ type Claims struct {
 	// a vocabulary package brings its templates with it, and admitting the package admits them.
 	// Templates are read from the package's latest SEALED revision only.
 	AllowedPackages []string `json:"allowedPackages,omitempty"`
+
+	// AllowedModules are the linked modules whose templates and queries this cockpit uses, by
+	// module name (ADR-015 section 1). A module's words are compiled into the binary, so they are the
+	// same in every repository; naming the module admits them, as naming a package admits its own.
+	AllowedModules []string `json:"allowedModules,omitempty"`
 }
 
 // Query is how search and profile rules are evaluated: SPARQL in a pinned image (Oxigraph).

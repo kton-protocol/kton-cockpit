@@ -32,7 +32,7 @@ func runQuery(ctx context.Context, cfg *config.Config, name string) (*queryAnswe
 	if cfg.Raw.Query.Image == "" && cfg.Raw.Index.URL == "" {
 		return nil, refuse("query.not-configured", "", "no SPARQL engine configured (query.image in cockpit.config.json)")
 	}
-	voc, err := packages.Allowed(cfg.RepoRoot, cfg.Raw.Claims.AllowedPackages)
+	voc, err := packages.Allowed(cfg.RepoRoot, cfg.Raw.Claims.AllowedPackages, cfg.Raw.Claims.AllowedModules)
 	if err != nil {
 		return nil, refuse("vocabulary", "", "%v", err)
 	}

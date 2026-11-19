@@ -225,6 +225,14 @@ transport than another has a ceiling that depends on who is asking.
 Operator subcommands (`init`, `doctor`, `show`, `scope`) MAY exist on the binary. They MUST NOT be
 reachable over the tool transport.
 
+A linked module (ADR-015) adds operator subcommands only, as `cockpit <module> <command>`. Its name
+MUST NOT shadow a core command, and no two modules may claim one name or one package profile. A
+package whose profile a linked module claims MUST be installed through that module: plain `install`
+MUST refuse it and name the module's command.
+
+> **Checked by:** `TestRegister_RefusesWhatWouldBeAmbiguous`, `TestModule_CommandsAreReachableAndListed`,
+> `TestInstall_HandsToolPackagesToTheModule`.
+
 > **Checked by:** `TestAsk_UnknownQueryIsRejected`,
 > `TestSay_RefusesATemplateOutsideTheConfiguredCeiling`,
 > `TestVerbs_TheGuardsApplyAtTheCommandLineToo`.
@@ -490,6 +498,14 @@ The configuration MAY also admit installed packages (`claims.allowedPackages`; `
 name (§9.9). A package that fails its structural check MUST contribute nothing, and two admitted
 packages bringing the same name MUST be refused rather than resolved by order. The operator fixes the
 set either way: by template, or by the package that carries a whole vocabulary.
+
+A linked module's templates and queries are compiled into the binary, and so are the same in every
+repository. They MUST be admitted the same way, by naming the module (`claims.allowedModules`), and
+MUST NOT be in use otherwise. A module the configuration names but the binary does not link MUST be
+refused by name. A name that a module and an admitted package both bring MUST be refused, as two
+packages bringing it are.
+
+> **Checked by:** `TestSay_ModuleWordsAreAdmittedByName`, `TestWords_ByKindAndName`.
 
 A template MUST name its predicate by full IRI, never by a CURIE. An alias file resolves a prefix
 before the claim is built, so the signed record carries the full IRI either way — which means two

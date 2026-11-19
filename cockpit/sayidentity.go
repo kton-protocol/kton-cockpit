@@ -41,7 +41,7 @@ func templateDeclares(cfg *config.Config, name, field string) bool {
 		b, _ = os.ReadFile(filepath.Join(cfg.TemplatesDir, name+".json"))
 	}
 	if b == nil {
-		if voc, err := packages.Allowed(cfg.RepoRoot, cfg.Raw.Claims.AllowedPackages); err == nil {
+		if voc, err := packages.Allowed(cfg.RepoRoot, cfg.Raw.Claims.AllowedPackages, cfg.Raw.Claims.AllowedModules); err == nil {
 			b = voc.Templates[name]
 		}
 	}
