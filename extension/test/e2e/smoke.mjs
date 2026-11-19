@@ -477,6 +477,14 @@ await step("S7", 1, "cockpit missing: one clear error with the setting to check;
 });
 
 await step("S7", 2, "ask answers non-JSON: an error, and the last good data stays, marked stale", async () => {
+  // The switch to cockpit-faults in S7.1 rebuilds the window, and the rows seen there may still be the old
+  // window's. Wait until the rebuilt window has good data of its own: its status line shows the faults wrapper
+  // polling without error, and it stays so for more than two poll intervals (2 s each).
+  const goodPoll = /polling: inbox every 2s .* cockpit-faults$/;
+  await status().getByText(goodPoll).waitFor({ timeout: 30000 });
+  await page.waitForTimeout(4500);
+  await status().getByText(goodPoll).waitFor({ timeout: 30000 });
+  await row("Seeded during the run").waitFor({ timeout: 30000 });
   faults("ask-garbage");
   await status().getByText(/polling: error · stale since \d\d:\d\d:\d\d/).waitFor({ timeout: 30000 });
   await row("Stale: the last poll failed").waitFor();
