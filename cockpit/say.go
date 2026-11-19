@@ -60,6 +60,9 @@ type SayResult struct {
 	// Pending is set when the claim is signed and stored but its commit met the repository's lock
 	// (store.busy): it exists, and the next write commits it. A caller must not say it again.
 	Pending *Pending `json:"pending,omitempty"`
+	// Replaces is the claim this one replaces when say filled it for a template with
+	// "replace": "previous": this signer's newest own claim of that template about the subject.
+	Replaces string `json:"replaces,omitempty"`
 	// RekorLogIndex and RekorUUID are set when this repo anchors its records — see PublishResult.
 	RekorLogIndex int64  `json:"rekorLogIndex,omitempty"`
 	RekorUUID     string `json:"rekorUuid,omitempty"`
@@ -158,6 +161,18 @@ func (c *Cockpit) Say(ctx context.Context, in SayRequest) (*SayResult, error) {
 		chain.Prev = want
 	}
 
+	// replace: previous fills replaces with this signer's own previous claim (ADR-013 A1/A5, M2),
+	// unless the request names one; the answer says which.
+	var replacedPrev string
+	if in.Template != "reproduces" && sets["replaces"] == "" {
+		prev, perr := previousOwn(ctx, cfg, r, in.Template, in.Subject, signKey)
+		if perr != nil {
+			return nil, refuse("kernel", "", "finding the claim this one replaces: %v", perr)
+		}
+		if prev != "" {
+			sets["replaces"], replacedPrev = prev, prev
+		}
+	}
 	claimID, err := r.Annotate(ctx, in.Subject, in.Template, sets, signKey, chain)
 	if err != nil {
 		return nil, refuse("kernel", "", "nekton annotate failed: %v", err)
@@ -221,6 +236,7 @@ func (c *Cockpit) Say(ctx context.Context, in SayRequest) (*SayResult, error) {
 		Subject:      in.Subject,
 		ResolvedFrom: resolvedFrom,
 		Pending:      pending,
+		Replaces:     replacedPrev,
 	}
 	out.Via, out.ViaFrom = reproducedVia, reproducedViaFrom
 	if anchored != nil {
