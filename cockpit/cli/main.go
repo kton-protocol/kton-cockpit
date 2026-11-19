@@ -353,6 +353,26 @@ func runInit(ctx context.Context) error {
 // runShow serves this repo's records to a kton-web viewer. It is an operator subcommand alongside
 // init and doctor — NOT a fourth verb: the MCP surface is unchanged at three, and nothing here
 // is reachable from it.
+// ShowSnapshot is `show --json`: the union, the keys and the names a viewer fetches from a running
+// show, as one JSON object.
+type ShowSnapshot struct {
+	Union json.RawMessage `json:"union"`
+	Keys  json.RawMessage `json:"keys"`
+	Names json.RawMessage `json:"names"`
+}
+
+func showJSON(ctx context.Context) error {
+	cfg, err := config.Load(ctx, ".")
+	if err != nil {
+		return err
+	}
+	union, keys, names, err := show.Snapshot(ctx, cfg)
+	if err != nil {
+		return err
+	}
+	return printJSON(ShowSnapshot{Union: union, Keys: keys, Names: names})
+}
+
 func runShow(ctx context.Context, args []string) error {
 	// Loopback, not every interface. ":8377" would bind all of them while the URL printed below says
 	// localhost — so a repo's whole graph, including a private one's, would be reachable from the
@@ -362,11 +382,15 @@ func runShow(ctx context.Context, args []string) error {
 	webDir := os.Getenv("KTON_WEB")
 	for i := 0; i < len(args); i++ {
 		switch {
+		case args[i] == "--json":
+			// The snapshot a viewer fetches, on stdout instead of served (SPEC §12.3): for a shell
+			// that reads everything through the command line (userinterface's graph@1).
+			return showJSON(ctx)
 		case args[i] == "--web" && i+1 < len(args):
 			i++
 			webDir = args[i]
 		case strings.HasPrefix(args[i], "-"):
-			return fmt.Errorf("usage: cockpit show [addr] [--web <kton-web checkout>]")
+			return fmt.Errorf("usage: cockpit show [addr] [--web <kton-web checkout>] | cockpit show --json")
 		default:
 			addr = args[i]
 		}
