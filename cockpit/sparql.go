@@ -126,8 +126,8 @@ func askSparql(ctx context.Context, cfg *config.Config, in AskRequest) (*AskResu
 		src := voc.From["query:"+in.Name]
 		from, in.Sparql = src.Name+" ("+src.Dir+")", string(q)
 	}
-	if len(in.Bind) > 0 && in.Sparql != "" {
-		clause, err := valuesClause(in.Bind)
+	if (len(in.Bind) > 0 || len(in.BindTerms) > 0) && in.Sparql != "" {
+		clause, err := valuesClause(in.Bind, in.BindTerms)
 		if err != nil {
 			return nil, refuse("argument", "SPEC §9.9", "bind: %v", err)
 		}
@@ -180,23 +180,37 @@ func askSparql(ctx context.Context, cfg *config.Config, in AskRequest) (*AskResu
 // sparqlVar is a variable name a binding may give a value to.
 var sparqlVar = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
-// valuesClause is a VALUES clause that binds each variable to a plain literal. A value is a quoted
-// string with its quote, backslash and line breaks escaped, never query text.
-func valuesClause(bind map[string]string) (string, error) {
-	names := make([]string, 0, len(bind))
-	for k := range bind {
+// valuesClause is a VALUES clause that binds each variable of bind to a plain literal and each of
+// terms to a typed term (an IRI, or a literal with a datatype). A value is always one RDF term,
+// escaped or checked, never query text; a variable named in both is refused.
+func valuesClause(bind map[string]string, terms map[string]BoundTerm) (string, error) {
+	vals := map[string]string{}
+	for k, v := range bind {
+		vals[k] = quoteLiteral(v)
+	}
+	for k, t := range terms {
+		if _, dup := vals[k]; dup {
+			return "", fmt.Errorf("%s is bound twice, in bind and in bindTerms", k)
+		}
+		term, err := t.sparqlTerm()
+		if err != nil {
+			return "", fmt.Errorf("%s: %v", k, err)
+		}
+		vals[k] = term
+	}
+	names := make([]string, 0, len(vals))
+	for k := range vals {
 		if !sparqlVar.MatchString(k) {
 			return "", fmt.Errorf("%q is not a variable name", k)
 		}
 		names = append(names, k)
 	}
 	sort.Strings(names)
-	vars, vals := make([]string, len(names)), make([]string, len(names))
+	vars, row := make([]string, len(names)), make([]string, len(names))
 	for i, k := range names {
-		vars[i] = "?" + k
-		vals[i] = `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`, "\n", `\n`, "\r", `\r`, "\t", `\t`).Replace(bind[k]) + `"`
+		vars[i], row[i] = "?"+k, vals[k]
 	}
-	return fmt.Sprintf("\nVALUES (%s) { (%s) }\n", strings.Join(vars, " "), strings.Join(vals, " ")), nil
+	return fmt.Sprintf("\nVALUES (%s) { (%s) }\n", strings.Join(vars, " "), strings.Join(row, " ")), nil
 }
 
 // bindIntoWhere puts the VALUES clause first in the query's outermost group, the WHERE clause's
