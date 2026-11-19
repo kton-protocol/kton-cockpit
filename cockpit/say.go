@@ -184,7 +184,7 @@ func (c *Cockpit) Say(ctx context.Context, in SayRequest) (*SayResult, error) {
 		registryPaths = append(registryPaths, written...)
 	}
 	if _, err := persistStrict(ctx, cfg, registryPaths, "claim: "+in.Template+" on "+in.Subject); err != nil {
-		return nil, refuse("store", "", "git commit/push of the claim registry failed: %v", err)
+		return nil, refuse(storeCode(err), "", "git commit/push of the claim registry failed: %v", err)
 	}
 
 	claims, err := r.About(ctx, in.Subject)

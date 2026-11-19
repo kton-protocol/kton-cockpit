@@ -9,6 +9,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -342,6 +343,9 @@ func runWaiting(ctx context.Context, dir string, args ...string) (string, error)
 	deadline := time.Now().Add(lockWait)
 	for wait := 50 * time.Millisecond; ; wait = min(2*wait, time.Second) {
 		out, err := run(ctx, dir, "git", args...)
+		if err != nil && heldLock(out) && time.Now().After(deadline) {
+			return out, fmt.Errorf("%w (waited %s): %v", ErrBusy, lockWait, err)
+		}
 		if err == nil || !(heldLock(out) || vanished(out)) || time.Now().After(deadline) {
 			return out, err
 		}
@@ -353,8 +357,14 @@ func runWaiting(ctx context.Context, dir string, args ...string) (string, error)
 	}
 }
 
-// lockWait is how long a write waits for another git to let go of the repository's lock.
-const lockWait = 30 * time.Second
+// lockWait is how long a write waits for another git to let go of the repository's lock. A
+// variable so a test can shorten it.
+var lockWait = 30 * time.Second
+
+// ErrBusy is a write that gave up because another git still held the repository's lock after
+// lockWait: the repository is busy, not broken, and the same write can be tried again (refusal code
+// store.busy, SPEC §12.1).
+var ErrBusy = errors.New("the repository is busy: another git holds its index lock")
 
 // heldLock reports git saying another process holds one of its lock files.
 func heldLock(out string) bool {
@@ -365,4 +375,11 @@ func heldLock(out string) bool {
 func vanished(out string) bool {
 	return strings.Contains(out, "No such file or directory") &&
 		(strings.Contains(out, "unable to stat") || strings.Contains(out, "unable to index") || strings.Contains(out, "open("))
+}
+
+// SetLockWaitForTest shortens the lock wait for a test and returns what puts it back.
+func SetLockWaitForTest(d time.Duration) func() {
+	was := lockWait
+	lockWait = d
+	return func() { lockWait = was }
 }

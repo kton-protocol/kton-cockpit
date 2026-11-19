@@ -1239,12 +1239,15 @@ Several verbs MAY write to one working tree at once, for example many writers sa
 registry. Each MUST make what it wrote durable exactly once and succeed. One MUST NOT fail because
 another holds the store's lock: the cockpit's own writes take turns, and a lock held by a tool
 outside the cockpit is waited out for a bounded time, as is a store's own lock or temporary file that
-another writer removes while it is being added.
+another writer removes while it is being added. A lock still held when that time runs out MUST be
+refused with code `store.busy`, not `store`: the repository is busy, not broken, and the same write
+can be tried again.
 
 > **Checked by:** `TestConfigGuard_StillRefusesTheWrongRepoWithCommitsOff`,
 > `TestPublish_WithPushOffItCommitsLocallyAndSaysSo`, `TestCommitAndPush_NeverPushesWhenNotSharing`,
 > `TestSay_ParallelProcessesEachCommitTheirClaim`, `TestCommitAndPush_WaitsOutALockAnotherGitHolds`,
-> `TestCommitAndPush_TriesAgainWhenAFileVanishesUnderAdd`.
+> `TestCommitAndPush_TriesAgainWhenAFileVanishesUnderAdd`, `TestCommitAndPush_ALockHeldPastTheWaitIsBusy`,
+> `TestSay_ALockedRepositoryIsRefusedAsBusy`.
 
 `cockpit sync` takes in what others shared and then shares what is durable here only. It MUST NOT
 rewrite a local revision — records already signed pin it in their locators — and where both sides

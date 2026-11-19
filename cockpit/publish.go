@@ -338,7 +338,7 @@ func (c *Cockpit) Publish(ctx context.Context, in PublishRequest) (*PublishResul
 	// worth writing, and throwing it away also throws away the container run that produced it.
 	rev, err := persist(ctx, cfg, allPaths, "publish: "+in.Cmd)
 	if err != nil {
-		return nil, refuse("store", "", "git commit of inputs+outputs failed: %v", err)
+		return nil, refuse(storeCode(err), "", "git commit of inputs+outputs failed: %v", err)
 	}
 	shareRejected, shareReason := rev.Rejected, rev.Reason
 
@@ -412,7 +412,7 @@ func (c *Cockpit) Publish(ctx context.Context, in PublishRequest) (*PublishResul
 	// in both, so they resolve either way.
 	finalRev, err := persist(ctx, cfg, registryPaths, "foton: "+in.Cmd)
 	if err != nil {
-		return nil, refuse("store", "", "git commit/push of the registry failed: %v", err)
+		return nil, refuse(storeCode(err), "", "git commit/push of the registry failed: %v", err)
 	}
 	if finalRev.Rejected {
 		shareRejected, shareReason = true, finalRev.Reason
