@@ -28,7 +28,7 @@ func previousOwn(ctx context.Context, cfg *config.Config, r *binaries.Runner, te
 	if !ok || t.Replace != "previous" {
 		return "", nil
 	}
-	me, err := keyIDOfKey(signKey)
+	me, pub, err := keyOf(signKey)
 	if err != nil {
 		return "", err
 	}
@@ -37,18 +37,12 @@ func previousOwn(ctx context.Context, cfg *config.Config, r *binaries.Runner, te
 		return "", err
 	}
 	pred := set.Resolve(t.Predicate)
-	type own struct {
-		id   string
-		when time.Time
-	}
-	var mine []own
+	var mine []ownClaim
 	replaced := map[string]bool{}
 	for _, c := range claims {
-		signed := false
-		for _, k := range c.SignatureKeyIDs {
-			signed = signed || k == me
-		}
-		if !signed || c.Predicate != pred {
+		// Signed by this key, verified: a declared keyid is not covered by the signature, so a claim
+		// that only names this keyid is not this signer's (kton-review P1 on #166).
+		if c.Predicate != pred || core.VerifiedSignerKeyID(c.Envelope, []ed25519.PublicKey{pub}) != me {
 			continue
 		}
 		if obj, ok := c.Object.(map[string]any); ok {
@@ -59,9 +53,20 @@ func previousOwn(ctx context.Context, cfg *config.Config, r *binaries.Runner, te
 			}
 		}
 		when, _ := time.Parse(time.RFC3339Nano, c.When)
-		mine = append(mine, own{c.ID, when})
+		mine = append(mine, ownClaim{c.ID, when})
 	}
-	best := own{}
+	return newestUnreplaced(mine, replaced), nil
+}
+
+// ownClaim is one of the signer's own claims: its id and signed time.
+type ownClaim struct {
+	id   string
+	when time.Time
+}
+
+// newestUnreplaced is the newest claim of mine that none of mine replaces, by signed time, then id.
+func newestUnreplaced(mine []ownClaim, replaced map[string]bool) string {
+	best := ownClaim{}
 	for _, c := range mine {
 		if replaced[c.id] {
 			continue
@@ -70,18 +75,19 @@ func previousOwn(ctx context.Context, cfg *config.Config, r *binaries.Runner, te
 			best = c
 		}
 	}
-	return best.id, nil
+	return best.id
 }
 
-// keyIDOfKey is the key id of the private key at path.
-func keyIDOfKey(path string) (string, error) {
+// keyOf is the key id and public key of the private key at path.
+func keyOf(path string) (string, ed25519.PublicKey, error) {
 	b, err := os.ReadFile(expandHome(path))
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	seed, err := hex.DecodeString(strings.TrimSpace(string(b)))
 	if err != nil || len(seed) != ed25519.SeedSize {
-		return "", fmt.Errorf("%s is not a signing key", path)
+		return "", nil, fmt.Errorf("%s is not a signing key", path)
 	}
-	return core.KeyIDHex(ed25519.NewKeyFromSeed(seed).Public().(ed25519.PublicKey)), nil
+	pub := ed25519.NewKeyFromSeed(seed).Public().(ed25519.PublicKey)
+	return core.KeyIDHex(pub), pub, nil
 }
