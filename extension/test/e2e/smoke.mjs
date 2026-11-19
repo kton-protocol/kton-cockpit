@@ -17,7 +17,12 @@ let current = null;
 const started = new Date();
 
 const browser = await chromium.launch();
-const page = await browser.newPage({ viewport: { width: 1600, height: 1800 } });
+const page = await browser.newPage({ viewport: { width: 1600, height: 3000 } });
+// S5.3 viewer-calls-network: every request the page or its frames make to example.org (there must be none)
+const leaked = [];
+page.on("request", (r) => {
+  if (/example\.org/.test(r.url())) leaked.push(r.url());
+});
 async function shot(name) {
   const file = `${name}.png`;
   await page.screenshot({ path: `${OUT}/${file}` });
@@ -79,6 +84,7 @@ async function sparql(q) {
 // person key's label in another tier (review check 7, Q2).
 const PERSON = `https://kton.dev/agent/${seed.personKeyId}`;
 const LOOKALIKE = `https://kton.dev/agent/${seed.lookalikeKeyId}`;
+const AGENT = `https://kton.dev/agent/${seed.agentKeyId}`;
 const decidesAbout = (pid) => sparql(`SELECT ?d ?s ?by ?choice WHERE { ?d nk:predicate t:decides ; lab:answers <${iriOf(pid)}> ; nk:signer ?s . ?s rdfs:label ?by . OPTIONAL { ?d lab:choice ?choice } }`);
 const claimsWithTitle = (template, title) => sparql(`SELECT ?c ?s ?by ?area WHERE { ?c nk:predicate t:${template} ; lab:title ${JSON.stringify(title)} ; nk:signer ?s . ?s rdfs:label ?by . OPTIONAL { ?c lab:area ?area } }`);
 
@@ -285,6 +291,158 @@ await step("S2", 6, "compose: Cancel in the dialog keeps the draft and makes no 
   const c = await claimsWithTitle("requests", "Composed request");
   check(c.length === 1 && c[0].area === "qa" && c[0].s === PERSON, "the composed request exists with its area and title, by the person key", [{ area: "qa", s: PERSON }], c.map(({ area, s }) => ({ area, s })));
   await clearToasts();
+});
+
+
+// ---- PR 2: packages and compositions (C2, C1.5 v3), on P1 while it is still open
+/** The claims of a package template about a proposal, with their signer. */
+const templateClaims = (tpl, pid) => sparql(`SELECT ?c ?s WHERE { ?c nk:template ?t ; nk:about <${iriOf(pid)}> ; nk:signer ?s . FILTER(CONTAINS(STR(?t), ${JSON.stringify(tpl)})) }`);
+/** The frame (webview) whose document has this selector, visible. */
+async function frameWithSel(sel, timeout = 30000) {
+  const end = Date.now() + timeout;
+  while (Date.now() < end) {
+    for (const f of page.frames()) {
+      if (f === page.mainFrame()) continue;
+      try {
+        if (await f.locator(sel).first().isVisible()) return f;
+      } catch {}
+    }
+    await page.waitForTimeout(300);
+  }
+  throw new Error(`no webview shows ${sel}`);
+}
+/** Click the slot entry row `label` (with `pkg` in its description) under the proposal titled `title`. */
+async function openReview(title, label, pkg) {
+  await views();
+  const rows = page.locator(".monaco-list-row");
+  const texts = await rows.allTextContents();
+  const at = texts.findIndex((t) => t.includes(title));
+  if (at < 0) throw new Error(`no row ${title}`);
+  const i = texts.findIndex((t, j) => j > at && t.includes(label) && t.includes(pkg));
+  if (i < 0) throw new Error(`no row ${label} (${pkg}) under ${title}`);
+  await rows.nth(i).click();
+}
+const P1_TITLE = "Which build goes to qualification?";
+const shell = () => frameWithSel('[data-composition="kton-web-test/test-shell"]');
+const probeOut = async (k) => (await (await shell()).locator(`[data-use="acts#probe"] [data-probe-out="${k}"]`).textContent()) ?? "";
+
+await step("S5", 1, "a package's review-view entry is offered on a proposal and opens its composition from the checked package", async () => {
+  await row("Review: Test shell").first().waitFor({ timeout: 30000 });
+  await openReview(P1_TITLE, "Review: Test shell", "kton-web-test");
+  const f = await shell();
+  await f.locator('[data-use="acts#probe"] [data-probe="label"]', { hasText: "the acting block" }).waitFor({ timeout: 30000 });
+  const v = await f.locator("#kton-root").getAttribute("data-csp-violations");
+  check(!v || v === "0", "the composition frame ran without a CSP violation", "0", v ?? "0");
+  await shot("s5-review-view");
+});
+
+await step("S4", 2, "a decision act goes through the one sign dialog and signs with the person key", async () => {
+  await (await shell()).locator('[data-use="acts#probe"] button[data-intent="sign"]').click();
+  const d = await dialog();
+  await d.getByText("Template: test-note", { exact: false }).first().waitFor();
+  await d.getByText('person key "qa-decider"', { exact: false }).first().waitFor();
+  await signInDialog(d);
+  await d.locator('[data-testid="sign-outcome"][data-state="signed"]').waitFor({ timeout: 30000 });
+  await shot("s4-act-sign-dialog");
+  const c = await templateClaims("test-note", P.P1);
+  check(c.length === 1 && c[0].s === PERSON, "one test-note about P1, by the person key id", [{ s: PERSON }], c.map(({ s }) => ({ s })));
+  await clearToasts();
+});
+
+await step("C1", 1, "the act's outcome is held by the host and shown after the frame came back (the dialog took its column)", async () => {
+  await page.locator(".tab", { hasText: "Test shell" }).first().click();
+  const note = (await shell()).locator('[data-use="acts#probe"] .kton-act-note[data-held="true"]');
+  await note.waitFor({ timeout: 30000 });
+  check(/Signed with the person key/.test((await note.textContent()) ?? ""), "the held outcome is shown", "Signed with the person key…", await note.textContent());
+  await shot("c1-held-act");
+});
+
+await step("S4", 3, "a record act is written with the agent key, with no dialog", async () => {
+  const dialogsBefore = page.frames().filter((f) => f.url().includes("ktonWorkbench.sign")).length;
+  await (await shell()).locator('[data-use="acts#probe"] button[data-intent="record"]').click();
+  await (await shell()).locator('[data-use="acts#probe"] .kton-act-note[data-state="done"]', { hasText: "Recorded with the agent key" }).waitFor({ timeout: 30000 });
+  check(page.frames().filter((f) => f.url().includes("ktonWorkbench.sign")).length <= dialogsBefore, "no sign dialog opened");
+  const c = (await templateClaims("test-note", P.P1)).filter((x) => x.s === AGENT);
+  check(c.length === 1, "one test-note about P1 by the agent key id", 1, c.length);
+  await shot("s4-act-record");
+});
+
+await step("S4", 4, "an intent that names a decision control under record is refused: the intent cannot change the kind", async () => {
+  const before = (await templateClaims("test-note", P.P1)).length;
+  await (await shell()).locator('[data-use="acts#probe"] button[data-probe-do="kind"]').click();
+  await (await shell()).locator('[data-use="acts#probe"] [data-probe-out="kind"]', { hasText: "refused" }).waitFor({ timeout: 15000 });
+  check(/cannot change the kind/.test(await probeOut("kind")), "refused with the reason", "…cannot change the kind", await probeOut("kind"));
+  check((await templateClaims("test-note", P.P1)).length === before, "nothing was signed", before, (await templateClaims("test-note", P.P1)).length);
+});
+
+await step("S4", 6, "say is no act of the shell; a capability the viewer does not declare is refused in the frame", async () => {
+  const f = await shell();
+  await f.locator('[data-use="acts#probe"] button[data-probe-do="say"]').click();
+  await f.locator('[data-use="acts#probe"] [data-probe-out="say"]', { hasText: "refused" }).waitFor({ timeout: 15000 });
+  check(/say is not an act this shell performs/.test(await probeOut("say")), "say refused by the host", "say is not an act…", await probeOut("say"));
+  await f.locator('[data-use="acts#probe"] button[data-probe-do="cap"]').click();
+  await f.locator('[data-use="acts#probe"] [data-probe-out="cap"]', { hasText: "refused" }).waitFor({ timeout: 15000 });
+  check(/does not declare sign@1/.test(await probeOut("cap")), "sign@1 refused before it left the frame", "…does not declare sign@1", await probeOut("cap"));
+  await shot("s4-refused-intents");
+});
+
+await step("C1", 2, "wiring: a pick in one block reaches its sibling through a var; a wired intent is consumed in the frame", async () => {
+  const f = await shell();
+  await f.locator('[data-use="acts#probe"] button[data-probe-do="pick-a"]').click();
+  await f.locator('[data-use="wired#echo"] [data-probe="label"]', { hasText: "A" }).waitFor({ timeout: 15000 });
+  await f.locator('[data-use="acts#probe"] button[data-probe-do="focus"]').click();
+  await f.locator('[data-use="acts#probe"] [data-probe-out="focus"]', { hasText: "wired" }).waitFor({ timeout: 15000 });
+  const stats = JSON.parse((await f.locator("#kton-root").getAttribute("data-wiring")) ?? "{}");
+  check(stats.consumed >= 1 && stats.emits >= 2, "the focus intent was consumed in the frame (never sent to the host); the pick wrote its var", ">= 1 consumed, >= 2 emits", stats);
+  await shot("c1-wiring");
+});
+
+await step("S5", 2, "an unwired open intent goes up to the shell, which performs it (and fetches nothing)", async () => {
+  await (await shell()).locator('[data-use="acts#probe"] button[data-probe-do="open"]').click();
+  await toast(/Open: https:\/\/kton\.dev\/ \(not a claim in this window; nothing was fetched\)/).waitFor({ timeout: 15000 });
+  await (await shell()).locator('[data-use="acts#probe"] [data-probe-out="open"]', { hasText: "done" }).waitFor({ timeout: 15000 });
+  await clearToasts();
+});
+
+await step("S5", 3, "hostile packages: refusals reach the Packages view with their reasons; good renders; a network call is blocked", async () => {
+  await views();
+  const texts = (await page.locator(".monaco-list-row").allTextContents()).join("\n");
+  for (const [what, re] of [
+    ["tampered after admission (shell, re-verify at load)", /hostile-tamperedrefused: package\.tampered/],
+    ["viewer-pin-mismatch, with its reason", /hostile-pinrefused: viewer-pin-mismatch/],
+    ["unknown slot (version skew): listed, not rendered", /hostile-good: Sidebar adnot rendered/],
+  ]) check(re.test(texts), what, String(re), "not in the Home tree");
+  check(/viewers\/table\/index\.js changed after admission/.test(texts), "the tampered file is named", "…index.js changed after admission", "");
+  check(/pins viewer kton-web\/table at kton-web 39242b9f0bfc, which this shell does not carry/.test(texts), "the pin's reason is shown", "…which this shell does not carry", "");
+  check(!/Sidebar ad\b(?!not)/.test(texts.replace(/Sidebar adnot rendered/g, "")), "the unknown slot has no place of its own");
+  await shot("s5-packages-refused");
+  // the positive control renders
+  await openReview(P1_TITLE, "Review: Review", "hostile-good");
+  const g = await frameWithSel('[data-block="hostile-good/table"]');
+  await g.locator('[data-block="hostile-good/table"]', { hasText: "table" }).waitFor({ timeout: 30000 });
+  // viewer-calls-network: renders, but the host CSP blocks the fetch: 0 requests leave, one violation recorded
+  await openReview(P1_TITLE, "Review: Review", "hostile-network");
+  const n = await frameWithSel('[data-block="hostile-network/table"]');
+  await n.locator("#kton-root[data-csp-violations]").waitFor({ state: "attached", timeout: 15000 });
+  const csp = JSON.parse((await n.locator("#kton-root").getAttribute("data-csp")) ?? "{}");
+  check((csp["connect-src"] ?? 0) >= 1, "the fetch was a connect-src violation in the composition frame", ">= 1", csp);
+  check(leaked.length === 0, "no request to example.org left the page", 0, leaked);
+  await shot("s5-network-blocked");
+});
+
+await step("S5", 4, "a package that is no longer admitted: its open panel closes at the next poll", async () => {
+  const f = `${WORK}/ui-list.json`;
+  const l = JSON.parse(readFileSync(f, "utf8"));
+  l.packages = l.packages.filter((p) => p.name !== "hostile-good");
+  writeFileSync(`${f}.tmp`, JSON.stringify(l));
+  renameSync(`${f}.tmp`, f);
+  await toast(/Closed hostile-good\/ui\/review\.json: package hostile-good is no longer admitted or loaded/).waitFor({ timeout: 30000 });
+  await page.waitForTimeout(1000);
+  let stale = 0;
+  for (const fr of page.frames()) if (fr !== page.mainFrame()) stale += await fr.locator('[data-block="hostile-good/table"]').count().catch(() => 0);
+  check(stale === 0, "no frame shows the package's block any more", 0, stale);
+  await clearToasts();
+  await shot("s5-uninstalled");
 });
 
 await step("S3", 1, "Home lists the proposals with their options; the recommendation is marked", async () => {
