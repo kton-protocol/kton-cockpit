@@ -35,6 +35,8 @@ put "$ROOT/.build/cockpit" "$PREFIX/bin/cockpit"; chmod +x "$PREFIX/bin/cockpit"
 mkdir -p "$PREFIX/share/kton/r"
 rm -rf "$PREFIX/share/kton/r.new.$$" && cp -r "$ROOT/r" "$PREFIX/share/kton/r.new.$$"
 rm -rf "$PREFIX/share/kton/r" && mv "$PREFIX/share/kton/r.new.$$" "$PREFIX/share/kton/r"
+# kton-R is the R interpreter path Positron starts; a checkout on ext4 keeps git's mode, set it here
+chmod 755 "$PREFIX/share/kton/r/kton-R"
 mkdir -p "$PREFIX/share/kton/python"
 put "$ROOT/python/ktonrec.py" "$PREFIX/share/kton/python/ktonrec.py"
 STARTUP=${IPYTHONDIR:-$HOME/.ipython}/profile_default/startup
