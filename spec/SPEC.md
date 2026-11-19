@@ -1316,6 +1316,11 @@ does not reliably refetch ES modules or wasm.
 
 > **Checked by:** `TestShow_TheBrowserRevalidatesWhatItCached`.
 
+`show --json` prints the same snapshot a viewer fetches, `{union, keys, names}`, as one JSON document on
+stdout, so a frontend that reads everything through the command line need not start a server.
+
+> **Checked by:** `TestShowJSON_PrintsTheSnapshotAViewerFetches`.
+
 ### 12.4 A derived index *(optional)*
 
 A cockpit MAY keep what it read between calls (`index.kind`, ADR-012). Such an index is derived: it
