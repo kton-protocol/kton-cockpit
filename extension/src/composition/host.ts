@@ -15,6 +15,7 @@
 // answered like content@1; (e) graph@1 is {records, keys, names, attested?} (not provided yet: refused).
 import { bindVars, typedTerm } from "../../media/kton-web/core/ktonpkg-mirror/plan.js";
 import type { Control, Loaded } from "../packages/model.js";
+import type { BoundTerm } from "../transport/port.js";
 
 export interface Term {
   readonly type: string;
@@ -51,8 +52,11 @@ export interface Plan {
 
 /** What the capabilities are answered with: the cockpit through the transport, the package bytes by hash. */
 export interface Backend {
-  /** query@1: a named query of an admitted package (`cockpit ask {query: sparql, name, bind}`), SPARQL JSON. */
-  query(name: string, bind: Readonly<Record<string, string>>): Promise<unknown>;
+  /**
+   * query@1: a named query of an admitted package (`cockpit ask {query: sparql, name, bindTerms}`), SPARQL JSON;
+   * the package says whose query it is when two packages bring the name.
+   */
+  query(pkg: string, name: string, terms: Readonly<Record<string, BoundTerm>>): Promise<unknown>;
   /** content@1 / product@1 bytes of a package member, by hash (checked again here). */
   bytes(dir: string, hash: string): Promise<Uint8Array>;
   /** open@1: show a file, a claim or a screen in the window; resolves with what was opened. */
@@ -155,9 +159,11 @@ export function useFor(plan: Plan, cap: string, args: Readonly<Record<string, un
   return { use: u, params };
 }
 
-/** A term for `cockpit ask {bind}`, which binds plain literals: the term's lexical form. */
-export function bindOf(params: Readonly<Record<string, Term>>): Record<string, string> {
-  return Object.fromEntries(Object.entries(params).map(([k, t]) => [k, t.value]));
+/** A planned param as a typed term for `cockpit ask {bindTerms}` (v0.5.3): an IRI stays an IRI, a typed literal keeps its datatype. */
+export function termsOf(params: Readonly<Record<string, Term>>): Record<string, BoundTerm> {
+  return Object.fromEntries(
+    Object.entries(params).map(([k, t]) => [k, t.type === "uri" ? { type: "iri", value: t.value } : { type: "literal", value: t.value, ...(t.datatype ? { datatype: t.datatype } : {}) }]),
+  );
 }
 
 const sha256 = async (b: Uint8Array) => {
@@ -200,7 +206,7 @@ export class LeafHost {
   readonly seen: Array<{ type: string; cap?: string; kind?: string }> = [];
   constructor(
     private readonly leaf: { readonly decl: Readonly<Record<string, unknown>>; readonly slot: string },
-    private readonly entry: { readonly inputs?: Readonly<Record<string, string>>; readonly control?: Control; readonly label: string },
+    private readonly entry: { readonly inputs?: Readonly<Record<string, string>>; readonly control?: Control; readonly label: string; readonly package?: string },
     private readonly subject: { readonly id: string; readonly claim?: string; readonly closed: Readonly<Record<string, string>> },
     private readonly loaded: Loaded,
     private readonly backend: Backend,
@@ -249,7 +255,7 @@ export class LeafHost {
           if (v === undefined) throw new Refused(`input ${input}: ${k} is not bound by the slot entry from the closed set`);
           bind[k] = v;
         }
-        result = await this.backend.query(spec.query, bind);
+        result = await this.backend.query(this.entry.package ?? "", spec.query, Object.fromEntries(Object.entries(bind).map(([k, v]) => [k, { type: "literal" as const, value: v }])));
       } else if (cap === "product@1") {
         const hash = String(args["hash"] ?? "");
         result = await answerBytes(this.backend, this.loaded, hash, undefined, "product@1");
@@ -340,7 +346,10 @@ export class CompositionHost {
       if (!(VSCODE_PROVIDES as readonly string[]).includes(cap)) throw new Refused(`${cap} is not provided by this host`);
       const { use: u, params } = useFor(this.plan, cap, args, vars);
       let result: unknown;
-      if (cap === "query@1") result = await this.backend.query((u.query as { name: string }).name, bindOf(params));
+      if (cap === "query@1") {
+        const q = u.query as { package: string; name: string };
+        result = await this.backend.query(q.package, q.name, termsOf(params));
+      }
       else if (cap === "content@1") {
         if (!u.content?.binary || args["hash"] !== u.content.hash) throw new Refused(`${u.key}: the content differs from the plan's`);
         result = await answerBytes(this.backend, this.loaded, u.content.hash, u.content.type, "content@1");

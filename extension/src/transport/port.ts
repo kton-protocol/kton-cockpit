@@ -62,6 +62,12 @@ export interface SayResult {
   readonly pending?: { readonly code: string; readonly reason: string };
 }
 
+export interface BoundTerm {
+  readonly type: "iri" | "literal";
+  readonly value: string;
+  readonly datatype?: string;
+}
+
 export interface AskRequest {
   readonly query: string;
   readonly ref?: string;
@@ -70,6 +76,8 @@ export interface AskRequest {
   readonly name?: string;
   /** Values for the query's variables, appended as VALUES: nothing is spliced into query text. */
   readonly bind?: Readonly<Record<string, string>>;
+  /** Typed values (cockpit v0.5.3, SPEC §9.9): an IRI, or a literal with a datatype; never query text. */
+  readonly bindTerms?: Readonly<Record<string, BoundTerm>>;
   readonly limit?: number;
   readonly dataset?: "claims" | "nanopub";
   readonly format?: "sparql-results+json";

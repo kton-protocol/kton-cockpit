@@ -97,14 +97,11 @@ const fs=require("fs");const f=process.argv[1];const l=JSON.parse(fs.readFileSyn
 const t=l.packages.find(p=>p.name==="hostile-tampered");const m=t.members.find(x=>x.name==="viewers/table/index.js");
 const hex=m.hash.slice(7);const b=process.argv[2]+"/"+t.dir+"/blobs/"+hex.slice(0,2)+"/"+hex;
 fs.chmodSync(b,0o644);fs.writeFileSync(b,"export function mount(el) { el.textContent = \"tampered\"; }\n");
-// S5.3 unknown slot (version skew): a newer package names a slot this shell does not know
-l.packages.find(p=>p.name==="hostile-good").ui.push({file:"ui/sidebar.json",slot:"sidebar-ad",label:"Sidebar ad",when:{kind:"claim"}});
-fs.writeFileSync(f,JSON.stringify(l,null,1));
-// The cockpit drops its whole vocabulary (every named query, the shell'"'"'s decides and answers too) when one
-// admitted package fails its check. So the tampered package stays admitted in the ui list (the shell must catch
-// it at load) but leaves claims.allowedPackages, as if it was tampered after the cockpit'"'"'s last read.
-const c=process.argv[2]+"/.kton/cockpit.config.json";const cfg=JSON.parse(fs.readFileSync(c));
-cfg.claims.allowedPackages=cfg.claims.allowedPackages.filter(id=>id!==t.package);fs.writeFileSync(c,JSON.stringify(cfg,null,2));' "$E2E/ui-list.json" "$E2E/repo"
+// S5.3 unknown slot (version skew): a newer package names a slot this shell does not know (marked simulated:
+// the shell takes it from the stand-in beside the real ui list)
+l.packages.find(p=>p.name==="hostile-good").ui.push({file:"sidebar",slot:"sidebar-ad",label:"Sidebar ad",when:{kind:"claim"},simulated:true});
+fs.writeFileSync(f,JSON.stringify(l,null,1));' "$E2E/ui-list.json" "$E2E/repo"
+# the tampered package stays admitted: since v0.5.3 a package that fails its check takes out only itself
 
 cat > "$E2E/seed.json" <<EOF
 {"scope": "$SEED", "requests": ["$R1", "$R2"], "announce": "$ANN", "proposals": {"P1": "$P1", "P2": "$P2", "P3": "$P3", "P4": "$P4"},

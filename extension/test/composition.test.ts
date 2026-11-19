@@ -22,8 +22,8 @@ function backendLog(): { backend: Backend; calls: Array<[string, unknown]> } {
   return {
     calls,
     backend: {
-      query: async (name, bind) => {
-        calls.push(["query", { name, bind }]);
+      query: async (pkg, name, terms) => {
+        calls.push(["query", { pkg, name, terms }]);
         return { head: { vars: ["item"] }, results: { bindings: [] } };
       },
       bytes: async () => new Uint8Array(),
@@ -60,7 +60,7 @@ test("query@1 runs the package's named query (never query text) with its params 
   const h = new CompositionHost(plan, l, backend, { post: (m) => posted.push(m), log: () => undefined });
   const key = plan.uses[0]?.key as string;
   await h.onMessage({ type: "kton:request", id: `${key}#t.1`, cap: "query@1", args: { use: key } });
-  assert.deepEqual(calls, [["query", { name: "items", bind: {} }]]);
+  assert.deepEqual(calls, [["query", { pkg: "hostile-good", name: "items", terms: {} }]]);
   assert.equal((posted.at(-1) as { type: string }).type, "kton:data");
   // a frame cannot swap the query, ask for an undeclared capability, or name a use that is not in the plan
   await h.onMessage({ type: "kton:request", id: "x#t.2", cap: "query@1", args: { use: key, query: { package: "hostile-good", name: "item-card", hash: "sha256:x" } } });
@@ -202,4 +202,13 @@ test("the Mermaid frame server (H13): 127.0.0.1 only, exactly the frame's three 
   } finally {
     m.close();
   }
+});
+
+test("typed bind (cockpit v0.5.3): a planned IRI param goes as an IRI, a typed literal keeps its datatype, a plain literal stays plain", async () => {
+  const { termsOf } = await import("../src/composition/host.js");
+  assert.deepEqual(termsOf({ S: { type: "uri", value: "https://kton.dev/o/ab" }, N: { type: "literal", value: "12", datatype: "http://www.w3.org/2001/XMLSchema#integer" }, L: { type: "literal", value: "x" } }), {
+    S: { type: "iri", value: "https://kton.dev/o/ab" },
+    N: { type: "literal", value: "12", datatype: "http://www.w3.org/2001/XMLSchema#integer" },
+    L: { type: "literal", value: "x" },
+  });
 });

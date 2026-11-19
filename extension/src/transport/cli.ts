@@ -119,7 +119,7 @@ export class CliTransport implements Transport {
   }
 
   say(req: SayRequest): Promise<Outcome<SayResult>> {
-    if (!NAME.test(req.template)) return bad(`template ${JSON.stringify(req.template)} is not a name`);
+    if (!QNAME.test(req.template)) return bad(`template ${JSON.stringify(req.template)} is not a name`);
     if (!SHA.test(req.subject)) return bad("say takes a sha256 id as its subject, never a path");
     const args = ["say", req.template, req.subject];
     for (const k of Object.keys(req.fields ?? {}).sort()) {
@@ -181,19 +181,34 @@ export class CliTransport implements Transport {
     return this.outcome(args, (v) => assertObject(v, "install"));
   }
 
-  /** `cockpit ui list --json`, or the fixture in its shape until the verb lists declarations (v0.5.3). */
+  /**
+   * `cockpit ui list --json` (v0.5.3: packages, allowed, refused, ui entries, blocks, compositions). What it does not
+   * list yet, each member's content hash, comes from a stand-in file in its shape (setting kton.ui.listFixture),
+   * matched by package id: only `members`, plus ui entries the file marks `simulated` (a test's version skew).
+   * Everything else is the verb's. Without the setting, the verb alone (and nothing loads by hash).
+   */
   async uiList(): Promise<Outcome<UiListing>> {
-    if (this.opts.uiListFixture) {
-      const raw = await readFile(this.opts.uiListFixture, "utf8");
-      let v: unknown;
-      try {
-        v = JSON.parse(raw);
-      } catch (e) {
-        throw new TransportError(`ui list fixture: ${(e as Error).message}`, 0, "");
-      }
-      return { ok: true, value: assertUiListing(v) };
+    const real = await this.outcome(["ui", "list", "--json"], assertUiListing);
+    if (!real.ok || !this.opts.uiListFixture) return real;
+    let v: unknown;
+    try {
+      v = JSON.parse(await readFile(this.opts.uiListFixture, "utf8"));
+    } catch (e) {
+      throw new TransportError(`ui list stand-in: ${(e as Error).message}`, 0, "");
     }
-    return this.outcome(["ui", "list", "--json"], assertUiListing);
+    const stand = new Map(assertUiListing(v).packages.map((p) => [p.package, p]));
+    const raw = (v as { packages?: Array<{ package?: string; ui?: Array<Record<string, unknown>> }> }).packages ?? [];
+    return {
+      ok: true,
+      value: {
+        packages: real.value.packages.map((p) => {
+          const s = stand.get(p.package);
+          if (!s || !p.package) return p;
+          const simulated = (raw.find((r) => r.package === p.package)?.ui ?? []).filter((u) => u["simulated"] === true).map((u) => u["file"]);
+          return { ...p, members: s.members, ui: [...p.ui, ...s.ui.filter((u) => simulated.includes(u.file))] };
+        }),
+      },
+    };
   }
 
   /** blobs/<hh>/<hex> of an installed package under .kton/packages; nothing outside it is read. */
@@ -270,6 +285,8 @@ export class CliTransport implements Transport {
 }
 
 const NAME = /^[A-Za-z][A-Za-z0-9_.-]*$/;
+/** a name, or <package>/<name> as the cockpit offers a name two sources bring (v0.5.3, per-package vocabulary) */
+const QNAME = /^([A-Za-z][A-Za-z0-9_.-]*\/)?[A-Za-z][A-Za-z0-9_.-]*$/;
 const SHA = /^sha256:[0-9a-f]{64}$/;
 /** Queries whose ref is a record or content hash (cockpit/ask.go). */
 const LINEAGE: ReadonlySet<string> = new Set(["record", "producer", "uses", "lineage", "reproductions", "about"]);

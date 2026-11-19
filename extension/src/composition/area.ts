@@ -6,6 +6,7 @@ import type { Control, LeafViewer, Loaded, LoadedViewer, SlotEntry, ViewerTree }
 import { loadPackages } from "../packages/model.js";
 import type { TreeNode } from "../ui/host.js";
 import { CompositionHost, LeafHost, type Backend, type Plan } from "./host.js";
+import type { BoundTerm } from "../transport/port.js";
 import { applies, oneNumber, partition, planEntry, type Subject } from "./slots.js";
 
 export interface CompositionUi {
@@ -56,6 +57,8 @@ export class PackagesArea {
       if (text !== this.listingText || !this.loaded) {
         this.loaded = await loadPackages(out.value, (d, h) => this.t.packageBlob(d, h), this.vendored);
         this.listingText = text;
+        const l = await Promise.resolve().then(() => this.t.list()).catch(() => undefined);
+        this.queryNames = new Set(l?.ok ? l.value.queries.map((q) => q.name) : []);
         for (const r of this.loaded.refusals) this.ui.log(`package ${r.package} refused: ${r.file ? `${r.file}: ` : ""}${r.reason} (${r.code})`);
       }
       this.error = undefined;
@@ -96,6 +99,17 @@ export class PackagesArea {
       out[k] = v;
     }
     return out;
+  }
+
+  /** The names the cockpit offers its named queries under (`ask --json`): a clashing one as <package>/<name>. */
+  private queryNames = new Set<string>();
+
+  /** A package's named query: by <package>/<name> when the cockpit offers it so (two packages bring the name). */
+  private async named(pkg: string, name: string, terms: Readonly<Record<string, BoundTerm>>): Promise<unknown> {
+    const q = this.queryNames.has(`${pkg}/${name}`) ? `${pkg}/${name}` : name;
+    const out = await this.t.ask({ query: "sparql", name: q, ...(Object.keys(terms).length ? { bindTerms: terms } : {}), format: "sparql-results+json" });
+    if (!out.ok) throw new Error(`the cockpit refused ${q}: ${out.refusal.reason}`);
+    return out.value.results ?? { head: { vars: [] }, results: { bindings: [] } };
   }
 
   private async query(name: string, bind: Readonly<Record<string, string>>): Promise<unknown> {
@@ -147,7 +161,7 @@ export class PackagesArea {
     if (leaf) return this.openLeaf(key, e, s, leaf, loaded);
     let plan: Plan;
     try {
-      plan = await planEntry(e, s, loaded, this.path.identityName(), (n, b) => this.query(n, b));
+      plan = await planEntry(e, s, loaded, this.path.identityName(), (p, n, b) => this.named(p, n, b));
     } catch (err) {
       this.ui.error(`${e.label} cannot be shown: ${(err as Error).message}`);
       return undefined;
@@ -161,7 +175,7 @@ export class PackagesArea {
     // the frame imports each module from where the host serves its checked tree
     plan = { ...plan, uses: plan.uses.map((u) => ({ ...u, module: shown.urls.get((u as { module?: string }).module ?? "") ?? "" })) } as Plan;
     const backend: Backend = {
-      query: (name, bind) => this.query(name, bind),
+      query: (pkg, name, terms) => this.named(pkg, name, terms),
       bytes: (dir, hash) => this.t.packageBlob(dir, hash),
       open: (target) => this.path.open(target),
       act: (c, about, fields, title) => this.path.act(c, about, fields, title),
@@ -178,7 +192,7 @@ export class PackagesArea {
 
   private backend(): Backend {
     return {
-      query: (name, bind) => this.query(name, bind),
+      query: (pkg, name, terms) => this.named(pkg, name, terms),
       bytes: (dir, hash) => this.t.packageBlob(dir, hash),
       open: (target) => this.path.open(target),
       act: (c, about, fields, title) => this.path.act(c, about, fields, title),
@@ -202,7 +216,7 @@ export class PackagesArea {
     const closed: Record<string, string> = { "subject.id": s.id, "subject.iri": s.iri, "subject.kind": s.kind, ...(s.claim ? { "subject.claim": s.claim } : {}), ...(s.type ? { "subject.type": s.type } : {}), "identity.name": this.path.identityName() };
     let host: LeafHost | undefined;
     const shown = this.ui.showLeaf(panel, e.label, leaf, (m) => void host?.onMessage(m));
-    host = new LeafHost({ decl: leaf.decl, slot: e.slot }, { ...(e.inputs ? { inputs: e.inputs } : {}), ...(control ? { control } : {}), label: e.label }, { id: s.id, ...(s.claim ? { claim: s.claim } : {}), closed }, loaded, this.backend(), { post: shown.post, log: (l) => this.ui.log(l) });
+    host = new LeafHost({ decl: leaf.decl, slot: e.slot }, { ...(e.inputs ? { inputs: e.inputs } : {}), ...(control ? { control } : {}), label: e.label, package: e.package }, { id: s.id, ...(s.claim ? { claim: s.claim } : {}), closed }, loaded, this.backend(), { post: shown.post, log: (l) => this.ui.log(l) });
     this.hosts.set(panel, { host, package: e.package });
     return host;
   }

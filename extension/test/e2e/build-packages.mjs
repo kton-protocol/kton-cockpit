@@ -57,21 +57,8 @@ function hostile(name, variant) {
     if (variant === "network") cpSync(join(SRC, "hostile", "viewer-trees", "table-network", "index.js"), join(src, "viewers", "table", "index.js"));
     pin = { viewer: "table", at: `${name}@1`, tree: treeId(join(src, "viewers", "table")) };
   }
-  // The cockpit's vocabulary is one namespace over every admitted package: two that offer the same template or
-  // query name make it refuse every named query. Each case gets its own names (approves, items, item-card).
-  const tag = name.replace(/^hostile-/, "");
-  const NAMES = { approves: `${tag}-approves`, items: `${tag}-items`, "item-card": `${tag}-item-card` };
-  const rename = (rel, to) => cpSync(join(src, rel), join(src, to));
-  rename("templates/approves.json", `templates/${NAMES.approves}.json`);
-  rmSync(join(src, "templates", "approves.json"));
-  for (const q of ["items", "item-card"]) {
-    rename(`queries/${q}.rq`, `queries/${NAMES[q]}.rq`);
-    rmSync(join(src, "queries", `${q}.rq`));
-  }
-  for (const rel of ["templates/" + NAMES.approves + ".json", "controls/approve.json", "ui/review.json", "ui/compositions/list.json"]) {
-    const t = readFileSync(join(src, rel), "utf8").replace(/"(approves|items|item-card)"/g, (_m, n) => JSON.stringify(NAMES[n]));
-    writeFileSync(join(src, rel), t);
-  }
+  // The cases keep good/'s names (approves, items, item-card): since cockpit v0.5.3 the vocabulary is per
+  // package, and a name several admitted packages bring is offered as <package>/<name>, which the shell asks for.
   writeFileSync(join(src, "viewers", "table.json"), JSON.stringify(pin, null, 1));
   const block = JSON.parse(readFileSync(join(src, "ui", "blocks", "table.json"), "utf8"));
   block.viewer = pin;

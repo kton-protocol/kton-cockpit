@@ -9,7 +9,8 @@
 import { planRounds } from "../../media/kton-web/core/ktonpkg-mirror/plan.js";
 import type { Loaded, MirrorPackage, SlotEntry } from "../packages/model.js";
 import type { Plan, Term } from "./host.js";
-import { bindOf } from "./host.js";
+import { termsOf } from "./host.js";
+import type { BoundTerm } from "../transport/port.js";
 
 export const SLOTS = ["activity", "home-tile", "status-item", "review-view", "record-view", "run-action", "finding-source", "material-editor"] as const;
 /** Slots this shell renders in PR 2. finding-source (C3) and material-editor (after P5) are listed, not shown. */
@@ -64,11 +65,11 @@ export function compositionOf(e: SlotEntry, loaded: Loaded): { ref: { package: s
 }
 
 /** Plan an entry for a subject: compose rounds answered with named queries through the transport. */
-export async function planEntry(e: SlotEntry, subject: Subject, loaded: Loaded, identityName: string, query: (name: string, bind: Record<string, string>) => Promise<unknown>): Promise<Plan> {
+export async function planEntry(e: SlotEntry, subject: Subject, loaded: Loaded, identityName: string, query: (pkg: string, name: string, terms: Record<string, BoundTerm>) => Promise<unknown>): Promise<Plan> {
   const { ref, packages } = compositionOf(e, loaded);
   const mirrorSubject = { iri: subject.iri, id: subject.id, ...(subject.claim ? { claim: subject.claim } : {}) };
-  return (await planRounds(ref, mirrorSubject, {}, packages, { identity: { name: identityName } }, async (n: { query: { name: string }; params: Record<string, Term> }) => {
-    const r = (await query(n.query.name, bindOf(n.params))) as { results?: { bindings?: unknown[] } };
+  return (await planRounds(ref, mirrorSubject, {}, packages, { identity: { name: identityName } }, async (n: { query: { package: string; name: string }; params: Record<string, Term> }) => {
+    const r = (await query(n.query.package, n.query.name, termsOf(n.params))) as { results?: { bindings?: unknown[] } };
     return r.results?.bindings ?? [];
   })) as unknown as Plan;
 }

@@ -514,11 +514,12 @@ await step("S5", 3, "hostile packages: refusals reach the Packages view with the
   await views();
   const texts = (await page.locator(".monaco-list-row").allTextContents()).join("\n");
   for (const [what, re] of [
-    ["tampered after admission (shell, re-verify at load)", /hostile-tamperedrefused: package\.tampered/],
+    ["tampered after admission (the cockpit's own check, v0.5.3: only that package goes)", /hostile-tamperedrefused: package\.check/],
     ["viewer-pin-mismatch, with its reason", /hostile-pinrefused: viewer-pin-mismatch/],
     ["unknown slot (version skew): listed, not rendered", /hostile-good: Sidebar adnot rendered/],
   ]) check(re.test(texts), what, String(re), "not in the Home tree");
-  check(/viewers\/table\/index\.js changed after admission/.test(texts), "the tampered file is named", "…index.js changed after admission", "");
+  const tampered = JSON.parse(readFileSync(`${WORK}/ui-list.json`, "utf8")).packages.find((p) => p.name === "hostile-tampered").members.find((x) => x.name === "viewers/table/index.js").hash;
+  check(texts.includes(tampered.slice(0, 20)), "the reason names the tampered file's hash", tampered, "not in the Home tree");
   check(/pins viewer kton-web\/table at kton-web 39242b9f0bfc, which this shell does not carry/.test(texts), "the pin's reason is shown", "…which this shell does not carry", "");
   check(!/Sidebar ad\b(?!not)/.test(texts.replace(/Sidebar adnot rendered/g, "")), "the unknown slot has no place of its own");
   await shot("s5-packages-refused");
@@ -544,41 +545,51 @@ await step("S5", 5, "record view: kton-web's graph as a leaf; graph@1 answered w
   check(err === "", "the graph drew without an error", "", err);
   const stats = (await g.locator("#stats").innerText()).replace(/\s+/g, " ").trim();
   current.checks.push({ ok: true, message: `the graph's stats: ${stats}` });
-  // what graph@1 was answered with (cockpit show: keys.json = the configured trust tiers): every record's
-  // signers, in the ring or not. A record signed only by keys outside it is "not in the trusted keys"; a
-  // signature that fails against a key the ring holds is "unverified", and there must be none.
-  const m = JSON.parse((await cockpit([], undefined, { mirror: true })).stdout);
+  // what graph@1 was answered with (`cockpit show --json`, v0.5.3): every record's signers, against the trusted
+  // ring (keys, the configured tiers) and the admitted packages' build keys (packages: a label, never trust).
+  //   in keys                 -> verified
+  //   in packages             -> "signed by an admitted package" (checked against the package's key), never verified
+  //   neither                 -> "not in the trusted keys" (the tampered package: v0.5.3 labels no package failing its check)
+  //   in keys, does not check -> "unverified": there must be none
+  const shown = await cockpit(["show", "--json"]);
+  check(shown.code === 0, "cockpit show --json answered", 0, shown.code);
+  const m = JSON.parse(shown.stdout);
   const kidOf = (pubHex) => createHash("sha256").update(Buffer.from(pubHex.trim(), "hex")).digest("hex").slice(0, 16);
   const who = new Map(Object.entries(m.names));
   for (const p of readdirSync(`${WORK}/pkgs`)) for (const f of readdirSync(`${WORK}/pkgs/${p}/keys`)) who.set(f.replace(/\.pub$/, ""), `package ${p}`);
   for (const f of readdirSync(`${WORK}/vocab-package/keys`)) who.set(f.replace(/\.pub$/, ""), "package workbench-e2e-queries");
   for (const f of (existsSync(`${WORK}/outside`) ? readdirSync(`${WORK}/outside`) : []).filter((x) => x.endsWith("-claims.pub"))) who.set(kidOf(readFileSync(`${WORK}/outside/${f}`, "utf8")), `${f.replace(/\.pub$/, "")} (moved out of the trust config, S1.3)`);
-  const outside = new Map();
-  let inRing = 0;
+  const count = { ring: 0, pkg: new Map(), outside: new Map() };
   for (const r of m.union) {
     const kids = (r.envelope?.signatures ?? []).map((x) => x.keyid);
-    if (kids.some((k) => k in m.keys)) inRing++;
-    else for (const k of kids) outside.set(k, (outside.get(k) ?? 0) + 1);
+    if (kids.some((k) => k in m.keys)) count.ring++;
+    else if (kids.some((k) => k in m.packages)) for (const k of kids.filter((x) => x in m.packages)) count.pkg.set(k, (count.pkg.get(k) ?? 0) + 1);
+    else for (const k of kids) count.outside.set(k, (count.outside.get(k) ?? 0) + 1);
   }
-  const notInKeys = [...outside.values()].reduce((a, b) => a + b, 0);
-  const groups = [...outside.entries()].map(([k, n]) => `${k} ${who.get(k) ?? "?"}: ${n}`).sort();
-  current.checks.push({ ok: true, message: `records ${m.union.length}: ${inRing} signed by a key in keys.json; ${notInKeys} only by keys outside it: ${groups.join("; ")}` });
+  const sum = (mp) => [...mp.values()].reduce((a, b) => a + b, 0);
+  const list = (mp) => [...mp.entries()].map(([k, n]) => `${k} ${who.get(k) ?? "?"}${m.packages[k] ? ` [labelled: ${m.packages[k].packages.map((p) => p.package).join(", ")}]` : ""}: ${n}`).sort().join("; ");
+  current.checks.push({ ok: true, message: `records ${m.union.length}: ${count.ring} in the trusted ring; ${sum(count.pkg)} by admitted packages' build keys: ${list(count.pkg)}; ${sum(count.outside)} by keys in neither: ${list(count.outside)}` });
   current.checks.push({ ok: true, message: `keys.json (trusted): ${Object.keys(m.keys).map((k) => `${k} ${who.get(k) ?? "?"}`).sort().join("; ")}` });
-  const nk = /(\d+) signer not in the trusted keys/.exec(stats);
-  check(Number(nk?.[1] ?? 0) === notInKeys, "the graph's 'not in the trusted keys' are exactly the records signed only outside keys.json", notInKeys, Number(nk?.[1] ?? 0));
+  const num = (re) => Number(re.exec(stats)?.[1] ?? 0);
+  check(num(/(\d+) signed by an admitted package/) === sum(count.pkg), "records by admitted packages' build keys show as 'signed by an admitted package' (not a trust tier)", sum(count.pkg), num(/(\d+) signed by an admitted package/));
+  check(sum(count.pkg) > 0, "the seed has package-signed records", "> 0", sum(count.pkg));
+  check(num(/(\d+)\/\d+ verified/) === count.ring, "verified counts only the trusted ring, never a package's key", count.ring, num(/(\d+)\/\d+ verified/));
+  check(num(/(\d+) signer not in the trusted keys/) === sum(count.outside), "'not in the trusted keys' are the records signed by keys in neither", sum(count.outside), num(/(\d+) signer not in the trusted keys/));
   check(!/\d+ unverified/.test(stats), "0 unverified: every signature by a key the ring holds checks", "no 'unverified'", stats);
-  check([...outside.keys()].every((k) => who.has(k)), "every outside signer is accounted for (a package's key or the outsider)", "all known", groups);
+  check([...count.outside.keys(), ...count.pkg.keys()].every((k) => who.has(k)), "every signer outside the ring is accounted for", "all known", list(count.outside));
   check(leaked.length === 0, "nothing left the page", 0, leaked);
   await shot("s5-graph-leaf");
 });
 
 await step("S5", 4, "a package that is no longer admitted: its open panel closes at the next poll", async () => {
-  const f = `${WORK}/ui-list.json`;
-  const l = JSON.parse(readFileSync(f, "utf8"));
-  l.packages = l.packages.filter((p) => p.name !== "hostile-good");
-  writeFileSync(`${f}.tmp`, JSON.stringify(l));
-  renameSync(`${f}.tmp`, f);
-  await toast(/Closed hostile-good\/ui\/review\.json: package hostile-good is no longer admitted or loaded/).waitFor({ timeout: 30000 });
+  // the operator takes the package out of claims.allowedPackages: the cockpit's ui list says allowed: false
+  const id = JSON.parse(readFileSync(`${WORK}/ui-list.json`, "utf8")).packages.find((p) => p.name === "hostile-good").package;
+  const cf = `${WORK}/repo/.kton/cockpit.config.json`;
+  const cfg = JSON.parse(readFileSync(cf, "utf8"));
+  cfg.claims.allowedPackages = cfg.claims.allowedPackages.filter((x) => x !== id);
+  writeFileSync(`${cf}.tmp`, JSON.stringify(cfg, null, 2));
+  renameSync(`${cf}.tmp`, cf);
+  await toast(/Closed hostile-good\/review: package hostile-good is no longer admitted or loaded/).waitFor({ timeout: 30000 });
   await page.waitForTimeout(1000);
   let stale = 0;
   for (const fr of page.frames()) if (fr !== page.mainFrame()) stale += await fr.locator('[data-block="hostile-good/table"]').count().catch(() => 0);

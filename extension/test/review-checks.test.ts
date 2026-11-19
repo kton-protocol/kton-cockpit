@@ -265,3 +265,21 @@ test("check 7 (Q2): the person key id comes from the window's public key, as the
   assert.ok(!(await claimKeyId({ sessionId: "x" }, "qa-decider")).ok, "no keyring, no key id");
   assert.ok(!(await claimKeyId(hint, "")).ok);
 });
+
+test("a template two packages bring is signed as <package>/<name> (cockpit v0.5.3); the control's own package's, never another's", async () => {
+  const control: ControlInfo = { package: "pkg-a", name: "approve", template: "approves", kind: "decision" };
+  const listed: TemplateInfo[] = [
+    { name: "pkg-b/approves", fields: {}, package: "pkg-b" },
+    { name: "pkg-a/approves", fields: {}, package: "pkg-a" },
+  ];
+  const p = plan({ kind: "sign", about: SUBJECT, fields: {} }, control, listed, identity);
+  assert.ok(p.ok);
+  assert.equal(p.value.template, "pkg-a/approves");
+  const other = plan({ kind: "sign", about: SUBJECT, fields: {} }, control, [listed[0] as TemplateInfo], identity);
+  assert.ok(!other.ok, "another package's template of that name is not this control's");
+  // and the transport passes the qualified name as one argv element
+  const { transport, argvLog } = fakeCockpit([{ argv0: "say", stdout: JSON.stringify({ claimId: CLAIM, confirmation: "" }) }]);
+  await transport.say({ template: "pkg-a/approves", subject: SUBJECT });
+  assert.equal(argvLog()[0]?.[1], "pkg-a/approves");
+  assert.ok(!(await transport.say({ template: "pkg-a/../x", subject: SUBJECT })).ok);
+});
