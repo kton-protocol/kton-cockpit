@@ -157,3 +157,53 @@ func TestSay_ExpectTemplateHoldsForAQualifiedTemplate(t *testing.T) {
 		t.Errorf("say pa/approves with pb's hash (exit %d):\n%s", code, out)
 	}
 }
+
+// An alias file left at the repository root, where the cockpit read it before v0.5.5, is not ignored
+// silently: say, say --json and doctor name it. A predicate that is no IRI once resolved (a prefix no
+// alias file declares) is refused, not signed as written (kton-review M1 on #178).
+func TestSay_AMisplacedAliasFileAndAnUnresolvedPredicateAreRefused(t *testing.T) {
+	r := testrepo.New(t)
+	r.Use(t)
+	r.Write(t, ".kton/templates/release.json", `{"name": "release", "target": "either", "predicate": "rel:approves", "fields": {"note": {"type": "string"}}}`)
+	raw := r.Config(t).Raw
+	raw.Claims.AllowedTemplates = append(raw.Claims.AllowedTemplates, "release")
+	r.WriteConfig(t, raw)
+
+	if out, code := r.Cockpit(t, "say", "release", "urn:example:x", "note=ok"); code == 0 || !strings.Contains(out, "is no IRI") {
+		t.Errorf("say signs an unresolved predicate (exit %d):\n%s", code, out)
+	}
+	if out, _ := r.Cockpit(t, "doctor"); !strings.Contains(out, "is no IRI") {
+		t.Errorf("doctor does not name the unresolved predicate:\n%s", out)
+	}
+
+	r.Write(t, "aliases.json", `{"prefixes": {"rel": "https://example.org/release/"}}`)
+	for _, args := range [][]string{{"say", "release", "urn:example:x", "note=ok"}, {"say", "--json"}, {"doctor"}} {
+		if out, _ := r.Cockpit(t, args...); !strings.Contains(out, ".kton/aliases.json") {
+			t.Errorf("%v does not name the misplaced alias file:\n%s", args, out)
+		}
+	}
+	if out, code := r.Cockpit(t, "say", "release", "urn:example:x", "note=ok"); code == 0 {
+		t.Errorf("say signs with the alias file in the old place (exit 0):\n%s", out)
+	}
+}
+
+// The listed hash covers the alias file, not only the template: a prefix that only a field value
+// uses changes it (kton-review T11 on #178).
+func TestSay_TheHashCoversTheAliasFile(t *testing.T) {
+	r := testrepo.New(t)
+	r.Use(t)
+	r.Write(t, ".kton/templates/tagged.json", `{"name": "tagged", "target": "either", "predicate": "https://example.org/tagged", "fields": {"kind": {"type": "iri"}}}`)
+	r.Write(t, ".kton/aliases.json", `{"prefixes": {"v": "https://example.org/one/"}}`)
+	raw := r.Config(t).Raw
+	raw.Claims.AllowedTemplates = append(raw.Claims.AllowedTemplates, "tagged")
+	r.WriteConfig(t, raw)
+	_, before := sayListed(t, r, "tagged")
+	r.Write(t, ".kton/aliases.json", `{"prefixes": {"v": "https://example.org/two/"}}`)
+	_, after := sayListed(t, r, "tagged")
+	if before == after {
+		t.Fatal("the hash does not change when a field value's prefix does")
+	}
+	if out, code := r.Cockpit(t, "say", "tagged", "urn:example:x", "kind=v:a", "--expect-template", before); code != 2 {
+		t.Errorf("say with the hash from before the alias change (exit %d):\n%s", code, out)
+	}
+}

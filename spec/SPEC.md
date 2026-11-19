@@ -677,7 +677,14 @@ template's `predicate` and `context` as `say` will sign them (resolved through t
 aliases and `.kton/aliases.json`), its `hash`, and, for a package template, its `revision`.
 
 > **Checked by:** `TestSay_ExpectTemplateAndRevisionRefuseATemplateThatChanged`, `TestSay_TheListingGivesThePredicateAsSigned`,
-> `TestSay_ExpectTemplateHoldsForAQualifiedTemplate`.
+> `TestSay_ExpectTemplateHoldsForAQualifiedTemplate`, `TestSay_TheHashCoversTheAliasFile`.
+
+A template whose predicate or context is no IRI once resolved (a CURIE whose prefix no alias file
+declares) is refused by `say` and named by `doctor`, never signed as written. An `aliases.json` at the
+repository root while `.kton/aliases.json` is absent (where the cockpit read it before v0.5.5, and
+nekton's CLI still defaults) makes `say` and `say --json` refuse and `doctor` name it.
+
+> **Checked by:** `TestSay_AMisplacedAliasFileAndAnUnresolvedPredicateAreRefused`.
 
 **Why refusing was wrong.** An earlier version of this clause refused to write on both conditions.
 Besides contradicting the two clauses above, it was exploitable: a scope id is public and the

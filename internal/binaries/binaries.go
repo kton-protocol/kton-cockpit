@@ -69,6 +69,35 @@ func (r *Runner) TemplatesWithOrigins() (ntemplate.Set, map[string]TemplateOrigi
 // the sealed revision it came from.
 type TemplateOrigin struct {
 	Hash, Package, Revision string
+	// Problem says why say refuses the template: its predicate or context is no IRI once resolved.
+	Problem string
+}
+
+// MisplacedAliases names an alias file left at the repository root while .kton/aliases.json is absent:
+// the cockpit read it there before v0.5.5 and nekton's CLI defaults to it, so ignoring it silently would
+// sign its CURIEs as written (kton-review M1 on #178). "" when there is none.
+func MisplacedAliases(cfg *config.Config) string {
+	root := filepath.Join(cfg.RepoRoot, "aliases.json")
+	if _, err := os.Stat(root); err != nil {
+		return ""
+	}
+	if _, err := os.Stat(filepath.Join(cfg.KtonDir, "aliases.json")); err == nil {
+		return ""
+	}
+	return fmt.Sprintf("%s is the repository's alias file in the old place: since v0.5.0 it is .kton/aliases.json (SPEC §5.6); move it there, or say signs its CURIEs unresolved", root)
+}
+
+// isIRI says whether x is an IRI a predicate or context may be: scheme:// or urn:, tag:, did:, mailto:.
+func isIRI(x string) bool {
+	if strings.Contains(x, "://") {
+		return true
+	}
+	for _, p := range []string{"urn:", "tag:", "did:", "mailto:"} {
+		if strings.HasPrefix(strings.ToLower(x), p) {
+			return true
+		}
+	}
+	return false
 }
 
 // TemplateChanged is Annotate's refusal when the template is not the one the caller expected.
@@ -604,6 +633,9 @@ func (r *Runner) Annotate(ctx context.Context, subject, tmplName string, sets ma
 		}
 		return "", fmt.Errorf("no template %q in %s or in an allowed package", tmplName, r.cfg.TemplatesDir)
 	}
+	if p := origins[t.Name].Problem; p != "" {
+		return "", fmt.Errorf("%s", p)
+	}
 	if pred := set.Resolve(t.Predicate); r.ExpectPredicate != "" && pred != r.ExpectPredicate {
 		return "", &TemplateChanged{fmt.Sprintf("the template %q signs the predicate %s, not the %s expected: read it again, then say again", t.Name, pred, r.ExpectPredicate)}
 	}
@@ -711,6 +743,9 @@ func (r *Runner) TemplateClashes() []string {
 }
 
 func (r *Runner) templatesFull() (ntemplate.Set, map[string]packages.Aliases, []string, map[string]TemplateOrigin, error) {
+	if why := MisplacedAliases(r.cfg); why != "" {
+		return ntemplate.Set{}, nil, nil, nil, fmt.Errorf("%s", why)
+	}
 	aliasPath := filepath.Join(r.cfg.KtonDir, "aliases.json") // .kton/aliases.json (SPEC §5.6)
 	var aliases []byte
 	if b, err := os.ReadFile(aliasPath); err == nil {
@@ -819,6 +854,12 @@ func (r *Runner) templatesFull() (ntemplate.Set, map[string]packages.Aliases, []
 		}
 		canon, _ := json.Marshal(t)
 		o := origins[name]
+		for _, x := range []struct{ what, v string }{{"predicate", t.Predicate}, {"context", t.Context}} {
+			if x.v != "" && !isIRI(x.v) && o.Problem == "" {
+				o.Problem = fmt.Sprintf("the template %s's %s %s is no IRI: its prefix is declared by no alias file", name, x.what, x.v)
+				clashes = append(clashes, o.Problem)
+			}
+		}
 		o.Hash = hashOf(append(append(canon, '\n'), aliasHash...))
 		origins[name] = o
 	}

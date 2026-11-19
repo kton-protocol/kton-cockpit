@@ -84,9 +84,12 @@ type TemplateField struct {
 	FilledBy string   `json:"filledBy,omitempty"`
 }
 
-func sayListing(cfg *config.Config) []Template {
+func sayListing(cfg *config.Config) ([]Template, error) {
 	out := []Template{}
 	set, origins, serr := binaries.New(cfg).TemplatesWithOrigins()
+	if why := binaries.MisplacedAliases(cfg); why != "" {
+		return nil, fmt.Errorf("%s", why)
+	}
 	for _, t := range readTemplates(cfg) {
 		e := Template{Name: t.Name, About: orDefault(t.Target, "foton"), Predicate: t.Predicate, Fields: map[string]TemplateField{}}
 		if st, ok := set.Get(t.Name); serr == nil && ok {
@@ -105,7 +108,7 @@ func sayListing(cfg *config.Config) []Template {
 		}
 		out = append(out, e)
 	}
-	return out
+	return out, nil
 }
 
 func shellSay(ctx context.Context, args []string) error {
@@ -118,7 +121,11 @@ func shellSay(ctx context.Context, args []string) error {
 		return nil
 	}
 	if len(args) == 1 && args[0] == "--json" {
-		return printJSON(sayListing(cfg))
+		ts, err := sayListing(cfg)
+		if err != nil {
+			return err
+		}
+		return printJSON(ts)
 	}
 	in := cockpit.SayRequest{Template: args[0], Fields: map[string]string{}}
 	asJSON := false
