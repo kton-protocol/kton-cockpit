@@ -202,42 +202,57 @@ func replacing(h, old string) Quad {
 	return Quad{G: npNS + h + ".#assertion", S: iri(npNS + h + ".#o"), P: iri(nkNS + "replaces"), O: iri(oNS + old)}
 }
 
-// ADR-013 A5: every name in replaces is projected as nk:replaces, whoever signed either claim; only
-// a replacement by the same signer, of the same template, about a shared subject, retires a claim
-// with nk:replacedBy. kton-review M1: (a) a different key's replaces leaves an approval standing;
-// M3: (b) a name in upper case still marks.
+// claimQuadsBy is claimQuads with an attribution graph for each further co-signer.
+func claimQuadsBy(h, subject, pred, created string, kids ...string) (all, pubinfo []Quad) {
+	all, pubinfo = claimQuads(h, subject, pred, nil, created, "", "", kids[0])
+	for _, kid := range kids[1:] {
+		all = append(all, Quad{G: attrNS + h + "/" + kid, S: iri(npNS + h + "."), P: iri("http://purl.org/dc/terms/creator"), O: iri(agentNS + kid)})
+	}
+	return all, pubinfo
+}
+
+// ADR-013 A5: every name in replaces is projected as nk:replaces, whoever signed either claim; a
+// replacement retires a claim with nk:replacedBy only when every signer of the replaced claim signed
+// it too, it has the same template, and the two share a subject. kton-review M1: (a) a different
+// key's replaces leaves an approval standing; M3: (b) a name in upper case still marks; C1: one of
+// two co-signers cannot retire a co-signed claim, both together can.
 func TestClaimView_ReplacedByOnlyForTheSameSignerTemplateAndSubject(t *testing.T) {
 	const model, other = "https://ex.org/model", "https://ex.org/other"
 	approval, status := "https://ex.org/approval", "https://ex.org/status"
 	var trusted, structure []Quad
-	add := func(all, pub []Quad, extra ...Quad) {
-		trusted, structure = append(trusted, append(all, extra...)...), append(structure, pub...)
+	add := func(h, subject, pred, created, old string, kids ...string) {
+		a, p := claimQuadsBy(h, subject, pred, created, kids...)
+		if old != "" {
+			a = append(a, replacing(h, old))
+		}
+		trusted, structure = append(trusted, a...), append(structure, p...)
 	}
-	add(claimQuads("a1", model, approval, nil, "2026-01-01T00:00:00Z", "", "", "k1"))
-	add(claimQuads("a2", model, approval, nil, "2026-01-02T00:00:00Z", "", "", "k1"), replacing("a2", "a1"))
-	// (a) another trusted key names a2: projected, but a2 stands.
-	add(claimQuads("b1", model, approval, nil, "2026-01-03T00:00:00Z", "", "", "k2"), replacing("b1", "a2"))
-	// (b) upper case still names c1.
-	add(claimQuads("c1", other, approval, nil, "2026-01-04T00:00:00Z", "", "", "k1"))
-	add(claimQuads("c2", other, approval, nil, "2026-01-05T00:00:00Z", "", "", "k1"), replacing("c2", "C1"))
-	// Another template, or another subject, by the same key: projected, retires nothing.
-	add(claimQuads("d1", model, status, nil, "2026-01-06T00:00:00Z", "", "", "k1"))
-	add(claimQuads("d2", model, approval, nil, "2026-01-07T00:00:00Z", "", "", "k1"), replacing("d2", "d1"))
-	add(claimQuads("e1", other, approval, nil, "2026-01-08T00:00:00Z", "", "", "k1"))
-	add(claimQuads("e2", model, approval, nil, "2026-01-09T00:00:00Z", "", "", "k1"), replacing("e2", "e1"))
+	add("a1", model, approval, "2026-01-01T00:00:00Z", "", "k1")
+	add("a2", model, approval, "2026-01-02T00:00:00Z", "a1", "k1")
+	add("b1", model, approval, "2026-01-03T00:00:00Z", "a2", "k2") // (a) another key names a2: a2 stands
+	add("c1", other, approval, "2026-01-04T00:00:00Z", "", "k1")
+	add("c2", other, approval, "2026-01-05T00:00:00Z", "C1", "k1") // (b) upper case still names c1
+	add("d1", model, status, "2026-01-06T00:00:00Z", "", "k1")
+	add("d2", model, approval, "2026-01-07T00:00:00Z", "d1", "k1") // another template: retires nothing
+	add("e1", other, approval, "2026-01-08T00:00:00Z", "", "k1")
+	add("e2", model, approval, "2026-01-09T00:00:00Z", "e1", "k1") // another subject: retires nothing
+	add("f1", model, approval, "2026-01-10T00:00:00Z", "", "k1", "k3")
+	add("f2", model, approval, "2026-01-11T00:00:00Z", "f1", "k3") // C1: one co-signer alone: f1 stands
+	add("g1", other, approval, "2026-01-12T00:00:00Z", "", "k1", "k3")
+	add("g2", other, approval, "2026-01-13T00:00:00Z", "g1", "k3", "k1") // both co-signers: g1 retired
 
 	rng := rand.New(rand.NewSource(1))
 	for i := 0; i < 50; i++ {
 		rng.Shuffle(len(trusted), func(a, b int) { trusted[a], trusted[b] = trusted[b], trusted[a] })
 		rng.Shuffle(len(structure), func(a, b int) { structure[a], structure[b] = structure[b], structure[a] })
 		view := ClaimView(trusted, structure, ViewConfig{})
-		for h, want := range map[string]string{"a1": "a2", "a2": "", "c1": "c2", "d1": "", "e1": ""} {
+		for h, want := range map[string]string{"a1": "a2", "a2": "", "c1": "c2", "d1": "", "e1": "", "f1": "", "g1": "g2"} {
 			got := values(view, oNS+h, nkNS+"replacedBy")
 			if (want == "" && len(got) != 0) || (want != "" && (len(got) != 1 || got[0] != oNS+want)) {
 				t.Fatalf("build %d: %s replacedBy %v, want %q", i, h, got, want)
 			}
 		}
-		for h, want := range map[string]string{"a2": "a1", "b1": "a2", "c2": "c1", "d2": "d1", "e2": "e1"} {
+		for h, want := range map[string]string{"a2": "a1", "b1": "a2", "c2": "c1", "d2": "d1", "e2": "e1", "f2": "f1", "g2": "g1"} {
 			if got := values(view, oNS+h, nkNS+"replaces"); len(got) != 1 || got[0] != oNS+want {
 				t.Fatalf("build %d: %s replaces %v, want %s (every name is projected, in lower case)", i, h, got, want)
 			}

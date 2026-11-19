@@ -977,7 +977,7 @@ with every other store that names records by hash. Nanopub's Trusty URIs belong 
 | `nk:position` | its place in the chain; the seed is 0. Unscoped claims are in the root scope's chain (kton #213) |
 | `nk:genesis` | `true` on a seed |
 | `nk:parent` | on a seed: the parent scope's seed (kton #241) |
-| `nk:replacedBy` | on a claim that a trusted claim of the same signer, the same template and a shared `nk:about` names in its `replaces` field: that claim (ADR-013 amendment, A5) |
+| `nk:replacedBy` | on a claim that a trusted claim names in its `replaces` field, when every signer of the replaced claim also signed the replacing one, with the same template and a shared `nk:about`: that claim (ADR-013 amendment, A5) |
 | `nk:replaces` | from a trusted claim to every claim its `replaces` field names, whoever signed either; a rule decides what a name by another signer means (ADR-013 amendment, A5) |
 | a field | under the term the template's aliases give it, else `lab:<field>` (`https://kton.dev/v/lab/`), typed by the field's type (`docs/sparql.md`) |
 

@@ -104,8 +104,9 @@ claim does not make an earlier one anything unless it says so.
 
 **A claim says what it replaces.** A template with `"replace": "previous"` has the signing tool fill
 the reserved field `replaces` with the claim it replaces. Every name in it is `nk:replaces`, whoever
-signed either claim. `nk:replacedBy` is only where the replacing claim has the same signer (a key
-that verifies both), the same template, and a subject in common (ADR-013 A5). What a name by another
+signed either claim. `nk:replacedBy` is only where every key that verifies the replaced claim also
+verifies the replacing one, with the same template and a subject in common (ADR-013 A5): one of two
+co-signers cannot withdraw the other's signature. What a name by another
 signer means is your rule's decision, so a query that wants what still stands asks
 `FILTER NOT EXISTS { ?claim nk:replacedBy ?any }`, and a rule that also accepts another key's
 replacement asks `nk:replaces` with that key. An alias may not name a term the projection writes

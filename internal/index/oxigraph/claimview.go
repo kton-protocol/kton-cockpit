@@ -239,9 +239,10 @@ func ClaimView(trusted, structure []Quad, vc ViewConfig) []Quad {
 	}
 
 	// Replaced (ADR-013 A5): a claim names what it replaces in its replaces field, and every such
-	// name is projected as nk:replaces whoever signed either claim. Only a replacement by the same
-	// signer, of a claim of the same template about a shared subject, retires a claim: that is
-	// nk:replacedBy. What a name by another signer means is a rule's decision, not the view's.
+	// name is projected as nk:replaces whoever signed either claim. A replacement retires a claim
+	// (nk:replacedBy) only when every trusted signer of the replaced claim signed the replacement too,
+	// it has the same template, and the two share a subject: one of two co-signers cannot withdraw
+	// the other's signature (kton-review C1 on #146). What any other name means is a rule's decision.
 	replacedBy := map[string][]string{}
 	for _, r := range claims {
 		if len(r.signers) == 0 || !r.hasPred {
@@ -250,7 +251,7 @@ func ClaimView(trusted, structure []Quad, vc ViewConfig) []Quad {
 		for _, x := range r.replaces {
 			old := claims[x]
 			if old == nil || old == r || len(old.signers) == 0 || !old.hasPred || old.pred.Value != r.pred.Value ||
-				!sharesAny(old.signers, r.signers) || !sharesTerm(old.about, r.about) {
+				!subsetOf(old.signers, r.signers) || !sharesTerm(old.about, r.about) {
 				continue
 			}
 			if !contains(replacedBy[x], r.hex) {
@@ -455,13 +456,14 @@ func sharesTerm(a, b []Term) bool {
 	return false
 }
 
-func sharesAny(a, b []string) bool {
+// subsetOf reports whether every element of a is in b.
+func subsetOf(a, b []string) bool {
 	for _, x := range a {
-		if contains(b, x) {
-			return true
+		if !contains(b, x) {
+			return false
 		}
 	}
-	return false
+	return true
 }
 
 func contains(xs []string, x string) bool {
