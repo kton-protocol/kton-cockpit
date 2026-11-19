@@ -131,9 +131,11 @@ func standardResults(t *testing.T) {
 	const q = `PREFIX dct: <http://purl.org/dc/terms/>
 PREFIX nk: <https://kton.dev/v/>
 SELECT ?step ?when ?text WHERE {
-  ?c nk:about ?step ; nk:predicate dct:description ; nk:current true ; dct:created ?when ;
+  ?c nk:about ?step ; nk:predicate dct:description ; dct:created ?when ;
      <https://kton.dev/v/lab/value> ?text .
-}`
+}
+ORDER BY DESC(?when)
+LIMIT 1`
 	res, out, err := Ask(context.Background(), nil, AskRequest{Query: "sparql", Sparql: q, Format: SparqlFormatStandard})
 	if err != nil || res.IsError {
 		t.Fatalf("%v %s", err, errText(res))
@@ -206,7 +208,7 @@ func TestSparql_TheExamplesAnswerOverAFixture(t *testing.T) {
 				t.Errorf("want both descriptions and the rationale, from the claim nodes: %v", a.Rows)
 			}
 		}},
-		{"The current description of a step", map[string]string{"STEP": f.step}, func(t *testing.T, a *SparqlAnswer) {
+		{"The latest description of a step", map[string]string{"STEP": f.step}, func(t *testing.T, a *SparqlAnswer) {
 			if len(a.Rows) != 1 || a.Rows[0]["text"] != "dropped rows without a visit date, and duplicates" || a.Rows[0]["by"] == "" {
 				t.Errorf("want the newer description alone, with its signer's name: %v", a.Rows)
 			}

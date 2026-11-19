@@ -928,7 +928,7 @@ example there is run by a test.
 > `TestSparql_RefusesWhatItWouldNotAnswer`, `TestSparql_ChecksTheQueryAndNeedsAnEngine`,
 > `TestVocabulary_AnAllowedPackageBringsItsTemplatesAndQueries` (`-tags docker`),
 > `TestShellSparql_ReadsTheQueryFromAFile`,
-> `TestParseResults_ReadsASelectAndAnAsk`, `TestClaimView_KeepsPositionAndCurrent`,
+> `TestParseResults_ReadsASelectAndAnAsk`, `TestClaimView_KeepsPositionAndInfersNothing`,
 > `TestClaimView_AppliesTheTemplatesTermsAndTypes`, `TestBind_GoesFirstIntoTheWhereClause`, `TestSparql_TheExamplesAnswerOverAFixture` (with its
 > standard-results subtests; `-tags docker`).
 
@@ -977,18 +977,19 @@ with every other store that names records by hash. Nanopub's Trusty URIs belong 
 | `nk:position` | its place in the chain; the seed is 0. Unscoped claims are in the root scope's chain (kton #213) |
 | `nk:genesis` | `true` on a seed |
 | `nk:parent` | on a seed: the parent scope's seed (kton #241) |
-| `nk:replacedBy` | on a claim another trusted claim names in its `replaces` field: that claim (ADR-013 amendment) |
+| `nk:replacedBy` | on a claim that a trusted claim names in its `replaces` field, when every signer of the replaced claim also signed the replacing one, with the same template and a shared `nk:about`: that claim (ADR-013 amendment, A5) |
+| `nk:replaces` | from a trusted claim to every claim its `replaces` field names, whoever signed either; a rule decides what a name by another signer means (ADR-013 amendment, A5) |
 | a field | under the term the template's aliases give it, else `lab:<field>` (`https://kton.dev/v/lab/`), typed by the field's type (`docs/sparql.md`) |
 
 No other state is inferred: nothing is "current", nothing is superseded unless a claim says so. An alias
-MUST NOT name a term of this table. Until v0.5.0 the projection still writes the vocabulary 0 terms
-`nk:current` and `nk:supersededBy`, one `nk:about`, and no `nk:parent`; they go with v0.5.0, without a
-compatibility period.
+MUST NOT name a term of this table. A claim id in `replaces` and in a `ref` field is named in lower case.
+The vocabulary 0 terms `nk:current` and `nk:supersededBy` are gone with v0.5.0, without a compatibility
+period.
 
-> **Checked by:** `TestClaimView_KeepsPositionAndCurrent`, `TestClaimView_AppliesTheTemplatesTermsAndTypes`,
+> **Checked by:** `TestClaimView_KeepsPositionAndInfersNothing`, `TestClaimView_AppliesTheTemplatesTermsAndTypes`,
 > `TestClaimView_ARefFieldPointsAtWhatItNames`, `TestClaimView_AnAliasCannotNameATermTheViewWrites`,
-> `TestSparql_TheExamplesAnswerOverAFixture` (`-tags docker`). The vocabulary 1 terms are checked by the
-> tests that land with them in v0.5.0.
+> `TestClaimView_ReplacedByOnlyForTheSameSignerTemplateAndSubject`, `TestClaimView_EveryAboutAndASeedsParent`,
+> `TestSparql_TheExamplesAnswerOverAFixture` (`-tags docker`).
 
 ## 10 Execution *(optional)*
 
