@@ -28,6 +28,11 @@ func persist(ctx context.Context, cfg *config.Config, paths []string, message st
 
 // shareable refuses a repo-relative path that is, or contains, .kton/local/.
 func shareable(p string) error {
+	// A leading ':' is git pathspec magic (':(top)…', ':/…'). git runs with literal pathspecs, so it
+	// would name a file of that name; it is refused here too, so the guard rests on neither alone.
+	if strings.HasPrefix(p, ":") {
+		return fmt.Errorf("%q starts with ':', which git reads as pathspec magic — refusing", p)
+	}
 	c := strings.ToLower(path.Clean(filepath.ToSlash(p)))
 	local := strings.ToLower(config.Rel("local"))
 	if c == "." || c == strings.ToLower(config.Dir) || c == local || strings.HasPrefix(c, local+"/") {

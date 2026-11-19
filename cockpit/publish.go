@@ -579,6 +579,11 @@ func validatePublishPath(cfg *config.Config, p string) error {
 	if strings.HasPrefix(p, "-") {
 		return fmt.Errorf("%q looks like a command-line flag (starts with -), not a path — refusing", p)
 	}
+	// Pathspec magic (':(top).kton/local', ':/…') would name a path other than the one checked below.
+	// git runs with literal pathspecs as well; this refuses it before git is reached.
+	if strings.HasPrefix(p, ":") {
+		return fmt.Errorf("%q starts with ':', which git reads as pathspec magic — refusing", p)
+	}
 
 	clean := filepath.ToSlash(filepath.Clean(p))
 	if strings.HasPrefix(clean, "-") {

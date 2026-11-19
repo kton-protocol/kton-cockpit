@@ -7,6 +7,7 @@ package gitrepo
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
@@ -127,6 +128,7 @@ func TrackedUnder(ctx context.Context, root, dir string) ([]string, error) {
 func output(ctx context.Context, dir string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "GIT_LITERAL_PATHSPECS=1") // a path is the path, never pathspec magic
 	out, err := cmd.Output()
 	if err != nil {
 		return "", err
