@@ -2,6 +2,7 @@ package cockpit
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"sort"
@@ -39,6 +40,12 @@ type SayRequest struct {
 	// exactly that head, and refused if it is no longer one: another process or an agent wrote
 	// first, and appending anyway would fork the conversation without anyone deciding to.
 	ExpectHead string `json:"expectHead,omitempty" jsonschema:"optional, with scope: the scope head (claim id) you last saw; refused if the head has moved since"`
+	// ExpectTemplate and ExpectRevision bind the claim to the template the caller showed a person: the
+	// sha256 of the template's bytes (a package template's member hash, as ui list gives it), and the
+	// package revision it came from. Either refuses template.changed when the template say would sign
+	// with is not that one, so a consent given in a dialog holds (kton-review R1 on #177).
+	ExpectTemplate string `json:"expectTemplate,omitempty" jsonschema:"optional: the sha256 of the template's bytes you showed; refused (template.changed) if the template is another"`
+	ExpectRevision string `json:"expectRevision,omitempty" jsonschema:"optional: the package revision the template came from when you showed it; refused (template.changed) if it comes from another"`
 	// As names who the claim is said as: a key in identity.keyring whose public half a trust tier
 	// holds. Omitted, the claim is signed with this repository's nekton_key.
 	As string `json:"as,omitempty" jsonschema:"optional: sign as this key of identity.keyring (<name>-claims.key), which must be in a trust tier"`
@@ -120,6 +127,14 @@ func (c *Cockpit) Say(ctx context.Context, in SayRequest) (*SayResult, error) {
 	}
 
 	r := binaries.New(cfg)
+	if in.ExpectTemplate != "" {
+		h, ok := core.NormalizeContentHash(in.ExpectTemplate)
+		if !ok {
+			return nil, refuse("argument", "SPEC §8", "expectTemplate is a content hash (sha256:<hex>), not %q", in.ExpectTemplate)
+		}
+		r.ExpectTemplate = h
+	}
+	r.ExpectRevision = in.ExpectRevision
 	sets := map[string]string{}
 	for k, v := range in.Fields {
 		sets[k] = v
@@ -174,7 +189,10 @@ func (c *Cockpit) Say(ctx context.Context, in SayRequest) (*SayResult, error) {
 		}
 	}
 	claimID, err := r.Annotate(ctx, in.Subject, in.Template, sets, signKey, chain)
-	if err != nil {
+	var changed *binaries.TemplateChanged
+	if errors.As(err, &changed) {
+		return nil, refuse("template.changed", "SPEC §8", "%s", changed.Reason)
+	} else if err != nil {
 		return nil, refuse("kernel", "", "nekton annotate failed: %v", err)
 	}
 

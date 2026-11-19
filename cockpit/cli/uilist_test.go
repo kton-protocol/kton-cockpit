@@ -348,55 +348,30 @@ func TestUICat_SeveralMembersInOneCall(t *testing.T) {
 }
 
 // A package whose member claim, signed with its own key, names a path that climbs out of its folder is
-// refused: ui list shows it with no members and package.check, and ui cat serves nothing from it
-// (kton-review F1 on #174).
+// refused: install refuses it, and one an older cockpit installed and admitted is listed with no members
+// and package.check, and ui cat serves nothing from it (kton-review F1 on #174). The fixture was built
+// with ktonpkg v0.9.8, which still signed such a name; v0.9.9 refuses it when writing.
 func TestUIList_APackageWithAClimbingMemberNameIsRefused(t *testing.T) {
 	r := testrepo.New(t)
 	r.Use(t)
-	_, key, _ := ed25519.GenerateKey(rand.Reader)
-	src := t.TempDir()
-	os.MkdirAll(filepath.Join(src, "templates"), 0o755)
-	os.WriteFile(filepath.Join(src, "templates", "notes.json"), []byte(tmpl("notes", "https://example.org/notes")), 0o644)
-	dir := filepath.Join(t.TempDir(), "words")
-	if _, _, err := scope.BuildTemplates(dir, "words", "v1", filepath.Join(src, "templates"), "", key, scope.Options{}); err != nil {
+	fixture, err := filepath.Abs(filepath.Join("testdata", "hostile-words"))
+	if err != nil {
 		t.Fatal(err)
 	}
-	climb := func(dir string) string {
-		t.Helper()
-		p, err := scope.Open(dir)
-		if err != nil {
-			t.Fatal(err)
-		}
-		rev, _, err := p.WithSigner(key, scope.Options{}).Sealed()
-		if err != nil {
-			t.Fatal(err)
-		}
-		h, err := rev.P.PutBlob([]byte("escape\n"))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, err := rev.Claim(h, scope.PartOf, map[string]any{"value": map[string]any{"role": scope.RoleViewerFile, "name": "viewers/table/../../../ZZ-escape.txt"}}); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := rev.Seal(); err != nil {
-			t.Fatal(err)
-		}
-		return h
-	}
-	// Install refuses it.
-	bad := filepath.Join(t.TempDir(), "bad")
-	if _, _, err := scope.BuildTemplates(bad, "bad", "v1", filepath.Join(src, "templates"), "", key, scope.Options{}); err != nil {
-		t.Fatal(err)
-	}
-	climb(bad)
-	if _, err := cockpit.New(cockpit.Start{}).Install(context.Background(), cockpit.InstallRequest{Path: bad, Allow: true}); err == nil {
+	const h = "sha256:41b20806979a13f9037e99c61a755ce56f9dc5f3e1933605dc68b68170cb0a64" // the climbing member
+	if _, err := cockpit.New(cockpit.Start{}).Install(context.Background(), cockpit.InstallRequest{Path: fixture, Allow: true}); err == nil {
 		t.Error("install admits a package with a climbing member name")
 	}
-	// One installed and admitted before the check, changed in place, is refused by ui list and ui cat.
-	if _, err := cockpit.New(cockpit.Start{}).Install(context.Background(), cockpit.InstallRequest{Path: dir, Allow: true}); err != nil {
+	if err := os.CopyFS(filepath.Join(r.Root, ".kton", "packages", "words@v1"), os.DirFS(fixture)); err != nil {
 		t.Fatal(err)
 	}
-	h := climb(filepath.Join(r.Root, ".kton", "packages", "words@v1"))
+	p, err := scope.Open(fixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw := r.Config(t).Raw
+	raw.Claims.AllowedPackages = append(raw.Claims.AllowedPackages, p.ID)
+	r.WriteConfig(t, raw)
 
 	stdout, _, _ := r.CockpitSplit(t, "ui", "list", "--json")
 	var l struct {

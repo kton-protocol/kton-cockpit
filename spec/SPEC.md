@@ -662,6 +662,16 @@ head refuses it, trusted or not. The caller reads what was written and decides.
 > `TestScope_NeitherABranchNorAGapStopsAClaimBeingRecorded`,
 > `TestScope_ExpectHeadAppendsOnlyToTheHeadTheCallerSaw`.
 
+**A caller MAY name the template it showed (`expectTemplate`, `expectRevision`).** `expectTemplate`
+is the sha256 of the template's bytes as its source holds them (for a package template, its member hash
+in `ui list`); `expectRevision` is the sealed package revision it came from (`ui list`'s `revision`).
+`say` refuses `template.changed` when the template it would sign with, read in the same load it signs
+from, is another: so a person's consent to what a frontend showed holds through an upgrade of the
+package between the showing and the signature. A repository template has no revision, so
+`expectRevision` refuses it.
+
+> **Checked by:** `TestSay_ExpectTemplateAndRevisionRefuseATemplateThatChanged`.
+
 **Why refusing was wrong.** An earlier version of this clause refused to write on both conditions.
 Besides contradicting the two clauses above, it was exploitable: a scope id is public and the
 substrate restricts nobody from chaining under it, so one claim from a key in no configured trust

@@ -23,7 +23,7 @@ import (
 )
 
 func sayOverview(ctx context.Context, cfg *config.Config) {
-	fmt.Println("cockpit say <template> <run|file|sha256:id> [field=value]... [--scope NAME [--expect-head ID]] [--as NAME] [--json]")
+	fmt.Println("cockpit say <template> <run|file|sha256:id> [field=value]... [--scope NAME [--expect-head ID]] [--expect-template HASH] [--expect-revision ID] [--as NAME] [--json]")
 	fmt.Println()
 	ts := readTemplates(cfg)
 	if len(ts) == 0 {
@@ -124,6 +124,16 @@ func shellSay(ctx context.Context, args []string) error {
 				return fmt.Errorf("--as needs a key name of identity.keyring")
 			}
 			in.As = args[i+1]
+			i++
+		case a == "--expect-template" || a == "--expect-revision":
+			if i+1 >= len(args) {
+				return fmt.Errorf("%s needs the template hash or package revision you showed", a)
+			}
+			if a == "--expect-template" {
+				in.ExpectTemplate = args[i+1]
+			} else {
+				in.ExpectRevision = args[i+1]
+			}
 			i++
 		case a == "--expect-head":
 			if i+1 >= len(args) {

@@ -1,0 +1,1 @@
+{"name": "notes", "target": "either", "predicate": "https://example.org/notes", "fields": {"note": {"type": "string"}}}

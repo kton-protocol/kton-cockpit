@@ -125,9 +125,10 @@ func Find(repoRoot, name string) (*Installed, error) {
 
 // Source says where a template or query came from.
 type Source struct {
-	Package string // package id
-	Name    string
-	Dir     string
+	Package  string // package id
+	Name     string
+	Dir      string
+	Revision string // the sealed revision it came from (empty for a built-in module)
 }
 
 // Vocabulary is what the allowed packages contribute: templates and queries by name, and the MCP
@@ -343,7 +344,7 @@ func Allowed(repoRoot string, allowed, modules []string) (*Vocabulary, error) {
 	}
 	v.Refused = append(v.Refused, refused...)
 	for _, in := range usable {
-		src := Source{Package: in.Package.ID, Name: in.Package.Name, Dir: in.Dir}
+		src := Source{Package: in.Package.ID, Name: in.Package.Name, Dir: in.Dir, Revision: in.Revision.ID}
 		refuse := func(reason string) { v.Refused = append(v.Refused, Refused{Source: src, Reason: reason}) }
 		ts, err := in.Revision.Templates()
 		if err != nil {
