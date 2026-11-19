@@ -2,6 +2,8 @@ package cockpit
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -19,8 +21,21 @@ func TestPersist_NeverTakesKtonLocal(t *testing.T) {
 			t.Errorf("%s: want refused, got %v", p, err)
 		}
 	}
+	// Pathspec magic names .kton/local by another spelling (kton-review L1 on #143). It is refused,
+	// and the guard does not rest on .gitignore: without it git would take the path as named.
+	os.Remove(filepath.Join(r.Root, ".kton", ".gitignore"))
+	for _, p := range []string{":/.kton/local/identity.json", ":(top).kton/local", ":(glob).kton/loca[l]"} {
+		if _, err := persist(context.Background(), cfg, []string{p}, "leak"); err == nil {
+			t.Errorf("%s: want refused, got nil", p)
+		}
+	}
 	if r.HeadSHA(t) != before {
 		t.Fatal("a refused persist committed")
+	}
+	for _, f := range r.TrackedFiles(t) {
+		if strings.HasPrefix(f, ".kton/local") {
+			t.Fatalf("%s is tracked", f)
+		}
 	}
 	// The negative control: the registries under .kton/ are persisted as before.
 	if _, err := persist(context.Background(), cfg, []string{".kton/nekton"}, "fine"); err != nil {

@@ -76,7 +76,8 @@ func TestValidatePublishPath_RejectsLeadingDashPaths(t *testing.T) {
 func TestValidatePublishPath_RejectsTheKtonFolder(t *testing.T) {
 	cfg := denylistTestConfig()
 	for _, p := range []string{".kton", ".kton/cockpit.config.json", ".kton/keys/self/session-1.pub",
-		".kton/local/identity.json", ".kton/plankton/objects/x.json", ".KTON/cockpit.config.json"} {
+		".kton/local/identity.json", ".kton/plankton/objects/x.json", ".KTON/cockpit.config.json",
+		":(top).kton/local", ":/.kton/local/identity.json"} { // pathspec magic: kton-review L1 on #143
 		if err := validatePublishPath(cfg, p); err == nil {
 			t.Errorf("expected %q under .kton/ to be rejected", p)
 		}

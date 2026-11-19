@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -404,5 +405,43 @@ exit 0
 
 	if sha, err := CommitAndPush(context.Background(), Git{Root: repoDir, Commit: true, SessionID: "session-1"}, []string{".kton/nekton"}, "test"); err != nil || sha == "" {
 		t.Fatalf("want the add tried again and the commit made: %q %v", sha, err)
+	}
+}
+
+// git reads a path after `--` as pathspec magic unless told otherwise: ':(top).kton/local' would
+// stage the checkout's identity. Every git call here runs with literal pathspecs, so such a path
+// names a file of that name, which does not exist, and nothing is committed — with no .gitignore
+// to help (kton-review L1 on #143). The cockpit refuses the path before this as well.
+func TestCommitAndPush_PathspecMagicIsReadLiterally(t *testing.T) {
+	dir := t.TempDir()
+	git := func(args ...string) string {
+		t.Helper()
+		c := exec.Command("git", args...)
+		c.Dir = dir
+		out, err := c.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+		return string(out)
+	}
+	git("init", "--quiet")
+	git("-c", "user.name=t", "-c", "user.email=t@x", "commit", "--quiet", "--allow-empty", "-m", "init")
+	os.MkdirAll(filepath.Join(dir, ".kton", "local"), 0o755)
+	os.WriteFile(filepath.Join(dir, ".kton", "local", "identity.json"), []byte("{}"), 0o644)
+	os.WriteFile(filepath.Join(dir, "out.txt"), []byte("x"), 0o644)
+
+	cfg := Git{Root: dir, Commit: true, Push: false, SessionID: "session-1"}
+	for _, p := range []string{":(top).kton/local", ":/.kton/local/identity.json", ":(glob).kton/loca[l]"} {
+		CommitAndPush(context.Background(), cfg, []string{p}, "leak")
+		if tracked := git("ls-files", "--", ".kton"); tracked != "" {
+			t.Fatalf("%s staged %s", p, tracked)
+		}
+	}
+	// The negative control: an ordinary path is committed.
+	if _, err := CommitAndPush(context.Background(), cfg, []string{"out.txt"}, "fine"); err != nil {
+		t.Fatalf("out.txt: %v", err)
+	}
+	if git("ls-files", "--", "out.txt") == "" {
+		t.Fatal("out.txt was not committed")
 	}
 }
