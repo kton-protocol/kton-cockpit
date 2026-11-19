@@ -287,6 +287,8 @@ export class CompositionHost {
   /** every message this host received, by type (tests, and the e2e's "the host sees no sibling messages") */
   readonly seen: Array<{ type: string; cap?: string; kind?: string; use?: string }> = [];
   private setPending = false;
+  /** how many times the frame said ready: an act that ends after a reload must reach the new frame (H8) */
+  private loads = 0;
 
   constructor(
     readonly plan: Plan,
@@ -307,8 +309,8 @@ export class CompositionHost {
     switch (m["type"]) {
       case "kton:ready":
         // every ready gets set (a reloaded webview says ready again), with the state it last reported
-        this.setPending = true;
-        this.ui.post({ type: "kton:set", state: { ...this.state, acts: this.acts.forSet() }, plan: this.plan, host: { name: "vscode", provides: VSCODE_PROVIDES } });
+        this.loads++;
+        this.sendSet();
         return;
       case "kton:state":
         this.state = withoutActs(m["state"]);
@@ -347,6 +349,20 @@ export class CompositionHost {
     }
   }
 
+  private sendSet(): void {
+    this.setPending = true;
+    this.ui.post({ type: "kton:set", state: { ...this.state, acts: this.acts.forSet() }, plan: this.plan, host: { name: "vscode", provides: VSCODE_PROVIDES } });
+  }
+
+  /**
+   * An act held for the frame. If the frame reloaded while the act ran (the sign dialog took its column), the
+   * new frame never asked for this id: it gets the outcome in a fresh set (H8), not as a kton:data it would drop.
+   */
+  private hold(i: Intent, loadsAtStart: number, entry: Record<string, unknown>): void {
+    this.acts.record(i.id, entry);
+    if (this.loads !== loadsAtStart) this.sendSet();
+  }
+
   /** The plan's act this intent claims to be, with its control, or why it is refused. */
   check(i: Intent): { act: PlanAct; control?: Control } {
     const u = this.plan.uses.find((x) => x.key === i.from);
@@ -366,10 +382,11 @@ export class CompositionHost {
 
   private async intent(i: Intent): Promise<void> {
     const held = i.kind === "sign" || i.kind === "record" || i.kind === "run";
+    const loadsAtStart = this.loads;
     const refuse = (why: string) => {
       this.ui.log(`composition: ${i.kind} refused: ${why}`);
-      if (held) this.acts.record(i.id, { use: i.from, intent: i.kind, status: "refused", result: { why } });
       this.ui.post({ type: "kton:refused", what: i.id, why });
+      if (held) this.hold(i, loadsAtStart, { use: i.from, intent: i.kind, status: "refused", result: { why } });
     };
     let checked: { act: PlanAct; control?: Control };
     try {
@@ -387,8 +404,8 @@ export class CompositionHost {
         if (r === "failed") return refuse(c.kind === "decision" ? "not signed (see the sign dialog)" : "not recorded");
         result = r === "signed" ? { signed: true, key: c.kind === "decision" ? "person" : "agent", message: c.kind === "decision" ? "Signed with the person key (test-only)." : "Recorded with the agent key." } : { signed: false, message: "Not signed: the dialog was cancelled." };
       }
-      if (held) this.acts.record(i.id, { use: i.from, intent: i.kind, status: "done", result });
       this.ui.post({ type: "kton:data", id: i.id, result });
+      if (held) this.hold(i, loadsAtStart, { use: i.from, intent: i.kind, status: "done", result });
     } catch (e) {
       refuse(e instanceof Error ? e.message : String(e));
     }

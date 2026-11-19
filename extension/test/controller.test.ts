@@ -748,3 +748,22 @@ test("S5.3 in the Home tree: a refused package is shown with its reason, a newer
   const why = (pk?.children ?? []).find((n) => n.label === "broken")?.children?.[0]?.label;
   assert.equal(why, "the seal does not verify");
 });
+
+test("H8: an act that ends after the frame reloaded (the dialog took its column) reaches the new frame in a fresh set", async () => {
+  const { h, wb } = await setup({}, withTestPackage());
+  const c = await openTestShell(h, wb);
+  let release: (v: boolean) => void = () => undefined;
+  h.signDialog = (title: string, detail: string) => {
+    h.dialogs.push({ title, detail });
+    return new Promise<boolean>((r) => (release = r));
+  };
+  c.onMessage({ type: "kton:intent", intent: { id: "s#old.1", kind: "sign", from: "acts#probe", about: sha("1"), control: { package: "kton-web-test", name: "test-decision" } } });
+  await new Promise((r) => setImmediate(r));
+  c.onMessage({ type: "kton:ready" }); // the webview was discarded while the dialog was open
+  const before = c.posted.length;
+  release(true);
+  for (let n = 0; n < 8; n++) await new Promise((r) => setImmediate(r));
+  const sets = c.posted.slice(before).filter((m) => (m as { type: string }).type === "kton:set") as Array<{ state: { acts: Record<string, { status: string }> } }>;
+  assert.equal(sets.length, 1, "a fresh set after the act ended");
+  assert.equal(sets[0]?.state.acts["s#old.1"]?.status, "done");
+});
