@@ -1269,6 +1269,19 @@ func TestConfig_RefusesSettingsThatWouldDiscloseOrOverwrite(t *testing.T) {
 				r.Write(t, ".kton/keys/self/innocuous.pub", string(b))
 			}, "own signing key",
 		},
+		// A key filed in two tiers counted in whichever the lookup met first, by map order
+		// (kton-review L2b on #143): the same key as mh.pub and mignon.pub in people and agents.
+		"one key in two trust tiers": {
+			func(r *testrepo.Repo, raw *config.Raw) {
+				b, err := os.ReadFile(filepath.Join(r.Root, ".kton", "keys", "self", testrepo.SessionID+".pub"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				r.Write(t, ".kton/keys/people/mh.pub", string(b))
+				r.Write(t, ".kton/keys/agents/mignon.pub", string(b))
+				raw.Trust.Tiers = append(raw.Trust.Tiers, "people", "agents")
+			}, "two trust tiers",
+		},
 		"a union directory that escapes the repo": {
 			func(_ *testrepo.Repo, raw *config.Raw) { raw.Union.Dir = "../elsewhere" }, "escapes the repository",
 		},

@@ -1006,6 +1006,10 @@ func checkTrustTierContents(root string, raw *Raw, id Identity) error {
 			private[strings.TrimSpace(string(b))] = p
 		}
 	}
+	// A key in two tiers would be counted in whichever the lookup met first, and that order is a
+	// map's (kton-review L2b on #143): which tier a decision is recognised in must not be chance.
+	type filed struct{ tier, rel string }
+	seen := map[string]filed{}
 	for _, tier := range raw.Trust.Tiers {
 		dir := filepath.Join(root, Dir, "keys", tier)
 		ents, err := os.ReadDir(dir)
@@ -1026,6 +1030,15 @@ func checkTrustTierContents(root string, raw *Raw, id Identity) error {
 				return fmt.Errorf("%s holds this checkout's own signing key (%s); tier folders hold public halves, "+
 					"and keys.json is built from them and shared", rel, named)
 			}
+			if !strings.EqualFold(filepath.Ext(e.Name()), ".pub") {
+				continue
+			}
+			key := strings.ToLower(strings.TrimSpace(string(b)))
+			if prev, ok := seen[key]; ok && prev.tier != tier {
+				return fmt.Errorf("one key is in two trust tiers: %s and %s; a key counts in one tier, so remove it from one of them",
+					prev.rel, rel)
+			}
+			seen[key] = filed{tier, rel}
 		}
 	}
 	return nil
