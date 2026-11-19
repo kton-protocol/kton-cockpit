@@ -66,6 +66,11 @@ func scopeSeed(ctx context.Context, args []string) error {
 	if name == "" {
 		return fmt.Errorf("usage: cockpit scope seed <name> [--parent <configured-name|scope-id>]")
 	}
+	// '@' is reserved for the scopes install opens, <package>@<label>, so a records scope can never
+	// share a name with an installed package's (userinterface, S6).
+	if strings.Contains(name, "@") {
+		return fmt.Errorf("%q: '@' is reserved for installed packages' scopes (<package>@<label>); name a records scope without it", name)
+	}
 	cfg, err := config.Load(ctx, ".")
 	if err != nil {
 		return err
