@@ -43,7 +43,7 @@ the first question anyone asks of it. Which kton is inside it needs no stamp: Go
 required kernel modules' versions in the build info, and `cockpit version` prints them.
 
 ```bash
-go build -ldflags "-X github.com/kton-protocol/kton-cockpit/cockpit/cli.Version=v0.4.2" -o bin/cockpit ./cmd/cockpit
+go build -ldflags "-X github.com/kton-protocol/kton-cockpit/cockpit/cli.Version=v0.5.0" -o bin/cockpit ./cmd/cockpit
 cockpit version
 ```
 
@@ -65,9 +65,9 @@ separately and served from `kton.dev`, so they are required like any other depen
 `replace`, no sibling checkout, no vendored copy:
 
 ```
-require kton.dev/plankton v0.3.0
-require kton.dev/nekton   v0.3.0
-require kton.dev/kton     v0.3.0
+require kton.dev/plankton v0.4.0
+require kton.dev/nekton   v0.4.0
+require kton.dev/kton     v0.4.0
 ```
 
 Moving the kernel is `go get kton.dev/plankton@vX kton.dev/nekton@vX kton.dev/kton@vX`, a green
