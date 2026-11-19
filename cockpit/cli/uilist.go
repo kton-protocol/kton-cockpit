@@ -207,6 +207,11 @@ func uiCat(ctx context.Context, ref, hash string) error {
 	for i := range usable {
 		in := &usable[i]
 		if in.Package.Name == ref || in.Dir == ref || in.Package.ID == ref {
+			if pkg != nil {
+				// A reference that names two usable packages (one's name another's dir or id) is
+				// refused rather than resolved by order (kton-review's nit on #170).
+				return &cockpit.Refusal{Code: "ui.package", Clause: "SPEC §6", Reason: fmt.Sprintf("%q names both %s and %s: name it by its dir or id", ref, pkg.Dir, in.Dir)}
+			}
 			pkg = in
 		}
 	}
