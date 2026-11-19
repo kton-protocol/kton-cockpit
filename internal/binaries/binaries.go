@@ -563,12 +563,19 @@ func errOr(primary, fallback error) error {
 // session can say is decided by files an operator put in `templates/`, not by this function.
 func (r *Runner) Annotate(ctx context.Context, subject, tmplName string, sets map[string]string, signKey string, chain *Chain) (string, error) {
 	defer r.wrote()
-	set, own, err := r.TemplatesAndAliases()
+	set, own, clashes, err := r.templatesFull()
 	if err != nil {
 		return "", err
 	}
 	t, ok := set.Get(tmplName)
 	if !ok {
+		// A package template left out because an earlier source declares its predicate is named as
+		// such, not as missing (kton-review's nit on #175).
+		for _, c := range clashes {
+			if strings.HasPrefix(c, "the template "+tmplName+" of the package ") {
+				return "", fmt.Errorf("the template %q is not offered: %s", tmplName, strings.TrimPrefix(c, "the template "+tmplName+" "))
+			}
+		}
 		return "", fmt.Errorf("no template %q in %s or in an allowed package", tmplName, r.cfg.TemplatesDir)
 	}
 

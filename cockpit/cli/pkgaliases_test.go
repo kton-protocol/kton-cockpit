@@ -95,7 +95,7 @@ func TestAliases_ASecondPackageWithTheSamePredicateDoesNotChangeTheFirsts(t *tes
 		"aliases":  `{"prefixes": {"qm": "https://ex.org/qm/", "q": "https://ex.org/qm/v/"}, "terms": {"outcome": "qm:outcome"}}`,
 	})
 	buildPkg(t, filepath.Join(t.TempDir(), "zz-other"), "zz-other", "v1", key, map[string]string{
-		"zz-approves": `{"name": "zz-approves", "target": "either", "predicate": "https://ex.org/qm/approves", "fields": {"outcome": {"type": "string"}}}`,
+		"aa-approves": `{"name": "aa-approves", "target": "either", "predicate": "https://ex.org/qm/approves", "fields": {"outcome": {"type": "string"}}}`,
 		"notes":       `{"name": "notes", "target": "either", "predicate": "https://ex.org/repo/notes", "fields": {"note": {"type": "string"}}}`,
 		"aliases":     `{"prefixes": {"other": "https://ex.org/other/"}, "terms": {"outcome": "other:outcome"}}`,
 	})
@@ -109,7 +109,7 @@ func TestAliases_ASecondPackageWithTheSamePredicateDoesNotChangeTheFirsts(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := set.Get("zz-approves"); ok {
+	if _, ok := set.Get("aa-approves"); ok {
 		t.Error("a second package's template with the first's predicate is offered")
 	}
 	if _, ok := set.Get("notes"); ok {
@@ -121,8 +121,11 @@ func TestAliases_ASecondPackageWithTheSamePredicateDoesNotChangeTheFirsts(t *tes
 	if got := own["approves"].Resolve("outcome"); got != "https://ex.org/qm/outcome" {
 		t.Errorf("the first package's field resolves to %q", got)
 	}
+	if out, code := r.Cockpit(t, "say", "aa-approves", "urn:example:thing", "outcome=ok"); code == 0 || !strings.Contains(out, "declares already") {
+		t.Errorf("say with a template not offered does not name the clash (exit %d):\n%s", code, out)
+	}
 	out, _ := r.Cockpit(t, "doctor")
-	for _, want := range []string{"zz-approves of the package zz-other", "the repository's template notes-here"} {
+	for _, want := range []string{"aa-approves of the package zz-other", "the repository's template notes-here"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("doctor does not name %q:\n%s", want, out)
 		}
