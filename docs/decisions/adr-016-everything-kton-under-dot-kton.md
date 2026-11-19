@@ -3,7 +3,7 @@ title: "Everything kton under .kton/: the git and local layout, private things o
 type: "decision"
 project: "kton-cockpit"
 date: 2026-11-18
-status: "proposed"
+status: "accepted"
 tags: [layout, backend, git, local, keys, identity, packages, federation]
 ---
 
@@ -11,10 +11,9 @@ tags: [layout, backend, git, local, keys, identity, packages, federation]
 
 ## Status
 
-Proposed (2026-11-18), for the core round (`kton-coordination/proposals/2026-11-18-core-change.md`, section 5.2a,
-MH's direction of 18.11.). To be agreed with ktonpkg (package layout) and cockpit-improve (its private
-folder) before it is accepted. Released with cockpit v0.5.0 on kton v0.4.0, together with the ADR-013
-amendment. **Hard break, no migration** (MH): the only installations are MH's and Lukas's.
+Accepted by MH (2026-11-19). Proposed 2026-11-18 for the core round
+(`kton-coordination/proposals/2026-11-18-core-change.md`, section 5.2a, MH's direction of 18.11.).
+Released with cockpit v0.5.0 on kton v0.4.0, together with the ADR-013 amendment. **Hard break, no migration** (MH): the only installations are MH's and Lukas's.
 
 ## Context
 
@@ -49,6 +48,7 @@ amendment. **Hard break, no migration** (MH): the only installations are MH's an
       identity.json                   which key this checkout signs with, and its keyring
       calls/<id>/                     tool-shim streams (SPEC §10.4)
       derivations.json                the recorder's
+      jobs/<name>.jsonl               the jobs runner's journal (ADR-017)
   work/                               runs, by default: `runs.dir` in the configuration (section 4)
   (the work itself, under its usual names)
 ```
@@ -75,6 +75,9 @@ amendment. **Hard break, no migration** (MH): the only installations are MH's an
 - **Private keys:** `~/.kton-keys/<name>.key` (and `<name>-claims.key`), the place the files-and-backup
   proposal of 02.11. named; `identity.json` points there. `keygen` refuses a key path inside a repository.
 - **Licences and other hidden configuration:** `~/.config/kton-cockpit/licences/<name>` (ADR-015).
+- **Machine configuration and registrations** that must survive a cache wipe: `~/.config/kton-cockpit/`
+  (for example the jobs runner's name, allow list and the repositories it serves, ADR-017). The cache
+  below may be deleted at any time and holds nothing that cannot be rebuilt.
 - **Machine state:** `~/.cache/kton-cockpit/{index,cas,fetch,sources,watch,repro,bin}`, as today plus `bin`.
 
 ### 3 Packages
