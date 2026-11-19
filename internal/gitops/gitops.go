@@ -128,7 +128,7 @@ func commitAndPush(ctx context.Context, cfg Git, paths []string, message string)
 
 	// Only this write's paths count, here and in the commit below: a commit without a pathspec takes
 	// whatever else is staged, such as a failed write's leftovers (kton-review S1 on #163).
-	if _, err := run(ctx, cfg.Root, "git", append([]string{"diff", "--cached", "--quiet", "--"}, paths...)...); err == nil {
+	if _, err := run(ctx, cfg.Root, "git", append([]string{"diff", "--cached", "--quiet", "--no-renames", "--"}, paths...)...); err == nil {
 		// A repository that does not share never pushes, here or below: a stranded commit is
 		// exactly what persist.share false asks for.
 		if !cfg.Push {
@@ -168,8 +168,9 @@ func commitAndPush(ctx context.Context, cfg Git, paths []string, message string)
 	// practice where writing to .git/config directly hit "Device or resource busy" inside that
 	// sandbox. Derived from the session identity already in config — not a new config field.
 	// The commit names exactly the files staged under this write's paths: a path that matched
-	// nothing (an empty registry) would make git refuse the whole pathspec.
-	staged, err := run(ctx, cfg.Root, "git", append([]string{"diff", "--cached", "--name-only", "-z", "--"}, paths...)...)
+	// nothing (an empty registry) would make git refuse the whole pathspec. --no-renames lists a
+	// staged rename as its deletion and its addition, so both are committed (kton-review T1).
+	staged, err := run(ctx, cfg.Root, "git", append([]string{"diff", "--cached", "--name-only", "--no-renames", "-z", "--"}, paths...)...)
 	if err != nil {
 		return "", err
 	}

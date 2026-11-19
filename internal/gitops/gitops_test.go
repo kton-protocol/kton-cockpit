@@ -478,3 +478,42 @@ exit 0
 		t.Fatalf("want ErrBusy, got %v", err)
 	}
 }
+
+// A write commits only its own staged files: a file staged by someone else stays staged and out of
+// the commit, and a rename staged under the write's paths is committed whole, its deletion included
+// (kton-review S1, T1, T2 on #163).
+func TestCommitAndPush_CommitsOnlyTheWritesOwnStagedFiles(t *testing.T) {
+	dir := t.TempDir()
+	git := func(args ...string) string {
+		t.Helper()
+		c := exec.Command("git", args...)
+		c.Dir = dir
+		out, err := c.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	git("init", "--quiet")
+	os.MkdirAll(filepath.Join(dir, "reg"), 0o755)
+	os.WriteFile(filepath.Join(dir, "reg", "a.txt"), []byte("a"), 0o644)
+	os.WriteFile(filepath.Join(dir, "other.txt"), []byte("o"), 0o644)
+	git("add", "--", "reg/a.txt")
+	git("-c", "user.name=t", "-c", "user.email=t@x", "commit", "--quiet", "-m", "init")
+
+	git("add", "--", "other.txt") // staged by someone else
+	git("mv", "reg/a.txt", "reg/b.txt")
+	cfg := Git{Root: dir, Commit: true, Push: false, SessionID: "session-1"}
+	if _, err := CommitAndPush(context.Background(), cfg, []string{"reg"}, "the write"); err != nil {
+		t.Fatal(err)
+	}
+	if got := git("show", "--name-status", "--format=", "HEAD"); strings.Contains(got, "other.txt") {
+		t.Errorf("the write's commit carries another's staged file:\n%s", got)
+	}
+	if tree := git("ls-tree", "-r", "--name-only", "HEAD"); strings.Contains(tree, "reg/a.txt") || !strings.Contains(tree, "reg/b.txt") {
+		t.Errorf("the rename was not committed whole; HEAD holds:\n%s", tree)
+	}
+	if staged := git("diff", "--cached", "--name-only"); staged != "other.txt" {
+		t.Errorf("want only other.txt still staged, got:\n%s", staged)
+	}
+}
