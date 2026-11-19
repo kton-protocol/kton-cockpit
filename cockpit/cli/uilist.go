@@ -2,13 +2,15 @@ package cli
 
 // uilist.go is `cockpit ui list`: what the installed packages declare for a frontend, for a shell to
 // read instead of package folders (userinterface's QM Workbench, contract C2.4; serve's ui.list in
-// v0.6.0). The cockpit parses no package format itself: what a package declares comes from ktonpkg.
-// Its ui/, blocks and compositions are not in any ktonpkg yet, so those fields are absent until
-// ktonpkg reads them, which a shell can tell from "declares none" (an empty list).
+// v0.6.0). The cockpit parses no package format itself: what a package declares comes from ktonpkg
+// (v0.9.0: UIEntries, Blocks and Compositions; its Verify includes a verticle's ui/ problems, which
+// are listed under refused with the file they name).
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"sort"
 
 	"github.com/kton-protocol/kton-cockpit/internal/config"
 	"github.com/kton-protocol/kton-cockpit/internal/packages"
@@ -23,10 +25,12 @@ type UIPackage struct {
 	Profile  string `json:"profile,omitempty"`
 	Dir      string `json:"dir"`
 	Allowed  bool   `json:"allowed"`
-	// UI, Blocks and Compositions are filled from ktonpkg once it reads them; absent until then.
-	UI           []map[string]any `json:"ui,omitempty"`
-	Blocks       []map[string]any `json:"blocks,omitempty"`
-	Compositions []map[string]any `json:"compositions,omitempty"`
+	// UI, Blocks and Compositions are what the package declares, as ktonpkg reads them: each entry
+	// is ktonpkg's own object plus its file name (file for ui/, name for blocks and compositions).
+	// An empty list when it declares none; null when it could not be read (see refused).
+	UI           []map[string]any `json:"ui"`
+	Blocks       []map[string]any `json:"blocks"`
+	Compositions []map[string]any `json:"compositions"`
 	Refused      []UIRefusal      `json:"refused"`
 }
 
@@ -65,9 +69,49 @@ func uiListing(cfg *config.Config) (UIListing, error) {
 		for _, why := range e.Package.Verify() {
 			p.Refused = append(p.Refused, UIRefusal{Code: "package.check", Reason: why})
 		}
+		r := e.Revision
+		var errs []error
+		ui, err := r.UIEntries()
+		errs = append(errs, err)
+		p.UI = declared(ui, "file", err)
+		bs, err := r.Blocks()
+		errs = append(errs, err)
+		p.Blocks = declared(bs, "name", err)
+		cs, err := r.Compositions()
+		errs = append(errs, err)
+		p.Compositions = declared(cs, "name", err)
+		for _, err := range errs {
+			if err != nil {
+				p.Refused = append(p.Refused, UIRefusal{Code: "ui.check", Reason: err.Error()})
+			}
+		}
 		out.Packages = append(out.Packages, p)
 	}
 	return out, nil
+}
+
+// declared is ktonpkg's decoded declarations as a list sorted by name, each with its name under key;
+// nil when they could not be read, so the field is absent rather than empty.
+func declared[T any](m map[string]T, key string, err error) []map[string]any {
+	if err != nil {
+		return nil
+	}
+	names := make([]string, 0, len(m))
+	for n := range m {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	out := []map[string]any{}
+	for _, n := range names {
+		b, _ := json.Marshal(m[n])
+		var o map[string]any
+		if json.Unmarshal(b, &o) != nil || o == nil {
+			o = map[string]any{}
+		}
+		o[key] = n
+		out = append(out, o)
+	}
+	return out
 }
 
 func runUI(ctx context.Context, args []string) error {
