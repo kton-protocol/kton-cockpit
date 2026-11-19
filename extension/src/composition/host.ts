@@ -62,7 +62,7 @@ export interface Backend {
   /** run@1: a ray (workflow run) with its holes. */
   run(ray: string, holes: Readonly<Record<string, string>>): Promise<string>;
   /** graph@1 (e): the registry's records with the ring to verify them: {records, keys, names}. */
-  graph?(): Promise<{ readonly records: readonly unknown[]; readonly keys: unknown; readonly names: unknown }>;
+  graph?(): Promise<{ readonly records: readonly unknown[]; readonly keys: unknown; readonly names: unknown; readonly packages: unknown }>;
   /** a URL the frame may fetch for bytes above the content cap (or undefined: then above the cap is refused). */
   urlFor?(dir: string, hash: string): string | undefined;
 }
@@ -76,6 +76,13 @@ export const CONTENT_CAP = 1024 * 1024;
 export const DATA_CAPS = ["query@1", "product@1", "graph@1", "content@1"] as const;
 /** What this host provides; graph@1 is not yet (kton-web's graph asks it as {records, keys, names}). */
 export const VSCODE_PROVIDES = ["query@1", "content@1", "product@1", "open@1", "sign@1", "record@1", "run@1"] as const;
+/**
+ * The width (CSS px of the composition frame's holder) below which a layout that declares `narrow` switches to
+ * it (ktonpkg v0.9.5 layout; kton-web reads host.narrow). 640 suits a VS Code editor column: a full editor at
+ * a common window width is wider, a side-by-side half on a laptop or a narrow window is not. A layout without
+ * `narrow` never changes with width.
+ */
+export const NARROW_PX = 640;
 /** A leaf (a page viewer in its own frame) is also given graph@1. */
 export const LEAF_PROVIDES = ["graph@1", "query@1", "product@1", "open@1", "sign@1"] as const;
 /** Acts and the control kind each one must have (O1). open and run have no control. */
@@ -229,7 +236,8 @@ export class LeafHost {
       if (cap === "graph@1") {
         if (!this.backend.graph) throw new Refused("graph@1 is not provided by this host");
         const g = await this.backend.graph();
-        result = { records: g.records, keys: g.keys, names: g.names };
+        // packages: cockpit show's admitted packages' build keys {keyid: {package, id, dir, key}}, passed on unchanged
+        result = { records: g.records, keys: g.keys, names: g.names, packages: g.packages };
       } else if (cap === "query@1") {
         const input = String(args["input"] ?? "");
         const spec = ((this.leaf.decl["inputs"] ?? {}) as Record<string, { query?: string; bind?: Record<string, string> }>)[input];
@@ -351,7 +359,8 @@ export class CompositionHost {
 
   private sendSet(): void {
     this.setPending = true;
-    this.ui.post({ type: "kton:set", state: { ...this.state, acts: this.acts.forSet() }, plan: this.plan, host: { name: "vscode", provides: VSCODE_PROVIDES } });
+    // the state is host-held as the frame reported it: vars and layout ({tab, ratio}), never acts (H8: held apart)
+    this.ui.post({ type: "kton:set", state: { ...this.state, acts: this.acts.forSet() }, plan: this.plan, host: { name: "vscode", provides: VSCODE_PROVIDES, narrow: NARROW_PX } });
   }
 
   /**

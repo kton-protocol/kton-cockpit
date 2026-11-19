@@ -46,14 +46,14 @@ ENGINE_IMAGE=oxigraph/oxigraph@sha256:10677fb643f8c5a7bfb03dd8f7971c79a84b01e795
 echo "== engine image"
 docker pull -q "$ENGINE_IMAGE" >/dev/null
 
-# PR 2: ktonpkg v0.9.1's scope CLI builds the test packages; the ui list fixture (until cockpit v0.5.3 lists
+# PR 2: ktonpkg v0.9.5's scope CLI builds the test packages; the ui list fixture (until cockpit v0.5.3 lists
 # ui declarations) is written with the same ktonpkg. Both from a golang image pinned by digest.
 GO_IMAGE=golang:1.25@sha256:699337d620559a59b4a2bb298ad59611e535d2ee755a34cf2d2a98f37578dc80
-echo "== ktonpkg v0.9.1 tools"
+echo "== ktonpkg v0.9.5 tools"
 mkdir -p "$WORK/go"
 docker run --rm --network host -u "$UIDGID" -e HOME=/tmp -e GOPATH="$WORK/go" -e GOCACHE="$WORK/go/cache" -e CGO_ENABLED=0 -e GOTOOLCHAIN=local -e GOFLAGS=-modcacherw \
   -v "$WORK:$WORK" -v "$HERE/uilist-fixture:/src:ro" -w /src "$GO_IMAGE" \
-  sh -c "GOBIN=$WORK/bin go install github.com/gitmick/ktonpkg/cmd/scope@v0.9.1 && go build -o $WORK/bin/uilist-fixture ."
+  sh -c "GOBIN=$WORK/bin go install github.com/gitmick/ktonpkg/cmd/scope@v0.9.5 && go build -o $WORK/bin/uilist-fixture ."
 
 echo "== seed"
 docker run --rm -u "$UIDGID" -v "$WORK:$WORK" -v "$HERE/seed.sh:/seed.sh:ro" \

@@ -220,7 +220,7 @@ function renderGraph(union,keys,names,recorded){ try{ NAMES_ALL=JSON.parse(names
 }
 function buildG(union,keys,names,recorded){
   LAST_BUILD=[union,keys,names,recorded];
-  G=JSON.parse(plktBuildGraph(union,keys,names)); if(G.error) throw new Error(G.error);
+  G=JSON.parse(plktBuildGraph(union,ringWithPackages(keys),names)); if(G.error) throw new Error(G.error);
   markUntrusted(G, keys);
   if(G.locators){ const base=Object.values(RECSRC)[0]; for(const k in G.locators) G.locators[k]=[...new Set([].concat(G.locators[k]).map(u=>/^[a-z][a-z0-9+.-]*:/i.test(u)||!base?u:(()=>{ try{ return new URL(u,base).href; }catch{ return u; } })()))]; }
   // a recorder's graph next to the union: join by output hash. Only labels move across; the
@@ -387,6 +387,7 @@ async function fetchSrc(reg){ const recs=JSON.parse(await (await fetch(reg.union
   let keys={},names={},attested=[]; try{ keys=JSON.parse(await (await fetch(reg.keys)).text()); }catch{}
   try{ names=JSON.parse(await (await fetch(reg.names)).text()); }catch{}
   try{ attested=JSON.parse(await (await fetch(reg.attested)).text()); }catch{}  // absent -> nothing attested (safe)
+  // ?packages=<url>: cockpit v0.5.3's admitted packages' build keys {keyid: {package, dir}}; named, never guessed
   return {recs,keys,names,attested}; }
 // Read a graph.json the host built and draw it. One function for both the first load and a
 // re-aim at another corpus - two paths that read the same file differently is how a viewer ends up
@@ -482,6 +483,9 @@ async function load(){
     // ?union= may repeat (or hold a comma list): several registries, spliced by hash. keys/names
     // override the first one's siblings only.
     const unions=qs.getAll("union").flatMap(u=>u.split(",")).map(u=>u.trim()).filter(Boolean);
+    // the admitted packages' build keys: named by ?packages=, or beside cockpit show's own /data/union.json
+    { const pu=qs.get("packages") || (/\/data\/union\.json$/.test(new URL(unions[0]||"",location.href).pathname) ? unions[0].replace(/union\.json$/,"packages.json") : null);
+      if(pu){ try{ const r=await fetch(pu); if(r.ok) await usePackages(await r.json()); }catch{} } }
     const prim=regUrls(unions[0]);                          // sibling keys.json/names.json, unless overridden
     if(qs.get("keys")) prim.keys=qs.get("keys"); if(qs.get("names")) prim.names=qs.get("names");
     const regs=[prim, ...unions.slice(1).map(regUrls), ...extraSources().filter(u=>!unions.includes(u)).map(regUrls)];   // delivered + the reader's own connected planktons
@@ -701,15 +705,41 @@ function index(){
 // the CONFIGURED trust tiers), so a record whose signer is not in it cannot be checked here at all - that
 // is "not in the trusted keys", not a signature that failed. Only a signer the ring holds and whose
 // signature does not check is a failure. The wasm's verdict stays as it is; this only names the reason.
+// A third state (kton-cockpit v0.5.3, /data/packages.json): a signer that is an admitted package's build
+// key, {keyid: {package, id, dir, key}}, is named as that package - admitted by the cockpit, not a trust
+// tier. With `key` (hex) the signature is re-checked here: the wasm verifies against the ring plus these
+// keys, and such a node then reads "signed by admitted package X" (checked) or counts as unverified (the
+// signature fails). It never counts as verified: verified means signed by a trusted key. A key whose
+// sha256 does not derive its keyid is dropped, whatever the map says.
+let PACKAGES={}, PKG_KEYS={};
+async function usePackages(map){ PACKAGES={}; PKG_KEYS={};
+  if(!map||typeof map!=="object") return;
+  for(const [kid,e] of Object.entries(map)){ if(!e||typeof e!=="object"||!e.package) continue;
+    PACKAGES[kid]=e;
+    if(typeof e.key==="string" && /^[0-9a-f]{64}$/i.test(e.key)){
+      const raw=new Uint8Array(e.key.match(/../g).map(h=>parseInt(h,16)));
+      const d=[...new Uint8Array(await crypto.subtle.digest("SHA-256", raw))].map(b=>b.toString(16).padStart(2,"0")).join("").slice(0,16);
+      if(d===kid) PKG_KEYS[kid]=e.key.toLowerCase(); } } }
+/** the ring the wasm checks against: keys.json plus the admitted packages' build keys */
+function ringWithPackages(keysText){ if(!Object.keys(PKG_KEYS).length) return keysText;
+  try{ return JSON.stringify({ ...PKG_KEYS, ...JSON.parse(keysText||"{}") }); }catch{ return keysText; } }
 function markUntrusted(g, keysText){ let ring; try{ ring=new Set(Object.keys(JSON.parse(keysText||"{}"))); }catch{ return; }
-  let n=0; for(const x of g.nodes) if((x.type==="foton"||x.type==="claim") && !x.verified && x.signer && !ring.has(x.signer)){ x.untrusted=true; n++; }
-  g._untrusted=n; }
+  let n=0, p=0, moved=0;
+  for(const x of g.nodes){ if(!(x.type==="foton"||x.type==="claim") || !x.signer || ring.has(x.signer)) continue;
+    const pk=PACKAGES[x.signer];
+    if(pk&&pk.package){
+      if(x.verified){ x.verified=false; moved++; x.pkgChecked=true; }          // checked against the package key, not trusted
+      if(x.pkgChecked || !PKG_KEYS[x.signer]){ x.pkgSigned=String(pk.package); p++; } // no key: named, not checked
+      // with a key and a failing signature it stays plain unverified
+    } else if(!x.verified){ x.untrusted=true; n++; } }
+  if(moved && g.summary&&g.summary.totals){ g.summary.totals.verified-=moved; g.summary.totals.unverified=(g.summary.totals.unverified||0)+moved; }
+  g._untrusted=n; g._pkgSigned=p; g._pkgChecked=moved; }
 function showStats(){ const t=G.summary.totals;
-  const untrusted=G._untrusted||0, failed=Math.max(0,(t.unverified||0)-untrusted);
+  const untrusted=G._untrusted||0, pkg=G._pkgSigned||0, failed=Math.max(0,(t.unverified||0)-untrusted-pkg);
   // the registries this picture is spliced from, each its own source (by hash, nothing merged beforehand)
   const srcs=Object.entries(SRCSTAT).filter(([,v])=>/records/.test(v));
   const regName=u=>{ const m=String(u).match(/([^/]+)\/[^/]*$/); return m?m[1]:u; };
-  $("#stats").innerHTML=(srcs.length>1?`<span title="${esc(srcs.map(([u,v])=>regName(u)+": "+v).join("\n"))}"><b>${srcs.length}</b> registries <span style="opacity:.75">(${esc(srcs.map(([u])=>regName(u)).join(" + "))})</span>, spliced by hash</span>`:``)+`<span><b>${(G._parts||[]).filter(Boolean).length||t.participants}</b> participants</span><span><b>${t.fotons}</b> fotons</span><span><b>${t.claims}</b> claims</span><span class="ok"><b>${t.verified}</b>/${t.fotons+t.claims} verified</span>`+(untrusted?`<span class="warn" title="signed by a key outside the trust tiers this host gave the viewer (keys.json): not checked here, not a failed signature"><b>${untrusted}</b> signer not in the trusted keys</span>`:``)+(failed?`<span class="bad" title="the signer's key is in keys.json and the signature does not check"><b>${failed}</b> unverified</span>`:``)
+  $("#stats").innerHTML=(srcs.length>1?`<span title="${esc(srcs.map(([u,v])=>regName(u)+": "+v).join("\n"))}"><b>${srcs.length}</b> registries <span style="opacity:.75">(${esc(srcs.map(([u])=>regName(u)).join(" + "))})</span>, spliced by hash</span>`:``)+`<span><b>${(G._parts||[]).filter(Boolean).length||t.participants}</b> participants</span><span><b>${t.fotons}</b> fotons</span><span><b>${t.claims}</b> claims</span><span class="ok"><b>${t.verified}</b>/${t.fotons+t.claims} verified</span>`+(pkg?`<span class="warn" title="signed by the build key of a package this cockpit admitted: not a trust tier. ${G._pkgChecked||0} of them checked here against the package's key (packages.json); the rest named only"><b>${pkg}</b> signed by an admitted package${G._pkgChecked?` (${G._pkgChecked===pkg?"all":G._pkgChecked} checked)`:``}</span>`:``)+(untrusted?`<span class="warn" title="signed by a key outside the trust tiers this host gave the viewer (keys.json): not checked here, not a failed signature"><b>${untrusted}</b> signer not in the trusted keys</span>`:``)+(failed?`<span class="bad" title="the signer's key is in keys.json and the signature does not check"><b>${failed}</b> unverified</span>`:``)
     +(G.summary.origins?`<span title="steps joined by file hash: seen by the recorder and signed / signed only / recorded only (not signed)"><b>${G.summary.origins.both}</b> recorded+signed · <b>${G.summary.origins.signed}</b> signed only · <b>${G.summary.origins.recorded+(G.summary.origins.hidden||0)}</b> recorded only</span>`+(G.summary.origins.hidden||recordedShown()&&prof().graph.recorded==="hide"?` <a href="#" id="togrec" title="steps the recorder saw that no signed record has">${recordedShown()?"hide them":"show them"}</a>`:``):``)
     +(STORE?`<span title="a portion of the store, chosen by the store and verified here - expand a node to grow it">portion: <b>${STORE.byId.size}</b> records${STORE.more?` · <span class="rc" data-storemore="1" title="some selections were cut at the page size">load more (${STORE.more} cut)</span>`:``}</span>`:``);
 }
@@ -1479,7 +1509,7 @@ function openNode(id){ const p=$("#panel"); const gn=ex&&ex._byId&&ex._byId.get(
     :n.origin==="signed"?` <span class="badge" title="no recorded step produced this file">signed only</span>`:``;
   const meta=isSrc?`<div class="kv">external input - referenced by content hash; not a signed record.</div>`
     :n.origin==="recorded"?`<div class="kv"><span class="badge vno" title="the recorder saw this step; no signed record has its outputs">recorded only - not signed</span></div>`
-    :`<div class="kv">${origin?origin.trim()+"<br>":""}signer <code>${esc(n.signer||"?")}</code> <span class="badge ${n.verified?'vok':'vno'}">${n.verified?"✓ verified":n.untrusted?"signer not in the trusted keys":"unverified"}</span>${n.repro>1?` <span class="badge vok" title="distinct independent signers that produced this exact output (↻N)">↻${n.repro} reproduced</span>`:``}${n.signers?`<br>co-signed by ${n.signers.map(k=>`<code>${esc((G.nodes.find(x=>x.signer===k&&x.participant)||{}).participant||k)}</code>`).join(", ")} - the same work, re-run and signed on this one record`:``}</div>`;
+    :`<div class="kv">${origin?origin.trim()+"<br>":""}signer <code>${esc(n.signer||"?")}</code> <span class="badge ${n.verified?'vok':'vno'}">${n.verified?"✓ verified":n.pkgSigned?`signed by admitted package ${esc(n.pkgSigned)}${n.pkgChecked?", signature checked":""} (not a trust tier)`:n.untrusted?"signer not in the trusted keys":"unverified"}</span>${n.repro>1?` <span class="badge vok" title="distinct independent signers that produced this exact output (↻N)">↻${n.repro} reproduced</span>`:``}${n.signers?`<br>co-signed by ${n.signers.map(k=>`<code>${esc((G.nodes.find(x=>x.signer===k&&x.participant)||{}).participant||k)}</code>`).join(", ")} - the same work, re-run and signed on this one record`:``}</div>`;
   const qOf=id=>QS.BUILTIN.find(q=>q.id===id);   // counts on the buttons - same questions the compass asks
   const linN=n.type==="foton"?QS.countFor(G,qOf("inputs"),n.id):0, impN=n.type==="foton"?QS.countFor(G,qOf("impact"),n.id):0;
   const PP=prof().panel, an=stepInfo(n);
@@ -1609,6 +1639,7 @@ async function v3Load(host){
     if(!r||!Array.isArray(r.records)) throw new Error("graph@1 answered neither {records} nor {graph}");
     await initWasm();
     const names=r.names||{}; ATTESTED_NAMES=new Set((r.attested||[]).map(k=>names[k]).filter(Boolean));
+    await usePackages(r.packages);
     renderGraph(JSON.stringify(r.records.slice(0,RECORD_CAP)), JSON.stringify(r.keys||{}), JSON.stringify(names), null);
   }catch(e){ showErr(e); V3.bridge.refused(["graph@1"], String(e&&e.message||e)); }
 }

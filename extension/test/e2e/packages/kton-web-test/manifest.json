@@ -37,6 +37,11 @@
       "sha256": "2cb4d7c7e859b62313244c3c5c0469f469860a93c83634aa72d4b90602e11dba"
     },
     {
+      "path": "ui/compositions/test-layout.json",
+      "role": "composition",
+      "sha256": "734c965442c25663d509edcd44128bffe35e2de03127d230ba1d10eca7419d99"
+    },
+    {
       "path": "ui/compositions/test-shell.json",
       "role": "composition",
       "sha256": "8d34f5370c11404c5b78c000d1b5fb6f61150f43a7bd2a8427b59db98a9bdab7"

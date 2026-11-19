@@ -29,7 +29,7 @@
 // paths are relative to.
 
 import { kit } from "./compose-kit.js";
-import { bindVars, checkValue, varValuesOf, NEVER_WIRABLE } from "./ktonpkg-mirror/plan.js";
+import { bindVars, checkValue, varValuesOf, NEVER_WIRABLE, LAYOUT_TYPES, SIZE_RE } from "./ktonpkg-mirror/plan.js";
 
 export const DATA_CAPS = ["query@1", "product@1", "graph@1", "content@1"];
 
@@ -316,17 +316,212 @@ export function render(root, basePlan, host, initialState = {}, onState = () => 
     into.append(sec);
   }
 
-  function renderChildren(parentKey, comp, into) {
-    let wrap = null;
-    for (const c of children.get(parentKey) ?? []) {
-      if (c.composition !== comp) {
-        if (!wrap) {
-          const cc = comps.get(c.composition);
-          wrap = el("div", { class: "kton-composition", "data-composition": `${cc.package}/${cc.name}`, "data-kind": cc.kind, "data-key": cc.key });
-          into.append(wrap);
+  // ---- layout (VERTICLE-HOSTS §17, kton-web review 19.11.) -------------------------------------------
+  // A composition's top parts, or a group's parts, are placed by the plan's layout. Everything is set
+  // through the CSSOM (el.style.gridTemplateAreas = …), never as a style attribute or a <style>: the
+  // host's CSP governs neither, so it needs no nonce. The plan is untrusted here as well: sizes are
+  // re-checked against the closed set and areas against the parts, and anything off draws as stack.
+  // Each part goes into a cell that persists, so going narrow (measured on the holder's own box) only
+  // moves cells. Tabs build a cell's blocks on first show. The open tab and a split's ratio are view state
+  // at <node>.layout = {tab, ratio}, defaults omitted, checked on the way back in.
+  const narrowAt = Number.isFinite(host.narrow) && host.narrow > 0 ? host.narrow : 640;
+  const reportedKinds = new Set(["report", "deck"]);
+  const validLayout = (lay, pids) => {
+    if (!lay || lay.type === "stack" || !LAYOUT_TYPES.includes(lay.type)) return null;
+    const sizesOk = (v) => Array.isArray(v) && v.length > 0 && v.every((x) => typeof x === "string" && SIZE_RE.test(x));
+    if (["columns", "grid"].includes(lay.type) && !sizesOk(lay.columns)) return null;
+    if (lay.rows !== undefined && !sizesOk(lay.rows)) return null;
+    if (lay.type === "grid") {
+      const a = lay.areas;
+      if (!Array.isArray(a) || !a.every((r) => Array.isArray(r) && r.length === lay.columns.length && r.every((x) => x === "." || pids.includes(x)))) return null;
+      if (!pids.every((id) => a.flat().includes(id))) return null;
+    }
+    if (lay.type === "split" && pids.length !== 2) return null;
+    return lay;
+  };
+  const layoutNode = (key, create) => partState(key, create);
+  function readLayoutState(key, lay, pids) {
+    const st = layoutNode(key, false)?.layout ?? {};
+    const tab0 = pids.includes(lay.active) ? lay.active : pids[0];
+    const ratio0 = typeof lay.ratio === "number" && lay.ratio > 0 && lay.ratio < 1 ? lay.ratio : 0.5;
+    return {
+      tab: pids.includes(st.tab) ? st.tab : tab0,
+      ratio: typeof st.ratio === "number" && st.ratio > 0 && st.ratio < 1 ? st.ratio : ratio0,
+    };
+  }
+  function writeLayoutState(key, lay, pids, cur) {
+    const diff = {};
+    if (cur.tab !== (pids.includes(lay.active) ? lay.active : pids[0])) diff.tab = cur.tab;
+    if (cur.ratio !== (lay.ratio ?? 0.5)) diff.ratio = cur.ratio;
+    const node = layoutNode(key, Object.keys(diff).length > 0);
+    if (!node) return;
+    if (Object.keys(diff).length) node.layout = diff;
+    else delete node.layout;
+    if (!scheduled) onState(structuredClone(state));
+  }
+
+  /** Place sections (in plan order) into `into` by `lay`; `key` is the node its view state lives at. */
+  function arrange(into, secs, lay0, key, kind) {
+    const items = [];
+    for (const s of secs) {
+      const last = items[items.length - 1];
+      if (last && last.pid === (s.pid ?? s.id)) last.secs.push(s); // the rows of one `every` share a cell
+      else items.push({ pid: s.pid ?? s.id, heading: s.heading, secs: [s] });
+    }
+    const pids = items.map((i) => i.pid);
+    const lay = reportedKinds.has(kind) ? null : validLayout(lay0, pids);
+    if (!lay) {
+      for (const s of secs) renderSection(s, into);
+      return;
+    }
+    const box = el("div", { class: `kton-layout kton-layout-${lay.type}`, "data-layout": lay.type });
+    into.append(box);
+    const cur = readLayoutState(key, lay, pids);
+    const cells = items.map((it, i) => {
+      const cell = el("div", { class: "kton-cell", "data-cell": it.pid });
+      return { ...it, i, cell, built: false };
+    });
+    const build = (c) => {
+      if (c.built) return;
+      c.built = true;
+      for (const s of c.secs) renderSection(s, c.cell);
+      root.dataset.hidden = String(hiddenTotal);
+    };
+    let mode = null;
+    const clear = () => {
+      box.textContent = "";
+      for (const p of ["gridTemplateColumns", "gridTemplateRows", "gridTemplateAreas"]) box.style[p] = "";
+      for (const c of cells) {
+        c.cell.hidden = false;
+        c.cell.style.gridArea = "";
+        c.cell.removeAttribute("role");
+        c.cell.removeAttribute("aria-labelledby");
+      }
+    };
+    const tabsOf = () => {
+      const bar = el("div", { class: "kton-tablist", role: "tablist" });
+      const show = (pid, focus) => {
+        cur.tab = pid;
+        for (const c of cells) {
+          const on = c.pid === pid;
+          c.cell.hidden = !on;
+          const b = bar.querySelector(`[data-tab="${CSS.escape(c.pid)}"]`);
+          b.setAttribute("aria-selected", String(on));
+          b.tabIndex = on ? 0 : -1;
+          if (on) {
+            build(c);
+            if (focus) b.focus();
+          }
         }
-        renderSection(c, wrap);
-      } else renderSection(c, into);
+        box.dataset.tab = pid;
+      };
+      cells.forEach((c, i) => {
+        const id = `kton-tab-${key || "root"}-${i}`.replace(/[^\w-]/g, "_");
+        const b = el("button", { type: "button", role: "tab", id, "data-tab": c.pid, "aria-controls": `${id}-panel` }, c.heading || c.pid);
+        c.cell.id = `${id}-panel`;
+        c.cell.setAttribute("role", "tabpanel");
+        c.cell.setAttribute("aria-labelledby", id);
+        b.addEventListener("click", () => {
+          show(c.pid, false);
+          writeLayoutState(key, lay, pids, cur);
+        });
+        b.addEventListener("keydown", (e) => {
+          const d = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key] ?? (e.key === "Home" ? -Infinity : e.key === "End" ? Infinity : 0);
+          if (!d) return;
+          e.preventDefault();
+          const j = Math.max(0, Math.min(cells.length - 1, d === Infinity ? cells.length - 1 : d === -Infinity ? 0 : c.i + d));
+          show(cells[j].pid, true);
+          writeLayoutState(key, lay, pids, cur);
+        });
+        bar.append(b);
+      });
+      box.append(bar, ...cells.map((c) => c.cell));
+      show(cur.tab, false);
+    };
+    const draw = (m) => {
+      if (m === mode) return;
+      mode = m;
+      clear();
+      box.dataset.mode = m;
+      box.className = `kton-layout kton-layout-${m === "wide" ? lay.type : lay.narrow ?? "stack"}${m === "narrow" ? " kton-narrow" : ""}`;
+      const t = m === "wide" ? lay.type : lay.narrow ?? "stack";
+      if (t === "tabs") return tabsOf();
+      for (const c of cells) build(c);
+      if (t === "stack") return box.append(...cells.map((c) => c.cell));
+      if (t === "columns") {
+        box.style.gridTemplateColumns = lay.columns.join(" ");
+        return box.append(...cells.map((c) => c.cell));
+      }
+      if (t === "grid") {
+        const name = new Map(cells.map((c, i) => [c.pid, `p${i}`])); // part ids need not be CSS identifiers
+        box.style.gridTemplateColumns = lay.columns.join(" ");
+        if (lay.rows) box.style.gridTemplateRows = lay.rows.join(" ");
+        box.style.gridTemplateAreas = lay.areas.map((r) => `"${r.map((x) => (x === "." ? "." : name.get(x))).join(" ")}"`).join(" ");
+        for (const c of cells) c.cell.style.gridArea = name.get(c.pid);
+        return box.append(...cells.map((c) => c.cell));
+      }
+      if (t === "split") {
+        const col = lay.direction === "column";
+        const bar = el("div", { class: "kton-divider", role: "separator", tabindex: "0", "aria-orientation": col ? "horizontal" : "vertical", "aria-valuemin": "10", "aria-valuemax": "90" });
+        // a declared or returned ratio is anything in (0, 1); dragging and keys keep to 0.1-0.9
+        const set = (r, free) => {
+          cur.ratio = Math.round((free ? r : Math.max(0.1, Math.min(0.9, r))) * 100) / 100;
+          box.style[col ? "gridTemplateRows" : "gridTemplateColumns"] = `${cur.ratio}fr 6px ${Math.round((1 - cur.ratio) * 100) / 100}fr`;
+          bar.setAttribute("aria-valuenow", String(Math.round(cur.ratio * 100)));
+          box.dataset.ratio = String(cur.ratio);
+        };
+        set(cur.ratio, true);
+        bar.addEventListener("pointerdown", (e) => {
+          bar.setPointerCapture(e.pointerId);
+          const move = (ev) => {
+            const r = box.getBoundingClientRect();
+            set(col ? (ev.clientY - r.top) / r.height : (ev.clientX - r.left) / r.width);
+          };
+          const up = () => {
+            bar.removeEventListener("pointermove", move);
+            bar.removeEventListener("pointerup", up);
+            writeLayoutState(key, lay, pids, cur); // reported on release, not on every move
+          };
+          bar.addEventListener("pointermove", move);
+          bar.addEventListener("pointerup", up);
+        });
+        bar.addEventListener("keydown", (e) => {
+          const d = { ArrowLeft: -0.05, ArrowUp: -0.05, ArrowRight: 0.05, ArrowDown: 0.05 }[e.key];
+          if (!d) return;
+          e.preventDefault();
+          set(cur.ratio + d);
+          writeLayoutState(key, lay, pids, cur);
+        });
+        return box.append(cells[0].cell, bar, cells[1].cell);
+      }
+    };
+    draw("wide");
+    // only a layout that says what narrow means (layout.narrow) changes below the threshold
+    if (lay.narrow) {
+      const fit = () => {
+        const w = into.getBoundingClientRect().width;
+        draw(w > 0 && w < narrowAt ? "narrow" : "wide");
+      };
+      if (typeof ResizeObserver === "function") new ResizeObserver(fit).observe(into);
+      queueMicrotask(fit);
+    }
+    // print as stack: every cell built and shown
+    globalThis.addEventListener?.("beforeprint", () => {
+      for (const c of cells) build(c);
+    });
+  }
+
+  function renderChildren(parentKey, comp, into) {
+    const kids = children.get(parentKey) ?? [];
+    const own = kids.filter((c) => c.composition === comp);
+    const nested = kids.filter((c) => c.composition !== comp);
+    const holder = parentKey ? basePlan.sections.find((x) => x.key === parentKey) : null;
+    if (own.length) arrange(into, own, parentKey === "" ? comps.get("")?.layout : holder?.layout, parentKey, comps.get(comp)?.kind);
+    if (nested.length) {
+      const cc = comps.get(nested[0].composition);
+      const wrap = el("div", { class: "kton-composition", "data-composition": `${cc.package}/${cc.name}`, "data-kind": cc.kind, "data-key": cc.key });
+      into.append(wrap);
+      arrange(wrap, nested, cc.layout, cc.key, cc.kind);
     }
   }
 

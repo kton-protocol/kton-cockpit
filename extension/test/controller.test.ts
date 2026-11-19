@@ -792,3 +792,16 @@ test("slot items (MH's demo): the entry's label once, with its package; no item 
     assert.ok(!new RegExp(`^(\\w+)\\W+\\1\\b`, "i").test(l), `${l} repeats its first word`);
   }
 });
+
+test("layout (ktonpkg v0.9.5): the set names host.narrow; the frame's layout state (tab, ratio) is host-held like vars, never acts, and comes back after a reload", async () => {
+  const { h, wb } = await setup({}, withTestPackage());
+  const c = await openTestShell(h, wb);
+  const set = c.posted[0] as { host: { narrow?: number } };
+  assert.equal(set.host.narrow, 640);
+  c.onMessage({ type: "kton:state", state: { parts: { main: { layout: { tab: "approvals" } }, side: { layout: { ratio: 0.35 } } }, vars: { picked: "B" }, acts: { forged: { status: "done" } } } });
+  c.onMessage({ type: "kton:ready" }); // the webview came back
+  const again = c.posted.at(-1) as { state: Record<string, unknown> & { acts: Record<string, unknown> } };
+  assert.deepEqual(again.state["parts"], { main: { layout: { tab: "approvals" } }, side: { layout: { ratio: 0.35 } } });
+  assert.deepEqual(again.state["vars"], { picked: "B" });
+  assert.deepEqual(again.state.acts, {}, "a frame's own acts are never taken");
+});

@@ -205,5 +205,5 @@ export interface Transport {
    * graph@1's data: every record the registries hold with the ring to verify them (union, keys, names), as
    * `cockpit show` serves them. Until the cockpit prints them on the CLI.
    */
-  graph(): Promise<{ readonly records: readonly unknown[]; readonly keys: Readonly<Record<string, unknown>>; readonly names: Readonly<Record<string, unknown>> }>;
+  graph(): Promise<{ readonly records: readonly unknown[]; readonly keys: Readonly<Record<string, unknown>>; readonly names: Readonly<Record<string, unknown>>; readonly packages: Readonly<Record<string, unknown>> }>;
 }

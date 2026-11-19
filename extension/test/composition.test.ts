@@ -114,10 +114,10 @@ test("the composition page: a host-owned CSP with no 'unsafe-inline' and connect
   assert.match(html, /<script type="module" nonce="N0nce" src="https:\/\/webview\.example\/frame\.js">/);
 });
 
-test("vendored kton-web: every file matches its pin (PIN.json, commit 056e05a), the licences included", async () => {
+test("vendored kton-web: every file matches its pin (PIN.json, commit 4b98962), the licences included", async () => {
   const mod = (await import(pathToFileURL(join(process.cwd(), "scripts", "vendor-kton-web.mjs")).href)) as { check: () => string[]; COMMIT: string };
   assert.deepEqual(mod.check(), []);
-  assert.equal(mod.COMMIT, "056e05a");
+  assert.equal(mod.COMMIT, "4b98962");
 });
 
 // ---- graph@1: the graph viewer as a leaf (its own frame) in a record-view slot
@@ -154,7 +154,7 @@ test("graph@1 as a leaf: set binds focus = the subject; graph@1 is answered {rec
   const decl = loadVendored(KIT).get("kton-web/graph")?.decl as Record<string, unknown>;
   const posted: Array<Record<string, unknown>> = [];
   const { backend } = backendLog();
-  const graph = { records: [{ id: "r1" }], keys: { k: "self" }, names: { k: "qa" } };
+  const graph = { records: [{ id: "r1" }], keys: { k: "self" }, names: { k: "qa" }, packages: { b1: { package: "p", id: "sha256:1", dir: ".kton/packages/p@1", key: "00" } } };
   const l = await goodPackage();
   const h = new LeafHost({ decl, slot: "record-view" }, { label: "Provenance" }, { id: SUBJECT.id, claim: SUBJECT.claim, closed: {} }, l, { ...backend, graph: async () => graph }, { post: (m) => posted.push(m as Record<string, unknown>), log: () => undefined });
   await h.onMessage({ type: "kton:ready", requires: ["graph@1"] });

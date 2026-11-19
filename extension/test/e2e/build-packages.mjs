@@ -1,4 +1,4 @@
-// Build the e2e's verticle packages with ktonpkg v0.9.1's scope CLI (cmd/scope), each sealed with a throwaway
+// Build the e2e's verticle packages with ktonpkg v0.9.5's scope CLI (cmd/scope), each sealed with a throwaway
 // key that is deleted afterwards. Sources (test/e2e/packages/):
 //   - kton-web-test/: kton-web's test package at the pinned kton-web commit, unchanged (vendored with the kit,
 //     scripts/vendor-kton-web.mjs): a decision and a record control, a review-view entry (S4.2-4, S4.6).
@@ -81,7 +81,11 @@ function hostile(name, variant) {
 }
 
 try {
-  build("kton-web-test", "test", join(SRC, "kton-web-test"));
+  // kton-web-test as vendored, plus one review-view entry for its test-layout composition (the layout steps)
+  const kwt = mkdtempSync(join(tmpdir(), "kton-web-test-"));
+  cpSync(join(SRC, "kton-web-test"), kwt, { recursive: true });
+  writeFileSync(join(kwt, "ui", "test-layout.json"), JSON.stringify({ slot: "review-view", label: "Test layout", when: { kind: "claim" }, composition: "test-layout", order: 11 }, null, 1));
+  build("kton-web-test", "test", kwt);
   // a record-view entry with kton-web's graph viewer as a leaf, pinned at the vendored commit and tree
   build("workbench-graph", "1", join(SRC, "workbench-graph"));
   hostile("hostile-good", "good");

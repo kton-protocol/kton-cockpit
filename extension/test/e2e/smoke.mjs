@@ -418,7 +418,92 @@ await step("C1", 3, "a diagram in the composition: drawn in the sandboxed Mermai
   await shot("c1-diagram");
 });
 
+// ---- layout (ktonpkg v0.9.5, VERTICLE-HOSTS §17): kton-web-test's test-layout, opened from its review-view entry
+const layout = () => frameWithSel('[data-composition="kton-web-test/test-layout"]');
+const boxIn = (f, sel) => f.locator(sel).first().evaluate((e) => { const r = e.getBoundingClientRect(); return { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) }; });
+const selectedTab = async (f) => (await f.locator('[data-layout="tabs"] [role="tab"][aria-selected="true"]').first().innerText()).trim();
+
+await step("C2", 1, "grid: filter | record | side side by side, 2fr wider than 1fr, side's second row an empty cell", async () => {
+  await openReview(P1_TITLE, "Review · Test layout", "kton-web-test");
+  const f = await layout();
+  await f.locator('#kton-root[data-settled="true"]').waitFor({ timeout: 30000 });
+  const grid = f.locator('.kton-composition > [data-layout="grid"]');
+  check((await grid.getAttribute("data-mode")) === "wide", "wide in this editor", "wide", await grid.getAttribute("data-mode"));
+  const [a, b, c] = [await boxIn(f, '[data-cell="filter"]'), await boxIn(f, '[data-cell="main"]'), await boxIn(f, '[data-cell="side"]')];
+  check(a.x < b.x && b.x < c.x && Math.abs(a.y - b.y) < 3 && Math.abs(b.y - c.y) < 3, "three cells side by side", "filter < main < side", { a, b, c });
+  check(b.w > a.w * 1.5, "2fr is wider than 1fr", `> ${a.w * 1.5}`, b.w);
+  const root = await boxIn(f, "#kton-root");
+  current.checks.push({ ok: true, message: `the composition's width in this editor: ${root.w}px (host.narrow 640)` });
+  await shot("c2-grid");
+});
+
+await step("C2", 2, "tabs: History open first; Details mounts on first show; arrow keys and End move", async () => {
+  const f = await layout();
+  check((await selectedTab(f)) === "History", "History is the active tab", "History", await selectedTab(f));
+  check((await f.locator('[data-use="main/details#d"]').count()) === 0, "Details not mounted before it is shown", 0, await f.locator('[data-use="main/details#d"]').count());
+  await f.locator('[role="tab"]', { hasText: "Details" }).click();
+  await f.locator('[data-use="main/details#d"]').waitFor({ timeout: 10000 });
+  await f.locator('[role="tab"]', { hasText: "Details" }).press("ArrowRight");
+  check((await selectedTab(f)) === "History", "ArrowRight moves to History", "History", await selectedTab(f));
+  await f.locator('[role="tab"]', { hasText: "History" }).press("End");
+  check((await selectedTab(f)) === "Approvals", "End moves to Approvals", "Approvals", await selectedTab(f));
+  await shot("c2-tabs");
+});
+
+await step("C2", 3, "split: 0.3 on the left; the divider moves by keys (ArrowRight: 0.35)", async () => {
+  const f = await layout();
+  const [l, r] = [await boxIn(f, '[data-cell="left"]'), await boxIn(f, '[data-cell="right"]')];
+  const share = l.w / (l.w + r.w);
+  check(Math.abs(share - 0.3) <= 0.05, "the left part has 0.3 of the width", 0.3, Number(share.toFixed(3)));
+  await f.locator(".kton-divider").press("ArrowRight");
+  const ratio = await f.locator('[data-layout="split"]').getAttribute("data-ratio");
+  check(ratio === "0.35", "ArrowRight moves the ratio to 0.35", "0.35", ratio);
+  await shot("c2-split");
+});
+
+await step("C2", 4, "a webview reload restores the open tab and the ratio (host-held view state)", async () => {
+  let f = await layout();
+  const load = await f.locator("#kton-root").getAttribute("data-load");
+  await page.waitForTimeout(1500); // the frame reports its state
+  await runCommand("Developer: Reload Webviews");
+  const end = Date.now() + 60000;
+  for (;;) {
+    f = await layout();
+    const now = await f.locator("#kton-root").getAttribute("data-load").catch(() => null);
+    if (now && now !== load && (await f.locator('#kton-root[data-settled="true"]').count())) break;
+    if (Date.now() > end) throw new Error(`the composition frame did not reload (load ${load} -> ${now})`);
+    await page.waitForTimeout(500);
+  }
+  current.checks.push({ ok: true, message: `the frame reloaded (load ${load} -> ${await f.locator("#kton-root").getAttribute("data-load")})` });
+  check((await selectedTab(f)) === "Approvals", "the open tab came back", "Approvals", await selectedTab(f));
+  const ratio = await f.locator('[data-layout="split"]').getAttribute("data-ratio");
+  check(ratio === "0.35", "the ratio came back", "0.35", ratio);
+  await shot("c2-restored");
+});
+
+await step("C2", 5, "narrow: an editor narrower than host.narrow (640) turns the grid into tabs; wide again after", async () => {
+  await page.setViewportSize({ width: 900, height: 4500 });
+  let f = await layout();
+  await f.locator('.kton-composition > .kton-layout[data-mode="narrow"]').waitFor({ timeout: 15000 });
+  const w = (await boxIn(f, "#kton-root")).w;
+  const top = await f.locator('.kton-composition > .kton-layout > [role="tablist"] [role="tab"]').allInnerTexts();
+  check(JSON.stringify(top.map((t) => t.trim())) === JSON.stringify(["Filter", "Record", "Side"]), "the top parts became tabs", ["Filter", "Record", "Side"], top);
+  current.checks.push({ ok: true, message: `narrow at a composition width of ${w}px (window 900px)` });
+  await shot("c2-narrow");
+  await page.setViewportSize({ width: 1600, height: 4500 });
+  f = await layout();
+  await f.locator('.kton-composition > .kton-layout[data-mode="wide"]').waitFor({ timeout: 15000 });
+});
+
+await step("C2", 6, "the layouts ran under the composition frame's strict CSP: no violation, no style attribute needed", async () => {
+  const f = await layout();
+  const v = await f.locator("#kton-root").getAttribute("data-csp-violations");
+  check(!v || v === "0", "no CSP violation", "0", v ?? "0");
+  check(leaked.length === 0, "nothing left the page", 0, leaked);
+});
+
 await step("S5", 2, "an unwired open intent goes up to the shell, which performs it (and fetches nothing)", async () => {
+  await page.locator(".tab", { hasText: "Test shell" }).first().click(); // the layout panel took the column
   await (await shell()).locator('[data-use="acts#probe"] button[data-probe-do="open"]').click();
   await toast(/Open: https:\/\/kton\.dev\/ \(not a claim in this window; nothing was fetched\)/).waitFor({ timeout: 15000 });
   await (await shell()).locator('[data-use="acts#probe"] [data-probe-out="open"]', { hasText: "done" }).waitFor({ timeout: 15000 });

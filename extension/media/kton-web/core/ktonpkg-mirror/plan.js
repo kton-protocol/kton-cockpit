@@ -232,12 +232,77 @@ function expandComposition(st, fromPkg, ref, bound, ctx) {
   st.vars[compKey] = vars;
   // a nested composition publishes its own vars as events: emits {event: own var}
   for (const [ev, v] of Object.entries(decl.emits ?? {})) if (!vars[v]) fail("emits", `${id}: emits ${ev} names var ${v}, which it does not declare`);
-  st.compositions.push({ key: compKey, package: c.package, name: c.name, hash: c.entry.hash, kind: decl.kind, parent: ctx.parentSection === null ? null : ctx.parentComp ?? "", params: bound });
+  const layout = checkLayout(id, decl.layout, parts, decl.kind);
+  st.compositions.push({ key: compKey, package: c.package, name: c.name, hash: c.entry.hash, kind: decl.kind, parent: ctx.parentSection === null ? null : ctx.parentComp ?? "", params: bound, ...(layout ? { layout } : {}) });
   const cctx = { pkg: c.package, id, decl, params: bound, compKey, hash: c.entry.hash, kind: decl.kind, chain: [...ctx.chain, id], depth: ctx.depth, subject: ctx.subject, vars };
   const outer = st.declaredInputs;
   st.declaredInputs = decl.inputs ?? [];
   for (const part of parts) expandPart(st, part, cctx, ctx.level, ctx.parentSection, null);
   st.declaredInputs = outer;
+}
+
+// ---- layout (ktonpkg v0.9.5 composition-format "Layout"; VERTICLE-HOSTS §17): a composition's parts, or
+// any part that holds parts. A layout places its own level only. grid and split place by id; stack, columns
+// and tabs by order. ----
+export const LAYOUT_TYPES = ["stack", "columns", "grid", "tabs", "split"];
+const LAYOUT_KEYS = ["type", "columns", "rows", "areas", "ratio", "direction", "narrow", "active"];
+/** A size from the closed set: a number with fr, px or %, or auto. Nothing else reaches CSS. */
+export const SIZE_RE = /^(\d+(\.\d+)?(fr|px|%)|auto)$/;
+/**
+ * Check a layout against the parts it arranges (their declared ids and headings) and return it normalized,
+ * or null for none. A layout on a report or deck is refused (their order is the document's).
+ */
+function checkLayout(where, layout, kids, kind) {
+  if (layout === undefined) return null;
+  if (["report", "deck"].includes(kind)) fail("layout", `${where}: a ${kind} keeps its part order; layout is for view and page`);
+  if (!layout || typeof layout !== "object" || Array.isArray(layout)) fail("layout", `${where}: layout is an object`);
+  for (const k of Object.keys(layout)) if (!LAYOUT_KEYS.includes(k)) fail("layout", `${where}: layout has no key ${k} (${LAYOUT_KEYS.join(", ")})`);
+  const type = layout.type ?? "stack";
+  if (!LAYOUT_TYPES.includes(type)) fail("layout", `${where}: layout type ${type} is not one of ${LAYOUT_TYPES.join("|")}`);
+  const ids = kids.map((k) => k.id);
+  const sizes = (v, what) => {
+    if (!Array.isArray(v) || !v.length || !v.every((x) => typeof x === "string" && SIZE_RE.test(x))) fail("layout", `${where}: ${what} is a list of sizes (fr, px, %, auto)`);
+    return [...v];
+  };
+  const out = { type };
+  if (layout.narrow !== undefined) {
+    if (!["stack", "tabs"].includes(layout.narrow)) fail("layout", `${where}: narrow is stack or tabs`);
+    out.narrow = layout.narrow;
+  }
+  const needHeadings = type === "tabs" || out.narrow === "tabs";
+  if (needHeadings) for (const k of kids) if (!k.heading) fail("layout", `${where}: part ${k.id} has no heading, and a tab's label is its part's heading`);
+  if (type === "columns") out.columns = sizes(layout.columns, "columns");
+  if (type === "grid") {
+    out.columns = sizes(layout.columns, "columns");
+    if (layout.rows !== undefined) out.rows = sizes(layout.rows, "rows");
+    const a = layout.areas;
+    if (!Array.isArray(a) || !a.length || !a.every((r) => Array.isArray(r) && r.length === out.columns.length && r.every((x) => typeof x === "string"))) fail("layout", `${where}: areas are rows of part ids ("." for an empty cell), each as long as columns`);
+    if (out.rows && out.rows.length !== a.length) fail("layout", `${where}: rows has ${out.rows.length} sizes for ${a.length} area rows`);
+    for (const name of new Set(a.flat().filter((x) => x !== "."))) {
+      if (!ids.includes(name)) fail("layout", `${where}: area ${name} is not a part of this layout`);
+      // a rectangle: the cells holding the name fill their bounding box exactly
+      const cells = a.flatMap((r, y) => r.map((x, c) => (x === name ? [y, c] : null)).filter(Boolean));
+      const ys = cells.map((c) => c[0]), xs = cells.map((c) => c[1]);
+      const h = Math.max(...ys) - Math.min(...ys) + 1, w = Math.max(...xs) - Math.min(...xs) + 1;
+      if (h * w !== cells.length) fail("layout", `${where}: area ${name} is not a rectangle`);
+    }
+    for (const id of ids) if (!a.flat().includes(id)) fail("layout", `${where}: part ${id} is not placed in the grid`);
+    out.areas = a.map((r) => [...r]);
+  }
+  if (type === "split") {
+    if (kids.length !== 2) fail("layout", `${where}: a split arranges exactly two parts, not ${kids.length}`);
+    const r = layout.ratio ?? 0.5;
+    if (typeof r !== "number" || !(r > 0 && r < 1)) fail("layout", `${where}: ratio is a number between 0 and 1`);
+    const d = layout.direction ?? "row";
+    if (!["row", "column"].includes(d)) fail("layout", `${where}: direction is row or column`);
+    Object.assign(out, { ratio: r, direction: d });
+  }
+  if (layout.active !== undefined) {
+    if (type !== "tabs" && out.narrow !== "tabs") fail("layout", `${where}: active names the open tab; this layout has no tabs`);
+    if (!ids.includes(layout.active)) fail("layout", `${where}: active ${layout.active} is not a part of this layout`);
+    out.active = layout.active;
+  }
+  return out;
 }
 
 /** {"from": "<input>"} → that input's parts, marked so their files and queries resolve in the input. */
@@ -262,13 +327,20 @@ function expandPart(st, part, cctx, level, parentSection, row) {
     if (!rows) return;
     rows.forEach((r, i) => {
       const heading = part.every.heading ? termText(bindSource(st, part.every.heading, scopeFor(cctx, part, r), cctx)) : part.heading;
-      expandPart(st, { ...part, every: undefined, id: `${part.id}.${i + 1}`, heading }, cctx, level, parentSection, r);
+      expandPart(st, { ...part, every: undefined, id: `${part.id}.${i + 1}`, pid: part.pid ?? part.id, heading }, cctx, level, parentSection, r);
     });
     return;
   }
   if (part.block !== undefined) fail("declaration", `${cctx.id}/${part.id}: a part holds "blocks" (uses) or a "composition", not "block"`);
   const scope = scopeFor(cctx, part, row);
-  const section = { key, id: part.id, heading: part.unnamed ? "" : part.heading ?? "", level, parent: parentSection, composition: cctx.compKey, rules: part.rules ?? [], uses: [] };
+  const section = { key, id: part.id, pid: part.pid ?? part.id, heading: part.unnamed ? "" : part.heading ?? "", level, parent: parentSection, composition: cctx.compKey, rules: part.rules ?? [], uses: [] };
+  if (part.layout !== undefined) {
+    // a layout group: a part that arranges its own parts (no composition of its own; with or without a heading)
+    if (part.composition !== undefined) fail("layout", `${cctx.id}/${part.id}: a part that holds a composition takes that composition's layout, not its own`);
+    if (!(part.parts ?? []).length) fail("layout", `${cctx.id}/${part.id}: a layout needs parts to arrange`);
+    const gl = checkLayout(`${cctx.id}/${part.id}`, part.layout, part.parts, cctx.kind);
+    if (gl) section.layout = gl;
+  }
   if (part.unnamed) section.unnamed = true;
   if (part.input) section.input = part.input;
   st.sections.push(section);

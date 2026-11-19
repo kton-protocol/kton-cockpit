@@ -25,3 +25,22 @@ th { cursor: pointer; } .kton-caption { font-size: 12px; font-style: italic; }
 .kton-row-pick { cursor: pointer; } .kton-row-pick[aria-selected] td { font-weight: 600; }
 .kton-facet-list { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13px; }
 .kton-card-fields { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; margin: 4px 0; } .kton-card-fields dt { color: var(--vscode-descriptionForeground, #777); }
+/* layout (ktonpkg v0.9.5 "Layout"): fixed classes here; sizes and areas are set through the CSSOM by compose.js */
+.kton-layout { margin: 6px 0; min-width: 0; }
+.kton-layout-grid, .kton-layout-columns, .kton-layout-split { display: grid; gap: 12px; align-items: start; }
+.kton-layout-split { gap: 0; align-items: stretch; }
+.kton-cell { min-width: 0; overflow: auto; }
+.kton-cell > .kton-part:first-child > :is(h1, h2, h3, h4, h5, h6):first-child { margin-top: 0; }
+.kton-tablist { display: flex; gap: 2px; border-bottom: 1px solid var(--vscode-panel-border, #ccc); margin: 4px 0 8px; flex-wrap: wrap; }
+.kton-tablist [role="tab"] { font: inherit; padding: 4px 12px; border: 1px solid transparent; border-bottom: 0; border-radius: 4px 4px 0 0;
+  background: transparent; color: inherit; cursor: pointer; }
+.kton-tablist [role="tab"][aria-selected="true"] { border-color: var(--vscode-panel-border, #ccc); background: var(--vscode-editor-background, #fff); font-weight: 600; }
+.kton-layout-tabs > .kton-cell > .kton-part > :is(h1, h2, h3, h4, h5, h6):first-child { display: none; } /* the tab says it */
+.kton-divider { background: var(--vscode-panel-border, #ccc); cursor: col-resize; }
+.kton-layout-split[data-layout="split"] > .kton-divider[aria-orientation="horizontal"] { cursor: row-resize; }
+.kton-divider:focus-visible { outline: 2px solid var(--vscode-focusBorder, #6b8cff); }
+@media print {
+  .kton-layout { display: block !important; }
+  .kton-tablist, .kton-divider { display: none !important; }
+  .kton-cell[hidden] { display: block !important; }
+}

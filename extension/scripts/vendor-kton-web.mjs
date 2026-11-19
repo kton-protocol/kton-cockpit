@@ -15,7 +15,7 @@ import { fileURLToPath } from "node:url";
 
 export const REPO = "https://github.com/gitmick/kton-web";
 export const BRANCH = "compose-v3";
-export const COMMIT = "056e05a";
+export const COMMIT = "4b98962";
 export const FILES = [
   // kton-web's licence (Apache-2.0 since f59275b, MH 19.11.)
   "LICENSE",
@@ -82,6 +82,7 @@ export const TEST_PACKAGE = [
   "ui/blocks/needs.json",
   "ui/blocks/probe.json",
   "ui/compositions/test-shell.json",
+  "ui/compositions/test-layout.json",
   "ui/test-shell.json",
   "viewers/needs/needs.js",
   "viewers/needs/viewer.json",

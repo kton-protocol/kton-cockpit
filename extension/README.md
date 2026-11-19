@@ -122,13 +122,19 @@ The admitted packages' ui declarations (C2) come from `cockpit ui list --json`:
   asks for its data: `graph@1` is answered with the registry's records, keys and names, which the viewer
   verifies in its own wasm. A leaf may fetch its pinned files (the wasm) from its own resource origin
   (`connect-src` the webview origin); a composition frame keeps `connect-src 'none'` (C1.5 v3).
+- **Layout** (ktonpkg v0.9.5). The renderer places parts in grids, tabs and splits. The host tells it
+  `host.narrow = 640`: a layout that declares `narrow` switches below 640 px of composition width (a full
+  editor column is wider; a split editor or a narrow window is not); a layout without `narrow` never changes.
+  The open tab and a split's ratio are view state: the host holds them like vars (never as acts) and gives
+  them back when the webview reloads.
 - **Diagrams.** Mermaid runs only in a sandboxed frame, served from 127.0.0.1 on a random port (exactly its
   three pinned files) and named in the composition frame's `frame-src`; the diagram is shown as an `<img>`.
 
 Until `ui list` names each member's content hash, the shell reads a fixture in the agreed shape
 (setting `kton.ui.listFixture`); the e2e writes it with ktonpkg v0.9.1 (`test/e2e/uilist-fixture/`). `graph@1`
 reads the registry through a short-lived `cockpit show` on 127.0.0.1 until the CLI prints union, keys and
-names itself.
+names itself; its `packages` (the admitted packages' build keys, `/data/packages.json` from cockpit v0.5.3) is
+passed on unchanged, and is `{}` while `cockpit show` does not serve it.
 
 ## Build and test
 

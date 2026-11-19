@@ -15,7 +15,7 @@
   "data": {
     "graph@1": {
       "args": {},
-      "answer": "{records, keys, names, attested?} - verified here by the kernel wasm - or {graph, sketch?, derived?, contracted?} - a graph the host built and vouches for"
+      "answer": "{records, keys, names, attested?, packages?} - verified here by the kernel wasm; packages = {keyid: {package, id, dir, key}} of admitted packages' build keys (cockpit v0.5.3 /data/packages.json): with key, re-checked here and shown as 'signed by admitted package X, signature checked (not a trust tier)', never as verified - or {graph, sketch?, derived?, contracted?} - a graph the host built and vouches for"
     }
   },
   "files": "for the records form, its own pinned runtime/wasm/ (manifest.json, the .wasm), fetched from the viewer's origin: the leaf CSP needs connect-src for that origin (tests/e2e/leaf-csp.mjs). The {graph} form needs no wasm.",
@@ -119,6 +119,6 @@
   },
   "handover": {
     "v3": "a frame with no data address: kton:ready, then kton:request {cap: 'graph@1'} after the first kton:set (core/leaf.js pattern; tests/shell/leaf.html plays the host)",
-    "static": "?union=<url>[,<url>…] with sibling keys.json and names.json, ?graph=<url>, ?select=<endpoint>: the open-web pages, unchanged"
+    "static": "?union=<url>[,<url>…] with sibling keys.json and names.json, ?packages=<url> (admitted packages' build keys; beside cockpit show's /data/union.json it is found by itself), ?graph=<url>, ?select=<endpoint>: the open-web pages"
   }
 }

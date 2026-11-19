@@ -212,7 +212,7 @@ export class CliTransport implements Transport {
    * /data/union.json, keys.json and names.json from this process, then stopped. Loopback only; the webview never
    * talks to it. Shape-checked: records a list, keys and names objects.
    */
-  async graph(): Promise<{ records: unknown[]; keys: Record<string, unknown>; names: Record<string, unknown> }> {
+  async graph(): Promise<{ records: unknown[]; keys: Record<string, unknown>; names: Record<string, unknown>; packages: Record<string, unknown> }> {
     const port = await new Promise<number>((resolve, reject) => {
       const srv = createServer();
       srv.once("error", reject);
@@ -238,7 +238,10 @@ export class CliTransport implements Transport {
           if (!Array.isArray(records)) throw new TransportError("cockpit show: union.json is not a list of records", 0, "");
           const keys = assertObject(await get("keys.json"), "keys.json");
           const names = assertObject(await get("names.json"), "names.json");
-          return { records, keys: keys as Record<string, unknown>, names: names as Record<string, unknown> };
+          // the admitted packages' build keys (cockpit v0.5.3 serves /data/packages.json); before that: none
+          const pr = await fetch(base + "packages.json");
+          const packages = pr.ok ? (assertObject(await pr.json(), "packages.json") as Record<string, unknown>) : {};
+          return { records, keys: keys as Record<string, unknown>, names: names as Record<string, unknown>, packages };
         } catch (e) {
           if (e instanceof TransportError) throw e;
           if (Date.now() > end) throw new TransportTimeout(`cockpit show did not answer on 127.0.0.1:${port}`, "");

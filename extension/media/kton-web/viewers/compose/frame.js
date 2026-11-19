@@ -35,6 +35,7 @@ const bridge = connect({
     root.dataset.load = bridge.load;
     const hostApi = {
       provides: host?.provides ?? [],
+      narrow: host?.narrow, // the width below which a layout falls back (layout.narrow), default 640
       // compose.js puts a var-bound use's vars into args; on the wire they travel beside args (W3)
       request: (cap, { vars, ...args } = {}, use) => bridge.request(cap, args, { use, vars }),
       intent: (intent, use) => bridge.intent(intent, { use }),
