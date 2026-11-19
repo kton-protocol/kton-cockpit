@@ -180,6 +180,8 @@ export class OperatorConfirmation {
   }
 }
 
+import type { UiListing } from "../packages/listing.js";
+
 export interface Transport {
   ask(req: AskRequest): Promise<Outcome<AskResult>>;
   say(req: SayRequest): Promise<Outcome<SayResult>>;
@@ -192,4 +194,11 @@ export interface Transport {
   list(): Promise<Outcome<Listing>>;
   doctor(): Promise<DoctorReport>;
   version(): Promise<Outcome<{ readonly text: string }>>;
+  /** `cockpit ui list --json` (C2.4): the installed packages' ui declarations, checked in shape. */
+  uiList(): Promise<Outcome<UiListing>>;
+  /**
+   * A package member's bytes by its content hash (blobs/<hh>/<hex> of an installed package). The caller
+   * checks the hash again; dir must be one ui list named. Until the cockpit serves package bytes itself.
+   */
+  packageBlob(dir: string, hash: string): Promise<Uint8Array>;
 }

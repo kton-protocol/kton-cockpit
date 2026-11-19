@@ -19,6 +19,9 @@
 //   `--json`; older builds wrote text on stderr. Both are read.
 
 import { execFile } from "node:child_process";
+import { readFile } from "node:fs/promises";
+import { isAbsolute, join, normalize, sep } from "node:path";
+import { assertUiListing, type UiListing } from "../packages/listing.js";
 import type {
   AskRequest,
   AskResult,
@@ -48,6 +51,11 @@ export interface CliTransportOptions {
   readonly env?: Readonly<Record<string, string>>;
   /** How long one call may take; a call that takes longer is killed and reported as timed out. */
   readonly timeoutMs?: number;
+  /**
+   * Until cockpit v0.5.3 fills ui/blocks/compositions in `ui list --json`: a file holding that answer
+   * (setting kton.ui.listFixture; the e2e writes it with ktonpkg v0.9.1). Unset: the real verb.
+   */
+  readonly uiListFixture?: string;
 }
 
 interface RunResult {
@@ -171,6 +179,31 @@ export class CliTransport implements Transport {
     if (req.allow) args.push("--allow");
     args.push("--json");
     return this.outcome(args, (v) => assertObject(v, "install"));
+  }
+
+  /** `cockpit ui list --json`, or the fixture in its shape until the verb lists declarations (v0.5.3). */
+  async uiList(): Promise<Outcome<UiListing>> {
+    if (this.opts.uiListFixture) {
+      const raw = await readFile(this.opts.uiListFixture, "utf8");
+      let v: unknown;
+      try {
+        v = JSON.parse(raw);
+      } catch (e) {
+        throw new TransportError(`ui list fixture: ${(e as Error).message}`, 0, "");
+      }
+      return { ok: true, value: assertUiListing(v) };
+    }
+    return this.outcome(["ui", "list", "--json"], assertUiListing);
+  }
+
+  /** blobs/<hh>/<hex> of an installed package under .kton/packages; nothing outside it is read. */
+  async packageBlob(dir: string, hash: string): Promise<Uint8Array> {
+    const m = /^sha256:([0-9a-f]{64})$/.exec(hash);
+    if (!m) throw new TransportError(`${JSON.stringify(hash)} is not sha256:<hex>`, 0, "");
+    const rel = normalize(dir);
+    if (isAbsolute(rel) || !rel.startsWith(join(".kton", "packages") + sep) || rel.split(sep).includes("..")) throw new TransportError(`${JSON.stringify(dir)} is not an installed package's folder`, 0, "");
+    const hex = m[1] as string;
+    return readFile(join(this.opts.cwd, rel, "blobs", hex.slice(0, 2), hex));
   }
 
   /** The templates this checkout's cockpit allows, with their fields (`cockpit say --json`, v0.5.0). */
