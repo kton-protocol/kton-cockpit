@@ -56,10 +56,10 @@ function check(ok, message, expected, received) {
 
 // ---- the registry, from outside the shell (sidecar)
 let rpcN = 0;
-async function cockpit(argv, stdin) {
+async function cockpit(argv, stdin, extra = {}) {
   const id = `${process.pid}-${++rpcN}`;
   const req = `${WORK}/rpc/${id}.req.json`;
-  writeFileSync(`${req}.tmp`, JSON.stringify({ argv, ...(stdin !== undefined ? { stdin } : {}) }));
+  writeFileSync(`${req}.tmp`, JSON.stringify({ argv, ...(stdin !== undefined ? { stdin } : {}), ...extra }));
   renameSync(`${req}.tmp`, req);
   const end = Date.now() + 180_000;
   while (Date.now() < end) {
@@ -460,6 +460,30 @@ await step("S5", 5, "record view: kton-web's graph as a leaf; graph@1 answered w
   check(err === "", "the graph drew without an error", "", err);
   const stats = (await g.locator("#stats").innerText()).replace(/\s+/g, " ").trim();
   current.checks.push({ ok: true, message: `the graph's stats: ${stats}` });
+  // what graph@1 was answered with (cockpit show: keys.json = the configured trust tiers): every record's
+  // signers, in the ring or not. A record signed only by keys outside it is "not in the trusted keys"; a
+  // signature that fails against a key the ring holds is "unverified", and there must be none.
+  const m = JSON.parse((await cockpit([], undefined, { mirror: true })).stdout);
+  const kidOf = (pubHex) => createHash("sha256").update(Buffer.from(pubHex.trim(), "hex")).digest("hex").slice(0, 16);
+  const who = new Map(Object.entries(m.names));
+  for (const p of readdirSync(`${WORK}/pkgs`)) for (const f of readdirSync(`${WORK}/pkgs/${p}/keys`)) who.set(f.replace(/\.pub$/, ""), `package ${p}`);
+  for (const f of readdirSync(`${WORK}/vocab-package/keys`)) who.set(f.replace(/\.pub$/, ""), "package workbench-e2e-queries");
+  for (const f of (existsSync(`${WORK}/outside`) ? readdirSync(`${WORK}/outside`) : []).filter((x) => x.endsWith("-claims.pub"))) who.set(kidOf(readFileSync(`${WORK}/outside/${f}`, "utf8")), `${f.replace(/\.pub$/, "")} (moved out of the trust config, S1.3)`);
+  const outside = new Map();
+  let inRing = 0;
+  for (const r of m.union) {
+    const kids = (r.envelope?.signatures ?? []).map((x) => x.keyid);
+    if (kids.some((k) => k in m.keys)) inRing++;
+    else for (const k of kids) outside.set(k, (outside.get(k) ?? 0) + 1);
+  }
+  const notInKeys = [...outside.values()].reduce((a, b) => a + b, 0);
+  const groups = [...outside.entries()].map(([k, n]) => `${k} ${who.get(k) ?? "?"}: ${n}`).sort();
+  current.checks.push({ ok: true, message: `records ${m.union.length}: ${inRing} signed by a key in keys.json; ${notInKeys} only by keys outside it: ${groups.join("; ")}` });
+  current.checks.push({ ok: true, message: `keys.json (trusted): ${Object.keys(m.keys).map((k) => `${k} ${who.get(k) ?? "?"}`).sort().join("; ")}` });
+  const nk = /(\d+) signer not in the trusted keys/.exec(stats);
+  check(Number(nk?.[1] ?? 0) === notInKeys, "the graph's 'not in the trusted keys' are exactly the records signed only outside keys.json", notInKeys, Number(nk?.[1] ?? 0));
+  check(!/\d+ unverified/.test(stats), "0 unverified: every signature by a key the ring holds checks", "no 'unverified'", stats);
+  check([...outside.keys()].every((k) => who.has(k)), "every outside signer is accounted for (a package's key or the outsider)", "all known", groups);
   check(leaked.length === 0, "nothing left the page", 0, leaked);
   await shot("s5-graph-leaf");
 });

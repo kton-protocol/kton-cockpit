@@ -1,11 +1,11 @@
 {
   "repo": "https://github.com/gitmick/kton-web",
   "branch": "compose-v3",
-  "commit": "39c206a672b6b6563aacb7052dd11b24ca0f3735",
+  "commit": "056e05a64860ff82c1103c3619014de57f42aa24",
   "license": "Apache-2.0 (LICENSE)",
   "wasm": {
     "recipe": "wasm/fetch-kernel.sh && GOFLAGS=-buildvcs=false wasm/build.sh full",
-    "kernel": "https://github.com/kton-protocol/kton cc50c529911ef22693521cf2a962bfb641415a42",
+    "kernel": "https://github.com/kton-protocol/kton e6d0bcaa0c7d0515f11789e4b3fd26a069a9cb3b (v0.4.0)",
     "image": "golang:1.25@sha256:699337d620559a59b4a2bb298ad59611e535d2ee755a34cf2d2a98f37578dc80"
   },
   "files": {
@@ -30,8 +30,8 @@
     "vendor/mermaid/VENDORED.json": "e2b75c96d97854f5f51328cc06cbea727e52810b628f9dbb7a07a3f1edeb7713",
     "viewers/diagram/diagram.js": "1d0d9760788f325ec657d047ae08a792e5ab22c4e7519f78e3d3a58e59c4d64e",
     "viewers/diagram/viewer.json": "87488b7f3c649d3310917b04aff694320d7c3754710dbefdba40e8912c2bd6f4",
-    "viewers/graph/index.html": "bfceee46cb37ec89305759381060f979a3d66a8271d88a445766d9f17519ba6e",
-    "viewers/graph/app.js": "3a0d4e6753b86f8835f9b8efdbcef48d3e623c57373c698bb2a645e71dc7200f",
+    "viewers/graph/index.html": "158a23753f6d194c23e7b6a7b8ab359d12d7335eedef78ae550d227ed69fc4fd",
+    "viewers/graph/app.js": "893e6b2fc71ae4ed2d36e81a5d1434a3116799c507deff050d666e44bd686646",
     "viewers/graph/viewer.json": "fc3de0c98343f58d99af1e58b13251759e2ebb97d8f62d9caeb204db1f972298",
     "core/kton.css": "686a4aab7c3bb61331e8674b341543cc37f23947eee13c9f168cd0f6af3e2974",
     "core/logo.png": "8352395f179e2ed406251f157c75a6d877657e133505b95d8ebc781329944570",
@@ -50,8 +50,8 @@
     "core/viewstate.js": "fb7fd22af1f41270fa97594e97329b3042602ea289c6b9143f8628d417f0e693",
     "runtime/kton.js": "1a06492b64da93fbb40e3b0ce7fb437197bc9e7202fdb27aab95403a81c3f3a6",
     "runtime/wasm_exec.js": "0c949f4996f9a89698e4b5c586de32249c3b69b7baadb64d220073cc04acba14",
-    "runtime/wasm/manifest.json": "5d371cba3a3f2dca3df3880b3e7f48a26e57ca8d386d0e1b3aa8ecfada63eaac",
-    "runtime/wasm/kton-full.wasm": "527bd73b6b16c2bf4262bbbc5dc4bb063613c1d0ab7d90a4cb378b3ceeda246c",
+    "runtime/wasm/manifest.json": "1bdb13cb882229badb07cb1544be50a60e17f660a75a9bf170a366d20f9a7dd1",
+    "runtime/wasm/kton-full.wasm": "7bccb0e95edb96cf0f94a54ea9c3b89d5cb608b5a8adc70e2611d575dbd19fe8",
     "tests/packages/kton-web-test/content/flow.mmd": "cf5021c281b1bbf465ad8fa51f9718da9d55e5dc70c8a412f87e7c1275d18a37",
     "tests/packages/kton-web-test/kit-viewers.json": "3bb01fb8034f2081205f6c8acc9594337ed3c7d1db9e90472b4765b59ba3d19e",
     "tests/packages/kton-web-test/ui/blocks/diagram.json": "c64f23e4f44d9a0f3f4710738d39c0601b5461640512211886b48963889ec529",

@@ -15,7 +15,7 @@ import { fileURLToPath } from "node:url";
 
 export const REPO = "https://github.com/gitmick/kton-web";
 export const BRANCH = "compose-v3";
-export const COMMIT = "39c206a";
+export const COMMIT = "056e05a";
 export const FILES = [
   // kton-web's licence (Apache-2.0 since f59275b, MH 19.11.)
   "LICENSE",
@@ -92,7 +92,7 @@ export const TEST_PACKAGE = [
 /** How runtime/wasm/ was built: kton-web's own recipe at COMMIT, with the kernel it pins. */
 export const WASM = {
   recipe: "wasm/fetch-kernel.sh && GOFLAGS=-buildvcs=false wasm/build.sh full",
-  kernel: "https://github.com/kton-protocol/kton cc50c529911ef22693521cf2a962bfb641415a42",
+  kernel: "https://github.com/kton-protocol/kton e6d0bcaa0c7d0515f11789e4b3fd26a069a9cb3b (v0.4.0)",
   image: "golang:1.25@sha256:699337d620559a59b4a2bb298ad59611e535d2ee755a34cf2d2a98f37578dc80",
 };
 

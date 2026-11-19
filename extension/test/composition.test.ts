@@ -114,10 +114,10 @@ test("the composition page: a host-owned CSP with no 'unsafe-inline' and connect
   assert.match(html, /<script type="module" nonce="N0nce" src="https:\/\/webview\.example\/frame\.js">/);
 });
 
-test("vendored kton-web: every file matches its pin (PIN.json, commit 39c206a), the licences included", async () => {
+test("vendored kton-web: every file matches its pin (PIN.json, commit 056e05a), the licences included", async () => {
   const mod = (await import(pathToFileURL(join(process.cwd(), "scripts", "vendor-kton-web.mjs")).href)) as { check: () => string[]; COMMIT: string };
   assert.deepEqual(mod.check(), []);
-  assert.equal(mod.COMMIT, "39c206a");
+  assert.equal(mod.COMMIT, "056e05a");
 });
 
 // ---- graph@1: the graph viewer as a leaf (its own frame) in a record-view slot

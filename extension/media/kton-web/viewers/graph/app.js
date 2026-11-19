@@ -221,6 +221,7 @@ function renderGraph(union,keys,names,recorded){ try{ NAMES_ALL=JSON.parse(names
 function buildG(union,keys,names,recorded){
   LAST_BUILD=[union,keys,names,recorded];
   G=JSON.parse(plktBuildGraph(union,keys,names)); if(G.error) throw new Error(G.error);
+  markUntrusted(G, keys);
   if(G.locators){ const base=Object.values(RECSRC)[0]; for(const k in G.locators) G.locators[k]=[...new Set([].concat(G.locators[k]).map(u=>/^[a-z][a-z0-9+.-]*:/i.test(u)||!base?u:(()=>{ try{ return new URL(u,base).href; }catch{ return u; } })()))]; }
   // a recorder's graph next to the union: join by output hash. Only labels move across; the
   // verdicts are the wasm's, and a step only the recorder saw stays unverified (core/join.js).
@@ -696,11 +697,19 @@ function index(){
   G._types=[...new Set(G.nodes.map(n=>n.type))].sort();
   filt={parts:new Set(G._parts), types:typesShown(), kinds:kindsHidden()};
 }
+// "unverified" said two different things. keys.json is the ring a host trusts (cockpit show serves only
+// the CONFIGURED trust tiers), so a record whose signer is not in it cannot be checked here at all - that
+// is "not in the trusted keys", not a signature that failed. Only a signer the ring holds and whose
+// signature does not check is a failure. The wasm's verdict stays as it is; this only names the reason.
+function markUntrusted(g, keysText){ let ring; try{ ring=new Set(Object.keys(JSON.parse(keysText||"{}"))); }catch{ return; }
+  let n=0; for(const x of g.nodes) if((x.type==="foton"||x.type==="claim") && !x.verified && x.signer && !ring.has(x.signer)){ x.untrusted=true; n++; }
+  g._untrusted=n; }
 function showStats(){ const t=G.summary.totals;
+  const untrusted=G._untrusted||0, failed=Math.max(0,(t.unverified||0)-untrusted);
   // the registries this picture is spliced from, each its own source (by hash, nothing merged beforehand)
   const srcs=Object.entries(SRCSTAT).filter(([,v])=>/records/.test(v));
   const regName=u=>{ const m=String(u).match(/([^/]+)\/[^/]*$/); return m?m[1]:u; };
-  $("#stats").innerHTML=(srcs.length>1?`<span title="${esc(srcs.map(([u,v])=>regName(u)+": "+v).join("\n"))}"><b>${srcs.length}</b> registries <span style="opacity:.75">(${esc(srcs.map(([u])=>regName(u)).join(" + "))})</span>, spliced by hash</span>`:``)+`<span><b>${(G._parts||[]).filter(Boolean).length||t.participants}</b> participants</span><span><b>${t.fotons}</b> fotons</span><span><b>${t.claims}</b> claims</span><span class="ok"><b>${t.verified}</b>/${t.fotons+t.claims} verified</span>`+(t.unverified?`<span class="bad"><b>${t.unverified}</b> unverified</span>`:``)
+  $("#stats").innerHTML=(srcs.length>1?`<span title="${esc(srcs.map(([u,v])=>regName(u)+": "+v).join("\n"))}"><b>${srcs.length}</b> registries <span style="opacity:.75">(${esc(srcs.map(([u])=>regName(u)).join(" + "))})</span>, spliced by hash</span>`:``)+`<span><b>${(G._parts||[]).filter(Boolean).length||t.participants}</b> participants</span><span><b>${t.fotons}</b> fotons</span><span><b>${t.claims}</b> claims</span><span class="ok"><b>${t.verified}</b>/${t.fotons+t.claims} verified</span>`+(untrusted?`<span class="warn" title="signed by a key outside the trust tiers this host gave the viewer (keys.json): not checked here, not a failed signature"><b>${untrusted}</b> signer not in the trusted keys</span>`:``)+(failed?`<span class="bad" title="the signer's key is in keys.json and the signature does not check"><b>${failed}</b> unverified</span>`:``)
     +(G.summary.origins?`<span title="steps joined by file hash: seen by the recorder and signed / signed only / recorded only (not signed)"><b>${G.summary.origins.both}</b> recorded+signed · <b>${G.summary.origins.signed}</b> signed only · <b>${G.summary.origins.recorded+(G.summary.origins.hidden||0)}</b> recorded only</span>`+(G.summary.origins.hidden||recordedShown()&&prof().graph.recorded==="hide"?` <a href="#" id="togrec" title="steps the recorder saw that no signed record has">${recordedShown()?"hide them":"show them"}</a>`:``):``)
     +(STORE?`<span title="a portion of the store, chosen by the store and verified here - expand a node to grow it">portion: <b>${STORE.byId.size}</b> records${STORE.more?` · <span class="rc" data-storemore="1" title="some selections were cut at the page size">load more (${STORE.more} cut)</span>`:``}</span>`:``);
 }
@@ -1470,7 +1479,7 @@ function openNode(id){ const p=$("#panel"); const gn=ex&&ex._byId&&ex._byId.get(
     :n.origin==="signed"?` <span class="badge" title="no recorded step produced this file">signed only</span>`:``;
   const meta=isSrc?`<div class="kv">external input - referenced by content hash; not a signed record.</div>`
     :n.origin==="recorded"?`<div class="kv"><span class="badge vno" title="the recorder saw this step; no signed record has its outputs">recorded only - not signed</span></div>`
-    :`<div class="kv">${origin?origin.trim()+"<br>":""}signer <code>${esc(n.signer||"?")}</code> <span class="badge ${n.verified?'vok':'vno'}">${n.verified?"✓ verified":"unverified"}</span>${n.repro>1?` <span class="badge vok" title="distinct independent signers that produced this exact output (↻N)">↻${n.repro} reproduced</span>`:``}${n.signers?`<br>co-signed by ${n.signers.map(k=>`<code>${esc((G.nodes.find(x=>x.signer===k&&x.participant)||{}).participant||k)}</code>`).join(", ")} - the same work, re-run and signed on this one record`:``}</div>`;
+    :`<div class="kv">${origin?origin.trim()+"<br>":""}signer <code>${esc(n.signer||"?")}</code> <span class="badge ${n.verified?'vok':'vno'}">${n.verified?"✓ verified":n.untrusted?"signer not in the trusted keys":"unverified"}</span>${n.repro>1?` <span class="badge vok" title="distinct independent signers that produced this exact output (↻N)">↻${n.repro} reproduced</span>`:``}${n.signers?`<br>co-signed by ${n.signers.map(k=>`<code>${esc((G.nodes.find(x=>x.signer===k&&x.participant)||{}).participant||k)}</code>`).join(", ")} - the same work, re-run and signed on this one record`:``}</div>`;
   const qOf=id=>QS.BUILTIN.find(q=>q.id===id);   // counts on the buttons - same questions the compass asks
   const linN=n.type==="foton"?QS.countFor(G,qOf("inputs"),n.id):0, impN=n.type==="foton"?QS.countFor(G,qOf("impact"),n.id):0;
   const PP=prof().panel, an=stepInfo(n);
