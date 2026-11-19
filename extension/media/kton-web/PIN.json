@@ -1,0 +1,20 @@
+{
+  "repo": "https://github.com/gitmick/kton-web",
+  "branch": "compose-v3",
+  "commit": "39242b9f0bfce4f78d35f25d291c79877aaeeed5",
+  "files": {
+    "core/host.js": "548f565c36dd9b1e09eda65cf78624aafbe0d21360df1ba3d2f4f945c2b7f5c4",
+    "core/origins.js": "f0623300344f66eb99a66a9eecd3cdac4d8d2f2d6c62308530e73e5e683aa830",
+    "core/compose.js": "e61f31701dd244df5250c5ace9519190130be76dc11f777347dd4e6107438f39",
+    "core/compose-kit.js": "0e0f7fddf5add725f7ff12bbca5609e906048db645242e8fe55352492cf12611",
+    "core/compose.css": "7c3d6fd238ef0a77956408edb682da5b55ce3d6e06dfacbdf785049a7606c09b",
+    "core/mermaid-client.js": "d911f50c4d52afb599f3acbdf8b2fbf23eb4a05c15bc8906def048b61957c1d3",
+    "core/leaf.js": "e7c468bec6274f1ee2b52e0efcdf6a34165c91bb88263f50b473bc89ff9bad8c",
+    "core/ktonpkg-mirror/plan.js": "ed00b89d505e3bbafd241c59e75b9f21f3c2a91385163867d19da6356ac84b97",
+    "core/ktonpkg-mirror/sparql.js": "c6238589abc0e92f1d30433a1aaf7f79ea34a99cec0f74ca185cffbc29c9730a",
+    "core/ktonpkg-mirror/packages.js": "bc11e05c6e66fc3cdc603a4415a9203cc5b5295af51049edbfc4b356868d5db5",
+    "core/ktonpkg-mirror/PIN.md": "6b01550fbc1317bb7b2c9cda9ea342b0cb9e43300ca41d70822d029280ca03cc",
+    "viewers/compose/frame.js": "595effdfe852ca25eb33d6cd5203a04b1aa5b5b8408fefd1d2e37e07b747358e",
+    "viewers/compose/index.html": "6054675583253caaf52cb1b93788fd61c29e0f77a60ca7b566acb5141050a5a2"
+  }
+}

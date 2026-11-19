@@ -1,0 +1,27 @@
+/* The composition frame's look: the host's theme variables (VS Code) with plain fallbacks (browser). */
+:root { color-scheme: light dark; }
+body { font-family: var(--vscode-font-family, system-ui, sans-serif); color: var(--vscode-foreground, #1d1d1f);
+  background: var(--vscode-editor-background, #fff); margin: 0; padding: 12px 18px; line-height: 1.5; }
+@media (prefers-color-scheme: dark) { body:not(.vscode-light) { color: var(--vscode-foreground, #e6e6e6); background: var(--vscode-editor-background, #1e1e1e); } }
+h1, h2, h3, h4 { margin: 1.1em 0 .3em; line-height: 1.25; } h1 { font-size: 20px; } h2 { font-size: 17px; } h3, h4 { font-size: 15px; }
+.kton-part { margin-left: 0; } .kton-part .kton-part { margin-left: 12px; }
+.kton-composition .kton-composition { border-left: 3px solid var(--vscode-focusBorder, #6b8cff); padding-left: 10px; margin: 6px 0; }
+.kton-block { margin: 6px 0; } .kton-muted, .kton-rules { color: var(--vscode-descriptionForeground, #777); font-size: 12px; }
+.kton-hidden { font-size: 12px; border: 1px dashed currentColor; border-radius: 4px; padding: 2px 8px; display: inline-block; opacity: .75; }
+table { border-collapse: collapse; margin: 4px 0; } th, td { border-bottom: 1px solid var(--vscode-panel-border, #ccc); padding: 3px 8px; text-align: left; vertical-align: top; }
+th { cursor: pointer; } .kton-caption { font-size: 12px; font-style: italic; }
+.kton-number .kton-value { font-size: 22px; font-weight: 600; }
+.kton-pre { white-space: pre-wrap; font-family: var(--vscode-editor-font-family, monospace); font-size: 12px; max-height: 320px; overflow: auto;
+  border: 1px solid var(--vscode-panel-border, #ccc); border-radius: 4px; padding: 6px; }
+.kton-act { display: flex; gap: 10px; align-items: center; margin: 4px 0; }
+.kton-act button { font: inherit; padding: 3px 10px; border-radius: 4px; border: 1px solid var(--vscode-button-border, #888);
+  background: var(--vscode-button-background, #eee); color: var(--vscode-button-foreground, inherit); cursor: pointer; }
+.kton-act-note[data-state="refused"] { color: var(--vscode-errorForeground, #b00020); }
+.kton-error { color: var(--vscode-errorForeground, #b00020); }
+.kton-refine { margin: 2px 0 4px; font-size: 12px; } .kton-refine select { font: inherit; }
+.kton-image img { max-height: 48px; } .kton-diagram svg { max-width: 100%; height: auto; }
+.kton-unnamed { display: contents; }
+.kton-diagram img { max-width: 100%; height: auto; }
+.kton-row-pick { cursor: pointer; } .kton-row-pick[aria-selected] td { font-weight: 600; }
+.kton-facet-list { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13px; }
+.kton-card-fields { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; margin: 4px 0; } .kton-card-fields dt { color: var(--vscode-descriptionForeground, #777); }
