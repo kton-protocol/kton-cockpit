@@ -1,0 +1,1 @@
+{"name": "test-note", "target": "claim", "fields": {"about": {"type": "string", "required": true}}}

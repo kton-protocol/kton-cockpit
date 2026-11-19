@@ -1,0 +1,77 @@
+// Build the e2e's verticle packages with ktonpkg v0.9.1's scope CLI (cmd/scope), each sealed with a throwaway
+// key that is deleted afterwards. Sources (test/e2e/packages/):
+//   - kton-web-test/: kton-web's test package (tests/packages/kton-web-test at the pinned kton-web commit),
+//     with its controls in ktonpkg's Control format {kind, say: {template}, about} and one ui entry
+//     (ui/test-shell.json, review-view) so the shell opens its composition from a proposal (S4.2-4, S4.6).
+//   - hostile/good/: ktonpkg v0.9.1's scope/testdata/hostile/good, with the table viewer it pins carried in
+//     viewers/table/ (ktonpkg v0.9.1). The shell cases of S5.3 are built from it here:
+//       hostile-good      the positive control
+//       hostile-tampered  good, admitted, then tampered on disk by the seed (re-verify at load)
+//       hostile-network   good, carrying viewer-trees/table-network (fetches example.org: the CSP blocks it)
+//       hostile-pin       good, pinning a kton-web viewer at a commit with a tree no one has (refused at load)
+//
+//   node build-packages.mjs <scope CLI> <out dir>
+import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { cpSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join, relative } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const [scope, out] = process.argv.slice(2);
+const HERE = dirname(fileURLToPath(import.meta.url));
+const SRC = join(HERE, "packages");
+const KTON_WEB_COMMIT = "39242b9f0bfce4f78d35f25d291c79877aaeeed5";
+const keys = mkdtempSync(join(tmpdir(), "pkgkeys-"));
+
+/** ktonpkg.TreeID of a folder. */
+function treeId(dir) {
+  const files = [];
+  const walk = (d) => {
+    for (const f of readdirSync(d)) {
+      const p = join(d, f);
+      if (statSync(p).isDirectory()) walk(p);
+      else files.push(relative(dir, p).split("\\").join("/"));
+    }
+  };
+  walk(dir);
+  files.sort();
+  const entries = files.map((p) => `{"hash":${JSON.stringify(`sha256:${createHash("sha256").update(readFileSync(join(dir, p))).digest("hex")}`)},"path":${JSON.stringify(p)}}`);
+  return `sha256:${createHash("sha256").update(`{"files":[${entries.join(",")}]}`).digest("hex")}`;
+}
+
+function build(name, label, src) {
+  const r = execFileSync(scope, ["verticle", join(out, name), name, label, "--src", src, "--key", join(keys, `${name}.key`)], { encoding: "utf8" });
+  const j = JSON.parse(r);
+  if (j.problems?.length) throw new Error(`${name}: ${j.problems.join("; ")}`);
+  console.log(`${name}@${label} ${j.package}`);
+}
+
+function hostile(name, variant) {
+  const src = mkdtempSync(join(tmpdir(), `${name}-`));
+  cpSync(join(SRC, "hostile", "good"), src, { recursive: true });
+  let pin;
+  if (variant === "pin") {
+    rmSync(join(src, "viewers", "table"), { recursive: true });
+    pin = { viewer: "kton-web/table", at: KTON_WEB_COMMIT, tree: `sha256:${"0".repeat(64)}` };
+  } else {
+    if (variant === "network") cpSync(join(SRC, "hostile", "viewer-trees", "table-network", "index.js"), join(src, "viewers", "table", "index.js"));
+    pin = { viewer: "table", at: `${name}@1`, tree: treeId(join(src, "viewers", "table")) };
+  }
+  writeFileSync(join(src, "viewers", "table.json"), JSON.stringify(pin, null, 1));
+  const block = JSON.parse(readFileSync(join(src, "ui", "blocks", "table.json"), "utf8"));
+  block.viewer = pin;
+  writeFileSync(join(src, "ui", "blocks", "table.json"), JSON.stringify(block, null, 1));
+  // the review entry applies to a proposal (a claim); its query lists rdfs:labels, which every view has
+  build(name, "1", src);
+}
+
+try {
+  build("kton-web-test", "test", join(SRC, "kton-web-test"));
+  hostile("hostile-good", "good");
+  hostile("hostile-tampered", "good");
+  hostile("hostile-network", "network");
+  hostile("hostile-pin", "pin");
+} finally {
+  rmSync(keys, { recursive: true, force: true });
+}

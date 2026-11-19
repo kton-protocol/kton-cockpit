@@ -1,0 +1,27 @@
+{
+ "block": "table",
+ "viewer": {
+  "viewer": "table",
+  "at": "hostile-fixture@1",
+  "tree": "sha256:b099ba587a1c3aff3a600cea82a192f3495029557b55b7472583d75d00799f5a"
+ },
+ "requires": [
+  "query@1"
+ ],
+ "optional": [
+  "open@1"
+ ],
+ "accepts": [
+  {
+   "kind": "claim"
+  }
+ ],
+ "options": {
+  "columns": {
+   "set": "literal"
+  }
+ },
+ "emits": {
+  "select": "iri"
+ }
+}

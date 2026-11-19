@@ -1,0 +1,5 @@
+{
+ "kind": "decision",
+ "about": "subject.claim",
+ "say": {"template": "test-note"}
+}

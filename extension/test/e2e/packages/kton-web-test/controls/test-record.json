@@ -1,0 +1,5 @@
+{
+ "kind": "record",
+ "about": "subject.claim",
+ "say": {"template": "test-note"}
+}

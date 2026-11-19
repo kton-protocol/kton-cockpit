@@ -198,9 +198,15 @@ test("check 5: workflow run and install answers are shape-checked, and the shell
     const { transport } = fakeCockpit([{ argv0, stdout: "[1, 2]" }]);
     await assert.rejects(call(transport), TransportError, `${argv0}: a list is not an answer`);
   }
-  // nothing outside the transport calls them, so nothing reads a field of their answers
+  // outside the transport, an answer of theirs is read for ok/refusal only, never a field of its value
+  // (PR 2: run@1 calls workflowRun from src/composition/area.ts)
   for (const f of sources().filter((f) => !f.includes(`${join("src", "transport")}`))) {
-    assert.ok(!/\.(workflowRun|install)\(/.test(readFileSync(f, "utf8")), `${f} calls workflowRun or install`);
+    const lines = readFileSync(f, "utf8").split("\n");
+    lines.forEach((l, i) => {
+      if (!/\.(workflowRun|install)\(/.test(l)) return;
+      const after = lines.slice(i, i + 4).join("\n");
+      assert.ok(!/\.value\b/.test(after), `${f}:${i + 1} reads a field of a workflow run or install answer`);
+    });
   }
 });
 

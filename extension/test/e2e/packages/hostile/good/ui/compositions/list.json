@@ -1,0 +1,44 @@
+{
+ "composition": "list",
+ "kind": "view",
+ "subject": {
+  "kind": "scope"
+ },
+ "params": [],
+ "vars": {
+  "selected": {
+   "type": "iri"
+  }
+ },
+ "parts": [
+  {
+   "id": "items",
+   "heading": "Items",
+   "blocks": [
+    {
+     "use": "table",
+     "query": "items",
+     "emits": {
+      "select": "selected"
+     },
+     "id": "items"
+    }
+   ]
+  },
+  {
+   "id": "card",
+   "heading": "Item",
+   "blocks": [
+    {
+     "use": "table",
+     "query": "item-card",
+     "params": {
+      "item": "var.selected"
+     },
+     "empty": "show",
+     "id": "card"
+    }
+   ]
+  }
+ ]
+}

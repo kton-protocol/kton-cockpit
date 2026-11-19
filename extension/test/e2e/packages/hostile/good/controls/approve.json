@@ -1,0 +1,7 @@
+{
+ "kind": "decision",
+ "about": "subject.claim",
+ "say": {
+  "template": "approves"
+ }
+}
