@@ -42,8 +42,10 @@ const p=".kton/cockpit.config.json";const c=JSON.parse(fs.readFileSync(p));
 c.trust=Object.assign(c.trust||{},{tiers:["self","agent"]});fs.writeFileSync(p,JSON.stringify(c,null,2));
 const i=".kton/local/identity.json";const id=JSON.parse(fs.readFileSync(i));
 id.keyring=process.env.HOME+"/.kton-keys";fs.writeFileSync(i,JSON.stringify(id,null,2));'
-# decides and answers come by name from an admitted package, never from the checkout (review check 7, Q1)
-cockpit install "$PACKAGE" --allow --json >/dev/null
+# decides and answers come by name from an admitted package, never from the checkout (review check 7, Q1).
+# The package is mounted read only and git keeps no empty directories, so install works on a writable copy.
+cp -R "$PACKAGE" "$E2E/vocab-package"
+cockpit install "$E2E/vocab-package" --allow --json >/dev/null
 SEED=$(cockpit scope seed lanes 2>&1 | sed -n 's/.*"lanes": "\(sha256:[0-9a-f]*\)".*/\1/p')
 [ -n "$SEED" ] || { echo "seed failed" >&2; exit 1; }
 node -e '
