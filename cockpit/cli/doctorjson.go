@@ -10,7 +10,9 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/kton-protocol/kton-cockpit/internal/config"
 	"github.com/kton-protocol/kton-cockpit/internal/verify"
@@ -74,6 +76,42 @@ type doctorIdentity struct {
 	NektonKeyID   string `json:"nektonKeyId,omitempty"`
 	Tier          string `json:"tier"`
 	Keyring       bool   `json:"keyring"`
+	// Keys are every claim key this checkout can sign as: its own nekton_key first, then each
+	// <name>-claims.key of the keyring, which say --as names.
+	Keys []doctorKey `json:"keys"`
+}
+
+// doctorKey is one claim key: its name (the session for the checkout's own key, the keyring name
+// otherwise), its key id derived from the private seed, whether the .pub beside it is that key's
+// public half (say --as refuses a key whose half does not match), and the trust tier its public half
+// is in under this configuration, "" when none. A configured fact, not a verified signature.
+type doctorKey struct {
+	Name    string `json:"name"`
+	KeyID   string `json:"keyId,omitempty"`
+	Matches bool   `json:"matches"`
+	Tier    string `json:"tier"`
+	Problem string `json:"problem,omitempty"`
+}
+
+// claimKey describes the private key at path, named name.
+func claimKey(cfg *config.Config, name, path string) doctorKey {
+	k := doctorKey{Name: name}
+	pubHex, err := publicOf(path)
+	if err != nil {
+		k.Problem = err.Error()
+		return k
+	}
+	pub, err := core.ParsePublicKeyHex(pubHex)
+	if err != nil {
+		k.Problem = err.Error()
+		return k
+	}
+	k.KeyID = core.KeyIDHex(pub)
+	if b, err := os.ReadFile(strings.TrimSuffix(path, ".key") + ".pub"); err == nil {
+		k.Matches = strings.EqualFold(strings.TrimSpace(string(b)), pubHex)
+	}
+	k.Tier, _ = verify.TierOfKey(cfg, pub)
+	return k
 }
 
 func identityOf(cfg *config.Config) doctorIdentity {
@@ -94,6 +132,18 @@ func identityOf(cfg *config.Config) doctorIdentity {
 	id.NektonKeyID, claims = keyID(cfg.NektonKey)
 	if claims != nil {
 		id.Tier, _ = verify.TierOfKey(cfg, claims)
+	}
+	id.Keys = []doctorKey{claimKey(cfg, cfg.Identity.SessionID, cfg.NektonKey)}
+	if ring := cfg.Identity.Keyring; ring != "" {
+		paths, _ := filepath.Glob(filepath.Join(config.ExpandHome(ring), "*-claims.key"))
+		sort.Strings(paths)
+		for _, p := range paths {
+			name := strings.TrimSuffix(filepath.Base(p), "-claims.key")
+			if p == cfg.NektonKey {
+				continue
+			}
+			id.Keys = append(id.Keys, claimKey(cfg, name, p))
+		}
 	}
 	return id
 }

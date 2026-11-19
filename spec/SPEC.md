@@ -253,9 +253,12 @@ argument, stdout MUST be one JSON document whatever happens:
 - a note for the person, such as what a file or a run folder resolved to, MUST go to stderr.
 
 `doctor --json` names who the checkout signs as in `fields.identity`: the session name, the key
-ids of its two keys, and the trust tier its claim key is in.
+ids of its two keys, and the trust tier its claim key is in. `fields.identity.keys` lists every claim
+key it can sign as, its own and each of the keyring (§8.7), each with its key id from the seed,
+whether the public half beside it matches, and its trust tier: a configured fact, not a verified
+signature.
 
-> **Checked by:** `TestShellJSON_EveryListingAndRefusalIsOneDocument`,
+> **Checked by:** `TestShellJSON_EveryListingAndRefusalIsOneDocument`, `TestDoctorJSON_ListsEveryClaimKey`,
 > `TestShellVerbs_JSONAnswerIsAllOfStdout`, `TestSync_TakesInWhatAnotherCloneShared`.
 
 ### 6.1 Which kernel
