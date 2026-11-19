@@ -187,3 +187,14 @@ test("ui cat: one argv per call, the member's bytes from stdout unchanged; a bad
   await assert.rejects(t.uiCat("pkg-a", "sha256:x"), /not sha256/);
   await assert.rejects(t.uiCat("--as", `sha256:${"a".repeat(64)}`), /not a package/);
 });
+
+test("ui cat refusals (cockpit v0.5.4): ui.package and ui.member each say what is wrong", async () => {
+  for (const [code, re] of [["ui.package", /package pkg-a is not usable here/], ["ui.member", /package pkg-a has no member sha256:a{64}/]] as const) {
+    const dir = mkdtempSync(join(tmpdir(), "uicatr-"));
+    const bin = join(dir, "cockpit");
+    writeFileSync(bin, `#!/bin/sh\necho '{"code":"${code}","reason":"x"}'\nexit 2\n`);
+    chmodSync(bin, 0o755);
+    const t = new CliTransport({ executable: bin, cwd: dir });
+    await assert.rejects(t.uiCat("pkg-a", `sha256:${"a".repeat(64)}`), re);
+  }
+});

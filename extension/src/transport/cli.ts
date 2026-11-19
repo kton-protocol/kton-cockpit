@@ -190,7 +190,13 @@ export class CliTransport implements Transport {
     if (!/^sha256:[0-9a-f]{64}$/.test(hash)) throw new TransportError(`${JSON.stringify(hash)} is not sha256:<hex>`, 0, "");
     if (pkg === "" || pkg.startsWith("-")) throw new TransportError(`${JSON.stringify(pkg)} is not a package`, 0, "");
     const r = await this.run(["ui", "cat", pkg, hash], true);
-    if (r.code === 2) throw new TransportError(`ui cat: ${parseRefusal(r).reason}`, 2, r.stderr);
+    if (r.code === 2) {
+      // v0.5.4: ui.package = the package is not usable here (not admitted, failing its check, not installed);
+      // ui.member = the package has no member with that hash
+      const why = parseRefusal(r);
+      const what = why.code === "ui.package" ? `package ${pkg} is not usable here (not admitted, failing its check or not installed)` : why.code === "ui.member" ? `package ${pkg} has no member ${hash}` : "refused";
+      throw new TransportError(`ui cat: ${what}: ${why.reason}`, 2, r.stderr);
+    }
     if (r.code !== 0) throw new TransportError(firstLine(r.stderr) || `ui cat: exit ${String(r.code)}`, r.code, r.stderr);
     return r.bytes ?? new Uint8Array();
   }

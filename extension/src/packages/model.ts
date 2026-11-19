@@ -131,7 +131,7 @@ const ROLE_DIR: Record<string, string> = { ui: "ui", block: "ui/blocks", composi
 const fileOf = (m: Member) => (m.role === "content" || m.role === "viewer-file" ? m.name : `${ROLE_DIR[m.role] ?? m.role}/${m.name}${m.role === "query" ? ".rq" : ".json"}`);
 
 async function loadOne(p: UiPackage, read: ReadBlob, vendored: ReadonlyMap<string, ViewerTree>, byHash: Map<string, { pkg: string; hash: string; type: string }>): Promise<{ pkg: MirrorPackage; controls: Control[] }> {
-  if (p.members.length === 0) throw new Refuse("package.members", "", "ui list names no members for this package: nothing can be loaded by hash");
+  if (p.members.length === 0) throw new Refuse("package.members", "", "the cockpit lists no members for this package (ui list gives members only for a usable package, cockpit v0.5.4 or later): nothing can be loaded");
   const bytes = new Map<Member, Uint8Array>();
   // one `ui cat` per member, a few at a time (a package has tens of members; one after another is slow)
   const one = async (m: Member) => {
