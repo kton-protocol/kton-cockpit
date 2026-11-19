@@ -261,7 +261,8 @@ func (c *Cockpit) publishRay(ctx context.Context, cfg *config.Config, in Publish
 	if err != nil {
 		return nil, refuse("kernel", "", "the package is written but recording where it came from failed: %v", err)
 	}
-	finalRev, err := persist(ctx, cfg, []string{config.Rel("nekton")}, "claim: "+rayTemplate+" on "+rayID)
+	finalRev, perr := persist(ctx, cfg, []string{config.Rel("nekton")}, "claim: "+rayTemplate+" on "+rayID)
+	pending, err := pendingIfBusy(perr, "the claim "+claimID)
 	if err != nil {
 		return nil, refuse(storeCode(err), "", "committing the claim failed: %v", err)
 	}
@@ -272,9 +273,10 @@ func (c *Cockpit) publishRay(ctx context.Context, cfg *config.Config, in Publish
 	}
 	return &PublishResult{
 		Revision:      finalSHA,
-		Persisted:     cfg.Raw.CommitEnabled(),
-		Shared:        cfg.Raw.ShareEnabled() && !shareRejected,
+		Persisted:     cfg.Raw.CommitEnabled() && pending == nil,
+		Shared:        cfg.Raw.ShareEnabled() && !shareRejected && pending == nil,
 		ShareRejected: shareRejected,
+		Pending:       pending,
 		Ray: &RayResult{Dir: rp.Dir, RayID: rayID, BundleID: bundleID, DerivedFrom: derived,
 			ClaimID: claimID},
 	}, nil

@@ -42,3 +42,7 @@ func resolveSubject(cfg *config.Config, subject string) (id, resolvedFrom, why s
 	}
 	return h, rel, ""
 }
+
+// IsIRI reports whether s names something by IRI as a say subject may (SPEC §8): a scheme with an
+// authority, or urn:, tag:, did: or mailto:. The shell form uses it so every form takes the same.
+func IsIRI(s string) bool { return iriSubject.MatchString(s) }

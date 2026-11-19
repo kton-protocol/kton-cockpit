@@ -69,6 +69,9 @@ func shellPublish(ctx context.Context, args []string) error {
 		fmt.Println(indent(strings.TrimRight(out.Stdout, "\n"), "  | "))
 	}
 	fmt.Printf("record   %s\n", out.FotonID)
+	if out.Pending != nil {
+		fmt.Printf("pending  %s: %s\n", out.Pending.Code, out.Pending.Reason)
+	}
 	if out.ExecutedIn != "" {
 		fmt.Printf("ran in   %s\n", out.ExecutedIn)
 	} else {

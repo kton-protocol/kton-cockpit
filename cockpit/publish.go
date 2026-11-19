@@ -138,6 +138,10 @@ type PublishResult struct {
 	// means they are correct and will resolve once someone shares — but do not yet.
 	Persisted bool `json:"persisted"`
 	Shared    bool `json:"shared"`
+	// Pending is set when the record is signed and stored but its registry commit met the
+	// repository's lock (store.busy): Persisted is then false, and the next write commits it. A
+	// caller must not publish it again.
+	Pending *Pending `json:"pending,omitempty"`
 	// Base echoes the directory the paths above are relative to, when the call gave one.
 	Base string `json:"base,omitempty"`
 }
@@ -410,7 +414,8 @@ func (c *Cockpit) Publish(ctx context.Context, in PublishRequest) (*PublishResul
 	// disagreed with it. The foton's OWN embedded --located permalinks stay anchored to the first
 	// commit — unavoidable, since authoring happens between the two — but the bytes are identical
 	// in both, so they resolve either way.
-	finalRev, err := persist(ctx, cfg, registryPaths, "foton: "+in.Cmd)
+	finalRev, perr := persist(ctx, cfg, registryPaths, "foton: "+in.Cmd)
+	pending, err := pendingIfBusy(perr, "the record "+fotonID)
 	if err != nil {
 		return nil, refuse(storeCode(err), "", "git commit/push of the registry failed: %v", err)
 	}
@@ -436,10 +441,11 @@ func (c *Cockpit) Publish(ctx context.Context, in PublishRequest) (*PublishResul
 		Locators:       permalinks,
 		Environment:    class,
 		EnvRef:         envRef,
-		Persisted:      cfg.Raw.CommitEnabled(),
-		Shared:         cfg.Raw.ShareEnabled() && !shareRejected,
+		Persisted:      cfg.Raw.CommitEnabled() && pending == nil,
+		Shared:         cfg.Raw.ShareEnabled() && !shareRejected && pending == nil,
 		ShareRejected:  shareRejected,
 		ShareReason:    shareReason,
+		Pending:        pending,
 		UnionPublished: cfg.Raw.Union.Publish,
 		CoSigned:       authored.CoSigned,
 		Base:           base,

@@ -187,6 +187,9 @@ func shellSay(ctx context.Context, args []string) error {
 	if out.Level != "" {
 		fmt.Printf("level    %s (measured here, not stated)\n", out.Level)
 	}
+	if out.Pending != nil {
+		fmt.Printf("pending  %s: %s\n", out.Pending.Code, out.Pending.Reason)
+	}
 	return nil
 }
 
