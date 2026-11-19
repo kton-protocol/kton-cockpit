@@ -1,5 +1,29 @@
 # Changelog
 
+## v0.5.4 — 2026-11-19
+
+What the QM Workbench's PR 2 needs to open a composition from a real install, each reviewed by
+kton-review. Tracks kton v0.4.0 and ktonpkg v0.9.7. Nothing to migrate from v0.5.3.
+
+### Added
+
+- **`ui list` names every member by hash** (SPEC §6): each package carries `members`
+  `[{role, name, hash}]`, its members' content hashes as in their isPartOf claims (`null` when the package
+  is not usable); each composition carries its `hash`; a ui entry's `file` is `ui/<name>.json`.
+- **`ui cat <package> <hash>`** (SPEC §6): a member's bytes on stdout, so a shell reads no package files
+  itself. The package is named by its name, dir or id, among usable packages only (admitted, the latest
+  revision, passing its check); the bytes come through ktonpkg's `MemberBytes`. Refused `ui.package` for a
+  package that is not usable or a reference that names two, `ui.member` for a hash that is not a member.
+
+### Changed
+
+- **The view aliases a nested object's fields** as it does a top-level field's (SPEC §9.11); view version 5.
+- **ktonpkg v0.9.7**: package check reasons are in English.
+
+### Fixed
+
+- **A bound IRI has at most one fragment** (SPEC §9.9): `--bind-iri` and `bindTerms` refuse a second `#`.
+
 ## v0.5.3 — 2026-11-19
 
 What the QM Workbench's PR 2 and PR 3 and the C3 areas need, each reviewed by kton-review. Tracks kton
