@@ -4,8 +4,12 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { createHash } from "node:crypto";
 import { assertUiListing } from "../src/packages/listing.js";
-import { loadPackages, treeId } from "../src/packages/model.js";
+import { loadPackages, nameProblem, treeId } from "../src/packages/model.js";
+import { writeTree } from "../src/packages/store.js";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { TransportError } from "../src/transport/port.js";
 import { listed, PKGS, reader } from "./pkg-helpers.js";
 
@@ -24,7 +28,8 @@ test("ui list: the shape is checked; a member hash or name that is not plain is 
   assert.equal(ok.packages[0]?.members.length, 17);
   assert.throws(() => assertUiListing({ packages: [{ ...kwt().pkg, allowed: "yes" }] }), TransportError);
   assert.throws(() => assertUiListing({ packages: [{ ...kwt().pkg, members: [{ role: "block", name: "x", hash: "md5:1" }] }] }), /not sha256/);
-  assert.throws(() => assertUiListing({ packages: [{ ...kwt().pkg, members: [{ role: "viewer-file", name: "viewers/../../x", hash: `sha256:${"a".repeat(64)}` }] }] }), /not a plain path/);
+  // a member name that is not a plain path passes the shape check: it refuses its own package at load (F1), not the listing
+  assert.equal(assertUiListing({ packages: [{ ...kwt().pkg, members: [{ role: "viewer-file", name: "viewers/../../x", hash: `sha256:${"a".repeat(64)}` }] }] }).packages.length, 1);
   // a package that fails its check may come with no name: it is listed by dir with its reason
   const failed = assertUiListing({ packages: [{ dir: ".kton/packages/x@1", allowed: false, refused: [{ file: "", code: "package.check", reason: "seal broken" }] }] });
   assert.equal(failed.packages[0]?.refused[0]?.reason, "seal broken");
@@ -143,5 +148,39 @@ test("shipped code reads no stand-in and no package folder: package bytes come o
   // package bytes: only the transport's uiCat runs anything, and it runs `ui cat`
   const cli = readFileSync(join(process.cwd(), "src", "transport", "cli.ts"), "utf8");
   assert.match(cli, /this\.run\(\["ui", "cat", pkg, hash\], true\)/);
-  for (const f of files.filter((x) => /src[\\/](packages|composition)[\\/]/.test(x))) assert.ok(!/node:fs/.test(readFileSync(f, "utf8")) || f.endsWith("vendored.ts") || f.endsWith("mermaid-server.ts"), `${f} touches the file system`);
+  // store.ts only writes checked trees to the viewer store (F1); it reads nothing
+  for (const f of files.filter((x) => /src[\\/](packages|composition)[\\/]/.test(x))) {
+    const t = readFileSync(f, "utf8");
+    assert.ok(!/node:fs/.test(t) || f.endsWith("vendored.ts") || f.endsWith("mermaid-server.ts") || (f.endsWith("store.ts") && !/read(File|dir)|createReadStream/.test(t)), `${f} touches the file system`);
+  }
+});
+
+test("F1 on #174: a package carrying a climbing viewer file is refused at load, nothing is read or written, the other package is unaffected", async () => {
+  const climb = "viewers/table/../../../ZZ-escape.txt";
+  const f = good();
+  const bytes = Buffer.from("escaped");
+  const h = `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
+  f.blobs.set(h, bytes);
+  const hostile = { ...f.pkg, members: [...f.pkg.members, { role: "viewer-file", name: climb, hash: h }] };
+  const reads: string[] = [];
+  const read = reader(f, kwt());
+  const l = await loadPackages({ packages: [hostile, kwt().pkg] }, async (p, x) => (reads.push(x), read(p, x)));
+  assert.deepEqual(Object.keys(l.packages), ["kton-web-test"], "the other package is unaffected");
+  assert.equal(l.refusals[0]?.code, "viewer.file");
+  assert.match(l.refusals[0]?.reason ?? "", /ZZ-escape\.txt.*has an empty, \. or \.\. segment/);
+  assert.ok(!reads.includes(h), "the climbing member was never read");
+  for (const n of ["/etc/x", "viewers/t/a\\b", "viewers/t/c:x", "viewers/t//x", "viewers/./x", "content/../x"]) assert.ok(nameProblem(n), n);
+  for (const n of ["viewers/table/index.js", "content/SOP-02.md"]) assert.equal(nameProblem(n), undefined, n);
+  // the store write (defence in depth): one escaping path, and nothing at all is written
+  const root = mkdtempSync(join(tmpdir(), "wb-store-"));
+  try {
+    const dir = join(root, "globalStorage", "viewers", "tree");
+    assert.throws(() => writeTree(dir, new Map([["index.js", bytes], ["../../../ZZ-escape.txt", bytes]])), /not inside the viewer store: nothing is written/);
+    assert.ok(!existsSync(join(root, "ZZ-escape.txt")) && !existsSync(join(dir, "index.js")), "nothing written, inside or out");
+    assert.throws(() => writeTree(dir, new Map([["/tmp/abs", bytes]])), /not inside/);
+    writeTree(dir, new Map([["a/b.js", bytes]]));
+    assert.ok(existsSync(join(dir, "a", "b.js")));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });

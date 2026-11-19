@@ -100,7 +100,7 @@ export function assertUiListing(v: unknown): UiListing {
       const o = obj(r, `${what}.members[${j}]`);
       const m = { role: str(o, "role", `${what}.members[${j}]`) ?? "", name: str(o, "name", `${what}.members[${j}]`) ?? "", hash: str(o, "hash", `${what}.members[${j}]`) ?? "" };
       if (!HASH.test(m.hash)) bad(`${what}.members[${j}].hash is not sha256:<hex>`);
-      if (m.name.split("/").some((s) => s === ".." || s === "" || s === ".")) bad(`${what}.members[${j}].name ${JSON.stringify(m.name)} is not a plain path`);
+      // a member name that is not a plain path refuses its package at load (model.ts), not the whole listing
       return m;
     });
     return {

@@ -171,7 +171,13 @@ export class PackagesArea {
     for (const p of Object.values(loaded.packages)) for (const v of Object.values(p.viewers)) viewers.set(v.module, v);
     const used = [...new Set(plan.uses.map((u) => (u as { module?: string }).module))].map((m) => viewers.get(m ?? "")).filter((v): v is LoadedViewer => !!v);
     let host: CompositionHost | undefined;
-    const shown = this.ui.showComposition(panel, e.label, used, (m) => void host?.onMessage(m));
+    let shown: ReturnType<CompositionUi["showComposition"]>;
+    try {
+      shown = this.ui.showComposition(panel, e.label, used, (m) => void host?.onMessage(m));
+    } catch (err) {
+      this.ui.error(`${e.label} cannot be shown: ${(err as Error).message}`);
+      return undefined;
+    }
     // the frame imports each module from where the host serves its checked tree
     plan = { ...plan, uses: plan.uses.map((u) => ({ ...u, module: shown.urls.get((u as { module?: string }).module ?? "") ?? "" })) } as Plan;
     const backend: Backend = {

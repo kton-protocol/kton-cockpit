@@ -2,9 +2,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { CompositionHost, type Backend, type Plan } from "../src/composition/host.js";
+import { answerBytes, CompositionHost, type Backend, type Plan } from "../src/composition/host.js";
 import { compositionCsp, compositionPage } from "../src/composition/page.js";
 import { applies, oneNumber, partition, planEntry } from "../src/composition/slots.js";
 import { loadPackages, type Loaded, type SlotEntry } from "../src/packages/model.js";
@@ -248,4 +249,30 @@ test("review on #174 (minor): a leaf query without the entry's package is refuse
   const any = [...l.byHash.keys()][0] ?? `sha256:${"1".repeat(64)}`;
   await c.onMessage({ type: "kton:request", id: "p#x.1", cap: "product@1", args: { use: key, hash: any } });
   assert.match(JSON.stringify(out.at(-1)), /the plan names no product for this use/);
+});
+
+test("T1 on #174: answerBytes re-hashes what ui cat serves after load: other bytes for an admitted hash are refused", async () => {
+  const admitted = Buffer.from("the admitted bytes");
+  const hash = `sha256:${createHash("sha256").update(admitted).digest("hex")}`;
+  const l = { byHash: new Map([[hash, { pkg: "p", hash, type: "text/plain" }]]) } as unknown as Loaded;
+  const { backend } = backendLog();
+  // the admitted bytes are served
+  assert.equal((await answerBytes({ ...backend, bytes: async () => new Uint8Array(admitted) }, l, hash, undefined, "content@1"))["bytes"], admitted.toString("base64"));
+  const swapped = { ...backend, bytes: async () => new Uint8Array(Buffer.from("not the admitted bytes")) };
+  await assert.rejects(answerBytes(swapped, l, hash, undefined, "content@1"), /content@1: the bytes hash to sha256:[0-9a-f]{64}, not /);
+});
+
+test("T2 on #174: a plan act sign through a control whose kind is record is refused; nothing is signed", async () => {
+  const l = await goodPackage();
+  const plan = await planEntry(l.entries[0] as SlotEntry, SUBJECT, l, "qa-decider", async () => ({ results: { bindings: [] } }));
+  const approve = l.controls.get("hostile-good/approve");
+  assert.equal(approve?.kind, "decision");
+  (l.controls as Map<string, NonNullable<typeof approve>>).set("hostile-good/approve", { ...(approve as NonNullable<typeof approve>), kind: "record" });
+  const { backend, calls } = backendLog();
+  const posted: unknown[] = [];
+  const h = new CompositionHost(plan, l, backend, { post: (m) => posted.push(m), log: () => undefined });
+  const key = plan.uses[0]?.key as string;
+  await h.onMessage({ type: "kton:intent", intent: { id: "s#t.1", kind: "sign", from: key, about: SUBJECT.claim, control: { package: "hostile-good", name: "approve" } } });
+  assert.deepEqual(calls, [], "no act");
+  assert.match(JSON.stringify(posted), /control approve is a record control, not decision/);
 });

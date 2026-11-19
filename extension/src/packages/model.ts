@@ -130,8 +130,25 @@ const ROLE_DIR: Record<string, string> = { ui: "ui", block: "ui/blocks", composi
 /** The member's path in the package: content and viewer files are named by their path already. */
 const fileOf = (m: Member) => (m.role === "content" || m.role === "viewer-file" ? m.name : `${ROLE_DIR[m.role] ?? m.role}/${m.name}${m.role === "query" ? ".rq" : ".json"}`);
 
+/**
+ * Why a member name is not a plain path, or undefined. ktonpkg refuses such names only when it writes them
+ * (AddViewerFile, AddContent); a signed claim can still carry one (F1 on #174), so the shell checks them again.
+ */
+export function nameProblem(name: string): string | undefined {
+  if (name.startsWith("/")) return "starts with /";
+  if (name.includes("\\")) return "contains a backslash";
+  if (name.includes(":")) return "contains a colon";
+  if (name.split("/").some((s) => s === "" || s === "." || s === "..")) return "has an empty, . or .. segment";
+  return undefined;
+}
+
 async function loadOne(p: UiPackage, read: ReadBlob, vendored: ReadonlyMap<string, ViewerTree>, byHash: Map<string, { pkg: string; hash: string; type: string }>): Promise<{ pkg: MirrorPackage; controls: Control[] }> {
   if (p.members.length === 0) throw new Refuse("package.members", "", "the cockpit lists no members for this package (ui list gives members only for a usable package, cockpit v0.5.4 or later): nothing can be loaded");
+  // names first, before anything is read: a viewer file or content name that is not a plain path refuses the package
+  for (const m of p.members) {
+    const why = nameProblem(m.name);
+    if (why) throw new Refuse(m.role === "viewer-file" ? "viewer.file" : "member.name", "", `member ${JSON.stringify(m.name)} (${m.role}) ${why}: the package is not loaded`);
+  }
   const bytes = new Map<Member, Uint8Array>();
   // one `ui cat` per member, a few at a time (a package has tens of members; one after another is slow)
   const one = async (m: Member) => {

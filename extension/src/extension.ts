@@ -4,8 +4,9 @@
 
 import * as vscode from "vscode";
 import { randomBytes } from "node:crypto";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { inside, writeTree } from "./packages/store.js";
 import { compositionPage, leafPage } from "./composition/page.js";
 import { loadVendored } from "./packages/vendored.js";
 import { startMermaidServer } from "./composition/mermaid-server.js";
@@ -111,6 +112,12 @@ class VsHost implements UiHost {
   showComposition(key: string, title: string, viewers: readonly LoadedViewer[], onMessage: (msg: unknown) => void): { post: (msg: unknown) => void; urls: ReadonlyMap<string, string> } {
     const kit = vscode.Uri.joinPath(this.ctx.extensionUri, "media", "kton-web");
     const store = vscode.Uri.joinPath(this.ctx.globalStorageUri, "viewers");
+    // the trees first, each path checked to stay under its tree's folder (F1 on #174): a refusal opens no panel
+    const written = viewers.map((v) => {
+      const dir = join(store.fsPath, v.tree.replace(/^sha256:/, ""));
+      writeTree(dir, v.files);
+      return { v, module: inside(dir, String(v.decl["module"])) };
+    });
     this.handlers.set(key, onMessage);
     let p = this.panels.get(key);
     if (!p) {
@@ -125,15 +132,7 @@ class VsHost implements UiHost {
     }
     const webview = p.webview;
     const urls = new Map<string, string>();
-    for (const v of viewers) {
-      const dir = join(store.fsPath, v.tree.replace(/^sha256:/, ""));
-      for (const [rel, bytes] of v.files) {
-        mkdirSync(dirname(join(dir, rel)), { recursive: true });
-        writeFileSync(join(dir, rel), bytes);
-      }
-      const module = String(v.decl["module"]);
-      urls.set(v.module, webview.asWebviewUri(vscode.Uri.file(join(dir, module))).toString());
-    }
+    for (const { v, module } of written) urls.set(v.module, webview.asWebviewUri(vscode.Uri.file(module)).toString());
     p.title = title;
     webview.html = compositionPage(title, randomBytes(16).toString("base64url"), {
       cspSource: webview.cspSource,
