@@ -13,10 +13,18 @@ export interface TreeNode {
   readonly disabled?: boolean;
 }
 
-export type StatusId = "identity" | "mode" | "poll" | "surface";
+export type StatusId = "identity" | "mode" | "poll" | "surface" | "slots";
 export type ViewId = "home" | "inbox" | "lanes";
 
+import type { LoadedViewer } from "../packages/model.js";
+
 export interface UiHost {
+  /**
+   * A composition panel (C1.5 v3): kton-web's composition frame with the host-owned CSP. The host serves the
+   * checked bytes of these viewer trees and nothing else; `urls` says where each module is (the plan the frame
+   * gets names those). Messages from the frame arrive after this returns (it loads first).
+   */
+  showComposition(key: string, title: string, viewers: readonly LoadedViewer[], onMessage: (msg: unknown) => void): { post: (msg: unknown) => void; urls: ReadonlyMap<string, string> };
   setStatus(id: StatusId, text: string, tooltip?: string, command?: string): void;
   setTree(view: ViewId, nodes: readonly TreeNode[]): void;
   /**

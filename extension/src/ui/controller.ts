@@ -11,6 +11,9 @@ import { DialogConsent, plan, sign, FOOTER } from "../sign.js";
 import type { UiEntry, SlotContext } from "../intents.js";
 import { checkIntent } from "../intents.js";
 import { Scheduler } from "../poll.js";
+import { PackagesArea, SLOT_CMD } from "../composition/area.js";
+import type { Subject } from "../composition/slots.js";
+import type { Control } from "../packages/model.js";
 import type { TreeNode, UiHost } from "./host.js";
 import type { Queries, Row } from "./queries.js";
 import { idOf, kindOf, rowsOf } from "./queries.js";
@@ -90,6 +93,7 @@ export const CMD = {
   ask: "ktonWorkbench.ask",
   say: "ktonWorkbench.say",
   compose: "ktonWorkbench.compose",
+  openSlot: SLOT_CMD,
 } as const;
 
 const SHA = /^sha256:[0-9a-f]{64}$/;
@@ -113,6 +117,8 @@ export class Workbench {
   /** Rendering again in place (after a rebuild): do not move the focus to each panel. */
   private quiet = false;
   readonly scheduler: Scheduler;
+  /** The admitted packages and their slots (C2); compositions in panels (C1.5 v3). */
+  readonly packages: PackagesArea;
 
   constructor(
     private readonly t: Transport,
@@ -123,6 +129,11 @@ export class Workbench {
     scheduler?: Scheduler,
   ) {
     this.scheduler = scheduler ?? new Scheduler();
+    this.packages = new PackagesArea(t, host, {
+      act: (c, about, fields, title) => this.signAct(c, about, fields, title),
+      open: async (target) => this.openTarget(target),
+      identityName: () => this.identity.hintName,
+    });
     this.surface = cfg.surfaces.some((s) => s.name === cfg.initialSurface) ? (cfg.initialSurface as string) : ALL;
   }
 
@@ -213,6 +224,9 @@ export class Workbench {
         this.queries.has(this.cfg.queries.lanes) ? this.rows(this.cfg.queries.lanes) : Promise.resolve([]),
       ]);
       Object.assign(this, { templates: tpl.value, proposals, decides, messages, answers, lanes });
+      await this.packages.refresh();
+      const st = this.packages.statusText();
+      if (st) this.host.setStatus("slots", st, "status-item entries of the admitted packages");
     } catch (e) {
       const msg = describe(e);
       this.stale = this.goodAt !== undefined;
@@ -364,13 +378,14 @@ export class Workbench {
           label: d["title"] ?? "(no title)",
           description: d["area"] ?? "",
           command: { id: CMD.openDecision, args: [d["msg"]] },
-          // S3.7: a/b on the Home card open the same sign dialog (never one click)
-          children: parseOptions(d["options"]).map((o) => ({
+          // S3.7: a/b on the Home card open the same sign dialog (never one click); then the packages'
+          // review-view entries for this proposal (C2.1)
+          children: [...parseOptions(d["options"]).map((o) => ({
             id: `d:${d["msg"]}:${o.id}`,
             label: `${o.id} · ${o.label}`,
             description: [o.id === d["recommended"] ? "recommended" : "", cannot ? "signing disabled" : ""].filter(Boolean).join(" · "),
             ...(cannot ? { disabled: true, tooltip: cannot } : { tooltip: "Opens the sign dialog", command: { id: CMD.chooseOption, args: [d["msg"], o.id] } }),
-          })),
+          })), ...this.packages.slotNodes(claimSubject(d["msg"] ?? ""))],
         })),
       },
       { id: "inbox", label: "Inbox", description: `${open.length} open`, command: { id: CMD.focusInbox, args: [] } },
@@ -381,6 +396,7 @@ export class Workbench {
         children: [...areas.entries()].sort().map(([a, n]) => ({ id: `a:${a}`, label: a, description: String(n) })),
       },
       { id: "recorder", label: "Recorded runs (recorder)", tooltip: "Opens the kton recorder extension", command: { id: CMD.openRecorder, args: [] } },
+      ...this.packages.homeNodes(),
     ];
     if (this.stale) nodes.unshift({ id: "stale", label: "Stale: the last poll failed", description: `data from ${time(this.goodAt)}`, tooltip: this.lastError ?? "" });
     return nodes;
@@ -555,6 +571,37 @@ export class Workbench {
     return "signed";
   }
 
+  /**
+   * sign@1 / record@1 from a package's composition: the act's control decides the key (O1): a decision
+   * control through the one sign dialog with the person key, a record control with the agent key and no
+   * dialog. Same path as every other signature (signThroughDialog), so the dialog has one call site.
+   */
+  async signAct(c: Control, about: string, fields: Readonly<Record<string, string>>, title: string): Promise<SignResult> {
+    const control: ControlInfo = { package: c.package, name: c.name, template: c.template, kind: c.kind };
+    return this.signThroughDialog({ kind: "sign", about, fields }, control, title);
+  }
+
+  /** open@1: a claim this window knows opens its thread or decision; anything else is named, not fetched. */
+  private openTarget(target: Readonly<Record<string, unknown>>): string {
+    const ref = String(target["hash"] ?? target["uri"] ?? target["id"] ?? "");
+    const iri = /^sha256:[0-9a-f]{64}$/.test(ref) ? `https://kton.dev/o/${ref.slice(7)}` : ref;
+    if (this.openDecisions().some((d) => d["msg"] === iri)) {
+      this.openDecision(iri);
+      return `Opened the decision ${ref}`;
+    }
+    if (this.messages.some((m) => m["msg"] === iri)) {
+      this.openThread(iri);
+      return `Opened the thread ${ref}`;
+    }
+    this.host.info(`Open: ${ref} (not a claim in this window; nothing was fetched)`);
+    return `Named ${ref}; this window does not open it`;
+  }
+
+  /** A slot entry for a subject, from the Home tree or a command (C2.1). */
+  async openSlot(key: string, subject: Subject): Promise<void> {
+    await this.packages.openSlot(key, subject);
+  }
+
   /** Command palette: kton: ask. */
   async askCommand(): Promise<void> {
     const name = await this.host.pick("Ask which question?", [...this.queries.keys()]);
@@ -694,4 +741,10 @@ function sleep(ms: number): Promise<void> {
 
 function nonce(): string {
   return randomBytes(16).toString("base64url");
+}
+
+/** A claim of the feed as a slot subject: its IRI and its claim id (the registration claim, subject.claim). */
+export function claimSubject(iri: string): Subject {
+  const id = idOf(iri);
+  return { kind: "claim", iri, id, claim: id };
 }

@@ -105,6 +105,10 @@
       {
         "command": "ktonWorkbench.chooseOption",
         "title": "kton workbench: choose an option of a decision"
+      },
+      {
+        "command": "ktonWorkbench.openSlot",
+        "title": "kton workbench: open a package view for a subject"
       }
     ],
     "configuration": {
@@ -164,6 +168,11 @@
           "type": "string",
           "default": "all",
           "description": "The surface the views show at start (\"all\" for every area)."
+        },
+        "kton.ui.listFixture": {
+          "type": "string",
+          "default": "",
+          "description": "Until cockpit v0.5.3 lists ui declarations in `cockpit ui list --json`: a file holding that answer (the e2e writes it with ktonpkg v0.9.1). Empty: the real verb."
         }
       }
     },
@@ -195,6 +204,10 @@
         },
         {
           "command": "ktonWorkbench.chooseOption",
+          "when": "false"
+        },
+        {
+          "command": "ktonWorkbench.openSlot",
           "when": "false"
         }
       ]

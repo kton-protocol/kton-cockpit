@@ -12,6 +12,8 @@
     "declaration": false,
     "sourceMap": false,
     "skipLibCheck": true,
+    "allowJs": true,
+    "checkJs": false,
     "types": ["node"]
   },
   "include": ["src/**/*.ts", "test/**/*.ts"]

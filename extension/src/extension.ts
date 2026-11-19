@@ -4,6 +4,11 @@
 
 import * as vscode from "vscode";
 import { randomBytes } from "node:crypto";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { compositionPage } from "./composition/page.js";
+import type { Subject } from "./composition/slots.js";
+import type { LoadedViewer } from "./packages/model.js";
 import { CliTransport } from "./transport/cli.js";
 import { claimKeyId, readIdentityHint, type WindowIdentity } from "./identity.js";
 import type { DoctorReport } from "./transport/port.js";
@@ -53,8 +58,8 @@ class VsHost implements UiHost {
   readonly trees: Record<ViewId, Tree> = { home: new Tree(), inbox: new Tree(), lanes: new Tree() };
   readonly out = vscode.window.createOutputChannel("kton cockpit workbench");
 
-  constructor(ctx: vscode.ExtensionContext) {
-    const order: StatusId[] = ["surface", "identity", "mode", "poll"];
+  constructor(private readonly ctx: vscode.ExtensionContext) {
+    const order: StatusId[] = ["surface", "identity", "mode", "poll", "slots"];
     order.forEach((id, i) => {
       const s = vscode.window.createStatusBarItem(`ktonWorkbench.${id}`, vscode.StatusBarAlignment.Left, 100 - i);
       s.name = `kton workbench ${id}`;
@@ -94,6 +99,46 @@ class VsHost implements UiHost {
     p.title = title;
     p.webview.html = html;
     if (reveal) p.reveal();
+  }
+  /**
+   * A composition panel: the vendored kton-web frame, a CSP the host owns, and exactly the viewer trees the
+   * plan uses, written (already checked against their tree ids) to a folder named by tree id.
+   */
+  showComposition(key: string, title: string, viewers: readonly LoadedViewer[], onMessage: (msg: unknown) => void): { post: (msg: unknown) => void; urls: ReadonlyMap<string, string> } {
+    const kit = vscode.Uri.joinPath(this.ctx.extensionUri, "media", "kton-web");
+    const store = vscode.Uri.joinPath(this.ctx.globalStorageUri, "viewers");
+    this.handlers.set(key, onMessage);
+    let p = this.panels.get(key);
+    if (!p) {
+      p = vscode.window.createWebviewPanel("ktonWorkbench.composition", title, vscode.ViewColumn.Active, { enableScripts: true, retainContextWhenHidden: false, localResourceRoots: [kit, store] });
+      const panel = p;
+      this.panels.set(key, panel);
+      panel.onDidDispose(() => {
+        this.panels.delete(key);
+        this.handlers.delete(key);
+      });
+      panel.webview.onDidReceiveMessage((m: unknown) => this.handlers.get(key)?.(m));
+    }
+    const webview = p.webview;
+    const urls = new Map<string, string>();
+    for (const v of viewers) {
+      const dir = join(store.fsPath, v.tree.replace(/^sha256:/, ""));
+      for (const [rel, bytes] of v.files) {
+        mkdirSync(dirname(join(dir, rel)), { recursive: true });
+        writeFileSync(join(dir, rel), bytes);
+      }
+      const module = String(v.decl["module"]);
+      urls.set(v.module, webview.asWebviewUri(vscode.Uri.file(join(dir, module))).toString());
+    }
+    p.title = title;
+    webview.html = compositionPage(title, randomBytes(16).toString("base64url"), {
+      cspSource: webview.cspSource,
+      frame: webview.asWebviewUri(vscode.Uri.joinPath(kit, "viewers", "compose", "frame.js")).toString(),
+      css: webview.asWebviewUri(vscode.Uri.joinPath(kit, "core", "compose.css")).toString(),
+    });
+    p.reveal();
+    const panel = p;
+    return { post: (m) => void panel.webview.postMessage(m), urls };
   }
   /** The open sign dialog after its Sign was pressed: it shows "Signing…" and then the outcome. */
   private signing: vscode.WebviewPanel | undefined;
@@ -178,7 +223,8 @@ async function build(host: VsHost): Promise<void> {
   const agentKey = cfg.get<string>("identity.agentKey") || "";
   const executable = cfg.get<string>("cockpit.path") || "cockpit";
   const timeout = Math.max(1, cfg.get<number>("cockpit.timeoutSeconds") ?? 120);
-  const transport = new CliTransport({ executable, cwd: folder, timeoutMs: timeout * 1000 });
+  const fixture = cfg.get<string>("ui.listFixture") || "";
+  const transport = new CliTransport({ executable, cwd: folder, timeoutMs: timeout * 1000, ...(fixture ? { uiListFixture: fixture } : {}) });
   // Each key's id from its public half in the keyring (never a label), checked against doctor's answer
   // when doctor speaks for the same key. Without a person key id only person tiers count as persons.
   let doctor: DoctorReport | undefined;
@@ -232,6 +278,7 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
     vscode.commands.registerCommand(CMD.ask, () => wb?.askCommand()),
     vscode.commands.registerCommand(CMD.say, () => wb?.sayCommand()),
     vscode.commands.registerCommand(CMD.compose, () => wb?.composeCommand()),
+    vscode.commands.registerCommand(CMD.openSlot, (key: string, subject: Subject) => wb?.openSlot(key, subject)),
     // A changed setting (cockpit path, queries, surfaces, keys) rebuilds the workbench in place.
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration("kton")) void build(host);
