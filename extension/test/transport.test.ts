@@ -198,3 +198,12 @@ test("ui cat refusals (cockpit v0.5.4): ui.package and ui.member each say what i
     await assert.rejects(t.uiCat("pkg-a", `sha256:${"a".repeat(64)}`), re);
   }
 });
+
+test("an answer larger than the transport reads is reported as too large, not as cannot run", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "wb-big-"));
+  const exe = join(dir, "cockpit");
+  writeFileSync(exe, "#!/bin/sh\nhead -c 5000 /dev/zero\n");
+  chmodSync(exe, 0o755);
+  const t = new CliTransport({ executable: exe, cwd: dir, maxBufferBytes: 1000 });
+  await assert.rejects(t.uiList(), (e: Error) => /cockpit ui list: the answer is larger than 1000 bytes/.test(e.message) && !/cannot run/.test(e.message));
+});
