@@ -253,9 +253,12 @@ argument, stdout MUST be one JSON document whatever happens:
 - a note for the person, such as what a file or a run folder resolved to, MUST go to stderr.
 
 `doctor --json` names who the checkout signs as in `fields.identity`: the session name, the key
-ids of its two keys, and the trust tier its claim key is in.
+ids of its two keys, and the trust tier its claim key is in. `fields.identity.keys` lists every claim
+key it can sign as, its own and each of the keyring (§8.7), each with its key id from the seed,
+whether the public half beside it matches, and its trust tier: a configured fact, not a verified
+signature.
 
-> **Checked by:** `TestShellJSON_EveryListingAndRefusalIsOneDocument`,
+> **Checked by:** `TestShellJSON_EveryListingAndRefusalIsOneDocument`, `TestDoctorJSON_ListsEveryClaimKey`,
 > `TestShellVerbs_JSONAnswerIsAllOfStdout`, `TestSync_TakesInWhatAnotherCloneShared`.
 
 ### 6.1 Which kernel
@@ -1239,12 +1242,15 @@ Several verbs MAY write to one working tree at once, for example many writers sa
 registry. Each MUST make what it wrote durable exactly once and succeed. One MUST NOT fail because
 another holds the store's lock: the cockpit's own writes take turns, and a lock held by a tool
 outside the cockpit is waited out for a bounded time, as is a store's own lock or temporary file that
-another writer removes while it is being added.
+another writer removes while it is being added. A lock still held when that time runs out MUST be
+refused with code `store.busy`, not `store`: the repository is busy, not broken, and the same write
+can be tried again.
 
 > **Checked by:** `TestConfigGuard_StillRefusesTheWrongRepoWithCommitsOff`,
 > `TestPublish_WithPushOffItCommitsLocallyAndSaysSo`, `TestCommitAndPush_NeverPushesWhenNotSharing`,
 > `TestSay_ParallelProcessesEachCommitTheirClaim`, `TestCommitAndPush_WaitsOutALockAnotherGitHolds`,
-> `TestCommitAndPush_TriesAgainWhenAFileVanishesUnderAdd`.
+> `TestCommitAndPush_TriesAgainWhenAFileVanishesUnderAdd`, `TestCommitAndPush_ALockHeldPastTheWaitIsBusy`,
+> `TestSay_ALockedRepositoryIsRefusedAsBusy`.
 
 `cockpit sync` takes in what others shared and then shares what is durable here only. It MUST NOT
 rewrite a local revision — records already signed pin it in their locators — and where both sides

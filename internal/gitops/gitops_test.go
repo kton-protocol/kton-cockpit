@@ -3,11 +3,13 @@ package gitops
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestRunRedacted_ScrubsSecretFromErrorOnFailure(t *testing.T) {
@@ -443,5 +445,27 @@ func TestCommitAndPush_PathspecMagicIsReadLiterally(t *testing.T) {
 	}
 	if git("ls-files", "--", "out.txt") == "" {
 		t.Fatal("out.txt was not committed")
+	}
+}
+
+// A lock another git still holds when the wait runs out is ErrBusy: the repository is busy, not
+// broken, so a caller can tell the two apart and try again (store.busy, SPEC §12.1).
+func TestCommitAndPush_ALockHeldPastTheWaitIsBusy(t *testing.T) {
+	defer SetLockWaitForTest(200 * time.Millisecond)()
+	binDir := t.TempDir()
+	script := `#!/bin/sh
+for a in "$@"; do
+  if [ "$a" = "commit" ]; then echo "fatal: Unable to create '/x/.git/index.lock': File exists." >&2; exit 128; fi
+done
+if [ "$1" = "diff" ]; then exit 1; fi
+exit 0
+`
+	if err := os.WriteFile(filepath.Join(binDir, "git"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	_, err := CommitAndPush(context.Background(), Git{Root: t.TempDir(), Commit: true, SessionID: "session-1"}, []string{"a.csv"}, "test")
+	if !errors.Is(err, ErrBusy) {
+		t.Fatalf("want ErrBusy, got %v", err)
 	}
 }
