@@ -296,7 +296,8 @@ func TestService_TheStoryCarriesReproductions(t *testing.T) {
 // them leads anywhere: /kton/reg/<id> cannot reach an arbitrary directory.
 func TestRegistryRepo_OnlyRecordedProjectsInACockpitRepository(t *testing.T) {
 	repo, plain := t.TempDir(), t.TempDir()
-	os.WriteFile(filepath.Join(repo, "cockpit.config.json"), []byte("{}"), 0o644)
+	os.MkdirAll(filepath.Join(repo, ".kton"), 0o755)
+	os.WriteFile(filepath.Join(repo, ".kton", "cockpit.config.json"), []byte("{}"), 0o644)
 	sv := &Service{sessions: map[string]*tracked{
 		"a": {s: &Session{ID: "a", Project: filepath.Join(repo, "analysis")}},
 		"b": {s: &Session{ID: "b", Project: plain}},
