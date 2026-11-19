@@ -116,6 +116,8 @@ func (s *Server) Handler(webDir string) (http.Handler, error) {
 	mux.HandleFunc("/data/union.json", s.serveUnion)
 	mux.HandleFunc("/data/keys.json", s.serveKeys)
 	mux.HandleFunc("/data/names.json", s.serveNames)
+	// The admitted packages' build keys, labelled, never trusted (packages.go).
+	mux.HandleFunc("/data/packages.json", s.servePackages)
 	// A portion of the store, by relation, for a viewer drawing part of a kton too large to fetch
 	// whole (select.go).
 	mux.HandleFunc("/data/select", s.serveSelect)

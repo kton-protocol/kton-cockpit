@@ -359,6 +359,8 @@ type ShowSnapshot struct {
 	Union json.RawMessage `json:"union"`
 	Keys  json.RawMessage `json:"keys"`
 	Names json.RawMessage `json:"names"`
+	// Packages labels the admitted packages' build keys; they are not in Keys, the trusted ring.
+	Packages map[string]show.PackageKey `json:"packages"`
 }
 
 func showJSON(ctx context.Context) error {
@@ -370,7 +372,11 @@ func showJSON(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return printJSON(ShowSnapshot{Union: union, Keys: keys, Names: names})
+	pkgs, err := show.Packages(cfg)
+	if err != nil {
+		return err
+	}
+	return printJSON(ShowSnapshot{Union: union, Keys: keys, Names: names, Packages: pkgs})
 }
 
 func runShow(ctx context.Context, args []string) error {
