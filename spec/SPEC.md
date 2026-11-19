@@ -473,6 +473,13 @@ record; the locators still say where the bytes live in the repository.
 
 Binds a claim to a record.
 
+The subject MUST be a record or claim id (`sha256:<hex>`, read in lower case), an IRI, or a file in
+the repository, which stands for the hash of its bytes; the answer then reports the path it resolved
+(`resolvedFrom`). This holds for every form of say. Anything else MUST be refused, never signed as a
+literal: a claim about the text of a path is about nothing a query can find.
+
+> **Checked by:** `TestSay_ASubjectThatIsAFileIsItsBytes`.
+
 ### 8.1 The claim ceiling
 
 The configuration names the permitted claim templates. A cockpit MUST refuse any other, and MUST NOT
