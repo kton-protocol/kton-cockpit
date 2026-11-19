@@ -518,9 +518,15 @@ allow a caller to introduce a claim shape.
 
 The configuration MAY also admit installed packages (`claims.allowedPackages`; `cockpit install
 <package-dir> --allow`). An admitted package's templates are permitted, and its queries can be run by
-name (§9.9). A package that fails its structural check MUST contribute nothing, and two admitted
-packages bringing the same name MUST be refused rather than resolved by order. The operator fixes the
-set either way: by template, or by the package that carries a whole vocabulary.
+name (§9.9). A package that fails its structural check MUST contribute nothing, and the other admitted
+packages MUST keep working. A name two admitted sources bring MUST NOT be resolved by order: it is
+offered only qualified, as `<package>/<name>`, for each of them, and `doctor` says so, as it says which
+admitted package contributes nothing and why. Since the qualifier is a package's own name, two admitted
+packages of one name MUST both be refused, so a qualified name never means another key's package. A
+template MUST declare the name it is filed under, without `/`, or its package is refused; of one package
+installed in several revisions, the latest counts. A qualified template's `nk:template` in the query
+view is its qualified name; the signed claim names its predicate, which qualifying does not change. The operator fixes the set either way: by template, or
+by the package that carries a whole vocabulary.
 
 A linked module's templates and queries are compiled into the binary, and so are the same in every
 repository. They MUST be admitted the same way, by naming the module (`claims.allowedModules`), and
@@ -542,7 +548,8 @@ already means this is a term a reader may already know.
 > **Checked by:** `TestSay_RefusesATemplateOutsideTheConfiguredCeiling`,
 > `TestTemplates_NamePredicatesByFullIRI`, `examples/04-claim-ceiling`,
 > `TestVocabulary_AnAllowedPackageBringsItsTemplatesAndQueries` (`-tags docker`),
-> `TestShellSay_ListsAnAllowedPackagesTemplatesAndPointsFlagsToTheJSONFields`.
+> `TestShellSay_ListsAnAllowedPackagesTemplatesAndPointsFlagsToTheJSONFields`,
+> `TestVocabulary_AClashOrAFailingPackageTakesOutOnlyItself`, `TestVocabulary_QualifiedNamesCannotBeSpoofed`.
 
 ### 8.2 The reproduction precondition
 
@@ -854,6 +861,12 @@ on, but not here), at one that does not verify, or at a seed already on the path
 a scope seeded without a named parent is registered under its store's root scope (`root/<keyid>`),
 so the walk normally ends at that root.
 
+`@` in a scope name is reserved for the scopes `install` opens, `<package>@<label>`: `cockpit scope
+seed` MUST refuse a name containing it, so a records scope never shares a name with an installed
+package's.
+
+> **Checked by:** `TestScopeSeed_RefusesANameAnInstallScopeCouldHave`.
+
 > **Checked by:** `TestScope_ASeedFromASourceIsVerifiedAndCarriesItsContext`,
 > `TestScope_AnUntrustedSeedFromASourceSaysNothingItClaims`.
 
@@ -966,6 +979,10 @@ reaches no record outside that dataset, so it is under the same ceiling as every
   the query's outermost group (the `WHERE` clause), so a `FILTER` of that group sees it. A value MUST NOT
   become query text, a name that is not a variable name MUST be refused, and so MUST a query without a
   group to bind into.
+- `bindTerms` MAY give variables typed terms in the same clause: an IRI, or a literal with a datatype
+  (`--bind-iri VAR=IRI`, `--bind-typed VAR=VALUE^^xsd:integer`). Each MUST be written as one RDF term:
+  an IRI MUST be absolute and contain nothing that ends it, an xsd datatype's lexical form MUST be
+  valid for it, and anything else MUST be refused. A variable bound in both MUST be refused.
 
 The vocabulary of the projection, with examples, is in [docs/sparql.md](../docs/sparql.md). Every
 example there is run by a test.
@@ -973,7 +990,7 @@ example there is run by a test.
 > **Checked by:** `TestCheckFreeQuery_TakesSelectAndAskOverTheCockpitsDataset`,
 > `TestSparql_RefusesWhatItWouldNotAnswer`, `TestSparql_ChecksTheQueryAndNeedsAnEngine`,
 > `TestVocabulary_AnAllowedPackageBringsItsTemplatesAndQueries` (`-tags docker`),
-> `TestShellSparql_ReadsTheQueryFromAFile`,
+> `TestShellSparql_ReadsTheQueryFromAFile`, `TestBind_TypedTermsAreOneTermEach`,
 > `TestParseResults_ReadsASelectAndAnAsk`, `TestClaimView_KeepsPositionAndInfersNothing`,
 > `TestClaimView_AppliesTheTemplatesTermsAndTypes`, `TestBind_GoesFirstIntoTheWhereClause`, `TestSparql_TheExamplesAnswerOverAFixture` (with its
 > standard-results subtests; `-tags docker`).
