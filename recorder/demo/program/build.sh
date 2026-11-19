@@ -34,7 +34,7 @@ repo() {
   mkdir -p "$1" && (cd "$1" &&
     cockpit init >/dev/null &&
     cockpit keygen "$2" >/dev/null &&
-    for t in "$HERE"/templates/*.json; do [ -e "templates/$(basename "$t")" ] || cp "$t" templates/; done &&
+    for t in "$HERE"/templates/*.json; do [ -e ".kton/templates/$(basename "$t")" ] || cp "$t" .kton/templates/; done &&
     cockpit config claims.allowedTemplates '["reproduces","working-on","describes","rationale","parent-step","based-on","key-step","base-model","final-model","qc-passed"]' >/dev/null)
 }
 # seed DIR NAME [PARENT-ID]: a scope for the repository's claims; prints the scope id
@@ -146,10 +146,10 @@ X=$DIR/explore
 repo "$X" explorer
 federate "$X" $CONTEXT "$ANA" "$DIR/analysis-thp101-ben" "$DIR/analysis-thp102-carla" "$DIR/analysis-cx201-dmitri"
 if [ -n "${KTON_PMX:-}" ]; then
-  [ -f "$KTON_PMX/cockpit.config.json" ] || { echo "KTON_PMX=$KTON_PMX is not a cockpit repository (kton-web: tools/pmx-cockpit.sh)" >&2; exit 1; }
+  [ -f "$KTON_PMX/.kton/cockpit.config.json" ] || { echo "KTON_PMX=$KTON_PMX is not a cockpit repository (kton-web: tools/pmx-cockpit.sh)" >&2; exit 1; }
   cp -r "$KTON_PMX" "$DIR/pmx"   # on this filesystem: read from /mnt/c, every ask would take seconds
   federate "$X" "$DIR/pmx"
-  echo "  pmx: $(find "$DIR/pmx/registry" -type f | wc -l) files, linked and trusted"
+  echo "  pmx: $(find "$DIR/pmx/.kton/plankton" "$DIR/pmx/.kton/nekton" -type f | wc -l) files, linked and trusted"
 fi
 echo "  linked and trusted: the programme, its studies, the four analyses"
 

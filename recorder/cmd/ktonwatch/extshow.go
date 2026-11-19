@@ -14,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/kton-protocol/kton-cockpit/recorder/watch"
 )
 
 // A cockpit repository in a mode an extension provides (repo.mode "improve") cannot be read by the
@@ -151,9 +153,9 @@ func extBinary(name string) string {
 	return ""
 }
 
-// repoMode: repo.mode of the repository's cockpit.config.json ("" when unreadable)
+// repoMode: repo.mode of the repository's .kton/cockpit.config.json ("" when unreadable)
 func repoMode(repo string) string {
-	b, err := os.ReadFile(filepath.Join(repo, "cockpit.config.json"))
+	b, err := os.ReadFile(filepath.Join(repo, watch.ConfigFile))
 	if err != nil {
 		return ""
 	}

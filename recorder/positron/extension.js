@@ -40,8 +40,10 @@ const bin = (name) => cfg().get(name + 'Path') || path.join(home, '.local', 'bin
 // extension: its session (provider improve-auth) goes to the cockpit as IMPROVE_TOKEN, in the
 // environment of that process only, never written anywhere. Other repositories get no token.
 // Without a session the cockpit says it cannot reach improve; publish asks to sign in first.
+// cfgFile: the repository's shared cockpit configuration (ADR-016: under .kton/, its presence marks the root)
+const cfgFile = (repo) => path.join(repo, '.kton', 'cockpit.config.json');
 function repoMode(repo) {
-  try { return (JSON.parse(fs.readFileSync(path.join(repo, 'cockpit.config.json'), 'utf8')).repo || {}).mode || ''; } catch (e) { return ''; }
+  try { return (JSON.parse(fs.readFileSync(cfgFile(repo), 'utf8')).repo || {}).mode || ''; } catch (e) { return ''; }
 }
 async function improveToken(repo, signIn) {
   if (!repo || repoMode(repo) !== 'improve') return '';
@@ -138,13 +140,13 @@ function toggleRecording() {
 
 // ------------------------------------------------------------------ the doctor badge
 // The cockpit repository a file belongs to: the nearest directory above it with a
-// cockpit.config.json, at most up to the workspace folder it is in.
+// .kton/cockpit.config.json (ADR-016), at most up to the workspace folder it is in.
 function cockpitRepoOf(file) {
   if (!file) return null;
   const ws = vscode.workspace.getWorkspaceFolder(vscode.Uri.file(file));
   const stop = ws ? ws.uri.fsPath : path.parse(file).root;
   for (let d = path.dirname(file); ; d = path.dirname(d)) {
-    if (fs.existsSync(path.join(d, 'cockpit.config.json'))) return d;
+    if (fs.existsSync(cfgFile(d))) return d;
     if (d === stop || d === path.dirname(d)) return null;
   }
 }
@@ -178,7 +180,7 @@ async function runDoctor(force) {
   const ed = vscode.window.activeTextEditor;
   const file = ed && ed.document.uri.scheme === 'file' ? ed.document.uri.fsPath : null;
   const repo = cockpitRepoOf(file) || (vscode.workspace.workspaceFolders || []).map((f) => f.uri.fsPath)
-    .find((w) => fs.existsSync(path.join(w, 'cockpit.config.json'))) || null;
+    .find((w) => fs.existsSync(cfgFile(w))) || null;
   if (!repo) { doctorRepo = null; doctor.hide(); return; }
   if (repo === doctorRepo && !force) return;
   doctorRepo = repo;
@@ -687,7 +689,7 @@ const recordInputs = async (repo, id) => {
 // file) are told apart: "same" (the result is in kton, this run of it is not).
 async function publishedSteps(story, fresh) {
   const done = {}, same = {};
-  if (!fs.existsSync(path.join(story.repo, 'cockpit.config.json'))) return { done, same };
+  if (!fs.existsSync(cfgFile(story.repo))) return { done, same };
   // improve: one preview for the whole story says which steps are in improve already, so in kton
   if (repoMode(story.repo) === 'improve') {
     const plan = await planOf(story, fresh);
@@ -736,7 +738,7 @@ function noteLines(n) {
 // the lines handed to publish(): per step the person's words as comments, then the call
 // whether the repository allows a claim template (claims.allowedTemplates of its config)
 function allowsTemplate(repo, name) {
-  try { return (JSON.parse(fs.readFileSync(path.join(repo, 'cockpit.config.json'), 'utf8')).claims || {}).allowedTemplates.includes(name); } catch (e) { return false; }
+  try { return (JSON.parse(fs.readFileSync(cfgFile(repo), 'utf8')).claims || {}).allowedTemplates.includes(name); } catch (e) { return false; }
 }
 
 // ------------------------------------------------------------------ New run (MH 11.11.)
@@ -877,7 +879,7 @@ function planOf(story, fresh) {
 // (cockpit-improve-backend, MH 12.11.: "child step of EDA v1", "new root step", "already in improve").
 // Per step key session/task: {action, text, step?, parent?}; {error} when there is no preview.
 async function planFor(story) {
-  if (!story || !fs.existsSync(path.join(story.repo, 'cockpit.config.json'))) return null;
+  if (!story || !fs.existsSync(cfgFile(story.repo))) return null;
   const git = repoMode(story.repo) !== 'improve';
   const keys = [], drafts = [];
   for (const s of story.steps) {
@@ -1013,7 +1015,7 @@ async function openStory(context, project, file) {
     }
     // notes are kept per line of the story: session/task, or hand/<file>@<hash>
     const mine = await notesFor(new Set(story.steps.map((s) => s.session)));
-    const cockpitRepo = fs.existsSync(path.join(story.repo, 'cockpit.config.json'));
+    const cockpitRepo = fs.existsSync(cfgFile(story.repo));
     const ps = await publishedSteps(story);
     const improve = repoMode(story.repo) === 'improve';
     w.postMessage({ type: 'story', story, notes: mine, cockpitRepo, improve, published: ps.done, sameResult: ps.same,
@@ -1021,7 +1023,7 @@ async function openStory(context, project, file) {
     sendPlan();
   };
   // what Publish would do in improve, per step: once per opening, not per keystroke (about a second)
-  const sendPlan = async () => { if (story && fs.existsSync(path.join(story.repo, 'cockpit.config.json'))) { w.postMessage({ type: 'plan', plan: 'pending' }); const plan = await planOf(story); if (plan) w.postMessage({ type: 'plan', plan }); } };
+  const sendPlan = async () => { if (story && fs.existsSync(cfgFile(story.repo))) { w.postMessage({ type: 'plan', plan: 'pending' }); const plan = await planOf(story); if (plan) w.postMessage({ type: 'plan', plan }); } };
   // back in view: read again, so drafts Claude wrote meanwhile (kton_note) show
   p.onDidChangeViewState((e) => { if (e.webviewPanel.active) activeStory = id; if (e.webviewPanel.visible && story) send(); });
   storyInfo.set(id, { project, file, story: () => story, focus: null, refresh: () => (story ? send() : null) });
@@ -1296,7 +1298,7 @@ async function findBytes(project, sum) {
 }
 async function findInRepo(repo, sum) {
   let cfg = {};
-  try { cfg = JSON.parse(fs.readFileSync(path.join(repo, 'cockpit.config.json'), 'utf8')); } catch (e) { return null; }
+  try { cfg = JSON.parse(fs.readFileSync(cfgFile(repo), 'utf8')); } catch (e) { return null; }
   const dirs = [repo, ...(((cfg.federation || {}).sources) || []).filter((x) => x.kind === 'dir' && x.path).map((x) => path.isAbsolute(x.path) ? x.path : path.join(repo, x.path))];
   const ids = new Set();
   for (const q of ['producer', 'uses']) {
@@ -1474,13 +1476,13 @@ let extContext; // for what opens a story from outside one (the viewer's actions
 // to where it began). cockpit-improve does the work (contract with cockpit-improve-backend, 12.11.):
 //   cockpit-improve reproduce --workflow <file>|--all --tree <name> [--plan] --json
 // prints JSON lines on stdout: {event:"plan", steps}, {event:"step", i, n, call, state, step, original, …},
-// {event:"result", …}; the result is kept in .cockpit-improve/reproduce/<tree>.json. Exit 0 all reproduce,
+// {event:"result", …}; the result is kept in .kton/local/improve/reproduce/<tree>.json (ADR-016). Exit 0 all reproduce,
 // 1 something differs, 2 could not run. The improve token is the person's, re-read from
 // IMPROVE_ACCESS_TOKEN_FILE for each request (a whole run outlives one five-minute token).
 function improveTree(repo) {
-  try { return ((JSON.parse(fs.readFileSync(path.join(repo, 'cockpit.config.json'), 'utf8')).repo || {}).improve || {}).tree || 'kton'; } catch (e) { return 'kton'; }
+  try { return ((JSON.parse(fs.readFileSync(cfgFile(repo), 'utf8')).repo || {}).improve || {}).tree || 'kton'; } catch (e) { return 'kton'; }
 }
-const reproDir = (repo) => path.join(repo, '.cockpit-improve', 'reproduce');
+const reproDir = (repo) => path.join(repo, '.kton', 'local', 'improve', 'reproduce');
 // jsonLines: the JSON objects among a command's output lines (other lines are the command's talk)
 function jsonLines(text) {
   const out = [];
@@ -1771,7 +1773,7 @@ function activate(context) {
   askImproveAccess(token);
   doctor = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 99);
   doctor.command = 'kton.doctor';
-  const cfgWatch = vscode.workspace.createFileSystemWatcher('**/{cockpit.config.json,keys/*,registry/keys/*,templates/*}');
+  const cfgWatch = vscode.workspace.createFileSystemWatcher('**/.kton/{cockpit.config.json,keys/**/*.pub,templates/*,local/identity.json}');
   const again = () => runDoctor(true);
   context.subscriptions.push(doctor, cfgWatch, cfgWatch.onDidChange(again), cfgWatch.onDidCreate(again), cfgWatch.onDidDelete(again),
     vscode.window.onDidChangeActiveTextEditor(() => runDoctor(false)),
