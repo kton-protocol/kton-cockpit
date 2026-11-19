@@ -46,9 +46,9 @@ federate() {
   local fed="$FED" repo
   for repo in "$@"; do
     PLANKTON_DIR="$fed/.kton/plankton" NEKTON_DIR="$fed/.kton/nekton" \
-      "$fed/bin/kton" mirror plankton "$repo/.kton/plankton" >/dev/null
+      "$fed/bin/plankton" mirror "$repo/.kton/plankton" >/dev/null
     PLANKTON_DIR="$fed/.kton/plankton" NEKTON_DIR="$fed/.kton/nekton" \
-      "$fed/bin/kton" mirror nekton "$repo/.kton/nekton" >/dev/null
+      "$fed/bin/nekton" mirror "$repo/.kton/nekton" >/dev/null
     # Named after the participant, not copied under its own filename. Every repo built from the
     # skeleton calls its key `session-1.pub`, so a plain copy puts one party's public key exactly
     # where another party's used to be — and the aggregate then verifies the second against the
@@ -157,7 +157,7 @@ echo ""
 echo "== the federation mirrored back into participant 2 =="
 federate "$R2"
 PLANKTON_DIR="$PWD/.kton/plankton" NEKTON_DIR="$PWD/.kton/nekton" \
-  ./bin/kton mirror plankton "$FED/.kton/plankton" >/dev/null
+  ./bin/plankton mirror "$FED/.kton/plankton" >/dev/null
 trust "$PWD" federation "$R1/.kton/keys/self/session-1.pub" "$R1/.kton/keys/self/session-1-claims.pub"
 git add -A && git -c user.name=uat -c user.email=uat@cockpit.local commit -q -m "mirror the federation"
 
@@ -217,7 +217,7 @@ echo "== and the count, by verified signature =="
 federate "$R2"
 cd "$R1"; export COCKPIT_REPO_DIR="$PWD"
 PLANKTON_DIR="$PWD/.kton/plankton" NEKTON_DIR="$PWD/.kton/nekton" \
-  ./bin/kton mirror plankton "$FED/.kton/plankton" >/dev/null
+  ./bin/plankton mirror "$FED/.kton/plankton" >/dev/null
 trust "$PWD" federation "$R2/.kton/keys/self/session-1.pub" "$R2/.kton/keys/self/session-1-claims.pub"
 
 FINAL=$(cockpit ask "{\"query\":\"reproductions\",\"ref\":\"$P1_HASH\"}")
