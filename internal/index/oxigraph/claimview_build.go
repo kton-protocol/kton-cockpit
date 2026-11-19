@@ -30,14 +30,15 @@ func ViewConfigFor(cfg *config.Config) (ViewConfig, error) {
 		}
 		vc.Signers[core.KeyIDHex(pub)] = Signer{Name: strings.TrimSuffix(filepath.Base(path), ".pub"), Tier: tier}
 	}
-	set, err := binaries.New(cfg).Templates()
+	set, own, err := binaries.New(cfg).TemplatesAndAliases()
 	if err != nil {
 		return vc, err
 	}
+	vc.Templates, vc.Aliases = set, own
 	for _, n := range set.Names() {
 		t, _ := set.Get(n)
 		for field := range t.Fields {
-			if r := set.Resolve(field); Reserved(r) {
+			if r := vc.resolve(n, field); Reserved(r) {
 				return vc, fmt.Errorf("template %s: field %q is aliased to %s, a term the query projection writes itself", n, field, r)
 			}
 		}

@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/kton-protocol/kton-cockpit/internal/packages"
 	"regexp"
 	"sort"
 	"strconv"
@@ -75,11 +76,23 @@ type Signer struct{ Name, Tier string }
 type ViewConfig struct {
 	Signers   map[string]Signer // by keyid
 	Templates ntemplate.Set
+	// Aliases are a package template's own package aliases, by template name: they resolve that
+	// template's fields, and the repository's (the set's) only what they leave as it is (SPEC §9.11).
+	Aliases map[string]packages.Aliases
+}
+
+// resolve is x as the template named tmpl means it: through its package's own aliases when they
+// resolve it, else through the repository's. tmpl "" (a claim of no known template) is the repository's.
+func (vc ViewConfig) resolve(tmpl, x string) string {
+	if r := vc.Aliases[tmpl].Resolve(x); r != x {
+		return r
+	}
+	return vc.Templates.Resolve(x)
 }
 
 // viewVersion changes whenever ClaimView builds something else from the same quads: a view kept
 // from an older build is then built again rather than answered from.
-const viewVersion = 5 // 4: view vocabulary 1; 5: nested fields through the aliases
+const viewVersion = 6 // 4: view vocabulary 1; 5: nested fields through the aliases; 6: package aliases
 
 // Fingerprint changes whenever the view a ViewConfig builds would.
 func (vc ViewConfig) Fingerprint() string {
@@ -94,7 +107,7 @@ func (vc ViewConfig) Fingerprint() string {
 		f := map[string]string{}
 		for k, field := range t.Fields {
 			f[k] = field.Type
-			terms[k] = vc.Templates.Resolve(k)
+			terms[n+"#"+k] = vc.resolve(n, k)
 		}
 		ts = append(ts, tmpl{n + "=" + t.Predicate, f})
 	}
@@ -290,12 +303,17 @@ func ClaimView(trusted, structure []Quad, vc ViewConfig) []Quad {
 			if known {
 				out = append(out, triple(n, nkNS+"template", lit(t.Name)))
 			}
+			tmpl := ""
+			if known {
+				tmpl = t.Name
+			}
+			resolve := func(x string) string { return vc.resolve(tmpl, x) }
 			for _, f := range c.fields {
 				p, o := f.P, f.O
 				if key := strings.TrimPrefix(p.Value, labNS); key != p.Value {
-					p = aliased(p, vc)
+					p = aliased(p, resolve)
 					if known {
-						o = typedValue(o, t.Fields[key].Type, vc.Templates.Resolve)
+						o = typedValue(o, t.Fields[key].Type, resolve)
 					}
 				}
 				// A field with a node of its own (a ref: the file or step it names, under lab:hash)
@@ -305,10 +323,9 @@ func ClaimView(trusted, structure []Quad, vc ViewConfig) []Quad {
 						o = iri(hash[0])
 					} else {
 						// A nested object's fields (a list of objects, such as a qualification's
-						// role and level) go through the aliases as a top-level field's do.
-						for _, q := range inner {
-							out = append(out, Quad{S: q.S, P: aliased(q.P, vc), O: q.O})
-						}
+						// role and level) go through the aliases as a top-level field's do, at
+						// any depth.
+						out = append(out, nestedFields(c.nested, o.Value, resolve, map[string]bool{})...)
 					}
 				}
 				if p.Value == nkNS+"replaces" {
@@ -427,14 +444,31 @@ func typedValue(o Term, fieldType string, resolve func(string) string) Term {
 	return o
 }
 
+// nestedFields are the quads of the nested node s and of the nodes below it, each field through the
+// aliases; seen keeps a node from being emitted twice.
+func nestedFields(nested map[string][]Quad, s string, resolve func(string) string, seen map[string]bool) []Quad {
+	if seen[s] {
+		return nil
+	}
+	seen[s] = true
+	var out []Quad
+	for _, q := range nested[s] {
+		out = append(out, Quad{S: q.S, P: aliased(q.P, resolve), O: q.O})
+		if _, deeper := nested[q.O.Value]; deeper {
+			out = append(out, nestedFields(nested, q.O.Value, resolve, seen)...)
+		}
+	}
+	return out
+}
+
 // aliased is a field's term: lab:<field> as the aliases resolve it, when they resolve it to an IRI
 // that is not one the view writes itself; otherwise lab:<field> as it is.
-func aliased(p Term, vc ViewConfig) Term {
+func aliased(p Term, resolve func(string) string) Term {
 	key := strings.TrimPrefix(p.Value, labNS)
 	if key == p.Value {
 		return p
 	}
-	if r := vc.Templates.Resolve(key); strings.Contains(r, "://") && !Reserved(r) {
+	if r := resolve(key); strings.Contains(r, "://") && !Reserved(r) {
 		return iri(r)
 	}
 	return p

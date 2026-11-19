@@ -267,3 +267,33 @@ func TestUICat_OnlyUsablePackagesAndByNameDirOrID(t *testing.T) {
 		}
 	}
 }
+
+// A reference that names two usable packages, one's name being the other's id, is refused rather than
+// resolved by order (kton-review T8 on #170).
+func TestUICat_AReferenceNamingTwoPackagesIsRefused(t *testing.T) {
+	r := testrepo.New(t)
+	r.Use(t)
+	_, key, _ := ed25519.GenerateKey(rand.Reader)
+	buildPkg(t, filepath.Join(t.TempDir(), "first"), "first", "v1", key, map[string]string{"notes": tmpl("notes", "https://example.org/notes")})
+	stdout, _, _ := r.CockpitSplit(t, "ui", "list", "--json")
+	var l struct {
+		Packages []struct {
+			Name    string     `json:"name"`
+			Package string     `json:"package"`
+			Members []UIMember `json:"members"`
+		} `json:"packages"`
+	}
+	if json.Unmarshal([]byte(stdout), &l) != nil || len(l.Packages) != 1 || len(l.Packages[0].Members) == 0 {
+		t.Fatalf("ui list --json: %s", stdout)
+	}
+	id, hash := l.Packages[0].Package, l.Packages[0].Members[0].Hash
+	buildPkg(t, filepath.Join(t.TempDir(), "second"), id, "v1", key, map[string]string{"memo": tmpl("memo", "https://example.org/memo")})
+
+	out, code := r.Cockpit(t, "ui", "cat", id, hash)
+	if code != 2 || !strings.Contains(out, "names both") {
+		t.Errorf("ui cat by a reference two packages answer to (exit %d):\n%s", code, out)
+	}
+	if _, stderr, code := r.CockpitSplit(t, "ui", "cat", "first", hash); code != 0 {
+		t.Errorf("ui cat by the unambiguous name: exit %d\n%s", code, stderr)
+	}
+}

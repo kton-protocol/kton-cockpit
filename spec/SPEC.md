@@ -1058,17 +1058,33 @@ with every other store that names records by hash. Nanopub's Trusty URIs belong 
 | `nk:parent` | on a seed: the parent scope's seed (kton #241) |
 | `nk:replacedBy` | on a claim that a trusted claim names in its `replaces` field, when every signer of the replaced claim also signed the replacing one, with the same template and a shared `nk:about`: that claim (ADR-013 amendment, A5) |
 | `nk:replaces` | from a trusted claim to every claim its `replaces` field names, whoever signed either; a rule decides what a name by another signer means (ADR-013 amendment, A5) |
-| a field | under the term the template's aliases give it, else `lab:<field>` (`https://kton.dev/v/lab/`), typed by the field's type (`docs/sparql.md`); a nested object's fields go through the aliases the same way |
+| a field | under the term the template's aliases give it, else `lab:<field>` (`https://kton.dev/v/lab/`), typed by the field's type (`docs/sparql.md`); a nested object's fields, at any depth, go through the aliases the same way |
 
 No other state is inferred: nothing is "current", nothing is superseded unless a claim says so. An alias
-MUST NOT name a term of this table. A claim id in `replaces` and in a `ref` field is named in lower case.
+MUST NOT name a term of this table.
+
+A template's aliases are the repository's alias file (`aliases.json`) for the repository's own
+templates. An admitted package's own alias file (its prefixes and terms) resolves that package's
+templates only: their predicate and context before they join the template set, their fields and enum
+values in the view, and an `iri` value written in its prefixes at `say`. What the package leaves as it
+is, the repository's alias file resolves. No package alias joins the set the repository's templates
+resolve through, so no package changes what another package's, or the repository's, words mean. A
+package whose alias file names template short names is refused (`doctor` names it): the kernel prefers
+such a name over a real template's, so one package could redirect another's `say` (kton-review A1).
+
+One predicate, one template: the view finds a claim's template, and with it the aliases its fields
+resolve through, by its predicate. The repository's own templates come first, then the admitted
+packages in the order they were admitted (`claims.allowedPackages`), each package's templates by name;
+a package template whose resolved predicate an earlier one declares is not offered, and `doctor` names
+it. A second package therefore never changes how the first's claims read (kton-review P1). A claim id in `replaces` and in a `ref` field is named in lower case.
 The vocabulary 0 terms `nk:current` and `nk:supersededBy` are gone with v0.5.0, without a compatibility
 period.
 
 > **Checked by:** `TestClaimView_KeepsPositionAndInfersNothing`, `TestClaimView_AppliesTheTemplatesTermsAndTypes`,
 > `TestClaimView_ARefFieldPointsAtWhatItNames`, `TestClaimView_AnAliasCannotNameATermTheViewWrites`,
 > `TestClaimView_ReplacedByOnlyForTheSameSignerTemplateAndSubject`, `TestClaimView_EveryAboutAndASeedsParent`,
-> `TestClaimView_ANestedObjectsFieldsGoThroughTheAliases`,
+> `TestClaimView_ANestedObjectsFieldsGoThroughTheAliases`, `TestClaimView_APackagesFieldsResolveThroughItsOwnAliasesOnly`,
+> `TestAliases_APackagesOwnAliasesResolveOnlyItsOwnTemplates`, `TestAliases_ASecondPackageWithTheSamePredicateDoesNotChangeTheFirsts`,
 > `TestSparql_TheExamplesAnswerOverAFixture` (`-tags docker`).
 
 ## 10 Execution *(optional)*
