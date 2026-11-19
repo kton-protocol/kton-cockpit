@@ -19,8 +19,6 @@
 //   `--json`; older builds wrote text on stderr. Both are read.
 
 import { execFile } from "node:child_process";
-import { readFile } from "node:fs/promises";
-import { isAbsolute, join, normalize, sep } from "node:path";
 import { assertUiListing, type UiListing } from "../packages/listing.js";
 import type {
   AskRequest,
@@ -51,17 +49,14 @@ export interface CliTransportOptions {
   readonly env?: Readonly<Record<string, string>>;
   /** How long one call may take; a call that takes longer is killed and reported as timed out. */
   readonly timeoutMs?: number;
-  /**
-   * Until cockpit v0.5.3 fills ui/blocks/compositions in `ui list --json`: a file holding that answer
-   * (setting kton.ui.listFixture; the e2e writes it with ktonpkg v0.9.1). Unset: the real verb.
-   */
-  readonly uiListFixture?: string;
 }
 
 interface RunResult {
   readonly code: number | null;
   readonly stdout: string;
   readonly stderr: string;
+  /** stdout as bytes (ui cat) */
+  readonly bytes?: Uint8Array;
 }
 
 export class CliTransport implements Transport {
@@ -70,7 +65,7 @@ export class CliTransport implements Transport {
 
   constructor(private readonly opts: CliTransportOptions) {}
 
-  private run(args: readonly string[]): Promise<RunResult> {
+  private run(args: readonly string[], binary = false): Promise<RunResult> {
     const argv = [...args];
     this.calls.push(argv);
     return new Promise((resolve, reject) => {
@@ -84,6 +79,7 @@ export class CliTransport implements Transport {
           timeout: this.opts.timeoutMs ?? 120_000,
           maxBuffer: 64 * 1024 * 1024,
           windowsHide: true,
+          encoding: "buffer",
         },
         (err, stdout, stderr) => {
           if (err && typeof (err as NodeJS.ErrnoException).code === "string") {
@@ -96,7 +92,7 @@ export class CliTransport implements Transport {
             reject(new TransportTimeout(`${argv[0] ?? "cockpit"} timed out after ${Math.round((this.opts.timeoutMs ?? 120_000) / 1000)} s`, String(stderr)));
             return;
           }
-          resolve({ code, stdout: String(stdout), stderr: String(stderr) });
+          resolve({ code, stdout: String(stdout), stderr: String(stderr), ...(binary ? { bytes: new Uint8Array(stdout as Buffer) } : {}) });
         },
       );
     });
@@ -181,44 +177,22 @@ export class CliTransport implements Transport {
     return this.outcome(args, (v) => assertObject(v, "install"));
   }
 
-  /**
-   * `cockpit ui list --json` (v0.5.3: packages, allowed, refused, ui entries, blocks, compositions). What it does not
-   * list yet, each member's content hash, comes from a stand-in file in its shape (setting kton.ui.listFixture),
-   * matched by package id: only `members`, plus ui entries the file marks `simulated` (a test's version skew).
-   * Everything else is the verb's. Without the setting, the verb alone (and nothing loads by hash).
-   */
-  async uiList(): Promise<Outcome<UiListing>> {
-    const real = await this.outcome(["ui", "list", "--json"], assertUiListing);
-    if (!real.ok || !this.opts.uiListFixture) return real;
-    let v: unknown;
-    try {
-      v = JSON.parse(await readFile(this.opts.uiListFixture, "utf8"));
-    } catch (e) {
-      throw new TransportError(`ui list stand-in: ${(e as Error).message}`, 0, "");
-    }
-    const stand = new Map(assertUiListing(v).packages.map((p) => [p.package, p]));
-    const raw = (v as { packages?: Array<{ package?: string; ui?: Array<Record<string, unknown>> }> }).packages ?? [];
-    return {
-      ok: true,
-      value: {
-        packages: real.value.packages.map((p) => {
-          const s = stand.get(p.package);
-          if (!s || !p.package) return p;
-          const simulated = (raw.find((r) => r.package === p.package)?.ui ?? []).filter((u) => u["simulated"] === true).map((u) => u["file"]);
-          return { ...p, members: s.members, ui: [...p.ui, ...s.ui.filter((u) => simulated.includes(u.file))] };
-        }),
-      },
-    };
+  /** `cockpit ui list --json` (v0.5.4): packages, admission, refusals, ui entries, blocks, compositions, members. */
+  uiList(): Promise<Outcome<UiListing>> {
+    return this.outcome(["ui", "list", "--json"], assertUiListing);
   }
 
-  /** blobs/<hh>/<hex> of an installed package under .kton/packages; nothing outside it is read. */
-  async packageBlob(dir: string, hash: string): Promise<Uint8Array> {
-    const m = /^sha256:([0-9a-f]{64})$/.exec(hash);
-    if (!m) throw new TransportError(`${JSON.stringify(hash)} is not sha256:<hex>`, 0, "");
-    const rel = normalize(dir);
-    if (isAbsolute(rel) || !rel.startsWith(join(".kton", "packages") + sep) || rel.split(sep).includes("..")) throw new TransportError(`${JSON.stringify(dir)} is not an installed package's folder`, 0, "");
-    const hex = m[1] as string;
-    return readFile(join(this.opts.cwd, rel, "blobs", hex.slice(0, 2), hex));
+  /**
+   * `cockpit ui cat <package> <sha256:hash>` (v0.5.4): one member's bytes of a usable package, from stdout. The
+   * caller checks them against the hash again; the shell reads no package folder itself (C1.5).
+   */
+  async uiCat(pkg: string, hash: string): Promise<Uint8Array> {
+    if (!/^sha256:[0-9a-f]{64}$/.test(hash)) throw new TransportError(`${JSON.stringify(hash)} is not sha256:<hex>`, 0, "");
+    if (pkg === "" || pkg.startsWith("-")) throw new TransportError(`${JSON.stringify(pkg)} is not a package`, 0, "");
+    const r = await this.run(["ui", "cat", pkg, hash], true);
+    if (r.code === 2) throw new TransportError(`ui cat: ${parseRefusal(r).reason}`, 2, r.stderr);
+    if (r.code !== 0) throw new TransportError(firstLine(r.stderr) || `ui cat: exit ${String(r.code)}`, r.code, r.stderr);
+    return r.bytes ?? new Uint8Array();
   }
 
   /**

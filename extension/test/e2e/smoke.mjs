@@ -514,12 +514,13 @@ await step("S5", 3, "hostile packages: refusals reach the Packages view with the
   await views();
   const texts = (await page.locator(".monaco-list-row").allTextContents()).join("\n");
   for (const [what, re] of [
-    ["tampered after admission (the cockpit's own check, v0.5.3: only that package goes)", /hostile-tamperedrefused: package\.check/],
+    ["tampered after admission (the cockpit's own check: only that package goes)", /hostile-tamperedrefused: package\.check/],
     ["viewer-pin-mismatch, with its reason", /hostile-pinrefused: viewer-pin-mismatch/],
     ["unknown slot (version skew): listed, not rendered", /hostile-good: Sidebar adnot rendered/],
   ]) check(re.test(texts), what, String(re), "not in the Home tree");
-  const tampered = JSON.parse(readFileSync(`${WORK}/ui-list.json`, "utf8")).packages.find((p) => p.name === "hostile-tampered").members.find((x) => x.name === "viewers/table/index.js").hash;
-  check(texts.includes(tampered.slice(0, 20)), "the reason names the tampered file's hash", tampered, "not in the Home tree");
+  const tampered = JSON.parse(readFileSync(`${WORK}/tampered.json`, "utf8")).hash;
+  const why = new RegExp(`the bytes for ${tampered.slice(0, 20)}[0-9a-f]* have the hash sha256:[0-9a-f]`);
+  check(why.test(texts), "the reason is in English and names the tampered member (ktonpkg v0.9.7)", `the bytes for ${tampered} have the hash …`, texts.split("\n").find((l) => l.includes(tampered.slice(7, 19))) ?? "not in the Home tree");
   check(/pins viewer kton-web\/table at kton-web 39242b9f0bfc, which this shell does not carry/.test(texts), "the pin's reason is shown", "…which this shell does not carry", "");
   check(!/Sidebar ad\b(?!not)/.test(texts.replace(/Sidebar adnot rendered/g, "")), "the unknown slot has no place of its own");
   await shot("s5-packages-refused");
@@ -583,13 +584,13 @@ await step("S5", 5, "record view: kton-web's graph as a leaf; graph@1 answered w
 
 await step("S5", 4, "a package that is no longer admitted: its open panel closes at the next poll", async () => {
   // the operator takes the package out of claims.allowedPackages: the cockpit's ui list says allowed: false
-  const id = JSON.parse(readFileSync(`${WORK}/ui-list.json`, "utf8")).packages.find((p) => p.name === "hostile-good").package;
+  const id = JSON.parse((await cockpit(["ui", "list", "--json"])).stdout).packages.find((p) => p.name === "hostile-good").package;
   const cf = `${WORK}/repo/.kton/cockpit.config.json`;
   const cfg = JSON.parse(readFileSync(cf, "utf8"));
   cfg.claims.allowedPackages = cfg.claims.allowedPackages.filter((x) => x !== id);
   writeFileSync(`${cf}.tmp`, JSON.stringify(cfg, null, 2));
   renameSync(`${cf}.tmp`, cf);
-  await toast(/Closed hostile-good\/review: package hostile-good is no longer admitted or loaded/).waitFor({ timeout: 30000 });
+  await toast(/Closed hostile-good\/ui\/review\.json: package hostile-good is no longer admitted or loaded/).waitFor({ timeout: 30000 });
   await page.waitForTimeout(1000);
   let stale = 0;
   for (const fr of page.frames()) if (fr !== page.mainFrame()) stale += await fr.locator('[data-block="hostile-good/table"]').count().catch(() => 0);

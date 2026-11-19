@@ -1,14 +1,10 @@
 // `cockpit ui list --json` (C2.4): what the installed packages declare for a frontend. The shell reads
 // declarations from here, never from package folders, and every package byte it loads it checks by hash.
 //
-// Shape agreed with kton-cockpit (19.11.): {packages: [{name, package, revision, label, dir, allowed,
-// ui[], blocks[], compositions[], refused[]}]}; a package that fails its check is one entry with refused
-// entries, not hidden. Until cockpit v0.5.3 fills ui/blocks/compositions (ktonpkg v0.9.1 parses them),
-// the shell reads a fixture in this shape (setting kton.ui.listFixture, test/e2e/uilist-fixture).
-//
-// `members` is this shell's addition, asked of kton-cockpit: every member's role, name and content hash,
-// so the shell can load a composition's body, a carried viewer's files, a control and a content file by
-// hash (the shape above names a composition by its hash only, and controls and viewer trees not at all).
+// cockpit v0.5.4 (#170): {packages: [{name, package, revision, label, dir, allowed, ui[], blocks[], compositions[],
+// members[], refused[]}]}. Declarations and members are listed only for a package a frontend may use (admitted,
+// passing its check); the others come with refused or allowed: false, not hidden. ui entries are named by their
+// path (ui/<name>.json), compositions carry their hash, members {role, name, hash} are fetched with `ui cat`.
 import { TransportError } from "../transport/port.js";
 
 export interface UiWhen {

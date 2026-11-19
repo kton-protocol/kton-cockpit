@@ -57,8 +57,8 @@ export interface Backend {
    * the package says whose query it is when two packages bring the name.
    */
   query(pkg: string, name: string, terms: Readonly<Record<string, BoundTerm>>): Promise<unknown>;
-  /** content@1 / product@1 bytes of a package member, by hash (checked again here). */
-  bytes(dir: string, hash: string): Promise<Uint8Array>;
+  /** content@1 / product@1 bytes of a package member, by package id and hash (`ui cat`; checked again here). */
+  bytes(pkg: string, hash: string): Promise<Uint8Array>;
   /** open@1: show a file, a claim or a screen in the window; resolves with what was opened. */
   open(target: Readonly<Record<string, unknown>>): Promise<string>;
   /** sign@1 / record@1 through the shell's one sign path (C1.4): the dialog for a decision, none for a record. */
@@ -68,7 +68,7 @@ export interface Backend {
   /** graph@1 (e): the registry's records with the ring to verify them: {records, keys, names}. */
   graph?(): Promise<{ readonly records: readonly unknown[]; readonly keys: unknown; readonly names: unknown; readonly packages: unknown }>;
   /** a URL the frame may fetch for bytes above the content cap (or undefined: then above the cap is refused). */
-  urlFor?(dir: string, hash: string): string | undefined;
+  urlFor?(pkg: string, hash: string): string | undefined;
 }
 export interface HostUi {
   post(msg: unknown): void;
@@ -173,14 +173,14 @@ const sha256 = async (b: Uint8Array) => {
 
 /** content@1 and product@1 (d): {type, hash, size, bytes} up to the cap, else {type, hash, size, url}. */
 export async function answerBytes(backend: Backend, loaded: Loaded, hash: string, type: string | undefined, what: string): Promise<Record<string, unknown>> {
-  const blob = loaded.blobs.get(hash);
+  const blob = loaded.byHash.get(hash);
   if (!blob) throw new Refused(`${what}: ${hash} is no file of an admitted package`);
-  const bytes = await backend.bytes(blob.dir, hash);
+  const bytes = await backend.bytes(blob.pkg, hash);
   const got = `sha256:${await sha256(bytes)}`;
   if (got !== hash) throw new Refused(`${what}: the bytes hash to ${got}, not ${hash}`);
   const base = { type: type ?? blob.type, hash, size: bytes.byteLength };
   if (bytes.byteLength <= CONTENT_CAP) return { ...base, bytes: Buffer.from(bytes).toString("base64") };
-  const url = backend.urlFor?.(blob.dir, hash);
+  const url = backend.urlFor?.(blob.pkg, hash);
   if (!url) throw new Refused(`${what}: ${bytes.byteLength} bytes is above the ${CONTENT_CAP}-byte cap and this host has no url for it`);
   return { ...base, url };
 }

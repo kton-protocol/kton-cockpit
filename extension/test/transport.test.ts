@@ -1,6 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { fakeCockpit, probe, CLAIM, SUBJECT } from "./helpers.js";
+import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { CliTransport } from "../src/transport/cli.js";
 import { OperatorConfirmation, TransportError, TransportTimeout } from "../src/transport/port.js";
 
 test("say uses the flag form with a sha256 subject and returns the claim id", async () => {
@@ -169,4 +173,17 @@ test("a call that takes longer than its timeout is a TransportTimeout: nothing i
   const { CliTransport } = await import("../src/transport/cli.js");
   const t = new CliTransport({ executable: f, cwd: d, timeoutMs: 300 });
   await assert.rejects(t.say({ template: "x", subject: SUBJECT }), (e: unknown) => e instanceof TransportTimeout && /say timed out after 0 s/.test((e as Error).message));
+});
+
+test("ui cat: one argv per call, the member's bytes from stdout unchanged; a bad hash or a flag-like package never runs", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "uicat-"));
+  const bin = join(dir, "cockpit");
+  writeFileSync(bin, "#!/bin/sh\nprintf 'a\\000b' ; echo \"$@\" > \"$0.argv\"\n");
+  chmodSync(bin, 0o755);
+  const t = new CliTransport({ executable: bin, cwd: dir });
+  const b = await t.uiCat("pkg-a", `sha256:${"a".repeat(64)}`);
+  assert.deepEqual([...b], [97, 0, 98], "binary bytes, a NUL included");
+  assert.equal(readFileSync(`${bin}.argv`, "utf8").trim(), `ui cat pkg-a sha256:${"a".repeat(64)}`);
+  await assert.rejects(t.uiCat("pkg-a", "sha256:x"), /not sha256/);
+  await assert.rejects(t.uiCat("--as", `sha256:${"a".repeat(64)}`), /not a package/);
 });

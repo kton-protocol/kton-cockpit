@@ -2,7 +2,7 @@
 // pins against the trees (ktonpkg v0.9.1 carried viewers), and refusals with their reasons (S5.3).
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { assertUiListing } from "../src/packages/listing.js";
 import { loadPackages, treeId } from "../src/packages/model.js";
@@ -99,7 +99,7 @@ test("a package with allowed: false, or a non-empty refused, contributes nothing
   assert.deepEqual(l.entries, [], "no slot entry");
   assert.deepEqual(Object.keys(l.packages), [], "no package for compositions, blocks or viewers");
   assert.deepEqual([...l.controls.keys()], [], "no control");
-  assert.deepEqual([...l.blobs.keys()], [], "no content");
+  assert.deepEqual([...l.byHash.keys()], [], "no content");
   assert.deepEqual(l.notAdmitted, ["kton-web-test"]);
   assert.deepEqual(l.refusals.map((r) => [r.package, r.file, r.reason]), [["hostile-good", "ui/review.json", "viewer table: pin mismatch"]], "shown with its reason, never rendered");
 });
@@ -116,4 +116,32 @@ test("ui list as cockpit v0.5.2 answers it (null for unreadable declarations, no
   const loaded = await loadPackages(l, async () => new Uint8Array());
   assert.equal(loaded.refusals[0]?.code, "package.members", "the shell asks kton-cockpit for members: without them nothing can be loaded by hash");
   assert.equal(loaded.refusals[1]?.reason, "no seal");
+});
+
+test("a composition whose hash in ui list is not its member's is refused (the body comes by that hash through ui cat)", async () => {
+  const f = kwt();
+  const pkg = { ...f.pkg, compositions: f.pkg.compositions.map((c) => (c["name"] === "test-shell" ? { ...c, hash: `sha256:${"0".repeat(64)}` } : c)) };
+  const l = await loadPackages({ packages: [pkg] }, reader(f));
+  assert.equal(l.refusals[0]?.code, "composition.hash");
+});
+
+test("shipped code reads no stand-in and no package folder: package bytes come only through `cockpit ui cat`", () => {
+  const files: string[] = [];
+  const walk = (d: string) => {
+    for (const x of readdirSync(d)) {
+      const p = join(d, x);
+      if (statSync(p).isDirectory()) walk(p);
+      else if (p.endsWith(".ts")) files.push(p);
+    }
+  };
+  walk(join(process.cwd(), "src"));
+  for (const f of files) {
+    const t = readFileSync(f, "utf8");
+    assert.ok(!/listFixture|uiListFixture|fixture/i.test(t), `${f} mentions a fixture`);
+    assert.ok(!/blobs\/|["'`]blobs["'`]|\.kton\/packages|"packages", |join\([^)]*"packages"/.test(t), `${f} reads a package folder`);
+  }
+  // package bytes: only the transport's uiCat runs anything, and it runs `ui cat`
+  const cli = readFileSync(join(process.cwd(), "src", "transport", "cli.ts"), "utf8");
+  assert.match(cli, /this\.run\(\["ui", "cat", pkg, hash\], true\)/);
+  for (const f of files.filter((x) => /src[\\/](packages|composition)[\\/]/.test(x))) assert.ok(!/node:fs/.test(readFileSync(f, "utf8")) || f.endsWith("vendored.ts") || f.endsWith("mermaid-server.ts"), `${f} touches the file system`);
 });

@@ -58,7 +58,7 @@ export function listed(dir: string, name: string, label = "1", edit: (path: stri
     const j = () => JSON.parse(b.toString("utf8")) as Record<string, unknown>;
     if (r.role === "ui") ui.push({ ...(j() as unknown as UiPackage["ui"][number]), file: p });
     if (r.role === "block") blocks.push({ ...j(), name: r.name });
-    if (r.role === "composition") compositions.push({ name: r.name, kind: j()["kind"], hash: h });
+    if (r.role === "composition") compositions.push({ ...j(), name: r.name, hash: h });
   }
   return {
     pkg: { name, package: hash(Buffer.from(name)), revision: hash(Buffer.from(`${name}@${label}`)), label, dir: `.kton/packages/${name}@${label}`, allowed: true, ui, blocks, compositions, refused: [], members },
@@ -66,12 +66,12 @@ export function listed(dir: string, name: string, label = "1", edit: (path: stri
   };
 }
 
-/** A blob reader over fixtures (as CliTransport.packageBlob reads blobs/<hh>/<hex>). */
-export function reader(...fx: Fixture[]): (dir: string, h: string) => Promise<Uint8Array> {
-  return async (dir, h) => {
-    const f = fx.find((x) => x.pkg.dir === dir);
+/** A member reader over fixtures, as `cockpit ui cat <package id> <hash>` answers. */
+export function reader(...fx: Fixture[]): (pkg: string, h: string) => Promise<Uint8Array> {
+  return async (pkg, h) => {
+    const f = fx.find((x) => x.pkg.package === pkg);
     const b = f?.blobs.get(h);
-    if (!b) throw new Error(`no blob ${h} in ${dir}`);
+    if (!b) throw new Error(`no member ${h} in ${pkg}`);
     return b;
   };
 }

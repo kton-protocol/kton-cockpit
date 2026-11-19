@@ -103,7 +103,7 @@ class FakeTransport implements Transport {
   doctor(): never { throw new Error("not used"); }
   version(): never { throw new Error("not used"); }
   async uiList(): Promise<Outcome<UiListing>> { return { ok: true, value: { packages: [] } }; }
-  packageBlob(_dir: string, _h: string): Promise<Uint8Array> { return Promise.reject(new Error("not used")); }
+  uiCat(_pkg: string, _h: string): Promise<Uint8Array> { return Promise.reject(new Error("not used")); }
   graph(): never { throw new Error("not used"); }
 }
 
@@ -641,7 +641,7 @@ test("review check 7 (Q2): an agent-tier key carrying the person key's label is 
 class PackagesTransport extends FakeTransport {
   fixtures = [listed(join(PKGS, "kton-web-test"), "kton-web-test", "test")];
   override async uiList(): Promise<Outcome<UiListing>> { return { ok: true, value: { packages: this.fixtures.map((f) => f.pkg) } }; }
-  override packageBlob(dir: string, h: string): Promise<Uint8Array> { return reader(...this.fixtures)(dir, h); }
+  override uiCat(pkg: string, h: string): Promise<Uint8Array> { return reader(...this.fixtures)(pkg, h); }
 }
 const withTestPackage = () => {
   const t = new PackagesTransport();

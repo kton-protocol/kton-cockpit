@@ -204,11 +204,8 @@ export interface Transport {
   version(): Promise<Outcome<{ readonly text: string }>>;
   /** `cockpit ui list --json` (C2.4): the installed packages' ui declarations, checked in shape. */
   uiList(): Promise<Outcome<UiListing>>;
-  /**
-   * A package member's bytes by its content hash (blobs/<hh>/<hex> of an installed package). The caller
-   * checks the hash again; dir must be one ui list named. Until the cockpit serves package bytes itself.
-   */
-  packageBlob(dir: string, hash: string): Promise<Uint8Array>;
+  /** A usable package's member bytes by content hash: `cockpit ui cat <package> <hash>` (v0.5.4). Checked again by the caller. */
+  uiCat(pkg: string, hash: string): Promise<Uint8Array>;
   /** graph@1's data: `cockpit show --json` (v0.5.3): records, the trusted ring, names, admitted packages' build keys. */
   graph(): Promise<Outcome<{ readonly records: readonly unknown[]; readonly keys: Readonly<Record<string, unknown>>; readonly names: Readonly<Record<string, unknown>>; readonly packages: Readonly<Record<string, unknown>> }>>;
 }

@@ -72,9 +72,10 @@ export interface Loaded {
   /** installed, not admitted (claims.allowedPackages): shown, never loaded */
   readonly notAdmitted: readonly string[];
   /** the content hash of each member a package's content role holds, for content@1 */
-  readonly blobs: ReadonlyMap<string, { readonly dir: string; readonly hash: string; readonly type: string }>;
+  readonly byHash: ReadonlyMap<string, { readonly pkg: string; readonly hash: string; readonly type: string }>;
 }
-export type ReadBlob = (dir: string, hash: string) => Promise<Uint8Array>;
+/** A member's bytes by package (its id) and content hash: `cockpit ui cat`. */
+export type ReadBlob = (pkg: string, hash: string) => Promise<Uint8Array>;
 
 const sha = (b: Uint8Array) => createHash("sha256").update(b).digest("hex");
 const KTON_WEB_COMMIT = /^[0-9a-f]{40}$/;
@@ -129,30 +130,40 @@ const ROLE_DIR: Record<string, string> = { ui: "ui", block: "ui/blocks", composi
 /** The member's path in the package: content and viewer files are named by their path already. */
 const fileOf = (m: Member) => (m.role === "content" || m.role === "viewer-file" ? m.name : `${ROLE_DIR[m.role] ?? m.role}/${m.name}${m.role === "query" ? ".rq" : ".json"}`);
 
-async function loadOne(p: UiPackage, read: ReadBlob, vendored: ReadonlyMap<string, ViewerTree>, blobs: Map<string, { dir: string; hash: string; type: string }>): Promise<{ pkg: MirrorPackage; controls: Control[] }> {
+async function loadOne(p: UiPackage, read: ReadBlob, vendored: ReadonlyMap<string, ViewerTree>, byHash: Map<string, { pkg: string; hash: string; type: string }>): Promise<{ pkg: MirrorPackage; controls: Control[] }> {
   if (p.members.length === 0) throw new Refuse("package.members", "", "ui list names no members for this package: nothing can be loaded by hash");
   const bytes = new Map<Member, Uint8Array>();
-  for (const m of p.members) {
+  // one `ui cat` per member, a few at a time (a package has tens of members; one after another is slow)
+  const one = async (m: Member) => {
     let b: Uint8Array;
     try {
-      b = await read(p.dir, m.hash);
+      b = await read(p.package, m.hash);
     } catch (e) {
       throw new Refuse("package.unreadable", fileOf(m), `${fileOf(m)} cannot be read: ${(e as Error).message}`);
     }
-    // re-verify at load: the bytes on disk must still be the bytes the package was admitted with
+    // re-verify at load: the bytes must still be the bytes the package was admitted with
     if (`sha256:${sha(b)}` !== m.hash) throw new Refuse("package.tampered", fileOf(m), `${fileOf(m)} changed after admission: its bytes no longer hash to ${m.hash}`);
     bytes.set(m, b);
-  }
+  };
+  const queue = [...p.members];
+  await Promise.all(Array.from({ length: Math.min(8, queue.length) }, async () => {
+    for (let m = queue.shift(); m; m = queue.shift()) await one(m);
+  }));
   const of = (role: string) => p.members.filter((m) => m.role === role);
   const text = (m: Member) => Buffer.from(bytes.get(m) as Uint8Array).toString("utf8");
   const pkg: MirrorPackage = { name: p.name, blocks: {}, compositions: {}, queries: {}, content: {}, controls: {}, templates: {}, viewers: {}, leaves: {} };
   for (const m of of("query")) pkg.queries[m.name] = { path: `queries/${m.name}.rq`, hash: m.hash, text: text(m) };
   for (const m of of("template")) pkg.templates[m.name] = { decl: json(bytes.get(m) as Uint8Array, fileOf(m)) };
-  for (const m of of("composition")) pkg.compositions[m.name] = { decl: { composition: m.name, ...json(bytes.get(m) as Uint8Array, fileOf(m)) }, hash: m.hash, text: text(m) };
+  for (const m of of("composition")) {
+    // the composition's hash as ui list names it must be the member whose bytes were read
+    const listed = p.compositions.find((c) => c["name"] === m.name)?.["hash"];
+    if (listed !== undefined && listed !== m.hash) throw new Refuse("composition.hash", fileOf(m), `${fileOf(m)}: ui list names hash ${String(listed)}, the member is ${m.hash}`);
+    pkg.compositions[m.name] = { decl: { composition: m.name, ...json(bytes.get(m) as Uint8Array, fileOf(m)) }, hash: m.hash, text: text(m) };
+  }
   for (const m of of("content")) {
     const type = typeOfPath(m.name);
     pkg.content[m.name] = BINARY.test(m.name) ? { path: m.name, hash: m.hash, type, binary: true } : { path: m.name, hash: m.hash, type, text: text(m) };
-    blobs.set(m.hash, { dir: p.dir, hash: m.hash, type });
+    byHash.set(m.hash, { pkg: p.package, hash: m.hash, type });
   }
   const controls: Control[] = [];
   for (const m of of("control")) {
@@ -233,7 +244,7 @@ export async function loadPackages(listing: UiListing, read: ReadBlob, vendored:
   const controls = new Map<string, Control>();
   const refusals: PackageRefusal[] = [];
   const notAdmitted: string[] = [];
-  const blobs = new Map<string, { dir: string; hash: string; type: string }>();
+  const byHash = new Map<string, { pkg: string; hash: string; type: string }>();
   for (const p of listing.packages) {
     const who = p.name || p.dir;
     if (p.refused.length) {
@@ -245,11 +256,11 @@ export async function loadPackages(listing: UiListing, read: ReadBlob, vendored:
       continue;
     }
     try {
-      const own = new Map<string, { dir: string; hash: string; type: string }>();
+      const own = new Map<string, { pkg: string; hash: string; type: string }>();
       const { pkg, controls: cs } = await loadOne(p, read, vendored, own);
       packages[p.name] = pkg;
       for (const c of cs) controls.set(`${c.package}/${c.name}`, c);
-      for (const [k, v] of own) blobs.set(k, v);
+      for (const [k, v] of own) byHash.set(k, v);
       for (const e of p.ui) entries.push({ ...e, package: p.name, revision: p.revision });
     } catch (e) {
       if (!(e instanceof Refuse)) throw e;
@@ -257,5 +268,5 @@ export async function loadPackages(listing: UiListing, read: ReadBlob, vendored:
     }
   }
   entries.sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || a.package.localeCompare(b.package) || a.file.localeCompare(b.file));
-  return { packages, entries, controls, refusals, notAdmitted, blobs };
+  return { packages, entries, controls, refusals, notAdmitted, byHash };
 }

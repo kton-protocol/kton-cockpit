@@ -55,7 +55,7 @@ export class PackagesArea {
       if (!out.ok) throw new Error(`the cockpit refused ui list: ${out.refusal.reason}`);
       const text = JSON.stringify(out.value);
       if (text !== this.listingText || !this.loaded) {
-        this.loaded = await loadPackages(out.value, (d, h) => this.t.packageBlob(d, h), this.vendored);
+        this.loaded = await loadPackages(out.value, (pkg, h) => this.t.uiCat(pkg, h), this.vendored);
         this.listingText = text;
         const l = await Promise.resolve().then(() => this.t.list()).catch(() => undefined);
         this.queryNames = new Set(l?.ok ? l.value.queries.map((q) => q.name) : []);
@@ -176,7 +176,7 @@ export class PackagesArea {
     plan = { ...plan, uses: plan.uses.map((u) => ({ ...u, module: shown.urls.get((u as { module?: string }).module ?? "") ?? "" })) } as Plan;
     const backend: Backend = {
       query: (pkg, name, terms) => this.named(pkg, name, terms),
-      bytes: (dir, hash) => this.t.packageBlob(dir, hash),
+      bytes: (pkg, hash) => this.t.uiCat(pkg, hash),
       open: (target) => this.path.open(target),
       act: (c, about, fields, title) => this.path.act(c, about, fields, title),
       run: async (ray, holes) => {
@@ -193,7 +193,7 @@ export class PackagesArea {
   private backend(): Backend {
     return {
       query: (pkg, name, terms) => this.named(pkg, name, terms),
-      bytes: (dir, hash) => this.t.packageBlob(dir, hash),
+      bytes: (pkg, hash) => this.t.uiCat(pkg, hash),
       open: (target) => this.path.open(target),
       act: (c, about, fields, title) => this.path.act(c, about, fields, title),
       run: async (ray, holes) => {

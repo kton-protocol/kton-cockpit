@@ -168,11 +168,6 @@
           "type": "string",
           "default": "all",
           "description": "The surface the views show at start (\"all\" for every area)."
-        },
-        "kton.ui.listFixture": {
-          "type": "string",
-          "default": "",
-          "description": "Until cockpit v0.5.3 lists ui declarations in `cockpit ui list --json`: a file holding that answer (the e2e writes it with ktonpkg v0.9.1). Empty: the real verb."
         }
       }
     },

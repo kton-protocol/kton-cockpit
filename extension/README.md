@@ -130,9 +130,10 @@ The admitted packages' ui declarations (C2) come from `cockpit ui list --json`:
 - **Diagrams.** Mermaid runs only in a sandboxed frame, served from 127.0.0.1 on a random port (exactly its
   three pinned files) and named in the composition frame's `frame-src`; the diagram is shown as an `<img>`.
 
-The packages, their admission, refusals and ui entries come from `cockpit ui list --json` (v0.5.3). What it
-does not list yet, each member's content hash, comes from a stand-in beside it (setting `kton.ui.listFixture`,
-written in the e2e with ktonpkg v0.9.5, `test/e2e/uilist-fixture/`), matched by package id. `graph@1` reads
+Everything about packages comes from the cockpit: `cockpit ui list --json` (v0.5.4) for packages, admission,
+refusals, ui entries, blocks, compositions (with their hash) and members (role, name, hash), and
+`cockpit ui cat <package> <hash>` for a member's bytes, checked against the hash again. The shell reads no
+package folder. `graph@1` reads
 `cockpit show --json`: union, keys, names and the admitted packages' build keys (`packages`, passed on
 unchanged; a label, never trust). Planned params go to the cockpit as typed terms (`bindTerms`); a query or
 template name two packages bring is asked for as `<package>/<name>`.

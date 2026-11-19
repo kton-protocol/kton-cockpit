@@ -1,4 +1,4 @@
-// Build the e2e's verticle packages with ktonpkg v0.9.5's scope CLI (cmd/scope), each sealed with a throwaway
+// Build the e2e's verticle packages with ktonpkg v0.9.7's scope CLI (cmd/scope), each sealed with a throwaway
 // key that is deleted afterwards. Sources (test/e2e/packages/):
 //   - kton-web-test/: kton-web's test package at the pinned kton-web commit, unchanged (vendored with the kit,
 //     scripts/vendor-kton-web.mjs): a decision and a record control, a review-view entry (S4.2-4, S4.6).

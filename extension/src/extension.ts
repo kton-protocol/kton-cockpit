@@ -253,8 +253,7 @@ async function build(host: VsHost): Promise<void> {
   const agentKey = cfg.get<string>("identity.agentKey") || "";
   const executable = cfg.get<string>("cockpit.path") || "cockpit";
   const timeout = Math.max(1, cfg.get<number>("cockpit.timeoutSeconds") ?? 120);
-  const fixture = cfg.get<string>("ui.listFixture") || "";
-  const transport = new CliTransport({ executable, cwd: folder, timeoutMs: timeout * 1000, ...(fixture ? { uiListFixture: fixture } : {}) });
+  const transport = new CliTransport({ executable, cwd: folder, timeoutMs: timeout * 1000 });
   // Each key's id from its public half in the keyring (never a label), checked against doctor's answer
   // when doctor speaks for the same key. Without a person key id only person tiers count as persons.
   let doctor: DoctorReport | undefined;

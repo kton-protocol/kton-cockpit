@@ -216,17 +216,20 @@ export class Workbench {
   /** One poll: templates, proposals, decision claims, messages, answers and lanes; then the views. */
   async refresh(): Promise<void> {
     try {
-      const tpl = await this.t.templates();
-      if (!tpl.ok) throw new Error(`the cockpit refused its template listing: ${tpl.refusal.reason}`);
-      const [proposals, decides, messages, answers, lanes] = await Promise.all([
+      // one poll's cockpit calls run side by side: the listing, the queries and the packages (ui list, which never
+      // throws: its errors are shown in the Packages node), so a poll takes as long as its slowest call
+      const packages = this.packages.refresh();
+      const [tpl, proposals, decides, messages, answers, lanes] = await Promise.all([
+        this.t.templates(),
         this.rows(this.cfg.queries.proposals),
         this.named(this.cfg.queries.decides),
         this.rows(this.cfg.queries.messages),
         this.named(this.cfg.queries.answers),
         this.queries.has(this.cfg.queries.lanes) ? this.rows(this.cfg.queries.lanes) : Promise.resolve([]),
       ]);
+      if (!tpl.ok) throw new Error(`the cockpit refused its template listing: ${tpl.refusal.reason}`);
       Object.assign(this, { templates: tpl.value, proposals, decides, messages, answers, lanes });
-      await this.packages.refresh();
+      await packages;
       const st = this.packages.statusText();
       if (st) this.host.setStatus("slots", st, "status-item entries of the admitted packages");
     } catch (e) {
