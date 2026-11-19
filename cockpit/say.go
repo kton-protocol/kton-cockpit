@@ -45,7 +45,10 @@ type SayRequest struct {
 	// package revision it came from. Either refuses template.changed when the template say would sign
 	// with is not that one, so a consent given in a dialog holds (kton-review R1 on #177).
 	ExpectTemplate string `json:"expectTemplate,omitempty" jsonschema:"optional: the sha256 of the template's bytes you showed; refused (template.changed) if the template is another"`
-	ExpectRevision string `json:"expectRevision,omitempty" jsonschema:"optional: the package revision the template came from when you showed it; refused (template.changed) if it comes from another"`
+	// ExpectPredicate is the predicate as the caller listed it (say --json): a change of the alias file
+	// changes what is signed without changing the template's bytes (kton-review R1b on #177).
+	ExpectPredicate string `json:"expectPredicate,omitempty" jsonschema:"optional: the predicate (full IRI) say --json listed for the template; refused (template.changed) if it now resolves to another"`
+	ExpectRevision  string `json:"expectRevision,omitempty" jsonschema:"optional: the package revision the template came from when you showed it; refused (template.changed) if it comes from another"`
 	// As names who the claim is said as: a key in identity.keyring whose public half a trust tier
 	// holds. Omitted, the claim is signed with this repository's nekton_key.
 	As string `json:"as,omitempty" jsonschema:"optional: sign as this key of identity.keyring (<name>-claims.key), which must be in a trust tier"`
@@ -134,7 +137,7 @@ func (c *Cockpit) Say(ctx context.Context, in SayRequest) (*SayResult, error) {
 		}
 		r.ExpectTemplate = h
 	}
-	r.ExpectRevision = in.ExpectRevision
+	r.ExpectRevision, r.ExpectPredicate = in.ExpectRevision, in.ExpectPredicate
 	sets := map[string]string{}
 	for k, v := range in.Fields {
 		sets[k] = v

@@ -52,12 +52,21 @@ type Runner struct {
 	// ExpectTemplate and ExpectRevision bind Annotate to the template a caller saw: the sha256 of its
 	// bytes, and the package revision it came from. Checked against the set Annotate signs with, so
 	// nothing can change between the check and the signature (SPEC §8).
-	ExpectTemplate, ExpectRevision string
+	ExpectTemplate, ExpectRevision, ExpectPredicate string
 }
 
-// TemplateOrigin is where a template of the set came from: the sha256 of its bytes as its source holds
-// them (a repository file, or a package member, as ui list names it), and for a package template the
-// package and the sealed revision.
+// TemplatesWithOrigins is TemplatesAndAliases with where each template came from, for a listing a
+// frontend shows before say (SPEC §8.5).
+func (r *Runner) TemplatesWithOrigins() (ntemplate.Set, map[string]TemplateOrigin, error) {
+	set, _, _, origins, err := r.templatesFull()
+	return set, origins, err
+}
+
+// TemplateOrigin is what a template of the set signs and where it came from. Hash is the sha256 of the
+// template as say signs with it: its canonical JSON with predicate and context resolved, followed by
+// the sha256 of the repository's alias file, so a change of either the template or what its words
+// resolve to changes it (kton-review E1 on #178). For a package template, Package and Revision name
+// the sealed revision it came from.
 type TemplateOrigin struct {
 	Hash, Package, Revision string
 }
@@ -595,6 +604,9 @@ func (r *Runner) Annotate(ctx context.Context, subject, tmplName string, sets ma
 		}
 		return "", fmt.Errorf("no template %q in %s or in an allowed package", tmplName, r.cfg.TemplatesDir)
 	}
+	if pred := set.Resolve(t.Predicate); r.ExpectPredicate != "" && pred != r.ExpectPredicate {
+		return "", &TemplateChanged{fmt.Sprintf("the template %q signs the predicate %s, not the %s expected: read it again, then say again", t.Name, pred, r.ExpectPredicate)}
+	}
 	if origin := origins[t.Name]; r.ExpectTemplate != "" && !strings.EqualFold(origin.Hash, r.ExpectTemplate) {
 		return "", &TemplateChanged{fmt.Sprintf("the template %q is %s, not the %s expected: read it again, then say again", t.Name, origin.Hash, r.ExpectTemplate)}
 	} else if r.ExpectRevision != "" && origin.Revision != r.ExpectRevision {
@@ -699,7 +711,7 @@ func (r *Runner) TemplateClashes() []string {
 }
 
 func (r *Runner) templatesFull() (ntemplate.Set, map[string]packages.Aliases, []string, map[string]TemplateOrigin, error) {
-	aliasPath := filepath.Join(r.cfg.RepoRoot, "aliases.json")
+	aliasPath := filepath.Join(r.cfg.KtonDir, "aliases.json") // .kton/aliases.json (SPEC §5.6)
 	var aliases []byte
 	if b, err := os.ReadFile(aliasPath); err == nil {
 		aliases = b
@@ -739,15 +751,6 @@ func (r *Runner) templatesFull() (ntemplate.Set, map[string]packages.Aliases, []
 	// name; a package template whose predicate an earlier one declares is not offered, and doctor
 	// names it.
 	origins := map[string]TemplateOrigin{}
-	for key, b := range raw {
-		var d struct {
-			Name string `json:"name"`
-		}
-		if json.Unmarshal(b, &d) != nil || d.Name == "" {
-			d.Name = key
-		}
-		origins[d.Name] = TemplateOrigin{Hash: hashOf(b)}
-	}
 	repoOnly, _ := ntemplate.New(raw, aliases)
 	claimed := map[string]string{}
 	for _, n := range repoOnly.Names() {
@@ -779,7 +782,7 @@ func (r *Runner) templatesFull() (ntemplate.Set, map[string]packages.Aliases, []
 	for _, name := range names {
 		b := voc.Templates[name]
 		src := voc.From["template:"+name]
-		origin := TemplateOrigin{Hash: hashOf(b), Package: src.Package, Revision: src.Revision}
+		origin := TemplateOrigin{Package: src.Package, Revision: src.Revision}
 		al := voc.Aliases[src.Name]
 		b = packages.ResolvedTemplate(b, al)
 		var decl struct {
@@ -806,6 +809,18 @@ func (r *Runner) templatesFull() (ntemplate.Set, map[string]packages.Aliases, []
 	set, err := ntemplate.New(raw, aliases)
 	if err != nil {
 		return ntemplate.Set{}, nil, clashes, nil, err
+	}
+	aliasHash := hashOf(aliases)
+	for _, name := range set.Names() {
+		t, _ := set.Get(name)
+		t.Predicate = set.Resolve(t.Predicate)
+		if t.Context != "" {
+			t.Context = set.Resolve(t.Context)
+		}
+		canon, _ := json.Marshal(t)
+		o := origins[name]
+		o.Hash = hashOf(append(append(canon, '\n'), aliasHash...))
+		origins[name] = o
 	}
 	// Reported rather than absorbed: a file in the template directory that is not a template is
 	// usually a typo'd one, and silence there means a claim shape the operator believes is

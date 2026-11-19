@@ -663,14 +663,21 @@ head refuses it, trusted or not. The caller reads what was written and decides.
 > `TestScope_ExpectHeadAppendsOnlyToTheHeadTheCallerSaw`.
 
 **A caller MAY name the template it showed (`expectTemplate`, `expectRevision`).** `expectTemplate`
-is the sha256 of the template's bytes as its source holds them (for a package template, its member hash
-in `ui list`); `expectRevision` is the sealed package revision it came from (`ui list`'s `revision`).
+is the `hash` `say --json` lists for the template: the sha256 of the template as `say` signs with it
+(its canonical JSON with predicate and context resolved, followed by the sha256 of
+`.kton/aliases.json`), so a change of the template or of what its words resolve to changes it;
+`expectRevision` is the sealed package revision it came from (`say --json`'s and `ui list`'s
+`revision`).
 `say` refuses `template.changed` when the template it would sign with, read in the same load it signs
 from, is another: so a person's consent to what a frontend showed holds through an upgrade of the
 package between the showing and the signature. A repository template has no revision, so
-`expectRevision` refuses it.
+`expectRevision` refuses it. `expectPredicate` is the predicate as `say --json` listed it: an alias
+file's change alters what is signed without changing a template's bytes. `say --json` lists each
+template's `predicate` and `context` as `say` will sign them (resolved through the template's package
+aliases and `.kton/aliases.json`), its `hash`, and, for a package template, its `revision`.
 
-> **Checked by:** `TestSay_ExpectTemplateAndRevisionRefuseATemplateThatChanged`.
+> **Checked by:** `TestSay_ExpectTemplateAndRevisionRefuseATemplateThatChanged`, `TestSay_TheListingGivesThePredicateAsSigned`,
+> `TestSay_ExpectTemplateHoldsForAQualifiedTemplate`.
 
 **Why refusing was wrong.** An earlier version of this clause refused to write on both conditions.
 Besides contradicting the two clauses above, it was exploitable: a scope id is public and the

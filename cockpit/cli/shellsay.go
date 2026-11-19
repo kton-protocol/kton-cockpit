@@ -23,7 +23,7 @@ import (
 )
 
 func sayOverview(ctx context.Context, cfg *config.Config) {
-	fmt.Println("cockpit say <template> <run|file|sha256:id> [field=value]... [--scope NAME [--expect-head ID]] [--expect-template HASH] [--expect-revision ID] [--as NAME] [--json]")
+	fmt.Println("cockpit say <template> <run|file|sha256:id> [field=value]... [--scope NAME [--expect-head ID]] [--expect-template HASH] [--expect-revision ID] [--expect-predicate IRI] [--as NAME] [--json]")
 	fmt.Println()
 	ts := readTemplates(cfg)
 	if len(ts) == 0 {
@@ -63,10 +63,17 @@ func sayOverview(ctx context.Context, cfg *config.Config) {
 // Template is one entry of `say --json`: an allowed template, what it is about, and its fields.
 // A field say fills itself names what it fills in (filledBy, the identity it signs as).
 type Template struct {
-	Name      string                   `json:"name"`
-	About     string                   `json:"about"`
-	Predicate string                   `json:"predicate,omitempty"`
-	Fields    map[string]TemplateField `json:"fields"`
+	Name  string `json:"name"`
+	About string `json:"about"`
+	// Predicate and Context are as say will sign them: resolved through the template's package aliases
+	// and the repository's alias file (kton-review R1b on #177).
+	Predicate string `json:"predicate,omitempty"`
+	Context   string `json:"context,omitempty"`
+	// Hash is the sha256 of the template's bytes as its source holds them, Revision the package revision
+	// it came from: what say --expect-template and --expect-revision take.
+	Hash     string                   `json:"hash,omitempty"`
+	Revision string                   `json:"revision,omitempty"`
+	Fields   map[string]TemplateField `json:"fields"`
 }
 
 // TemplateField is one field of a template.
@@ -79,8 +86,16 @@ type TemplateField struct {
 
 func sayListing(cfg *config.Config) []Template {
 	out := []Template{}
+	set, origins, serr := binaries.New(cfg).TemplatesWithOrigins()
 	for _, t := range readTemplates(cfg) {
 		e := Template{Name: t.Name, About: orDefault(t.Target, "foton"), Predicate: t.Predicate, Fields: map[string]TemplateField{}}
+		if st, ok := set.Get(t.Name); serr == nil && ok {
+			e.Predicate = set.Resolve(st.Predicate)
+			if st.Context != "" {
+				e.Context = set.Resolve(st.Context)
+			}
+			e.Hash, e.Revision = origins[st.Name].Hash, origins[st.Name].Revision
+		}
 		for name, f := range t.Fields {
 			tf := TemplateField{Type: f.Type, Required: f.Required, Values: f.Values}
 			if name == identityField {
@@ -124,6 +139,12 @@ func shellSay(ctx context.Context, args []string) error {
 				return fmt.Errorf("--as needs a key name of identity.keyring")
 			}
 			in.As = args[i+1]
+			i++
+		case a == "--expect-predicate":
+			if i+1 >= len(args) {
+				return fmt.Errorf("--expect-predicate needs the predicate say --json listed")
+			}
+			in.ExpectPredicate = args[i+1]
 			i++
 		case a == "--expect-template" || a == "--expect-revision":
 			if i+1 >= len(args) {
