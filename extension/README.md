@@ -61,6 +61,12 @@ never through a shell:
   reason.
 - **Timeouts**: a call that runs out of time (`kton.cockpit.timeoutSeconds`) is reported as "not
   signed". The registry is the authority on whether a claim was made.
+- **A busy registry**: a `say` answered with `pending: {code: store.busy}` is signed and stored, and the next
+  write commits it. The workbench shows it as signed, not yet committed, and never signs it again. Only a
+  **refusal** `store.busy` is retried, because it means nothing was signed. Any other refusal or error is never
+  retried. **This needs cockpit v0.5.2 or later**: before v0.5.2, a refusal (`store`, or `store.busy` on the
+  untagged main d96539f) could come after the claim was signed, so do not point the workbench at an older cockpit
+  for signing.
 - **Polling**: the inbox is polled every `kton.poll.seconds`. Polls move to cockpit-runtime's jobs
   module once ADR-017 is built.
 - **Later**: when `cockpit serve --stdio` (ADR-011 P5, planned for cockpit v0.6.0) exists, the

@@ -547,6 +547,18 @@ test("S7.8: a say answered with pending store.busy is signed, shown as not yet c
   assert.ok(!h.errors.some((e) => /Not signed/.test(e)), "never told 'not signed' about a signed claim");
 });
 
+for (const code of ["store", "template.not-allowed"]) {
+  test(`S7.4: a refusal with code ${code} is never retried (it may come after the claim was signed); say is called once`, async () => {
+    const { t, h, wb } = await setup();
+    t.sayOutcomes = [{ ok: false, refusal: { code, reason: `refused: ${code}` } }];
+    h.confirmAnswer = true;
+    assert.equal(await wb.onDecisionIntent({ msg: P1 }, decisionIntent("b")), "failed");
+    assert.equal(t.sayCalls, 1, "exactly one say: only store.busy is retried");
+    assert.ok(!h.statusHistory.some((s) => s.startsWith("registry locked")), "no retry shown");
+    assert.match(h.errors.at(-1) ?? "", new RegExp(`Not signed: the cockpit refused: refused: ${code.replace(".", "\\.")}`));
+  });
+}
+
 test("S7.4: an error that mentions a lock is NOT retried (the claim may be signed); the registry decides", async () => {
   const { t, h, wb } = await setup();
   t.sayErrors = [new TransportError("git commit failed: index.lock exists", 1, "fatal: Unable to create '.git/index.lock': File exists.\n")];
