@@ -38,6 +38,12 @@ docker run --rm --entrypoint cat "$DOCKER_CLI_IMAGE" /usr/local/bin/docker > "$W
 chmod +x "$WORK/bin/docker"
 DOCKER_MOUNT="-v $WORK/bin/docker:/usr/local/bin/docker:ro"
 
+# The cockpit runs its SPARQL engine through docker; pull the pinned image first, so the first asks on a cold
+# runner do not wait for the pull (seed.sh pins the same digest in the repo's cockpit.config.json).
+ENGINE_IMAGE=oxigraph/oxigraph@sha256:10677fb643f8c5a7bfb03dd8f7971c79a84b01e795c24201c8cfa12fd569f1c0
+echo "== engine image"
+docker pull -q "$ENGINE_IMAGE" >/dev/null
+
 echo "== seed"
 docker run --rm -u "$UIDGID" -v "$WORK:$WORK" -v "$HERE/seed.sh:/seed.sh:ro" \
   -v "$COCKPIT:/usr/local/bin/cockpit:ro" -v "$VOCAB:/vocab:ro" -v "$HERE/vocabulary-package:/vocab-package:ro" \
