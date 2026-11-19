@@ -27,7 +27,8 @@ var iriTerm = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9+.-]*:[^\x00-\x20<>"{}|^` +
 // isIRI is iriTerm, plus what the query engine's IRI parser also refuses (kton-review B1 on #161): a
 // '%' not followed by two hex digits, DEL, and the Unicode line, paragraph and space separators.
 func isIRI(v string) bool {
-	if !iriTerm.MatchString(v) || pctBad.MatchString(v) {
+	// One fragment at most: a second '#' fails the engine's IRI parser (kton-review on #161).
+	if !iriTerm.MatchString(v) || pctBad.MatchString(v) || strings.Count(v, "#") > 1 {
 		return false
 	}
 	for _, r := range v {
