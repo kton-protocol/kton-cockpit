@@ -258,6 +258,14 @@ ids of its two keys, and the trust tier its claim key is in.
 > **Checked by:** `TestShellJSON_EveryListingAndRefusalIsOneDocument`,
 > `TestShellVerbs_JSONAnswerIsAllOfStdout`, `TestSync_TakesInWhatAnotherCloneShared`.
 
+`ui list` (an operator command, not on the tool transport) lists the installed packages for a
+frontend: each with its name, revision, profile, whether the configuration admits it, and what fails
+its check, under `refused`, never hidden. A frontend reads what packages declare from here, never
+from package folders. What a package declares for a frontend (its `ui/`, blocks and compositions) is
+read by ktonpkg, not by the cockpit; until ktonpkg reads it, those fields are absent.
+
+> **Checked by:** `TestUIList_ListsInstalledPackagesWithWhatFailsTheirCheck`.
+
 ### 6.1 Which kernel
 
 A cockpit MUST NOT reimplement kernel logic, and MUST NOT let which kernel build it runs against be

@@ -31,10 +31,18 @@ type Installed struct {
 	Profile  string
 }
 
-// List returns the installed packages, sorted by directory. A directory under packages/ that is not
-// a package in the scope format — a source package of this repo's own, an old-format one — is not
-// an installed package and is skipped.
-func List(repoRoot string) ([]Installed, error) {
+// Entry is one directory under .kton/packages that holds a package: the package, or why it could
+// not be read (Err). A listing that must show a broken package rather than fail uses ListEach.
+type Entry struct {
+	Dir string // repo-relative
+	Installed
+	Err error
+}
+
+// ListEach returns every installed package directory, sorted, each with its package or its error. A
+// directory that is not a package in the scope format — a source package of this repo's own, an
+// old-format one — is skipped, as List skips it.
+func ListEach(repoRoot string) ([]Entry, error) {
 	entries, err := os.ReadDir(filepath.Join(repoRoot, Dir))
 	if os.IsNotExist(err) {
 		return nil, nil
@@ -42,7 +50,7 @@ func List(repoRoot string) ([]Installed, error) {
 	if err != nil {
 		return nil, err
 	}
-	var out []Installed
+	var out []Entry
 	for _, e := range entries {
 		if !e.IsDir() || !strings.Contains(e.Name(), "@") {
 			continue
@@ -51,19 +59,42 @@ func List(repoRoot string) ([]Installed, error) {
 		if _, err := os.Stat(filepath.Join(abs, scope.NektonDir)); err != nil {
 			continue
 		}
+		rel := filepath.ToSlash(filepath.Join(Dir, e.Name()))
+		entry := Entry{Dir: rel}
 		p, err := scope.Open(abs)
 		if err != nil {
-			return nil, fmt.Errorf("%s/%s: %w", Dir, e.Name(), err)
+			entry.Err = err
+			out = append(out, entry)
+			continue
 		}
 		r, seal, err := p.Sealed()
 		if err != nil {
-			return nil, fmt.Errorf("%s/%s: %w", Dir, e.Name(), err)
+			entry.Err = err
+			out = append(out, entry)
+			continue
 		}
 		prof, _ := r.Profile()
-		out = append(out, Installed{Dir: filepath.ToSlash(filepath.Join(Dir, e.Name())), Package: p, Revision: r,
-			Seal: seal, Profile: prof})
+		entry.Installed = Installed{Dir: rel, Package: p, Revision: r, Seal: seal, Profile: prof}
+		out = append(out, entry)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Dir < out[j].Dir })
+	return out, nil
+}
+
+// List returns the installed packages, sorted by directory, and fails on the first one that cannot
+// be read.
+func List(repoRoot string) ([]Installed, error) {
+	all, err := ListEach(repoRoot)
+	if err != nil {
+		return nil, err
+	}
+	var out []Installed
+	for _, e := range all {
+		if e.Err != nil {
+			return nil, fmt.Errorf("%s: %w", e.Dir, e.Err)
+		}
+		out = append(out, e.Installed)
+	}
 	return out, nil
 }
 

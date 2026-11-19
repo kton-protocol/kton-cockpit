@@ -83,6 +83,8 @@ func Main() {
 		err = runWorkflow(ctx, os.Args[2:])
 	case "shim":
 		err = runShim(ctx, os.Args[2:])
+	case "ui":
+		err = runUI(ctx, os.Args[2:])
 	case "help", "-h", "--help":
 		usage()
 		return
