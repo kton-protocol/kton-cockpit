@@ -279,7 +279,7 @@ func (sv *Service) Projects() []ProjectSummary {
 	}
 	var out []ProjectSummary
 	for _, p := range by {
-		if repo := toolcall.RepoRoot(p.Path); isCockpitRepo(repo) {
+		if repo := RepoRoot(p.Path); isCockpitRepo(repo) {
 			p.Registry = RegistryID(repo)
 		}
 		out = append(out, *p)
@@ -294,8 +294,12 @@ func RegistryID(repo string) string {
 	return hex.EncodeToString(h[:8])
 }
 
+// ConfigFile is a cockpit repository's shared configuration, relative to its root; its presence
+// marks the root (ADR-016: everything kton under .kton/).
+var ConfigFile = filepath.Join(".kton", "cockpit.config.json")
+
 func isCockpitRepo(dir string) bool {
-	_, err := os.Stat(filepath.Join(dir, "cockpit.config.json"))
+	_, err := os.Stat(filepath.Join(dir, ConfigFile))
 	return err == nil
 }
 
@@ -304,7 +308,7 @@ func isCockpitRepo(dir string) bool {
 func (sv *Service) RegistryRepo(id string) string {
 	for _, p := range sv.Projects() {
 		if p.Registry == id {
-			return toolcall.RepoRoot(p.Path)
+			return RepoRoot(p.Path)
 		}
 	}
 	sv.allowedMu.Lock()
@@ -317,7 +321,7 @@ func (sv *Service) RegistryRepo(id string) string {
 // the person asks to see it. Its id is returned.
 func (sv *Service) AllowRegistry(repo string) (string, error) {
 	if !isCockpitRepo(repo) {
-		return "", fmt.Errorf("%s is not a cockpit repository (no cockpit.config.json)", repo)
+		return "", fmt.Errorf("%s is not a cockpit repository (no .kton/cockpit.config.json)", repo)
 	}
 	id := RegistryID(repo)
 	sv.allowedMu.Lock()
@@ -347,4 +351,16 @@ func (sv *Service) projectView(check *Checker, project string, f Filter) map[str
 	}
 	sort.SliceStable(all, func(i, j int) bool { return all[i].End < all[j].End })
 	return map[string]any{"id": "project:" + project, "project": project, "total": total, "tasks": all}
+}
+
+// RepoRoot is the repository a directory belongs to: the nearest ancestor holding
+// .kton/cockpit.config.json (ADR-016), else what toolcall.RepoRoot finds (.git). The recorder asks
+// this, not toolcall.RepoRoot, until the shared one reads the v0.5.0 layout too.
+func RepoRoot(dir string) string {
+	for d := dir; d != "" && d != "/" && d != "."; d = filepath.Dir(d) {
+		if isCockpitRepo(d) {
+			return d
+		}
+	}
+	return toolcall.RepoRoot(dir)
 }

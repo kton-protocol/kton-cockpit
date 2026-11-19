@@ -181,7 +181,7 @@ func storyOf(tasks []*Task, project, path, sum string) *Story {
 		}
 	}
 	end := r.Target.When
-	st := &Story{Target: r.Target, Verdict: r.Verdict, Gaps: r.Gaps, Script: r.Script, Repo: toolcall.RepoRoot(project), sources: r.Sources}
+	st := &Story{Target: r.Target, Verdict: r.Verdict, Gaps: r.Gaps, Script: r.Script, Repo: RepoRoot(project), sources: r.Sources}
 	var picked []*Task
 	for _, t := range tasks {
 		if sessions[t.Session] && t.End <= end && (on[stepKey(t)] || Effect(t) || len(t.Vars) > 0 || t.Status == "err") {
