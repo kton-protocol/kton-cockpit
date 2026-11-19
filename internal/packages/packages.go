@@ -8,6 +8,7 @@
 package packages
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -136,6 +137,71 @@ type Vocabulary struct {
 	Queries   map[string][]byte
 	MCPTools  map[string]scope.MCPTool
 	From      map[string]Source // "template:<name>" / "query:<name>" / "mcp:<name>" -> where it came from
+	// Refused are the admitted packages that contribute nothing: failing their check, unreadable, or
+	// missing while some package directory cannot be read. The others keep working.
+	Refused []Refused
+	// Clashes are the names two sources bring, each offered only as <package>/<name>.
+	Clashes []string
+}
+
+// contains reports whether in's package chain holds the revision id.
+func contains(in Installed, rev string) bool {
+	revs, err := in.Package.Revisions()
+	if err != nil {
+		return false
+	}
+	for _, r := range revs {
+		if r.ID == rev {
+			return true
+		}
+	}
+	return false
+}
+
+// declaredNameProblem says why a package's templates cannot be offered: one declaring a name other
+// than the one it is filed under, or a name with '/'.
+func declaredNameProblem(ts map[string][]byte) string {
+	names := make([]string, 0, len(ts))
+	for n := range ts {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	for _, file := range names {
+		var t struct {
+			Name string `json:"name"`
+		}
+		_ = json.Unmarshal(ts[file], &t)
+		switch {
+		case strings.Contains(file, "/") || strings.Contains(t.Name, "/"):
+			return fmt.Sprintf("its template %q declares a name with '/', which is the cockpit's qualified form", file)
+		case t.Name != "" && t.Name != file:
+			return fmt.Sprintf("its template %s declares the name %q: a template declares the name it is filed under", file, t.Name)
+		}
+	}
+	return ""
+}
+
+// Refused is an admitted package that contributes nothing, and why.
+type Refused struct {
+	Source
+	Reason string
+}
+
+// Renamed gives a template's JSON the name it is offered under: the kernel's template set keys a
+// template by the name it declares, so a qualified name must be the declared one. A body that is not
+// a JSON object is returned as it is, and the kernel reports it.
+func Renamed(body []byte, name string) []byte {
+	var m map[string]json.RawMessage
+	if json.Unmarshal(body, &m) != nil {
+		return body
+	}
+	n, _ := json.Marshal(name)
+	m["name"] = n
+	out, err := json.Marshal(m)
+	if err != nil {
+		return body
+	}
+	return out
 }
 
 // Allowed reads the templates and queries of the installed packages named in allowed. A package
@@ -166,61 +232,172 @@ func Allowed(repoRoot string, allowed, modules []string) (*Vocabulary, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Each admitted package on its own (userinterface's PR 2 (3), S6 (3)): one that fails its check or
+	// cannot be read is listed under Refused and contributes nothing, and the others keep working. A
+	// name two of them bring is offered under each one's qualified name, <package>/<name>, and under no
+	// plain name, rather than refusing the whole vocabulary.
+	type offer struct {
+		src  Source
+		body []byte
+	}
+	offers := map[string]map[string][]offer{"template": {}, "query": {}}
+	tools := map[string][]struct {
+		src  Source
+		tool scope.MCPTool
+	}{}
 	var broken []string
 	seen := map[string]bool{}
+	// The admitted, readable installations, then: one per package id, the latest revision (an
+	// installation of the same package whose revision the other's chain contains is older; two whose
+	// chains do not meet are both refused; kton-review V3 on #162); and one per package name, since
+	// the name qualifies a clashing word: two admitted packages of one name are both refused, so a
+	// qualified name can never mean another key's package (kton-review V1 on #162).
+	var admitted []Installed
 	for _, e := range entries {
 		if e.Err != nil {
 			broken = append(broken, e.Dir+": "+e.Err.Error())
 			continue
 		}
-		in := e.Installed
-		if !ok[in.Package.ID] {
+		if ok[e.Package.ID] {
+			seen[e.Package.ID] = true
+			admitted = append(admitted, e.Installed)
+		}
+	}
+	source := func(in Installed) Source { return Source{Package: in.Package.ID, Name: in.Package.Name, Dir: in.Dir} }
+	byID := map[string][]Installed{}
+	for _, in := range admitted {
+		byID[in.Package.ID] = append(byID[in.Package.ID], in)
+	}
+	var latest []Installed
+	for _, ins := range byID {
+		best, ambiguous := ins[0], false
+		for _, in := range ins[1:] {
+			switch {
+			case contains(in, best.Revision.ID):
+				best = in
+			case contains(best, in.Revision.ID):
+			default:
+				ambiguous = true
+			}
+		}
+		if ambiguous {
+			for _, in := range ins {
+				v.Refused = append(v.Refused, Refused{Source: source(in), Reason: "installed more than once, as revisions neither of which follows the other"})
+			}
 			continue
 		}
-		seen[in.Package.ID] = true
-		if probs := in.Package.Verify(); len(probs) > 0 {
-			return nil, fmt.Errorf("the allowed package %s (%s) fails its check: %s", in.Package.Name, in.Dir, probs[0])
+		latest = append(latest, best)
+	}
+	byName := map[string][]Installed{}
+	for _, in := range latest {
+		byName[in.Package.Name] = append(byName[in.Package.Name], in)
+	}
+	var usable []Installed
+	for name, ins := range byName {
+		if len(ins) == 1 {
+			usable = append(usable, ins[0])
+			continue
 		}
-		src := Source{Package: in.Package.ID, Name: in.Package.Name, Dir: in.Dir}
+		var dirs []string
+		for _, in := range ins {
+			dirs = append(dirs, in.Dir)
+		}
+		sort.Strings(dirs)
+		for _, in := range ins {
+			v.Refused = append(v.Refused, Refused{Source: source(in), Reason: fmt.Sprintf("two admitted packages are named %s (%s): a name must say which package it is", name, strings.Join(dirs, ", "))})
+		}
+	}
+	sort.Slice(usable, func(i, j int) bool { return usable[i].Dir < usable[j].Dir })
+	for _, in := range usable {
+		src := source(in)
+		refuse := func(reason string) { v.Refused = append(v.Refused, Refused{Source: src, Reason: reason}) }
+		if probs := in.Package.Verify(); len(probs) > 0 {
+			refuse("fails its check: " + probs[0])
+			continue
+		}
 		ts, err := in.Revision.Templates()
 		if err != nil {
-			return nil, err
+			refuse(err.Error())
+			continue
+		}
+		// A template declares the name it is filed under, and no '/': the qualified form is the
+		// cockpit's to give, and a declared one would make the kernel's set refuse every say
+		// (kton-review V2 on #162).
+		if why := declaredNameProblem(ts); why != "" {
+			refuse(why)
+			continue
 		}
 		qs, err := in.Revision.Queries()
 		if err != nil {
-			return nil, err
+			refuse(err.Error())
+			continue
 		}
-		tools, err := in.Revision.MCPTools()
+		ms, err := in.Revision.MCPTools()
 		if err != nil {
-			return nil, err
+			refuse(err.Error())
+			continue
 		}
-		for name, t := range tools {
-			if prev, dup := v.From["mcp:"+name]; dup {
-				return nil, fmt.Errorf("two allowed packages offer the MCP tool %q: %s and %s", name, prev.Name, in.Package.Name)
-			}
-			v.MCPTools[name] = t
-			v.From["mcp:"+name] = src
+		for name, t := range ms {
+			tools[name] = append(tools[name], struct {
+				src  Source
+				tool scope.MCPTool
+			}{src, t})
 		}
-		for kind, m := range map[string]map[string][]byte{"template": ts, "query": qs} {
-			dst := v.Templates
-			if kind == "query" {
-				dst = v.Queries
-			}
-			for name, body := range m {
-				key := kind + ":" + name
-				if prev, dup := v.From[key]; dup {
-					return nil, fmt.Errorf("two allowed vocabularies offer the %s %q: %s and %s", kind, name, prev.Name, in.Package.Name)
-				}
-				dst[name] = body
-				v.From[key] = src
-			}
+		for name, body := range ts {
+			offers["template"][name] = append(offers["template"][name], offer{src, body})
+		}
+		for name, body := range qs {
+			offers["query"][name] = append(offers["query"][name], offer{src, body})
 		}
 	}
+	for kind, byName := range offers {
+		dst := v.Templates
+		if kind == "query" {
+			dst = v.Queries
+		}
+		for name, offs := range byName {
+			_, module := v.From[kind+":"+name]
+			if len(offs) == 1 && !module {
+				dst[name] = offs[0].body
+				v.From[kind+":"+name] = offs[0].src
+				continue
+			}
+			var who []string
+			for _, o := range offs {
+				q := o.src.Name + "/" + name
+				body := o.body
+				if kind == "template" {
+					body = Renamed(body, q)
+				}
+				dst[q] = body
+				v.From[kind+":"+q] = o.src
+				who = append(who, o.src.Name)
+			}
+			if module {
+				who = append(who, v.From[kind+":"+name].Name)
+			}
+			sort.Strings(who)
+			v.Clashes = append(v.Clashes, fmt.Sprintf("the %s %q is brought by %s: use <package>/%s", kind, name, strings.Join(who, " and "), name))
+		}
+	}
+	for name, ts := range tools {
+		if len(ts) > 1 {
+			var who []string
+			for _, t := range ts {
+				who = append(who, t.src.Name)
+			}
+			sort.Strings(who)
+			v.Clashes = append(v.Clashes, fmt.Sprintf("the MCP tool %q is offered by %s: neither is served", name, strings.Join(who, " and ")))
+			continue
+		}
+		v.MCPTools[name] = ts[0].tool
+		v.From["mcp:"+name] = ts[0].src
+	}
+	sort.Strings(v.Clashes)
 	if len(broken) > 0 {
 		for _, id := range allowed {
 			if !seen[id] {
-				return nil, fmt.Errorf("the allowed package %s is not among the readable installed packages, and some cannot be read: %s",
-					id, strings.Join(broken, "; "))
+				v.Refused = append(v.Refused, Refused{Source: Source{Package: id}, Reason: "not among the readable installed packages; some cannot be read: " + strings.Join(broken, "; ")})
 			}
 		}
 	}

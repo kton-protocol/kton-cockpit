@@ -667,7 +667,14 @@ func (r *Runner) Templates() (ntemplate.Set, error) {
 	if err != nil {
 		return ntemplate.Set{}, err
 	}
+	// A package template whose name the repository's own template directory also declares is offered
+	// under its qualified name, <package>/<name>, so the two do not take the whole set down.
 	for name, b := range voc.Templates {
+		if _, local := raw[name]; local && !strings.Contains(name, "/") {
+			q := voc.From["template:"+name].Name + "/" + name
+			raw["package:"+q] = packages.Renamed(b, q)
+			continue
+		}
 		raw["package:"+name] = b
 	}
 	set, err := ntemplate.New(raw, aliases)
