@@ -3,10 +3,12 @@ package cockpit
 import (
 	"context"
 	"fmt"
+	"github.com/kton-protocol/kton-cockpit/internal/gitops"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gitmick/ktonpkg"
 	"github.com/kton-protocol/kton-cockpit/internal/binaries"
@@ -199,5 +201,38 @@ func TestRay_TheAdapterTranslatesOnlyTheNamedEntrypoint(t *testing.T) {
 	}
 	if _, err := executionOf(rec, "python"); err == nil {
 		t.Fatal("a command line that does not start with the named entrypoint must be refused")
+	}
+}
+
+// An extract whose package commit meets the repository's lock leaves nothing behind: nothing is
+// committed or signed yet, so the folder goes and the same extract can be tried again, rather than
+// meeting ray.exists (kton-review R1 on #158; SPEC §12.1).
+func TestRay_ABusyCommitLeavesNoFolderAndTheSameExtractWorksAgain(t *testing.T) {
+	r, c, ends := rayRepo(t)
+	ctx := context.Background()
+	prop, err := c.Ask(ctx, AskRequest{Query: "ray", Refs: ends})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := PublishRequest{Kind: "ray", Ray: &RayPublish{
+		Refs: ends, Dir: "packages/zaehlen",
+		Choice: rayChoice(prop.Proposal, referenceRun(t, prop.Proposal, ends[0])),
+	}}
+	restore := gitops.SetLockWaitForTest(300 * time.Millisecond)
+	lock := filepath.Join(r.Root, ".git", "index.lock")
+	if err := os.WriteFile(lock, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err = c.Publish(ctx, req)
+	if ref := refusalOf(t, err); ref.Code != "store.busy" {
+		t.Fatalf("want store.busy, got %+v", ref)
+	}
+	if _, serr := os.Stat(filepath.Join(r.Root, "packages", "zaehlen")); !os.IsNotExist(serr) {
+		t.Fatalf("the package folder was left behind: %v", serr)
+	}
+	os.Remove(lock)
+	restore()
+	if _, err := c.Publish(ctx, req); err != nil {
+		t.Fatalf("the same extract once the lock is gone: %v", err)
 	}
 }
