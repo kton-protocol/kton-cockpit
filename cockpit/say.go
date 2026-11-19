@@ -130,6 +130,9 @@ func (c *Cockpit) Say(ctx context.Context, in SayRequest) (*SayResult, error) {
 	}
 
 	r := binaries.New(cfg)
+	if why := binaries.MisplacedAliases(cfg); why != "" {
+		return nil, refuse("vocabulary", "SPEC §5.6", "%s", why)
+	}
 	if in.ExpectTemplate != "" {
 		h, ok := core.NormalizeContentHash(in.ExpectTemplate)
 		if !ok {

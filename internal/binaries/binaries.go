@@ -84,7 +84,7 @@ func MisplacedAliases(cfg *config.Config) string {
 	if _, err := os.Stat(filepath.Join(cfg.KtonDir, "aliases.json")); err == nil {
 		return ""
 	}
-	return fmt.Sprintf("%s is the repository's alias file in the old place: since v0.5.0 it is .kton/aliases.json (SPEC §5.6); move it there, or say signs its CURIEs unresolved", root)
+	return fmt.Sprintf("%s is the repository's alias file in the old place: the cockpit reads .kton/aliases.json (SPEC §5.6) since v0.5.5; move it there", root)
 }
 
 // isIRI says whether x is an IRI a predicate or context may be: scheme:// or urn:, tag:, did:, mailto:.
