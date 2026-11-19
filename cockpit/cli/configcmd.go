@@ -26,12 +26,27 @@ import (
 	"github.com/kton-protocol/kton-cockpit/internal/config"
 )
 
+// ConfigShown is `config --json`: the configuration file as it stands (defaults are not filled in;
+// cockpit.config.schema.json names them) and the session this checkout signs as.
+type ConfigShown struct {
+	Path      string          `json:"path"`
+	SessionID string          `json:"sessionId"`
+	Config    json.RawMessage `json:"config"`
+}
+
 func runConfig(ctx context.Context, args []string) error {
 	cfg, err := config.Load(ctx, ".")
 	if err != nil {
 		return err
 	}
 	cfgPath := config.ConfigPath(cfg.RepoRoot)
+	if len(args) == 1 && args[0] == "--json" {
+		b, err := os.ReadFile(cfgPath)
+		if err != nil {
+			return err
+		}
+		return printJSON(ConfigShown{Path: cfgPath, SessionID: cfg.Identity.SessionID, Config: json.RawMessage(b)})
+	}
 	switch len(args) {
 	case 0:
 		configOverview(cfg, cfgPath)

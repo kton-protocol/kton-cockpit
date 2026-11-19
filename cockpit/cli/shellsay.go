@@ -60,6 +60,39 @@ func sayOverview(ctx context.Context, cfg *config.Config) {
 	fmt.Println("a run folder stands for the record its run made; a file for its bytes.")
 }
 
+// Template is one entry of `say --json`: an allowed template, what it is about, and its fields.
+// A field say fills itself names what it fills in (filledBy, the identity it signs as).
+type Template struct {
+	Name      string                   `json:"name"`
+	About     string                   `json:"about"`
+	Predicate string                   `json:"predicate,omitempty"`
+	Fields    map[string]TemplateField `json:"fields"`
+}
+
+// TemplateField is one field of a template.
+type TemplateField struct {
+	Type     string   `json:"type"`
+	Required bool     `json:"required,omitempty"`
+	Values   []string `json:"values,omitempty"`
+	FilledBy string   `json:"filledBy,omitempty"`
+}
+
+func sayListing(cfg *config.Config) []Template {
+	out := []Template{}
+	for _, t := range readTemplates(cfg) {
+		e := Template{Name: t.Name, About: orDefault(t.Target, "foton"), Predicate: t.Predicate, Fields: map[string]TemplateField{}}
+		for name, f := range t.Fields {
+			tf := TemplateField{Type: f.Type, Required: f.Required, Values: f.Values}
+			if name == identityField {
+				tf.FilledBy = cfg.Identity.SessionID
+			}
+			e.Fields[name] = tf
+		}
+		out = append(out, e)
+	}
+	return out
+}
+
 func shellSay(ctx context.Context, args []string) error {
 	cfg, err := config.Load(ctx, ".")
 	if err != nil {
@@ -68,6 +101,9 @@ func shellSay(ctx context.Context, args []string) error {
 	if len(args) == 0 {
 		sayOverview(ctx, cfg)
 		return nil
+	}
+	if len(args) == 1 && args[0] == "--json" {
+		return printJSON(sayListing(cfg))
 	}
 	in := cockpit.SayRequest{Template: args[0], Fields: map[string]string{}}
 	asJSON := false
@@ -126,10 +162,12 @@ func shellSay(ctx context.Context, args []string) error {
 		in.Subject = id
 		fillFromIdentity(cfg, in.Template, in.As, in.Fields)
 		if err := checkFields(cfg, in.Template, in.Fields); err != nil {
+			// Nothing was signed: the cockpit declines the claim as it stands, which is a refusal.
+			reason := err.Error()
 			if used := usedValues(ctx, cfg, in.Template, "step"); len(used) > 0 && in.Fields["step"] == "" {
-				return fmt.Errorf("%v\n  steps used here so far: %s", err, strings.Join(used, " · "))
+				reason += "\n  steps used here so far: " + strings.Join(used, " · ")
 			}
-			return err
+			return &cockpit.Refusal{Code: "argument", Clause: "SPEC §8.1", Reason: reason}
 		}
 		if len(in.Fields) == 0 {
 			in.Fields = nil

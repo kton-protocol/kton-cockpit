@@ -66,7 +66,7 @@ func runRun(ctx context.Context, args []string) error {
 	case "new":
 		return runNew(ctx, args[1:])
 	case "list":
-		return runStatus(ctx)
+		return runStatus(ctx, hasFlag(args[1:], "--json"))
 	default:
 		return runExecute(ctx, args[0])
 	}

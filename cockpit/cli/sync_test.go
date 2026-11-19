@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -47,5 +48,12 @@ func TestSync_TakesInWhatAnotherCloneShared(t *testing.T) {
 	// The negative control: nothing new, nothing moves.
 	if out, code := r.Cockpit(t, "sync"); code != 0 || !strings.Contains(out, "up to date") {
 		t.Fatalf("a second sync (exit %d):\n%s", code, out)
+	}
+	// The same answer for a program: one JSON list, the repository first (SPEC §6).
+	stdout, stderr, code := r.CockpitSplit(t, "sync", "--json")
+	var got []map[string]string
+	if code != 0 || json.Unmarshal([]byte(stdout), &got) != nil || len(got) == 0 ||
+		got[0]["name"] != "repository" || got[0]["now"] != theirs || got[0]["was"] != theirs {
+		t.Fatalf("sync --json (exit %d):\n%s\nstderr:\n%s", code, stdout, stderr)
 	}
 }
