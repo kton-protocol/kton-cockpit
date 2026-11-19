@@ -98,9 +98,6 @@ func uiListing(cfg *config.Config) (UIListing, error) {
 		for _, why := range e.Package.Verify() {
 			p.Refused = append(p.Refused, UIRefusal{Code: "package.check", Reason: why})
 		}
-		if why := packages.MemberNameProblem(e.Revision); why != "" {
-			p.Refused = append(p.Refused, UIRefusal{Code: "package.check", Reason: why})
-		}
 		if p.Allowed && len(p.Refused) == 0 && !isUsable[e.Dir] {
 			why := whyNot[e.Dir]
 			if why == "" {
