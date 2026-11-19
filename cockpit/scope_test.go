@@ -181,9 +181,10 @@ func TestScope_TheSealVerdictSaysWhetherTheChainIsWhole(t *testing.T) {
 	if seal.ChainLength != 2 || len(seal.Heads) != 1 {
 		t.Fatalf("want one head over two claims, got %d head(s) over %d: %+v", len(seal.Heads), seal.ChainLength, seal)
 	}
-	// Stated on every verdict, including a complete one, because it never goes away — and this
-	// scope was seeded with no parent, so there is nothing to check the head against at all.
-	if !strings.Contains(seal.Limit, "no parent") {
+	// Stated on every verdict, including a complete one, because it never goes away. This scope was
+	// seeded with no named parent, so since kton v0.4.0 its parent is the store's root scope, and
+	// the head is checked against a seal recorded there.
+	if !strings.Contains(seal.Limit, "seal recorded in the parent") {
 		t.Errorf("a complete verdict does not state what it cannot see: %q", seal.Limit)
 	}
 	// Who wrote here, resolved from the verifying key rather than the declared `by`.
@@ -408,12 +409,15 @@ func TestScope_ASealedScopeSaysWhatItCanBeCheckedAgainst(t *testing.T) {
 		t.Errorf("a scope with a parent should be told what to check against: %q", withParent.Limit)
 	}
 
+	// Since kton v0.4.0 there is no scope without a parent: one seeded without a named parent is
+	// registered under its store's root scope, and is checked against that like any other.
 	without := askSeal(t, orphan)
-	if without.Parent != "" {
-		t.Fatalf("a scope seeded with no parent reported one: %+v", without)
+	if without.Parent == "" || len(without.Context) == 0 || without.Context[0].Scope != without.Parent ||
+		!strings.HasPrefix(without.Context[0].Name, "root/") {
+		t.Fatalf("a scope seeded with no named parent should hang under the store's root: %+v", without)
 	}
-	if !strings.Contains(without.Limit, "no parent") {
-		t.Errorf("a scope with no parent should be told it cannot be checked: %q", without.Limit)
+	if !strings.Contains(without.Limit, "seal recorded in the parent") {
+		t.Errorf("a scope under the root should be told what to check against: %q", without.Limit)
 	}
 }
 

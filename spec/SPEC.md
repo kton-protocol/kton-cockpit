@@ -786,7 +786,9 @@ answer (§9.4), and its parent MUST NOT be followed.
 
 The answer MUST carry the scope's context: its parents, nearest first, each verified the same way.
 The walk ends at a seed with no parent, at one no source holds (reported as missing: the chain goes
-on, but not here), at one that does not verify, or at a seed already on the path.
+on, but not here), at one that does not verify, or at a seed already on the path. Since kton v0.4.0
+a scope seeded without a named parent is registered under its store's root scope (`root/<keyid>`),
+so the walk normally ends at that root.
 
 > **Checked by:** `TestScope_ASeedFromASourceIsVerifiedAndCarriesItsContext`,
 > `TestScope_AnUntrustedSeedFromASourceSaysNothingItClaims`.
