@@ -1,5 +1,43 @@
 # Changelog
 
+## v0.5.3 — 2026-11-19
+
+What the QM Workbench's PR 2 and PR 3 and the C3 areas need, each reviewed by kton-review. Tracks kton
+v0.4.0 and ktonpkg v0.9.5. Nothing to migrate from v0.5.2.
+
+### Added
+
+- **Typed bind** (SPEC §9.9): `bindTerms` (JSON, `cockpit_ask`), `--bind-iri VAR=IRI` and
+  `--bind-typed VAR=VALUE^^xsd:integer` bind a sparql variable to an IRI or a typed literal. Each is
+  one RDF term, checked (an absolute IRI with nothing that ends it, `%HH` only; an xsd lexical form),
+  never query text.
+- **`show --json`** (SPEC §12.3): the snapshot a viewer fetches, `{union, keys, names, packages}`, on
+  stdout.
+- **Admitted packages' build keys, labelled** (SPEC §12.3): `/data/packages.json` and `show --json`
+  carry `{keyid: {key, packages: [{package, id, dir}]}}` for the keys admitted packages' seals verify
+  under. A label, never trust: never a declared keyid, never a key of the trusted ring (doctor names
+  such a collision), never a package failing its check.
+- **`say` fills `replaces` for `replace: previous`** (SPEC §8, ADR-013 A1/A5): the signing key's own
+  newest unreplaced claim of that template about the subject, verified by signature, never another
+  key's; the answer names it.
+
+### Changed
+
+- **The vocabulary is per package** (SPEC §8.1): an admitted package that fails its check, or a name two
+  sources bring, takes out only itself. A clashing name is offered as `<package>/<name>`; two admitted
+  packages of one name are both refused, so a qualified name cannot be spoofed; a template declares the
+  name it is filed under; of several installed revisions the latest counts. doctor names what was left
+  out.
+- **ktonpkg v0.9.5** (composition layout, area approvals/history).
+- **`@` is reserved for install scopes** (SPEC §9.6): `cockpit scope seed` refuses a name with `@`.
+
+### Fixed
+
+- **A write commits only its own staged files** (SPEC §12.1): a write whose commit fails unstages its
+  files, and every commit names exactly the files staged under its own paths, renames included, so no
+  write commits another's leftovers. An extract whose commit fails leaves no folder, so a retry works
+  (kton-review R1, S1).
+
 ## v0.5.2 — 2026-11-19
 
 What the QM Workbench shell (userinterface) needs for its PR 2, kton-review's findings on it, and
