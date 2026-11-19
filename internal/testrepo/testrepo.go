@@ -392,6 +392,36 @@ func (r *Repo) SealScope(t *testing.T, name string) string {
 // those apart could not test either.
 func (r *Repo) Cockpit(t *testing.T, args ...string) (output string, exitCode int) {
 	t.Helper()
+	cmd := r.cockpitCmd(t, args...)
+	out, err := cmd.CombinedOutput()
+	code := 0
+	if ee, ok := err.(*exec.ExitError); ok {
+		code = ee.ExitCode()
+	} else if err != nil {
+		t.Fatalf("cockpit %s could not run at all: %v\n%s", strings.Join(args, " "), err, out)
+	}
+	return string(out), code
+}
+
+// CockpitSplit is Cockpit with stdout and stderr kept apart: what a script parses is stdout alone,
+// so a --json answer must be all of it.
+func (r *Repo) CockpitSplit(t *testing.T, args ...string) (stdout, stderr string, exitCode int) {
+	t.Helper()
+	cmd := r.cockpitCmd(t, args...)
+	var o, e strings.Builder
+	cmd.Stdout, cmd.Stderr = &o, &e
+	err := cmd.Run()
+	if ee, ok := err.(*exec.ExitError); ok {
+		exitCode = ee.ExitCode()
+	} else if err != nil {
+		t.Fatalf("cockpit %s could not run at all: %v\n%s", strings.Join(args, " "), err, e.String())
+	}
+	return o.String(), e.String(), exitCode
+}
+
+// cockpitCmd is the built cockpit binary, run in this repository.
+func (r *Repo) cockpitCmd(t *testing.T, args ...string) *exec.Cmd {
+	t.Helper()
 	bin := filepath.Join(r.Bin, "cockpit")
 	if _, err := os.Stat(bin); err != nil {
 		build := exec.Command("go", "build", "-o", bin, "./cmd/cockpit")
@@ -403,14 +433,7 @@ func (r *Repo) Cockpit(t *testing.T, args ...string) (output string, exitCode in
 	cmd := exec.Command(bin, args...)
 	cmd.Dir = r.Root
 	cmd.Env = append(os.Environ(), "COCKPIT_REPO_DIR="+r.Root)
-	out, err := cmd.CombinedOutput()
-	code := 0
-	if ee, ok := err.(*exec.ExitError); ok {
-		code = ee.ExitCode()
-	} else if err != nil {
-		t.Fatalf("cockpit %s could not run at all: %v\n%s", strings.Join(args, " "), err, out)
-	}
-	return string(out), code
+	return cmd
 }
 
 // runCockpit is Cockpit for the callers that only expect success.

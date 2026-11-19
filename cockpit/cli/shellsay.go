@@ -12,6 +12,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -120,10 +121,10 @@ func shellSay(ctx context.Context, args []string) error {
 			return err
 		}
 		if note != "" {
-			fmt.Printf("(%s)\n", note)
+			fmt.Fprintf(os.Stderr, "(%s)\n", note)
 		}
 		in.Subject = id
-		fillFromIdentity(cfg, in.Template, in.Fields)
+		fillFromIdentity(cfg, in.Template, in.As, in.Fields)
 		if err := checkFields(cfg, in.Template, in.Fields); err != nil {
 			if used := usedValues(ctx, cfg, in.Template, "step"); len(used) > 0 && in.Fields["step"] == "" {
 				return fmt.Errorf("%v\n  steps used here so far: %s", err, strings.Join(used, " · "))
@@ -246,17 +247,11 @@ var targetWords = map[string]string{
 	"":       "anything",
 }
 
-// identityField names who is speaking. A claim is signed, so the signature already says it; with
-// the one identity this repository signs as, asking the person to type it again only invites a
-// value that disagrees with the signature. Given explicitly, it is kept.
-const identityField = "by-session"
+// identityField is the field say fills from the identity it signs as (cockpit.FillIdentity).
+const identityField = cockpit.IdentityField
 
-func fillFromIdentity(cfg *config.Config, template string, fields map[string]string) {
-	for _, t := range readTemplates(cfg) {
-		if _, has := t.Fields[identityField]; t.Name == template && has && fields[identityField] == "" {
-			fields[identityField] = cfg.Identity.SessionID
-		}
-	}
+func fillFromIdentity(cfg *config.Config, template, as string, fields map[string]string) {
+	cockpit.FillIdentity(cfg, template, as, fields)
 }
 
 // usedValues are the values a template's field has had in verified claims here — the step names

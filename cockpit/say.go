@@ -103,9 +103,12 @@ func (c *Cockpit) Say(ctx context.Context, in SayRequest) (*SayResult, error) {
 	}
 
 	r := binaries.New(cfg)
-	sets := in.Fields
-	if sets == nil {
-		sets = map[string]string{}
+	sets := map[string]string{}
+	for k, v := range in.Fields {
+		sets[k] = v
+	}
+	if in.Template != "reproduces" {
+		FillIdentity(cfg, in.Template, in.As, sets)
 	}
 
 	var reproducedVia, reproducedViaFrom string

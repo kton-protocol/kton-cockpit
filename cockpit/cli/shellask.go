@@ -141,7 +141,7 @@ func shellAsk(ctx context.Context, args []string) error {
 			if rerr != nil {
 				return rerr
 			}
-			fmt.Printf("(%s)\n", note)
+			fmt.Fprintf(os.Stderr, "(%s)\n", note)
 			in.Ref = id
 		} else if serr == nil && (in.Query == "record" || in.Query == "about") {
 			// record wants a record; about over a file asks about its bytes.
@@ -156,7 +156,7 @@ func shellAsk(ctx context.Context, args []string) error {
 					note = in.Ref + " → the record that made it " + short16(id)
 				}
 			}
-			fmt.Printf("(%s)\n", note)
+			fmt.Fprintf(os.Stderr, "(%s)\n", note)
 			in.Ref = id
 		}
 	}

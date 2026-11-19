@@ -91,3 +91,51 @@ func TestSay_AsAnotherIdentitySignsWithThatKey(t *testing.T) {
 		t.Errorf("no keyring: want refused, got %q", why)
 	}
 }
+
+// by-session names who speaks, and the signature already says it. Every form of say fills it when
+// the template declares it and the request leaves it out — the JSON argument and the MCP tool as
+// the shell does — with the session it signs as, or the key name it acts as; a value given is
+// kept (SPEC §8.7).
+func TestSay_FillsBySessionFromTheIdentityItSignsAs(t *testing.T) {
+	r := testrepo.New(t)
+	ring := t.TempDir()
+	lane := keyringKey(t, ring, "lane-a")
+	r.Write(t, ".kton/keys/lanes/lane-a-claims.pub", lane+"\n")
+	raw := testrepo.DefaultConfig()
+	r.SetKeyring(t, ring)
+	raw.Trust.Tiers = append(raw.Trust.Tiers, "lanes")
+	r.WriteConfig(t, raw)
+	r.Use(t)
+	subject := publishOne(t, r).FotonID
+
+	for _, tc := range []struct{ as, given, want string }{
+		{"", "", testrepo.SessionID},
+		{"lane-a", "", "lane-a"},
+		{"", "someone-else", "someone-else"},
+	} {
+		fields := map[string]string{"step": "analysis"}
+		if tc.given != "" {
+			fields["by-session"] = tc.given
+		}
+		res, out, err := Say(context.Background(), nil, SayRequest{Subject: subject, Template: "working-on", As: tc.as, Fields: fields})
+		if err != nil || res.IsError {
+			t.Fatalf("say as=%q: %v %s", tc.as, err, errText(res))
+		}
+		if _, set := fields["by-session"]; set != (tc.given != "") {
+			t.Errorf("say as=%q changed the caller's fields: %+v", tc.as, fields)
+		}
+		_, ans, err := Ask(context.Background(), nil, AskRequest{Query: "about", Ref: subject})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got any
+		for _, c := range ans.Claims {
+			if c.ID == out.ClaimID {
+				got = c.Object.(map[string]any)["by-session"]
+			}
+		}
+		if got != tc.want {
+			t.Errorf("say as=%q given=%q: by-session %v, want %q", tc.as, tc.given, got, tc.want)
+		}
+	}
+}

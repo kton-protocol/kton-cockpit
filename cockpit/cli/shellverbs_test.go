@@ -97,3 +97,27 @@ func TestShellSay_SpeakerFromIdentityAndStepsOffered(t *testing.T) {
 		t.Errorf("an explicit by-session was replaced:\n%s", out)
 	}
 }
+
+// A shell that parses --json reads stdout alone. What a file or run folder resolved to is a note
+// for the person, so it goes to stderr and the answer on stdout stays one JSON document.
+func TestShellVerbs_JSONAnswerIsAllOfStdout(t *testing.T) {
+	r := testrepo.New(t)
+	r.Write(t, "data/in.csv", "a\n1\n")
+	r.Write(t, "work/out.csv", "a\n2\n")
+	if out, code := r.Cockpit(t, "publish", "--in", "data/in.csv", "--out", "work/out.csv", "--", "double", "data/in.csv"); code != 0 {
+		t.Fatalf("publish exited %d:\n%s", code, out)
+	}
+	for _, args := range [][]string{
+		{"say", "working-on", "work/out.csv", "step=checking", "--json"},
+		{"ask", "about", "work/out.csv", "--json"},
+	} {
+		stdout, stderr, code := r.CockpitSplit(t, args...)
+		var got map[string]any
+		if code != 0 || json.Unmarshal([]byte(stdout), &got) != nil {
+			t.Errorf("cockpit %s: stdout is not one JSON document (exit %d):\n%s\nstderr:\n%s", strings.Join(args, " "), code, stdout, stderr)
+		}
+		if !strings.Contains(stderr, "→ its bytes") {
+			t.Errorf("cockpit %s: the resolution note is not on stderr:\n%s", strings.Join(args, " "), stderr)
+		}
+	}
+}

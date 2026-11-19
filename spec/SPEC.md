@@ -616,7 +616,11 @@ refuse the request when:
 Everything else about the call is unchanged, the guard of §5 included. Anchoring (§11.3) does not
 support `as` yet and is refused with it.
 
-> **Checked by:** `TestSay_AsAnotherIdentitySignsWithThatKey`.
+When a template declares a `by-session` field and the request leaves it out, say MUST fill it with
+the identity it signs as: the `session_id` of the identity, or the name given as `as`. A value the
+request gives is kept. This holds for every form of say: the shell, the JSON argument and the MCP tool.
+
+> **Checked by:** `TestSay_AsAnotherIdentitySignsWithThatKey`, `TestSay_FillsBySessionFromTheIdentityItSignsAs`.
 
 ### 8.8 Where a record lives in improve
 
