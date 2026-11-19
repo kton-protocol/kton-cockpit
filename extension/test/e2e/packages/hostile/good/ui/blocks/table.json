@@ -2,8 +2,8 @@
  "block": "table",
  "viewer": {
   "viewer": "table",
-  "at": "hostile-fixture@1",
-  "tree": "sha256:b099ba587a1c3aff3a600cea82a192f3495029557b55b7472583d75d00799f5a"
+  "at": "hostile-good@1",
+  "tree": "sha256:ed82f0fbf23a3a6f4e83505de91a22af0a1daff1f27ea889717c9834d1277257"
  },
  "requires": [
   "query@1"

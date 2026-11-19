@@ -104,6 +104,7 @@ class FakeTransport implements Transport {
   version(): never { throw new Error("not used"); }
   async uiList(): Promise<Outcome<UiListing>> { return { ok: true, value: { packages: [] } }; }
   packageBlob(_dir: string, _h: string): Promise<Uint8Array> { return Promise.reject(new Error("not used")); }
+  graph(): never { throw new Error("not used"); }
 }
 
 class FakeHost implements UiHost {
@@ -138,6 +139,11 @@ class FakeHost implements UiHost {
     const c = { key, onMessage, posted: [] as unknown[], viewers: viewers.length };
     this.compositions.push(c);
     return { post: (m: unknown) => void c.posted.push(m), urls: new Map(viewers.map((v) => [v.module, `served:${v.module}`])) };
+  }
+  showLeaf(key: string, _t: string, leaf: { viewer: string }, onMessage: (m: unknown) => void) {
+    const c = { key, onMessage, posted: [] as unknown[], viewers: 1, leaf: leaf.viewer };
+    this.compositions.push(c);
+    return { post: (m: unknown) => void c.posted.push(m) };
   }
   async signDialog(title: string, detail: string): Promise<boolean> { this.dialogs.push({ title, detail }); return this.confirmAnswer; }
   signOutcome(ok: boolean, text: string): void { this.outcomes.push({ ok, text }); }
@@ -668,7 +674,7 @@ test("S5.1: a package's review-view entry is offered on a proposal; it opens the
   assert.equal(set.type, "kton:set");
   assert.ok(set.plan.uses.every((u) => u.module.startsWith("served:packages/kton-web-test@test/viewers/")), "the frame imports modules from where the host serves the checked trees");
   assert.ok(set.host.provides.includes("sign@1") && set.host.provides.includes("record@1"));
-  assert.equal(c.viewers, 2, "exactly the viewers the plan uses");
+  assert.equal(c.viewers, 3, "exactly the viewers the plan uses (probe, needs, diagram)");
 });
 
 test("S4.2: a decision act goes through the one sign dialog and signs with the person key", async () => {

@@ -1,0 +1,75 @@
+{
+  "package": "kton-web-test",
+  "members": [
+    {
+      "path": "content/flow.mmd",
+      "role": "content",
+      "sha256": "cf5021c281b1bbf465ad8fa51f9718da9d55e5dc70c8a412f87e7c1275d18a37"
+    },
+    {
+      "path": "controls/test-decision.json",
+      "role": "control",
+      "sha256": "d8a2dbcc73912b3ba09266a63e8aec0f13a197effa809c3c97bf70862525169f"
+    },
+    {
+      "path": "controls/test-record.json",
+      "role": "control",
+      "sha256": "7fb4dddd0a70a1c7440c64d341eca0954187a804ab943bcc9acacf65026b29ff"
+    },
+    {
+      "path": "templates/test-note.json",
+      "role": "template",
+      "sha256": "8df5f80cb1274f426853c64582cc0a43e81fe97a7926e7bc482f51fa240e5a08"
+    },
+    {
+      "path": "ui/blocks/diagram.json",
+      "role": "block",
+      "sha256": "c64f23e4f44d9a0f3f4710738d39c0601b5461640512211886b48963889ec529"
+    },
+    {
+      "path": "ui/blocks/needs.json",
+      "role": "block",
+      "sha256": "ac554dac3a55c9b613126d2be28e9016bd96db6cc12d6e5a2ef901f1e890a101"
+    },
+    {
+      "path": "ui/blocks/probe.json",
+      "role": "block",
+      "sha256": "2cb4d7c7e859b62313244c3c5c0469f469860a93c83634aa72d4b90602e11dba"
+    },
+    {
+      "path": "ui/compositions/test-shell.json",
+      "role": "composition",
+      "sha256": "8d34f5370c11404c5b78c000d1b5fb6f61150f43a7bd2a8427b59db98a9bdab7"
+    },
+    {
+      "path": "viewers/diagram/diagram.js",
+      "role": "viewer-file",
+      "sha256": "1d0d9760788f325ec657d047ae08a792e5ab22c4e7519f78e3d3a58e59c4d64e"
+    },
+    {
+      "path": "viewers/diagram/viewer.json",
+      "role": "viewer",
+      "sha256": "87488b7f3c649d3310917b04aff694320d7c3754710dbefdba40e8912c2bd6f4"
+    },
+    {
+      "path": "viewers/needs/needs.js",
+      "role": "viewer-file",
+      "sha256": "84e6c5a2f36cf9e91143175b47915540ddaea69fa9276109f318435309a7693d"
+    },
+    {
+      "path": "viewers/needs/viewer.json",
+      "role": "viewer",
+      "sha256": "3377b7d6c7123c6dffc27e31b09958534ada4bc57ffa6bd67d05ddb73bd98678"
+    },
+    {
+      "path": "viewers/probe/probe.js",
+      "role": "viewer-file",
+      "sha256": "ce946dff68b3db73045c2f7290e033bd17a1bd830fc5f7d208b4377c253afa94"
+    },
+    {
+      "path": "viewers/probe/viewer.json",
+      "role": "viewer",
+      "sha256": "06de7c0f1aa1caa0288ab5d88a236fde3bf907b09b76dcebb61112640db45965"
+    }
+  ]
+}

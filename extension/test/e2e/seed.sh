@@ -88,7 +88,7 @@ AKID=$(kid "$HOME/.kton-keys/qa-decider-agent-claims.pub")
 
 # PR 2: the verticle packages (ktonpkg v0.9.1), built with throwaway keys and admitted (claims.allowedPackages)
 node /e2e/build-packages.mjs "$E2E/bin/scope" "$E2E/pkgs" >/dev/null
-for p in kton-web-test hostile-good hostile-tampered hostile-network hostile-pin; do cockpit install "$E2E/pkgs/$p" --allow --json >/dev/null; done
+for p in kton-web-test workbench-graph hostile-good hostile-tampered hostile-network hostile-pin; do cockpit install "$E2E/pkgs/$p" --allow --json >/dev/null; done
 # what `cockpit ui list --json` will answer (v0.5.3), written before the tampering so the shell's load check is what catches it
 "$E2E/bin/uilist-fixture" "$E2E/repo" > "$E2E/ui-list.json"
 node -e '

@@ -2,15 +2,17 @@
 // was refused (with the reason), put their slot entries in their places, and open compositions in panels
 // with a CompositionHost each. Pure: VS Code is behind CompositionUi.
 import type { Transport } from "../transport/port.js";
-import type { Control, Loaded, LoadedViewer, SlotEntry } from "../packages/model.js";
+import type { Control, LeafViewer, Loaded, LoadedViewer, SlotEntry, ViewerTree } from "../packages/model.js";
 import { loadPackages } from "../packages/model.js";
 import type { TreeNode } from "../ui/host.js";
-import { CompositionHost, type Backend, type Plan } from "./host.js";
+import { CompositionHost, LeafHost, type Backend, type Plan } from "./host.js";
 import { applies, oneNumber, partition, planEntry, type Subject } from "./slots.js";
 
 export interface CompositionUi {
   /** Open (or update) a composition panel; returns how to post to its frame. */
   showComposition(key: string, title: string, viewers: readonly LoadedViewer[], onMessage: (msg: unknown) => void): { post: (msg: unknown) => void; urls: ReadonlyMap<string, string> };
+  /** A leaf panel: the vendored viewer's own page (tree-checked at start) with the host's head and CSP. */
+  showLeaf(key: string, title: string, leaf: LeafViewer, onMessage: (msg: unknown) => void): { post: (msg: unknown) => void };
   closePanel(key: string): void;
   openPanels(): string[];
   info(text: string): void;
@@ -33,7 +35,7 @@ export class PackagesArea {
   loaded: Loaded | undefined;
   error: string | undefined;
   private listingText = "";
-  private readonly hosts = new Map<string, { host: CompositionHost; package: string }>();
+  private readonly hosts = new Map<string, { host: CompositionHost | LeafHost; package: string }>();
   /** home-tile / status-item numbers, by entry key */
   private readonly numbers = new Map<string, string>();
 
@@ -41,6 +43,8 @@ export class PackagesArea {
     private readonly t: Transport,
     private readonly ui: CompositionUi,
     private readonly path: ActPath,
+    /** the viewers this shell vendors from kton-web, by name, with their tree ids */
+    private readonly vendored: ReadonlyMap<string, ViewerTree> = new Map(),
   ) {}
 
   /** Re-read `ui list`; reload the packages only when it changed. Panels of a package that left are closed (S5.4). */
@@ -50,7 +54,7 @@ export class PackagesArea {
       if (!out.ok) throw new Error(`the cockpit refused ui list: ${out.refusal.reason}`);
       const text = JSON.stringify(out.value);
       if (text !== this.listingText || !this.loaded) {
-        this.loaded = await loadPackages(out.value, (d, h) => this.t.packageBlob(d, h));
+        this.loaded = await loadPackages(out.value, (d, h) => this.t.packageBlob(d, h), this.vendored);
         this.listingText = text;
         for (const r of this.loaded.refusals) this.ui.log(`package ${r.package} refused: ${r.file ? `${r.file}: ` : ""}${r.reason} (${r.code})`);
       }
@@ -128,7 +132,7 @@ export class PackagesArea {
   }
 
   /** Open an entry for a subject in its panel (a second open with a new subject updates it, C1.5). */
-  async openSlot(key: string, s: Subject): Promise<CompositionHost | undefined> {
+  async openSlot(key: string, s: Subject): Promise<CompositionHost | LeafHost | undefined> {
     const e = this.loaded?.entries.find((x) => entryKey(x) === key);
     if (!e || !this.loaded) {
       this.ui.error(`No admitted package declares ${key}.`);
@@ -139,6 +143,8 @@ export class PackagesArea {
       return undefined;
     }
     const loaded = this.loaded;
+    const leaf = e.viewer ? loaded.packages[e.package]?.leaves[e.viewer] : undefined;
+    if (leaf) return this.openLeaf(key, e, s, leaf, loaded);
     let plan: Plan;
     try {
       plan = await planEntry(e, s, loaded, this.path.identityName(), (n, b) => this.query(n, b));
@@ -170,8 +176,35 @@ export class PackagesArea {
     return host;
   }
 
+  private backend(): Backend {
+    return {
+      query: (name, bind) => this.query(name, bind),
+      bytes: (dir, hash) => this.t.packageBlob(dir, hash),
+      open: (target) => this.path.open(target),
+      act: (c, about, fields, title) => this.path.act(c, about, fields, title),
+      run: async (ray, holes) => {
+        const out = await this.t.workflowRun({ workflow: ray, bind: holes });
+        if (!out.ok) throw new Error(`the cockpit refused ${ray}: ${out.refusal.reason}`);
+        return `ran ${ray}`;
+      },
+      graph: () => this.t.graph(),
+    };
+  }
+
+  /** A page viewer in its own frame for one entry and subject (graph in record-view). */
+  private openLeaf(key: string, e: SlotEntry, s: Subject, leaf: LeafViewer, loaded: Loaded): LeafHost {
+    const panel = `${PANEL}${key}`;
+    const control = e.control ? loaded.controls.get(`${e.package}/${e.control}`) : undefined;
+    const closed: Record<string, string> = { "subject.id": s.id, "subject.iri": s.iri, "subject.kind": s.kind, ...(s.claim ? { "subject.claim": s.claim } : {}), ...(s.type ? { "subject.type": s.type } : {}), "identity.name": this.path.identityName() };
+    let host: LeafHost | undefined;
+    const shown = this.ui.showLeaf(panel, e.label, leaf, (m) => void host?.onMessage(m));
+    host = new LeafHost({ decl: leaf.decl, slot: e.slot }, { ...(e.inputs ? { inputs: e.inputs } : {}), ...(control ? { control } : {}), label: e.label }, { id: s.id, ...(s.claim ? { claim: s.claim } : {}), closed }, loaded, this.backend(), { post: shown.post, log: (l) => this.ui.log(l) });
+    this.hosts.set(panel, { host, package: e.package });
+    return host;
+  }
+
   /** The host of an open panel (tests, and a panel's messages). */
-  hostOf(key: string): CompositionHost | undefined {
+  hostOf(key: string): CompositionHost | LeafHost | undefined {
     return this.hosts.get(`${PANEL}${key}`)?.host;
   }
 }

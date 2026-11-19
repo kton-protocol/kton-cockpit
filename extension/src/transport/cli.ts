@@ -18,7 +18,8 @@
 //   handler), 2 refusal, 3 doctor not ready. A refusal is {code, clause, reason} on stdout under
 //   `--json`; older builds wrote text on stderr. Both are read.
 
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
+import { createServer } from "node:net";
 import { readFile } from "node:fs/promises";
 import { isAbsolute, join, normalize, sep } from "node:path";
 import { assertUiListing, type UiListing } from "../packages/listing.js";
@@ -204,6 +205,50 @@ export class CliTransport implements Transport {
     if (isAbsolute(rel) || !rel.startsWith(join(".kton", "packages") + sep) || rel.split(sep).includes("..")) throw new TransportError(`${JSON.stringify(dir)} is not an installed package's folder`, 0, "");
     const hex = m[1] as string;
     return readFile(join(this.opts.cwd, rel, "blobs", hex.slice(0, 2), hex));
+  }
+
+  /**
+   * graph@1 (until the CLI prints them): `cockpit show 127.0.0.1:<free port>` for as long as it takes to read
+   * /data/union.json, keys.json and names.json from this process, then stopped. Loopback only; the webview never
+   * talks to it. Shape-checked: records a list, keys and names objects.
+   */
+  async graph(): Promise<{ records: unknown[]; keys: Record<string, unknown>; names: Record<string, unknown> }> {
+    const port = await new Promise<number>((resolve, reject) => {
+      const srv = createServer();
+      srv.once("error", reject);
+      srv.listen(0, "127.0.0.1", () => {
+        const a = srv.address();
+        srv.close(() => (a && typeof a === "object" ? resolve(a.port) : reject(new Error("no free port"))));
+      });
+    });
+    const argv = ["show", `127.0.0.1:${port}`];
+    this.calls.push(argv);
+    const child = spawn(this.opts.executable, argv, { cwd: this.opts.cwd, env: { ...process.env, ...(this.opts.env ?? {}) }, stdio: "ignore", shell: false });
+    const base = `http://127.0.0.1:${port}/data/`;
+    try {
+      const end = Date.now() + (this.opts.timeoutMs ?? 120_000);
+      for (;;) {
+        try {
+          const get = async (f: string) => {
+            const r = await fetch(base + f);
+            if (!r.ok) throw new TransportError(`cockpit show: ${f}: ${r.status} ${(await r.text()).slice(0, 200)}`, 0, "");
+            return (await r.json()) as unknown;
+          };
+          const records = await get("union.json");
+          if (!Array.isArray(records)) throw new TransportError("cockpit show: union.json is not a list of records", 0, "");
+          const keys = assertObject(await get("keys.json"), "keys.json");
+          const names = assertObject(await get("names.json"), "names.json");
+          return { records, keys: keys as Record<string, unknown>, names: names as Record<string, unknown> };
+        } catch (e) {
+          if (e instanceof TransportError) throw e;
+          if (Date.now() > end) throw new TransportTimeout(`cockpit show did not answer on 127.0.0.1:${port}`, "");
+          if (child.exitCode !== null) throw new TransportError(`cockpit show exited (${String(child.exitCode)})`, child.exitCode, "");
+          await new Promise((r) => setTimeout(r, 150));
+        }
+      }
+    } finally {
+      child.kill();
+    }
   }
 
   /** The templates this checkout's cockpit allows, with their fields (`cockpit say --json`, v0.5.0). */

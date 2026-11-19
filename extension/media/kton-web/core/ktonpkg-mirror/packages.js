@@ -71,6 +71,7 @@ export async function loadBundle(name, read, sha256) {
   for (const [v, files] of Object.entries(viewerFiles)) {
     const decl = pkg.viewers[v]?.decl;
     if (!decl) throw new Error(`${name}/viewers/${v}: no viewer.json`);
+    if (typeof decl.viewer !== "string" || !decl.viewer) throw new Error(`${name}/viewers/${v}/viewer.json: the key is "viewer" (the viewer's name), not "name"`);
     if (typeof decl.module !== "string" || !(decl.module in files)) throw new Error(`${name}/viewers/${v}: viewer.json names module ${decl.module}, which the folder does not hold`);
     pkg.viewers[v].tree = await treeHash(files, sha256);
     pkg.viewers[v].module = `packages/${name}/viewers/${v}/${decl.module}`;
@@ -88,7 +89,9 @@ export async function loadBundle(name, read, sha256) {
     }
     for (const [opt, t] of Object.entries(b.decl.options ?? {})) {
       if (Array.isArray(b.decl.options)) throw new Error(`${name}/ui/blocks/${bn}.json: options are typed ({name: type})`);
-      if (typeKey(t) === null || typeKey(t) !== typeKey(v.options?.[opt])) throw new Error(`${name}/ui/blocks/${bn}.json: option ${opt} is ${JSON.stringify(t)}, viewer ${v.viewer} says ${JSON.stringify(v.options?.[opt])}`);
+      // ktonpkg checks a block option against what the viewer ACCEPTS (a state key it takes in), not a
+      // separate options list: an option is the initial value of an accepted key
+      if (typeKey(t) === null || typeKey(t) !== typeKey(v.accepts?.[opt])) throw new Error(`${name}/ui/blocks/${bn}.json: option ${opt} is ${JSON.stringify(t)}, viewer ${v.viewer} accepts ${JSON.stringify(v.accepts?.[opt])}`);
     }
   }
   return pkg;

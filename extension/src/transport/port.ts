@@ -201,4 +201,9 @@ export interface Transport {
    * checks the hash again; dir must be one ui list named. Until the cockpit serves package bytes itself.
    */
   packageBlob(dir: string, hash: string): Promise<Uint8Array>;
+  /**
+   * graph@1's data: every record the registries hold with the ring to verify them (union, keys, names), as
+   * `cockpit show` serves them. Until the cockpit prints them on the CLI.
+   */
+  graph(): Promise<{ readonly records: readonly unknown[]; readonly keys: Readonly<Record<string, unknown>>; readonly names: Readonly<Record<string, unknown>> }>;
 }

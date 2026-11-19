@@ -1,17 +1,26 @@
-# ktonpkg JS mirror (pinned copy)
+# ktonpkg JS mirror
 
-`plan.js`, `sparql.js` and `packages.js` (the package loader, a stand-in for ktonpkg's member list and
-install checks) are the JavaScript mirror of ktonpkg's composition library (`compose` →
-query → fill, `bindVars`, `checkValue`, `varValuesOf`), copied unchanged from userinterface's
-`qm-workbench/composition-proto/core/` (round 5, 19.11.2026). `core/compose.js` uses only `bindVars`,
-`checkValue` and `varValuesOf`; the test shell (`tests/shell/`) plans with `plan` and loads packages
-with `loadPackages`.
+`plan.js`, `sparql.js` and `packages.js` are the JavaScript mirror of ktonpkg's composition library
+(`compose` -> query -> fill, `bindVars`, `checkValue`, `varValuesOf`; the package loader stands in for
+ktonpkg's member list and install checks). `core/compose.js` uses only `bindVars`, `checkValue` and
+`varValuesOf`; the test shell (`tests/shell/`) plans with `plan` and loads packages with `loadPackages`.
+
+**Source:** userinterface's `qm-workbench/composition-proto/core/` (round 5, 19.11.2026): plan.js
+ed00b89d…, packages.js bc11e05c…, sparql.js c6238589…. Since 19.11. kton-web carries the mirror, because
+the renderer that binds through it lives here and hosts vendor both from one kton-web commit. Changes
+since the source, each to match ktonpkg (userinterface's PR 2 findings 3-5, tests/mirror.test.mjs):
+
+- plan.js: the closed set has `subject.kind`, `subject.type`, `subject.path`, `subject.scope` (C2.1);
+  `subject.type` binds as an IRI when it is an absolute http(s) IRI, otherwise as a literal (no aliases.json here).
+- packages.js: a block option is checked against the viewer's `accepts` (ktonpkg), not a separate
+  `options` list; a viewer.json names its viewer with the key `viewer` (as ktonpkg's pins do) and is
+  refused without it.
 
 | file | sha256 |
 |---|---|
-| plan.js | ed00b89d505e3bbafd241c59e75b9f21f3c2a91385163867d19da6356ac84b97 |
-| packages.js | bc11e05c6e66fc3cdc603a4415a9203cc5b5295af51049edbfc4b356868d5db5 |
+| plan.js | 2f183c238cb6c844b3c3f6ff0597c113ed9e9f8041d7aec38329f4b2b779aa1c |
+| packages.js | 28d0e4f12edb7a5613736ef5e51af8197c2e013e483dbbd577c728dd94f8e2f1 |
 | sparql.js | c6238589abc0e92f1d30433a1aaf7f79ea34a99cec0f74ca185cffbc29c9730a |
 
-Do not edit here. When ktonpkg v0.10.0 ships `compose`/`Fill`/`ValidateState`, this folder is replaced by
-that release's binding and the hashes above go.
+When ktonpkg v0.10.0 ships `compose`/`Fill`/`ValidateState`, this folder is replaced by that release's
+binding.

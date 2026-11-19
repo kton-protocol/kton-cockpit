@@ -17,7 +17,7 @@ let current = null;
 const started = new Date();
 
 const browser = await chromium.launch();
-const page = await browser.newPage({ viewport: { width: 1600, height: 3000 } });
+const page = await browser.newPage({ viewport: { width: 1600, height: 4500 } });
 // S5.3 viewer-calls-network: every request the page or its frames make to example.org (there must be none)
 const leaked = [];
 page.on("request", (r) => {
@@ -400,6 +400,25 @@ await step("C1", 2, "wiring: a pick in one block reaches its sibling through a v
   await shot("c1-wiring");
 });
 
+await step("C1", 3, "a diagram in the composition: drawn in the sandboxed Mermaid frame (127.0.0.1, H13), no foreignObject, labels intact", async () => {
+  const f = await shell();
+  const d = f.locator(".kton-diagram");
+  await f.locator('.kton-diagram[data-drawn]').waitFor({ state: "attached", timeout: 60000 });
+  const named = await f.locator('meta[name="kton-mermaid-frame"]').getAttribute("content").catch(() => null);
+  const status = named ? await page.request.get(named).then((r) => r.status(), (e) => String(e.message ?? e)) : "no meta";
+  current.checks.push({ ok: true, message: `the Mermaid frame the page names: ${named} (${status})` });
+  const drawn = await d.getAttribute("data-drawn");
+  check(drawn === "true", "the diagram was drawn", "true", drawn === "true" ? "true" : await d.innerText());
+  check((await d.getAttribute("data-foreign-objects")) === "0", "no foreignObject (htmlLabels false)", "0", await d.getAttribute("data-foreign-objects"));
+  const labels = JSON.parse((await d.getAttribute("data-labels")) ?? "[]");
+  for (const l of ["Bug Reporting & Triage", "Fix in a branch", "Review passed?", "Merge"]) check(labels.includes(l), `label "${l}" intact`, l, labels);
+  const src = (await d.locator("img").getAttribute("src")) ?? "";
+  check(src.startsWith("data:image/svg+xml"), "shown as an <img> from a data: URL", "data:image/svg+xml…", src.slice(0, 40));
+  const v = await f.locator("#kton-root").getAttribute("data-csp-violations");
+  check(!v || v === "0", "the composition frame stayed within its CSP", "0", v ?? "0");
+  await shot("c1-diagram");
+});
+
 await step("S5", 2, "an unwired open intent goes up to the shell, which performs it (and fetches nothing)", async () => {
   await (await shell()).locator('[data-use="acts#probe"] button[data-probe-do="open"]').click();
   await toast(/Open: https:\/\/kton\.dev\/ \(not a claim in this window; nothing was fetched\)/).waitFor({ timeout: 15000 });
@@ -431,6 +450,18 @@ await step("S5", 3, "hostile packages: refusals reach the Packages view with the
   check((csp["connect-src"] ?? 0) >= 1, "the fetch was a connect-src violation in the composition frame", ">= 1", csp);
   check(leaked.length === 0, "no request to example.org left the page", 0, leaked);
   await shot("s5-network-blocked");
+});
+
+await step("S5", 5, "record view: kton-web's graph as a leaf; graph@1 answered with records the block verifies in its wasm", async () => {
+  await openReview(P1_TITLE, "Record: Provenance", "workbench-graph");
+  const g = await frameWithSel("#stats", 60000);
+  await g.locator("#stats").filter({ hasText: /\d/ }).waitFor({ timeout: 60000 });
+  const err = (await g.locator("#err").isVisible().catch(() => false)) ? await g.locator("#err").innerText() : "";
+  check(err === "", "the graph drew without an error", "", err);
+  const stats = (await g.locator("#stats").innerText()).replace(/\s+/g, " ").trim();
+  current.checks.push({ ok: true, message: `the graph's stats: ${stats}` });
+  check(leaked.length === 0, "nothing left the page", 0, leaked);
+  await shot("s5-graph-leaf");
 });
 
 await step("S5", 4, "a package that is no longer admitted: its open panel closes at the next poll", async () => {

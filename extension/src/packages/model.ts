@@ -34,6 +34,17 @@ export interface Control {
   readonly kind: "decision" | "record";
   readonly about?: string;
 }
+/** A viewer that runs as a page in its own frame (viewer.json frame: leaf), pinned by a viewers/<name>.json declaration. */
+export interface LeafViewer {
+  readonly package: string;
+  /** the declaration's name (what a ui entry's `viewer` says) */
+  readonly name: string;
+  readonly viewer: string;
+  readonly decl: Readonly<Record<string, unknown>>;
+  readonly tree: string;
+  /** the folder under the vendored kit (kton-web/viewers/<v>) */
+  readonly dir: string;
+}
 export interface MirrorPackage {
   readonly name: string;
   readonly blocks: Record<string, { decl: Record<string, unknown>; hash: string }>;
@@ -43,6 +54,7 @@ export interface MirrorPackage {
   readonly controls: Record<string, { decl: Record<string, unknown> }>;
   readonly templates: Record<string, { decl: Record<string, unknown> }>;
   readonly viewers: Record<string, LoadedViewer>;
+  readonly leaves: Record<string, LeafViewer>;
 }
 export interface SlotEntry extends UiEntry {
   readonly package: string;
@@ -133,7 +145,7 @@ async function loadOne(p: UiPackage, read: ReadBlob, vendored: ReadonlyMap<strin
   }
   const of = (role: string) => p.members.filter((m) => m.role === role);
   const text = (m: Member) => Buffer.from(bytes.get(m) as Uint8Array).toString("utf8");
-  const pkg: MirrorPackage = { name: p.name, blocks: {}, compositions: {}, queries: {}, content: {}, controls: {}, templates: {}, viewers: {} };
+  const pkg: MirrorPackage = { name: p.name, blocks: {}, compositions: {}, queries: {}, content: {}, controls: {}, templates: {}, viewers: {}, leaves: {} };
   for (const m of of("query")) pkg.queries[m.name] = { path: `queries/${m.name}.rq`, hash: m.hash, text: text(m) };
   for (const m of of("template")) pkg.templates[m.name] = { decl: json(bytes.get(m) as Uint8Array, fileOf(m)) };
   for (const m of of("composition")) pkg.compositions[m.name] = { decl: { composition: m.name, ...json(bytes.get(m) as Uint8Array, fileOf(m)) }, hash: m.hash, text: text(m) };
@@ -163,6 +175,16 @@ async function loadOne(p: UiPackage, read: ReadBlob, vendored: ReadonlyMap<strin
     if (!carried.has(v)) carried.set(v, new Map());
     carried.get(v)?.set(rest.join("/"), bytes.get(m) as Uint8Array);
   }
+  // leaf viewers: a declaration pinned at a kton-web commit whose vendored viewer.json says frame: leaf
+  for (const [dn, pin] of declared) {
+    const file = `viewers/${dn}.json`;
+    if (typeof pin["viewer"] !== "string" || typeof pin["at"] !== "string" || typeof pin["tree"] !== "string") throw new Refuse("viewer.missing", file, `${file} is not a pin {viewer, at, tree}`);
+    if (!KTON_WEB_COMMIT.test(pin["at"])) continue;
+    const v = vendored.get(pin["viewer"]);
+    if (!v) throw new Refuse("viewer-pin-mismatch", file, `${file} pins viewer ${pin["viewer"]} at kton-web ${pin["at"].slice(0, 12)}, which this shell does not carry`);
+    if (v.tree !== pin["tree"]) throw new Refuse("viewer-pin-mismatch", file, `${file} pins viewer ${pin["viewer"]} at tree ${pin["tree"]}; the tree here is ${v.tree}`);
+    if (v.decl["frame"] === "leaf") pkg.leaves[dn] = { package: p.name, name: dn, viewer: pin["viewer"], decl: v.decl, tree: v.tree, dir: `kton-web/viewers/${pin["viewer"].replace(/^kton-web\//, "")}` };
+  }
   for (const m of of("block")) {
     const decl = json(bytes.get(m) as Uint8Array, fileOf(m));
     const file = fileOf(m);
@@ -182,6 +204,8 @@ async function loadOne(p: UiPackage, read: ReadBlob, vendored: ReadonlyMap<strin
       tree = v;
     } else throw new Refuse("viewer.missing", file, `${file} pins viewer ${name} at ${pin.at}, and the package carries no viewers/${name}/`);
     if (tree.tree !== pin.tree) throw new Refuse("viewer-pin-mismatch", file, `${file} pins viewer ${name} at tree ${pin.tree}; the tree here is ${tree.tree}`);
+    // a viewer.json names its viewer with the key `viewer`, as ktonpkg's pins do (kton-web's mirror refuses it too)
+    if (typeof tree.decl["viewer"] !== "string" || tree.decl["viewer"] === "") throw new Refuse("viewer.manifest", file, `viewer ${name}'s viewer.json names no viewer (the key is "viewer")`);
     const module = tree.decl["module"];
     if (typeof module !== "string" || !tree.files.has(module)) throw new Refuse("viewer.module", file, `viewer ${name}'s viewer.json names module ${String(module)}, which its tree does not hold`);
     // install's check, here at load: the block emits and takes only what viewer.json declares, types equal
@@ -196,10 +220,7 @@ async function loadOne(p: UiPackage, read: ReadBlob, vendored: ReadonlyMap<strin
       if (typeKey(t) === null || typeKey(t) !== typeKey(vAccepts[opt])) throw new Refuse("viewer.options", file, `${file}: option ${opt} is ${JSON.stringify(t)}, viewer ${name} accepts ${JSON.stringify(vAccepts[opt])}`);
     }
     const dir = folder ? `packages/${p.name}@${p.label}/viewers/${name}` : `kton-web/viewers/${name.replace(/^kton-web\//, "")}`;
-    // the mirror reads accepts/emits/requires/optional and (for its own install check) options from the
-    // viewer's declaration; ktonpkg checks options against accepts, so they are given as options too
-    const vdecl = { ...tree.decl, options: { ...vAccepts, ...((tree.decl["options"] ?? {}) as Record<string, unknown>) } };
-    pkg.viewers[name] = { decl: vdecl, tree: tree.tree, module: `${dir}/${module}`, dir, files: tree.files };
+    pkg.viewers[name] = { decl: tree.decl, tree: tree.tree, module: `${dir}/${module}`, dir, files: tree.files };
     pkg.blocks[m.name] = { decl: { ...decl, viewer: { viewer: name, at: pin.at, tree: pin.tree } }, hash: m.hash };
   }
   return { pkg, controls };

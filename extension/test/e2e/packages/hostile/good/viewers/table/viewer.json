@@ -1,5 +1,5 @@
 {
- "name": "table",
+ "viewer": "table",
  "module": "index.js",
  "requires": [
   "query@1"

@@ -1,8 +1,7 @@
 // Build the e2e's verticle packages with ktonpkg v0.9.1's scope CLI (cmd/scope), each sealed with a throwaway
 // key that is deleted afterwards. Sources (test/e2e/packages/):
-//   - kton-web-test/: kton-web's test package (tests/packages/kton-web-test at the pinned kton-web commit),
-//     with its controls in ktonpkg's Control format {kind, say: {template}, about} and one ui entry
-//     (ui/test-shell.json, review-view) so the shell opens its composition from a proposal (S4.2-4, S4.6).
+//   - kton-web-test/: kton-web's test package at the pinned kton-web commit, unchanged (vendored with the kit,
+//     scripts/vendor-kton-web.mjs): a decision and a record control, a review-view entry (S4.2-4, S4.6).
 //   - hostile/good/: ktonpkg v0.9.1's scope/testdata/hostile/good, with the table viewer it pins carried in
 //     viewers/table/ (ktonpkg v0.9.1). The shell cases of S5.3 are built from it here:
 //       hostile-good      the positive control
@@ -83,6 +82,8 @@ function hostile(name, variant) {
 
 try {
   build("kton-web-test", "test", join(SRC, "kton-web-test"));
+  // a record-view entry with kton-web's graph viewer as a leaf, pinned at the vendored commit and tree
+  build("workbench-graph", "1", join(SRC, "workbench-graph"));
   hostile("hostile-good", "good");
   hostile("hostile-tampered", "good");
   hostile("hostile-network", "network");

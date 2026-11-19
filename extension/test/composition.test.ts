@@ -1,6 +1,7 @@
 // The composition host's checks (C1.5 v3), slots (C2.1), the composition page's CSP and the vendored kton-web pin.
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { CompositionHost, type Backend, type Plan } from "../src/composition/host.js";
@@ -113,8 +114,92 @@ test("the composition page: a host-owned CSP with no 'unsafe-inline' and connect
   assert.match(html, /<script type="module" nonce="N0nce" src="https:\/\/webview\.example\/frame\.js">/);
 });
 
-test("vendored kton-web: every file matches its pin (PIN.json, commit 39242b9)", async () => {
+test("vendored kton-web: every file matches its pin (PIN.json, commit 39c206a), the licences included", async () => {
   const mod = (await import(pathToFileURL(join(process.cwd(), "scripts", "vendor-kton-web.mjs")).href)) as { check: () => string[]; COMMIT: string };
   assert.deepEqual(mod.check(), []);
-  assert.equal(mod.COMMIT, "39242b9f0bfce4f78d35f25d291c79877aaeeed5");
+  assert.equal(mod.COMMIT, "39c206a");
+});
+
+// ---- graph@1: the graph viewer as a leaf (its own frame) in a record-view slot
+const KIT = join(process.cwd(), "media", "kton-web");
+const PROPOSAL = { ...SUBJECT, type: "https://example.org/workbench-e2e/proposes" };
+
+test("vendored viewers: kton-web/graph is a leaf, with the tree id the e2e package pins", async () => {
+  const { loadVendored } = await import("../src/packages/vendored.js");
+  const v = loadVendored(KIT).get("kton-web/graph");
+  assert.equal(v?.decl["frame"], "leaf");
+  const pin = JSON.parse(readFileSync(join(PKGS, "workbench-graph", "viewers", "graph.json"), "utf8")) as { tree: string };
+  assert.equal(v?.tree, pin.tree);
+});
+
+test("a record-view entry on a kton-web leaf viewer resolves to the vendored tree; a pin to another tree is refused with its reason", async () => {
+  const { loadVendored } = await import("../src/packages/vendored.js");
+  const vendored = loadVendored(KIT);
+  const f = listed(join(PKGS, "workbench-graph"), "workbench-graph");
+  const l = await loadPackages({ packages: [f.pkg] }, reader(f), vendored);
+  assert.deepEqual(l.refusals, []);
+  assert.equal(l.packages["workbench-graph"]?.leaves["graph"]?.viewer, "kton-web/graph");
+  const e = l.entries[0] as SlotEntry;
+  assert.ok(applies(e, PROPOSAL));
+  assert.ok(!applies(e, SUBJECT), "a claim of another type is not offered the entry");
+  const bad = listed(join(PKGS, "workbench-graph"), "workbench-graph", "1", (p, b) => (p === "viewers/graph.json" ? Buffer.from(JSON.stringify({ ...JSON.parse(b.toString()), tree: `sha256:${"1".repeat(64)}` })) : b));
+  const r = await loadPackages({ packages: [bad.pkg] }, reader(bad), vendored);
+  assert.equal(r.refusals[0]?.code, "viewer-pin-mismatch");
+  assert.match(r.refusals[0]?.reason ?? "", /viewers\/graph\.json pins viewer kton-web\/graph at tree sha256:1{64}; the tree here is sha256:/);
+});
+
+test("graph@1 as a leaf: set binds focus = the subject; graph@1 is answered {records, keys, names}; what the viewer does not declare is refused", async () => {
+  const { LeafHost } = await import("../src/composition/host.js");
+  const { loadVendored } = await import("../src/packages/vendored.js");
+  const decl = loadVendored(KIT).get("kton-web/graph")?.decl as Record<string, unknown>;
+  const posted: Array<Record<string, unknown>> = [];
+  const { backend } = backendLog();
+  const graph = { records: [{ id: "r1" }], keys: { k: "self" }, names: { k: "qa" } };
+  const l = await goodPackage();
+  const h = new LeafHost({ decl, slot: "record-view" }, { label: "Provenance" }, { id: SUBJECT.id, claim: SUBJECT.claim, closed: {} }, l, { ...backend, graph: async () => graph }, { post: (m) => posted.push(m as Record<string, unknown>), log: () => undefined });
+  await h.onMessage({ type: "kton:ready", requires: ["graph@1"] });
+  assert.deepEqual(posted[0], { type: "kton:set", state: { focus: SUBJECT.id }, host: { name: "vscode", provides: ["graph@1", "query@1", "product@1", "open@1", "sign@1"] } });
+  await h.onMessage({ type: "kton:request", id: "graph#1#x.1", cap: "graph@1", args: {} });
+  assert.deepEqual(posted[1], { type: "kton:data", id: "graph#1#x.1", result: graph });
+  await h.onMessage({ type: "kton:request", id: "graph#1#x.2", cap: "query@1", args: { input: "x" } });
+  assert.match(JSON.stringify(posted[2]), /this viewer does not declare query@1/);
+  await h.onMessage({ type: "kton:intent", intent: { id: "graph#1#x.3", kind: "say", text: "hi" } });
+  assert.match(JSON.stringify(posted[3]), /say is not an act this shell performs/);
+});
+
+test("the leaf page: the viewer's page with the host's head; no 'unsafe-inline'; every script and style by nonce; connect-src only the webview origin", async () => {
+  const { leafCsp, leafPage } = await import("../src/composition/page.js");
+  const csp = leafCsp("N0nce", "https://webview.example");
+  assert.ok(!csp.includes("unsafe-inline"));
+  assert.match(csp, /(^|; )connect-src https:\/\/webview\.example(;|$)/, "the kernel wasm, from the vendored kit, and nothing else");
+  const html = leafPage(readFileSync(join(KIT, "viewers", "graph", "index.html"), "utf8"), "N0nce", "https://webview.example", "https://webview.example/kit/viewers/graph/");
+  assert.equal([...html.matchAll(/http-equiv="Content-Security-Policy"/g)].length, 1);
+  assert.match(html, /<base href="https:\/\/webview\.example\/kit\/viewers\/graph\/">/);
+  for (const t of html.matchAll(/<(script|style)\b([^>]*)>/g)) assert.match(t[2] ?? "", /nonce="N0nce"/, `<${t[1]}> without the nonce`);
+});
+
+test("CSP (C1.5 v3): a leaf may fetch its pinned files (wasm) from its own resource origin; a composition frame connects nowhere, Mermaid frame or not", async () => {
+  const { compositionCsp, leafCsp } = await import("../src/composition/page.js");
+  const src = "https://webview.example";
+  assert.match(leafCsp("n", src), /(^|; )connect-src https:\/\/webview\.example(;|$)/);
+  for (const c of [compositionCsp("n", src), compositionCsp("n", src, "http://127.0.0.1:4242")]) {
+    assert.match(c, /(^|; )connect-src 'none'(;|$)/);
+    assert.ok(!c.includes("unsafe-inline"));
+  }
+  assert.match(compositionCsp("n", src, "http://127.0.0.1:4242"), /(^|; )frame-src blob: http:\/\/127\.0\.0\.1:4242(;|$)/, "the Mermaid frame is named in frame-src");
+});
+
+test("the Mermaid frame server (H13): 127.0.0.1 only, exactly the frame's three pinned files, 404 for anything else", async () => {
+  const { startMermaidServer } = await import("../src/composition/mermaid-server.js");
+  const m = await startMermaidServer(KIT);
+  try {
+    assert.match(m.url, /^http:\/\/127\.0\.0\.1:\d+\/mermaid\/frame\.html$/);
+    const ok = await fetch(m.url);
+    assert.equal(ok.status, 200);
+    assert.match(await ok.text(), /sandboxed Mermaid frame/);
+    assert.equal((await fetch(`http://127.0.0.1:${m.port}/vendor/mermaid/mermaid.min.js`)).status, 200);
+    for (const p of ["/PIN.json", "/core/compose.js", "/vendor/mermaid/LICENSE", "/mermaid/../PIN.json", "/runtime/wasm/kton-full.wasm"]) assert.equal((await fetch(`http://127.0.0.1:${m.port}${p}`)).status, 404, p);
+  } finally {
+    m.close();
+  }
 });

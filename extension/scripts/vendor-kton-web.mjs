@@ -15,8 +15,10 @@ import { fileURLToPath } from "node:url";
 
 export const REPO = "https://github.com/gitmick/kton-web";
 export const BRANCH = "compose-v3";
-export const COMMIT = "39242b9f0bfce4f78d35f25d291c79877aaeeed5";
+export const COMMIT = "39c206a";
 export const FILES = [
+  // kton-web's licence (Apache-2.0 since f59275b, MH 19.11.)
+  "LICENSE",
   // the v3 bridge, the renderer and its kit
   "core/host.js",
   "core/origins.js",
@@ -33,26 +35,88 @@ export const FILES = [
   // the composition frame
   "viewers/compose/frame.js",
   "viewers/compose/index.html",
+  // the sandboxed Mermaid frame (served from 127.0.0.1, H13) with Mermaid 11.4.1 (MIT), and the diagram block
+  "mermaid/frame.html",
+  "mermaid/frame.js",
+  "vendor/mermaid/mermaid.min.js",
+  "vendor/mermaid/LICENSE",
+  "vendor/mermaid/VENDORED.json",
+  "viewers/diagram/diagram.js",
+  "viewers/diagram/viewer.json",
+  // the graph viewer as a leaf (record-view), its imports and the kernel loader
+  "viewers/graph/index.html",
+  "viewers/graph/app.js",
+  "viewers/graph/viewer.json",
+  "core/kton.css",
+  "core/logo.png",
+  "core/annotate.js",
+  "core/grouping.js",
+  "core/join.js",
+  "core/layout.js",
+  "core/nav.js",
+  "core/path.js",
+  "core/profile.js",
+  "core/query.js",
+  "core/questions.js",
+  "core/registry.js",
+  "core/select.js",
+  "core/selection.js",
+  "core/viewstate.js",
+  "runtime/kton.js",
+  "runtime/wasm_exec.js",
+  // built by kton-web's wasm/build.sh full (not in the repository): see WASM below
+  "runtime/wasm/manifest.json",
+  "runtime/wasm/kton-full.wasm",
 ];
+/** kton-web's test package (S4.2-4/4.6), vendored unchanged into the e2e's package sources. */
+export const TEST_PACKAGE = [
+  "content/flow.mmd",
+  "kit-viewers.json",
+  "ui/blocks/diagram.json",
+  "viewers/diagram/diagram.js",
+  "viewers/diagram/viewer.json",
+  "controls/test-decision.json",
+  "controls/test-record.json",
+  "manifest.json",
+  "templates/test-note.json",
+  "ui/blocks/needs.json",
+  "ui/blocks/probe.json",
+  "ui/compositions/test-shell.json",
+  "ui/test-shell.json",
+  "viewers/needs/needs.js",
+  "viewers/needs/viewer.json",
+  "viewers/probe/probe.js",
+  "viewers/probe/viewer.json",
+].map((f) => `tests/packages/kton-web-test/${f}`);
+
+/** How runtime/wasm/ was built: kton-web's own recipe at COMMIT, with the kernel it pins. */
+export const WASM = {
+  recipe: "wasm/fetch-kernel.sh && GOFLAGS=-buildvcs=false wasm/build.sh full",
+  kernel: "https://github.com/kton-protocol/kton cc50c529911ef22693521cf2a962bfb641415a42",
+  image: "golang:1.25@sha256:699337d620559a59b4a2bb298ad59611e535d2ee755a34cf2d2a98f37578dc80",
+};
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const OUT = join(HERE, "..", "media", "kton-web");
+const TEST_OUT = join(HERE, "..", "test", "e2e", "packages", "kton-web-test");
+const outOf = (f) => (f.startsWith("tests/packages/kton-web-test/") ? join(TEST_OUT, f.slice("tests/packages/kton-web-test/".length)) : join(OUT, f));
+
 const sha = (p) => createHash("sha256").update(readFileSync(p)).digest("hex");
 
 export function check(out = OUT) {
   const pin = JSON.parse(readFileSync(join(out, "PIN.json"), "utf8"));
   const bad = [];
-  if (pin.commit !== COMMIT) bad.push(`PIN.json pins ${pin.commit}, the script ${COMMIT}`);
-  for (const f of FILES) {
+  if (!String(pin.commit).startsWith(COMMIT)) bad.push(`PIN.json pins ${pin.commit}, the script ${COMMIT}`);
+  for (const f of [...FILES, ...TEST_PACKAGE]) {
     let got;
     try {
-      got = sha(join(out, f));
+      got = sha(out === OUT ? outOf(f) : join(out, f));
     } catch {
       got = "missing";
     }
     if (got !== pin.files[f]) bad.push(`${f}: ${got} != ${pin.files[f]}`);
   }
-  for (const f of Object.keys(pin.files)) if (!FILES.includes(f)) bad.push(`${f} is pinned but not vendored`);
+  for (const f of Object.keys(pin.files)) if (!FILES.includes(f) && !TEST_PACKAGE.includes(f)) bad.push(`${f} is pinned but not vendored`);
   return bad;
 }
 
@@ -67,14 +131,14 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     console.log(`media/kton-web matches ${COMMIT}`);
   } else {
     const head = execFileSync("git", ["-C", arg, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
-    if (head !== COMMIT) throw new Error(`${arg} is at ${head}, not the pinned ${COMMIT}`);
+    if (!head.startsWith(COMMIT)) throw new Error(`${arg} is at ${head}, not the pinned ${COMMIT}`);
     const files = {};
-    for (const f of FILES) {
-      mkdirSync(dirname(join(OUT, f)), { recursive: true });
-      copyFileSync(join(arg, f), join(OUT, f));
-      files[f] = sha(join(OUT, f));
+    for (const f of [...FILES, ...TEST_PACKAGE]) {
+      mkdirSync(dirname(outOf(f)), { recursive: true });
+      copyFileSync(join(arg, f), outOf(f));
+      files[f] = sha(outOf(f));
     }
-    writeFileSync(join(OUT, "PIN.json"), JSON.stringify({ repo: REPO, branch: BRANCH, commit: COMMIT, files }, null, 2) + "\n");
+    writeFileSync(join(OUT, "PIN.json"), JSON.stringify({ repo: REPO, branch: BRANCH, commit: head, license: "Apache-2.0 (LICENSE)", wasm: WASM, files }, null, 2) + "\n");
     console.log(`vendored ${FILES.length} files of ${REPO}@${COMMIT}`);
   }
 }

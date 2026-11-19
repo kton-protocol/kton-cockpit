@@ -16,7 +16,7 @@ export interface TreeNode {
 export type StatusId = "identity" | "mode" | "poll" | "surface" | "slots";
 export type ViewId = "home" | "inbox" | "lanes";
 
-import type { LoadedViewer } from "../packages/model.js";
+import type { LeafViewer, LoadedViewer } from "../packages/model.js";
 
 export interface UiHost {
   /**
@@ -25,6 +25,8 @@ export interface UiHost {
    * gets names those). Messages from the frame arrive after this returns (it loads first).
    */
   showComposition(key: string, title: string, viewers: readonly LoadedViewer[], onMessage: (msg: unknown) => void): { post: (msg: unknown) => void; urls: ReadonlyMap<string, string> };
+  /** A leaf panel: the vendored viewer's own page (tree-checked against the package's pin), the host's head and CSP. */
+  showLeaf(key: string, title: string, leaf: LeafViewer, onMessage: (msg: unknown) => void): { post: (msg: unknown) => void };
   setStatus(id: StatusId, text: string, tooltip?: string, command?: string): void;
   setTree(view: ViewId, nodes: readonly TreeNode[]): void;
   /**

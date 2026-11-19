@@ -1,22 +1,89 @@
 {
   "composition": "test-shell",
   "kind": "view",
-  "subject": {"kind": "claim"},
-  "vars": {"picked": {"type": "literal", "default": ""}, "focused": {"type": "literal", "default": ""}},
+  "subject": {
+    "kind": "claim"
+  },
+  "vars": {
+    "picked": {
+      "type": "literal",
+      "default": ""
+    },
+    "focused": {
+      "type": "literal",
+      "default": ""
+    }
+  },
   "parts": [
-    {"id": "acts", "heading": "Acts", "blocks": [
-      {"id": "probe", "use": "probe", "options": {"label": "the acting block"},
-       "emits": {"pick": "picked", "focus": "focused"},
-       "acts": [
-         {"intent": "sign", "label": "Decide (sign)", "control": "test-decision", "fields": {"about": "subject.iri"}},
-         {"intent": "record", "label": "Record (agent key)", "control": "test-record", "fields": {"about": "subject.iri"}}
-       ]}
-    ]},
-    {"id": "wired", "heading": "Wired: shows what the block above picked", "blocks": [
-      {"id": "echo", "use": "probe", "options": {"label": "var.picked"}}
-    ]},
-    {"id": "hidden", "heading": "A block that needs product@1", "blocks": [
-      {"id": "needs", "use": "needs"}
-    ]}
+    {
+      "id": "acts",
+      "heading": "Acts",
+      "blocks": [
+        {
+          "id": "probe",
+          "use": "probe",
+          "options": {
+            "label": "the acting block"
+          },
+          "emits": {
+            "pick": "picked",
+            "focus": "focused"
+          },
+          "acts": [
+            {
+              "intent": "sign",
+              "label": "Decide (sign)",
+              "control": "test-decision",
+              "fields": {
+                "about": "subject.iri"
+              }
+            },
+            {
+              "intent": "record",
+              "label": "Record (agent key)",
+              "control": "test-record",
+              "fields": {
+                "about": "subject.iri"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "wired",
+      "heading": "Wired: shows what the block above picked",
+      "blocks": [
+        {
+          "id": "echo",
+          "use": "probe",
+          "options": {
+            "label": "var.picked"
+          }
+        }
+      ]
+    },
+    {
+      "id": "hidden",
+      "heading": "A block that needs product@1",
+      "blocks": [
+        {
+          "id": "needs",
+          "use": "needs"
+        }
+      ]
+    },
+    {
+      "id": "diagram",
+      "heading": "A diagram (kit viewer, Mermaid frame)",
+      "blocks": [
+        {
+          "id": "flow",
+          "use": "diagram",
+          "file": "content/flow.mmd",
+          "caption": "How a fix moves"
+        }
+      ]
+    }
   ]
 }

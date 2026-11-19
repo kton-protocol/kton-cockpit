@@ -1,0 +1,124 @@
+{
+  "viewer": "kton-web/graph",
+  "title": "Provenance graph",
+  "about": "The verified graph of one or more registries: fotons, files and claims, who signed what, lineage in both directions, facets by participant and type.",
+  "entry": "viewers/graph/index.html",
+  "frame": "leaf",
+  "module": null,
+  "requires": [
+    "graph@1"
+  ],
+  "optional": [
+    "product@1",
+    "open@1"
+  ],
+  "data": {
+    "graph@1": {
+      "args": {},
+      "answer": "{records, keys, names, attested?} - verified here by the kernel wasm - or {graph, sketch?, derived?, contracted?} - a graph the host built and vouches for"
+    }
+  },
+  "files": "for the records form, its own pinned runtime/wasm/ (manifest.json, the .wasm), fetched from the viewer's origin: the leaf CSP needs connect-src for that origin (tests/e2e/leaf-csp.mjs). The {graph} form needs no wasm.",
+  "accepts": {
+    "focus": {
+      "type": "hash",
+      "about": "the node to centre on: a foton id or a file hash (sha256:…)"
+    },
+    "mode": {
+      "type": "literal",
+      "values": [
+        "nbr",
+        "anc",
+        "desc",
+        "both",
+        "lin",
+        "imp"
+      ],
+      "about": "neighbourhood, ancestors, descendants, both, lineage, impact"
+    },
+    "facets": {
+      "type": "object",
+      "keys": {
+        "participant": {
+          "set": "literal"
+        },
+        "type": {
+          "set": "literal"
+        }
+      },
+      "about": "what is shown; participant = keyid, type = node type (foton, entity, claim, …). Empty set = no filter"
+    },
+    "layout": {
+      "type": "literal",
+      "about": "a layout name of the active view"
+    },
+    "view": {
+      "type": "literal|object",
+      "about": "a view preset name, or a change to the current view (panel, actions, select.multi, …)"
+    },
+    "selection": {
+      "type": {
+        "set": "hash"
+      },
+      "about": "the multi-selection of fotons; only with view select.multi on, refused otherwise"
+    }
+  },
+  "emits": {
+    "focus": {
+      "from": "state.focus",
+      "type": "hash",
+      "about": "a click on a node sets it"
+    },
+    "mode": {
+      "from": "state.mode",
+      "type": "literal"
+    },
+    "participants": {
+      "from": "state.facets.participant",
+      "type": {
+        "set": "literal"
+      }
+    },
+    "types": {
+      "from": "state.facets.type",
+      "type": {
+        "set": "literal"
+      }
+    },
+    "selection": {
+      "from": "state.selection",
+      "type": {
+        "set": "hash"
+      },
+      "about": "only with select.multi"
+    },
+    "navigate": {
+      "from": "intent.navigate",
+      "type": "hash",
+      "about": "the reader walked to a node (value = node, with mode)"
+    }
+  },
+  "intents": {
+    "navigate": "{kind:'navigate', value: node, node, mode} - wirable (emits.navigate)",
+    "open": "{kind:'open', uri} or {kind:'open', file:{name, hash, role}, node} - an act: the host opens the file or link"
+  },
+  "slots": {
+    "record-view": {
+      "subject": [
+        "foton",
+        "file"
+      ],
+      "binds": {
+        "focus": "subject"
+      },
+      "intents": [
+        "open",
+        "navigate"
+      ]
+    }
+  },
+  "handover": {
+    "v3": "a frame with no data address: kton:ready, then kton:request {cap: 'graph@1'} after the first kton:set (core/leaf.js pattern; tests/shell/leaf.html plays the host)",
+    "static": "?union=<url>[,<url>…] with sibling keys.json and names.json, ?graph=<url>, ?select=<endpoint>: the open-web pages, unchanged"
+  }
+}

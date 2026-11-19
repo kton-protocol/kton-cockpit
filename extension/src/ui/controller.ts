@@ -13,7 +13,7 @@ import { checkIntent } from "../intents.js";
 import { Scheduler } from "../poll.js";
 import { PackagesArea, SLOT_CMD } from "../composition/area.js";
 import type { Subject } from "../composition/slots.js";
-import type { Control } from "../packages/model.js";
+import type { Control, ViewerTree } from "../packages/model.js";
 import type { TreeNode, UiHost } from "./host.js";
 import type { Queries, Row } from "./queries.js";
 import { idOf, kindOf, rowsOf } from "./queries.js";
@@ -60,6 +60,8 @@ export interface WorkbenchConfig {
   readonly cockpitLabel?: string;
   /** The recorder stays its own extension; the shell hands over to it. */
   readonly recorder: { readonly extensionId: string; readonly command: string };
+  /** The viewers the shell vendors from kton-web, with their tree ids (src/packages/vendored.ts). */
+  readonly vendoredViewers?: ReadonlyMap<string, ViewerTree>;
   /** A locked registry (S7.4): how often and how far apart a `say` is retried. */
   readonly lockRetry: { readonly attempts: number; readonly delayMs: number };
 }
@@ -133,7 +135,7 @@ export class Workbench {
       act: (c, about, fields, title) => this.signAct(c, about, fields, title),
       open: async (target) => this.openTarget(target),
       identityName: () => this.identity.hintName,
-    });
+    }, cfg.vendoredViewers);
     this.surface = cfg.surfaces.some((s) => s.name === cfg.initialSurface) ? (cfg.initialSurface as string) : ALL;
   }
 
@@ -385,7 +387,7 @@ export class Workbench {
             label: `${o.id} · ${o.label}`,
             description: [o.id === d["recommended"] ? "recommended" : "", cannot ? "signing disabled" : ""].filter(Boolean).join(" · "),
             ...(cannot ? { disabled: true, tooltip: cannot } : { tooltip: "Opens the sign dialog", command: { id: CMD.chooseOption, args: [d["msg"], o.id] } }),
-          })), ...this.packages.slotNodes(claimSubject(d["msg"] ?? ""))],
+          })), ...this.packages.slotNodes(claimSubject(d["msg"] ?? "", d["type"]))],
         })),
       },
       { id: "inbox", label: "Inbox", description: `${open.length} open`, command: { id: CMD.focusInbox, args: [] } },
@@ -744,7 +746,7 @@ function nonce(): string {
 }
 
 /** A claim of the feed as a slot subject: its IRI and its claim id (the registration claim, subject.claim). */
-export function claimSubject(iri: string): Subject {
+export function claimSubject(iri: string, type?: string): Subject {
   const id = idOf(iri);
-  return { kind: "claim", iri, id, claim: id };
+  return { kind: "claim", iri, id, claim: id, ...(type ? { type } : {}) };
 }

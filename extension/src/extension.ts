@@ -4,11 +4,13 @@
 
 import * as vscode from "vscode";
 import { randomBytes } from "node:crypto";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { compositionPage } from "./composition/page.js";
+import { compositionPage, leafPage } from "./composition/page.js";
+import { loadVendored } from "./packages/vendored.js";
+import { startMermaidServer } from "./composition/mermaid-server.js";
 import type { Subject } from "./composition/slots.js";
-import type { LoadedViewer } from "./packages/model.js";
+import type { LeafViewer, LoadedViewer, ViewerTree } from "./packages/model.js";
 import { CliTransport } from "./transport/cli.js";
 import { claimKeyId, readIdentityHint, type WindowIdentity } from "./identity.js";
 import type { DoctorReport } from "./transport/port.js";
@@ -58,6 +60,8 @@ class VsHost implements UiHost {
   readonly trees: Record<ViewId, Tree> = { home: new Tree(), inbox: new Tree(), lanes: new Tree() };
   readonly out = vscode.window.createOutputChannel("kton cockpit workbench");
 
+  /** the Mermaid frame's URL as the webview reaches it (asExternalUri of 127.0.0.1), once the server runs */
+  mermaidFrame: string | undefined;
   constructor(private readonly ctx: vscode.ExtensionContext) {
     const order: StatusId[] = ["surface", "identity", "mode", "poll", "slots"];
     order.forEach((id, i) => {
@@ -135,10 +139,34 @@ class VsHost implements UiHost {
       cspSource: webview.cspSource,
       frame: webview.asWebviewUri(vscode.Uri.joinPath(kit, "viewers", "compose", "frame.js")).toString(),
       css: webview.asWebviewUri(vscode.Uri.joinPath(kit, "core", "compose.css")).toString(),
+      ...(this.mermaidFrame ? { mermaidFrame: this.mermaidFrame } : {}),
     });
     p.reveal();
     const panel = p;
     return { post: (m) => void panel.webview.postMessage(m), urls };
+  }
+  /** A leaf: the vendored viewer's own page (its tree was checked against the package's pin at load). */
+  showLeaf(key: string, title: string, leaf: LeafViewer, onMessage: (msg: unknown) => void): { post: (msg: unknown) => void } {
+    const kit = vscode.Uri.joinPath(this.ctx.extensionUri, "media", "kton-web");
+    this.handlers.set(key, onMessage);
+    let p = this.panels.get(key);
+    if (!p) {
+      p = vscode.window.createWebviewPanel("ktonWorkbench.leaf", title, vscode.ViewColumn.Active, { enableScripts: true, localResourceRoots: [kit] });
+      const panel = p;
+      this.panels.set(key, panel);
+      panel.onDidDispose(() => {
+        this.panels.delete(key);
+        this.handlers.delete(key);
+      });
+      panel.webview.onDidReceiveMessage((m: unknown) => this.handlers.get(key)?.(m));
+    }
+    const dir = vscode.Uri.joinPath(kit, ...leaf.dir.replace(/^kton-web\//, "").split("/"));
+    const html = readFileSync(vscode.Uri.joinPath(dir, "index.html").fsPath, "utf8");
+    p.title = title;
+    p.webview.html = leafPage(html, randomBytes(16).toString("base64url"), p.webview.cspSource, `${p.webview.asWebviewUri(dir).toString()}/`);
+    p.reveal();
+    const panel = p;
+    return { post: (m) => void panel.webview.postMessage(m) };
   }
   /** The open sign dialog after its Sign was pressed: it shows "Signing…" and then the outcome. */
   private signing: vscode.WebviewPanel | undefined;
@@ -203,6 +231,8 @@ class VsHost implements UiHost {
 }
 
 let wb: Workbench | undefined;
+/** The viewers vendored from kton-web, read and tree-hashed once (src/packages/vendored.ts). */
+let vendored: ReadonlyMap<string, ViewerTree> = new Map();
 /** Builds are numbered: a setting changed twice in a row starts two, and only the last may run. */
 let generation = 0;
 
@@ -253,6 +283,7 @@ async function build(host: VsHost): Promise<void> {
   wb = new Workbench(transport, host, queries, identity, {
     ...DEFAULT_CONFIG,
     personTiers: cfg.get<string[]>("identity.personTiers") ?? [],
+    vendoredViewers: vendored,
     pollSeconds: Math.max(1, cfg.get<number>("poll.seconds") ?? 30),
     cockpitLabel: executable.split(/[\\/]/).pop() ?? executable,
     surfaces,
@@ -263,7 +294,19 @@ async function build(host: VsHost): Promise<void> {
 }
 
 export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
+  vendored = loadVendored(join(ctx.extensionUri.fsPath, "media", "kton-web"));
   const host = new VsHost(ctx);
+  // H13: the sandboxed Mermaid frame from 127.0.0.1, reached through asExternalUri; without it diagrams say why
+  try {
+    const m = await startMermaidServer(join(ctx.extensionUri.fsPath, "media", "kton-web"));
+    ctx.subscriptions.push({ dispose: () => m.close() });
+    // map the server's root (code-server maps a port to its /proxy/<port>/ path), then name the frame below it
+    const root = (await vscode.env.asExternalUri(vscode.Uri.parse(`http://127.0.0.1:${m.port}/`))).toString(true);
+    host.mermaidFrame = new URL("mermaid/frame.html", root.endsWith("/") ? root : `${root}/`).toString();
+    host.out.appendLine(`the Mermaid frame: ${host.mermaidFrame}`);
+  } catch (e) {
+    host.out.appendLine(`the Mermaid frame is not served: ${(e as Error).message}`);
+  }
   ctx.subscriptions.push(
     vscode.window.registerTreeDataProvider("ktonWorkbench.home", host.trees.home),
     vscode.window.registerTreeDataProvider("ktonWorkbench.inbox", host.trees.inbox),

@@ -1,0 +1,10 @@
+{
+ "slot": "record-view",
+ "label": "Provenance",
+ "when": {
+  "kind": "claim",
+  "type": "https://example.org/workbench-e2e/proposes"
+ },
+ "viewer": "graph",
+ "order": 20
+}

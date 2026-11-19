@@ -61,6 +61,8 @@ export interface Backend {
   act(control: Control, about: string, fields: Readonly<Record<string, string>>, title: string): Promise<"signed" | "cancelled" | "failed">;
   /** run@1: a ray (workflow run) with its holes. */
   run(ray: string, holes: Readonly<Record<string, string>>): Promise<string>;
+  /** graph@1 (e): the registry's records with the ring to verify them: {records, keys, names}. */
+  graph?(): Promise<{ readonly records: readonly unknown[]; readonly keys: unknown; readonly names: unknown }>;
   /** a URL the frame may fetch for bytes above the content cap (or undefined: then above the cap is refused). */
   urlFor?(dir: string, hash: string): string | undefined;
 }
@@ -74,6 +76,8 @@ export const CONTENT_CAP = 1024 * 1024;
 export const DATA_CAPS = ["query@1", "product@1", "graph@1", "content@1"] as const;
 /** What this host provides; graph@1 is not yet (kton-web's graph asks it as {records, keys, names}). */
 export const VSCODE_PROVIDES = ["query@1", "content@1", "product@1", "open@1", "sign@1", "record@1", "run@1"] as const;
+/** A leaf (a page viewer in its own frame) is also given graph@1. */
+export const LEAF_PROVIDES = ["graph@1", "query@1", "product@1", "open@1", "sign@1"] as const;
 /** Acts and the control kind each one must have (O1). open and run have no control. */
 const KIND_FOR: Readonly<Record<string, "decision" | "record">> = { sign: "decision", record: "record" };
 
@@ -176,6 +180,96 @@ interface Intent {
   readonly control?: { readonly package?: unknown; readonly name?: unknown };
   readonly ray?: unknown;
   readonly [k: string]: unknown;
+}
+
+/**
+ * The host of a leaf: a page viewer (graph, render, feed) in its own frame, for one slot entry and subject.
+ * It gets no plan: after ready, a set with the state its slot binds (viewer.json slots: graph's record-view binds
+ * focus = the subject). Its data comes as answers: graph@1 (e), query@1 {input} (c: the viewer.json input's query,
+ * bound from the closed set through the slot entry's inputs), product@1 {hash} (d). Acts: open is the shell's;
+ * approve goes through the entry's control (its kind decides the key); navigate is answered as done (unwired).
+ */
+export class LeafHost {
+  readonly seen: Array<{ type: string; cap?: string; kind?: string }> = [];
+  constructor(
+    private readonly leaf: { readonly decl: Readonly<Record<string, unknown>>; readonly slot: string },
+    private readonly entry: { readonly inputs?: Readonly<Record<string, string>>; readonly control?: Control; readonly label: string },
+    private readonly subject: { readonly id: string; readonly claim?: string; readonly closed: Readonly<Record<string, string>> },
+    private readonly loaded: Loaded,
+    private readonly backend: Backend,
+    private readonly ui: HostUi,
+  ) {}
+
+  /** The state the slot binds: viewer.json slots.<slot>.binds, e.g. {focus: "subject"} → focus = the subject's id. */
+  initialState(): Record<string, unknown> {
+    const binds = ((this.leaf.decl["slots"] as Record<string, { binds?: Record<string, string> }> | undefined)?.[this.leaf.slot]?.binds ?? {}) as Record<string, string>;
+    return Object.fromEntries(Object.entries(binds).filter(([, v]) => v === "subject").map(([k]) => [k, this.subject.id]));
+  }
+
+  async onMessage(raw: unknown): Promise<void> {
+    if (typeof raw !== "object" || raw === null) return;
+    const m = raw as Record<string, unknown>;
+    if (typeof m["type"] !== "string") return;
+    const intent = intentOf(m);
+    this.seen.push({ type: m["type"], ...(typeof m["cap"] === "string" ? { cap: m["cap"] } : {}), ...(intent ? { kind: intent.kind } : {}) });
+    if (m["type"] === "kton:ready") return void this.ui.post({ type: "kton:set", state: this.initialState(), host: { name: "vscode", provides: LEAF_PROVIDES } });
+    if (m["type"] === "kton:request") return this.request(String(m["id"]), String(m["cap"]), (m["args"] ?? {}) as Record<string, unknown>);
+    if (m["type"] === "kton:intent" && intent) return this.intent(intent);
+  }
+
+  private declares(cap: string): boolean {
+    const d = this.leaf.decl;
+    return [...((d["requires"] ?? []) as string[]), ...((d["optional"] ?? []) as string[])].includes(cap);
+  }
+
+  private async request(id: string, cap: string, args: Record<string, unknown>): Promise<void> {
+    try {
+      if (!this.declares(cap)) throw new Refused(`this viewer does not declare ${cap}`);
+      let result: unknown;
+      if (cap === "graph@1") {
+        if (!this.backend.graph) throw new Refused("graph@1 is not provided by this host");
+        const g = await this.backend.graph();
+        result = { records: g.records, keys: g.keys, names: g.names };
+      } else if (cap === "query@1") {
+        const input = String(args["input"] ?? "");
+        const spec = ((this.leaf.decl["inputs"] ?? {}) as Record<string, { query?: string; bind?: Record<string, string> }>)[input];
+        if (!spec?.query) throw new Refused(`the viewer declares no input ${JSON.stringify(input)}`);
+        const bind: Record<string, string> = {};
+        for (const k of Object.keys(spec.bind ?? {})) {
+          const src = this.entry.inputs?.[k];
+          const v = src ? this.subject.closed[src] : undefined;
+          if (v === undefined) throw new Refused(`input ${input}: ${k} is not bound by the slot entry from the closed set`);
+          bind[k] = v;
+        }
+        result = await this.backend.query(spec.query, bind);
+      } else if (cap === "product@1") {
+        const hash = String(args["hash"] ?? "");
+        result = await answerBytes(this.backend, this.loaded, hash, undefined, "product@1");
+      } else throw new Refused(`${cap} is not provided to a leaf`);
+      this.ui.post({ type: "kton:data", id, result });
+    } catch (e) {
+      const why = e instanceof Error ? e.message : String(e);
+      this.ui.log(`leaf: ${cap} refused: ${why}`);
+      this.ui.post({ type: "kton:refused", what: id, why });
+    }
+  }
+
+  private async intent(i: Intent): Promise<void> {
+    const refuse = (why: string) => this.ui.post({ type: "kton:refused", what: i.id, why });
+    try {
+      if (i.kind === "open") return this.ui.post({ type: "kton:data", id: i.id, result: { message: await this.backend.open(i) } });
+      if (i.kind === "navigate") return this.ui.post({ type: "kton:data", id: i.id, result: { message: "noted" } });
+      if (i.kind === "approve") {
+        const c = this.entry.control;
+        if (!c || !this.subject.claim) return refuse("this slot entry names no control to approve with");
+        const r = await this.backend.act(c, this.subject.claim, {}, `${this.entry.label}: approve`);
+        return r === "failed" ? refuse("not signed") : this.ui.post({ type: "kton:data", id: i.id, result: { signed: r === "signed" } });
+      }
+      refuse(`${i.kind} is not an act this shell performs`);
+    } catch (e) {
+      refuse(e instanceof Error ? e.message : String(e));
+    }
+  }
 }
 
 /** (b) An intent arrives as {intent: {id, kind, …}}; the id is the bridge's, shared with requests. */

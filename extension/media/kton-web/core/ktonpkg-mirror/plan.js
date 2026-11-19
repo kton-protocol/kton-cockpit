@@ -12,7 +12,7 @@
 //   chapters (an input bundle, hashed into the plan); unnamed parts (level jumps) become sections without
 //   a heading;
 // - expands nested compositions, `every` (repeat over a query's rows) and `eachPart` (own composition only);
-// - binds params only from the closed set (subject.id, subject.iri, subject.claim, part.id, part.iri,
+// - binds params only from the closed set (subject.id, subject.iri, subject.claim, subject.class, subject.kind, subject.type, subject.path, subject.scope, part.id, part.iri,
 //   row.<var>, composition.id, identity.name, a declared parent param) as RDF terms;
 // - a use's requirements = its pinned viewer's `requires` ∪ derived (query@1 with a query, content@1 with
 //   binary content); `refine` declares which of the query's params a reader may vary, with values or a type;
@@ -479,9 +479,17 @@ export function bindSource(st, src, scope, cctx) {
   switch (src) {
     case "subject.iri":
       return typeof s.iri === "string" ? { type: "uri", value: s.iri } : s.iri;
+    case "subject.type":
+      // an absolute IRI binds as an IRI; a CURIE stays a literal (the mirror has no aliases.json)
+      if (s.fromVar) fail("subject-from-var", `${cctx.id} reads ${src}, but its subject comes from var.${s.fromVar}: only subject.iri is known`);
+      if (!s.type) fail("unbound-var", `${src} is not known for this subject`);
+      return /^https?:\/\//.test(s.type) ? { type: "uri", value: s.type } : lit(s.type);
     case "subject.id":
     case "subject.claim":
     case "subject.class":
+    case "subject.kind":
+    case "subject.path":
+    case "subject.scope":
       if (s.fromVar) fail("subject-from-var", `${cctx.id} reads ${src}, but its subject comes from var.${s.fromVar}: only subject.iri is known`);
       if (!s[src.slice(8)]) fail("unbound-var", `${src} is not known for this subject`);
       return lit(s[src.slice(8)]);
@@ -515,5 +523,5 @@ export function bindSource(st, src, scope, cctx) {
     if (!(cctx.decl.params ?? []).includes(src)) fail("param-source", `${src} is not a param of ${cctx.id} (and not in the closed set)`);
     return cctx.params[src];
   }
-  fail("param-source", `${src} is not in the closed set (subject.id, subject.iri, subject.claim, part.id, part.iri, row.<var>, composition.id, identity.name, a parent param)`);
+  fail("param-source", `${src} is not in the closed set (subject.id, subject.iri, subject.claim, subject.class, subject.kind, subject.type, subject.path, subject.scope, part.id, part.iri, row.<var>, composition.id, identity.name, a parent param)`);
 }

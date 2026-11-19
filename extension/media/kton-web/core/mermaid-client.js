@@ -2,8 +2,11 @@
 // One hidden <iframe sandbox="allow-scripts"> (no allow-same-origin: an opaque origin) loads
 // ../mermaid/frame.html, the only frame with style-src 'unsafe-inline'. It gets a MessagePort once; all
 // requests and answers then go over that port, so no origin is trusted afterwards. The handoff itself has to
-// use targetOrigin "*": an opaque-origin frame cannot be named (a contract point, see RESULTS.md).
-//   renderMermaid(source) → {a: {svg, labels, …}, b: {…}, cspViolations}
+// use targetOrigin "*": an opaque-origin frame cannot be named (C1.5 v3: the one "*" the contract allows; it
+// carries only the port, and the frame takes the first port and ignores every later window message).
+//   renderMermaid(source) → {svg, width, height, labels, foreignObjects}   (mermaid/frame.js)
+// A host names where its Mermaid frame lives with <meta name="kton-mermaid-frame" content="…"> (VS Code:
+// 127.0.0.1 via asExternalUri, H13); otherwise it is ../mermaid/frame.html beside core/.
 
 let port = null;
 let ready = null;

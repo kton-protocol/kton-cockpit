@@ -21,7 +21,7 @@ test("TreeID: our tree id of kton-web-test's probe folder is the pin kton-web wr
 
 test("ui list: the shape is checked; a member hash or name that is not plain is refused", () => {
   const ok = assertUiListing({ packages: [kwt().pkg] });
-  assert.equal(ok.packages[0]?.members.length, 11);
+  assert.equal(ok.packages[0]?.members.length, 15);
   assert.throws(() => assertUiListing({ packages: [{ ...kwt().pkg, allowed: "yes" }] }), TransportError);
   assert.throws(() => assertUiListing({ packages: [{ ...kwt().pkg, members: [{ role: "block", name: "x", hash: "md5:1" }] }] }), /not sha256/);
   assert.throws(() => assertUiListing({ packages: [{ ...kwt().pkg, members: [{ role: "viewer-file", name: "viewers/../../x", hash: `sha256:${"a".repeat(64)}` }] }] }), /not a plain path/);
