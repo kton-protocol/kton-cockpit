@@ -47,6 +47,9 @@ export interface LeafViewer {
 }
 export interface MirrorPackage {
   readonly name: string;
+  /** the package id (`ui cat`'s first argument) and the revision it was loaded at */
+  readonly id: string;
+  readonly revision: string;
   readonly blocks: Record<string, { decl: Record<string, unknown>; hash: string }>;
   readonly compositions: Record<string, { decl: Record<string, unknown>; hash: string; text: string }>;
   readonly queries: Record<string, { path: string; hash: string; text: string }>;
@@ -142,6 +145,44 @@ export function nameProblem(name: string): string | undefined {
   return undefined;
 }
 
+/** How many `ui cat` reads run at once. */
+export const READ_WIDTH = 8;
+
+/**
+ * A package's member bytes, each re-verified against its admitted hash. One `ui cat` per member, READ_WIDTH at a
+ * time; the first refusal (unreadable or tampered) stops the batch: no member is read after it. The multi-member
+ * `ui cat` (cockpit #176) replaces `fetch` below and keeps the checks: one place to change.
+ */
+async function readMembers(p: UiPackage, read: ReadBlob): Promise<Map<Member, Uint8Array>> {
+  const bytes = new Map<Member, Uint8Array>();
+  const check = (m: Member, b: Uint8Array) => {
+    // re-verify at load: the bytes must still be the bytes the package was admitted with
+    if (`sha256:${sha(b)}` !== m.hash) throw new Refuse("package.tampered", fileOf(m), `${fileOf(m)} changed after admission: its bytes no longer hash to ${m.hash}`);
+    bytes.set(m, b);
+  };
+  const fetch = async (m: Member): Promise<Uint8Array> => {
+    try {
+      return await read(p.package, m.hash);
+    } catch (e) {
+      throw new Refuse("package.unreadable", fileOf(m), `${fileOf(m)} cannot be read: ${(e as Error).message}`);
+    }
+  };
+  const queue = [...p.members];
+  let refused = false;
+  await Promise.all(Array.from({ length: Math.min(READ_WIDTH, queue.length) }, async () => {
+    for (let m = queue.shift(); m && !refused; m = queue.shift()) {
+      try {
+        check(m, await fetch(m));
+      } catch (e) {
+        refused = true;
+        queue.length = 0;
+        throw e;
+      }
+    }
+  }));
+  return bytes;
+}
+
 async function loadOne(p: UiPackage, read: ReadBlob, vendored: ReadonlyMap<string, ViewerTree>, byHash: Map<string, { pkg: string; hash: string; type: string }>): Promise<{ pkg: MirrorPackage; controls: Control[] }> {
   if (p.members.length === 0) throw new Refuse("package.members", "", "the cockpit lists no members for this package (ui list gives members only for a usable package, cockpit v0.5.4 or later): nothing can be loaded");
   // names first, before anything is read: a viewer file or content name that is not a plain path refuses the package
@@ -149,26 +190,10 @@ async function loadOne(p: UiPackage, read: ReadBlob, vendored: ReadonlyMap<strin
     const why = nameProblem(m.name);
     if (why) throw new Refuse(m.role === "viewer-file" ? "viewer.file" : "member.name", "", `member ${JSON.stringify(m.name)} (${m.role}) ${why}: the package is not loaded`);
   }
-  const bytes = new Map<Member, Uint8Array>();
-  // one `ui cat` per member, a few at a time (a package has tens of members; one after another is slow)
-  const one = async (m: Member) => {
-    let b: Uint8Array;
-    try {
-      b = await read(p.package, m.hash);
-    } catch (e) {
-      throw new Refuse("package.unreadable", fileOf(m), `${fileOf(m)} cannot be read: ${(e as Error).message}`);
-    }
-    // re-verify at load: the bytes must still be the bytes the package was admitted with
-    if (`sha256:${sha(b)}` !== m.hash) throw new Refuse("package.tampered", fileOf(m), `${fileOf(m)} changed after admission: its bytes no longer hash to ${m.hash}`);
-    bytes.set(m, b);
-  };
-  const queue = [...p.members];
-  await Promise.all(Array.from({ length: Math.min(8, queue.length) }, async () => {
-    for (let m = queue.shift(); m; m = queue.shift()) await one(m);
-  }));
+  const bytes = await readMembers(p, read);
   const of = (role: string) => p.members.filter((m) => m.role === role);
   const text = (m: Member) => Buffer.from(bytes.get(m) as Uint8Array).toString("utf8");
-  const pkg: MirrorPackage = { name: p.name, blocks: {}, compositions: {}, queries: {}, content: {}, controls: {}, templates: {}, viewers: {}, leaves: {} };
+  const pkg: MirrorPackage = { name: p.name, id: p.package, revision: p.revision, blocks: {}, compositions: {}, queries: {}, content: {}, controls: {}, templates: {}, viewers: {}, leaves: {} };
   for (const m of of("query")) pkg.queries[m.name] = { path: `queries/${m.name}.rq`, hash: m.hash, text: text(m) };
   for (const m of of("template")) pkg.templates[m.name] = { decl: json(bytes.get(m) as Uint8Array, fileOf(m)) };
   for (const m of of("composition")) {

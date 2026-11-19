@@ -214,6 +214,11 @@ export class Workbench {
   }
 
   /** One poll: templates, proposals, decision claims, messages, answers and lanes; then the views. */
+  /** The user's Refresh: the poll job now, through the scheduler, so it never runs beside a poll. */
+  refreshNow(): Promise<void> {
+    return this.scheduler.runNow("inbox");
+  }
+
   async refresh(): Promise<void> {
     try {
       // one poll's cockpit calls run side by side: the listing, the queries and the packages (ui list, which never

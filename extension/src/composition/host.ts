@@ -172,9 +172,10 @@ const sha256 = async (b: Uint8Array) => {
 };
 
 /** content@1 and product@1 (d): {type, hash, size, bytes} up to the cap, else {type, hash, size, url}. */
-export async function answerBytes(backend: Backend, loaded: Loaded, hash: string, type: string | undefined, what: string): Promise<Record<string, unknown>> {
+export async function answerBytes(backend: Backend, loaded: Loaded, hash: string, type: string | undefined, what: string, only?: { readonly id: string; readonly name: string }): Promise<Record<string, unknown>> {
   const blob = loaded.byHash.get(hash);
   if (!blob) throw new Refused(`${what}: ${hash} is no file of an admitted package`);
+  if (only && blob.pkg !== only.id) throw new Refused(`${what}: ${hash} is no file of package ${only.name}`);
   const bytes = await backend.bytes(blob.pkg, hash);
   const got = `sha256:${await sha256(bytes)}`;
   if (got !== hash) throw new Refused(`${what}: the bytes hash to ${got}, not ${hash}`);
@@ -258,8 +259,11 @@ export class LeafHost {
         if (!this.entry.package) throw new Refused(`input ${input}: the slot entry names no package to ask the query of`);
         result = await this.backend.query(this.entry.package, spec.query, Object.fromEntries(Object.entries(bind).map(([k, v]) => [k, { type: "literal" as const, value: v }])));
       } else if (cap === "product@1") {
+        // a leaf is served its own entry's package only, never another admitted package's files
+        const own = this.entry.package ? this.loaded.packages[this.entry.package] : undefined;
+        if (!own) throw new Refused("product@1: the slot entry names no loaded package");
         const hash = String(args["hash"] ?? "");
-        result = await answerBytes(this.backend, this.loaded, hash, undefined, "product@1");
+        result = await answerBytes(this.backend, this.loaded, hash, undefined, "product@1", { id: own.id, name: own.name });
       } else throw new Refused(`${cap} is not provided to a leaf`);
       this.ui.post({ type: "kton:data", id, result });
     } catch (e) {

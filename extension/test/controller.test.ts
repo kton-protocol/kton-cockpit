@@ -805,3 +805,18 @@ test("layout (ktonpkg v0.9.5): the set names host.narrow; the frame's layout sta
   assert.deepEqual(again.state["vars"], { picked: "B" });
   assert.deepEqual(again.state.acts, {}, "a frame's own acts are never taken");
 });
+
+test("the user's Refresh runs the poll job through the scheduler: never a second poll beside one", async () => {
+  const { t, wb } = await setup();
+  let n = 0;
+  const templates = t.templates.bind(t);
+  t.templates = async () => {
+    n++;
+    await new Promise((r) => setImmediate(r));
+    return templates();
+  };
+  await Promise.all([wb.refreshNow(), wb.refreshNow()]);
+  assert.equal(n, 1, "the second Refresh was skipped while the first ran");
+  await wb.refreshNow();
+  assert.equal(n, 2);
+});

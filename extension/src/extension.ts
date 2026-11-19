@@ -7,6 +7,8 @@ import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { inside, writeTree } from "./packages/store.js";
+
+const STALE_TITLE = " (stale: the last poll failed)";
 import { compositionPage, leafPage } from "./composition/page.js";
 import { loadVendored } from "./packages/vendored.js";
 import { startMermaidServer } from "./composition/mermaid-server.js";
@@ -204,6 +206,13 @@ class VsHost implements UiHost {
   closePanel(key: string): void {
     this.panels.get(key)?.dispose();
   }
+  /** A stale panel says so in its title (the last ui list poll failed); it stays open and usable. */
+  markStale(key: string, stale: boolean): void {
+    const p = this.panels.get(key);
+    if (!p) return;
+    const base = p.title.endsWith(STALE_TITLE) ? p.title.slice(0, -STALE_TITLE.length) : p.title;
+    p.title = stale ? `${base}${STALE_TITLE}` : base;
+  }
   pick(title: string, items: readonly string[]): Promise<string | undefined> {
     return Promise.resolve(vscode.window.showQuickPick([...items], { title }));
   }
@@ -309,7 +318,8 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
     vscode.window.registerTreeDataProvider("ktonWorkbench.home", host.trees.home),
     vscode.window.registerTreeDataProvider("ktonWorkbench.inbox", host.trees.inbox),
     vscode.window.registerTreeDataProvider("ktonWorkbench.lanes", host.trees.lanes),
-    vscode.commands.registerCommand(CMD.refresh, () => wb?.refresh()),
+    // the user's Refresh runs the poll job itself (skipped while a poll runs), never a second poll beside it
+    vscode.commands.registerCommand(CMD.refresh, () => wb?.refreshNow()),
     vscode.commands.registerCommand(CMD.openDecision, (msg: string) => wb?.openDecision(msg)),
     vscode.commands.registerCommand(CMD.chooseOption, (msg: string, option: string) => wb?.chooseOption(msg, option)),
     vscode.commands.registerCommand(CMD.openThread, (msg: string) => wb?.openThread(msg)),

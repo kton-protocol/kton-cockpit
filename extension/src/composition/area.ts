@@ -15,6 +15,8 @@ export interface CompositionUi {
   /** A leaf panel: the vendored viewer's own page (tree-checked at start) with the host's head and CSP. */
   showLeaf(key: string, title: string, leaf: LeafViewer, onMessage: (msg: unknown) => void): { post: (msg: unknown) => void };
   closePanel(key: string): void;
+  /** Mark an open panel stale (the last ui list poll failed) or current again. */
+  markStale?(key: string, stale: boolean): void;
   openPanels(): string[];
   info(text: string): void;
   error(text: string): void;
@@ -32,11 +34,24 @@ export const SLOT_CMD = "ktonWorkbench.openSlot";
 const PANEL = "composition:";
 const entryKey = (e: SlotEntry) => `${e.package}/${e.file}`;
 
+/** An open panel: its host, and the (name, revision) of every package it was opened with and may act through. */
+interface OpenPanel {
+  readonly host: CompositionHost | LeafHost;
+  readonly package: string;
+  readonly revisions: ReadonlyMap<string, string>;
+  /** acts in progress (a sign dialog may be open): the panel is never closed under one */
+  busy: number;
+  /** why the panel is to close once no act is in progress */
+  retired?: string;
+}
+
 export class PackagesArea {
   loaded: Loaded | undefined;
   error: string | undefined;
   private listingText = "";
-  private readonly hosts = new Map<string, { host: CompositionHost | LeafHost; package: string }>();
+  private readonly hosts = new Map<string, OpenPanel>();
+  /** the last ui list poll failed: the panels keep the last good packages and are marked stale */
+  private stale = false;
   /** home-tile / status-item numbers, by entry key */
   private readonly numbers = new Map<string, string>();
 
@@ -48,8 +63,13 @@ export class PackagesArea {
     private readonly vendored: ReadonlyMap<string, ViewerTree> = new Map(),
   ) {}
 
-  /** Re-read `ui list`; reload the packages only when it changed. Panels of a package that left are closed (S5.4). */
+  /**
+   * Re-read `ui list`; reload the packages only when it changed. A panel whose package left, or changed revision,
+   * is closed (S5.4), but never while one of its acts is in progress. A failed poll closes nothing: the panels keep
+   * the last good packages and are marked stale, as the views are.
+   */
   async refresh(): Promise<void> {
+    let failed = false;
     try {
       const out = await this.t.uiList();
       if (!out.ok) throw new Error(`the cockpit refused ui list: ${out.refusal.reason}`);
@@ -64,17 +84,73 @@ export class PackagesArea {
       this.error = undefined;
     } catch (e) {
       this.error = e instanceof Error ? e.message : String(e);
-      this.loaded = undefined;
       this.listingText = "";
+      failed = true;
     }
-    for (const [key, h] of [...this.hosts]) {
-      if (!this.loaded?.packages[h.package]) {
-        this.hosts.delete(key);
-        this.ui.closePanel(key);
-        this.ui.info(`Closed ${key.slice(PANEL.length)}: package ${h.package} is no longer admitted or loaded.`);
+    if (failed !== this.stale) {
+      this.stale = failed;
+      for (const key of this.hosts.keys()) this.ui.markStale?.(key, failed);
+    }
+    if (!failed) {
+      for (const [key, h] of [...this.hosts]) {
+        const why = this.outdated(h);
+        if (why) this.retire(key, h, why);
       }
     }
     await this.tiles();
+  }
+
+  /** Why an open panel no longer matches the loaded packages, or undefined. */
+  private outdated(h: OpenPanel): string | undefined {
+    for (const [name, revision] of h.revisions) {
+      const now = this.loaded?.packages[name];
+      if (!now) return `package ${name} is no longer admitted or loaded`;
+      if (now.revision !== revision) return `package ${name} changed revision; open it again`;
+    }
+    return undefined;
+  }
+
+  /** Close a panel now, or after its act in progress (a sign dialog stays until the person answers it). */
+  private retire(key: string, h: OpenPanel, why: string): void {
+    h.retired = why;
+    // under an act, later; a panel opened again over this one stays (this one's acts are refused already)
+    if (h.busy > 0 || this.hosts.get(key) !== h) return;
+    this.hosts.delete(key);
+    this.ui.closePanel(key);
+    this.ui.info(`Closed ${key.slice(PANEL.length)}: ${why}.`);
+  }
+
+  /**
+   * The act path of one open panel: refused when the panel was opened at another revision of a package than the one
+   * loaded now (or is closing), so an old revision's control never signs. While the act runs the panel is busy.
+   */
+  private actFor(key: string, label: string, mine: () => OpenPanel | undefined): Backend["act"] {
+    return async (c, about, fields, title) => {
+      const h = mine();
+      const why = !h || this.hosts.get(key) !== h ? "the panel is closed or was opened again" : (h.retired ?? this.outdated(h) ?? (h.revisions.has(c.package) ? undefined : `control ${c.package}/${c.name} is not one this panel was opened with`));
+      if (why) {
+        this.ui.error(`Not signed: ${label}: ${why}.`);
+        return "failed";
+      }
+      const p = h as OpenPanel;
+      p.busy++;
+      try {
+        return await this.path.act(c, about, fields, title);
+      } finally {
+        p.busy--;
+        if (p.retired && p.busy === 0) this.retire(key, p, p.retired);
+      }
+    };
+  }
+
+  /** The (name, revision) of the named packages as loaded now. */
+  private revisionsOf(loaded: Loaded, names: Iterable<string>): Map<string, string> {
+    const out = new Map<string, string>();
+    for (const n of names) {
+      const p = loaded.packages[n];
+      if (p) out.set(n, p.revision);
+    }
+    return out;
   }
 
   private async tiles(): Promise<void> {
@@ -82,7 +158,8 @@ export class PackagesArea {
     for (const e of this.loaded?.entries ?? []) {
       if ((e.slot !== "home-tile" && e.slot !== "status-item") || !e.query) continue;
       try {
-        const n = oneNumber(await this.query(e.query, this.closedSet(e, undefined)));
+        const terms = Object.fromEntries(Object.entries(this.closedSet(e, undefined)).map(([k, v]) => [k, { type: "literal" as const, value: v }]));
+        const n = oneNumber(await this.named(e.package, e.query, terms));
         this.numbers.set(entryKey(e), "n" in n ? String(n.n) : `error: ${n.why}`);
       } catch (err) {
         this.numbers.set(entryKey(e), `error: ${(err as Error).message}`);
@@ -109,12 +186,6 @@ export class PackagesArea {
     const q = this.queryNames.has(`${pkg}/${name}`) ? `${pkg}/${name}` : name;
     const out = await this.t.ask({ query: "sparql", name: q, ...(Object.keys(terms).length ? { bindTerms: terms } : {}), format: "sparql-results+json" });
     if (!out.ok) throw new Error(`the cockpit refused ${q}: ${out.refusal.reason}`);
-    return out.value.results ?? { head: { vars: [] }, results: { bindings: [] } };
-  }
-
-  private async query(name: string, bind: Readonly<Record<string, string>>): Promise<unknown> {
-    const out = await this.t.ask({ query: "sparql", name, ...(Object.keys(bind).length ? { bind } : {}), format: "sparql-results+json" });
-    if (!out.ok) throw new Error(`the cockpit refused ${name}: ${out.refusal.reason}`);
     return out.value.results ?? { head: { vars: [] }, results: { bindings: [] } };
   }
 
@@ -171,6 +242,7 @@ export class PackagesArea {
     for (const p of Object.values(loaded.packages)) for (const v of Object.values(p.viewers)) viewers.set(v.module, v);
     const used = [...new Set(plan.uses.map((u) => (u as { module?: string }).module))].map((m) => viewers.get(m ?? "")).filter((v): v is LoadedViewer => !!v);
     let host: CompositionHost | undefined;
+    let me: OpenPanel | undefined;
     let shown: ReturnType<CompositionUi["showComposition"]>;
     try {
       shown = this.ui.showComposition(panel, e.label, used, (m) => void host?.onMessage(m));
@@ -184,7 +256,7 @@ export class PackagesArea {
       query: (pkg, name, terms) => this.named(pkg, name, terms),
       bytes: (pkg, hash) => this.t.uiCat(pkg, hash),
       open: (target) => this.path.open(target),
-      act: (c, about, fields, title) => this.path.act(c, about, fields, title),
+      act: this.actFor(panel, e.label, () => me),
       run: async (ray, holes) => {
         const out = await this.t.workflowRun({ workflow: ray, bind: holes });
         if (!out.ok) throw new Error(`the cockpit refused ${ray}: ${out.refusal.reason}`);
@@ -192,16 +264,26 @@ export class PackagesArea {
       },
     };
     host = new CompositionHost(plan, loaded, backend, { post: shown.post, log: (l) => this.ui.log(l) });
-    this.hosts.set(panel, { host, package: e.package });
+    const acting = plan.uses.flatMap((u) => (u.acts ?? []).map((a) => a.control?.package)).filter((x): x is string => !!x);
+    me = { host, package: e.package, revisions: this.revisionsOf(loaded, [e.package, ...acting]), busy: 0 };
+    this.open(panel, me);
     return host;
   }
 
-  private backend(): Backend {
+  /** A panel opened (or opened again over an older one, which is replaced: its acts are refused from now on). */
+  private open(key: string, p: OpenPanel): void {
+    const old = this.hosts.get(key);
+    if (old && old !== p) old.retired = "the panel was opened again";
+    this.hosts.set(key, p);
+    if (this.stale) this.ui.markStale?.(key, true);
+  }
+
+  private backend(key: string, label: string, mine: () => OpenPanel | undefined): Backend {
     return {
       query: (pkg, name, terms) => this.named(pkg, name, terms),
       bytes: (pkg, hash) => this.t.uiCat(pkg, hash),
       open: (target) => this.path.open(target),
-      act: (c, about, fields, title) => this.path.act(c, about, fields, title),
+      act: this.actFor(key, label, mine),
       run: async (ray, holes) => {
         const out = await this.t.workflowRun({ workflow: ray, bind: holes });
         if (!out.ok) throw new Error(`the cockpit refused ${ray}: ${out.refusal.reason}`);
@@ -221,9 +303,11 @@ export class PackagesArea {
     const control = e.control ? loaded.controls.get(`${e.package}/${e.control}`) : undefined;
     const closed: Record<string, string> = { "subject.id": s.id, "subject.iri": s.iri, "subject.kind": s.kind, ...(s.claim ? { "subject.claim": s.claim } : {}), ...(s.type ? { "subject.type": s.type } : {}), "identity.name": this.path.identityName() };
     let host: LeafHost | undefined;
+    let me: OpenPanel | undefined;
     const shown = this.ui.showLeaf(panel, e.label, leaf, (m) => void host?.onMessage(m));
-    host = new LeafHost({ decl: leaf.decl, slot: e.slot }, { ...(e.inputs ? { inputs: e.inputs } : {}), ...(control ? { control } : {}), label: e.label, package: e.package }, { id: s.id, ...(s.claim ? { claim: s.claim } : {}), closed }, loaded, this.backend(), { post: shown.post, log: (l) => this.ui.log(l) });
-    this.hosts.set(panel, { host, package: e.package });
+    host = new LeafHost({ decl: leaf.decl, slot: e.slot }, { ...(e.inputs ? { inputs: e.inputs } : {}), ...(control ? { control } : {}), label: e.label, package: e.package }, { id: s.id, ...(s.claim ? { claim: s.claim } : {}), closed }, loaded, this.backend(panel, e.label, () => me), { post: shown.post, log: (l) => this.ui.log(l) });
+    me = { host, package: e.package, revisions: this.revisionsOf(loaded, [e.package]), busy: 0 };
+    this.open(panel, me);
     return host;
   }
 
