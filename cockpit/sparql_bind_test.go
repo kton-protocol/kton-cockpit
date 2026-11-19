@@ -43,6 +43,7 @@ func TestBind_TypedTermsAreOneTermEach(t *testing.T) {
 	for want, term := range map[string]BoundTerm{
 		`<https://kton.dev/o/abc>`:                                            {Type: "iri", Value: "https://kton.dev/o/abc"},
 		`<urn:qms:doc:SOP-12>`:                                                {Type: "iri", Value: "urn:qms:doc:SOP-12"},
+		`<https://x.org/a%20b>`:                                               {Type: "iri", Value: "https://x.org/a%20b"},
 		`"12"^^<http://www.w3.org/2001/XMLSchema#integer>`:                    {Type: "literal", Value: "12", Datatype: "xsd:integer"},
 		`"2026-11-19"^^<http://www.w3.org/2001/XMLSchema#date>`:               {Type: "literal", Value: "2026-11-19", Datatype: "xsd:date"},
 		`"2026-11-19T10:00:00Z"^^<http://www.w3.org/2001/XMLSchema#dateTime>`: {Type: "literal", Value: "2026-11-19T10:00:00Z", Datatype: "http://www.w3.org/2001/XMLSchema#dateTime"},
@@ -64,6 +65,11 @@ func TestBind_TypedTermsAreOneTermEach(t *testing.T) {
 		"an xsd type bind does not know": {Type: "literal", Value: "1", Datatype: "xsd:foo"},
 		"a datatype that closes":         {Type: "literal", Value: "1", Datatype: "https://x.org/> }"},
 		"no type":                        {Value: "x"},
+		"a % without two hex digits":     {Type: "iri", Value: "https://x.org/a%zz"},
+		"a % at the end":                 {Type: "iri", Value: "https://x.org/a%4"},
+		"DEL":                            {Type: "iri", Value: "https://x.org/a\x7fb"},
+		"a line separator":               {Type: "iri", Value: "https://x.org/a\u2028b"},
+		"a no-break space":               {Type: "iri", Value: "https://x.org/a\u00a0b"},
 	} {
 		if clause, err := valuesClause(nil, map[string]BoundTerm{"V": term}); err == nil {
 			t.Errorf("%s: want refused, got %q", name, clause)

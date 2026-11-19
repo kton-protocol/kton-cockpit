@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"unicode"
 )
 
 // BoundTerm is a typed value a sparql query's variable is bound to (bindTerms): an IRI, or a literal
@@ -23,6 +24,23 @@ const xsdNS = "http://www.w3.org/2001/XMLSchema#"
 // characters that would end the term or are not allowed in it (RFC 3987, SPARQL IRIREF).
 var iriTerm = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9+.-]*:[^\x00-\x20<>"{}|^` + "`" + `\\]+$`)
 
+// isIRI is iriTerm, plus what the query engine's IRI parser also refuses (kton-review B1 on #161): a
+// '%' not followed by two hex digits, DEL, and the Unicode line, paragraph and space separators.
+func isIRI(v string) bool {
+	if !iriTerm.MatchString(v) || pctBad.MatchString(v) {
+		return false
+	}
+	for _, r := range v {
+		if r == 0x7f || unicode.In(r, unicode.Zl, unicode.Zp, unicode.Zs) || unicode.IsControl(r) {
+			return false
+		}
+	}
+	return true
+}
+
+// pctBad is a '%' that does not start a percent-encoded octet.
+var pctBad = regexp.MustCompile(`%([^0-9A-Fa-f]|[0-9A-Fa-f][^0-9A-Fa-f]|[0-9A-Fa-f]?$)`)
+
 // xsdLexical are the lexical forms checked for the xsd datatypes a binding may name.
 var xsdLexical = map[string]*regexp.Regexp{
 	"string":   nil,
@@ -38,7 +56,7 @@ var xsdLexical = map[string]*regexp.Regexp{
 func (t BoundTerm) sparqlTerm() (string, error) {
 	switch t.Type {
 	case "iri":
-		if !iriTerm.MatchString(t.Value) {
+		if !isIRI(t.Value) {
 			return "", fmt.Errorf("%q is not an absolute IRI", t.Value)
 		}
 		return "<" + t.Value + ">", nil
@@ -58,7 +76,7 @@ func (t BoundTerm) sparqlTerm() (string, error) {
 				return "", fmt.Errorf("%q is not an %s", t.Value, dt)
 			}
 			return lit + "^^<" + xsdNS + name + ">", nil
-		case iriTerm.MatchString(dt):
+		case isIRI(dt):
 			if name := strings.TrimPrefix(dt, xsdNS); name != dt {
 				return BoundTerm{Type: "literal", Value: t.Value, Datatype: "xsd:" + name}.sparqlTerm()
 			}
