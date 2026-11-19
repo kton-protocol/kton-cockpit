@@ -303,3 +303,32 @@ func TestClaimView_AnAliasCannotNameATermTheViewWrites(t *testing.T) {
 		t.Errorf("want the field under its lab name: %v", got)
 	}
 }
+
+// A nested object's fields (a list of objects, such as a qualification's role and level) go through
+// the aliases as a top-level field's do; a field without an alias stays lab:<field> (the C3 training
+// area's gap 3).
+func TestClaimView_ANestedObjectsFieldsGoThroughTheAliases(t *testing.T) {
+	set, err := ntemplate.New(nil, []byte(`{"terms":{"role":"https://example.org/q/role"}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	np := npNS + "c1."
+	helper := np + "#o"
+	nested := helper + ".quals"
+	all, pub := claimQuads("c1", "https://ex.org/person", "https://ex.org/qualified", nil, "2026-11-19T10:00:00Z", "", "", "k1")
+	all = append(all,
+		Quad{G: np + "#assertion", S: iri(helper), P: iri(labNS + "quals"), O: iri(nested)},
+		Quad{G: np + "#assertion", S: iri(nested), P: iri(labNS + "role"), O: lit("auditor")},
+		Quad{G: np + "#assertion", S: iri(nested), P: iri(labNS + "level"), O: lit("2")},
+	)
+	view := ClaimView(all, pub, ViewConfig{Templates: set})
+	if got := values(view, nested, "https://example.org/q/role"); len(got) != 1 || got[0] != "auditor" {
+		t.Errorf("the nested role is not under its alias: %v", got)
+	}
+	if got := values(view, nested, labNS+"level"); len(got) != 1 || got[0] != "2" {
+		t.Errorf("an unaliased nested field should stay lab:level: %v", got)
+	}
+	if got := values(view, nested, labNS+"role"); len(got) != 0 {
+		t.Errorf("the nested role is still under lab:role too: %v", got)
+	}
+}

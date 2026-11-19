@@ -1058,7 +1058,7 @@ with every other store that names records by hash. Nanopub's Trusty URIs belong 
 | `nk:parent` | on a seed: the parent scope's seed (kton #241) |
 | `nk:replacedBy` | on a claim that a trusted claim names in its `replaces` field, when every signer of the replaced claim also signed the replacing one, with the same template and a shared `nk:about`: that claim (ADR-013 amendment, A5) |
 | `nk:replaces` | from a trusted claim to every claim its `replaces` field names, whoever signed either; a rule decides what a name by another signer means (ADR-013 amendment, A5) |
-| a field | under the term the template's aliases give it, else `lab:<field>` (`https://kton.dev/v/lab/`), typed by the field's type (`docs/sparql.md`) |
+| a field | under the term the template's aliases give it, else `lab:<field>` (`https://kton.dev/v/lab/`), typed by the field's type (`docs/sparql.md`); a nested object's fields go through the aliases the same way |
 
 No other state is inferred: nothing is "current", nothing is superseded unless a claim says so. An alias
 MUST NOT name a term of this table. A claim id in `replaces` and in a `ref` field is named in lower case.
@@ -1068,6 +1068,7 @@ period.
 > **Checked by:** `TestClaimView_KeepsPositionAndInfersNothing`, `TestClaimView_AppliesTheTemplatesTermsAndTypes`,
 > `TestClaimView_ARefFieldPointsAtWhatItNames`, `TestClaimView_AnAliasCannotNameATermTheViewWrites`,
 > `TestClaimView_ReplacedByOnlyForTheSameSignerTemplateAndSubject`, `TestClaimView_EveryAboutAndASeedsParent`,
+> `TestClaimView_ANestedObjectsFieldsGoThroughTheAliases`,
 > `TestSparql_TheExamplesAnswerOverAFixture` (`-tags docker`).
 
 ## 10 Execution *(optional)*
