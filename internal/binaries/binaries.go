@@ -562,7 +562,7 @@ func errOr(primary, fallback error) error {
 // session can say is decided by files an operator put in `templates/`, not by this function.
 func (r *Runner) Annotate(ctx context.Context, subject, tmplName string, sets map[string]string, signKey string, chain *Chain) (string, error) {
 	defer r.wrote()
-	set, err := r.templates()
+	set, own, err := r.TemplatesAndAliases()
 	if err != nil {
 		return "", err
 	}
@@ -584,6 +584,13 @@ func (r *Runner) Annotate(ctx context.Context, subject, tmplName string, sets ma
 			}
 			files[k] = b
 			continue
+		}
+		// An iri value written as a CURIE or term of the template's own package means what that
+		// package says; the kernel's set knows only the repository's aliases (SPEC §9.11).
+		if f, isField := t.Fields[k]; isField && f.Type == "iri" {
+			if r := own[t.Name].Resolve(v); r != v && strings.Contains(r, "://") {
+				v = r
+			}
 		}
 		values[k] = v
 	}
@@ -637,12 +644,21 @@ func (r *Runner) templates() (ntemplate.Set, error) { return r.Templates() }
 // Templates is this repo's template set: its template directory, the allowed packages' templates, and
 // the alias file at the repository root.
 func (r *Runner) Templates() (ntemplate.Set, error) {
+	set, _, err := r.TemplatesAndAliases()
+	return set, err
+}
+
+// TemplatesAndAliases is Templates, and the package aliases each package template's fields resolve
+// through, by template name (SPEC §9.11). The repository's alias file is the set's; a package's own
+// aliases resolve only that package's templates: its predicate and context before they reach the set,
+// its fields in the view and its iri values at say. No package alias enters the set (kton-review A1).
+func (r *Runner) TemplatesAndAliases() (ntemplate.Set, map[string]packages.Aliases, error) {
 	aliasPath := filepath.Join(r.cfg.RepoRoot, "aliases.json")
 	var aliases []byte
 	if b, err := os.ReadFile(aliasPath); err == nil {
 		aliases = b
 	} else if !os.IsNotExist(err) {
-		return ntemplate.Set{}, fmt.Errorf("alias file %s: %w", aliasPath, err)
+		return ntemplate.Set{}, nil, fmt.Errorf("alias file %s: %w", aliasPath, err)
 	}
 	// Two sources, one set: the repository's own template directory, and the templates the allowed
 	// installed packages bring (claims.allowedPackages). A name declared by both is refused by the
@@ -656,39 +672,44 @@ func (r *Runner) Templates() (ntemplate.Set, error) {
 			}
 			b, err := os.ReadFile(filepath.Join(r.cfg.TemplatesDir, n))
 			if err != nil {
-				return ntemplate.Set{}, err
+				return ntemplate.Set{}, nil, err
 			}
 			raw[strings.TrimSuffix(n, ".json")] = b
 		}
 	} else if !os.IsNotExist(err) {
-		return ntemplate.Set{}, fmt.Errorf("template directory %s: %w", r.cfg.TemplatesDir, err)
+		return ntemplate.Set{}, nil, fmt.Errorf("template directory %s: %w", r.cfg.TemplatesDir, err)
 	}
 	voc, err := packages.Allowed(r.cfg.RepoRoot, r.cfg.Raw.Claims.AllowedPackages, r.cfg.Raw.Claims.AllowedModules)
 	if err != nil {
-		return ntemplate.Set{}, err
+		return ntemplate.Set{}, nil, err
 	}
 	// A package template whose name the repository's own template directory also declares is offered
 	// under its qualified name, <package>/<name>, so the two do not take the whole set down.
+	own := map[string]packages.Aliases{}
 	for name, b := range voc.Templates {
+		al := voc.Aliases[voc.From["template:"+name].Name]
+		b = packages.ResolvedTemplate(b, al)
 		if _, local := raw[name]; local && !strings.Contains(name, "/") {
-			q := voc.From["template:"+name].Name + "/" + name
-			raw["package:"+q] = packages.Renamed(b, q)
-			continue
+			name = voc.From["template:"+name].Name + "/" + name
+			b = packages.Renamed(b, name)
 		}
 		raw["package:"+name] = b
+		if !al.Empty() {
+			own[name] = al
+		}
 	}
 	set, err := ntemplate.New(raw, aliases)
 	if err != nil {
-		return ntemplate.Set{}, err
+		return ntemplate.Set{}, nil, err
 	}
 	// Reported rather than absorbed: a file in the template directory that is not a template is
 	// usually a typo'd one, and silence there means a claim shape the operator believes is
 	// configured simply is not.
 	if skipped := set.Skipped(); len(skipped) > 0 {
-		return set, fmt.Errorf("%s holds %d file(s) that are not templates: %s",
+		return set, own, fmt.Errorf("%s holds %d file(s) that are not templates: %s",
 			r.cfg.TemplatesDir, len(skipped), strings.Join(skipped, ", "))
 	}
-	return set, nil
+	return set, own, nil
 }
 
 // readRepoFile reads a repo-relative path, refusing anything that leaves the repository or names a

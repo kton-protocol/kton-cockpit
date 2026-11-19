@@ -1,6 +1,7 @@
 package oxigraph
 
 import (
+	"github.com/kton-protocol/kton-cockpit/internal/packages"
 	"math/rand"
 	"strings"
 	"testing"
@@ -330,5 +331,70 @@ func TestClaimView_ANestedObjectsFieldsGoThroughTheAliases(t *testing.T) {
 	}
 	if got := values(view, nested, labNS+"role"); len(got) != 0 {
 		t.Errorf("the nested role is still under lab:role too: %v", got)
+	}
+}
+
+// A package template's fields resolve through its own package's aliases, never another package's; the
+// repository's aliases resolve what the package leaves as it is, and a claim of a repository template;
+// nested objects go through them at any depth (SPEC §9.11, kton-review A1 on #164).
+func TestClaimView_APackagesFieldsResolveThroughItsOwnAliasesOnly(t *testing.T) {
+	set, err := ntemplate.New(map[string][]byte{
+		"package:one": []byte(`{"name":"one","predicate":"https://ex.org/one","fields":{"outcome":{"type":"enum","values":["q:ok"]},"quals":{"type":"string"}}}`),
+		"package:two": []byte(`{"name":"two","predicate":"https://ex.org/two","fields":{"outcome":{"type":"string"}}}`),
+		"repo":        []byte(`{"name":"repo","predicate":"https://ex.org/repo","fields":{"outcome":{"type":"string"},"note":{"type":"string"}}}`),
+	}, []byte(`{"terms":{"outcome":"https://ex.org/repo/outcome","note":"https://ex.org/repo/note"}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	vc := ViewConfig{Templates: set, Aliases: map[string]packages.Aliases{
+		"one": {Prefixes: map[string]string{"q": "https://ex.org/one/"}, Terms: map[string]string{"outcome": "q:outcome", "role": "q:role", "level": "q:level"}},
+		"two": {Terms: map[string]string{"outcome": "https://ex.org/two/outcome"}},
+	}}
+	claim := func(id, pred string, fields ...Quad) ([]Quad, []Quad) {
+		all, pub := claimQuads(id, "https://ex.org/person", pred, nil, "2026-11-19T10:00:00Z", "", "", "k1")
+		for _, f := range fields {
+			f.G = npNS + id + ".#assertion"
+			all = append(all, f)
+		}
+		return all, pub
+	}
+	h := func(id string) string { return npNS + id + ".#o" }
+	a1, p1 := claim("c1", "https://ex.org/one",
+		Quad{S: iri(h("c1")), P: iri(labNS + "outcome"), O: lit("q:ok")},
+		Quad{S: iri(h("c1")), P: iri(labNS + "quals"), O: iri(h("c1") + ".quals")},
+		Quad{S: iri(h("c1") + ".quals"), P: iri(labNS + "role"), O: iri(h("c1") + ".quals.role")},
+		Quad{S: iri(h("c1") + ".quals.role"), P: iri(labNS + "level"), O: lit("2")},
+		Quad{S: iri(h("c1")), P: iri(labNS + "note"), O: lit("n")})
+	a2, p2 := claim("c2", "https://ex.org/two", Quad{S: iri(h("c2")), P: iri(labNS + "outcome"), O: lit("fine")})
+	a3, p3 := claim("c3", "https://ex.org/repo", Quad{S: iri(h("c3")), P: iri(labNS + "outcome"), O: lit("good")})
+	view := ClaimView(append(append(a1, a2...), a3...), append(append(p1, p2...), p3...), vc)
+
+	if got := values(view, oNS+"c1", "https://ex.org/one/outcome"); len(got) != 1 || got[0] != "https://ex.org/one/ok" {
+		t.Errorf("package one's outcome is not under its own term with its enum value resolved by its own prefix: %v", got)
+	}
+	if got := values(view, oNS+"c2", "https://ex.org/two/outcome"); len(got) != 1 || got[0] != "fine" {
+		t.Errorf("package two's outcome is not under its own term: %v", got)
+	}
+	if got := values(view, oNS+"c3", "https://ex.org/repo/outcome"); len(got) != 1 || got[0] != "good" {
+		t.Errorf("the repository template's outcome is not under the repository's term: %v", got)
+	}
+	for _, c := range []string{"c2", "c3"} {
+		if got := values(view, oNS+c, "https://ex.org/one/outcome"); len(got) != 0 {
+			t.Errorf("package one's alias resolved %s's field: %v", c, got)
+		}
+	}
+	if got := values(view, oNS+"c1", "https://ex.org/repo/note"); len(got) != 1 {
+		t.Errorf("a field the package leaves as it is does not fall back to the repository's alias: %v", got)
+	}
+	if got := values(view, h("c1")+".quals", "https://ex.org/one/role"); len(got) != 1 {
+		t.Errorf("the nested role is not under the package's term: %v", got)
+	}
+	if got := values(view, h("c1")+".quals.role", "https://ex.org/one/level"); len(got) != 1 || got[0] != "2" {
+		t.Errorf("a field two levels down is not under the package's term: %v", got)
+	}
+	other := vc
+	other.Aliases = map[string]packages.Aliases{"one": vc.Aliases["two"], "two": vc.Aliases["one"]}
+	if vc.Fingerprint() == other.Fingerprint() {
+		t.Error("the fingerprint does not change when a package's aliases do")
 	}
 }
