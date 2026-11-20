@@ -157,6 +157,32 @@ type loadEntry struct {
 	From      string `json:"from"`
 	MediaType string `json:"mediaType"`
 	Label     string `json:"label,omitempty"`
+	// Changed is the file at From as it was when its bytes last did not hash to Hash: while it is
+	// still that size and that modification time, it is not read and hashed again before every query
+	// (kton-review N1 on #192).
+	Changed *fileMark `json:"changed,omitempty"`
+}
+
+type fileMark struct {
+	Size    int64 `json:"size"`
+	ModTime int64 `json:"modTime"` // Unix nanoseconds
+}
+
+// markOf is the size and modification time of the file a load-list entry names; nil for a file in
+// the content store (its name is its hash, so it cannot change) or one that cannot be read.
+func markOf(cfg *config.Config, from string) *fileMark {
+	if strings.HasPrefix(from, "sha256:") {
+		return nil
+	}
+	p := from
+	if !filepath.IsAbs(p) {
+		p = filepath.Join(cfg.RepoRoot, from)
+	}
+	st, err := os.Stat(p)
+	if err != nil {
+		return nil
+	}
+	return &fileMark{st.Size(), st.ModTime().UnixNano()}
 }
 
 // describe is how a loaded file's graph is found (ADR-018, section 4a): the output paths the steps
@@ -276,17 +302,36 @@ func reloadMissing(ctx context.Context, cfg *config.Config, d *oxigraph.Daemon) 
 	for _, g := range have {
 		in[g.Hash] = true
 	}
-	for _, e := range l {
+	marked := false
+	for i := range l {
+		e := &l[i]
 		if in[e.Hash] {
 			continue
 		}
+		if e.Changed != nil {
+			if m := markOf(cfg, e.From); m != nil && *m == *e.Changed {
+				missing++ // still the file whose bytes did not match: not read again
+				continue
+			}
+		}
 		b, hex, err := loadBytes(cfg, e.From)
+		if err == nil && "sha256:"+hex != e.Hash {
+			e.Changed, marked = markOf(cfg, e.From), true
+		}
 		if err != nil || "sha256:"+hex != e.Hash {
 			missing++
 			continue
 		}
+		if e.Changed != nil {
+			e.Changed, marked = nil, true
+		}
 		if _, err := d.LoadGraph(ctx, cfg, hex, b, e.MediaType, e.From, describe(ctx, binaries.New(cfg), hex, e.Label)); err != nil {
 			missing++
+		}
+	}
+	if marked {
+		if err := writeLoadList(cfg, l); err != nil {
+			return missing, err
 		}
 	}
 	return missing, nil
