@@ -160,3 +160,16 @@ test("design step 7: cards: short test names and decoded locations, verdict pill
   assert.match(h, /<span class="badge" data-badge>earlier: unclear<\/span>/);
   assert.doesNotMatch(h, /class="pager"/, "one card: no pager");
 });
+
+test("design step 8: rule cases: effects per answer, the resolves line, a stacked bar to scale", async () => {
+  const c = await media("viewers/cards/cards.js");
+  const e = c.parseEffects("asserted|78|0|0|78;exercised|0|78|0|78;no-relation|0|22|56|78;bad|x|1|1|1");
+  assert.deepEqual(e.map((x: Any) => [x.answer, x.covered, x.exercisedOnly, x.gap, x.resolved]), [["asserted", 78, 0, 0, 78], ["exercised", 0, 78, 0, 78], ["no-relation", 0, 22, 56, 78]]);
+  assert.equal(c.resolvesLine(e, 78), "Resolves 78 of 78 elements, whatever the answer");
+  assert.equal(c.resolvesLine(c.parseEffects("asserted|28|0|0|28;no-relation|0|2|26|29"), 29), "Resolves 28–29 of 29 elements, depending on the answer");
+  assert.equal(c.resolvesLine(c.parseEffects("asserted|1|0|0|1"), 1), "Resolves 1 of 1 element, whatever the answer");
+  const el: Any = { innerHTML: "", querySelectorAll: () => [], querySelector: () => null };
+  c.mount(el, { use: { options: { title: "title", effects: "effects", touched: "touched" } }, kit, request: async () => ({ results: { bindings: [{ title: { value: "Rule case 10" }, effects: { value: "no-relation|0|2|26|28" }, touched: { value: "29" }, stamp: { value: "s" } }] } }), intent: async () => ({}), setState: () => {} });
+  await new Promise((r) => setTimeout(r, 10));
+  assert.match(el.innerHTML, /<td>no relation<div class="stack" aria-hidden="true"><i class="s-ex" data-w="6\.9"><\/i><i class="s-gap" data-w="89\.7"><\/i><\/div><\/td><td>0<\/td><td>2<\/td><td>26<\/td>/);
+});

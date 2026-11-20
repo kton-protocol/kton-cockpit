@@ -13,6 +13,9 @@
 //   draws    "kind|Label": small buttons after drawsLabel that set the state `draw` (the event draw) to "<kind>:<n>"
 //   pick     "column|Label": a ghost button per card that sets the state `pick` (the event pick) to the row's column,
 //            e.g. the element whose evidence another block shows
+//   effects  a column "answer|covered|exercisedOnly|gap|resolved;…" (a rule case's effect per answer) and touched a column
+//            (the elements it touches): "Resolves 78 of 78 elements, whatever the answer" and a table If answered |
+//            Covered | Ex. only | Gap with a stacked bar per answer (covered blue, exercised purple, gap orange)
 //   layout   list (default) | pager (one card at a time, ‹ n of m › and dots) | grid (auto columns)
 //   heading  a heading above the cards; emptyText, emptyHow what to say when there is no row, and how there will be one
 // Every card shows its row's ?stamp; a row with ?fixture "true" is marked as fixture data.
@@ -38,7 +41,7 @@ export function mount(el, ctx) {
         return { field, value, label };
       });
       const [pickCol, pickLabel] = o.pick ? split(o.pick) : [null, null];
-      const [badgeCol, badgePre] = o.badge ? split(o.badge) : [null, ""];
+      const [badgeCol, badgePre] = o.badge ? (o.badge.includes("|") ? split(o.badge) : [o.badge, ""]) : [null, ""];
       const locs = new Map((o.locs ?? []).map((l) => l.split("=")));
       const card = (x, i) => {
         const stamp = v(x.stamp);
@@ -77,6 +80,7 @@ export function mount(el, ctx) {
         return `<article class="kton-card card" data-card-row="${i}" data-target="${esc(o.target ? v(x[o.target]) : "")}" aria-label="${esc(v(x[o.title]) || "card")}">
   <div class="card-head">${group}<h4 class="id">${esc(v(x[o.title]) || "(untitled)")}</h4> ${st}${v(x.fixture) === "true" ? ` <span class="kton-stamp" data-fixture>fixture</span>` : ""}${badge}</div>
   ${o.quote && v(x[o.quote]) ? `<blockquote class="quote">${esc(v(x[o.quote]))}</blockquote>` : ""}
+  ${o.effects ? effectsTable(esc, parseEffects(v(x[o.effects])), Number(v(x[o.touched ?? ""])) || undefined) : ""}
   ${fields ? `<dl class="kv">${fields}</dl>` : ""}${judges}${seg}
   ${buttons || pick ? `<div class="kton-act actions">${buttons}${pick}<span class="kton-muted" data-act-out="${i}" role="status"></span></div>` : ""}
 </article>`;
@@ -89,6 +93,7 @@ export function mount(el, ctx) {
       const list = rows.map(card).join("");
       const wrap = o.layout === "grid" ? "rc-grid" : "cards-list";
       el.innerHTML = `${heading}${rows.length ? `<div data-cards-count="${rows.length}">${nav}<div class="${wrap}">${list}</div></div>` : emptyBox(esc, o.emptyText || "Nothing to show.", o.emptyHow)}${draws ? `<div class="kton-act draws" data-draws><span class="muted">${esc(o.drawsLabel ?? "Draw more:")}</span>${draws}</div>` : ""}`;
+      for (const i of el.querySelectorAll(".stack i[data-w]")) i.style.setProperty("--w", i.dataset.w);
       const cards = [...el.querySelectorAll("article[data-card-row]")];
       let cur = 0;
       const show = (k) => {
@@ -147,6 +152,34 @@ export function mount(el, ctx) {
     },
   );
   return { set() {}, destroy() {} };
+}
+
+/** "answer|covered|exercisedOnly|gap|resolved;…" → [{answer, covered, exercisedOnly, gap, resolved}] (bad entries dropped). */
+export function parseEffects(s) {
+  return String(s ?? "")
+    .split(";")
+    .map((e) => e.split("|"))
+    .filter((p) => p.length === 5 && p.slice(1).every((n) => /^\d+$/.test(n)))
+    .map(([answer, c, x, g, r]) => ({ answer, covered: Number(c), exercisedOnly: Number(x), gap: Number(g), resolved: Number(r) }));
+}
+
+/** "Resolves 78 of 78 elements, whatever the answer" (or "28–29 of 29" when the answers resolve different counts). */
+export function resolvesLine(effects, touched) {
+  if (!effects.length) return "";
+  const r = effects.map((e) => e.resolved);
+  const lo = Math.min(...r), hi = Math.max(...r);
+  const of = touched ?? Math.max(...effects.map((e) => e.covered + e.exercisedOnly + e.gap));
+  return `Resolves ${lo === hi ? lo : `${lo}–${hi}`} of ${of} element${of === 1 ? "" : "s"}${lo === hi ? ", whatever the answer" : ", depending on the answer"}`;
+}
+
+function effectsTable(esc, effects, touched) {
+  if (!effects.length) return "";
+  const of = touched ?? Math.max(...effects.map((e) => e.covered + e.exercisedOnly + e.gap));
+  const w = (n) => (of ? Math.round((n / of) * 1000) / 10 : 0);
+  const bar = (e) => `<div class="stack" aria-hidden="true">${e.covered ? `<i class="s-cov" data-w="${w(e.covered)}"></i>` : ""}${e.exercisedOnly ? `<i class="s-ex" data-w="${w(e.exercisedOnly)}"></i>` : ""}${e.gap ? `<i class="s-gap" data-w="${w(e.gap)}"></i>` : ""}</div>`;
+  return `<div class="rc-res num" data-resolves>${esc(resolvesLine(effects, touched))}</div><table class="eff" data-effects><thead><tr><th>If answered</th><th>Covered</th><th>Ex. only</th><th>Gap</th></tr></thead><tbody>${effects
+    .map((e) => `<tr><td>${esc(e.answer.replace(/-/g, " "))}${bar(e)}</td><td>${e.covered}</td><td>${e.exercisedOnly}</td><td>${e.gap}</td></tr>`)
+    .join("")}</tbody></table>`;
 }
 
 /** A verdict's pill colour: asserted blue, exercised purple, no-relation muted, unclear (or anything else) warning. */

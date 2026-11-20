@@ -340,3 +340,15 @@ table td[data-col] { overflow-wrap: anywhere; }
 .rc-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
 @container view (min-width: 700px) { .rc-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 .rc-grid > .card { margin: 0; }
+
+/* ---------- 8. rule cases: the effect of each answer ---------- */
+.rc-res { font-size: 12px; color: var(--wb-muted); margin: 6px 0 8px; }
+table.eff { width: 100%; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
+table.eff th, table.eff td { padding: 3px 4px; border-bottom: 1px solid var(--wb-hairline); text-align: right; white-space: nowrap; }
+table.eff th:first-child, table.eff td:first-child { text-align: left; }
+table.eff thead th { font-size: 11px; color: var(--wb-muted); font-weight: 600; }
+table.eff tbody tr:hover td { background: none; }
+.stack { display: flex; height: 6px; border-radius: 1px; overflow: hidden; margin: 2px 0 1px; background: var(--wb-hairline); }
+.stack i { display: block; height: 100%; width: calc(var(--w, 0) * 1%); }
+.s-cov { background: var(--wb-accent); } .s-ex { background: var(--wb-purple); } .s-gap { background: var(--wb-over); }
+.rc-grid .card-head .id { font-family: var(--wb-font); font-size: 13px; }
