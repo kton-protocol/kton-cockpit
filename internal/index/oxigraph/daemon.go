@@ -81,6 +81,15 @@ func containerName(dir string) string {
 func Ensure(ctx context.Context, cfg *config.Config) (*Daemon, error) {
 	if u := cfg.Raw.Index.URL; u != "" {
 		d := &Daemon{URL: strings.TrimSuffix(u, "/")}
+		// The bookkeeping a started daemon keeps beside its store (which view is built under which key,
+		// the locks that let two cockpits take turns) is kept for this URL too, in a directory of its
+		// own. Without it every query rebuilt the view: 25-37 s per ask where the engine answers in
+		// 2 ms (qm-dev-provenance, 20.11.). A kept view is trusted only once the store confirms it
+		// (viewIs), so a store that changed under another writer is rebuilt as before.
+		if dir, err := Dir(); err == nil {
+			h := sha256.Sum256([]byte(d.URL))
+			d.Dir = filepath.Join(dir, "url-"+hex.EncodeToString(h[:8]))
+		}
 		if err := d.ping(ctx); err != nil {
 			return nil, fmt.Errorf("index.url %s: %w", u, err)
 		}
