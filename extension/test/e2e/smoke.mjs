@@ -1519,16 +1519,21 @@ if (seed.roles) {
   });
 
   if (seed.roles.coverage) {
-    // coverage is a registry of its own (repo-roles-cov, seed.sh says why): the window opens that folder now
-    mkdirSync(`${WORK}/repo-roles-cov/.vscode`, { recursive: true });
-    writeFileSync(`${WORK}/repo-roles-cov/.vscode/settings.json`, JSON.stringify({ "kton.cockpit.timeoutSeconds": 90 }, null, 2));
-    await page.goto(URL.replace(/folder=[^&]*/, `folder=${encodeURIComponent(`${WORK}/repo-roles-cov`)}`));
-    await page.locator(".monaco-workbench").waitFor({ timeout: 90000 });
-    await views();
-    await step("R", 7, "test-side gaps by part (a copy of verification's dryrun1.coverage): REST API pages by 200 from its count", async () => {
+    await step("R", 7, "test-side gaps by part (verification's dryrun1.coverage, federated): REST API pages by 200 from its count", async () => {
+      await views();
       await page.locator(".monaco-list-row", { hasText: "Christof (test) · dryrun1" }).first().click({ timeout: 60000 });
-      const f = await christof();
+      let f = await christof();
       await waitDrawn(f, "gapsbypart", 150000);
+      // the first asks over the federated coverage copy build its index; one that ran into the cockpit's 30 s query
+      // limit meanwhile shows an error: open the view once more, then it answers from the index
+      if (await box(f, "gapsbypart").locator("[data-area-error]").count()) {
+        current.checks.push({ ok: true, message: `first open: ${(await boxText(f, "gapsbypart")).slice(0, 120)}; opened again` });
+        await closeEditors();
+        await views();
+        await page.locator(".monaco-list-row", { hasText: "Christof (test) · dryrun1" }).first().click({ timeout: 60000 });
+        f = await christof();
+        await waitDrawn(f, "gapsbypart", 150000);
+      }
       const parts = await rowsIn(f, "gapsbypart");
       const rest = parts.find((r) => r.part === "REST API");
       check(!!rest && /dryrun1\.coverage · /.test(rest.stamp), "REST API counted, stamped", "REST API …", rest);

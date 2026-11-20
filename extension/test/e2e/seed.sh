@@ -215,8 +215,8 @@ fi
 # (its claims and its dev key's public halves, as they are) with this run's test keys added, the triage package and
 # the role views' package installed, and a stand-in dryrun1.triage: the guard rules' good and bad cases (qm-packages
 # areas/dryrun1-triage testdata/scenario.py), signed with this run's throwaway keys. ROLES_COVERAGE (optional): a
-# copy of verification's dryrun1-coverage as a registry of its own (repo-roles-cov). Both with an Oxigraph index (the
-# first ask after the seed builds it, about a minute for the coverage copy; then asks take well under a second).
+# copy of verification's dryrun1-coverage, federated read-only. Both with an Oxigraph index (the first ask after the
+# seed builds it; then asks take about a second).
 ROLES=""
 if [ -d /roles-runs/.kton ] && [ -d /roles-pkg ] && [ -d /roles-triage-pkg ]; then
   mkdir -p "$E2E/repo-roles" && cp -R /roles-runs/. "$E2E/repo-roles/" && cd "$E2E/repo-roles"
@@ -258,24 +258,14 @@ c.persist=Object.assign(c.persist||{},{share:false});c.index={kind:"oxigraph"};f
   sayq triage-ranks ${RD}r3/G5 $T $PE "{\"round\":\"${RD}r3\",$RANK}" >/dev/null
   ROLES_COV=false
   if [ -d /roles-coverage/.kton ]; then
-    # coverage is NOT federated: a union with its ~11.5k claims did not finish in 13 min CPU (cockpit v0.5.5 and main
-    # a320e83, 20.11.). repo-roles-cov is a COPY of verification's dryrun1-coverage with an Oxigraph index, this run's
-    # keys and the role views' package: the test-side gaps parts are checked there (R.7).
-    mkdir -p "$E2E/repo-roles-cov" && cp -R /roles-coverage/. "$E2E/repo-roles-cov/" && cd "$E2E/repo-roles-cov"
-    rm -rf .kton/local && mkdir -p .kton/local && cp "$E2E/repo/.kton/local/identity.json" .kton/local/identity.json
-    mkdir -p .kton/keys/self .kton/keys/agent
-    cp "$E2E/repo/.kton/keys/self/"qa-decider*.pub .kton/keys/self/
-    cp "$E2E/repo/.kton/keys/agent/qa-decider-agent"*.pub .kton/keys/agent/
-    node -e '
-const fs=require("fs");const p=".kton/cockpit.config.json";const c=JSON.parse(fs.readFileSync(p));
-c.trust=Object.assign(c.trust||{},{tiers:[...new Set([...((c.trust||{}).tiers||[]),"self","agent"])]});
-c.query={image:"oci://oxigraph/oxigraph@sha256:10677fb643f8c5a7bfb03dd8f7971c79a84b01e795c24201c8cfa12fd569f1c0"};
-c.persist=Object.assign(c.persist||{},{share:false});c.index={kind:"oxigraph"};fs.writeFileSync(p,JSON.stringify(c,null,2));'
-    git config user.email qa@example.org; git config user.name qa
-    cockpit install "$E2E/vocab-package" --allow --json >/dev/null
-    cockpit install "$E2E/pkg-roles" --allow --json >/dev/null
+    # verification's dryrun1-coverage (~11.5k claims), a copy with an Oxigraph index, federated read-only after the
+    # says (cockpit main 99fe43e or later: #198 fixed the federation add of a large source)
+    mkdir -p "$E2E/coverage-roles" && cp -R /roles-coverage/. "$E2E/coverage-roles/"
+    node -e 'const fs=require("fs");const p=process.argv[1]+"/.kton/cockpit.config.json";const c=JSON.parse(fs.readFileSync(p));c.index={kind:"oxigraph"};fs.writeFileSync(p,JSON.stringify(c,null,2));' "$E2E/coverage-roles"
+    mkdir -p .kton/keys/lane && cp /roles-coverage/.kton/keys/self/*.pub .kton/keys/lane/
+    node -e 'const fs=require("fs");const p=".kton/cockpit.config.json";const c=JSON.parse(fs.readFileSync(p));c.trust.tiers=[...new Set([...c.trust.tiers,"lane"])];fs.writeFileSync(p,JSON.stringify(c,null,2));'
+    cockpit federation add verification-coverage "$E2E/coverage-roles" >/dev/null
     ROLES_COV=true
-    cd "$E2E/repo-roles"
   fi
   ROLES="{\"e1\": \"$E1\", \"e2static\": \"$E2S\", \"coverage\": $ROLES_COV}"
   cd "$E2E/repo"

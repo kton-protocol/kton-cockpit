@@ -14,10 +14,10 @@ let stop = false;
 
 // the registry to run in: the lanes one (repo), the S6 one (repo-s6: the QM areas' packages bring field
 // aliases that would rename the lanes vocabulary's fields, since the view reads one alias file per registry), or
-// the role views' ones (repo-roles: a copy of test-execution's dryrun1.runs with a stand-in dryrun1.triage;
-// repo-roles-cov: a copy of verification's dryrun1-coverage)
+// the role views' one (repo-roles: a copy of test-execution's dryrun1.runs with a stand-in dryrun1.triage and a
+// copy of verification's dryrun1-coverage federated)
 function run({ argv, stdin, repo }) {
-  const dir = ["repo-s6", "repo-dm", "repo-dm2", "repo-roles", "repo-roles-cov"].includes(repo) ? repo : "repo";
+  const dir = ["repo-s6", "repo-dm", "repo-dm2", "repo-roles"].includes(repo) ? repo : "repo";
   // repo-dm federates test-execution's runs: the first ask after a say rebuilds the view with the federation, which
   // took over 2 minutes on ai1 (the old 120 s timeout killed it: exit 1, empty stderr)
   const timeout = dir.startsWith("repo-dm") ? 600_000 : 120_000;
