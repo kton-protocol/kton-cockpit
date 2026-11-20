@@ -3,7 +3,10 @@
  *
  *     plankton/objects/sha256/<hash>.json          one object per file, pretty-printed
  *     nekton/objects/scope/<scope_id>.nekton.jsonl a subnekton: its seed and its chain, one file
- *     nekton/objects/unscoped.nekton.jsonl         the unscoped nekton
+ *
+ * (kton v0.4 has no unscoped nekton any more: the store's first write opens its root scope, and
+ * every seed and claim hangs off it, so every claim file is a scope/ file. An older registry's
+ * nekton/objects/unscoped.nekton.jsonl still reads, as JSONL, by the rule below.)
  *
  * This is not legacy versus current, and not an accident of history: THE UNIT OF THE FILE IS THE
  * UNIT OF VALIDITY. A foton is valid on its own, so plankton keeps one object per file and handing
