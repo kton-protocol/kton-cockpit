@@ -1,0 +1,18 @@
+# The counts of the decision, each with its scope and stamp: in scope (MH 10.11.), outside it, all judged.
+# Two scopes in one view: the view's guard flags it (G5.4). The proposal's option b names 237; the data counts 254.
+PREFIX nk: <https://kton.dev/v/>
+PREFIX lab: <https://kton.dev/v/lab/>
+PREFIX covx: <https://w3id.org/improve/coverage-extra#>
+SELECT ?value ?label ?scope ?stamp ?note WHERE {
+  {
+    { SELECT (COUNT(DISTINCT ?e) AS ?value) (SAMPLE(?s) AS ?stamp) WHERE { ?c nk:predicate covx:worklistItem ; lab:element ?e ; lab:inScope "true" ; lab:stamp ?s } }
+    BIND("unsettled elements in your scope (disputed, needs review, unclear)" AS ?label) BIND("in scope (MH 10.11.)" AS ?scope) BIND("" AS ?note) BIND(1 AS ?o)
+  } UNION {
+    { SELECT (COUNT(DISTINCT ?e) AS ?value) (SAMPLE(?s) AS ?stamp) WHERE { ?c nk:predicate covx:worklistItem ; lab:element ?e ; lab:stamp ?s } }
+    BIND("all judged unsettled elements" AS ?label) BIND("all judged" AS ?scope) BIND("The proposal's option b names 237 here; the data counts this." AS ?note) BIND(2 AS ?o)
+  } UNION {
+    { SELECT (COUNT(DISTINCT ?e) AS ?value) (SAMPLE(?s) AS ?stamp) WHERE { ?c nk:predicate covx:worklistItem ; lab:element ?e ; lab:inScope "false" ; lab:stamp ?s } }
+    BIND("of them outside your scope" AS ?label) BIND("outside your scope" AS ?scope) BIND("" AS ?note) BIND(3 AS ?o)
+  }
+}
+ORDER BY ?o

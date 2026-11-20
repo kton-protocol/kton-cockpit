@@ -1,0 +1,2 @@
+{"name": "triage-question", "target": "either", "predicate": "https://kton.dev/v/triage/question",
+ "fields": {"text": {"type": "string", "required": true}}}

@@ -15,7 +15,7 @@ let stop = false;
 // the registry to run in: the lanes one (repo), or the S6 one (repo-s6: the QM areas' packages bring field
 // aliases that would rename the lanes vocabulary's fields, since the view reads one alias file per registry)
 function run({ argv, stdin, repo }) {
-  const dir = repo === "repo-s6" ? "repo-s6" : "repo";
+  const dir = repo === "repo-s6" || repo === "repo-dm" ? repo : "repo";
   return new Promise((resolve) => {
     const child = execFile("cockpit", argv, { cwd: join(WORK, dir), env, shell: false, timeout: 120_000, maxBuffer: 32 * 1024 * 1024 }, (err, stdout, stderr) => {
       resolve({ code: err ? (typeof err.code === "number" ? err.code : 1) : 0, stdout: String(stdout), stderr: String(stderr) });

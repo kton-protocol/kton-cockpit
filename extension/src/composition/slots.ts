@@ -74,8 +74,10 @@ export async function planComposition(ref: { package: string; composition: strin
 }
 
 /** Plan an entry for a subject: compose rounds answered with named queries through the transport. */
-export async function planEntry(e: SlotEntry, subject: Subject, loaded: Loaded, identityName: string, query: (pkg: string, name: string, terms: Record<string, BoundTerm>) => Promise<unknown>): Promise<Plan> {
-  const { ref, packages } = compositionOf(e, loaded);
+export async function planEntry(e: SlotEntry, subject: Subject, loaded: Loaded, identityName: string, query: (pkg: string, name: string, terms: Record<string, BoundTerm>) => Promise<unknown>, builtin?: MirrorPackage): Promise<Plan> {
+  const { ref, packages: own } = compositionOf(e, loaded);
+  // the workbench's own blocks are there for every composition, as the package "@workbench"
+  const packages = builtin ? { ...own, [builtin.name]: builtin } : own;
   const mirrorSubject = { iri: subject.iri, id: subject.id, ...(subject.claim ? { claim: subject.claim } : {}) };
   return (await planRounds(ref, mirrorSubject, {}, packages, { identity: { name: identityName } }, async (n: { query: { package: string; name: string }; params: Record<string, Term> }) => {
     const r = (await query(n.query.package, n.query.name, termsOf(n.params))) as { results?: { bindings?: unknown[] } };

@@ -1,0 +1,1 @@
+{"viewer": "estimate", "module": "estimate.js", "requires": ["query@1"], "optional": [], "accepts": {"unit": "literal"}, "emits": {}}

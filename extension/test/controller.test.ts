@@ -961,3 +961,27 @@ test("N2 on #187: a meaning that is a value of two fields is refused, not taken 
   assert.match(h.errors.at(-1) ?? "", /means approved, a value of several fields of rec-two \(outcome, status\)/);
   assert.equal(t.says.length, 0);
 });
+
+test("proposed fields: a value of a field with fixed values is taken (the dialog shows it); a free value is only the input's default", async () => {
+  const t = new FakeTransport();
+  const SPOT: TemplateInfo = { name: "triage-spotcheck", package: "dryrun1.triage", fields: { verdict: { type: "enum", values: ["rule-judge-right", "second-model-right", "spec-unclear"], required: true }, proposal: { type: "string", required: true }, note: { type: "string" } } };
+  const DEC: TemplateInfo = { name: "triage-decides", package: "dryrun1.triage", fields: { choice: { type: "string", required: true }, lookedAt: { type: "string" } } };
+  t.templateList = [...TEMPLATES, SPOT, DEC];
+  const { h, wb } = await setup({}, t);
+  h.confirmAnswer = true;
+  const spot = { package: "dryrun1.triage", name: "spotcheck", template: "triage-spotcheck", kind: "decision" as const, meaning: "reviewed" };
+  assert.equal(await wb.signAct(spot, iri("a"), { proposal: iri("1") }, "Verdict", undefined, { proposed: { verdict: "second-model-right" } }), "signed");
+  assert.match(h.dialogs.at(-1)?.detail ?? "", /verdict = second-model-right/);
+  assert.deepEqual(t.says.at(-1)?.fields, { proposal: iri("1"), verdict: "second-model-right" });
+  // a proposed value outside the fixed values is asked
+  h.picks = ["spec-unclear"];
+  assert.equal(await wb.signAct(spot, iri("a"), { proposal: iri("1") }, "Verdict", undefined, { proposed: { verdict: "made-up" } }), "signed");
+  assert.equal(t.says.at(-1)?.fields?.["verdict"], "spec-unclear");
+  // a free field: the proposal is the input's default; what the person leaves is what is signed
+  const inputs: Array<[string, string | undefined]> = [];
+  (h as unknown as { input: (p: string, v?: string) => Promise<string | undefined> }).input = async (p: string, v?: string) => (inputs.push([p, v]), p.endsWith("choice") ? "a" : v);
+  const dec = { package: "dryrun1.triage", name: "decides", template: "triage-decides", kind: "decision" as const };
+  assert.equal(await wb.signAct(dec, iri("1"), {}, "Choose", undefined, { proposed: { lookedAt: `${iri("a")} ${iri("b")}` } }), "signed");
+  assert.deepEqual(inputs, [["decides: choice", undefined], ["decides: lookedAt", `${iri("a")} ${iri("b")}`]]);
+  assert.deepEqual(t.says.at(-1)?.fields, { choice: "a", lookedAt: `${iri("a")} ${iri("b")}` });
+});

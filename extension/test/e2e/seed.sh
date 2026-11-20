@@ -159,9 +159,40 @@ sayq deviation-note "$D2" qa.deviations $AG '{"text":"Waiting for the cleaning s
 
 cd "$E2E/repo"
 
+# The decision view (DM): a copy of verification's dryrun1 data registry (read only, /dm-data), with this run's test keys
+# added, the lanes vocabulary (a stand-in proposal for 2c50ddd6), and the view package dryrun1.triage.
+DM_PROPOSAL=""
+if [ -d /dm-data/.kton ]; then
+  mkdir -p "$E2E/repo-dm" && cp -R /dm-data/. "$E2E/repo-dm/" && cd "$E2E/repo-dm"
+  rm -rf .kton/local && mkdir -p .kton/local && cp "$E2E/repo/.kton/local/identity.json" .kton/local/identity.json
+  mkdir -p .kton/keys/self .kton/keys/agent
+  cp "$E2E/repo/.kton/keys/self/"qa-*.pub .kton/keys/self/ 2>/dev/null || true
+  cp "$E2E/repo/.kton/keys/agent/qa-decider-agent"*.pub .kton/keys/agent/
+  rm -f .kton/keys/self/qa-lookalike*
+  node -e '
+const fs=require("fs");const p=".kton/cockpit.config.json";const c=JSON.parse(fs.readFileSync(p));
+c.trust=Object.assign(c.trust||{},{tiers:[...new Set([...(c.trust&&c.trust.tiers||[]),"self","agent"])]});
+c.query={image:"oci://oxigraph/oxigraph@sha256:10677fb643f8c5a7bfb03dd8f7971c79a84b01e795c24201c8cfa12fd569f1c0"};
+c.persist=Object.assign(c.persist||{},{share:false});fs.writeFileSync(p,JSON.stringify(c,null,2));'
+  git config user.email qa@example.org; git config user.name qa
+  cp "$VOCAB"/templates/*.json .kton/templates/
+  VOCAB="$VOCAB" node -e '
+const fs=require("fs");const p=".kton/cockpit.config.json";const c=JSON.parse(fs.readFileSync(p));c.claims=c.claims||{};
+const names=fs.readdirSync(process.env.VOCAB+"/templates").filter(f=>f.endsWith(".json")).map(f=>f.slice(0,-5));
+c.claims.allowedTemplates=[...new Set([...(c.claims.allowedTemplates||[]),...names])];fs.writeFileSync(p,JSON.stringify(c,null,2));'
+  cockpit install "$E2E/vocab-package" --allow --json >/dev/null
+  cockpit install "$E2E/pkgs/dryrun1.triage" --allow --json >/dev/null
+  LS=$(cockpit scope seed lanes 2>&1 | sed -n 's/.*"lanes": "\(sha256:[0-9a-f]*\)".*/\1/p')
+  node -e 'const fs=require("fs");const p=".kton/cockpit.config.json";const c=JSON.parse(fs.readFileSync(p));c.claims.scopes.lanes=process.argv[1];fs.writeFileSync(p,JSON.stringify(c,null,2));' "$LS"
+  DM_PROPOSAL=$(cockpit say proposes "$LS" area=qm title="Can the 5.0.0 mapping be the basis for G1 triage?" text="Stand-in for verification's 2c50ddd6 (dry run 1). Option b names 237 elements." why="e2e seed" \
+    options='[{"id":"a","label":"Take round 9"},{"id":"b","label":"Wolfgang reviews the 237"},{"id":"c","label":"Settle rules 6, 9, 10"}]' --scope lanes --as qa-requestor --json | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s).claimId))')
+  cd "$E2E/repo"
+fi
+
 cat > "$E2E/seed.json" <<EOF
 {"scope": "$SEED", "requests": ["$R1", "$R2"], "announce": "$ANN", "proposals": {"P1": "$P1", "P2": "$P2", "P3": "$P3", "P4": "$P4"},
  "personKeyId": "$PKID", "agentKeyId": "$AKID", "lookalikeKeyId": "$LKID",
+ "dm": {"proposal": "$DM_PROPOSAL"},
  "s6": {"deviations": {"D-001": "$D1", "D-002": "$D2", "D-003-v1": "$D3A", "D-003": "$D3", "D-004": "$D4"}}}
 EOF
 echo "seeded: scope $SEED"

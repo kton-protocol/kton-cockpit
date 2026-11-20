@@ -1,0 +1,8 @@
+{
+ "viewer": "figures",
+ "module": "figures.js",
+ "requires": ["query@1"],
+ "optional": ["sign@1", "record@1"],
+ "accepts": {"guard": "literal", "emptyText": "literal", "propose": {"set": "literal"}},
+ "emits": {}
+}

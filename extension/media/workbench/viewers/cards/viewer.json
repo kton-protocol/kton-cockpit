@@ -1,0 +1,15 @@
+{
+ "viewer": "cards",
+ "module": "cards.js",
+ "requires": ["query@1"],
+ "optional": ["sign@1", "record@1", "open@1"],
+ "accepts": {
+  "title": "literal",
+  "fields": {"set": "literal"},
+  "target": "literal",
+  "choices": {"set": "literal"},
+  "draws": {"set": "literal"},
+  "emptyText": "literal"
+ },
+ "emits": {"draw": {"from": "state.draw", "type": "literal"}}
+}

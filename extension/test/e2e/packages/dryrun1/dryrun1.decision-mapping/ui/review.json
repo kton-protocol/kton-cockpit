@@ -1,0 +1,1 @@
+{"slot": "review-view", "label": "Decision view: mapping", "when": {"kind": "claim"}, "composition": "decision", "order": 5}

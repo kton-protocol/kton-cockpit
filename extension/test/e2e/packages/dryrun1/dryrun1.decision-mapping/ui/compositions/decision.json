@@ -1,0 +1,251 @@
+{
+ "composition": "decision",
+ "kind": "view",
+ "subject": {
+  "kind": "claim"
+ },
+ "vars": {
+  "draw": {
+   "type": "literal",
+   "default": "gxp:0"
+  },
+  "minVerdicts": {
+   "type": "literal",
+   "default": "10"
+  }
+ },
+ "parts": [
+  {
+   "id": "question",
+   "heading": "Can the 5.0.0 mapping be the basis for G1 triage, and who settles the elements the judges disagree on?",
+   "blocks": [
+    {
+     "id": "counts",
+     "use": {
+      "package": "@workbench",
+      "block": "figures"
+     },
+     "query": "dm-figures",
+     "empty": "show",
+     "options": {
+      "guard": "scope"
+     }
+    }
+   ]
+  },
+  {
+   "id": "trust",
+   "heading": "How many covered elements are probably wrong",
+   "blocks": [
+    {
+     "id": "estimate",
+     "use": {
+      "package": "@workbench",
+      "block": "estimate"
+     },
+     "query": "dm-estimate",
+     "empty": "show",
+     "options": {
+      "unit": "of covered elements"
+     }
+    }
+   ]
+  },
+  {
+   "id": "where",
+   "heading": "Where the unsettled elements in your scope sit (GxP groups: verification's mapping from areas, for you to check)",
+   "blocks": [
+    {
+     "id": "areas",
+     "use": {
+      "package": "@workbench",
+      "block": "rows"
+     },
+     "query": "dm-areas",
+     "empty": "show",
+     "options": {
+      "columns": [
+       "gxp",
+       "area",
+       "unsettled",
+       "rate",
+       "stamp"
+      ]
+     }
+    },
+    {
+     "id": "parts",
+     "use": {
+      "package": "@workbench",
+      "block": "rows"
+     },
+     "query": "dm-parts",
+     "empty": "show",
+     "options": {
+      "columns": [
+       "part",
+       "unsettled",
+       "rate",
+       "stamp"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "spot",
+   "heading": "Spot check before you decide",
+   "blocks": [
+    {
+     "id": "cards",
+     "use": {
+      "package": "@workbench",
+      "block": "cards"
+     },
+     "query": "dm-spotchecks",
+     "empty": "show",
+     "options": {
+      "title": "title",
+      "fields": [
+       "statement|Spec",
+       "where|Area",
+       "test|Test",
+       "judge1|Judge 1",
+       "judge2|Judge 2",
+       "earlier|Earlier outcome"
+      ],
+      "target": "item",
+      "choices": [
+       "verdict=rule-judge-right|Rule judge is right",
+       "verdict=second-model-right|Second model is right",
+       "verdict=spec-unclear|Spec unclear \u2192 Wolfgang"
+      ],
+      "draws": [
+       "gxp|Draw 4 more (GxP areas)",
+       "any|Draw 4 more (anywhere)",
+       "covered|Draw from covered (find the hidden errors)"
+      ],
+      "emptyText": "Nothing to draw."
+     },
+     "params": {
+      "draw": "var.draw"
+     },
+     "acts": [
+      {
+       "intent": "sign",
+       "label": "Verdict",
+       "control": "spotcheck",
+       "fields": {
+        "proposal": "subject.iri"
+       }
+      }
+     ],
+     "emits": {
+      "draw": "draw"
+     }
+    },
+    {
+     "id": "agreement",
+     "use": {
+      "package": "@workbench",
+      "block": "rows"
+     },
+     "query": "triage-judge-agreement",
+     "empty": "show",
+     "options": {
+      "emptyText": "Your agreement with each judge shows after 10 verdicts."
+     },
+     "params": {
+      "minVerdicts": "var.minVerdicts"
+     }
+    }
+   ]
+  },
+  {
+   "id": "rules",
+   "heading": "Where the disagreement comes from: rule cases still open",
+   "blocks": [
+    {
+     "id": "rulecases",
+     "use": {
+      "package": "@workbench",
+      "block": "cards"
+     },
+     "query": "dm-rule-cases",
+     "empty": "show",
+     "options": {
+      "title": "title",
+      "fields": [
+       "effects|Each answer resolves",
+       "settled|Your answer"
+      ],
+      "target": "case",
+      "choices": [
+       "answer=asserted|Asserted",
+       "answer=exercised|Exercised",
+       "answer=no-relation|No relation"
+      ]
+     },
+     "acts": [
+      {
+       "intent": "sign",
+       "label": "Settle",
+       "control": "rule-case"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "options",
+   "heading": "Options, compared on the same axes",
+   "blocks": [
+    {
+     "id": "options",
+     "use": {
+      "package": "@workbench",
+      "block": "notice"
+     },
+     "options": {
+      "text": "The options a, b and c are in the proposal's text. Their axes (cost, who works, evidence after, residual) are not data yet, so they are not compared here."
+     }
+    }
+   ]
+  },
+  {
+   "id": "sign",
+   "heading": "Your decision is recorded with what you looked at",
+   "blocks": [
+    {
+     "id": "summary",
+     "use": {
+      "package": "@workbench",
+      "block": "figures"
+     },
+     "query": "dm-summary",
+     "empty": "show",
+     "options": {
+      "propose": [
+       "lookedAt=lookedAt"
+      ]
+     },
+     "params": {
+      "proposal": "subject.iri"
+     },
+     "acts": [
+      {
+       "intent": "record",
+       "label": "Ask a question about this",
+       "control": "question"
+      },
+      {
+       "intent": "sign",
+       "label": "Choose and sign",
+       "control": "decides"
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

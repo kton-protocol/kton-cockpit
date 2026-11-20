@@ -1,19 +1,35 @@
 {
  "viewer": "rows",
  "module": "rows.js",
- "requires": ["query@1"],
- "optional": ["open@1", "sign@1", "record@1"],
+ "requires": [
+  "query@1"
+ ],
+ "optional": [
+  "open@1",
+  "sign@1",
+  "record@1"
+ ],
  "accepts": {
-  "columns": {"set": "literal"},
+  "columns": {
+   "set": "literal"
+  },
   "pick": "literal",
   "open": "literal",
-  "rules": {"set": "literal"},
-  "keys": {"set": "literal"},
+  "rules": {
+   "set": "literal"
+  },
+  "keys": {
+   "set": "literal"
+  },
   "match": "literal",
   "card": "literal",
-  "emptyText": "literal"
+  "emptyText": "literal",
+  "atLeast": "literal"
  },
  "emits": {
-  "select": {"from": "intent.select", "type": "iri"}
+  "select": {
+   "from": "intent.select",
+   "type": "iri"
+  }
  }
 }

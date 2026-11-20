@@ -1,0 +1,2 @@
+{"name": "triage-rule-case", "target": "either", "predicate": "https://kton.dev/v/triage/rule-case",
+ "fields": {"answer": {"type": "enum", "values": ["asserted", "exercised", "no-relation"], "required": true}, "note": {"type": "string"}}}

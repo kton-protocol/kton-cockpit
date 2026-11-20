@@ -602,9 +602,9 @@ export class Workbench {
    * control through the one sign dialog with the person key, a record control with the agent key and no
    * dialog. Same path as every other signature (signThroughDialog), so the dialog has one call site.
    */
-  async signAct(c: Control, about: string, fields: Readonly<Record<string, string>>, title: string, expect?: ExpectRevision, into?: { readonly scope?: string }): Promise<SignResult> {
+  async signAct(c: Control, about: string, fields: Readonly<Record<string, string>>, title: string, expect?: ExpectRevision, into?: { readonly scope?: string; readonly proposed?: Readonly<Record<string, string>> }): Promise<SignResult> {
     const control: ControlInfo = { package: c.package, name: c.name, template: c.template, kind: c.kind, ...(c.meaning !== undefined ? { meaning: c.meaning } : {}) };
-    const asked = await this.askOpenFields(control, fields);
+    const asked = await this.askOpenFields(control, fields, into?.proposed ?? {});
     if (!asked) return "cancelled";
     return this.signThroughDialog({ kind: "sign", about, fields: asked, ...(into?.scope ? { scope: into.scope } : {}) }, control, title, expect);
   }
@@ -614,15 +614,24 @@ export class Workbench {
    * a field with values, else an input), never taken from a frame: a decision's open outcome is picked
    * (approved or rejected, C3.4), a note its text. Before the dialog, which then shows them. Undefined: cancelled.
    */
-  private async askOpenFields(control: ControlInfo, fields: Readonly<Record<string, string>>): Promise<Record<string, string> | undefined> {
+  private async askOpenFields(control: ControlInfo, fields: Readonly<Record<string, string>>, proposed: Readonly<Record<string, string>> = {}): Promise<Record<string, string> | undefined> {
     const tpl = templateFor(control, this.templates);
     const out: Record<string, string> = { ...fields };
     for (const [k, f] of Object.entries(tpl?.fields ?? {})) {
-      // a field the control's meaning fixes is never asked: the meaning shown is the meaning signed
-      if (!f.required || out[k] !== undefined || (tpl && k === meaningField(control, tpl)) || (control.meaning !== undefined && f.values?.includes(control.meaning))) continue;
-      const v = f.values ? await this.host.pick(`${control.name}: ${k}`, f.values) : await this.host.input(`${control.name}: ${k}`);
-      if (v === undefined || v === "") return undefined;
-      out[k] = v;
+      // a field the control's meaning fixes is never asked, nor taken from a proposal: the meaning shown is the meaning
+      // signed (F2/O1 on #187); the plan refuses any other value for it
+      if (out[k] !== undefined || (tpl && k === meaningField(control, tpl)) || (control.meaning !== undefined && f.values?.includes(control.meaning))) continue;
+      const p = proposed[k];
+      // a proposed value of a field with fixed values is taken as one of them (the dialog shows it); a proposed
+      // free value is only the input box's default; an optional field nobody proposed is left out
+      if (f.values && p !== undefined && f.values.includes(p)) {
+        out[k] = p;
+        continue;
+      }
+      if (!f.required && p === undefined) continue;
+      const v = f.values ? await this.host.pick(`${control.name}: ${k}`, f.values) : await this.host.input(`${control.name}: ${k}`, p);
+      if (v === undefined || (v === "" && f.required)) return undefined;
+      if (v !== "") out[k] = v;
     }
     return out;
   }

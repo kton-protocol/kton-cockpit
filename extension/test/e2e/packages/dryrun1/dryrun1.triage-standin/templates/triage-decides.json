@@ -1,0 +1,2 @@
+{"name": "triage-decides", "target": "either", "predicate": "https://kton.dev/v/triage/decides",
+ "fields": {"choice": {"type": "string", "required": true}, "lookedAt": {"type": "string"}}}

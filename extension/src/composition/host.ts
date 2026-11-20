@@ -62,7 +62,7 @@ export interface Backend {
   /** open@1: show a file, a claim or a screen in the window; resolves with what was opened. */
   open(target: Readonly<Record<string, unknown>>): Promise<string>;
   /** sign@1 / record@1 through the shell's one sign path (C1.4): the dialog for a decision, none for a record. */
-  act(control: Control, about: string, fields: Readonly<Record<string, string>>, title: string): Promise<"signed" | "cancelled" | "failed">;
+  act(control: Control, about: string, fields: Readonly<Record<string, string>>, title: string, proposed?: Readonly<Record<string, string>>): Promise<"signed" | "cancelled" | "failed">;
   /** run@1: a ray (workflow run) with its holes. */
   run(ray: string, holes: Readonly<Record<string, string>>): Promise<string>;
   /** graph@1 (e): the registry's records with the ring to verify them: {records, keys, names}. */
@@ -359,6 +359,7 @@ export class CompositionHost {
       if (cap === "query@1") {
         const q = u.query as { package: string; name: string };
         result = await this.backend.query(q.package, q.name, termsOf(params));
+        this.remember(u, result);
       }
       else if (cap === "content@1") {
         if (!u.content?.binary || args["hash"] !== u.content.hash) throw new Refused(`${u.key}: the content differs from the plan's`);
@@ -391,6 +392,34 @@ export class CompositionHost {
   private hold(i: Intent, loadsAtStart: number, entry: Record<string, unknown>): void {
     this.acts.record(i.id, entry);
     if (this.loads !== loadsAtStart) this.sendSet();
+  }
+
+  /**
+   * The values a use's `target` column took in the answers this host gave that use: the only rows an act may
+   * be about instead of the plan's subject (a spot check signs about the element the card showed).
+   */
+  private readonly served = new Map<string, Set<string>>();
+  private remember(u: PlanUse, result: unknown): void {
+    const col = (u as { options?: Record<string, unknown> }).options?.["target"];
+    if (typeof col !== "string") return;
+    const b = (result as { results?: { bindings?: Array<Record<string, { value?: string }>> } }).results?.bindings ?? [];
+    const set = this.served.get(u.key) ?? new Set<string>();
+    for (const row of b) if (typeof row[col]?.value === "string") set.add(row[col]?.value as string);
+    this.served.set(u.key, set);
+  }
+
+  /**
+   * What the act is about: the plan's subject, or a row this host served to the use (option `target`, the act's
+   * intent names it as `target`). Anything else is refused.
+   */
+  private aboutOf(i: Intent, act: PlanAct): string {
+    if (i["target"] === undefined) return act.about as string;
+    const u = this.plan.uses.find((x) => x.key === i.from);
+    const t = i["target"];
+    if (typeof t !== "string" || !this.served.get(u?.key ?? "")?.has(t)) throw new Refused(`${i.from}: the act's target is not a row this block was shown`);
+    // a claim's node IRI is said as its id
+    const claim = /^https:\/\/kton\.dev\/o\/([0-9a-f]{64})$/.exec(t);
+    return claim ? `sha256:${claim[1]}` : t;
   }
 
   /** The plan's act this intent claims to be, with its control, or why it is refused. */
@@ -430,7 +459,10 @@ export class CompositionHost {
       else if (i.kind === "run") result = { message: await this.backend.run(checked.act.ray as string, checked.act.fields) };
       else {
         const c = checked.control as Control;
-        const r = await this.backend.act(c, checked.act.about as string, checked.act.fields, `${checked.act.label}: ${this.plan.root.package}/${this.plan.root.composition}`);
+        // fields a frame proposes are offered to the person, never signed unseen: a value of a field with fixed values
+        // shows in the dialog, any other is the default of the shell's input box (Workbench.askOpenFields)
+        const proposed = Object.fromEntries(Object.entries((i["fields"] ?? {}) as Record<string, unknown>).filter(([k, v]) => typeof v === "string" && !(k in checked.act.fields))) as Record<string, string>;
+        const r = await this.backend.act(c, this.aboutOf(i, checked.act), checked.act.fields, `${checked.act.label}: ${this.plan.root.package}/${this.plan.root.composition}`, proposed);
         if (r === "failed") return refuse(c.kind === "decision" ? "not signed (see the sign dialog)" : "not recorded");
         result = r === "signed" ? { signed: true, key: c.kind === "decision" ? "person" : "agent", message: c.kind === "decision" ? "Signed with the person key (test-only)." : "Recorded with the agent key." } : { signed: false, message: "Not signed: the dialog was cancelled." };
       }

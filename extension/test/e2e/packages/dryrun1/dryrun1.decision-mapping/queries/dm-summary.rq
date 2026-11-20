@@ -1,0 +1,21 @@
+# What was looked at for this decision ($proposal): spot-check verdicts (naming the proposal), rule cases settled,
+# questions asked about it; per row the claim ids (?lookedAt, space-separated). No sub-select reads $proposal: the
+# cockpit binds it in the WHERE clause's outermost group, which a sub-select does not see.
+PREFIX nk: <https://kton.dev/v/>
+PREFIX lab: <https://kton.dev/v/lab/>
+SELECT ?label (COUNT(DISTINCT ?x) AS ?value) (GROUP_CONCAT(DISTINCT STR(?x); separator=" ") AS ?lookedAt) (SAMPLE(?s) AS ?stamp) WHERE {
+  VALUES (?o ?label ?pred) {
+    (1 "spot checks judged" <https://kton.dev/v/triage/spotcheck>)
+    (2 "rule cases settled (of 3)" <https://kton.dev/v/triage/rule-case>)
+    (3 "questions asked (each logged as a UI requirement)" <https://kton.dev/v/triage/question>)
+  }
+  BIND("this dry run (dryrun1.triage)" AS ?s)
+  OPTIONAL {
+    ?x nk:predicate ?pred .
+    OPTIONAL { ?x lab:proposal ?pp } OPTIONAL { ?x nk:about ?ab }
+    FILTER NOT EXISTS { ?x nk:replacedBy ?n }
+    FILTER(?pred = <https://kton.dev/v/triage/rule-case> || STR(?pp) = STR($proposal) || STR(?ab) = STR($proposal))
+  }
+}
+GROUP BY ?o ?label
+ORDER BY ?o

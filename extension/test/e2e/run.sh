@@ -57,7 +57,10 @@ docker run --rm --network host -u "$UIDGID" -e HOME=/tmp -e GOPATH="$WORK/go" -e
   sh -c "GOBIN=$WORK/bin go install github.com/gitmick/ktonpkg/cmd/scope@v0.9.7"
 
 echo "== seed"
-docker run --rm -u "$UIDGID" -v "$WORK:$WORK" -v "$HERE/seed.sh:/seed.sh:ro" \
+# DM_DATA (optional): a registry with verification's dryrun1 mapping data (qm-dev-provenance/dryrun1-mapping), copied
+# read-only into repo-dm for the decision view's steps (DM); without it those steps do not run.
+DM_MOUNT=""; [ -n "${DM_DATA:-}" ] && DM_MOUNT="-v $DM_DATA:/dm-data:ro"
+docker run --rm -u "$UIDGID" -v "$WORK:$WORK" -v "$HERE/seed.sh:/seed.sh:ro" $DM_MOUNT \
   -v "$COCKPIT:/usr/local/bin/cockpit:ro" -v "$VOCAB:/vocab:ro" -v "$HERE/vocabulary-package:/vocab-package:ro" -v "$HERE:/e2e:ro" \
   "$NODE_IMAGE" sh /seed.sh "$WORK" /vocab /vocab-package
 

@@ -9,6 +9,8 @@
 //   match     keep only the rows whose column equals the subject's claim (a record's approvals)
 //   card      "yes": the first row as fields, not a table
 //   emptyText what to say when no row is left (default: "No rows.")
+//   atLeast   "column:n": keep only the rows whose column is at least n (e.g. agreement after 10 verdicts)
+// A column `stamp` is shown as each row's source chip, and the row's numbers are marked as numbers.
 // The use's acts (sign / record through a control) are buttons; the host decides everything about them.
 export function mount(el, ctx) {
   const esc = ctx.kit.esc;
@@ -55,7 +57,7 @@ export function mount(el, ctx) {
         .map(
           (r, i) =>
             `<tr data-row="${i}"${click && value(r[click]) ? ` class="kton-clickable" tabindex="0" data-target="${esc(value(r[click]))}"` : ""}>${cols
-              .map((c) => `<td data-col="${esc(c)}">${esc(shortly(value(r[c])))}</td>`)
+              .map((c) => (c === "stamp" ? `<td data-col="stamp"><span class="kton-stamp" data-stamp>${esc(value(r[c]))}</span></td>` : `<td data-col="${esc(c)}"${/^-?\d+(\.\d+)?%?$/.test(value(r[c])) ? " data-number" : ""}>${esc(shortly(value(r[c])))}</td>`))
               .join("")}</tr>`,
         )
         .join("")}</tbody></table>`;
@@ -78,6 +80,10 @@ export function mount(el, ctx) {
       if (o.rules) rows = rows.filter((x) => o.rules.includes(value(x.rule)));
       if (o.keys) rows = rows.filter((x) => o.keys.includes(value(x.key)));
       if (o.match) rows = subjectClaim ? rows.filter((x) => value(x[o.match]) === subjectClaim) : [];
+      if (o.atLeast) {
+        const [col, min] = o.atLeast.split(":");
+        rows = rows.filter((x) => Number(value(x[col])) >= Number(min));
+      }
       draw(vars, rows);
     },
     (e) => {

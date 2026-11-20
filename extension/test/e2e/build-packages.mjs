@@ -79,6 +79,12 @@ try {
   hostile("hostile-pin", "pin");
   // PR 3 (S6): the generic QM area's test packages (userinterface qm-workbench/s6-packages, ktonpkg v0.9.3 form)
   for (const n of ["qa.register", "qa.area-one", "qa.area-two", "qa.rules"]) build(n, "1", join(SRC, "s6", n));
+  // the decision view for the dry run (imvprototypes workbench/dryrun1-decision-mapping): its view and the triage
+  // templates as one package dryrun1.triage (ktonpkg wants a control's template in its own package)
+  const dm = mkdtempSync(join(tmpdir(), "dryrun1-"));
+  cpSync(join(SRC, "dryrun1", "dryrun1.triage-standin"), dm, { recursive: true });
+  cpSync(join(SRC, "dryrun1", "dryrun1.decision-mapping"), dm, { recursive: true });
+  build("dryrun1.triage", "1", dm);
 } finally {
   rmSync(keys, { recursive: true, force: true });
 }

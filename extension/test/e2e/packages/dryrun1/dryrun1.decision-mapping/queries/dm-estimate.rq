@@ -1,0 +1,13 @@
+# The two-judge wrong-rate over covered elements (rounds 7/8), recomputed by verification, with the reported values beside it.
+# target: the 5 % the decision names.
+PREFIX nk: <https://kton.dev/v/>
+PREFIX lab: <https://kton.dev/v/lab/>
+PREFIX covx: <https://w3id.org/improve/coverage-extra#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT ?rate ?low ?high ?target ?single ?stamp WHERE {
+  ?c nk:predicate covx:measuredRate ; lab:sample "covered" ; lab:dimension "all" ; lab:rate ?rate ; lab:low ?low ; lab:high ?high ; lab:stamp ?stamp ;
+     lab:sameModelRate ?same ; lab:secondModelRate ?second ; lab:n ?n ; lab:wrong ?wrong .
+  OPTIONAL { ?c lab:reportedRate ?reported } OPTIONAL { ?c lab:note ?note }
+  BIND("5" AS ?target)
+  BIND(CONCAT("Recomputed: ", STR(?wrong), " of ", STR(?n), " judged wrong by both; one judge alone ", STR(?same), " % (same model), ", STR(?second), " % (second model). Reported: ", COALESCE(STR(?reported), "none"), ". ", COALESCE(STR(?note), "")) AS ?single)
+}

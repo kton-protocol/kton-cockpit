@@ -1165,6 +1165,78 @@ await step("S6", "15b", "area-two's governing SOP QA-SOP-20 is shown as a draft"
   await closeEditors();
 });
 
+// ---- DM: MH's decision view for the mapping decision (dry run 1), on verification's real data (repo-dm, a copy)
+if (seed.dm?.proposal) {
+  const DMP = seed.dm.proposal;
+  async function sparqlDM(q) {
+    const r = await cockpit(["ask", "sparql", "-", "--results-json"], `PREFIX nk: <https://kton.dev/v/>\nPREFIX lab: <https://kton.dev/v/lab/>\nPREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>\n${q}`, { repo: "repo-dm" });
+    if (r.code !== 0) throw new Error(`registry check failed: ${r.stderr.split("\n")[0]}`);
+    return JSON.parse(r.stdout).results.bindings.map((b) => Object.fromEntries(Object.entries(b).map(([k, v]) => [k, v.value])));
+  }
+  await page.goto(URL.replace(/folder=[^&]*/, `folder=${encodeURIComponent(`${WORK}/repo-dm`)}`));
+  await page.locator(".monaco-workbench").waitFor({ timeout: 90000 });
+  await views();
+  const dmFrame = () => frameWithSel('[data-composition="dryrun1.triage/decision"]', 60000);
+  async function openDecisionView() {
+    await closeEditors();
+    await views();
+    await openReview("Can the 5.0.0 mapping be the basis for G1 triage?", "Decision view: mapping", "dryrun1.triage");
+    const f = await dmFrame();
+    await f.locator('[data-use$="#summary"] [data-figure]').first().waitFor({ timeout: 60000 });
+    return f;
+  }
+
+  await step("DM", 1, "the decision view opens from the proposal; every number shows its stamp", async () => {
+    await row("Can the 5.0.0 mapping be the basis for G1 triage?").waitFor({ timeout: 60000 });
+    const f = await openDecisionView();
+    for (const id of ["counts", "estimate", "areas", "parts", "cards", "rulecases"]) await f.locator(`[data-use$="#${id}"] [data-stamp], [data-use$="#${id}"] [data-area-empty]`).first().waitFor({ timeout: 60000 });
+    const missing = await f.locator("[data-stamp-missing]").count();
+    check(missing === 0, "no number without a source", 0, missing);
+    const figures = await f.locator("[data-figure]").count();
+    const stamped = await f.locator("[data-figure] [data-stamp]").count();
+    check(figures > 0 && figures === stamped, "every figure carries a stamp", figures, stamped);
+    const rowsWithNumbers = await f.locator("tr:has(td[data-number])").count();
+    const rowsStamped = await f.locator("tr:has(td[data-number]):has([data-stamp])").count();
+    check(rowsWithNumbers > 0 && rowsWithNumbers === rowsStamped, "every table row with a number carries a stamp", rowsWithNumbers, rowsStamped);
+    await shot("dm-view");
+  });
+
+  await step("DM", 2, "the guard flag shows the two scopes: 215 in scope vs 254 all judged", async () => {
+    const f = await dmFrame();
+    const g = (await f.locator('[data-use$="#counts"] [data-guard]').textContent()) ?? "";
+    check(/215 \(in scope/.test(g) && /254 \(all judged\)/.test(g), "the guard names both counts with their scope", "215 (in scope…) · 254 (all judged)", g);
+    const est = (await f.locator('[data-use$="#estimate"]').textContent()) ?? "";
+    check(/4\.5 %/.test(est) && /Reported: 4\.4/.test(est), "the recomputed rate with the reported one beside it", "4.5 % … Reported: 4.4", est.slice(0, 300));
+  });
+
+  await step("DM", 3, "a spot-check verdict signs with the person key through the dialog, about the card's element", async () => {
+    const f = await dmFrame();
+    const card = f.locator('[data-use$="#cards"] [data-card-row="0"]');
+    const item = await card.getAttribute("data-target");
+    await card.locator('[data-testid="card-0-second-model-right"]').click();
+    const d = await dialog();
+    for (const s of ["verdict = second-model-right", "Meaning: reviewed", 'person key "qa-decider"']) await d.getByText(s, { exact: false }).first().waitFor({ timeout: 15000 });
+    await signInDialog(d);
+    await d.locator('[data-testid="sign-outcome"][data-state="signed"]').waitFor({ timeout: 60000 });
+    await shot("dm-spotcheck-dialog");
+    const rows = await sparqlDM(`SELECT ?c ?s ?v ?p WHERE { ?c nk:predicate <https://kton.dev/v/triage/spotcheck> ; nk:about <${item}> ; nk:signer ?s ; lab:verdict ?v ; lab:proposal ?p }`);
+    check(rows.length === 1 && rows[0].s === PERSON && rows[0].v === "second-model-right" && rows[0].p === iriOf(DMP), "one spot check about the card's item, by the person key, naming the proposal", { s: PERSON, v: "second-model-right", p: iriOf(DMP) }, rows);
+  });
+
+  await step("DM", 4, "the sign summary counts what was looked at", async () => {
+    // the window's view takes the new claim in on its next index read: open the view again until it counts it
+    let t = "";
+    for (let i = 0; i < 6 && !/1 spot checks judged/.test(t); i++) {
+      if (i) await page.waitForTimeout(3000);
+      const f = await openDecisionView();
+      t = ((await f.locator('[data-use$="#summary"]').textContent()) ?? "").replace(/\s+/g, " ");
+    }
+    check(/1 spot checks judged/.test(t), "1 spot check judged", "1 spot checks judged", t.slice(0, 300));
+    check(/0 rule cases settled/.test(t) && /0 questions asked/.test(t), "no rule case settled, no question asked");
+    await closeEditors();
+  });
+}
+
 await browser.close();
 const native = { file: "smoke-results.json", results };
 const nativeText = JSON.stringify(native, null, 2);

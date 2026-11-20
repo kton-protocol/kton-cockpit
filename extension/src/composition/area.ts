@@ -33,7 +33,7 @@ export interface ExpectRevision {
 }
 export interface ActPath {
   /** The shell's one sign path (Workbench.signAct): the dialog for a decision control, the agent key for a record. */
-  act(control: Control, about: string, fields: Readonly<Record<string, string>>, title: string, expect?: ExpectRevision, into?: { readonly scope?: string }): Promise<"signed" | "cancelled" | "failed">;
+  act(control: Control, about: string, fields: Readonly<Record<string, string>>, title: string, expect?: ExpectRevision, into?: { readonly scope?: string; readonly proposed?: Readonly<Record<string, string>> }): Promise<"signed" | "cancelled" | "failed">;
   open(target: Readonly<Record<string, unknown>>): Promise<string>;
   identityName(): string;
   /** The window's person key id and the person tiers: whether an approval counts is decided over them (S6.12). */
@@ -138,7 +138,7 @@ export class PackagesArea {
    * loaded now (or is closing), so an old revision's control never signs. While the act runs the panel is busy.
    */
   private actFor(key: string, label: string, mine: () => OpenPanel | undefined, scope?: string): Backend["act"] {
-    return async (c, about, fields, title) => {
+    return async (c, about, fields, title, proposed) => {
       const h = mine();
       const why = !h || this.hosts.get(key) !== h ? "the panel is closed or was opened again" : (h.retired ?? this.outdated(h) ?? (h.revisions.has(c.package) ? undefined : `control ${c.package}/${c.name} is not one this panel was opened with`));
       if (why) {
@@ -148,7 +148,7 @@ export class PackagesArea {
       const p = h as OpenPanel;
       p.busy++;
       try {
-        const r = await this.path.act(c, about, fields, title, { package: c.package, revision: p.revisions.get(c.package) as string }, scope ? { scope } : {});
+        const r = await this.path.act(c, about, fields, title, { package: c.package, revision: p.revisions.get(c.package) as string }, { ...(scope ? { scope } : {}), ...(proposed && Object.keys(proposed).length ? { proposed } : {}) });
         // a record is written with the agent key and no dialog: where it went is said, as the dialog says it for a
         // decision (the records scope is the package's declaration; kton-review N1 on #187)
         if (r === "signed" && c.kind === "record" && scope) this.ui.info(`${label}: recorded into scope ${scope} with the agent key (no dialog).`);
@@ -251,12 +251,12 @@ export class PackagesArea {
     if (leaf) return this.openLeaf(key, e, s, leaf, loaded);
     let plan: Plan;
     try {
-      plan = await planEntry(e, s, loaded, this.path.identityName(), (p, n, b) => this.named(p, n, b));
+      plan = await planEntry(e, s, loaded, this.path.identityName(), (p, n, b) => this.named(p, n, b), this.builtin);
     } catch (err) {
       this.ui.error(`${e.label} cannot be shown: ${(err as Error).message}`);
       return undefined;
     }
-    return this.showPlanned(`${PANEL}${key}`, e.label, e.package, plan, loaded, loaded.packages, {});
+    return this.showPlanned(`${PANEL}${key}`, e.label, e.package, plan, loaded, this.builtin ? { ...loaded.packages, [BUILTIN]: this.builtin } : loaded.packages, {});
   }
 
   /**

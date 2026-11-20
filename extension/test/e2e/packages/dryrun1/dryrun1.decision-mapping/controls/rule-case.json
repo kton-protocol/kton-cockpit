@@ -1,0 +1,9 @@
+{
+ "title": "Settle the rule case",
+ "kind": "decision",
+ "meaning": "reviewed",
+ "say": {
+  "template": "triage-rule-case"
+ },
+ "about": "subject.claim"
+}
