@@ -1407,7 +1407,7 @@ if (seed.roles) {
   };
   // the window's queries may take longer than 20 s on real data under load: this folder's timeout is 90 s
   mkdirSync(`${WORK}/repo-roles/.vscode`, { recursive: true });
-  writeFileSync(`${WORK}/repo-roles/.vscode/settings.json`, JSON.stringify({ "kton.cockpit.timeoutSeconds": 90 }, null, 2));
+  writeFileSync(`${WORK}/repo-roles/.vscode/settings.json`, JSON.stringify({ "kton.cockpit.timeoutSeconds": 120 }, null, 2));
   await closeEditors();
   await page.goto(URL.replace(/folder=[^&]*/, `folder=${encodeURIComponent(`${WORK}/repo-roles`)}`));
   await page.locator(".monaco-workbench").waitFor({ timeout: 90000 });

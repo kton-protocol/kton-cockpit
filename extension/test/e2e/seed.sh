@@ -300,6 +300,9 @@ c.persist=Object.assign(c.persist||{},{share:false});c.index={kind:"oxigraph"};f
     cockpit federation add "$n" "$src" >/dev/null
     case "$n" in verification-coverage) ROLES_COV=true;; verification-mapping) ROLES_MAP=true;; esac
   done
+  # warm the index once (the first ask after the seed builds the view with the federated sources, ADR-018 scope graphs:
+  # ~40 s alone on ai1); the window's first asks then answer from it instead of running into their timeout together
+  for q in ch-figures ch-test-gaps-by-part wf-figures gr-review-items; do cockpit ask sparql --name "$q" --results-json --timeout 120 >/dev/null 2>&1 || true; done
   ROLES="{\"e1\": \"$E1\", \"e2static\": \"$E2S\", \"e6\": \"$E6\", \"e8\": \"$E8\", \"christofCommit\": \"$CC\", \"approvedCommit\": \"$AC\", \"coverage\": $ROLES_COV, \"mapping\": $ROLES_MAP, \"specReview\": $ROLES_SR}"
   cd "$E2E/repo"
 fi
