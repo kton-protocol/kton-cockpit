@@ -655,12 +655,17 @@ not judge the chain: it is the caller's own condition, for a program that append
 must not fork a conversation because another process or an agent wrote first. Any claim that moved the
 head refuses it, trusted or not. The caller reads what was written and decides.
 
+**Claims said at the same time in one repository MUST chain one after another.** From reading where a
+claim goes (its scope's head, the claim it replaces) until it is stored, no other claim is written to
+the repository, in that process or another, so concurrent `say` calls (an MCP client that does not wait)
+never take the same head.
+
 > **Checked by:** `TestScope_ClaimsChainInOrderAndAdvanceTheTip`,
 > `TestScope_UnconfiguredLeavesClaimsUnchained`, `TestScope_TheAskFilterFindsWhatSayChained`,
 > `TestScope_RefusesAScopeThisRegistryDoesNotHold`, `TestScope_RefusesANameTheConfigDoesNotHave`,
 > `TestScope_TwoScopesInOneRepoChainIndependently`,
 > `TestScope_NeitherABranchNorAGapStopsAClaimBeingRecorded`,
-> `TestScope_ExpectHeadAppendsOnlyToTheHeadTheCallerSaw`.
+> `TestScope_ExpectHeadAppendsOnlyToTheHeadTheCallerSaw`, `TestScope_ConcurrentSaysChainOneAfterAnother`.
 
 **A caller MAY name the template it showed (`expectTemplate`, `expectRevision`).** `expectTemplate`
 is the `hash` `say --json` lists for the template: the sha256 of the template as `say` signs with it

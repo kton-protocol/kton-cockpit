@@ -195,6 +195,11 @@ func rayOrPackage(in *InstallResult) string {
 // path say takes for its chain.
 func (c *Cockpit) sayIn(ctx context.Context, cfg *config.Config, r *binaries.Runner, subject, template string,
 	fields map[string]string, scopeName string) (string, error) {
+	unlock, lerr := r.LockClaims() // as say: from the head read until the claim is stored
+	if lerr != nil {
+		return "", refuse("store", "", "%v", lerr)
+	}
+	defer unlock()
 	chain, _, cerr := resolveChain(ctx, r, cfg, scopeName)
 	if cerr != "" {
 		return "", refuse("scope.unknown", "", "%s", cerr)

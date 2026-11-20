@@ -164,6 +164,20 @@ func (c *Cockpit) Say(ctx context.Context, in SayRequest) (*SayResult, error) {
 		sets = map[string]string{"level": level, "reproducedBy": in.ReproducedFotonID}
 	}
 
+	// From reading where the claim goes (its scope's head, the claim it replaces) until it is stored,
+	// no other claim is said in this repository, so two at once never take the same head.
+	unlockClaims, lerr := r.LockClaims()
+	if lerr != nil {
+		return nil, refuse("store", "", "%v", lerr)
+	}
+	claimsLocked := true
+	releaseClaims := func() {
+		if claimsLocked {
+			claimsLocked = false
+			unlockClaims()
+		}
+	}
+	defer releaseClaims()
 	chain, head, cerr := resolveChain(ctx, r, cfg, in.Scope)
 	if cerr != "" {
 		return nil, refuse("scope.unknown", "", "%s", cerr)
@@ -195,6 +209,7 @@ func (c *Cockpit) Say(ctx context.Context, in SayRequest) (*SayResult, error) {
 		}
 	}
 	claimID, err := r.Annotate(ctx, in.Subject, in.Template, sets, signKey, chain)
+	releaseClaims()
 	var changed *binaries.TemplateChanged
 	if errors.As(err, &changed) {
 		return nil, refuse("template.changed", "SPEC §8", "%s", changed.Reason)
