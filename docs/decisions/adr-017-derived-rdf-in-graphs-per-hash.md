@@ -3,7 +3,7 @@ title: "Derived RDF in the index: one named graph per output hash, claims unchan
 type: "decision"
 project: "kton-cockpit"
 date: 2026-11-20
-status: "proposed"
+status: "accepted"
 tags: [architecture, index, query, oxigraph, sparql, provenance, derived-data]
 ---
 
@@ -11,8 +11,10 @@ tags: [architecture, index, query, oxigraph, sparql, provenance, derived-data]
 
 ## Status
 
-Proposed 2026-11-20 for MH's decision. Amends ADR-012, section 1 ("ingests through the substrate … never the
-files"), and adds to ADR-013's query projection. No code before the decision.
+Accepted by MH (2026-11-20, his initiative; decision `7f62db0e55`): graph name the file's own IRI (1a),
+derived graphs also through the named-query packages from the start (2b), the proposed limits (3a). Proposed
+2026-11-20. Amends ADR-012, section 1 ("ingests through the substrate … never the files"), and adds to
+ADR-013's query projection.
 
 ## Context
 
@@ -82,7 +84,7 @@ An output of a foton is loaded when **all** of these hold:
   (`https://kton.dev/o/<foton id>`, kernel `rdf.RecordGraph`), but a query never sees both as named graphs: in
   the query dataset the named graphs are the derived graphs only (section 5). So whether a graph is content or a
   record is read from where it sits, not from its name. An alternative, `urn:kton:derived:sha256:<hex>`, would
-  make the kind readable from the name, at the cost of a mapping in every join (open, below).
+  make the kind readable from the name, at the cost of a mapping in every join (decided: the file's own IRI).
 - **The data is loaded as it is.** No triple is added, none removed. Blank nodes stay local to their graph.
 - **What ties a graph to its foton is already in the index:** the foton's record says
   `https://kton.dev/o/<hex> prov:wasGeneratedBy <foton>`. The index adds one catalogue entry per graph,
@@ -197,10 +199,13 @@ except by the size limit (section 6) or by a rebuild.
 - SPEC: §9.9 (the dataset and the report), §12.4 (what the index reads), and the configuration schema
   (`index.derived`).
 
-## Open, for MH
+## Decided (MH, 2026-11-20)
 
-- **Graph name:** the file's own `https://kton.dev/o/<hex>` (proposed, with ddmanymore: no mapping in any join;
-  what they run today) or `urn:kton:derived:sha256:<hex>` (the kind readable from the name alone).
-- **Who sees derived graphs:** only through `ask sparql` (proposed), or also the named-query packages
-  (`ui list` / `query@1`), so a viewer can show them. The second follows naturally once the first exists.
-- **Default limits** (section 6).
+- **Graph name:** the file's own IRI, `https://kton.dev/o/<hex>`.
+- **Who sees derived graphs:** `ask sparql` and the named-query packages (`query@1`, `ui list`) alike, from
+  the first release: a package's named query may use `GRAPH ?g { … }` and is answered over the view's derived
+  graphs as an inline query is.
+- **Limits:** 64 MiB per output, 50 million triples per view, off by default (`index.derived.enabled`),
+  opt-in per federation source.
+- **How an output declares its media type:** `publish` takes `mediaTypes`, a map from output path to media
+  type (`--media-type PATH=TYPE` on the command line), as a carried field of the output (plankton SPEC §6.1).
