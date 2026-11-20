@@ -1063,7 +1063,11 @@ reaches no record outside that dataset, so it is under the same ceiling as every
   giving both `name` and `sparql`, MUST be refused.
 - `bind` MAY give the query's variables values, each a plain literal in a `VALUES` clause put first into
   the query's outermost group (the `WHERE` clause) and first into the group of every sub-select, so a
-  `FILTER` of those groups sees it: a sub-select is evaluated on its own and would not. A value MUST NOT
+  `FILTER` of those groups sees it: a sub-select is evaluated on its own and would not. A group is told
+  from the brace of an expression (`EXISTS { }` in a `SELECT`'s expressions) by the parentheses around it.
+  A sub-select that uses a bound variable's name for its own purpose is bound too, so one that needs the
+  variable free MUST name it otherwise. A `FILTER` in a group nested inside `OPTIONAL` sees the bound
+  value only through the join, as SPARQL evaluates such a group on its own. A value MUST NOT
   become query text, a name that is not a variable name MUST be refused, and so MUST a query without a
   group to bind into.
 - `bindTerms` MAY give variables typed terms in the same clause: an IRI, or a literal with a datatype
@@ -1077,7 +1081,7 @@ example there is run by a test.
 > **Checked by:** `TestCheckFreeQuery_TakesSelectAndAskOverTheCockpitsDataset`,
 > `TestSparql_RefusesWhatItWouldNotAnswer`, `TestSparql_ChecksTheQueryAndNeedsAnEngine`,
 > `TestVocabulary_AnAllowedPackageBringsItsTemplatesAndQueries` (`-tags docker`),
-> `TestShellSparql_ReadsTheQueryFromAFile`, `TestBind_GoesFirstIntoTheWhereClause`, `TestBind_TypedTermsAreOneTermEach`,
+> `TestShellSparql_ReadsTheQueryFromAFile`, `TestBind_TypedTermsAreOneTermEach`,
 > `TestParseResults_ReadsASelectAndAnAsk`, `TestClaimView_KeepsPositionAndInfersNothing`,
 > `TestClaimView_AppliesTheTemplatesTermsAndTypes`, `TestBind_GoesFirstIntoTheWhereClause`, `TestSparql_TheExamplesAnswerOverAFixture` (with its
 > standard-results subtests; `-tags docker`).

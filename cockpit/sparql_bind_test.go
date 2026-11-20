@@ -41,6 +41,13 @@ func TestBind_GoesFirstIntoTheWhereClause(t *testing.T) {
 			"SELECT * {" + clause + " { select ?s {" + clause + " ?s ?p ?o } } }"},
 		{"SELECT that is no keyword", "SELECT ?select WHERE { ?select ex:select \"select {\" # select {\n }",
 			"SELECT ?select WHERE {" + clause + " ?select ex:select \"select {\" # select {\n }"},
+		// a group is told from an expression's brace by the parentheses (kton-review E1 on #190)
+		{"EXISTS in the outer SELECT's expressions", "SELECT ?doc (EXISTS { ?doc ?p ?o } AS ?f) WHERE { ?doc ?q ?r }",
+			"SELECT ?doc (EXISTS { ?doc ?p ?o } AS ?f) WHERE {" + clause + " ?doc ?q ?r }"},
+		{"EXISTS in a sub-select's expressions", "SELECT * WHERE { { SELECT ?f (EXISTS { ?d ?p ?o } AS ?e) WHERE { ?d ?q ?f } } }",
+			"SELECT * WHERE {" + clause + " { SELECT ?f (EXISTS { ?d ?p ?o } AS ?e) WHERE {" + clause + " ?d ?q ?f } } }"},
+		{"a prefixed name select before a group", "SELECT * WHERE { ?s ex:select ?o FILTER NOT EXISTS { ?s ?p ?o } }",
+			"SELECT * WHERE {" + clause + " ?s ex:select ?o FILTER NOT EXISTS { ?s ?p ?o } }"},
 	} {
 		got, err := bindIntoWhere(c.q, clause)
 		if err != nil || got != c.want {
