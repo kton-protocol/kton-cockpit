@@ -49,12 +49,12 @@ func ViewConfigFor(cfg *config.Config) (ViewConfig, error) {
 
 // ClaimDataset is the query projection of the claims for a container started for one query: the
 // same ClaimView the daemon builds, from the same kernel projection, as N-Triples.
-func ClaimDataset(u *binaries.Union, keys []ed25519.PublicKey, vc ViewConfig) ([]byte, error) {
+func ClaimDataset(u *binaries.Union, keys []ed25519.PublicKey, vc ViewConfig) (claims, scopes []byte, err error) {
 	var trusted, structure []Quad
 	for _, p := range projectNekton(u.Nekton.Records(0), keys) {
 		own, err := ParseNQuads(p.own)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		for _, q := range own {
 			if isClaimGraph(q.G, npPub) {
@@ -68,17 +68,21 @@ func ClaimDataset(u *binaries.Union, keys []ed25519.PublicKey, vc ViewConfig) ([
 		for _, a := range p.attr {
 			qs, err := ParseNQuads(a)
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			trusted = append(trusted, qs...)
 		}
 	}
-	return NTriples(ClaimView(trusted, structure, vc)), nil
+	// The scope graphs as a container loads them (ADR-018): named graphs beside the default graph,
+	// under a slot of their own; a query finds them by their metadata, not by their names.
+	view := ClaimView(trusted, structure, vc)
+	graphs, meta := scopeGraphs("query", view)
+	return NTriples(append(view, meta...)), NQuads(graphs), nil
 }
 
 // claimView builds the query projection from the store: the quads of the trusted claims' graphs
 // (named), and the publication info of every claim the union holds (pubinfo).
-func (d *Daemon) claimView(ctx context.Context, named, pubinfo []string, vc ViewConfig) ([]byte, error) {
+func (d *Daemon) claimView(ctx context.Context, named, pubinfo []string, vc ViewConfig) ([]Quad, error) {
 	trusted, err := d.quadsOf(ctx, named)
 	if err != nil {
 		return nil, err
@@ -87,7 +91,7 @@ func (d *Daemon) claimView(ctx context.Context, named, pubinfo []string, vc View
 	if err != nil {
 		return nil, err
 	}
-	return NTriples(ClaimView(trusted, structure, vc)), nil
+	return ClaimView(trusted, structure, vc), nil
 }
 
 // quadsOf reads the quads of the named graphs, each graph by its name: a bound graph is one lookup,
@@ -114,4 +118,15 @@ func (d *Daemon) quadsOf(ctx context.Context, graphs []string) ([]Quad, error) {
 		}
 	}
 	return out, nil
+}
+
+// NQuads writes graphs as N-Quads, each quad in the graph it is filed under.
+func NQuads(graphs map[string][]Quad) []byte {
+	var b strings.Builder
+	for _, g := range sortedKeys(graphs) {
+		for _, q := range graphs[g] {
+			b.WriteString(ntTerm(q.S) + " " + ntTerm(q.P) + " " + ntTerm(q.O) + " <" + g + "> .\n")
+		}
+	}
+	return []byte(b.String())
 }
