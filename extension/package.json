@@ -196,6 +196,14 @@
           "type": "string",
           "default": "",
           "description": "Read-only root of run artifacts (test-execution's records/work): <run>/<name>, shown only when the bytes hash to the run-artifact claim's sha256. Empty: run artifacts are not available on this host."
+        },
+        "kton.inbox.areas": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "When not empty: the window shows only messages and proposals of these areas (Inbox, Home, decisions waiting), e.g. a persona's own area. A relayed copy (text \"[from <lane> · <time>] …\") shows the lane as its sender."
         }
       }
     },

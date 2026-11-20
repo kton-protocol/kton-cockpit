@@ -389,6 +389,7 @@ async function build(host: VsHost): Promise<void> {
   wb = new Workbench(transport, host, queries, identity, {
     ...DEFAULT_CONFIG,
     personTiers: cfg.get<string[]>("identity.personTiers") ?? [],
+    inboxAreas: (cfg.get<string[]>("inbox.areas") ?? []).filter((x) => typeof x === "string" && x !== ""),
     vendoredViewers: vendored,
     ...(builtin ? { builtinPackage: builtin } : {}),
     pollSeconds: Math.max(1, cfg.get<number>("poll.seconds") ?? 30),

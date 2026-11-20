@@ -1116,3 +1116,25 @@ test("MH 5 + 6: the identity item's tooltip says why the keys are not verified; 
   assert.equal(rec?.label, "Recorder");
   assert.match(rec?.tooltip ?? "", /Recorded runs/);
 });
+
+test("inbox areas (dry run 1 mirror): kton.inbox.areas shows only those areas' messages and proposals; a relayed copy names its lane as the sender, its text without the prefix", async () => {
+  const t = new FakeTransport();
+  t.answers["Q proposals"] = [
+    { msg: P1, area: "dryrun1-testdev", title: "Rerun with capture?", text: "[from dryrun1-testdev-review · 2026-11-20T17:01:00Z] Should ics1829 run again?", options: OPTIONS, from: "dryrun1-mirror-claims", fromTier: "mirror", when: "2026-11-20T17:05:00Z" },
+    { msg: P2, area: "dryrun1-spec-review", title: "Not mine", text: "t", options: OPTIONS, from: "dryrun1-mirror-claims", fromTier: "mirror", when: "2026-11-20T17:06:00Z" },
+  ];
+  t.answers["N decides"] = [];
+  t.answers["Q messages"] = [
+    { msg: M1, kind: "https://example.org/v/requests", area: "dryrun1-testdev", title: "Classify the 42", text: "[from dryrun1-personas · 2026-11-20T16:00:00Z] Please classify today's 42 failures.", from: "dryrun1-mirror-claims", fromTier: "mirror", when: "2026-11-20T16:02:00Z" },
+    { msg: M2, kind: "https://example.org/v/requests", area: "qa", title: "Another area", text: "t", from: "qa-requestor-claims", fromTier: "self", when: "2026-11-18T08:00:00Z" },
+  ];
+  t.answers["N answers"] = [];
+  const { h, wb } = await setup({ inboxAreas: ["dryrun1-testdev"] }, t);
+  const inbox = h.trees["inbox"] ?? [];
+  assert.deepEqual(inbox.map((n) => n.label), ["Classify the 42"], "only the persona's area");
+  assert.equal(inbox[0]?.description, "requests · dryrun1-testdev · dryrun1-personas (via dryrun1-mirror-claims (mirror))", "the lane is the sender; the mirror that relayed it stays named");
+  assert.equal(h.status.get("decisions"), "1 decision waiting", "a propose of the area is a decision waiting; another area's is not");
+  assert.deepEqual(wb.openDecisions().map((d) => [d["text"], d["from"], d["when"]]).filter(([, , w]) => w === "2026-11-20T17:01:00Z"), [["Should ics1829 run again?", "dryrun1-testdev-review", "2026-11-20T17:01:00Z"]], "the prefix is not text; the original time is the time");
+  const { relayed } = await import("../src/ui/controller.js");
+  assert.deepEqual(relayed({ text: "no prefix", from: "a", fromTier: "self" }), { text: "no prefix", from: "a", fromTier: "self" }, "anything else as it is");
+});

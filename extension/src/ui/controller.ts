@@ -70,6 +70,11 @@ export interface WorkbenchConfig {
   readonly lockRetry: { readonly attempts: number; readonly delayMs: number };
   /** kton.home.openOnStart: after the first good poll, open the review view of the one waiting decision that has one */
   readonly openOnStart?: boolean;
+  /**
+   * kton.inbox.areas: when not empty, the window shows only messages and proposals of these areas (a persona's own
+   * area, dry run 1); it replaces the surface's area filter for the inbox, Home and the decisions waiting.
+   */
+  readonly inboxAreas?: readonly string[];
 }
 
 export const DEFAULT_CONFIG: WorkbenchConfig = {
@@ -267,7 +272,8 @@ export class Workbench {
         this.queries.has(this.cfg.queries.lanes) ? this.rows(this.cfg.queries.lanes) : Promise.resolve([]),
       ]);
       if (!tpl.ok) throw new Error(`the cockpit refused its template listing: ${tpl.refusal.reason}`);
-      Object.assign(this, { templates: tpl.value, proposals, decides, messages, answers, lanes });
+      // a relayed copy (a read-only mirror of the lane messages) names its sender in its text: shown as the sender
+      Object.assign(this, { templates: tpl.value, proposals: proposals.map(relayed), decides, messages: messages.map(relayed), answers, lanes });
       await packages;
       const st = this.packages.statusText();
       if (st) this.host.setStatus("slots", st, "status-item entries of the admitted packages");
@@ -369,6 +375,8 @@ export class Workbench {
   }
 
   private areaFilter(): (area: string | undefined) => boolean {
+    const only = this.cfg.inboxAreas?.filter((a) => a !== "");
+    if (only?.length) return (a) => a !== undefined && only.includes(a);
     const s = this.cfg.surfaces.find((x) => x.name === this.surface);
     const areas = surfaceAreas(s, areasByLane(this.lanes));
     return (a) => areas === undefined || (a !== undefined && areas.has(a));
@@ -892,4 +900,17 @@ export function claimSubject(iri: string, type?: string): Subject {
 /** The status bar's decisions item: "1 decision waiting", "2 decisions waiting". */
 export function decisionsText(n: number): string {
   return `${n} decision${n === 1 ? "" : "s"} waiting`;
+}
+
+/**
+ * A message relayed by a mirror (coordination's dryrun1-mirror): its text starts with "[from <lane> · <original time>]".
+ * The lane is shown as the sender, relayed by the signer (whose tier stays shown), the time is the original's, and the
+ * prefix is not part of the text. Any other row is returned as it is. The claim is still the mirror's: the signer
+ * is never replaced, only named beside the lane.
+ */
+export function relayed(row: Row): Row {
+  const m = /^\[from ([^\]·]+?) · ([^\]]+)\]\s*/.exec(row["text"] ?? "");
+  if (!m) return row;
+  const via = signerLabel(row["from"], row["fromTier"]);
+  return { ...row, text: (row["text"] ?? "").slice(m[0].length), from: (m[1] ?? "").trim(), fromTier: `via ${via}`, when: (m[2] ?? "").trim(), relayedWhen: row["when"] ?? "" };
 }
