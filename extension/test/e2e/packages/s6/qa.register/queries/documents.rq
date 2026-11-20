@@ -1,0 +1,13 @@
+# documents: the register, one row per document key in its latest state (draft or released).
+# What an area's "documents" keys and its governing document resolve to.
+PREFIX nk:   <https://kton.dev/v/>
+PREFIX qa:   <https://example.org/qa/>
+PREFIX dct:  <http://purl.org/dc/terms/>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+SELECT ?document ?key ?title ?revision ?state ?effectiveDate WHERE {
+  ?claim a nk:Claim ; nk:predicate qa:documentState ; nk:about ?document ;
+         qa:key ?key ; qa:title ?title ; qa:revision ?revision ; qa:state ?state .
+  FILTER NOT EXISTS { ?claim nk:replacedBy ?newer }
+  OPTIONAL { ?claim qa:effectiveDate ?effectiveDate }
+}
+ORDER BY ?key

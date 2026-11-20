@@ -168,7 +168,13 @@ export function bindVars(p, values = {}) {
     if (!u.bind) return u;
     const waiting = new Set();
     const params = { ...(u.params ?? {}) };
-    for (const [k, ph] of Object.entries(u.bind.params ?? {})) params[k] = resolve1(ph, waiting);
+    for (const [k, ph] of Object.entries(u.bind.params ?? {})) {
+      // an optional param whose var has no value (unset, or "": a cleared pick) stays unbound: the query
+      // runs without that filter, and the use does not wait for it
+      const cur = current[ph.comp]?.[ph.var];
+      if ((u.queryOptional ?? []).includes(k) && (cur === undefined || cur === "")) delete params[k];
+      else params[k] = resolve1(ph, waiting);
+    }
     const options = { ...u.options };
     for (const [k, ph] of Object.entries(u.bind.options ?? {})) {
       const v = resolve1(ph, waiting);
@@ -391,7 +397,7 @@ function everyRows(st, every, cctx, scope) {
   return st.results[key];
 }
 
-function boundQuery(st, ref, params, refine, cctx, scope) {
+function boundQuery(st, ref, params, refine, cctx, scope, optional) {
   const q = resolve(st, cctx.pkg, ref, "queries");
   const bound = {};
   for (const [k, src] of Object.entries(params ?? {})) {
@@ -414,11 +420,20 @@ function boundQuery(st, ref, params, refine, cctx, scope) {
       bound[k] = typedTerm(spec.type, spec.default, `refine ${k}`);
     } else fail("refine", `refine ${k} is {"values": [...]} or {"type": ${REFINE_TYPES.join("|")}}`);
   }
-  const unbound = vars.filter((v) => !(v in bound));
+  // optional (ktonpkg v0.9.10): $VARs of the query that may stay unbound - never bound when not in params,
+  // unbound while their var has no value. Unbound, the $VAR is left as it is, a free SPARQL variable.
+  const opt = optional ?? [];
+  if (!Array.isArray(opt) || !opt.every((v) => typeof v === "string")) fail("optional", `${q.package}/${q.name}: optional is a list of $VAR names`);
+  opt.forEach((v, i) => {
+    if (opt.indexOf(v) !== i) fail("optional", `optional ${v} is named twice`);
+    if (!vars.includes(v)) fail("optional", `optional ${v} is not a $VAR of ${q.package}/${q.name}`);
+    if (v in refined) fail("optional", `optional ${v} is also refined, and refine always binds it`);
+  });
+  const unbound = vars.filter((v) => !(v in bound) && !opt.includes(v));
   if (unbound.length) fail("unbound-var", `${q.package}/${q.name} uses $${unbound.join(", $")}, which ${unbound.length > 1 ? "are" : "is"} not bound`);
   const unused = Object.keys(bound).filter((k) => !vars.includes(k));
   if (unused.length) fail("unused-param", `${q.package}/${q.name} has no $${unused.join(", $")}`);
-  return { query: { package: q.package, name: q.name, hash: q.entry.hash }, params: bound, ...(Object.keys(refined).length ? { refine: refined } : {}) };
+  return { query: { package: q.package, name: q.name, hash: q.entry.hash }, params: bound, ...(Object.keys(refined).length ? { refine: refined } : {}), ...(opt.length ? { optional: [...opt].sort() } : {}) };
 }
 
 /** A typed term from a reader's value: the only way a refine value reaches a query. */
@@ -490,9 +505,13 @@ function expandUse(st, u, cctx, section, scope, idx, origin, input) {
   }
   if (u.query !== undefined) {
     const qref = input && typeof u.query === "string" ? { input, query: u.query } : u.query;
-    Object.assign(entry, boundQuery(st, qref, u.params, u.refine, cctx, scope));
+    const bq = boundQuery(st, qref, u.params, u.refine, cctx, scope, u.optional);
+    entry.query = bq.query;
+    entry.params = bq.params;
+    if (bq.refine) entry.refine = bq.refine;
+    if (bq.optional) entry.queryOptional = bq.optional;
     requires.add("query@1");
-  } else if (u.params !== undefined || u.refine !== undefined) fail("declaration", `${key}: params and refine belong to a query; this use has none`);
+  } else if (u.params !== undefined || u.refine !== undefined || u.optional !== undefined) fail("declaration", `${key}: params, refine and optional belong to a query; this use has none`);
   if (u.product !== undefined) {
     if (typeof u.product.path !== "string" || !/^sha256:[0-9a-f]{64}$/.test(u.product.hash ?? "")) fail("declaration", `${key}: product is {path, hash: sha256:…}`);
     entry.product = { path: u.product.path, hash: u.product.hash };

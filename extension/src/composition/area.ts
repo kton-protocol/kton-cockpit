@@ -2,13 +2,16 @@
 // was refused (with the reason), put their slot entries in their places, and open compositions in panels
 // with a CompositionHost each. Pure: VS Code is behind CompositionUi.
 import type { Transport } from "../transport/port.js";
-import type { Control, LeafViewer, Loaded, LoadedViewer, SlotEntry, ViewerTree } from "../packages/model.js";
+import type { Control, LeafViewer, Loaded, LoadedViewer, MirrorPackage, SlotEntry, ViewerTree } from "../packages/model.js";
 import { loadPackages } from "../packages/model.js";
 import type { TreeNode } from "../ui/host.js";
 import { sparqlResultsOf } from "../ui/queries.js";
 import { CompositionHost, LeafHost, type Backend, type Plan } from "./host.js";
 import type { BoundTerm } from "../transport/port.js";
-import { applies, oneNumber, partition, planEntry, type Subject } from "./slots.js";
+import { applies, oneNumber, partition, planComposition, planEntry, type Subject } from "./slots.js";
+import { approvalCounts, areaComposition, BUILTIN, recordComposition, recordTerms, signerKeyId, withBuiltin } from "./qm-area.js";
+import { SIGNER_QUERY } from "../identity.js";
+import type { AreaDecl } from "../packages/listing.js";
 
 export interface CompositionUi {
   /** Open (or update) a composition panel; returns how to post to its frame. */
@@ -30,9 +33,11 @@ export interface ExpectRevision {
 }
 export interface ActPath {
   /** The shell's one sign path (Workbench.signAct): the dialog for a decision control, the agent key for a record. */
-  act(control: Control, about: string, fields: Readonly<Record<string, string>>, title: string, expect?: ExpectRevision): Promise<"signed" | "cancelled" | "failed">;
+  act(control: Control, about: string, fields: Readonly<Record<string, string>>, title: string, expect?: ExpectRevision, into?: { readonly scope?: string }): Promise<"signed" | "cancelled" | "failed">;
   open(target: Readonly<Record<string, unknown>>): Promise<string>;
   identityName(): string;
+  /** The window's person key id and the person tiers: whether an approval counts is decided over them (S6.12). */
+  person?(): { readonly keyId: string; readonly personTiers: readonly string[] };
 }
 
 export const SLOT_CMD = "ktonWorkbench.openSlot";
@@ -67,6 +72,8 @@ export class PackagesArea {
     private readonly path: ActPath,
     /** the viewers this shell vendors from kton-web, by name, with their tree ids */
     private readonly vendored: ReadonlyMap<string, ViewerTree> = new Map(),
+    /** the workbench's own blocks (media/workbench): the generic QM area is planned with them (PR 3) */
+    private readonly builtin?: MirrorPackage,
   ) {}
 
   /**
@@ -130,7 +137,7 @@ export class PackagesArea {
    * The act path of one open panel: refused when the panel was opened at another revision of a package than the one
    * loaded now (or is closing), so an old revision's control never signs. While the act runs the panel is busy.
    */
-  private actFor(key: string, label: string, mine: () => OpenPanel | undefined): Backend["act"] {
+  private actFor(key: string, label: string, mine: () => OpenPanel | undefined, scope?: string): Backend["act"] {
     return async (c, about, fields, title) => {
       const h = mine();
       const why = !h || this.hosts.get(key) !== h ? "the panel is closed or was opened again" : (h.retired ?? this.outdated(h) ?? (h.revisions.has(c.package) ? undefined : `control ${c.package}/${c.name} is not one this panel was opened with`));
@@ -141,7 +148,11 @@ export class PackagesArea {
       const p = h as OpenPanel;
       p.busy++;
       try {
-        return await this.path.act(c, about, fields, title, { package: c.package, revision: p.revisions.get(c.package) as string });
+        const r = await this.path.act(c, about, fields, title, { package: c.package, revision: p.revisions.get(c.package) as string }, scope ? { scope } : {});
+        // a record is written with the agent key and no dialog: where it went is said, as the dialog says it for a
+        // decision (the records scope is the package's declaration; kton-review N1 on #187)
+        if (r === "signed" && c.kind === "record" && scope) this.ui.info(`${label}: recorded into scope ${scope} with the agent key (no dialog).`);
+        return r;
       } finally {
         p.busy--;
         if (p.retired && p.busy === 0) this.retire(key, p, p.retired);
@@ -235,6 +246,7 @@ export class PackagesArea {
       return undefined;
     }
     const loaded = this.loaded;
+    if (e.area) return this.openArea(key, { ...e, area: e.area }, s, loaded, "area");
     const leaf = e.viewer ? loaded.packages[e.package]?.leaves[e.viewer] : undefined;
     if (leaf) return this.openLeaf(key, e, s, leaf, loaded);
     let plan: Plan;
@@ -244,26 +256,85 @@ export class PackagesArea {
       this.ui.error(`${e.label} cannot be shown: ${(err as Error).message}`);
       return undefined;
     }
-    const panel = `${PANEL}${key}`;
+    return this.showPlanned(`${PANEL}${key}`, e.label, e.package, plan, loaded, loaded.packages, {});
+  }
+
+  /**
+   * An area (S6): the built-in area composition for the scope, or the record composition for one record
+   * (opened from the list, list → record). The same code for every area; the declaration says what to show.
+   */
+  private async openArea(key: string, e: SlotEntry & { area: AreaDecl }, s: Subject, loaded: Loaded, which: "area" | "record"): Promise<CompositionHost | undefined> {
+    if (!this.builtin) {
+      this.ui.error(`${e.label} cannot be shown: this shell carries no area blocks.`);
+      return undefined;
+    }
+    const built = which === "area" ? areaComposition(e, loaded) : recordComposition(e, loaded);
+    const packages = withBuiltin(loaded, this.builtin, built);
+    let plan: Plan;
+    try {
+      plan = await planComposition({ package: BUILTIN, composition: String(built.decl["composition"]) }, packages, s, built.params, this.path.identityName(), (p, n, b) => this.named(p, n, b));
+    } catch (err) {
+      this.ui.error(`${e.label} cannot be shown: ${(err as Error).message}`);
+      return undefined;
+    }
+    const a = e.area;
+    const panel = which === "area" ? `${PANEL}${key}` : `${PANEL}${key}#record`;
+    const label = which === "area" ? e.label : `${e.label}: ${s.iri.split("/").pop() ?? s.iri}`;
+    return this.showPlanned(panel, label, e.package, plan, loaded, packages, {
+      revisions: built.packages,
+      ...(a.scopes?.records ? { scope: a.scopes.records } : {}),
+      // list → record: a row of the area's list opens that record. Its subject (what the actions are about) is the
+      // record's latest claim as the area's record query answers it here, never a claim the frame names (S6.8).
+      open: async (target) => {
+        const uri = typeof target["uri"] === "string" ? target["uri"] : "";
+        const terms = which === "area" && /^https?:\/\//.test(uri) ? recordTerms(a, loaded, e.package, uri) : undefined;
+        if (!terms || !a.record) return this.path.open(target);
+        const r = (await this.named(e.package, a.record, terms)) as { results?: { bindings?: Array<Record<string, { value?: string }>> } };
+        const rows = r.results?.bindings ?? [];
+        const claim = rows.length === 1 ? /^https:\/\/kton\.dev\/o\/([0-9a-f]{64})$/.exec(rows[0]?.["claim"]?.value ?? "")?.[1] : undefined;
+        if (!claim) return `${uri} is not one current record of ${e.label} (${rows.length} rows): nothing opened`;
+        const opened = await this.openArea(key, e, { kind: "claim", iri: uri, id: `sha256:${claim}`, claim: `sha256:${claim}` }, loaded, "record");
+        return opened ? `Opened ${uri}` : `${uri} cannot be shown`;
+      },
+      // whether an approval counts is the shell's decision over ?signer (S6.12): a column added to the answer
+      ...(a.approvals ? { annotate: { package: e.package, query: a.approvals } } : {}),
+    });
+  }
+
+  /** Show a planned composition in its panel, with a host whose backend is the window's. */
+  private showPlanned(
+    panel: string,
+    label: string,
+    pkg: string,
+    plan0: Plan,
+    loaded: Loaded,
+    packages: Readonly<Record<string, MirrorPackage>>,
+    opts: { revisions?: readonly string[]; scope?: string; open?: Backend["open"]; annotate?: { package: string; query: string } },
+  ): CompositionHost | undefined {
+    let plan = plan0;
     const viewers = new Map<string, LoadedViewer>();
-    for (const p of Object.values(loaded.packages)) for (const v of Object.values(p.viewers)) viewers.set(v.module, v);
+    for (const p of Object.values(packages)) for (const v of Object.values(p.viewers)) viewers.set(v.module, v);
     const used = [...new Set(plan.uses.map((u) => (u as { module?: string }).module))].map((m) => viewers.get(m ?? "")).filter((v): v is LoadedViewer => !!v);
     let host: CompositionHost | undefined;
     let me: OpenPanel | undefined;
     let shown: ReturnType<CompositionUi["showComposition"]>;
     try {
-      shown = this.ui.showComposition(panel, e.label, used, (m) => void host?.onMessage(m));
+      shown = this.ui.showComposition(panel, label, used, (m) => void host?.onMessage(m));
     } catch (err) {
-      this.ui.error(`${e.label} cannot be shown: ${(err as Error).message}`);
+      this.ui.error(`${label} cannot be shown: ${(err as Error).message}`);
       return undefined;
     }
     // the frame imports each module from where the host serves its checked tree
     plan = { ...plan, uses: plan.uses.map((u) => ({ ...u, module: shown.urls.get((u as { module?: string }).module ?? "") ?? "" })) } as Plan;
+    const annotate = opts.annotate;
     const backend: Backend = {
-      query: (pkg, name, terms) => this.named(pkg, name, terms),
-      bytes: (pkg, hash) => this.t.uiCat(pkg, hash),
-      open: (target) => this.path.open(target),
-      act: this.actFor(panel, e.label, () => me),
+      query: async (p, name, terms) => {
+        const r = await this.named(p, name, terms);
+        return annotate && p === annotate.package && name === annotate.query ? await this.withCounts(r) : r;
+      },
+      bytes: (p, hash) => this.t.uiCat(p, hash),
+      open: opts.open ?? ((target) => this.path.open(target)),
+      act: this.actFor(panel, label, () => me, opts.scope),
       run: async (ray, holes) => {
         const out = await this.t.workflowRun({ workflow: ray, bind: holes });
         if (!out.ok) throw new Error(`the cockpit refused ${ray}: ${out.refusal.reason}`);
@@ -272,9 +343,35 @@ export class PackagesArea {
     };
     host = new CompositionHost(plan, loaded, backend, { post: shown.post, log: (l) => this.ui.log(l) });
     const acting = plan.uses.flatMap((u) => (u.acts ?? []).map((a) => a.control?.package)).filter((x): x is string => !!x);
-    me = { host, package: e.package, revisions: this.revisionsOf(loaded, [e.package, ...acting]), busy: 0 };
+    me = { host, package: pkg, revisions: this.revisionsOf(loaded, [pkg, ...acting, ...(opts.revisions ?? [])]), busy: 0 };
     this.open(panel, me);
     return host;
+  }
+
+  /**
+   * An approvals answer with the column `counts`: whether each approval counts, and why (approvalCounts). Each
+   * signer's tier is the cockpit's answer for its key id (the shell's own signer query, as for the window's keys),
+   * never a column of the package's query.
+   */
+  private async withCounts(r: unknown): Promise<unknown> {
+    const person = this.path.person?.() ?? { keyId: "", personTiers: [] };
+    const a = r as { head?: { vars?: string[] }; results?: { bindings?: Array<Record<string, { value?: string }>> } };
+    const kids = [...new Set((a.results?.bindings ?? []).map((b) => signerKeyId(b["signer"]?.value)).filter((k): k is string => !!k))];
+    const tiers = new Map<string, string>();
+    for (const kid of kids) {
+      const out = await this.t.ask({ query: "sparql", sparql: SIGNER_QUERY, bind: { KEYID: kid }, format: "sparql-results+json", limit: 2 });
+      const rows = out.ok ? sparqlResultsOf(out.value).results.bindings : [];
+      if (rows.length === 1 && rows[0]?.["tier"]?.value) tiers.set(kid, rows[0]["tier"].value);
+    }
+    const bindings = (a.results?.bindings ?? []).map((b) => ({ ...b, counts: { type: "literal", value: approvalCounts({ outcome: b["outcome"]?.value, signer: b["signer"]?.value }, person, (k) => tiers.get(k)).why } }));
+    return { ...a, head: { ...a.head, vars: [...(a.head?.vars ?? []), "counts"] }, results: { ...a.results, bindings } };
+  }
+
+  /** The QM areas (activity entries with an area), in their order (order, then package name: C2.5, S6.16). */
+  areaNodes(): TreeNode[] {
+    const areas = (this.loaded?.entries ?? []).filter((e) => e.slot === "activity" && e.area);
+    if (!areas.length) return [];
+    return [{ id: "qm-areas", label: "QM areas", description: `${areas.length}`, children: areas.map((e) => ({ id: `area:${entryKey(e)}`, label: e.label, description: e.package, tooltip: `${e.package} (${e.file})${e.area?.scopes?.records ? ` · records ${e.area.scopes.records}` : ""}`, command: { id: SLOT_CMD, args: [entryKey(e), areaSubject(e)] } })) }];
   }
 
   /** A panel opened (or opened again over an older one, which is replaced: its acts are refused from now on). */
@@ -322,6 +419,16 @@ export class PackagesArea {
   hostOf(key: string): CompositionHost | LeafHost | undefined {
     return this.hosts.get(`${PANEL}${key}`)?.host;
   }
+}
+
+/**
+ * An area's subject: its records scope (when {kind: scope}). Its IRI (https://kton.dev/scope/<name>) is the shell's
+ * own name for the panel's subject: it is never signed, asked or shown as a kton IRI, and no area query reads it
+ * (a scope's own id is its seed claim, which ui list does not give the shell).
+ */
+export function areaSubject(e: SlotEntry): Subject {
+  const scope = e.area?.scopes?.records ?? `${e.package}/${e.file}`;
+  return { kind: "scope", iri: `https://kton.dev/scope/${encodeURIComponent(scope)}`, id: scope, scope };
 }
 
 /**

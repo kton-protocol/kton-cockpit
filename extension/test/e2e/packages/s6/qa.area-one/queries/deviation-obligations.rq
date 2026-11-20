@@ -1,0 +1,21 @@
+# deviation-obligations: who must be trained on which released document of the area (C3.5).
+# Who = every person in the area's RACI; what = the area's documents in their released revision;
+# due = that revision's effective date (MH 78249b2d). A draft is not an obligation.
+# $person optional: bound, the rows of that person only.
+PREFIX nk:   <https://kton.dev/v/>
+PREFIX qa:   <https://example.org/qa/>
+PREFIX dct:  <http://purl.org/dc/terms/>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+SELECT ?trainee ?document ?revision ?due ?trained WHERE {
+  VALUES ?document { "QA-SOP-10" "QA-FOR-10" }
+  { SELECT DISTINCT ?trainee WHERE {
+      ?r a nk:Claim ; nk:predicate qa:raciAssigned ; nk:scope ?s ; qa:person ?trainee .
+      ?s rdfs:label "qa.deviations.raci" .
+      FILTER NOT EXISTS { ?r nk:replacedBy ?n } } }
+  ?doc a nk:Claim ; nk:predicate qa:documentState ; qa:key ?document ; qa:state "released" ;
+       qa:revision ?revision ; qa:effectiveDate ?due .
+  FILTER NOT EXISTS { ?doc nk:replacedBy ?newerDoc }
+  BIND(EXISTS { ?t nk:predicate qa:trainedOn ; qa:person ?trainee ; qa:key ?document ; qa:revision ?revision } AS ?trained)
+  FILTER(!BOUND($person) || ?trainee = IRI($person))
+}
+ORDER BY ?trainee ?document

@@ -1,0 +1,43 @@
+{
+ "slot": "activity",
+ "label": "Deviations",
+ "when": {
+  "kind": "scope"
+ },
+ "order": 20,
+ "query": "deviations",
+ "area": {
+  "scopes": {
+   "records": "qa.deviations",
+   "reads": [
+    "qa.deviations.raci",
+    "qa.documents"
+   ]
+  },
+  "record": "deviation",
+  "raci": "deviation-raci",
+  "training": "deviation-obligations",
+  "approvals": "deviation-approvals",
+  "history": "deviation-history",
+  "params": {
+   "record": "subject.iri",
+   "person": "subject.id"
+  },
+  "actions": [
+   "approves",
+   "note"
+  ],
+  "documents": [
+   "QA-SOP-10",
+   "QA-FOR-10"
+  ],
+  "governing": "QA-SOP-10",
+  "findings": {
+   "package": "qa.rules",
+   "rules": [
+    "QA-R-MAJOR-OWNER",
+    "QA-R-CLOSED-DATE"
+   ]
+  }
+ }
+}

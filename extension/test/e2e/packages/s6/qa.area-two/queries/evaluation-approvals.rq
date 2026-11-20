@@ -1,0 +1,13 @@
+# evaluation-approvals: every approval about an evaluation of this area (area.approvals, ktonpkg
+# scope.ApprovalsShape: ?claim ?record ?outcome ?signer). ?record is the approved record claim.
+# No tier here: whether an approval counts (the window's person key, or a person tier; outcome approved)
+# is the shell's decision over ?signer and the cockpit's re-verified answer (C1.3, O1, C3.4).
+PREFIX nk:   <https://kton.dev/v/>
+PREFIX qa:   <https://example.org/qa/>
+PREFIX dct:  <http://purl.org/dc/terms/>
+SELECT ?claim ?record ?outcome ?signer WHERE {
+  ?claim a nk:Claim ; nk:predicate qa:approves ; nk:about ?record ; qa:outcome ?outcome ;
+         nk:signer ?signer ; dct:created ?when .
+  ?record nk:predicate qa:evaluationRecorded .
+}
+ORDER BY ?when

@@ -1,0 +1,15 @@
+{
+ "name": "evaluation-approves",
+ "target": "either",
+ "predicate": "https://example.org/qa/approves",
+ "fields": {
+  "outcome": {
+   "type": "enum",
+   "values": [
+    "approved",
+    "rejected"
+   ],
+   "required": true
+  }
+ }
+}
