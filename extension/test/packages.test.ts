@@ -230,3 +230,28 @@ test("byHash by (package, hash): two packages carrying the same bytes each serve
     assert.deepEqual(asked, [own?.id], `${name} is served from its own package`);
   }
 });
+
+test("member names on #184: only the aliases member listed as \"\" is exempt; a query, template or other aliases name that climbs refuses the package", async () => {
+  const bytes = Buffer.from("{}");
+  const h = `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
+  const withMember = (role: string, name: string) => {
+    const f = good();
+    f.blobs.set(h, bytes);
+    return { ...f, pkg: { ...f.pkg, members: [...f.pkg.members, { role, name, hash: h }] } };
+  };
+  const load = async (role: string, name: string) => {
+    const f = withMember(role, name);
+    return loadPackages({ packages: [f.pkg] }, reader(f));
+  };
+  for (const [role, name] of [["query", "../x"], ["template", "../x"], ["aliases", "../x"], ["aliases", "/x"], ["control", "a:b"], ["content", "content/../../x.md"]] as const) {
+    const l = await load(role, name);
+    assert.deepEqual(Object.keys(l.packages), [], `${role} ${name} refuses the package`);
+    assert.equal(l.refusals[0]?.code, "member.name", `${role} ${name}`);
+  }
+  // the one exemption: cockpit lists a package's alias file as {role: aliases, name: ""}
+  const ok = await load("aliases", "");
+  assert.deepEqual(ok.refusals, []);
+  assert.deepEqual(Object.keys(ok.packages), ["hostile-good"]);
+  // and an empty name in any other role is still refused
+  assert.equal((await load("query", "")).refusals[0]?.code, "member.name");
+});

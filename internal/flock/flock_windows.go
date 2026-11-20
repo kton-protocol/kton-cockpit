@@ -3,14 +3,15 @@
 package flock
 
 import (
-	"os"
-
 	"golang.org/x/sys/windows"
 )
 
+// Windows has no O_NOFOLLOW.
+const oNoFollow = 0
+
 // Lock holds an exclusive lock on path until the returned function is called.
 func Lock(path string) (func(), error) {
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o644)
+	f, err := open(path)
 	if err != nil {
 		return nil, err
 	}
