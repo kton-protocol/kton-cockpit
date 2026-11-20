@@ -185,7 +185,9 @@ dl.kv dd, dl.kton-card dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
 .wb-banner-lead { letter-spacing: .06em; font-size: 11px; color: var(--wb-warn-fg); text-transform: uppercase; }
 .wb-sep { color: var(--wb-muted); }
 .wb-colon { display: inline-block; width: 0; overflow: hidden; vertical-align: bottom; }
-.wb-banner-part { display: none; }
+.wb-design section.kton-part.wb-banner-part[data-level] { border-top: 0; padding: 0; margin: 0; }
+.wb-banner-part > :is(h1, h2, h3, h4, h5, h6):first-child, .wb-banner-part > .wb-sec-head { display: none; }
+.wb-banner-part > .kton-block:has(.wb-banner) { display: none; }
 #kton-root .wb-banner { display: none; } /* drawn once, in the sticky bar above the view */
 .wb-nav { display: flex; gap: 2px; padding: 0 12px; border-bottom: 1px solid var(--wb-hairline); overflow-x: auto; scrollbar-width: thin; }
 .wb-nav a { font-size: 12px; padding: 6px 8px; color: var(--wb-muted); text-decoration: none; white-space: nowrap; border-bottom: 2px solid transparent; display: inline-flex; align-items: center; gap: 4px; }
