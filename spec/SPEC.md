@@ -282,13 +282,15 @@ and install refuses it.
 
 A composition's act MAY say another package's control, pinned to that package's sealed revision
 (`from: {package, at, head}`, ktonpkg v0.9.13). Only the form is checked when the package is built; the
-rest is checked here, against the owner as installed, and fails closed. Install MUST refuse the package
-(`package.foreign`) unless the owner is installed at the pinned revision, its seal names the pinned head,
-the control is in it and of the kind the act's intent needs, and every field the act fills is one of the
-control's templates' fields; so the owner is installed first. A frontend MAY use such a package only while
-the same holds and the owner is also admitted: the act signs with the owner's template, which `say` takes
-only from an admitted package. Otherwise `ui list` refuses it as `package.unusable`, naming the act and
-what is missing.
+rest is checked here, against the owner revision that would be used, and fails closed: the pinned
+revision must be that one, its seal must name the pinned head, the control must be in it and of the kind
+the act's intent needs, and every field the act fills must be one of the control's templates' fields.
+Install MUST refuse the package (`package.foreign`) unless this holds for the latest installed revision of
+the owner; so the owner is installed first, and a later revision installed beside the pinned one fails it.
+A frontend MAY use such a package only while it holds for the owner among the packages a frontend may use
+(admitted, the latest revision, one per name, passing its check): the act signs with that revision's
+template. Otherwise `ui list` refuses it as `package.unusable`, naming the act and what is missing; refusing
+one view can take away another's owner, so this is decided until nothing more is refused.
 
 For a package a frontend may use, `ui list` also lists its `members` (the sealed revision's parts, each
 `{role, name, hash}`), gives each composition its `hash`, and names a `ui` entry by its path

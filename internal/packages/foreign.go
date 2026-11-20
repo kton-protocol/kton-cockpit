@@ -7,13 +7,14 @@ import (
 )
 
 // ForeignControlProblems checks every act of rev that says another package's control (ktonpkg
-// v0.9.13) against the owner as installed here: the installation of that name at the pinned revision,
-// its seal naming the pinned head. The build checks only the form; this is the rest, and it fails
-// closed: an owner not installed is a problem, as is one installed only at another revision (which
-// the problem then names) or more than once at the pinned one. With admitted given, an owner installed
-// but not admitted is a problem too: the act signs with the owner's template, which say takes only
-// from an admitted package.
-func ForeignControlProblems(rev *scope.Revision, installed []Installed, admitted map[string]bool) []string {
+// v0.9.13) against its owner. The build checks only the form; this is the rest, and it fails closed.
+// The owner is resolved among owners, the revisions that would actually be used: the served set for
+// a frontend (one revision per package, the latest, admitted, passing its check), the latest installed
+// revision of each package at install. It must be the pinned revision (label, and the head its seal
+// names): a later revision installed beside the pinned one is not it, since say takes the template from
+// the revision in use (kton-review F1 on #206). installed only explains an owner that is installed but
+// not among owners.
+func ForeignControlProblems(rev *scope.Revision, owners, installed []Installed) []string {
 	fcs, err := rev.ForeignControls()
 	if err != nil {
 		return []string{err.Error()}
@@ -21,7 +22,7 @@ func ForeignControlProblems(rev *scope.Revision, installed []Installed, admitted
 	var out []string
 	for _, fc := range fcs {
 		var pinned, other []Installed
-		for _, in := range installed {
+		for _, in := range owners {
 			if in.Package.Name != fc.From.Package {
 				continue
 			}
@@ -35,17 +36,43 @@ func ForeignControlProblems(rev *scope.Revision, installed []Installed, admitted
 		case len(pinned) > 1:
 			out = append(out, fmt.Sprintf("%s: %s@%s is installed more than once", fc.Where, fc.From.Package, fc.From.At))
 		case len(pinned) == 1:
-			probs := scope.ForeignControlProblems(fc, pinned[0].Revision, pinned[0].Seal)
-			if len(probs) == 0 && admitted != nil && !admitted[pinned[0].Package.ID] {
-				probs = []string{fmt.Sprintf("%s: %s@%s is installed but not admitted (claims.allowedPackages), so its control cannot be signed",
-					fc.Where, fc.From.Package, fc.From.At)}
-			}
-			out = append(out, probs...)
+			out = append(out, scope.ForeignControlProblems(fc, pinned[0].Revision, pinned[0].Seal)...)
 		case len(other) > 0:
-			// Not at the pinned revision: the check names the revision that is installed.
+			// Another revision is the one in use: the check names it.
 			out = append(out, scope.ForeignControlProblems(fc, other[len(other)-1].Revision, other[len(other)-1].Seal)...)
+		case installedAs(installed, fc.From.Package):
+			out = append(out, fmt.Sprintf("%s: %s is installed but not in use (not admitted, or refused: ui list says why), so its control cannot be signed",
+				fc.Where, fc.From.Package))
 		default:
 			out = append(out, scope.ForeignControlProblems(fc, nil, scope.ClaimInfo{})...)
+		}
+	}
+	return out
+}
+
+func installedAs(installed []Installed, name string) bool {
+	for _, in := range installed {
+		if in.Package.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+// Latest are the installations no other installation of the same package follows: the revision of
+// each package an act on its control would sign with, once admitted.
+func Latest(installed []Installed) []Installed {
+	var out []Installed
+	for _, in := range installed {
+		superseded := false
+		for _, o := range installed {
+			if o.Package.ID == in.Package.ID && o.Revision.ID != in.Revision.ID && contains(o, in.Revision.ID) {
+				superseded = true
+				break
+			}
+		}
+		if !superseded {
+			out = append(out, in)
 		}
 	}
 	return out

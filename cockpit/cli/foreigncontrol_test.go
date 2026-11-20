@@ -42,7 +42,12 @@ func goodVerticle(t *testing.T, edit func(dir string)) string {
 func build(t *testing.T, name, label, src string) (dir, head string) {
 	t.Helper()
 	_, key, _ := ed25519.GenerateKey(rand.Reader)
-	dir = filepath.Join(t.TempDir(), name)
+	return buildInto(t, filepath.Join(t.TempDir(), name), name, label, src, key)
+}
+
+// buildInto builds a revision into dir: into an existing package, the next revision of it.
+func buildInto(t *testing.T, dir, name, label, src string, key ed25519.PrivateKey) (string, string) {
+	t.Helper()
 	if _, _, err := scope.BuildVerticle(dir, name, label, src, key, scope.Options{}); err != nil {
 		t.Fatalf("building %s: %v", name, err)
 	}
@@ -57,6 +62,12 @@ func build(t *testing.T, name, label, src string) (dir, head string) {
 	return dir, fmt.Sprint(seal.Object["hash"])
 }
 
+func ownerSource(t *testing.T, kind string) string {
+	return goodVerticle(t, func(dir string) {
+		os.WriteFile(filepath.Join(dir, "controls", "rerun-request.json"), []byte(`{"kind":"`+kind+`","say":{"template":"approves"}}`), 0o644)
+	})
+}
+
 // A view that acts on another package's control (ktonpkg v0.9.13) is checked against the owner as
 // installed here: install refuses it until the owner is installed at the revision it pins, refuses a
 // pin to another head, and ui list refuses it once the owner is gone.
@@ -64,9 +75,8 @@ func TestForeignControl_TheOwnerMustBeInstalledAsPinned(t *testing.T) {
 	r := testrepo.New(t)
 	r.Use(t)
 	ctx := context.Background()
-	owner, head := build(t, "runs", "v7", goodVerticle(t, func(dir string) {
-		os.WriteFile(filepath.Join(dir, "controls", "rerun-request.json"), []byte(`{"kind":"record","say":{"template":"approves"}}`), 0o644)
-	}))
+	_, ownerKey, _ := ed25519.GenerateKey(rand.Reader)
+	owner, head := buildInto(t, filepath.Join(t.TempDir(), "runs"), "runs", "v7", ownerSource(t, "record"), ownerKey)
 	view := func(pin string) string {
 		dir, _ := build(t, "review", "v1", goodVerticle(t, func(dir string) {
 			p := filepath.Join(dir, "ui", "compositions", "list.json")
@@ -120,7 +130,7 @@ func TestForeignControl_TheOwnerMustBeInstalledAsPinned(t *testing.T) {
 		return ""
 	}
 	// The act signs with the owner's template, which say takes only from an admitted package.
-	if got := refusals(); !strings.Contains(got, "runs@v7 is installed but not admitted") {
+	if got := refusals(); !strings.Contains(got, "runs is installed but not in use") {
 		t.Errorf("with its owner installed but not admitted, ui list refuses the view: %s", got)
 	}
 	if err := install(owner); err != nil {
@@ -128,6 +138,27 @@ func TestForeignControl_TheOwnerMustBeInstalledAsPinned(t *testing.T) {
 	}
 	if got := refusals(); got != "[]" {
 		t.Errorf("with its owner installed and admitted, the view is usable: %s", got)
+	}
+	// A later revision of the owner, installed and admitted beside the pinned one, is the one in use:
+	// its control is no longer the record control the view pinned, so the view is refused, and a view
+	// pinned to v7 no longer installs (kton-review F1 on #206).
+	if _, head8 := buildInto(t, owner, "runs", "v8", ownerSource(t, "decision"), ownerKey); head8 == head {
+		t.Fatal("v8 must seal another head")
+	}
+	if err := install(owner); err != nil {
+		t.Fatalf("the owner's v8: %v", err)
+	}
+	if got := refusals(); !strings.Contains(got, "from pins runs@v7; the sealed revision is v8") {
+		t.Errorf("with a later owner revision in use, ui list refuses the view: %s", got)
+	}
+	if err := install(view(head)); err == nil || !strings.Contains(err.Error(), "from pins runs@v7; the sealed revision is v8") {
+		t.Errorf("a view pinned to v7 beside v8: want a refusal at install, got %v", err)
+	}
+	if err := os.RemoveAll(filepath.Join(r.Root, ".kton", "packages", "runs@v8")); err != nil {
+		t.Fatal(err)
+	}
+	if got := refusals(); got != "[]" {
+		t.Errorf("with v8 gone, the view is usable again: %s", got)
 	}
 	if err := os.RemoveAll(filepath.Join(r.Root, ".kton", "packages", "runs@v7")); err != nil {
 		t.Fatal(err)
