@@ -67,8 +67,14 @@ export interface SignPlan {
 export function meaningField(control: Pick<ControlInfo, "meaning">, tpl: TemplateInfo): string | undefined {
   if (control.meaning === undefined) return undefined;
   if (tpl.fields["meaning"]) return "meaning";
-  const carrying = Object.entries(tpl.fields).filter(([, f]) => f.values?.includes(control.meaning as string)).map(([k]) => k);
+  const carrying = meaningCarriers(control, tpl);
   return carrying.length === 1 ? carrying[0] : undefined;
+}
+
+/** The template's fields whose fixed values include the control's meaning (more than one: which it fixes is unclear). */
+function meaningCarriers(control: Pick<ControlInfo, "meaning">, tpl: TemplateInfo): string[] {
+  if (control.meaning === undefined || tpl.fields["meaning"]) return [];
+  return Object.entries(tpl.fields).filter(([, f]) => f.values?.includes(control.meaning as string)).map(([k]) => k);
 }
 
 /** The template a control signs: its own package's (named <package>/<name> on a clash, cockpit v0.5.3), else by name. */
@@ -87,6 +93,12 @@ export function plan(
   const tpl = templateFor(control, templates);
   if (!tpl) return refuse("template.not-allowed", `${control.package}/${control.name} signs ${control.template}, which is not installed here`);
 
+  // what say must still sign with (SPEC §8.5): without the listing's hash (and a package template's revision) the
+  // gap between the dialog and say is open, so nothing is signed (cockpit-runtime N1 on #187)
+  if (!tpl.hash) return refuse("cockpit.version", `the cockpit lists no hash for the template ${tpl.name}: signing needs cockpit v0.5.5 or later (say --json with hash and revision), so that what the dialog shows is what is signed`);
+  if (tpl.package !== undefined && !tpl.revision) return refuse("cockpit.version", `the cockpit lists no package revision for the template ${tpl.name}: signing needs cockpit v0.5.5 or later (say --json with hash and revision)`);
+  const carriers = meaningCarriers(control, tpl);
+  if (carriers.length > 1) return refuse("control.meaning", `${control.package}/${control.name} means ${control.meaning}, a value of several fields of ${tpl.name} (${carriers.join(", ")}): which one it fixes is not clear, so nothing is signed`);
   const fixed = meaningField(control, tpl);
   const fields: Record<string, string> = {};
   for (const [k, v] of Object.entries(intent.fields)) {

@@ -83,7 +83,11 @@ class FakeTransport implements Transport {
     const key = req.name !== undefined ? `N ${req.name}` : (req.sparql ?? "");
     return { ok: true, value: { query: "sparql", ref: "", raw: "", sparql: { rows: this.answers[key] ?? [] } } };
   }
-  async say(req: SayRequest): Promise<Outcome<SayResult>> {
+  /** the --expect-* values of every say (SPEC §8.5), kept apart from says so they read as before */
+  expects: Array<Pick<SayRequest, "expectTemplate" | "expectRevision" | "expectPredicate">> = [];
+  async say(full: SayRequest): Promise<Outcome<SayResult>> {
+    const { expectTemplate, expectRevision, expectPredicate, ...req } = full;
+    this.expects.push({ ...(expectTemplate ? { expectTemplate } : {}), ...(expectRevision ? { expectRevision } : {}), ...(expectPredicate ? { expectPredicate } : {}) });
     const e = this.sayErrors.shift() ?? this.sayError;
     if (e) throw e;
     this.sayCalls++;
@@ -95,8 +99,11 @@ class FakeTransport implements Transport {
     this.says.push(req);
     return { ok: true, value: { claimId: sha("9"), confirmation: "registered" } };
   }
+  /** a cockpit before v0.5.5: say --json lists no hash and no revision */
+  legacyListing = false;
   async templates(): Promise<Outcome<TemplateInfo[]>> {
-    return { ok: true, value: this.templateList };
+    if (this.legacyListing) return { ok: true, value: this.templateList.map(({ hash: _h, revision: _r, ...t }) => t) };
+    return { ok: true, value: this.templateList.map((t) => ({ hash: `sha256:${"e".repeat(64)}`, ...(t.package !== undefined ? { revision: `sha256:${"f".repeat(64)}` } : {}), ...t })) };
   }
   publish(): never { throw new Error("not used"); }
   workflowRun(): never { throw new Error("not used"); }
@@ -647,7 +654,8 @@ class PackagesTransport extends FakeTransport {
 }
 const withTestPackage = () => {
   const t = new PackagesTransport();
-  t.templateList = [...TEMPLATES, { name: "test-note", fields: { about: { type: "string", required: true } }, package: "kton-web-test" }];
+  // as v0.5.5 lists it: the template's hash and the sealed revision of the package it came from
+  t.templateList = [...TEMPLATES, { name: "test-note", fields: { about: { type: "string", required: true } }, package: "kton-web-test", hash: `sha256:${"e".repeat(64)}`, revision: t.fixtures[0]?.pkg.revision as string }];
   return t;
 };
 /** Open kton-web-test's composition for P1 and let its frame say ready. */
@@ -878,7 +886,8 @@ test("Y1: every say carries the expectations as say --json listed them; a panel'
   const { h, wb } = await setup({}, t);
   h.confirmAnswer = true;
   assert.equal(await wb.signAct(APPROVE, sha("2"), { outcome: "ok" }, "Approve", { package: "qm", revision: R1 }), "signed");
-  assert.deepEqual(t.says.at(-1), { template: "approves", subject: sha("2"), fields: { outcome: "ok" }, as: "qa-decider", expectTemplate: H1, expectRevision: R1, expectPredicate: "https://example.org/qm/approves-for-release" });
+  assert.deepEqual(t.says.at(-1), { template: "approves", subject: sha("2"), fields: { outcome: "ok" }, as: "qa-decider" });
+  assert.deepEqual(t.expects.at(-1), { expectTemplate: H1, expectRevision: R1, expectPredicate: "https://example.org/qm/approves-for-release" });
   const dialogs = h.dialogs.length;
   assert.equal(await wb.signAct(APPROVE, sha("2"), { outcome: "ok" }, "Approve", { package: "qm", revision: `sha256:${"c".repeat(64)}` }), "failed");
   assert.equal(h.dialogs.length, dialogs, "no dialog for a stale panel");
@@ -898,7 +907,7 @@ test("F2/O1/N2: the meaning shown is the meaning signed: Approve (meaning approv
   // nothing is asked: the control's meaning fixes the outcome; the dialog and the claim agree
   assert.equal(await wb.signAct(approves, sha("2"), {}, "Approve", undefined, { scope: "area.records" }), "signed");
   assert.match(h.dialogs.at(-1)?.detail ?? "", /outcome = approved[\s\S]*Meaning: approved \(signed as outcome = approved\)[\s\S]*Into scope: area\.records[\s\S]*Signs with: person key/);
-  assert.deepEqual(t.says.at(-1), { template: "rec-approves", subject: sha("2"), fields: { outcome: "approved" }, as: "qa-decider", scope: "area.records", expectPredicate: "https://example.org/area/approves" });
+  assert.deepEqual(t.says.at(-1), { template: "rec-approves", subject: sha("2"), fields: { outcome: "approved" }, as: "qa-decider", scope: "area.records" });
   // asking for rejected is refused: no dialog, no claim
   const says = t.says.length;
   const dialogs = h.dialogs.length;
@@ -911,11 +920,44 @@ test("F2/O1/N2: the meaning shown is the meaning signed: Approve (meaning approv
   const note = { package: "area", name: "note", template: "rec-note", kind: "record" as const };
   assert.equal(await wb.signAct(note, sha("2"), {}, "Add a note", undefined, { scope: "area.records" }), "signed");
   assert.equal(h.dialogs.length, dialogs, "no dialog for a record");
-  assert.deepEqual(t.says.at(-1), { template: "rec-note", subject: sha("2"), fields: { text: "Waiting for the supervisor." }, as: "qa-decider-agent", scope: "area.records", expectPredicate: "https://example.org/area/note" });
+  assert.deepEqual(t.says.at(-1), { template: "rec-note", subject: sha("2"), fields: { text: "Waiting for the supervisor." }, as: "qa-decider-agent", scope: "area.records" });
   // a meaning no field carries is the act's: shown as such, never as a claim field
   const reviewed = { package: "area", name: "reviewed-note", template: "rec-note", kind: "decision" as const, meaning: "reviewed" };
   h.inputs = ["Looked at it."];
   assert.equal(await wb.signAct(reviewed, sha("2"), {}, "Review", undefined, {}), "signed");
   assert.match(h.dialogs.at(-1)?.detail ?? "", /Act: reviewed \(the control's meaning, not a field of the claim\)/);
   assert.deepEqual(t.says.at(-1)?.fields, { text: "Looked at it." });
+});
+
+test("N1 on #187: a listing without the template's hash, or without a package template's revision, signs nothing (cockpit >= v0.5.5)", async () => {
+  const t = new FakeTransport();
+  t.legacyListing = true;
+  t.templateList = [...TEMPLATES, AREA_APPROVES];
+  const { h, wb } = await setup({}, t);
+  h.confirmAnswer = true;
+  const approves = { package: "area", name: "approves", template: "rec-approves", kind: "decision" as const, meaning: "approved" };
+  assert.equal(await wb.signAct(approves, sha("2"), {}, "Approve", undefined, {}), "failed");
+  assert.match(h.errors.at(-1) ?? "", /lists no hash for the template rec-approves: signing needs cockpit v0\.5\.5 or later/);
+  assert.equal(t.says.length, 0);
+  assert.equal(h.dialogs.length, 0, "no dialog either");
+  // a hash but no revision for a package template
+  t.legacyListing = false;
+  t.templateList = [...TEMPLATES, AREA_APPROVES];
+  t.templates = async () => ({ ok: true, value: t.templateList.map((x) => ({ ...x, hash: `sha256:${"e".repeat(64)}` })) });
+  await wb.refresh();
+  assert.equal(await wb.signAct(approves, sha("2"), {}, "Approve", undefined, {}), "failed");
+  assert.match(h.errors.at(-1) ?? "", /lists no package revision for the template rec-approves: signing needs cockpit v0\.5\.5 or later/);
+  assert.equal(t.says.length, 0);
+});
+
+test("N2 on #187: a meaning that is a value of two fields is refused, not taken as the act's", async () => {
+  const t = new FakeTransport();
+  const TWO: TemplateInfo = { name: "rec-two", package: "area", fields: { outcome: { type: "enum", values: ["approved", "rejected"], required: true }, status: { type: "enum", values: ["approved", "open"] } } };
+  t.templateList = [...TEMPLATES, TWO];
+  const { h, wb } = await setup({}, t);
+  h.confirmAnswer = true;
+  const c = { package: "area", name: "approves", template: "rec-two", kind: "decision" as const, meaning: "approved" };
+  assert.equal(await wb.signAct(c, sha("2"), {}, "Approve", undefined, {}), "failed");
+  assert.match(h.errors.at(-1) ?? "", /means approved, a value of several fields of rec-two \(outcome, status\)/);
+  assert.equal(t.says.length, 0);
 });

@@ -618,7 +618,7 @@ export class Workbench {
     const out: Record<string, string> = { ...fields };
     for (const [k, f] of Object.entries(tpl?.fields ?? {})) {
       // a field the control's meaning fixes is never asked: the meaning shown is the meaning signed
-      if (!f.required || out[k] !== undefined || (tpl && k === meaningField(control, tpl))) continue;
+      if (!f.required || out[k] !== undefined || (tpl && k === meaningField(control, tpl)) || (control.meaning !== undefined && f.values?.includes(control.meaning))) continue;
       const v = f.values ? await this.host.pick(`${control.name}: ${k}`, f.values) : await this.host.input(`${control.name}: ${k}`);
       if (v === undefined || v === "") return undefined;
       out[k] = v;

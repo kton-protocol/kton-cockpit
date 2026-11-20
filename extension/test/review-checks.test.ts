@@ -64,8 +64,8 @@ test("the identity file is read as a hint (ADR-016 .kton/local/identity.json)", 
 });
 
 const templates: TemplateInfo[] = [
-  { name: "approves", package: "render", fields: { meaning: { type: "string", required: true, values: ["approved", "reviewed"] }, note: { type: "string" } } },
-  { name: "edits", package: "mignon", fields: { text: { type: "string", required: true } } },
+  { name: "approves", package: "render", hash: `sha256:${"e".repeat(64)}`, revision: `sha256:${"f".repeat(64)}`, fields: { meaning: { type: "string", required: true, values: ["approved", "reviewed"] }, note: { type: "string" } } },
+  { name: "edits", package: "mignon", hash: `sha256:${"e".repeat(64)}`, revision: `sha256:${"f".repeat(64)}`, fields: { text: { type: "string", required: true } } },
 ];
 const approve: ControlInfo = { package: "render", name: "approve", template: "approves", meaning: "approved", kind: "decision" };
 const edit: ControlInfo = { package: "mignon", name: "edit", template: "edits", kind: "record" };
@@ -269,8 +269,8 @@ test("check 7 (Q2): the person key id comes from the window's public key, as the
 test("a template two packages bring is signed as <package>/<name> (cockpit v0.5.3); the control's own package's, never another's", async () => {
   const control: ControlInfo = { package: "pkg-a", name: "approve", template: "approves", kind: "decision" };
   const listed: TemplateInfo[] = [
-    { name: "pkg-b/approves", fields: {}, package: "pkg-b" },
-    { name: "pkg-a/approves", fields: {}, package: "pkg-a" },
+    { name: "pkg-b/approves", fields: {}, package: "pkg-b", hash: `sha256:${"e".repeat(64)}`, revision: `sha256:${"f".repeat(64)}` },
+    { name: "pkg-a/approves", fields: {}, package: "pkg-a", hash: `sha256:${"e".repeat(64)}`, revision: `sha256:${"f".repeat(64)}` },
   ];
   const p = plan({ kind: "sign", about: SUBJECT, fields: {} }, control, listed, identity);
   assert.ok(p.ok);
