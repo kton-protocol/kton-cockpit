@@ -127,9 +127,22 @@ func buildUnion(dir string, inputs []Input) error {
 			return fmt.Errorf("source %s: %w", name, err)
 		}
 		if n, err := OpenNektonSource(reg.NektonDir); err == nil {
-			for _, rec := range n.Records(0) {
-				if _, _, err := nreg.Add(rec.Envelope); err != nil {
-					return fmt.Errorf("source %s: nekton %s: %w", name, rec.ClaimID, err)
+			// One batch per source (kernel Registry.AddAll): each scope file and the position map are
+			// read once per chunk, not once per claim. One Add per claim made every union rebuild, and so
+			// every say in a federated repository, quadratic in the claims (userinterface, 20.11.: a say
+			// that did not return).
+			recs := n.Records(0)
+			envs := make([]core.Envelope, len(recs))
+			for i, rec := range recs {
+				envs[i] = rec.Envelope
+			}
+			results, err := nreg.AddAll(envs)
+			if err != nil {
+				return fmt.Errorf("source %s: nekton: %w", name, err)
+			}
+			for i, res := range results {
+				if res.Err != nil {
+					return fmt.Errorf("source %s: nekton %s: %w", name, recs[i].ClaimID, res.Err)
 				}
 			}
 		} else if !errors.Is(err, os.ErrNotExist) {
