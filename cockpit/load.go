@@ -121,6 +121,19 @@ func (c *Cockpit) Load(ctx context.Context, in LoadRequest) (*LoadResult, error)
 		}
 		files = append(files, file{ref, hex, mt, b})
 	}
+	// One large load can restart the machine's shared index under every lane that reads it
+	// (qm-dev-provenance, 20.11.; agreed with cockpit-runtime): a load there is bounded, all its files
+	// together, and the way out named.
+	if oxigraph.SharedIndex(cfg) {
+		var total int64
+		for _, f := range files {
+			total += int64(len(f.data))
+		}
+		if limit := cfg.Raw.Index.Derived.MaxBytesSharedOrDefault(); limit > 0 && total > limit {
+			return nil, refuse("derived.shared-too-large", "SPEC §12.6", "%d bytes into the machine's shared index, more than index.derived.maxBytesShared (%d): "+
+				"give this repository an index of its own (COCKPIT_INDEX_DIR and index.memory), or raise the limit", total, limit)
+		}
+	}
 	d, err := loadIndex(ctx, cfg)
 	if err != nil {
 		return nil, err

@@ -50,6 +50,52 @@ type lock struct {
 	Schema    int    `json:"schema"`
 	// Memory is the limit it was started with; empty in a lock written before it was recorded.
 	Memory string `json:"memory,omitempty"`
+	// MemoryFrom says where that limit came from: the index directory's memory file, the starting
+	// repository's index.memory, or the default.
+	MemoryFrom string `json:"memoryFrom,omitempty"`
+}
+
+// MemoryFile is the floor every start of the daemon in an index directory takes: one line, a limit in
+// the engine's notation (4g, 512m). A repository's index.memory above it still raises it.
+const MemoryFile = "memory"
+
+// Wanted is the memory a start of the daemon in dir asks for under cfg, where it comes from, and what
+// is wrong with the directory's memory file, if anything (then the file is not used).
+func Wanted(cfg *config.Config, dir string) (limit, from, problem string) {
+	limit, from = cfg.Raw.Index.MemoryOrDefault(), "default"
+	if cfg.Raw.Index.Memory != "" {
+		from = "repository"
+	}
+	b, err := os.ReadFile(filepath.Join(dir, MemoryFile))
+	if errors.Is(err, os.ErrNotExist) {
+		return limit, from, ""
+	}
+	path := filepath.Join(dir, MemoryFile)
+	if err != nil {
+		return limit, from, fmt.Sprintf("%s cannot be read (%v): not used", path, err)
+	}
+	floor := strings.TrimSpace(string(b))
+	if _, ok := config.MemoryBytes(floor); !ok {
+		return limit, from, fmt.Sprintf("%s says %q, which is no limit (like 4g or 512m): not used", path, floor)
+	}
+	if !config.MemoryAbove(limit, floor) {
+		return floor, path, ""
+	}
+	return limit, from, ""
+}
+
+// SharedMemory is what the daemon of the machine's index directory runs with and where that came from,
+// and what is wrong with the directory's memory file; running is "" when no daemon was started there.
+func SharedMemory(cfg *config.Config) (running, from, problem string) {
+	dir, err := Dir()
+	if err != nil {
+		return "", "", err.Error()
+	}
+	_, _, problem = Wanted(cfg, dir)
+	if l, ok := readLock(dir); ok {
+		running, from = l.MemoryOrDefault(), l.MemoryFrom
+	}
+	return running, from, problem
 }
 
 // ErrMismatch says a running daemon was started from another image or schema. It is not used, and
@@ -68,6 +114,45 @@ func Dir() (string, error) {
 	}
 	d := filepath.Join(root, "kton-cockpit", "index")
 	return d, os.MkdirAll(d, 0o755)
+}
+
+// SharedIndex says whether cfg's index is the machine's shared daemon: the index directory is the
+// machine's (however it is named: COCKPIT_INDEX_DIR may name the same directory), or index.url is the
+// address that directory's daemon runs at (kton-review S1 on #215). A directory shared on purpose under
+// another name is not the machine's, and not bound by its limit.
+func SharedIndex(cfg *config.Config) bool {
+	def, err := machineDir()
+	if err != nil {
+		return false
+	}
+	if u := cfg.Raw.Index.URL; u != "" {
+		l, ok := readLock(def)
+		return ok && strings.TrimSuffix(l.URL, "/") == strings.TrimSuffix(u, "/")
+	}
+	dir, err := Dir()
+	return err == nil && sameDir(dir, def)
+}
+
+// machineDir is the machine's index directory, whatever COCKPIT_INDEX_DIR says.
+func machineDir() (string, error) {
+	root, err := os.UserCacheDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(root, "kton-cockpit", "index"), nil
+}
+
+func sameDir(a, b string) bool {
+	resolve := func(p string) string {
+		if abs, err := filepath.Abs(p); err == nil {
+			p = abs
+		}
+		if real, err := filepath.EvalSymlinks(p); err == nil {
+			p = real
+		}
+		return filepath.Clean(p)
+	}
+	return resolve(a) == resolve(b)
 }
 
 // containerName is per index directory, so a test's daemon never replaces the machine's.
@@ -120,7 +205,7 @@ func Ensure(ctx context.Context, cfg *config.Config) (*Daemon, error) {
 			// A configuration that asks for more memory than the daemon was started with restarts
 			// it on the same store; one that asks for less leaves it, so two configurations never
 			// take turns restarting it.
-			if !config.MemoryAbove(cfg.Raw.Index.MemoryOrDefault(), l.MemoryOrDefault()) {
+			if want, _, _ := Wanted(cfg, dir); !config.MemoryAbove(want, l.MemoryOrDefault()) {
 				return d, d.schema(ctx, true)
 			}
 		}
@@ -182,6 +267,7 @@ func start(ctx context.Context, cfg *config.Config, dir, image string) (*Daemon,
 	}
 	engine := cfg.Raw.Execution.EngineOrDefault()
 	name := containerName(dir)
+	memory, memoryFrom, _ := Wanted(cfg, dir)
 	_ = exec.CommandContext(ctx, engine, "rm", "-f", name).Run() // a stopped one of ours
 	// Loopback only, no capabilities, as the user who owns the cache, with a memory ceiling so one
 	// unbounded query cannot take the machine down. The engine brings it back after a crash or a
@@ -190,7 +276,7 @@ func start(ctx context.Context, cfg *config.Config, dir, image string) (*Daemon,
 		"--publish", "127.0.0.1::7878",
 		"--user", fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid()),
 		"--cap-drop=ALL", "--security-opt=no-new-privileges",
-		"--memory", cfg.Raw.Index.MemoryOrDefault(),
+		"--memory", memory,
 		"--volume", store + ":/data",
 		image, "serve", "--location", "/data", "--bind", "0.0.0.0:7878"}
 	if out, err := exec.CommandContext(ctx, engine, args...).CombinedOutput(); err != nil {
@@ -214,7 +300,7 @@ func start(ctx context.Context, cfg *config.Config, dir, image string) (*Daemon,
 	if err := d.schema(ctx, true); err != nil {
 		return nil, err
 	}
-	b, _ := json.MarshalIndent(lock{Container: name, URL: d.URL, Image: image, Schema: Schema, Memory: cfg.Raw.Index.MemoryOrDefault()}, "", "  ")
+	b, _ := json.MarshalIndent(lock{Container: name, URL: d.URL, Image: image, Schema: Schema, Memory: memory, MemoryFrom: memoryFrom}, "", "  ")
 	return d, os.WriteFile(filepath.Join(dir, "daemon.json"), b, 0o644)
 }
 
