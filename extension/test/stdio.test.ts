@@ -85,6 +85,44 @@ test("stdio: a request past the timeout is cancelled ($/cancelRequest) and repor
   }
 });
 
+test("stdio: an answer that is not JSON fails the waiting request at once, as the command line's non-JSON stdout does; the connection goes on", async () => {
+  const { t, sent } = transport(5000);
+  try {
+    const t0 = Date.now();
+    await assert.rejects(t.ask({ query: "sparql", name: "garbage", format: "sparql-results+json" }), (e: Error) => !(e instanceof TransportTimeout) && /^ask: the answer is not JSON$/.test(e.message));
+    assert.ok(Date.now() - t0 < 2000, "not left to the timeout");
+    const out = await t.ask({ query: "sparql", name: "count", format: "sparql-results+json" });
+    assert.ok(out.ok, "the same connection answers the next request");
+    assert.equal(sent().filter((m) => m.method === "initialize").length, 1);
+  } finally {
+    t.dispose();
+  }
+});
+
+test("stdio: output without a Content-Length header loses the framing: the request fails and the next one starts a new process", async () => {
+  const { t, sent } = transport(5000);
+  try {
+    await assert.rejects(t.ask({ query: "sparql", name: "noheader", format: "sparql-results+json" }), (e: Error) => /^ask: the answer is not the protocol/.test(e.message));
+    const out = await t.ask({ query: "sparql", name: "count", format: "sparql-results+json" });
+    assert.ok(out.ok, "a new process answers");
+    assert.equal(sent().filter((m) => m.method === "initialize").length, 2);
+  } finally {
+    t.dispose();
+  }
+});
+
+test("stdio: the process gone mid-request: the request fails (not a timeout) and the next one starts a new process", async () => {
+  const { t, sent } = transport(5000);
+  try {
+    await assert.rejects(t.ask({ query: "sparql", name: "die", format: "sparql-results+json" }), (e: Error) => !(e instanceof TransportTimeout) && /cockpit serve --stdio ended \(exit 137\)/.test(e.message));
+    const out = await t.ask({ query: "sparql", name: "count", format: "sparql-results+json" });
+    assert.ok(out.ok, "a new process answers");
+    assert.equal(sent().filter((m) => m.method === "initialize").length, 2);
+  } finally {
+    t.dispose();
+  }
+});
+
 test("stdio: a cockpit that cannot be started is 'cannot run', as on the command line", async () => {
   const t = new StdioTransport({ executable: "/nonexistent/cockpit", cwd: tmpdir(), timeoutMs: 2000 });
   await assert.rejects(t.ask({ query: "sparql", name: "x" }), /cannot run \/nonexistent\/cockpit/);

@@ -33,6 +33,9 @@ function handle(m) {
   switch (method) {
     case "ask":
       if (params.name === "slow") return slow.set(id, true);
+      if (params.name === "garbage") return process.stdout.write("Content-Length: 16\r\n\r\nthis is not json");
+      if (params.name === "noheader") return process.stdout.write("this is not json\r\n\r\n");
+      if (params.name === "die") return process.exit(137);
       if (params.name === "nope") return refuse(id, "query.unknown", "no allowed package brings the query nope");
       return send({ id, result: { query: "sparql", ref: "", raw: "", sparql: { results: { head: { vars: ["n"] }, results: { bindings: [{ n: { type: "literal", value: "7" } }] } } } } });
     case "say":

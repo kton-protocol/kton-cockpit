@@ -8,6 +8,9 @@
 //   exit 2 gives; any other error is a TransportError, as a failed command line run is.
 // - A request that runs past the timeout is cancelled ($/cancelRequest) and reported as TransportTimeout; its
 //   late answer (-32800) is dropped.
+// - An answer that is not JSON cannot name its request: every request waiting on the connection fails with
+//   "<method>: the answer is not JSON", as the command line's non-JSON stdout does. A header without
+//   Content-Length loses the framing: the same, and the process is dropped (the next request starts a new one).
 // - What the protocol has no method for (workflow run and list, install) goes to the command line.
 // No events yet (part 2): the shell still polls.
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
@@ -31,6 +34,7 @@ import {
 } from "./port.js";
 
 interface Pending {
+  method: string;
   resolve: (v: unknown) => void;
   reject: (e: Error) => void;
   timer: NodeJS.Timeout;
@@ -92,16 +96,20 @@ export class StdioConnection {
         return;
       }
       this.child = child;
-      child.stdout.on("data", (d: Buffer) => this.read(d));
+      child.stdout.on("data", (d: Buffer) => {
+        if (this.child === child) this.read(d); // a dropped process's late bytes are not this connection's
+      });
       child.stderr.on("data", (d: Buffer) => {
         this.stderr = (this.stderr + d.toString("utf8")).slice(-8192);
       });
       const fail = (why: string) => {
+        const current = this.child === child || this.child === undefined;
         if (this.child === child) {
           this.child = undefined;
           this.ready = undefined;
         }
-        for (const [id, p] of this.pending) {
+        // a dropped process that ends after its successor started: the successor's requests are not its own
+        if (current) for (const [id, p] of this.pending) {
           clearTimeout(p.timer);
           p.reject(new TransportError(why, null, this.stderr));
           this.pending.delete(id);
@@ -138,7 +146,7 @@ export class StdioConnection {
         }
         reject(new TransportTimeout(`${method} timed out after ${Math.round(timeoutMs / 1000)} s (cancelled)`, this.stderr));
       }, timeoutMs);
-      this.pending.set(id, { resolve, reject, timer });
+      this.pending.set(id, { method, resolve, reject, timer });
       try {
         this.write({ jsonrpc: "2.0", id, method, ...(params !== undefined ? { params } : {}) }, child);
       } catch (e) {
@@ -154,6 +162,24 @@ export class StdioConnection {
     child.stdin.write(Buffer.concat([Buffer.from(`Content-Length: ${body.length}\r\n\r\n`, "ascii"), body]));
   }
 
+  /** Fail every request waiting on this connection: an answer that names none of them went wrong. */
+  private failWaiting(why: string): void {
+    for (const [id, p] of this.pending) {
+      clearTimeout(p.timer);
+      this.pending.delete(id);
+      p.reject(new TransportError(`${p.method}: ${why}`, null, this.stderr));
+    }
+  }
+
+  /** Drop the process without the shutdown handshake (its stream cannot be trusted any more). */
+  private drop(): void {
+    const c = this.child;
+    this.child = undefined;
+    this.ready = undefined;
+    this.buf = Buffer.alloc(0);
+    if (c && !c.killed) c.kill();
+  }
+
   /** Content-Length framing: headers, a blank line, the JSON body. */
   private read(d: Buffer): void {
     this.buf = Buffer.concat([this.buf, d]);
@@ -163,8 +189,10 @@ export class StdioConnection {
       const header = this.buf.subarray(0, end).toString("ascii");
       const m = /Content-Length:\s*(\d+)/i.exec(header);
       if (!m) {
-        // not the protocol: stdout must carry protocol messages only (SPEC §12.5)
+        // not the protocol: stdout must carry protocol messages only (SPEC §12.5); the framing is lost
         this.buf = Buffer.alloc(0);
+        this.failWaiting("the answer is not the protocol (a header without Content-Length)");
+        this.drop();
         return;
       }
       const len = Number(m[1]);
@@ -175,6 +203,7 @@ export class StdioConnection {
       try {
         msg = JSON.parse(body) as typeof msg;
       } catch {
+        this.failWaiting("the answer is not JSON");
         continue;
       }
       if (typeof msg.id !== "number") continue; // a notification (events: part 2) or a string id we never sent
