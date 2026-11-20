@@ -150,6 +150,10 @@ SELECT ?claim WHERE {
 }
 ```
 
+Or bind an IRI directly: `--bind-iri STEP=https://kton.dev/o/<hex>`. A kton id is taken as the node it
+names, so `--bind-iri SCOPE=sha256:<hex>` binds a scope's seed `https://kton.dev/o/<hex>`; a `sha256:` value
+that is not 64 hex digits is refused rather than bound as an IRI that matches nothing.
+
 A rule with an as-of date takes it as a parameter rather than `NOW()`, so a recorded run answers the same
 again. The binding is put first into the `WHERE` group and into every sub-select's group; a `FILTER` inside a
 nested `{ … }` group that is not a sub-select does not see it.

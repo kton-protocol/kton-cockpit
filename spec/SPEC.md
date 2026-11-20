@@ -1095,7 +1095,10 @@ reaches no record outside that dataset, so it is under the same ceiling as every
 - `bindTerms` MAY give variables typed terms in the same clause: an IRI, or a literal with a datatype
   (`--bind-iri VAR=IRI`, `--bind-typed VAR=VALUE^^xsd:integer`). Each MUST be written as one RDF term:
   an IRI MUST be absolute and contain nothing that ends it, an xsd datatype's lexical form MUST be
-  valid for it, and anything else MUST be refused. A variable bound in both MUST be refused.
+  valid for it, and anything else MUST be refused. A variable bound in both MUST be refused. An IRI
+  that is a kton id (`sha256:` and 64 hex digits) MUST be bound as the node it names,
+  `https://kton.dev/o/<hex>`, and any other `sha256:` value refused
+  (`TestBind_AKtonIDIsTheNodeItNames`).
 
 The vocabulary of the projection, with examples, is in [docs/sparql.md](../docs/sparql.md). Every
 example there is run by a test.
