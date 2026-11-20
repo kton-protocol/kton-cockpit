@@ -42,3 +42,37 @@ func TestWanted_TheMemoryFileIsTheFloor(t *testing.T) {
 		t.Errorf("a file that is no limit is named and not used: %s %s %q", l, from, p)
 	}
 }
+
+// The machine's index is recognised by its directory and its daemon's address, not by how the
+// configuration names it; another directory or address is not it (kton-review S1 on #215).
+func TestSharedIndex_ByDirectoryAndAddress(t *testing.T) {
+	cache := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", cache)
+	machine := filepath.Join(cache, "kton-cockpit", "index")
+	if err := os.MkdirAll(machine, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(machine, "daemon.json"), []byte(`{"url": "http://127.0.0.1:1"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := func(url string) *config.Config {
+		c := &config.Config{}
+		c.Raw.Index.URL = url
+		return c
+	}
+	for _, c := range []struct {
+		env, url string
+		shared   bool
+	}{
+		{"", "", true},
+		{machine + "/", "", true},
+		{t.TempDir(), "", false},
+		{"", "http://127.0.0.1:1", true},
+		{"", "http://127.0.0.1:2", false},
+	} {
+		t.Setenv("COCKPIT_INDEX_DIR", c.env)
+		if got := SharedIndex(cfg(c.url)); got != c.shared {
+			t.Errorf("COCKPIT_INDEX_DIR=%q index.url=%q: shared %v, want %v", c.env, c.url, got, c.shared)
+		}
+	}
+}

@@ -116,10 +116,43 @@ func Dir() (string, error) {
 	return d, os.MkdirAll(d, 0o755)
 }
 
-// SharedIndex says whether cfg's index is the machine's shared daemon: no index.url, and the index
-// directory not moved by COCKPIT_INDEX_DIR.
+// SharedIndex says whether cfg's index is the machine's shared daemon: the index directory is the
+// machine's (however it is named: COCKPIT_INDEX_DIR may name the same directory), or index.url is the
+// address that directory's daemon runs at (kton-review S1 on #215). A directory shared on purpose under
+// another name is not the machine's, and not bound by its limit.
 func SharedIndex(cfg *config.Config) bool {
-	return cfg.Raw.Index.URL == "" && os.Getenv("COCKPIT_INDEX_DIR") == ""
+	def, err := machineDir()
+	if err != nil {
+		return false
+	}
+	if u := cfg.Raw.Index.URL; u != "" {
+		l, ok := readLock(def)
+		return ok && strings.TrimSuffix(l.URL, "/") == strings.TrimSuffix(u, "/")
+	}
+	dir, err := Dir()
+	return err == nil && sameDir(dir, def)
+}
+
+// machineDir is the machine's index directory, whatever COCKPIT_INDEX_DIR says.
+func machineDir() (string, error) {
+	root, err := os.UserCacheDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(root, "kton-cockpit", "index"), nil
+}
+
+func sameDir(a, b string) bool {
+	resolve := func(p string) string {
+		if abs, err := filepath.Abs(p); err == nil {
+			p = abs
+		}
+		if real, err := filepath.EvalSymlinks(p); err == nil {
+			p = real
+		}
+		return filepath.Clean(p)
+	}
+	return resolve(a) == resolve(b)
 }
 
 // containerName is per index directory, so a test's daemon never replaces the machine's.

@@ -1602,11 +1602,12 @@ operator command, not a verb: it signs nothing and writes no record.
   else MUST be refused (`derived.type`), and so MUST N-Quads and TriG (`derived.quads`), RDF/XML that declares
   entities, content the engine cannot read (`derived.refused`), a file past `index.derived.maxBytes`
   (`derived.too-large`, default 64 MiB), a load that takes the repository past
-  `index.derived.maxTriples` (default 50 million), and a load into the machine's shared index (no
-  `COCKPIT_INDEX_DIR`, no `index.url`) whose files together are past `index.derived.maxBytesShared`
+  `index.derived.maxTriples` (default 50 million), and a load into the machine's shared index (its
+  directory, however `COCKPIT_INDEX_DIR` names it, or `index.url` at its daemon's address) whose files
+  together are past `index.derived.maxBytesShared`
   (`derived.shared-too-large`, default 16 MiB, 0 for none), before the index is asked anything: several
   repositories read that daemon, and one large load can restart it under them. An index of the
-  repository's own is not bound by it.
+  repository's own is not bound by it, nor is a directory shared on purpose under another name.
 - The shared daemon starts with the larger of its index directory's `memory` file (one limit, like `4g`)
   and the starting repository's `index.memory`; a file that is no limit is named by `doctor` and not used.
   `doctor` says what the shared daemon runs with and where that came from.
@@ -1628,7 +1629,7 @@ operator command, not a verb: it signs nothing and writes no record.
 > `TestLoad_AGraphTwoRepositoriesLoadedStaysUntilBothDropIt`, `TestLoad_AFileThatHashesToARecordIsRefused`,
 > `TestLoad_APathIsCheckedWhereItLeads`, `TestLoad_TheTripleLimitAndAChangedFile`,
 > `TestLoadGraph_NeverWritesOverARecordsGraph`, `TestLoad_AnOwnIndexIsNotBoundByTheSharedLimit` (all `-tags docker`),
-> `TestLoad_TheSharedIndexTakesABoundedLoad`, `TestWanted_TheMemoryFileIsTheFloor`.
+> `TestLoad_TheSharedIndexTakesABoundedLoad`, `TestWanted_TheMemoryFileIsTheFloor`, `TestSharedIndex_ByDirectoryAndAddress`.
 
 ## 13 What a cockpit does not do
 
