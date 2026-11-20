@@ -120,9 +120,16 @@ An output of a foton is loaded when **all** of these hold:
   not one per row, but there can still be thousands: 4,013 in the store measured above, where queries over all
   of them with `GRAPH ?g` and no list took 7–170 ms. So the view's derived graphs are not listed per request.
   The query is rewritten to join each `GRAPH ?g` with the view's catalogue (`?g` listed in
-  `urn:kton:view:<id>:derived`). Before this is built, that rewrite is measured on the 4,013 graphs against the
-  unrestricted query. If it is slow, the fallback is a per-view union graph of derived triples, with the hash
-  kept as `nk:inGraph` on each subject. That fallback would be an amendment to this ADR.
+  `urn:kton:view:<id>:derived`). Measured on the same 4,013 graphs (ai1, Oxigraph 0.5.13, median of 5 runs):
+  - with a view of 10% of the graphs, the catalogue join is *faster* than the unrestricted query: 2.5–4.5 ms
+    against 7.6–16.4 ms, because it filters early;
+  - at the full view it costs at most 1.7x: 14.7–22.6 ms against 10.5–13.5 ms;
+  - listing the graphs per request (`VALUES ?g` or `FROM NAMED`) is 2.5–4x slower at large views, and the
+    query text grows by about 80 bytes per graph (about 330 KB for 4,013).
+
+  Result counts matched in every case. The catalogue graph itself is never in the catalogue. At a much larger
+  scale this is measured again. If it is then slow, the fallback is a per-view union graph of derived triples,
+  with the hash kept as `nk:inGraph` on each subject, as an amendment to this ADR.
 - **Ask and poll stay cheap.** A hash is loaded once, at ingest, and never again: the content cannot change
   under a hash. A head check that finds no new fotons does no derived work. A new foton loads only its outputs'
   hashes that are not loaded yet.
