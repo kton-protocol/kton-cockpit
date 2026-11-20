@@ -1419,28 +1419,42 @@ if (seed.roles) {
   }
   const waitDrawn = async (f, id, timeout = 120000) => box(f, id).locator("[data-area-table], [data-area-empty], [data-area-error]").first().waitFor({ timeout });
 
-  await step("R", 1, "Christof's view is listed under Views, the guard under QM areas; both from dryrun1.roles", async () => {
+  await step("R", 1, "Christof's, Gregor's and Wolfgang's views are listed under Views, the guard under QM areas; all from dryrun1.roles", async () => {
     // Home draws after the window's first poll; on a fresh copy that waits for the index build (the first ask)
     await row("Views").waitFor({ timeout: 240000 });
     await page.locator(".monaco-list-row", { hasText: "Christof (test) · dryrun1" }).filter({ hasText: "dryrun1.roles" }).first().waitFor();
     await page.locator(".monaco-list-row", { hasText: "Guard · dryrun1.triage" }).filter({ hasText: "dryrun1.roles" }).first().waitFor();
+    await page.locator(".monaco-list-row", { hasText: "Gregor (dev + review) · dryrun1" }).filter({ hasText: "dryrun1.roles" }).first().waitFor();
+    await page.locator(".monaco-list-row", { hasText: "Wolfgang (spec) · dryrun1" }).filter({ hasText: "dryrun1.roles" }).first().waitFor();
     await shot("r1-home");
   });
 
   let runs = [];
-  await step("R", 2, "Christof's figures equal test-execution's own queries (runs, failures, failures-by-class), each stamped", async () => {
+  /** failures of test-execution's own query, counted per key */
+  const tally = (rows, key) => rows.reduce((m, r) => ((m[key(r)] = (m[key(r)] ?? 0) + 1), m), {});
+  await step("R", 2, "Christof's figures: runs over all suites; tests and failures per suite and run, never summed across suites, each with its query, scope and run stamp", async () => {
     await page.locator(".monaco-list-row", { hasText: "Christof (test) · dryrun1" }).first().click();
     const f = await christof();
     runs = await askR("runs");
     const failures = await askR("failures");
-    const byClass = await askR("failures-by-class");
     const fig = await rowsIn(f, "figures");
     const v = (re) => Number(fig.find((r) => re.test(r.label))?.value);
-    const want = { recorded: runs.length, current: runs.filter((r) => r.status === "current").length, failures: failures.length, byClassSum: byClass.reduce((n, r) => n + Number(r.tests), 0) };
+    const want = { recorded: runs.length, current: runs.filter((r) => r.status === "current").length };
     check(v(/^runs recorded/) === want.recorded, "runs recorded = rows of runs", want.recorded, v(/^runs recorded/));
     check(v(/^current runs/) === want.current, "current runs = current rows of runs", want.current, v(/^current runs/));
-    check(v(/^failed, error or soft-failed/) === want.failures && want.failures === want.byClassSum, "failures = rows of failures = sum of failures-by-class", want.failures, v(/^failed, error or soft-failed/));
-    check(fig.every((r) => /dryrun1\.runs/.test(r.stamp ?? "")), "every figure carries its stamp", "dryrun1.runs …", fig.map((r) => r.stamp));
+    check(fig.length === 2 && !fig.some((r) => /fail/i.test(r.label) && !/per run/.test(r.label)), "no failure figure summed across suites", 2, fig.map((r) => r.label));
+    check(fig.every((r) => r.query === "ch-figures" && r.scope === "dryrun1.runs" && /last recorded/.test(r.stamp ?? "")), "each figure: query, scope, stamp", "ch-figures · dryrun1.runs", fig);
+    const per = await rowsIn(f, "perrun");
+    check(per.length === want.current, "one row per current run", want.current, per.length);
+    const byRun = tally(failures, (r) => `${r.suite}|${r.run}`);
+    const bad = per.filter((r) => Number(r.failures) !== (byRun[`${r.suite}|${r.run}`] ?? 0) || Number(r.failures) !== Number(r.failed) + Number(r.error) + Number(r.softFailed));
+    check(bad.length === 0, "failures per run = test-execution's failures rows of that run (= failed + error + soft-failed)", 0, bad);
+    const bySuite = tally(failures, (r) => r.suite);
+    for (const [suite, n] of Object.entries(bySuite)) {
+      const got = per.filter((r) => r.suite === suite).reduce((m, r) => m + Number(r.failures), 0);
+      check(got === n, `${suite}: its runs' failures = its failures rows`, n, got);
+    }
+    check(per.every((r) => r.query === "ch-figures-per-run" && r.scope === "dryrun1.runs" && r.stamp.startsWith(`${r.run} · run.json sha256:`)), "each run row: query, scope and the run it comes from", "<run> · run.json sha256:…", per.map((r) => r.stamp));
     await shot("r2-christof-figures");
   });
 
@@ -1457,11 +1471,19 @@ if (seed.roles) {
     await shot("r3-runs");
   });
 
-  await step("R", 4, "failures by class equal test-execution's failures-by-class, row by row", async () => {
+  await step("R", 4, "failures by class per suite and run equal test-execution's failures; the G class is verification's proposal (dryrun1.classes), labelled, never invented", async () => {
     const f = await christof();
-    const want = (await askR("failures-by-class")).map((r) => `${r.suite}|${r.failureClass}|${r.tests}`).sort();
-    const got = (await rowsIn(f, "byclass")).map((r) => `${r.suite}|${r.failureClass}|${r.tests}`).sort();
-    check(JSON.stringify(got) === JSON.stringify(want), "the same classes and counts", want, got);
+    const failures = await askR("failures");
+    const want = Object.entries(tally(failures, (r) => `${r.suite}|${r.run}|${r.failureClass ?? "unclassified"}`)).map(([k, n]) => `${k}|${n}`).sort();
+    const shown = await rowsIn(f, "byclass");
+    const got = shown.map((r) => `${r.suite}|${r.run}|${r.failureClass}|${r.tests}`).sort();
+    check(JSON.stringify(got) === JSON.stringify(want), "the same suites, runs, classes and counts", want, got);
+    const byClass = (await askR("failures-by-class")).reduce((n, r) => n + Number(r.tests), 0);
+    check(byClass === failures.length, "test-execution's failures-by-class sums to its failures", failures.length, byClass);
+    const mapped = shown.filter((r) => /^G\d/.test(r.gClass));
+    check(shown.every((r) => (/^G\d/.test(r.gClass) && /^(high|medium|low)$/.test(r.certainty) && r.gStatus === "proposed by verification; MH settles") || (r.gClass === "not mapped by verification" && !r.certainty)), "each G class: verification's, with certainty and 'proposed by verification; MH settles', or 'not mapped by verification'", "G… / not mapped", shown.map((r) => `${r.failureClass} → ${r.gClass} ${r.certainty}`));
+    if (seed.roles.mapping) check(mapped.length > 0 && mapped.every((r) => /dryrun1\.classes/.test(r.scope)), "with dryrun1.classes federated: mapped rows name both scopes", ">0", mapped.length);
+    await shot("r4-byclass");
   });
 
   await step("R", 5, "a failure's history and artifacts equal history-of-test and artifacts-of-test; artifacts show hash and name", async () => {
@@ -1548,7 +1570,79 @@ if (seed.roles) {
       await shot("r7-test-gaps");
       await closeEditors();
     });
+
+    await step("R", 9, "Wolfgang's view: counts with query, scope and stamp (first vs any code match as two rows), per part × area, per spec paged, one spec's gaps, spec/code differs, spec decisions", async () => {
+      await views();
+      await page.locator(".monaco-list-row", { hasText: "Wolfgang (spec) · dryrun1" }).first().click({ timeout: 60000 });
+      const wolfgang = () => frameWithSel('[data-composition="dryrun1.roles/wolfgang"]', 90000);
+      let f = await wolfgang();
+      await waitDrawn(f, "figures", 150000);
+      if (await box(f, "figures").locator("[data-area-error]").count()) {
+        current.checks.push({ ok: true, message: `first open: ${(await boxText(f, "figures")).slice(0, 120)}; opened again` });
+        await closeEditors(); await views();
+        await page.locator(".monaco-list-row", { hasText: "Wolfgang (spec) · dryrun1" }).first().click({ timeout: 60000 });
+        f = await wolfgang(); await waitDrawn(f, "figures", 150000);
+      }
+      const fig = await rowsIn(f, "figures");
+      check(fig.length === 4 && fig.every((r) => r.query && r.scope && r.stamp), "four counts, each with query, scope, stamp", 4, fig);
+      const first = fig.find((r) => /first code match/.test(r.rule)); const any = fig.find((r) => /any code match/.test(r.rule));
+      check(!!first && !!any && first.label === any.label && /static note/.test(any.rule) && any.value === "698" && /DRYRUN1-GAP-CLASSES\.md sha256:a03aa22a/.test(any.stamp), "spec/code differs: first code match counted here, any code match a stamped static note (698)", "two rows", [first, any]);
+      const differs = await rowsIn(f, "differs");
+      const sum = differs.reduce((n, r) => n + Number(r.elements), 0);
+      check(sum === Number(first.value) && differs.every((r) => r.rule === "first code match" && /^coverage view sha256:/.test(r.stamp)), "spec/code differs rows sum to the first-match count", first.value, sum);
+      const areas = await rowsIn(f, "perarea");
+      const specs = Number(fig.find((r) => r.label === "specs").value);
+      check(areas.reduce((n, r) => n + Number(r.specs), 0) === specs, "per part × area: specs sum to the spec count", specs, areas.reduce((n, r) => n + Number(r.specs), 0));
+      const p1 = await rowsIn(f, "perspec");
+      check(p1.length === Math.min(200, specs), "per spec, page 1: 200", Math.min(200, specs), p1.length);
+      await box(f, "perspec").locator("[data-page-next]").click();
+      await box(f, "perspec").locator('[data-pager][data-page="2"]').waitFor({ timeout: 150000 });
+      const p2 = await rowsIn(f, "perspec");
+      check(p2.length > 0 && p2[0].spec > p1[p1.length - 1].spec, "page 2 starts after page 1's last spec", p1[p1.length - 1].spec, p2[0]?.spec);
+      const pick = p2.find((r) => Number(r.gap) + Number(r.exercisedOnly) > 0 && Number(r.gap) + Number(r.exercisedOnly) < 50) ?? p2[0];
+      await box(f, "perspec").locator("tbody tr", { hasText: pick.title.slice(0, 50) }).first().click();
+      await box(f, "specgaps").locator("[data-area-table], [data-area-empty]").first().waitFor({ timeout: 150000 });
+      const file = await rowsIn(f, "specfile");
+      check(file.length === 1 && file[0].spec === pick.spec && /\.md$/.test(file[0].file) && /open comes with the decision-view branch/.test(file[0].open), "the picked spec: its path, hash and stamp; open comes with the decision-view branch", pick.spec, file[0]);
+      check(/^(improve-specs [0-9a-f]{40}|not known \(no evidence revision for this stamp\))$/.test(file[0].specCommit ?? ""), "the improve-specs commit it was read at (evidence revision of the stamp), or 'not known'", "improve-specs <commit>", file[0].specCommit);
+      const gaps = await rowsIn(f, "specgaps");
+      const runVersions = new Set((await askR("runs")).map((r) => r.version));
+      check(gaps.every((r) => { const m = r.version?.match(/^read at (.+) · robert1 now ([^ ]+) · (differs|same release|not comparable \(version of commit not known\))$/); return m && runVersions.has(m[2]) && (m[3] !== "differs" || !m[2].startsWith(m[1].split(" ")[0])); }), "each gap: read at <version> · robert1 now <a run's version> · differs / same release", "read at … · robert1 now … · …", gaps.slice(0, 3).map((r) => r.version));
+      check(gaps.length === Number(pick.gap) + Number(pick.exercisedOnly), "its gaps = gap + exercised-only of its coverage row", Number(pick.gap) + Number(pick.exercisedOnly), gaps.length);
+      const dec = await boxText(f, "decisions");
+      check(/No spec decisions for dryrun1 yet/.test(dec), "spec decisions: none yet in dryrun1.spec-review", "No spec decisions for dryrun1 yet.", dec.slice(0, 120));
+      check((await f.locator("[data-act]").count()) === 0, "read-only: no act", 0, await f.locator("[data-act]").count());
+      await shot("r9-wolfgang");
+      await closeEditors();
+    });
   }
+
+  await step("R", 10, "Gregor's view: the review queue says its query is pending (cockpit lane); product-side failures equal test-execution's failures whose class or cause names a product cause", async () => {
+    await views();
+    await page.locator(".monaco-list-row", { hasText: "Gregor (dev + review) · dryrun1" }).first().click({ timeout: 60000 });
+    const f = await frameWithSel('[data-composition="dryrun1.roles/gregor"]', 90000);
+    const t = await boxText(f, "queue");
+    check(/review queue: query pending \(cockpit lane\)/i.test(t), "the queue notice", "Review queue: query pending (cockpit lane)", t.slice(0, 120));
+    const want = (await askR("failures")).filter((r) => /product\?|product defect/i.test(`${r.failureClass ?? ""} ${r.failureCause ?? ""}`)).map((r) => `${r.run}|${r.test}`).sort();
+    await waitDrawn(f, "productfailures");
+    const shown = await box(f, "productfailures").locator("[data-area-table]").count() ? await rowsIn(f, "productfailures") : [];
+    check(JSON.stringify(shown.map((r) => `${r.run}|${r.test}`).sort()) === JSON.stringify(want), "the same failures", want, shown.map((r) => `${r.run}|${r.test}`));
+    if (!want.length) check(/marked product-side/.test(await boxText(f, "productfailures")), "none: it says so");
+    check(shown.every((r) => r.query === "gr-product-failures" && r.scope === "dryrun1.runs" && r.stamp.startsWith(r.run)), "each with query, scope, run");
+    if (seed.roles.mapping) {
+      await waitDrawn(f, "staticevidence", 150000);
+      const ev = await rowsIn(f, "staticevidence");
+      const runVersions = new Set((await askR("runs")).map((r) => r.version));
+      check(ev.length === 200, "static evidence, page 1: 200 rows", 200, ev.length);
+      const resolved = ev.filter((r) => r.codeRepo);
+      check(ev.every((r) => { const m = r.version?.match(/^read at (.+) · robert1 now ([^ ]+) · (differs|same release|not comparable \(version of commit not known\))$/); return m && runVersions.has(m[2]); }), "each evidence row: read at … · robert1 now <a run's version> · …", "read at … · robert1 now …", ev.slice(0, 2).map((r) => r.version));
+      check(resolved.length > 0 && resolved.every((r) => /^read at (\d[\d.]*\d|version of commit not known) \([0-9a-f]{7}\) · /.test(r.version)), "a resolved match: the version and commit it was read at", "read at 5.0.0 (fa218aa) · …", resolved.slice(0, 2).map((r) => r.version));
+      check(ev.filter((r) => !r.codeRepo).every((r) => /^read at no commit/.test(r.version)), "an unresolved match says it has no commit");
+      check(/27 as a lane message \(b5676502\)/.test(await boxText(f, "candidates")), "the G3.2 candidates notice");
+    }
+    await shot("r10-gregor");
+    await closeEditors();
+  });
 
 }
 

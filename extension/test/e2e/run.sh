@@ -68,16 +68,18 @@ DM_MOUNT=""; [ -n "${DM_DATA:-}" ] && DM_MOUNT="-v $DM_DATA:/dm-data:ro"
 EVIDENCE_MOUNTS=""
 for m in ${DM_MIRRORS:-}; do mkdir -p "$WORK/mirrors/$(basename "$m")"; EVIDENCE_MOUNTS="$EVIDENCE_MOUNTS -v $m:$WORK/mirrors/$(basename "$m"):ro"; done
 [ -n "${DM_ARTIFACTS:-}" ] && { mkdir -p "$WORK/artifacts"; EVIDENCE_MOUNTS="$EVIDENCE_MOUNTS -v $DM_ARTIFACTS:$WORK/artifacts:ro"; }
-# R (optional): the role views on copies of real dry-run data. ROLES_RUNS = test-execution's dryrun1.runs registry,
-# ROLES_PKG = the built dryrun1.roles, ROLES_TRIAGE_PKG = the built dryrun1.triage, ROLES_COVERAGE (optional) =
-# verification's dryrun1-coverage registry. All mounted read only and copied by the seed; without the first three the
-# R steps do not run.
-ROLES_MOUNT=""
+# R (optional): the role views on real dry-run data. ROLES_RUNS = test-execution's dryrun1.runs registry (COPIED by the
+# seed: a stable snapshot the steps compare the window with), ROLES_PKG = the built dryrun1.roles, ROLES_TRIAGE_PKG =
+# the built dryrun1.triage; without these three the R steps do not run. ROLES_COVERAGE and ROLES_MAPPING (optional) =
+# verification's dryrun1-coverage and dryrun1-mapping registries (dryrun1.coverage; dryrun1.classes): LIVE, federated
+# read-only from their own paths, mounted :ro at the same path in the seed, sidecar and code-server containers.
+ROLES_MOUNT=""; ROLES_LIVE=""
 if [ -n "${ROLES_RUNS:-}" ] && [ -n "${ROLES_PKG:-}" ] && [ -n "${ROLES_TRIAGE_PKG:-}" ]; then
   ROLES_MOUNT="-v $ROLES_RUNS:/roles-runs:ro -v $ROLES_PKG:/roles-pkg:ro -v $ROLES_TRIAGE_PKG:/roles-triage-pkg:ro"
-  [ -z "${ROLES_COVERAGE:-}" ] || ROLES_MOUNT="$ROLES_MOUNT -v $ROLES_COVERAGE:/roles-coverage:ro"
+  [ -z "${ROLES_COVERAGE:-}" ] || ROLES_LIVE="$ROLES_LIVE -v $ROLES_COVERAGE:$ROLES_COVERAGE:ro"
+  [ -z "${ROLES_MAPPING:-}" ] || ROLES_LIVE="$ROLES_LIVE -v $ROLES_MAPPING:$ROLES_MAPPING:ro"
 fi
-docker run --rm -u "$UIDGID" -v "$WORK:$WORK" -v "$HERE/seed.sh:/seed.sh:ro" $DM_MOUNT $ROLES_MOUNT \
+docker run --rm -u "$UIDGID" -v "$WORK:$WORK" -v "$HERE/seed.sh:/seed.sh:ro" $DM_MOUNT $ROLES_MOUNT $ROLES_LIVE -e ROLES_COVERAGE="${ROLES_COVERAGE:-}" -e ROLES_MAPPING="${ROLES_MAPPING:-}" \
   -v "$COCKPIT:/usr/local/bin/cockpit:ro" -v "$VOCAB:/vocab:ro" -v "$HERE/vocabulary-package:/vocab-package:ro" -v "$HERE:/e2e:ro" \
   "$NODE_IMAGE" sh /seed.sh "$WORK" /vocab /vocab-package
 
@@ -139,12 +141,12 @@ EOF
 
 echo "== sidecar (registry side)"
 SIDE=$(docker run -d --rm --name kton-wb-e2e-sidecar-$RUN_ID -u "$UIDGID" --group-add "$DOCKER_GID" -e HOME="$WORK/home" -e TMPDIR="$WORK/tmp" \
-  -v "$WORK:$WORK" -v /var/run/docker.sock:/var/run/docker.sock $DOCKER_MOUNT -v "$COCKPIT:/usr/local/bin/cockpit:ro" \
+  -v "$WORK:$WORK" $ROLES_LIVE -v /var/run/docker.sock:/var/run/docker.sock $DOCKER_MOUNT -v "$COCKPIT:/usr/local/bin/cockpit:ro" \
   -v "$HERE/sidecar.mjs:/sidecar.mjs:ro" "$NODE_IMAGE" node /sidecar.mjs "$WORK")
 
 echo "== code-server"
 CS_COMMON="-u $UIDGID --group-add $DOCKER_GID --network host -e HOME=$WORK/home -e TMPDIR=$WORK/tmp \
-  -v $WORK:$WORK -v /var/run/docker.sock:/var/run/docker.sock $DOCKER_MOUNT \
+  -v $WORK:$WORK $ROLES_LIVE -v /var/run/docker.sock:/var/run/docker.sock $DOCKER_MOUNT \
   -v $COCKPIT:/usr/local/bin/cockpit:ro -v $EXT/out:/vsix:ro -v $HERE:$HERE:ro $EVIDENCE_MOUNTS --entrypoint code-server"
 docker run --rm $CS_COMMON "$CS_IMAGE" --user-data-dir "$WORK/cs/data" --extensions-dir "$WORK/cs/ext" \
   --install-extension /vsix/kton-workbench.vsix
