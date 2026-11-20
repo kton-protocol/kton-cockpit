@@ -1559,9 +1559,13 @@ operator command, not a verb: it signs nothing and writes no record.
 
 - It MUST be refused unless `index.kind` is `oxigraph` and `index.derived.enabled` is true.
 - The graph's name MUST be the file's own IRI, `https://kton.dev/o/<sha256 of the bytes loaded>`. A path is
-  read inside the repository (never a signing key or `.kton/local/`); a `sha256:` is read from the content
-  store (`.kton/blobs`) and its bytes MUST hash to it. One request loads one file, so no two files' blank
-  nodes meet.
+  read inside the repository, judged where it leads after symlinks (never a signing key or `.kton/local/`);
+  a `sha256:` is read from the content store (`.kton/blobs`) and its bytes MUST hash to it. One request loads
+  one file, so no two files' blank nodes meet.
+- A load MUST NOT take a record's graph name: a file whose hash is the id of a record of the repository's
+  union, or whose graph the index holds without any catalogue listing it, MUST be refused (`derived.clash`),
+  and so MUST a load that yields no triples. Whether a graph is loaded already is decided from the
+  catalogues, never from a graph of that name existing.
 - The media type comes from `--as`, or from the extension (`.ttl`, `.nt`, `.rdf`, `.owl`, `.jsonld`); anything
   else MUST be refused (`derived.type`), and so MUST N-Quads and TriG (`derived.quads`), RDF/XML that declares
   entities, content the engine cannot read (`derived.refused`), a file past `index.derived.maxBytes`
@@ -1582,7 +1586,9 @@ operator command, not a verb: it signs nothing and writes no record.
 
 > **Checked by:** `TestLoad_AFileIsAGraphNamedByItsHash`, `TestLoad_Refuses`,
 > `TestLoad_TheIndexLoadsAgainFromTheLoadList`, `TestLoad_AFileCannotNameItsOwnProducer`,
-> `TestLoad_AGraphTwoRepositoriesLoadedStaysUntilBothDropIt` (all `-tags docker`).
+> `TestLoad_AGraphTwoRepositoriesLoadedStaysUntilBothDropIt`, `TestLoad_AFileThatHashesToARecordIsRefused`,
+> `TestLoad_APathIsCheckedWhereItLeads`, `TestLoad_TheTripleLimitAndAChangedFile`,
+> `TestLoadGraph_NeverWritesOverARecordsGraph` (all `-tags docker`).
 
 ## 13 What a cockpit does not do
 

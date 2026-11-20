@@ -4,6 +4,8 @@ package cockpit
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -12,6 +14,7 @@ import (
 
 	"kton.dev/plankton/core"
 
+	"github.com/kton-protocol/kton-cockpit/internal/binaries"
 	"github.com/kton-protocol/kton-cockpit/internal/config"
 	"github.com/kton-protocol/kton-cockpit/internal/index/oxigraph"
 	"github.com/kton-protocol/kton-cockpit/internal/testrepo"
@@ -239,5 +242,90 @@ func TestLoad_AGraphTwoRepositoriesLoadedStaysUntilBothDropIt(t *testing.T) {
 	}
 	if l, err := d.Loaded(ctx, b.Root); err != nil || len(l) != 0 {
 		t.Errorf("after both drops the catalogue still lists it: %+v %v", l, err)
+	}
+}
+
+// A load whose graph name would be a record's is refused: a file whose bytes hash to a record id of the
+// union (here a claim's payload, whose hash is its id), and a load with no triples (kton-review L1 on
+// #192).
+func TestLoad_AFileThatHashesToARecordIsRefused(t *testing.T) {
+	r := loadingRepo(t)
+	ctx := context.Background()
+	c := New(Start{})
+	said, err := c.Say(ctx, SayRequest{Subject: "urn:example:x", Template: "working-on",
+		Fields: map[string]string{"step": "analysis", "by-session": testrepo.SessionID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := binaries.New(r.Config(t)).EnvelopeFor(ctx, said.ClaimID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var env core.Envelope
+	must(t, json.Unmarshal(raw, &env))
+	payload, err := base64.StdEncoding.DecodeString(env.Payload)
+	must(t, err)
+	if core.HashBytes(payload) != said.ClaimID {
+		t.Fatalf("the payload does not hash to the claim id; the test cannot build its file")
+	}
+	r.Write(t, "rdf/record.jsonld", string(payload))
+	if _, err := c.Load(ctx, LoadRequest{Files: []string{"rdf/record.jsonld"}}); codeOf(err) != "derived.clash" {
+		t.Errorf("a file with a record's hash: want derived.clash, got %v", err)
+	}
+	r.Write(t, "rdf/empty.jsonld", "{}")
+	if _, err := c.Load(ctx, LoadRequest{Files: []string{"rdf/empty.jsonld"}}); codeOf(err) != "derived.refused" {
+		t.Errorf("a load with no triples: want derived.refused, got %v", err)
+	}
+}
+
+// A path is checked where it leads: a symlink out of the repository, or into .kton/local, is refused,
+// and so is a signing key (kton-review L2, T25 on #192).
+func TestLoad_APathIsCheckedWhereItLeads(t *testing.T) {
+	r := loadingRepo(t)
+	ctx := context.Background()
+	c := New(Start{})
+	outside := filepath.Join(t.TempDir(), "outside.ttl")
+	must(t, os.WriteFile(outside, []byte(turtle), 0o644))
+	must(t, os.MkdirAll(filepath.Join(r.Root, "rdf"), 0o755))
+	must(t, os.Symlink(outside, filepath.Join(r.Root, "rdf", "out.ttl")))
+	must(t, os.MkdirAll(filepath.Join(r.Root, ".kton", "local"), 0o755))
+	must(t, os.WriteFile(filepath.Join(r.Root, ".kton", "local", "x.ttl"), []byte(turtle), 0o644))
+	must(t, os.Symlink(filepath.Join(r.Root, ".kton", "local", "x.ttl"), filepath.Join(r.Root, "rdf", "local.ttl")))
+	r.Write(t, "rdf/k.key", turtle)
+	for _, f := range []string{"rdf/out.ttl", "rdf/local.ttl", "rdf/k.key"} {
+		if _, err := c.Load(ctx, LoadRequest{Files: []string{f}, As: "text/turtle"}); codeOf(err) != "path.denied" {
+			t.Errorf("%s: want path.denied, got %v", f, err)
+		}
+	}
+}
+
+// index.derived.maxTriples bounds what one repository has loaded; a file that changed under its path
+// is not loaded again after a rebuild, and is counted (kton-review T25 on #192).
+func TestLoad_TheTripleLimitAndAChangedFile(t *testing.T) {
+	r := loadingRepo(t)
+	ctx := context.Background()
+	c := New(Start{})
+	raw := r.Config(t).Raw
+	raw.Index.Derived.MaxTriples = 3
+	r.Write(t, "rdf/two.ttl", turtle)
+	r.Write(t, "rdf/also-two.ttl", "<https://example.org/a> <https://example.org/b> 1, 2 .\n")
+	r.WriteConfig(t, raw)
+	if _, err := c.Load(ctx, LoadRequest{Files: []string{"rdf/two.ttl"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Load(ctx, LoadRequest{Files: []string{"rdf/also-two.ttl"}}); codeOf(err) != "derived.refused" {
+		t.Errorf("past maxTriples: want derived.refused, got %v", err)
+	}
+
+	r.Write(t, "rdf/two.ttl", "<https://example.org/changed> <https://example.org/p> 1 .\n")
+	d, err := oxigraph.Ensure(ctx, r.Config(t))
+	must(t, err)
+	must(t, d.Clear(ctx))
+	a, err := c.Ask(ctx, AskRequest{Query: "sparql", Sparql: `SELECT ?s WHERE { GRAPH ?g { ?s ?p ?o } }`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(a.Sparql.Rows) != 0 || a.Sparql.LoadMissing != 1 {
+		t.Errorf("a file that changed is not loaded again, and is counted: %+v", a.Sparql)
 	}
 }

@@ -12,6 +12,7 @@ import (
 
 	"kton.dev/plankton/core"
 
+	"github.com/kton-protocol/kton-cockpit/internal/binaries"
 	"github.com/kton-protocol/kton-cockpit/internal/config"
 	"github.com/kton-protocol/kton-cockpit/internal/flock"
 	"github.com/kton-protocol/kton-cockpit/internal/index/oxigraph"
@@ -95,6 +96,7 @@ func (c *Cockpit) Load(ctx context.Context, in LoadRequest) (*LoadResult, error)
 		ref, hex, mediaType string
 		data                []byte
 	}
+	run := binaries.New(cfg)
 	var files []file
 	for _, ref := range in.Files {
 		b, hex, err := loadBytes(cfg, ref)
@@ -104,6 +106,11 @@ func (c *Cockpit) Load(ctx context.Context, in LoadRequest) (*LoadResult, error)
 		mt, err := mediaTypeFor(in.As, ref)
 		if err != nil {
 			return nil, err
+		}
+		// A file whose hash is a record id of the union would take that record's graph name; its graph may
+		// not be in the index yet, so the registries are asked (kton-review L1 on #192).
+		if _, err := run.EnvelopeFor(ctx, "sha256:"+hex); err == nil {
+			return nil, refuse("derived.clash", "SPEC §12.6", "%s hashes to sha256:%s, the id of a record of this repository: a record's graph has that name", ref, hex)
 		}
 		// A DTD's nested entities expand without bound while the engine parses (kton-review on ADR-017).
 		if mt == "application/rdf+xml" && bytes.Contains(b, []byte("<!ENTITY")) {
@@ -124,7 +131,9 @@ func (c *Cockpit) Load(ctx context.Context, in LoadRequest) (*LoadResult, error)
 	for _, f := range files {
 		// The graph's name is the hash of exactly these bytes, the ones sent to the engine.
 		g, err := d.LoadGraph(ctx, cfg, f.hex, f.data, f.mediaType, f.ref)
-		if errors.Is(err, oxigraph.ErrLoadRefused) {
+		if errors.Is(err, oxigraph.ErrClash) {
+			return nil, refuse("derived.clash", "SPEC §12.6", "%s: %v", f.ref, err)
+		} else if errors.Is(err, oxigraph.ErrLoadRefused) {
 			return nil, refuse("derived.refused", "SPEC §12.6", "%s: %v", f.ref, err)
 		} else if err != nil {
 			return nil, refuse("index", "SPEC §12.6", "%s: %v", f.ref, err)
@@ -369,10 +378,18 @@ func loadBytes(cfg *config.Config, ref string) ([]byte, string, error) {
 		if filepath.IsAbs(ref) {
 			path = filepath.Clean(ref)
 		}
+		// Checked where the path leads, not as written: a symlink inside the repository may point
+		// anywhere (kton-review L2 on #192).
+		if real, err := filepath.EvalSymlinks(root); err == nil {
+			root = real
+		}
+		if real, err := filepath.EvalSymlinks(path); err == nil {
+			path = real
+		}
 		if rel, err := filepath.Rel(root, path); err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 			return nil, "", refuse("path.denied", "SPEC §12.6", "%s is outside this repository", ref)
 		}
-		if strings.HasSuffix(path, ".key") || strings.Contains(filepath.ToSlash(path), "/.kton/local/") {
+		if strings.HasSuffix(path, ".key") || strings.Contains(filepath.ToSlash(path)+"/", "/.kton/local/") {
 			return nil, "", refuse("path.denied", "SPEC §12.6", "%s is not a file a load reads", ref)
 		}
 	}

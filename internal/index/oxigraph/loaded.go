@@ -30,6 +30,10 @@ const (
 // ErrLoadRefused is a load the index declines: a limit, or content the engine cannot read.
 var ErrLoadRefused = errors.New("not loaded")
 
+// ErrClash is a load whose graph name is a record's: a record graph of the store, or a record of the
+// repository's union.
+var ErrClash = errors.New("the hash names a record")
+
 // LoadedGraph is one entry of a repository's catalogue.
 type LoadedGraph struct {
 	Graph     string `json:"graph"`     // https://kton.dev/o/<hex>
@@ -69,6 +73,16 @@ func (d *Daemon) LoadGraph(ctx context.Context, cfg *config.Config, hexHash stri
 		return nil, err
 	}
 	if !shared {
+		// A graph of that name that no catalogue lists is not a load: a record's graph shares the namespace
+		// (a foton's is https://kton.dev/o/<its id>). Writing over it would take the record out of every
+		// answer (kton-review L1 on #192).
+		held, err := d.count(ctx, `SELECT (COUNT(*) AS ?n) WHERE { GRAPH <`+g+`> { ?s ?p ?o } }`)
+		if err != nil {
+			return nil, err
+		}
+		if held > 0 {
+			return nil, fmt.Errorf("%w: %w: %s names a graph the index holds that is no load (a record's)", ErrLoadRefused, ErrClash, g)
+		}
 		req, err := http.NewRequestWithContext(ctx, http.MethodPut, d.URL+"/store?graph="+url.QueryEscape(g), bytes.NewReader(data))
 		if err != nil {
 			return nil, err
@@ -82,6 +96,12 @@ func (d *Daemon) LoadGraph(ctx context.Context, cfg *config.Config, hexHash stri
 	n, err := d.count(ctx, `SELECT (COUNT(*) AS ?n) WHERE { GRAPH <`+g+`> { ?s ?p ?o } }`)
 	if err != nil {
 		return nil, err
+	}
+	if n == 0 {
+		if !shared {
+			_, _ = d.request(ctx, "/update", "", "update", "DROP SILENT GRAPH <"+g+">")
+		}
+		return nil, fmt.Errorf("%w: it holds no triples as %s", ErrLoadRefused, mediaType)
 	}
 	have, err := d.loadedTriples(ctx, cat, g)
 	if err != nil {
