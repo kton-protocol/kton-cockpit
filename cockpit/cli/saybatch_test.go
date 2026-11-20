@@ -34,6 +34,9 @@ func TestShellSay_BatchFromAFile(t *testing.T) {
 			t.Errorf("a claim without an id: %s", stdout)
 		}
 	}
+	if stdout, _, code := r.CockpitSplit(t, "say", "--batch", file, "--json"); code != 0 || !json.Valid([]byte(stdout)) {
+		t.Errorf("say --batch FILE --json: want taken, as say's other forms take --json (exit %d): %s", code, stdout)
+	}
 
 	os.WriteFile(file, []byte(line("one")+"\n"+`{"template": "working-on", "nonsense": 1}`+"\n"), 0o644)
 	stdout, _, code = r.CockpitSplit(t, "say", "--batch", file)
