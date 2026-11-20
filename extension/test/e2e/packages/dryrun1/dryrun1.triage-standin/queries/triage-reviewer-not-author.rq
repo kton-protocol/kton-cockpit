@@ -1,0 +1,14 @@
+# reviewer-not-author: a review (triage-reviews) is signed by another key than the claim it reviews.
+# The review is about the reviewed claim by its node IRI (https://kton.dev/o/<hex>, the subject the review
+# names). A finding when a signer of the review also signed the reviewed claim. Only unreplaced reviews.
+PREFIX nk:     <https://kton.dev/v/>
+PREFIX triage: <https://scinteco.com/ns/triage#>
+PREFIX dct:    <http://purl.org/dc/terms/>
+SELECT DISTINCT ?rule ?focus ?claim ?message ?signer WHERE {
+  BIND("reviewer-not-author" AS ?rule)
+  BIND("the reviewer signed the reviewed claim too (reviewer-not-author)" AS ?message)
+  ?claim nk:predicate triage:reviews ; nk:about ?focus ; nk:signer ?signer .
+  FILTER NOT EXISTS { ?claim nk:replacedBy ?newer }
+  ?focus nk:signer ?signer .
+}
+ORDER BY ?focus

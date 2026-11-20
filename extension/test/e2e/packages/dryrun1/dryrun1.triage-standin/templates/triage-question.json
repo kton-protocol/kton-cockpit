@@ -1,2 +1,12 @@
-{"name": "triage-question", "target": "either", "predicate": "https://kton.dev/v/triage/question",
- "fields": {"text": {"type": "string", "required": true}}}
+{
+  "name": "triage-question",
+  "target": "either",
+  "predicate": "https://scinteco.com/ns/triage#asks",
+  "replace": "previous",
+  "fields": {
+    "text": {
+      "type": "string",
+      "required": true
+    }
+  }
+}

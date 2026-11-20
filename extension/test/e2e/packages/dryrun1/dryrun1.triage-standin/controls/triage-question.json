@@ -1,0 +1,9 @@
+{
+  "title": "Log a question on a proposal",
+  "kind": "record",
+  "meaning": "created",
+  "about": "subject.iri",
+  "say": {
+    "template": "triage-question"
+  }
+}

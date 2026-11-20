@@ -1,2 +1,15 @@
-{"name": "triage-decides", "target": "either", "predicate": "https://kton.dev/v/triage/decides",
- "fields": {"choice": {"type": "string", "required": true}, "lookedAt": {"type": "string"}}}
+{
+  "name": "triage-decides",
+  "target": "either",
+  "predicate": "https://scinteco.com/ns/triage#decides",
+  "replace": "previous",
+  "fields": {
+    "choice": {
+      "type": "string",
+      "required": true
+    },
+    "lookedAt": {
+      "type": "string"
+    }
+  }
+}

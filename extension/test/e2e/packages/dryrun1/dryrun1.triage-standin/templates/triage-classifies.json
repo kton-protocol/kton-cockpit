@@ -1,0 +1,52 @@
+{
+  "name": "triage-classifies",
+  "target": "either",
+  "predicate": "https://scinteco.com/ns/triage#classifies",
+  "replace": "previous",
+  "fields": {
+    "class": {
+      "type": "string",
+      "required": true
+    },
+    "evidence": {
+      "type": "enum",
+      "values": [
+        "run",
+        "static",
+        "mapping"
+      ],
+      "required": true
+    },
+    "certainty": {
+      "type": "enum",
+      "values": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "required": true
+    },
+    "reach": {
+      "type": "enum",
+      "values": [
+        "internal",
+        "product",
+        "customer"
+      ]
+    },
+    "examples": {
+      "type": "string"
+    },
+    "round": {
+      "type": "iri"
+    },
+    "sourceProduct": {
+      "type": "string",
+      "required": true
+    },
+    "sourceBuilt": {
+      "type": "date",
+      "required": true
+    }
+  }
+}

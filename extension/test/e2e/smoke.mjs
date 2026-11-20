@@ -1206,7 +1206,8 @@ if (seed.dm?.proposal) {
     const g = (await f.locator('[data-use$="#counts"] [data-guard]').textContent()) ?? "";
     check(/215 \(in scope/.test(g) && /254 \(all judged\)/.test(g), "the guard names both counts with their scope", "215 (in scope…) · 254 (all judged)", g);
     const est = (await f.locator('[data-use$="#estimate"]').textContent()) ?? "";
-    check(/4\.5 %/.test(est) && /Reported: 4\.4/.test(est), "the recomputed rate with the reported one beside it", "4.5 % … Reported: 4.4", est.slice(0, 300));
+    check(/4\.5 %/.test(est) && /3\.2–6\.1 %/.test(est) && /Reported: 4\.4/.test(est), "the recomputed rate and band with the reported one beside it", "4.5 % (3.2–6.1) … Reported: 4.4", est.slice(0, 300));
+    check(/≈ 362/.test(est) && /8,045/.test(est), "as elements on the covered base: ≈ 362 of 8,045", "≈ 362 … 8,045", est.slice(0, 300));
   });
 
   await step("DM", 3, "a spot-check verdict signs with the person key through the dialog, about the card's element", async () => {
@@ -1219,7 +1220,9 @@ if (seed.dm?.proposal) {
     await signInDialog(d);
     await d.locator('[data-testid="sign-outcome"][data-state="signed"]').waitFor({ timeout: 60000 });
     await shot("dm-spotcheck-dialog");
-    const rows = await sparqlDM(`SELECT ?c ?s ?v ?p WHERE { ?c nk:predicate <https://kton.dev/v/triage/spotcheck> ; nk:about <${item}> ; nk:signer ?s ; lab:verdict ?v ; lab:proposal ?p }`);
+    // dryrun1.triage 7579351: predicate triage:spotchecks; fields under lab: while the view ignores the package's aliases
+    const rows = await sparqlDM(`SELECT ?c ?s ?v ?p WHERE { ?c nk:predicate <https://scinteco.com/ns/triage#spotchecks> ; nk:about <${item}> ; nk:signer ?s ; (lab:verdict|<https://scinteco.com/ns/triage#verdict>) ?v ; (lab:proposal|<https://scinteco.com/ns/triage#proposal>) ?p }`);
+    check(/^https:\/\/scinteco\.com\/ns\/improve\/spec\/[^/]+\/[0-9a-f]+$/.test(item ?? ""), "the verdict is about the element's canonical IRI", "https://scinteco.com/ns/improve/spec/<spec>/<hash>", item);
     check(rows.length === 1 && rows[0].s === PERSON && rows[0].v === "second-model-right" && rows[0].p === iriOf(DMP), "one spot check about the card's item, by the person key, naming the proposal", { s: PERSON, v: "second-model-right", p: iriOf(DMP) }, rows);
   });
 

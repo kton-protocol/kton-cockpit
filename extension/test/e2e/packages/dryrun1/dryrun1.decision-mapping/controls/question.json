@@ -1,8 +1,0 @@
-{
- "title": "Ask a question about this",
- "kind": "record",
- "say": {
-  "template": "triage-question"
- },
- "about": "subject.claim"
-}

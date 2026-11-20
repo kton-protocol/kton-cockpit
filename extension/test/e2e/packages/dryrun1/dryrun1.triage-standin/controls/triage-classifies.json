@@ -1,0 +1,9 @@
+{
+  "title": "Classify a gap",
+  "kind": "record",
+  "meaning": "created",
+  "about": "subject.iri",
+  "say": {
+    "template": "triage-classifies"
+  }
+}

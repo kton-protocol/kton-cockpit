@@ -82,6 +82,7 @@ try {
   // the decision view for the dry run (imvprototypes workbench/dryrun1-decision-mapping): its view and the triage
   // templates as one package dryrun1.triage (ktonpkg wants a control's template in its own package)
   const dm = mkdtempSync(join(tmpdir(), "dryrun1-"));
+  // dryrun1.triage-standin: a copy of qm-packages areas/dryrun1-triage at 7579351 (templates, controls, queries)
   cpSync(join(SRC, "dryrun1", "dryrun1.triage-standin"), dm, { recursive: true });
   cpSync(join(SRC, "dryrun1", "dryrun1.decision-mapping"), dm, { recursive: true });
   build("dryrun1.triage", "1", dm);

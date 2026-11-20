@@ -114,7 +114,7 @@
        "judge2|Judge 2",
        "earlier|Earlier outcome"
       ],
-      "target": "item",
+      "target": "target",
       "choices": [
        "verdict=rule-judge-right|Rule judge is right",
        "verdict=second-model-right|Second model is right",
@@ -134,7 +134,7 @@
       {
        "intent": "sign",
        "label": "Verdict",
-       "control": "spotcheck",
+       "control": "triage-spotcheck",
        "fields": {
         "proposal": "subject.iri"
        }
@@ -150,7 +150,7 @@
       "package": "@workbench",
       "block": "rows"
      },
-     "query": "triage-judge-agreement",
+     "query": "dm-agreement",
      "empty": "show",
      "options": {
       "emptyText": "Your agreement with each judge shows after 10 verdicts."
@@ -190,7 +190,7 @@
       {
        "intent": "sign",
        "label": "Settle",
-       "control": "rule-case"
+       "control": "triage-rule-case"
       }
      ]
     }
@@ -236,12 +236,12 @@
       {
        "intent": "record",
        "label": "Ask a question about this",
-       "control": "question"
+       "control": "triage-question"
       },
       {
        "intent": "sign",
        "label": "Choose and sign",
-       "control": "decides"
+       "control": "triage-decides"
       }
      ]
     }

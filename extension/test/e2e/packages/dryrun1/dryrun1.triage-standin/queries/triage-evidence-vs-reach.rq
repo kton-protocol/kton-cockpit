@@ -1,0 +1,21 @@
+# evidence-vs-reach: a classification that claims customer exposure (class G3 or G5, or reach customer) rests
+# on a run. A finding when the latest classification of the element says so with static or mapping evidence,
+# and no unreplaced classification of the same element has run evidence (the C5/C6 case, G5).
+PREFIX nk:     <https://kton.dev/v/>
+PREFIX triage: <https://scinteco.com/ns/triage#>
+PREFIX dct:    <http://purl.org/dc/terms/>
+SELECT ?rule ?focus ?claim ?message ?class ?evidence WHERE {
+  BIND("evidence-vs-reach" AS ?rule)
+  ?claim nk:predicate triage:classifies ; nk:about ?focus ; triage:class ?class ; triage:evidence ?evidence .
+  FILTER NOT EXISTS { ?claim nk:replacedBy ?newer }
+  OPTIONAL { ?claim triage:reach ?reach }
+  FILTER( STRSTARTS(STR(?class), "G3") || STRSTARTS(STR(?class), "G5") || COALESCE(STR(?reach) = "customer", false) )
+  FILTER( STR(?evidence) != "run" )
+  FILTER NOT EXISTS {
+    ?run nk:predicate triage:classifies ; nk:about ?focus ; triage:evidence ?e2 .
+    FILTER NOT EXISTS { ?run nk:replacedBy ?rn }
+    FILTER( STR(?e2) = "run" )
+  }
+  BIND(CONCAT("customer exposure (", STR(?class), ") claimed on ", STR(?evidence), " evidence without a run (evidence-vs-reach)") AS ?message)
+}
+ORDER BY ?focus

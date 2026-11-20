@@ -1,0 +1,9 @@
+{
+  "title": "Decide a proposal",
+  "kind": "decision",
+  "meaning": "approved",
+  "about": "subject.iri",
+  "say": {
+    "template": "triage-decides"
+  }
+}

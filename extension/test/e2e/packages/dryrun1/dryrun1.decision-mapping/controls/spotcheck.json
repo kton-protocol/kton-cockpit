@@ -1,9 +1,0 @@
-{
- "title": "Spot-check verdict",
- "kind": "decision",
- "meaning": "reviewed",
- "say": {
-  "template": "triage-spotcheck"
- },
- "about": "subject.claim"
-}

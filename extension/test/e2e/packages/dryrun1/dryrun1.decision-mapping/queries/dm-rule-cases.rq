@@ -1,6 +1,8 @@
 # The open rule cases (6, 9, 10): what each answer would resolve, and the answer the window's person signed (if any).
 PREFIX nk: <https://kton.dev/v/>
 PREFIX lab: <https://kton.dev/v/lab/>
+# dryrun1.triage writes its fields under triage: once the view applies a package's aliases; cockpit v0.5.4 writes lab:
+PREFIX triage: <https://scinteco.com/ns/triage#>
 PREFIX covx: <https://w3id.org/improve/coverage-extra#>
 PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
 SELECT ?case ?title ?effects ?settled ?stamp WHERE {
@@ -9,7 +11,7 @@ SELECT ?case ?title ?effects ?settled ?stamp WHERE {
          lab:toCovered ?toCovered ; lab:toExercisedOnly ?toExercisedOnly ; lab:toGap ?toGap ; lab:stamp ?s } GROUP BY ?ruleCase }
   BIND(IRI(CONCAT("https://w3id.org/improve/coverage-extra#rule-case-", STR(?ruleCase))) AS ?case)
   BIND(CONCAT("Rule case ", STR(?ruleCase)) AS ?title)
-  OPTIONAL { ?t nk:predicate <https://kton.dev/v/triage/rule-case> ; nk:about ?case ; lab:answer ?a . FILTER NOT EXISTS { ?t nk:replacedBy ?n }
+  OPTIONAL { ?t nk:predicate <https://scinteco.com/ns/triage#ruleCase> ; nk:about ?case ; lab:answer|triage:answer ?a . FILTER NOT EXISTS { ?t nk:replacedBy ?n }
              ?e nk:predicate covx:ruleCaseEffect ; lab:ruleCase ?ruleCase ; lab:answer ?ea ; lab:resolved ?r . FILTER(STR(?ea) = STR(?a)) }
   BIND(IF(BOUND(?a), CONCAT("settled: ", STR(?a), " — resolves ", STR(?r)), "open") AS ?settled)
 }

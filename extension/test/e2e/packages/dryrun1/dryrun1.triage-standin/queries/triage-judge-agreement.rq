@@ -1,15 +1,21 @@
-# Per signer and judge: how often the signer's spot-check verdicts agreed with that judge. $minVerdicts (optional):
-# only signers with at least that many verdicts. STAND-IN for dryrun1.triage (qm-packages 7579351): fields under lab:.
-PREFIX nk: <https://kton.dev/v/>
-PREFIX lab: <https://kton.dev/v/lab/>
-PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+# judge-agreement: how often a person's spot checks (triage-spotcheck) side with each judge. Per signer and
+# judge: ?agreed (verdicts naming that judge right), ?total (all of the signer's current verdicts, spec-unclear
+# included), ?share = agreed / total. Only unreplaced spot checks (one per element and signer). $minVerdicts
+# (optional, integer): rows only once the signer has at least that many verdicts; unbound, every row.
+PREFIX nk:     <https://kton.dev/v/>
+PREFIX triage: <https://scinteco.com/ns/triage#>
+PREFIX xsd:    <http://www.w3.org/2001/XMLSchema#>
 SELECT ?signer ?judge ?agreed ?total ?share WHERE {
-  { SELECT ?signer (COUNT(?v) AS ?total) (SUM(IF(STR(?v) = "rule-judge-right", 1, 0)) AS ?a1) (SUM(IF(STR(?v) = "second-model-right", 1, 0)) AS ?a2) WHERE {
-      ?c nk:predicate <https://kton.dev/v/triage/spotcheck> ; nk:signer ?signer ; lab:verdict ?v .
-      FILTER NOT EXISTS { ?c nk:replacedBy ?newer } } GROUP BY ?signer }
-  VALUES (?judge ?which) { ("rule judge" 1) ("second model" 2) }
-  BIND(IF(?which = 1, ?a1, ?a2) AS ?agreed)
-  BIND(ROUND(100 * ?agreed / ?total) AS ?share)
-  FILTER(!BOUND($minVerdicts) || ?total >= xsd:integer($minVerdicts))
+  {
+    SELECT ?signer ?judge (SUM(?hit) AS ?agreed) (COUNT(?claim) AS ?total) WHERE {
+      ?claim nk:predicate triage:spotchecks ; nk:signer ?signer ; triage:verdict ?verdict .
+      FILTER NOT EXISTS { ?claim nk:replacedBy ?newer }
+      VALUES ?judge { "rule-judge" "second-model" }
+      BIND(IF(STR(?verdict) = CONCAT(?judge, "-right"), 1, 0) AS ?hit)
+    }
+    GROUP BY ?signer ?judge
+  }
+  FILTER( ?total >= COALESCE(xsd:integer($minVerdicts), 0) )
+  BIND(xsd:decimal(?agreed) / xsd:decimal(?total) AS ?share)
 }
 ORDER BY ?signer ?judge

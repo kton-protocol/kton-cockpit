@@ -16,14 +16,17 @@ export function mount(el, ctx) {
       }
       const n = (k) => Number(v(x[k]));
       const [rate, low, high, base, target] = ["rate", "low", "high", "base", "target"].map(n);
+      const hasBase = Number.isFinite(base) && base > 0;
       const of = (p) => Math.round((p / 100) * base);
       const stamp = v(x.stamp);
       const chip = stamp ? `<span class="kton-stamp" data-stamp>${esc(stamp)}</span>` : `<span class="kton-stamp kton-error" data-stamp-missing>no source</span>`;
       const point = rate <= target ? "meets" : "misses";
       const upper = high <= target ? "meets" : "does not meet";
       el.innerHTML = `<div class="kton-estimate" data-estimate>
-  <div class="kton-figure"><b class="kton-number" data-number>≈ ${esc(of(rate).toLocaleString("en"))}</b> ${esc(unit)} · <b data-number>${esc(String(rate))} %</b> of <b data-number>${esc(base.toLocaleString("en"))}</b> ${chip}</div>
-  <div class="kton-figure">range <b data-number>${esc(String(low))}–${esc(String(high))} %</b> = <b data-number>${esc(of(low).toLocaleString("en"))}–${esc(of(high).toLocaleString("en"))}</b> · target <b data-number>${esc(String(target))} %</b> ${chip}</div>
+  ${hasBase
+    ? `<div class="kton-figure"><b class="kton-number" data-number>≈ ${esc(of(rate).toLocaleString("en"))}</b> ${esc(unit)} · <b data-number>${esc(String(rate))} %</b> of <b data-number>${esc(base.toLocaleString("en"))}</b> ${chip}</div>
+  <div class="kton-figure">range <b data-number>${esc(String(low))}–${esc(String(high))} %</b> = <b data-number>${esc(of(low).toLocaleString("en"))}–${esc(of(high).toLocaleString("en"))}</b> · target <b data-number>${esc(String(target))} %</b> ${chip}</div>`
+    : `<div class="kton-figure"><b class="kton-number" data-number>${esc(String(rate))} %</b> · range <b data-number>${esc(String(low))}–${esc(String(high))} %</b> · target <b data-number>${esc(String(target))} %</b> ${chip} <span class="kton-muted">no base to count elements</span></div>`}
   <div class="kton-bar" aria-hidden="true"><span class="band" data-band="${low}-${high}"></span><span class="target" data-target="${target}"></span></div>
   <p data-verdict>The point estimate ${point} the target, the upper bound ${upper}.</p>
   ${v(x.single) ? `<p class="kton-muted" data-single>${esc(v(x.single))} ${chip}</p>` : ""}
