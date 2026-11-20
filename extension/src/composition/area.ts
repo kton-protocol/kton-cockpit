@@ -5,6 +5,7 @@ import type { Transport } from "../transport/port.js";
 import type { Control, LeafViewer, Loaded, LoadedViewer, SlotEntry, ViewerTree } from "../packages/model.js";
 import { loadPackages } from "../packages/model.js";
 import type { TreeNode } from "../ui/host.js";
+import { sparqlResultsOf } from "../ui/queries.js";
 import { CompositionHost, LeafHost, type Backend, type Plan } from "./host.js";
 import type { BoundTerm } from "../transport/port.js";
 import { applies, oneNumber, partition, planEntry, type Subject } from "./slots.js";
@@ -191,7 +192,8 @@ export class PackagesArea {
     const q = this.queryNames.has(`${pkg}/${name}`) ? `${pkg}/${name}` : name;
     const out = await this.t.ask({ query: "sparql", name: q, ...(Object.keys(terms).length ? { bindTerms: terms } : {}), format: "sparql-results+json" });
     if (!out.ok) throw new Error(`the cockpit refused ${q}: ${out.refusal.reason}`);
-    return out.value.results ?? { head: { vars: [] }, results: { bindings: [] } };
+    // the JSON-argument form answers under sparql.results (cockpit v0.5.x); read there, never as "no rows"
+    return sparqlResultsOf(out.value);
   }
 
   /** Home: the packages, what they declare, what was refused and why, and the tiles. */

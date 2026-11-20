@@ -195,8 +195,11 @@ async function readMembers(p: UiPackage, read: ReadBlob): Promise<Map<Member, Ui
 
 async function loadOne(p: UiPackage, read: ReadBlob, vendored: ReadonlyMap<string, ViewerTree>, byHash: Map<string, { pkg: string; hash: string; type: string }>): Promise<{ pkg: MirrorPackage; controls: Control[] }> {
   if (p.members.length === 0) throw new Refuse("package.members", "", "the cockpit lists no members for this package (ui list gives members only for a usable package, cockpit v0.5.4 or later): nothing can be loaded");
-  // names first, before anything is read: a viewer file or content name that is not a plain path refuses the package
+  // names first, before anything is read: a viewer file or content name that is not a plain path refuses the package.
+  // Those are the members whose names become paths; the others are names within their role (cockpit lists a
+  // package's aliases member with the name "") and are never written anywhere.
   for (const m of p.members) {
+    if (m.role !== "viewer-file" && m.role !== "content") continue;
     const why = nameProblem(m.name);
     if (why) throw new Refuse(m.role === "viewer-file" ? "viewer.file" : "member.name", "", `member ${JSON.stringify(m.name)} (${m.role}) ${why}: the package is not loaded`);
   }

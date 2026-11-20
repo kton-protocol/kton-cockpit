@@ -1,0 +1,3 @@
+# The number of claims in the window's view: one row, one number (a home tile, read from the real cockpit).
+PREFIX nk: <https://kton.dev/v/>
+SELECT (COUNT(?c) AS ?n) WHERE { ?c a nk:Claim }
