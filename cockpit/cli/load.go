@@ -12,21 +12,24 @@ import (
 func runLoad(ctx context.Context, args []string) error {
 	asJSON := hasFlag(args, "--json")
 	var files []string
-	var as, drop string
+	var as, drop, label string
 	list := false
 	for i := 0; i < len(args); i++ {
 		switch a := args[i]; a {
 		case "--json":
 		case "--list":
 			list = true
-		case "--as", "--drop":
+		case "--as", "--drop", "--label":
 			if i+1 >= len(args) {
 				return fmt.Errorf("%s needs a value", a)
 			}
 			i++
-			if a == "--as" {
+			switch a {
+			case "--as":
 				as = args[i]
-			} else {
+			case "--label":
+				label = args[i]
+			default:
 				drop = args[i]
 			}
 		default:
@@ -63,9 +66,9 @@ func runLoad(ctx context.Context, args []string) error {
 		fmt.Printf("dropped %s\n", drop)
 		return nil
 	case len(files) == 0:
-		return fmt.Errorf("usage: cockpit load <file|sha256:hex>... [--as TYPE] [--json] | cockpit load --list [--json] | cockpit load --drop <sha256:hex>")
+		return fmt.Errorf("usage: cockpit load <file|sha256:hex>... [--as TYPE] [--label NAME] [--json] | cockpit load --list [--json] | cockpit load --drop <sha256:hex>")
 	}
-	out, err := c.Load(ctx, cockpit.LoadRequest{Files: files, As: as})
+	out, err := c.Load(ctx, cockpit.LoadRequest{Files: files, As: as, Label: label})
 	if err != nil {
 		return err
 	}

@@ -14,6 +14,7 @@ import (
 
 	"kton.dev/plankton/core"
 
+	"github.com/kton-protocol/kton-cockpit/cockpit/source"
 	"github.com/kton-protocol/kton-cockpit/internal/binaries"
 	"github.com/kton-protocol/kton-cockpit/internal/config"
 	"github.com/kton-protocol/kton-cockpit/internal/index/oxigraph"
@@ -327,5 +328,90 @@ func TestLoad_TheTripleLimitAndAChangedFile(t *testing.T) {
 	}
 	if len(a.Sparql.Rows) != 0 || a.Sparql.LoadMissing != 1 {
 		t.Errorf("a file that changed is not loaded again, and is counted: %+v", a.Sparql)
+	}
+}
+
+// A loaded graph is described where a claims query finds it (ADR-018, section 4a): a nk:LoadedGraph
+// with the output path its producing step records, the label the load gave it, and when it was loaded;
+// only this repository's loads, listed per request, never another repository's (kton-review B1).
+func TestLoad_ALoadedGraphIsDescribedForAQuery(t *testing.T) {
+	r := loadingRepo(t)
+	ctx := context.Background()
+	r.Write(t, "data/in.csv", "id\n1\n")
+	r.Write(t, "make.sh", "printf '%s\\n' '"+strings.TrimSpace(turtle)+"' > rdf/sidefx.ttl\n")
+	r.Write(t, "rdf/sidefx.ttl", turtle)
+	if res, _, err := Publish(ctx, nil, PublishRequest{Inputs: []string{"data/in.csv", "make.sh"},
+		Outputs: []string{"rdf/sidefx.ttl"}, Cmd: "sh make.sh"}); err != nil || res.IsError {
+		t.Fatalf("publish: %v %s", err, errText(res))
+	}
+	if _, err := New(Start{}).Load(ctx, LoadRequest{Files: []string{"rdf/sidefx.ttl"}, Label: "sidefx"}); err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	describedIn := func(t *testing.T) []map[string]string {
+		t.Helper()
+		return sparqlAsk(t, `PREFIX nk: <https://kton.dev/v/>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+SELECT ?g ?path ?label ?when WHERE { ?g a nk:LoadedGraph ; nk:loadedAt ?when .
+  OPTIONAL { ?g nk:path ?path } OPTIONAL { ?g nk:loadedAs ?label } }`).Rows
+	}
+	rows := describedIn(t)
+	hex := strings.TrimPrefix(core.HashBytes([]byte(turtle)), "sha256:")
+	if len(rows) != 1 || rows[0]["g"] != "https://kton.dev/o/"+hex || rows[0]["path"] != "rdf/sidefx.ttl" ||
+		rows[0]["label"] != "sidefx" || rows[0]["when"] == "" {
+		t.Errorf("the loaded graph's description: %v", rows)
+	}
+
+	// The bookkeeping of the catalogue is no query's (kton-review on #208).
+	if a := sparqlAsk(t, `ASK { ?g <urn:kton:loaded#from> ?f }`); a.Boolean == nil || *a.Boolean {
+		t.Error("the catalogue's bookkeeping must not be in a query's dataset")
+	}
+
+	// A rebuilt index loads the file again from the load list, label and all (kton-review T31 on #208).
+	d, err := oxigraph.Ensure(ctx, r.Config(t))
+	must(t, err)
+	must(t, d.Clear(ctx))
+	if rows := describedIn(t); len(rows) != 1 || rows[0]["label"] != "sidefx" || rows[0]["path"] != "rdf/sidefx.ttl" {
+		t.Errorf("after a rebuild, the description again: %v", rows)
+	}
+
+	// Another repository on the same machine sees its own loads only.
+	other := loadingRepo(t)
+	other.Write(t, "rdf/other.ttl", "<https://example.org/a> <https://example.org/b> \"c\" .\n")
+	if _, err := New(Start{}).Load(ctx, LoadRequest{Files: []string{"rdf/other.ttl"}}); err != nil {
+		t.Fatalf("load in the other repository: %v", err)
+	}
+	if rows := describedIn(t); len(rows) != 1 || rows[0]["path"] != "" || rows[0]["label"] != "" {
+		t.Errorf("the other repository sees its one load, undescribed: %v", rows)
+	}
+}
+
+// A step nobody this repository trusts signed names no path of its loaded graph, though it wrote the same
+// bytes (kton-review F1 on #208).
+func TestLoad_AnUntrustedStepNamesNoPath(t *testing.T) {
+	ctx := context.Background()
+	theirs := testrepo.New(t)
+	theirs.Use(t)
+	theirs.Write(t, "data/in.csv", "id\n1\n")
+	theirs.Write(t, "rdf/elsewhere.ttl", turtle)
+	if res, _, err := Publish(ctx, nil, PublishRequest{Inputs: []string{"data/in.csv"}, Outputs: []string{"rdf/elsewhere.ttl"},
+		Cmd: "cp data/in.csv /dev/null"}); err != nil || res.IsError {
+		t.Fatalf("their publish: %v %s", err, errText(res))
+	}
+
+	r := loadingRepo(t)
+	raw := r.Config(t).Raw
+	var spec source.Spec
+	b, _ := json.Marshal(map[string]string{"name": "theirs", "kind": "dir", "path": theirs.Root})
+	must(t, json.Unmarshal(b, &spec))
+	raw.Federation.Sources = []source.Spec{spec} // their key is in no tier
+	r.WriteConfig(t, raw)
+	r.Write(t, "rdf/coverage.ttl", turtle)
+	if _, err := New(Start{}).Load(ctx, LoadRequest{Files: []string{"rdf/coverage.ttl"}}); err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	a := sparqlAsk(t, `PREFIX nk: <https://kton.dev/v/>
+SELECT ?path WHERE { ?g a nk:LoadedGraph ; nk:path ?path }`)
+	if len(a.Rows) != 0 {
+		t.Errorf("only a trusted step names a path; theirs is not trusted: %v", a.Rows)
 	}
 }

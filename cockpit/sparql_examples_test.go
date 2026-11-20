@@ -32,6 +32,7 @@ type sparqlFixture struct {
 	described, rationale string // claim hex
 	newer                string // claim hex: a second description, after described
 	scoped               string // claim hex
+	study                string // the study scope's seed hex
 }
 
 func hexOf(id string) string { return strings.TrimPrefix(id, "sha256:") }
@@ -58,6 +59,7 @@ func newSparqlFixture(t *testing.T) *sparqlFixture {
 	programme := ours.SeedScope(t, "programme-cardio")
 	project := ours.SeedScopeUnder(t, "project-af", programme)
 	study := ours.SeedScopeUnder(t, "study-af-2026", project)
+	f.study = hexOf(study)
 	raw := testrepo.DefaultConfig()
 	raw.Claims.AllowedTemplates = append(raw.Claims.AllowedTemplates, "describes", "rationale")
 	raw.Claims.Scopes = map[string]string{"study": study}
@@ -229,6 +231,12 @@ func TestSparql_TheExamplesAnswerOverAFixture(t *testing.T) {
 			if len(a.Rows) != 1 || a.Rows[0]["claim"] != o(f.scoped) || a.Rows[0]["subject"] != o(f.step) ||
 				a.Rows[0]["predicate"] != "https://kton.dev/v/working-on" || a.Rows[0]["position"] != "1" {
 				t.Errorf("want the one claim chained in the study, first after its seed: %v", a.Rows)
+			}
+		}},
+		{"The claims of one scope, read from its graph", map[string]string{"SCOPE": f.study}, func(t *testing.T, a *SparqlAnswer) {
+			if len(a.Rows) != 1 || a.Rows[0]["claim"] != o(f.scoped) || a.Rows[0]["subject"] != o(f.step) ||
+				a.Rows[0]["predicate"] != "https://kton.dev/v/working-on" {
+				t.Errorf("want the one claim of the study, from its graph: %v", a.Rows)
 			}
 		}},
 		{"The latest claim per subject in a scope", nil, func(t *testing.T, a *SparqlAnswer) {

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"kton.dev/plankton/core"
@@ -28,6 +29,8 @@ import (
 type LoadRequest struct {
 	Files []string `json:"files"`
 	As    string   `json:"as,omitempty"`
+	// Label names the loaded graphs for a query (rdfs:label on their description, ADR-018 section 4a).
+	Label string `json:"label,omitempty"`
 }
 
 // LoadResult is what was loaded, in the order asked.
@@ -130,7 +133,7 @@ func (c *Cockpit) Load(ctx context.Context, in LoadRequest) (*LoadResult, error)
 	out := &LoadResult{Loaded: []oxigraph.LoadedGraph{}}
 	for _, f := range files {
 		// The graph's name is the hash of exactly these bytes, the ones sent to the engine.
-		g, err := d.LoadGraph(ctx, cfg, f.hex, f.data, f.mediaType, f.ref)
+		g, err := d.LoadGraph(ctx, cfg, f.hex, f.data, f.mediaType, f.ref, describe(ctx, run, f.hex, in.Label))
 		if errors.Is(err, oxigraph.ErrClash) {
 			return nil, refuse("derived.clash", "SPEC §12.6", "%s: %v", f.ref, err)
 		} else if errors.Is(err, oxigraph.ErrLoadRefused) {
@@ -141,7 +144,7 @@ func (c *Cockpit) Load(ctx context.Context, in LoadRequest) (*LoadResult, error)
 		out.Loaded = append(out.Loaded, *g)
 		// Remembered by the checkout, unsigned and never shared, so the index loads it again after a
 		// rebuild (ADR-017, section 9).
-		if err := rememberLoad(cfg, loadEntry{Hash: g.Hash, From: f.ref, MediaType: f.mediaType}); err != nil {
+		if err := rememberLoad(cfg, loadEntry{Hash: g.Hash, From: f.ref, MediaType: f.mediaType, Label: in.Label}); err != nil {
 			return nil, refuse("io", "SPEC §12.6", "%v", err)
 		}
 	}
@@ -153,6 +156,34 @@ type loadEntry struct {
 	Hash      string `json:"hash"`
 	From      string `json:"from"`
 	MediaType string `json:"mediaType"`
+	Label     string `json:"label,omitempty"`
+}
+
+// describe is how a loaded file's graph is found (ADR-018, section 4a): the output paths the steps
+// that produced it record for it, and the label the load gave it. A file no step produced has none.
+// Only steps a key of the trust tiers signed name a path: an untrusted step writing the same bytes
+// elsewhere would otherwise name this repository's graph (kton-review F1 on #208).
+func describe(ctx context.Context, run *binaries.Runner, hex, label string) oxigraph.Description {
+	desc := oxigraph.Description{Label: label}
+	prod, err := run.Producer(ctx, "sha256:"+hex)
+	if err != nil {
+		return desc
+	}
+	seen := map[string]bool{}
+	for _, rec := range prod.Records {
+		f, err := run.FotonByID(ctx, rec.ID)
+		if err != nil || f.SignerKeyID == "" {
+			continue
+		}
+		for _, o := range f.Outputs {
+			if strings.EqualFold(o.Hash, "sha256:"+hex) && o.Path != "" && !seen[o.Path] {
+				seen[o.Path] = true
+				desc.Paths = append(desc.Paths, o.Path)
+			}
+		}
+	}
+	sort.Strings(desc.Paths)
+	return desc
 }
 
 func loadListPath(cfg *config.Config) string { return filepath.Join(cfg.LocalDir, "loaded.json") }
@@ -254,7 +285,7 @@ func reloadMissing(ctx context.Context, cfg *config.Config, d *oxigraph.Daemon) 
 			missing++
 			continue
 		}
-		if _, err := d.LoadGraph(ctx, cfg, hex, b, e.MediaType, e.From); err != nil {
+		if _, err := d.LoadGraph(ctx, cfg, hex, b, e.MediaType, e.From, describe(ctx, binaries.New(cfg), hex, e.Label)); err != nil {
 			missing++
 		}
 	}

@@ -109,8 +109,10 @@ SELECT ?claim WHERE {
 called `review`, and a versioned scope's seeds carry their own names (`dryrun1.runs`, `dryrun1.runs@v1`, …). A
 graph's label is its seed's name exactly as signed, never shortened. `?g rdfs:label "review"` matches every graph
 of that name, and `GRAPH ?g` then reads all of them; each row still carries its `?g`, so a query that needs one
-binds the seed or adds `nk:source`. The view build counts the names that more than one graph shares; `doctor`
-and `ask --json` name them (a warning, not a refusal: two scopes may share a name).
+binds the seed or adds `nk:source`. The view build counts the names that more than one graph shares, and
+`ask --json` names them with every answer (`repeatedLabels`; a warning, not a refusal: two scopes may share a
+name). Not `doctor`: it would have to read the union, which fetches every federation source, and `doctor` stays
+a local check (amended 2026-11-20, while building it).
 
 **What a query read.** `ask --json` lists the claim graphs of the dataset it answered over (label, seed, source,
 claims), so an answer can be stamped with exactly the graphs it was computed over.
@@ -137,11 +139,12 @@ ADR-017 (the catalogue was the cockpit's bookkeeping only):
 ```turtle
 <https://kton.dev/o/<hex>> a nk:LoadedGraph ;
     nk:path "out/sidefx.ttl" ;          # the output path the producing foton records, when one does
-    rdfs:label "sidefx" ;               # cockpit load --label, when given
+    nk:loadedAs "sidefx" ;              # cockpit load --label, when given
     nk:loadedAt "2026-11-20T12:45:00Z"^^xsd:dateTime .
 ```
 
-"The version of a data set loaded last" is then a `GROUP BY` over `nk:path` (or the label) and `MAX(nk:loadedAt)`,
+Not `rdfs:label`: a loaded graph's name is the file's own IRI, which the records already label with its path.
+"The version of a data set loaded last" is then a `GROUP BY` over `nk:path` (or `nk:loadedAs`) and `MAX(nk:loadedAt)`,
 as in section 5. That is the version loaded last, not the one produced last: reloading an old file makes it the
 latest loaded. "Produced last" orders by the producing step (`prov:wasGeneratedBy` and the step's time) instead.
 One file may have several paths (the same bytes written twice); each is a triple. The load list keeps the label
@@ -183,7 +186,7 @@ template carries the flag, a "latest per subject" query leaves it out by name. I
     only loaded graphs: such a query says which kind it wants (`?g a nk:LoadedGraph`); the release notes say so;
   - `bindTerms` reaches a group inside `GRAPH` (VALUES in the outer group joins into it), and `BIND(IRI(?X))` in
     the outer group does too (to be shown by test);
-  - two graphs of one label are both read, and `doctor` names the label;
+  - two graphs of one label are both read, and `ask --json` names the label;
   - two repositories on one slot each see only their own `nk:LoadedGraph` descriptions;
   - a scope parameter given as `sha256:<hex>` reads the seed's graph;
   - a claim of a template with `"claims": "rows"` carries `nk:row true`, one of a template without it does not;
