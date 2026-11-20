@@ -5,8 +5,9 @@ import (
 	"testing"
 )
 
-// A binding goes first into the outermost group, so a FILTER in that group sees it (SPEC §9.9). The
-// brace is found past comments, strings and IRIs that hold braces of their own.
+// A binding goes first into the outermost group, so a FILTER in that group sees it, and into the group
+// of every sub-select (SPEC §9.9). Braces and keywords are found past comments, strings and IRIs that
+// hold braces of their own.
 func TestBind_GoesFirstIntoTheWhereClause(t *testing.T) {
 	clause, err := valuesClause(map[string]string{"asOf": "2026-11-18"}, nil)
 	if err != nil {
@@ -21,7 +22,6 @@ func TestBind_GoesFirstIntoTheWhereClause(t *testing.T) {
 		{"a long string with a quote and a brace", "SELECT (\"\"\"a \" { \\\"\"\" b\"\"\" AS ?b) WHERE { ?s ?p ?o }",
 			"SELECT (\"\"\"a \" { \\\"\"\" b\"\"\" AS ?b) WHERE {"},
 		{"less-than before the WHERE", "SELECT (IF(?a <3, 1, 2) AS ?b) WHERE { ?s ?p ?a }", "SELECT (IF(?a <3, 1, 2) AS ?b) WHERE {"},
-		{"a dataset line and a subquery", "# dataset: claims\nSELECT * WHERE { { SELECT ?s WHERE { ?s ?p ?o } } }", "# dataset: claims\nSELECT * WHERE {"},
 	} {
 		got, err := bindIntoWhere(c.q, clause)
 		if err != nil {
@@ -29,6 +29,22 @@ func TestBind_GoesFirstIntoTheWhereClause(t *testing.T) {
 		}
 		if !strings.HasPrefix(got, c.before+clause) || got != c.before+clause+strings.TrimPrefix(c.q, c.before) {
 			t.Errorf("%s: the VALUES clause is not right after the WHERE clause's brace:\n%s", c.name, got)
+		}
+	}
+	// A sub-select is evaluated on its own: the clause goes first into its group as well
+	// (userinterface, 20.11.), and only for a SELECT keyword, not for one in a comment, a string, a
+	// variable or a prefixed name.
+	for _, c := range []struct{ name, q, want string }{
+		{"a sub-select", "# dataset: claims\nSELECT * WHERE { { SELECT ?s WHERE { ?s ?p ?o } } }",
+			"# dataset: claims\nSELECT * WHERE {" + clause + " { SELECT ?s WHERE {" + clause + " ?s ?p ?o } } }"},
+		{"a sub-select without WHERE, lower case", "SELECT * { { select ?s { ?s ?p ?o } } }",
+			"SELECT * {" + clause + " { select ?s {" + clause + " ?s ?p ?o } } }"},
+		{"SELECT that is no keyword", "SELECT ?select WHERE { ?select ex:select \"select {\" # select {\n }",
+			"SELECT ?select WHERE {" + clause + " ?select ex:select \"select {\" # select {\n }"},
+	} {
+		got, err := bindIntoWhere(c.q, clause)
+		if err != nil || got != c.want {
+			t.Errorf("%s:\ngot  %q\nwant %q (%v)", c.name, got, c.want, err)
 		}
 	}
 	if _, err := bindIntoWhere("SELECT * # {\n", clause); err == nil {

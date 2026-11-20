@@ -1062,7 +1062,8 @@ reaches no record outside that dataset, so it is under the same ceiling as every
   answer MUST name the package it came from (`from`). Naming a query no allowed package brings, or
   giving both `name` and `sparql`, MUST be refused.
 - `bind` MAY give the query's variables values, each a plain literal in a `VALUES` clause put first into
-  the query's outermost group (the `WHERE` clause), so a `FILTER` of that group sees it. A value MUST NOT
+  the query's outermost group (the `WHERE` clause) and first into the group of every sub-select, so a
+  `FILTER` of those groups sees it: a sub-select is evaluated on its own and would not. A value MUST NOT
   become query text, a name that is not a variable name MUST be refused, and so MUST a query without a
   group to bind into.
 - `bindTerms` MAY give variables typed terms in the same clause: an IRI, or a literal with a datatype
@@ -1076,7 +1077,7 @@ example there is run by a test.
 > **Checked by:** `TestCheckFreeQuery_TakesSelectAndAskOverTheCockpitsDataset`,
 > `TestSparql_RefusesWhatItWouldNotAnswer`, `TestSparql_ChecksTheQueryAndNeedsAnEngine`,
 > `TestVocabulary_AnAllowedPackageBringsItsTemplatesAndQueries` (`-tags docker`),
-> `TestShellSparql_ReadsTheQueryFromAFile`, `TestBind_TypedTermsAreOneTermEach`,
+> `TestShellSparql_ReadsTheQueryFromAFile`, `TestBind_GoesFirstIntoTheWhereClause`, `TestBind_TypedTermsAreOneTermEach`,
 > `TestParseResults_ReadsASelectAndAnAsk`, `TestClaimView_KeepsPositionAndInfersNothing`,
 > `TestClaimView_AppliesTheTemplatesTermsAndTypes`, `TestBind_GoesFirstIntoTheWhereClause`, `TestSparql_TheExamplesAnswerOverAFixture` (with its
 > standard-results subtests; `-tags docker`).
