@@ -140,9 +140,19 @@ cockpit ask sparql --name inbox-open --bind LANE=kton-cockpit
 cockpit ask sparql --name overdue --bind asOf=2026-11-18    # FILTER (?due < xsd:date(?asOf))
 ```
 
-A bound value is a plain literal: cast it where the query compares it with a typed one, as above. A
-rule with an as-of date takes it as a parameter rather than `NOW()`, so a recorded run answers the same
-again. A subquery, or a `FILTER` inside a nested `{ … }` group, does not see the binding.
+A bound value is a plain literal: cast it where the query compares it with a typed one, as above, and make
+an IRI of it where the query compares it with one (`--bind STEP=https://kton.dev/o/<hex>`):
+
+```text
+SELECT ?claim WHERE {
+  BIND(IRI(?STEP) AS ?step)
+  ?claim nk:about ?step .
+}
+```
+
+A rule with an as-of date takes it as a parameter rather than `NOW()`, so a recorded run answers the same
+again. The binding is put first into the `WHERE` group and into every sub-select's group; a `FILTER` inside a
+nested `{ … }` group that is not a sub-select does not see it.
 
 ## Examples
 
