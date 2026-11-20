@@ -2,20 +2,27 @@
 # Two scopes in one view: the view's guard flags it (G5.4). The proposal's option b names 237; the data counts 254.
 # Run: only claims in the run's scope "dryrun1.mapping" (build with RUN=<run> to read another run); a count of
 # nothing gives no row (never a 0 without a stamp).
+# ?stampLabel ?stampFull ?stampScope: where the numbers come from (MH 20.11.): verification's covx:sourceStamp claim for
+# the data set (the number's template) and stamp, e.g. "mapping round 9 · b610b5c6" with the full view hash; the scope
+# names it when no round stamps it.
 PREFIX nk: <https://kton.dev/v/>
 PREFIX lab: <https://kton.dev/v/lab/>
 PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
 PREFIX covx: <https://w3id.org/improve/coverage-extra#>
-SELECT ?value ?label ?scope ?stamp ?note WHERE {
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT ?value ?label ?scope ?stamp ?note ?stampLabel ?stampFull ?stampScope WHERE {
   {
-    { SELECT (COUNT(DISTINCT ?e) AS ?value) (SAMPLE(?s) AS ?stamp) WHERE { ?sc rdfs:label "dryrun1.mapping" . ?c nk:scope ?sc ; nk:predicate covx:worklistItem ; lab:element ?e ; lab:inScope "true" ; lab:stamp ?s } HAVING (COUNT(DISTINCT ?e) > 0) }
-    BIND("unsettled elements in your scope (disputed, needs review, unclear)" AS ?label) BIND("in scope (MH 10.11.)" AS ?scope) BIND("" AS ?note) BIND(1 AS ?o)
+    { SELECT ?sc (COUNT(DISTINCT ?e) AS ?value) (SAMPLE(?s) AS ?stamp) (SAMPLE(?tm) AS ?tmpl) WHERE { ?sc rdfs:label "dryrun1.mapping" . ?c nk:scope ?sc ; nk:predicate covx:worklistItem ; lab:element ?e ; lab:inScope "true" ; lab:stamp ?s . OPTIONAL { ?c nk:template ?tm } } GROUP BY ?sc HAVING (COUNT(DISTINCT ?e) > 0) }
+    BIND("unsettled in your scope" AS ?label) BIND("in scope (MH 10.11.)" AS ?scope) BIND("disputed, needs review, unclear" AS ?note) BIND(1 AS ?o)
   } UNION {
-    { SELECT (COUNT(DISTINCT ?e) AS ?value) (SAMPLE(?s) AS ?stamp) WHERE { ?sc rdfs:label "dryrun1.mapping" . ?c nk:scope ?sc ; nk:predicate covx:worklistItem ; lab:element ?e ; lab:stamp ?s } HAVING (COUNT(DISTINCT ?e) > 0) }
-    BIND("all judged unsettled elements" AS ?label) BIND("all judged" AS ?scope) BIND("The proposal's option b names 237 here; the data counts this." AS ?note) BIND(2 AS ?o)
+    { SELECT ?sc (COUNT(DISTINCT ?e) AS ?value) (SAMPLE(?s) AS ?stamp) (SAMPLE(?tm) AS ?tmpl) WHERE { ?sc rdfs:label "dryrun1.mapping" . ?c nk:scope ?sc ; nk:predicate covx:worklistItem ; lab:element ?e ; lab:stamp ?s . OPTIONAL { ?c nk:template ?tm } } GROUP BY ?sc HAVING (COUNT(DISTINCT ?e) > 0) }
+    BIND("unsettled, all judged" AS ?label) BIND("all judged" AS ?scope) BIND("The proposal's option b names 237 here; the data counts this." AS ?note) BIND(2 AS ?o)
   } UNION {
-    { SELECT (COUNT(DISTINCT ?e) AS ?value) (SAMPLE(?s) AS ?stamp) WHERE { ?sc rdfs:label "dryrun1.mapping" . ?c nk:scope ?sc ; nk:predicate covx:worklistItem ; lab:element ?e ; lab:inScope "false" ; lab:stamp ?s } HAVING (COUNT(DISTINCT ?e) > 0) }
-    BIND("of them outside your scope" AS ?label) BIND("outside your scope" AS ?scope) BIND("" AS ?note) BIND(3 AS ?o)
+    { SELECT ?sc (COUNT(DISTINCT ?e) AS ?value) (SAMPLE(?s) AS ?stamp) (SAMPLE(?tm) AS ?tmpl) WHERE { ?sc rdfs:label "dryrun1.mapping" . ?c nk:scope ?sc ; nk:predicate covx:worklistItem ; lab:element ?e ; lab:inScope "false" ; lab:stamp ?s . OPTIONAL { ?c nk:template ?tm } } GROUP BY ?sc HAVING (COUNT(DISTINCT ?e) > 0) }
+    BIND("outside your scope" AS ?label) BIND("outside your scope" AS ?scope) BIND("" AS ?note) BIND(3 AS ?o)
   }
+  OPTIONAL { ?ss nk:scope ?sc ; nk:predicate covx:sourceStamp ; lab:dataSet ?ds ; lab:stamp ?ssStamp ; lab:label ?stampLabel .
+    FILTER(STR(?ds) = STR(?tmpl) && STR(?ssStamp) = STR(?stamp)) FILTER NOT EXISTS { ?ss nk:replacedBy ?ssNew } OPTIONAL { ?ss lab:viewSha256 ?stampFull } }
+  BIND("dryrun1.mapping" AS ?stampScope)
 }
 ORDER BY ?o

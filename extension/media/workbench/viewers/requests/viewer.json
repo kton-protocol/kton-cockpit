@@ -22,7 +22,9 @@
   },
   "done": "literal",
   "nudge": "literal",
-  "emptyText": "literal"
+  "emptyText": "literal",
+  "emptyHow": "literal",
+  "stamp": "literal"
  },
  "rendersActs": true
 }

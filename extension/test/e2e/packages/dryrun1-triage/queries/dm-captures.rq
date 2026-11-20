@@ -1,5 +1,5 @@
 # "Capture now" for one element ($element): each test the element's round-9 pairs name that test-execution runs (it has a
-# run-unit in dryrun1.runs), with its latest capture request (a capture-requested claim in dryrun1.triage) and
+# run-unit in dryrun1.runs), with its latest capture request (the capture-requested claim in dryrun1.triage with the highest position for that test) and
 # test-execution's answer to it (a capture-result claim about the request in dryrun1.runs: their query capture-results,
 # same terms). A captured answer gives one row per artifact of that run and test (their artifacts-of-run join, by run
 # and test), in the evidence block's shape (?run ?name ?sha256 ?mediaType ?bytes ?label): opened from the artifacts root,
@@ -24,14 +24,18 @@ SELECT DISTINCT ?test ?for ?status ?version ?trace ?offer ?waiting ?request ?out
   ?p nk:scope ?sc ; nk:predicate covx:evidencePair ; lab:element ?pe ; lab:test ?test . FILTER(STR(?pe) = STR($element))
   ?sr rdfs:label "dryrun1.runs" .
   FILTER EXISTS { ?u nk:scope ?sr ; nk:predicate tr:runUnit ; (tr:test|lab:test) ?ut . FILTER(STR(?ut) = STR(?test)) }
+  # the latest request per test: the highest position per test in dryrun1.triage (GROUP BY/MAX, then joined back;
+  # kton-cockpit docs/sparql.md: FILTER NOT EXISTS compares every request with every other)
   OPTIONAL {
+    { SELECT ?rtest (MAX(?rpos) AS ?latest) WHERE {
+        ?st0 rdfs:label "dryrun1.triage" .
+        ?r0 nk:scope ?st0 ; nk:predicate triage:captureRequested ; (triage:test|lab:test) ?rt0 ; nk:position ?rpos .
+        BIND(STR(?rt0) AS ?rtest)
+      } GROUP BY ?rtest }
+    FILTER(?rtest = STR(?test))
     ?st rdfs:label "dryrun1.triage" .
-    ?request nk:scope ?st ; nk:predicate triage:captureRequested ; (triage:test|lab:test) ?rt ; dct:created ?requested .
+    ?request nk:scope ?st ; nk:predicate triage:captureRequested ; (triage:test|lab:test) ?rt ; nk:position ?latest ; dct:created ?requested .
     FILTER(STR(?rt) = STR(?test))
-    FILTER NOT EXISTS {
-      ?r2 nk:scope ?st ; nk:predicate triage:captureRequested ; (triage:test|lab:test) ?rt2 ; dct:created ?w2 .
-      FILTER(STR(?rt2) = STR(?test) && ?w2 > ?requested)
-    }
   }
   OPTIONAL {
     ?res nk:scope ?sr ; nk:predicate tr:captureResult ; nk:about ?request ; (tr:outcome|lab:outcome) ?outcome .

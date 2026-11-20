@@ -10,7 +10,7 @@
 //       hostile-pin       good, pinning a kton-web viewer at a commit with a tree no one has (refused at load)
 //   - s6/: the S6 packages (PR 3): qa.area-one and qa.area-two (two QM areas), qa.register (the document
 //     register), qa.rules (findings). qa.rules-suppliers, which qa.area-two names, is not built (S6.13).
-//   - dryrun1-triage/: qm-packages areas/dryrun1-triage (a143ac3 + the run-name patch): dryrun1.triage and dryrun2.triage.
+//   - dryrun1-triage/: qm-packages areas/dryrun1-triage (a87d791 + userinterface's design patch): dryrun1.triage and dryrun2.triage.
 //
 //   node build-packages.mjs <scope CLI> <out dir>
 import { execFileSync } from "node:child_process";
@@ -80,7 +80,7 @@ try {
   hostile("hostile-pin", "pin");
   // PR 3 (S6): the generic QM area's test packages (userinterface qm-workbench/s6-packages, ktonpkg v0.9.3 form)
   for (const n of ["qa.register", "qa.area-one", "qa.area-two", "qa.rules"]) build(n, "1", join(SRC, "s6", n));
-  // the decision view for the dry run: qm-packages areas/dryrun1-triage at a143ac3 with userinterface's run-name patch
+  // the decision view for the dry run: qm-packages areas/dryrun1-triage at a87d791 with userinterface's design patch
   // (the view ships in the triage package; ktonpkg wants a control's template in its own package), built as
   // dryrun1.triage, and as dryrun2.triage with its scope labels rewritten as build.sh RUN=dryrun2 does
   for (const run of ["dryrun1", "dryrun2"]) {

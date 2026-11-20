@@ -225,7 +225,7 @@ class VsHost implements UiHost {
       cspSource: webview.cspSource,
       frame: webview.asWebviewUri(vscode.Uri.joinPath(kit, "viewers", "compose", "frame.js")).toString(),
       css: webview.asWebviewUri(vscode.Uri.joinPath(kit, "core", "compose.css")).toString(),
-      design: { css: webview.asWebviewUri(vscode.Uri.joinPath(design, "workbench.css")).toString() },
+      design: { css: webview.asWebviewUri(vscode.Uri.joinPath(design, "workbench.css")).toString(), js: webview.asWebviewUri(vscode.Uri.joinPath(design, "frame-design.js")).toString() },
       ...(this.mermaidFrame ? { mermaidFrame: this.mermaidFrame } : {}),
     });
     p.reveal();

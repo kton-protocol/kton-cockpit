@@ -177,3 +177,48 @@ dl.kv dd, dl.kton-card dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
   .chip, .kton-stamp, .pill, .badge, .card, .kton-card { border: 1px solid CanvasText; }
 }
 @media print { .wb-sticky { position: static !important; } }
+
+/* ---------- 2. frame: banner, nav, view head, part heads, layouts ---------- */
+.wb-sticky { position: sticky; top: 0; z-index: 10; background: var(--wb-bg); }
+.wb-banner { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; margin: 0; padding: 4px 16px; font-size: 12px;
+  background: var(--wb-warn-bg); border-bottom: 1px solid var(--wb-warn-border); }
+.wb-banner-lead { letter-spacing: .06em; font-size: 11px; color: var(--wb-warn-fg); text-transform: uppercase; }
+.wb-sep { color: var(--wb-muted); }
+.wb-colon { display: inline-block; width: 0; overflow: hidden; vertical-align: bottom; }
+.wb-banner-part { display: none; }
+#kton-root .wb-banner { display: none; } /* drawn once, in the sticky bar above the view */
+.wb-nav { display: flex; gap: 2px; padding: 0 12px; border-bottom: 1px solid var(--wb-hairline); overflow-x: auto; scrollbar-width: thin; }
+.wb-nav a { font-size: 12px; padding: 6px 8px; color: var(--wb-muted); text-decoration: none; white-space: nowrap; border-bottom: 2px solid transparent; display: inline-flex; align-items: center; gap: 4px; }
+.wb-nav a:hover { color: var(--wb-fg); }
+.wb-nav a.on { color: var(--wb-fg); border-bottom-color: var(--wb-focus); }
+.wb-nav .count { font-size: 10px; }
+.wb-head { padding: 18px 0 6px; margin: 0; }
+.wb-eyebrow { font-size: 12px; color: var(--wb-muted); display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; }
+.wb-title { font-size: 20px; line-height: 1.3; font-weight: 600; margin: 4px 0 2px; }
+.wb-lede { margin: 0; color: var(--wb-muted); max-width: 70ch; }
+.wb-design section.kton-part { margin: 0; min-width: 0; scroll-margin-top: calc(var(--wb-top-h, 0px) + 8px); }
+.wb-design section.kton-part[data-level="1"] { padding: 22px 0 6px; border-top: 1px solid var(--wb-hairline); margin-top: 18px; }
+.wb-design section.kton-part[data-level="1"].wb-group { padding: 0; }
+.wb-design section.wb-group > :is(h1,h2,h3,h4,h5,h6):first-child { display: none; }
+.wb-design .kton-cell > section.kton-part { padding: 22px 0 6px; }
+.wb-design .kton-part .kton-part { margin-left: 0; }
+.wb-sec-head { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; justify-content: space-between; margin-bottom: 12px; }
+.wb-sec-title { min-width: 0; }
+.wb-sec-head .wb-h { font-size: 15px; font-weight: 600; margin: 0; line-height: 1.35; }
+.wb-sub { margin: 2px 0 0; color: var(--wb-muted); font-size: 12px; }
+.kton-block.wb-moved { display: none; }
+.wb-design .kton-block { margin: 0 0 8px; }
+/* two columns (summary | spot check) from the host's narrow width up; compose.js sets the columns through the CSSOM */
+.wb-design .kton-layout-columns { gap: 0 32px; }
+.wb-design .kton-layout-columns:not(.kton-narrow) > .kton-cell + .kton-cell { border-left: 1px solid var(--wb-hairline); padding-left: 32px; margin-left: -16px; }
+.wb-design .kton-layout-columns.kton-narrow > .kton-cell + .kton-cell > section.kton-part { border-top: 1px solid var(--wb-hairline); }
+.wb-design .kton-cell { overflow: visible; }
+/* tabs (by area | by part) */
+.kton-tablist { display: flex; gap: 0; border-bottom: 1px solid var(--wb-hairline); margin: 0 0 8px; flex-wrap: wrap; }
+.kton-tablist [role="tab"] { font-size: 12px; background: none; border: 0; border-bottom: 2px solid transparent; border-radius: 0; color: var(--wb-muted); padding: 5px 10px; font-weight: 400; }
+.kton-tablist [role="tab"][aria-selected="true"] { color: var(--wb-fg); border-bottom-color: var(--wb-focus); background: none; font-weight: 400; }
+.wb-design .wb-tabpart { padding: 0 !important; border: 0 !important; margin: 0 !important; }
+/* tooltip */
+#wb-tip { position: fixed; z-index: 50; max-width: min(480px, calc(100vw - 24px)); padding: 6px 8px; white-space: pre-line;
+  background: var(--wb-tip-bg); color: var(--wb-fg); border: 1px solid var(--wb-tip-border); border-radius: 3px;
+  font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; pointer-events: none; box-shadow: 0 2px 8px rgba(0, 0, 0, .16); }

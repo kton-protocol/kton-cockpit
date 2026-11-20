@@ -94,7 +94,7 @@ export const VSCODE_PROVIDES = ["query@1", "content@1", "product@1", "open@1", "
  * a common window width is wider, a side-by-side half on a laptop or a narrow window is not. A layout without
  * `narrow` never changes with width.
  */
-export const NARROW_PX = 640;
+export const NARROW_PX = 820;
 /** A leaf (a page viewer in its own frame) is also given graph@1. */
 export const LEAF_PROVIDES = ["graph@1", "query@1", "product@1", "open@1", "sign@1"] as const;
 /** Acts and the control kind each one must have (O1). open and run have no control. */

@@ -37,6 +37,27 @@
   "nudge": "literal",
   "nudges": {
    "set": "literal"
+  },
+  "labels": {
+   "set": "literal"
+  },
+  "group": "literal",
+  "groupLabels": {
+   "set": "literal"
+  },
+  "groupSum": "literal",
+  "range": "literal",
+  "scale": "literal",
+  "measurable": "literal",
+  "total": "literal",
+  "numeric": {
+   "set": "literal"
+  },
+  "stamp": "literal",
+  "title": "literal",
+  "emptyHow": "literal",
+  "short": {
+   "set": "literal"
   }
  },
  "emits": {

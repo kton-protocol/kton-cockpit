@@ -13,7 +13,18 @@
   "emptyText": "literal",
   "propose": {
    "set": "literal"
-  }
+  },
+  "display": "literal",
+  "relation": "literal",
+  "scopeLabels": {
+   "set": "literal"
+  },
+  "guardText": "literal",
+  "notes": {
+   "set": "literal"
+  },
+  "emptyHow": "literal",
+  "stamp": "literal"
  },
  "emits": {},
  "rendersActs": true

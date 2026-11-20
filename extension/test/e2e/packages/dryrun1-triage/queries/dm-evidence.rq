@@ -7,12 +7,13 @@
 #   code  each code match (static reading, not a run): resolved ones open at their line, unresolved say why. Never a trace.
 #   trace the test → product trace: no data (nothing records it yet).
 # Run: only claims in "dryrun1.mapping". Empty fields are left out of the claims, so they are OPTIONAL here.
+# ?stampLabel ?stampFull ?stampScope: the source label of the stamp (verification's covx:sourceStamp for the element's data set).
 PREFIX nk: <https://kton.dev/v/>
 PREFIX lab: <https://kton.dev/v/lab/>
 PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
 PREFIX covx: <https://w3id.org/improve/coverage-extra#>
 PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
-SELECT ?kind ?label ?note ?repo ?commit ?path ?line ?sha256 ?stamp (STR(?element) AS ?for) WHERE {
+SELECT ?kind ?label ?note ?repo ?commit ?path ?line ?sha256 ?stamp ?stampLabel ?stampFull ?stampScope (STR(?element) AS ?for) WHERE {
   ?sc rdfs:label "dryrun1.mapping" .
   ?el nk:scope ?sc ; nk:predicate covx:evidenceElement ; lab:element ?element ; lab:stamp ?stamp .
   FILTER(STR(?element) = STR($element))
@@ -44,6 +45,9 @@ SELECT ?kind ?label ?note ?repo ?commit ?path ?line ?sha256 ?stamp (STR(?element
     BIND("Test → product trace: no data" AS ?label) BIND("nothing records which product code a test run executed yet" AS ?note)
   }
   BIND(IF(BOUND(?sf), CONCAT("sha256:", STRAFTER(STR(?sf), "https://kton.dev/o/")), ?unbound) AS ?sha256)
+  OPTIONAL { ?el nk:template ?tmpl . ?ss nk:scope ?sc ; nk:predicate covx:sourceStamp ; lab:dataSet ?ds ; lab:stamp ?ssStamp ; lab:label ?stampLabel .
+    FILTER(STR(?ds) = STR(?tmpl) && STR(?ssStamp) = STR(?stamp)) FILTER NOT EXISTS { ?ss nk:replacedBy ?ssNew } OPTIONAL { ?ss lab:viewSha256 ?stampFull } }
+  BIND("dryrun1.mapping" AS ?stampScope)
 }
 ORDER BY ?o xsd:integer(?n) ?t
 LIMIT 200

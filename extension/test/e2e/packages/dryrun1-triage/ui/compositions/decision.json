@@ -25,7 +25,7 @@
  "parts": [
   {
    "id": "run",
-   "heading": "This dry run",
+   "heading": "Dry run",
    "blocks": [
     {
      "id": "run",
@@ -34,168 +34,303 @@
       "block": "notice"
      },
      "options": {
+      "tone": "banner",
       "text": "Dry run: dryrun1",
       "stamp": "test keys · does not settle 2c50ddd6"
      }
-    }
-   ]
-  },
-  {
-   "id": "question",
-   "heading": "Can the 5.0.0 mapping be the basis for G1 triage, and who settles the elements the judges disagree on?",
-   "blocks": [
+    },
     {
-     "id": "counts",
+     "id": "head",
      "use": {
       "package": "@workbench",
-      "block": "figures"
+      "block": "notice"
      },
-     "query": "dm-figures",
-     "empty": "show",
      "options": {
-      "guard": "scope",
-      "emptyText": "No data for dryrun1 (scope dryrun1.mapping)."
+      "tone": "head",
+      "eyebrow": "Decision",
+      "text": "Can the 5.0.0 mapping be the basis for G1 triage?",
+      "lede": "And who settles the elements the judges disagree on. Check the summary, judge the spot checks, then choose an option and sign."
      }
     }
    ]
   },
   {
-   "id": "trust",
-   "heading": "How many covered elements are probably wrong",
-   "blocks": [
+   "id": "top",
+   "heading": "Summary and spot check",
+   "layout": {
+    "type": "columns",
+    "columns": [
+     "1fr",
+     "1fr"
+    ],
+    "narrow": "stack"
+   },
+   "parts": [
     {
-     "id": "estimate",
-     "use": {
-      "package": "@workbench",
-      "block": "estimate"
-     },
-     "query": "dm-estimate",
-     "empty": "show",
-     "options": {
-      "unit": "of covered elements",
-      "emptyText": "No data for dryrun1: no measured rate in dryrun1.mapping."
-     }
+     "id": "summary",
+     "heading": "Summary",
+     "blocks": [
+      {
+       "id": "sub",
+       "use": {
+        "package": "@workbench",
+        "block": "notice"
+       },
+       "options": {
+        "tone": "sub",
+        "text": "Unsettled elements, and how many covered elements are probably wrong"
+       }
+      },
+      {
+       "id": "counts",
+       "use": {
+        "package": "@workbench",
+        "block": "figures"
+       },
+       "query": "dm-figures",
+       "empty": "show",
+       "options": {
+        "display": "tiles",
+        "guard": "scope",
+        "relation": "1+3=2",
+        "scopeLabels": [
+         "in scope (MH 10.11.)|in scope",
+         "all judged|all judged",
+         "outside your scope|outside"
+        ],
+        "emptyText": "No data for dryrun1 (scope dryrun1.mapping).",
+        "emptyHow": "The counts come from verification's worklist claims in dryrun1.mapping."
+       }
+      },
+      {
+       "id": "estimate",
+       "use": {
+        "package": "@workbench",
+        "block": "estimate"
+       },
+       "query": "dm-estimate",
+       "empty": "show",
+       "options": {
+        "title": "Probably wrong among covered elements",
+        "unit": "covered elements",
+        "chart": "range",
+        "domain": "0,8",
+        "reported": "yes",
+        "repro": "yes",
+        "emptyText": "No data for dryrun1: no measured rate in dryrun1.mapping.",
+        "emptyHow": "The rate comes from verification's measured-rate claim for the covered sample."
+       }
+      }
+     ]
+    },
+    {
+     "id": "spot",
+     "heading": "Spot check",
+     "blocks": [
+      {
+       "id": "sub",
+       "use": {
+        "package": "@workbench",
+        "block": "notice"
+       },
+       "options": {
+        "tone": "sub",
+        "text": "Four elements drawn from GxP areas. Judge each before you decide."
+       }
+      },
+      {
+       "id": "cards",
+       "use": {
+        "package": "@workbench",
+        "block": "cards"
+       },
+       "query": "dm-spotchecks",
+       "empty": "show",
+       "options": {
+        "title": "element",
+        "group": "gxp",
+        "badge": "earlier|earlier: ",
+        "quote": "statement",
+        "fields": [
+         "where|Area",
+         "testName|Test"
+        ],
+        "locs": [
+         "testName=testLoc"
+        ],
+        "compare": [
+         "judge1|Judge 1 · rule judge",
+         "judge2|Judge 2 · second model"
+        ],
+        "target": "target",
+        "choices": [
+         "verdict=rule-judge-right|Rule judge is right",
+         "verdict=second-model-right|Second model is right",
+         "verdict=spec-unclear|Spec unclear → Wolfgang"
+        ],
+        "choiceLegend": "Your verdict",
+        "draws": [
+         "gxp|GxP areas",
+         "any|Anywhere",
+         "covered|From covered"
+        ],
+        "drawsLabel": "Draw 4 more:",
+        "layout": "pager",
+        "emptyText": "No data for dryrun1: nothing to draw.",
+        "emptyHow": "Spot checks are drawn from verification's worklist in dryrun1.mapping.",
+        "pick": "element|Show evidence"
+       },
+       "params": {
+        "draw": "var.draw"
+       },
+       "acts": [
+        {
+         "intent": "sign",
+         "label": "Sign verdict…",
+         "control": "spotcheck",
+         "fields": {
+          "proposal": "subject.iri"
+         }
+        }
+       ],
+       "emits": {
+        "draw": "draw",
+        "pick": "element"
+       }
+      },
+      {
+       "id": "agreement",
+       "use": {
+        "package": "@workbench",
+        "block": "rows"
+       },
+       "query": "triage-judge-agreement",
+       "empty": "show",
+       "options": {
+        "title": "Your agreement with each judge",
+        "emptyText": "No data for dryrun1 yet: shows after 10 verdicts",
+        "emptyHow": "Once you have judged 10 spot checks in this dry run, this lists how often you agreed with judge 1 and judge 2.",
+        "stamp": "hide"
+       },
+       "params": {
+        "minVerdicts": "var.minVerdicts"
+       }
+      }
+     ]
     }
    ]
   },
   {
    "id": "where",
-   "heading": "Where the unsettled elements in your scope sit (GxP groups: verification's mapping from areas, for you to check)",
+   "heading": "Where the unsettled elements sit",
    "blocks": [
     {
-     "id": "areas",
+     "id": "sub",
      "use": {
       "package": "@workbench",
-      "block": "rows"
+      "block": "notice"
      },
-     "query": "dm-areas",
-     "empty": "show",
      "options": {
-      "columns": [
-       "gxp",
-       "area",
-       "unsettled",
-       "rate",
-       "stamp"
-      ],
-      "emptyText": "No data for dryrun1 (scope dryrun1.mapping)."
-     }
-    },
-    {
-     "id": "parts",
-     "use": {
-      "package": "@workbench",
-      "block": "rows"
-     },
-     "query": "dm-parts",
-     "empty": "show",
-     "options": {
-      "columns": [
-       "part",
-       "unsettled",
-       "rate",
-       "stamp"
-      ],
-      "emptyText": "No data for dryrun1 (scope dryrun1.mapping)."
+      "tone": "sub",
+      "text": "Your scope, by area and by product part. GxP groups are verification's mapping from areas: please check them.",
+      "nav": "Where"
      }
     }
-   ]
-  },
-  {
-   "id": "spot",
-   "heading": "Spot check before you decide",
-   "blocks": [
+   ],
+   "layout": {
+    "type": "tabs"
+   },
+   "parts": [
     {
-     "id": "cards",
-     "use": {
-      "package": "@workbench",
-      "block": "cards"
-     },
-     "query": "dm-spotchecks",
-     "empty": "show",
-     "options": {
-      "title": "title",
-      "fields": [
-       "statement|Spec",
-       "where|Area",
-       "test|Test",
-       "judge1|Judge 1",
-       "judge2|Judge 2",
-       "earlier|Earlier outcome"
-      ],
-      "target": "target",
-      "choices": [
-       "verdict=rule-judge-right|Rule judge is right",
-       "verdict=second-model-right|Second model is right",
-       "verdict=spec-unclear|Spec unclear → Wolfgang"
-      ],
-      "draws": [
-       "gxp|Draw 4 more (GxP areas)",
-       "any|Draw 4 more (anywhere)",
-       "covered|Draw from covered (find the hidden errors)"
-      ],
-      "emptyText": "No data for dryrun1: nothing to draw.",
-      "pick": "element|Evidence"
-     },
-     "params": {
-      "draw": "var.draw"
-     },
-     "acts": [
+     "id": "by-area",
+     "heading": "By area",
+     "blocks": [
       {
-       "intent": "sign",
-       "label": "Verdict",
-       "control": "spotcheck",
-       "fields": {
-        "proposal": "subject.iri"
+       "id": "areas",
+       "use": {
+        "package": "@workbench",
+        "block": "rows"
+       },
+       "query": "dm-areas",
+       "empty": "show",
+       "options": {
+        "columns": [
+         "area",
+         "unsettled",
+         "rate",
+         "low",
+         "n"
+        ],
+        "labels": [
+         "area|Area",
+         "unsettled|Unsettled",
+         "part|Part"
+        ],
+        "group": "gxp",
+        "groupLabels": [
+         "none|No GxP group"
+        ],
+        "groupSum": "unsettled",
+        "range": "rate,low,high,n",
+        "scale": "0,20,5",
+        "measurable": "enough",
+        "stamp": "section",
+        "emptyText": "No data for dryrun1 (scope dryrun1.mapping)."
        }
       }
-     ],
-     "emits": {
-      "draw": "draw",
-      "pick": "element"
-     }
+     ]
     },
     {
-     "id": "agreement",
-     "use": {
-      "package": "@workbench",
-      "block": "rows"
-     },
-     "query": "triage-judge-agreement",
-     "empty": "show",
-     "options": {
-      "emptyText": "No data for dryrun1 yet: your agreement with each judge shows after 10 verdicts."
-     },
-     "params": {
-      "minVerdicts": "var.minVerdicts"
-     }
+     "id": "by-part",
+     "heading": "By product part",
+     "blocks": [
+      {
+       "id": "parts",
+       "use": {
+        "package": "@workbench",
+        "block": "rows"
+       },
+       "query": "dm-parts",
+       "empty": "show",
+       "options": {
+        "columns": [
+         "part",
+         "unsettled",
+         "rate",
+         "low",
+         "n"
+        ],
+        "labels": [
+         "part|Part",
+         "unsettled|Unsettled"
+        ],
+        "range": "rate,low,high,n",
+        "scale": "0,20,5",
+        "measurable": "enough",
+        "total": "unsettled",
+        "stamp": "section",
+        "emptyText": "No data for dryrun1 (scope dryrun1.mapping)."
+       }
+      }
+     ]
     }
    ]
   },
   {
    "id": "evidence",
-   "heading": "Evidence for the picked element (opened read-only at the stamped commit, the bytes checked against their hash; what you open is listed when you sign)",
+   "heading": "Evidence",
    "blocks": [
+    {
+     "id": "sub",
+     "use": {
+      "package": "@workbench",
+      "block": "notice"
+     },
+     "options": {
+      "tone": "sub",
+      "text": "Opened read-only at the stamped commit, bytes checked against their hash. What you open is listed when you sign."
+     }
+    },
     {
      "id": "evidence",
      "use": {
@@ -208,8 +343,10 @@
       "element": "var.element"
      },
      "options": {
-      "ask": "element|Element id, e.g. ics1000#e2",
-      "emptyText": "No data for dryrun1 on this element: pick one with “Evidence” on a card, or type its id."
+      "ask": "element|e.g. ics1000#e2",
+      "askHint": "or “Show evidence” on a spot-check card",
+      "emptyText": "No data for dryrun1 on this element",
+      "emptyHow": "Pick one with “Show evidence” on a spot-check card, or type its id."
      },
      "emits": {
       "element": "element"
@@ -227,15 +364,30 @@
       "element": "var.element"
      },
      "options": {
-      "emptyText": "No data for dryrun1: no recorded run of this element's tests in dryrun1.runs."
+      "title": "Recorded runs of this element's tests",
+      "runs": "table",
+      "collapsePassing": "yes",
+      "emptyText": "No data for dryrun1: no recorded run of this element's tests in dryrun1.runs.",
+      "emptyHow": "Runs come from test-execution's dryrun1.runs, federated read-only."
      }
     }
    ]
   },
   {
    "id": "capture",
-   "heading": "Capture now: test-execution runs a test of the picked element on robert1, with a screenshot at its end (its answer shows here)",
+   "heading": "Capture now",
    "blocks": [
+    {
+     "id": "sub",
+     "use": {
+      "package": "@workbench",
+      "block": "notice"
+     },
+     "options": {
+      "tone": "sub",
+      "text": "test-execution runs a test of the picked element on robert1, with a screenshot at its end; its answer shows here."
+     }
+    },
     {
      "id": "captures",
      "use": {
@@ -269,7 +421,8 @@
       ],
       "done": "Requested; test-execution is asked by the userinterface lane",
       "nudge": "./send userinterface requests area=test-execution title=\"capture now: {test}\" text=\"request claim {claim}; test {test}\" why=\"MH's decision view\"",
-      "emptyText": "No data for dryrun1 on this element: none of its tests was run in dryrun1.runs (pick one with “Evidence” on a card)."
+      "emptyText": "No data for dryrun1 on this element: none of its tests was run in dryrun1.runs",
+      "emptyHow": "Pick an element with “Show evidence” on a spot-check card."
      },
      "acts": [
       {
@@ -286,8 +439,19 @@
   },
   {
    "id": "rules",
-   "heading": "Where the disagreement comes from: rule cases still open",
+   "heading": "Rule cases",
    "blocks": [
+    {
+     "id": "sub",
+     "use": {
+      "package": "@workbench",
+      "block": "notice"
+     },
+     "options": {
+      "tone": "sub",
+      "text": "Where the disagreement comes from. Each answer resolves the elements below."
+     }
+    },
     {
      "id": "rulecases",
      "use": {
@@ -298,23 +462,25 @@
      "empty": "show",
      "options": {
       "title": "title",
-      "fields": [
-       "effects|Each answer resolves",
-       "settled|Your answer"
-      ],
+      "badge": "settled",
+      "effects": "effects",
+      "touched": "touched",
       "target": "case",
       "choices": [
        "answer=asserted|Asserted",
        "answer=exercised|Exercised",
        "answer=no-relation|No relation"
       ],
+      "choiceLegend": "Your answer",
+      "layout": "grid",
       "pick": "ruleCase|Show examples",
-      "emptyText": "No data for dryrun1: no rule cases in dryrun1.mapping."
+      "emptyText": "No data for dryrun1: no rule cases in dryrun1.mapping.",
+      "emptyHow": "Rule cases come from verification's rule-case effects in dryrun1.mapping."
      },
      "acts": [
       {
        "intent": "sign",
-       "label": "Settle",
+       "label": "Settle…",
        "control": "rule-case"
       }
      ],
@@ -334,15 +500,21 @@
       "ruleCase": "var.ruleCase"
      },
      "options": {
-      "title": "title",
+      "title": "element",
+      "group": "gxp",
+      "heading": "Examples",
+      "quote": "statement",
       "fields": [
-       "statement|Spec",
-       "where|Area",
-       "judge1|Judge 1",
-       "judge2|Judge 2"
+       "where|Area"
       ],
-      "pick": "element|Evidence (shown under “Evidence” above)",
-      "emptyText": "No data for dryrun1 for this rule case: pick one with “Show examples”."
+      "compare": [
+       "judge1|Judge 1 · rule judge",
+       "judge2|Judge 2 · second model"
+      ],
+      "layout": "list",
+      "pick": "element|Show evidence",
+      "emptyText": "No data for dryrun1 for this rule case",
+      "emptyHow": "Choose “Show examples” on a rule case: its elements appear here with both judges' verdicts, and “Show evidence” on one opens it above."
      },
      "emits": {
       "pick": "element"
@@ -352,8 +524,19 @@
   },
   {
    "id": "options",
-   "heading": "Options, compared on the same axes",
+   "heading": "Options",
    "blocks": [
+    {
+     "id": "sub",
+     "use": {
+      "package": "@workbench",
+      "block": "notice"
+     },
+     "options": {
+      "tone": "sub",
+      "text": "a, b and c, compared on the same axes"
+     }
+    },
     {
      "id": "options",
      "use": {
@@ -361,15 +544,35 @@
       "block": "notice"
      },
      "options": {
-      "text": "The options a, b and c are in the proposal's text. Their axes (cost, who works, evidence after, residual) are not data yet, so they are not compared here."
+      "tone": "empty",
+      "text": "Not compared yet",
+      "how": "The options are in the proposal's text. Their axes are not data yet, so there is nothing to compare here:",
+      "chips": [
+       "cost",
+       "who works",
+       "evidence after",
+       "residual"
+      ],
+      "after": "When the proposal carries these as fields, a table of a, b and c on these axes appears here."
      }
     }
    ]
   },
   {
    "id": "sign",
-   "heading": "Your decision is recorded with what you looked at",
+   "heading": "Decide",
    "blocks": [
+    {
+     "id": "sub",
+     "use": {
+      "package": "@workbench",
+      "block": "notice"
+     },
+     "options": {
+      "tone": "sub",
+      "text": "Your decision is recorded with what you looked at."
+     }
+    },
     {
      "id": "summary",
      "use": {
@@ -379,24 +582,31 @@
      "query": "dm-summary",
      "empty": "show",
      "options": {
+      "display": "tiles",
+      "notes": [
+       "spot checks judged|this dry run",
+       "rule cases settled|this dry run",
+       "questions asked|each logged as a UI requirement"
+      ],
       "propose": [
        "lookedAt=lookedAt"
       ],
-      "emptyText": "No data for dryrun1: nothing recorded for this dry run."
+      "emptyText": "No data for dryrun1: nothing recorded for this dry run.",
+      "emptyHow": "Counts appear once this proposal's dry-run records exist in dryrun1.triage."
      },
      "params": {
       "proposal": "subject.iri"
      },
      "acts": [
       {
-       "intent": "record",
-       "label": "Ask a question about this",
-       "control": "question"
+       "intent": "sign",
+       "label": "Choose and sign…",
+       "control": "decides"
       },
       {
-       "intent": "sign",
-       "label": "Choose and sign",
-       "control": "decides"
+       "intent": "record",
+       "label": "Ask a question",
+       "control": "question"
       }
      ]
     }

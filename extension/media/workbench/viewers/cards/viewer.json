@@ -22,7 +22,24 @@
    "set": "literal"
   },
   "emptyText": "literal",
-  "pick": "literal"
+  "pick": "literal",
+  "group": "literal",
+  "badge": "literal",
+  "quote": "literal",
+  "locs": {
+   "set": "literal"
+  },
+  "compare": {
+   "set": "literal"
+  },
+  "choiceLegend": "literal",
+  "drawsLabel": "literal",
+  "layout": "literal",
+  "effects": "literal",
+  "touched": "literal",
+  "heading": "literal",
+  "emptyHow": "literal",
+  "stamp": "literal"
  },
  "emits": {
   "draw": {

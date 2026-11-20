@@ -1,16 +1,32 @@
 # The two-judge wrong-rate over covered elements (rounds 7/8), recomputed by verification, with the reported values beside it.
 # target: the 5 % the decision names. ?base: the covered elements in scope (verification's mapping-base claim, 8,045 of
-# 21,135), so the band reads as elements too. Run: only claims in "dryrun1.mapping".
+# 21,135), so the band reads as elements too. The reported values are read out of the claim's reportedRate text
+# ("4.4 (3.2-6.0); same model 12.5; second model 6.8 (as reported 09.11.)"): ?reportedRate ?reportedLow ?reportedHigh
+# ?reportedAt, ?reportedSame ?reportedSecond; unbound where the text does not say. ?wrong of ?n judged wrong by both,
+# ?same / ?second: one judge alone (recomputed). Run: only claims in "dryrun1.mapping".
+# ?stampLabel ?stampFull ?stampScope: where the numbers come from (MH 20.11.): verification's covx:sourceStamp claim for
+# the data set (the number's template) and stamp, e.g. "mapping round 9 · b610b5c6" with the full view hash; the scope
+# names it when no round stamps it.
 PREFIX nk: <https://kton.dev/v/>
 PREFIX lab: <https://kton.dev/v/lab/>
 PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
 PREFIX covx: <https://w3id.org/improve/coverage-extra#>
-SELECT ?rate ?low ?high ?base ?target ?single ?stamp WHERE {
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT ?rate ?low ?high ?base ?target ?stamp ?wrong ?n ?same ?second ?reportedRate ?reportedLow ?reportedHigh ?reportedAt ?reportedSame ?reportedSecond ?note ?stampLabel ?stampFull ?stampScope WHERE {
   ?sc rdfs:label "dryrun1.mapping" .
   ?c nk:scope ?sc ; nk:predicate covx:measuredRate ; lab:sample "covered" ; lab:dimension "all" ; lab:rate ?rate ; lab:low ?low ; lab:high ?high ; lab:stamp ?stamp ;
      lab:sameModelRate ?same ; lab:secondModelRate ?second ; lab:n ?n ; lab:wrong ?wrong .
   OPTIONAL { ?c lab:reportedRate ?reported } OPTIONAL { ?c lab:note ?note }
   OPTIONAL { ?b nk:scope ?sc ; nk:predicate covx:mappingBase ; lab:status "covered" ; lab:elements ?base }
   BIND("5" AS ?target)
-  BIND(CONCAT("Recomputed: ", STR(?wrong), " of ", STR(?n), " judged wrong by both; one judge alone ", STR(?same), " % (same model), ", STR(?second), " % (second model). Reported: ", COALESCE(STR(?reported), "none"), ". ", COALESCE(STR(?note), "")) AS ?single)
+  BIND(STR(?reported) AS ?rt)
+  BIND(IF(REGEX(?rt, "^[0-9.]+"), REPLACE(?rt, "^([0-9.]+).*$", "$1"), ?u1) AS ?reportedRate)
+  BIND(IF(REGEX(?rt, "^[0-9.]+ *\\([0-9.]+ *[-–] *[0-9.]+\\)"), REPLACE(?rt, "^[0-9.]+ *\\(([0-9.]+) *[-–] *([0-9.]+)\\).*$", "$1"), ?u2) AS ?reportedLow)
+  BIND(IF(REGEX(?rt, "^[0-9.]+ *\\([0-9.]+ *[-–] *[0-9.]+\\)"), REPLACE(?rt, "^[0-9.]+ *\\(([0-9.]+) *[-–] *([0-9.]+)\\).*$", "$2"), ?u3) AS ?reportedHigh)
+  BIND(IF(REGEX(?rt, "reported [0-9]+\\.[0-9]+\\."), REPLACE(?rt, "^.*reported ([0-9]+\\.[0-9]+\\.).*$", "$1"), ?u4) AS ?reportedAt)
+  BIND(IF(REGEX(?rt, "same model [0-9.]+"), REPLACE(?rt, "^.*same model ([0-9.]*[0-9]).*$", "$1"), ?u5) AS ?reportedSame)
+  BIND(IF(REGEX(?rt, "second model [0-9.]+"), REPLACE(?rt, "^.*second model ([0-9.]*[0-9]).*$", "$1"), ?u6) AS ?reportedSecond)
+  OPTIONAL { ?c nk:template ?tmpl . ?ss nk:scope ?sc ; nk:predicate covx:sourceStamp ; lab:dataSet ?ds ; lab:stamp ?ssStamp ; lab:label ?stampLabel .
+    FILTER(STR(?ds) = STR(?tmpl) && STR(?ssStamp) = STR(?stamp)) FILTER NOT EXISTS { ?ss nk:replacedBy ?ssNew } OPTIONAL { ?ss lab:viewSha256 ?stampFull } }
+  BIND("dryrun1.mapping" AS ?stampScope)
 }

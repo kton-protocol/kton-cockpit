@@ -1,14 +1,23 @@
 # Where the unsettled elements in scope sit, by GxP group (verification's mapping from areas, for MH to check) and area,
-# GxP groups first, with the measured wrong-rate of covered elements in that area where n >= 30. Run: "dryrun1.mapping".
+# GxP groups first, with the measured wrong-rate of covered elements in that area. ?rate ?low ?high (percent) and ?n
+# as numbers, ?enough "true" where n >= 30 (else the rate is too few to measure); all unbound where nothing was measured.
+# Run: "dryrun1.mapping".
+# ?stampLabel ?stampFull ?stampScope: where the numbers come from (MH 20.11.): verification's covx:sourceStamp claim for
+# the data set (the number's template) and stamp, e.g. "mapping round 9 · b610b5c6" with the full view hash; the scope
+# names it when no round stamps it.
 PREFIX nk: <https://kton.dev/v/>
 PREFIX lab: <https://kton.dev/v/lab/>
 PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
 PREFIX covx: <https://w3id.org/improve/coverage-extra#>
-SELECT ?gxp ?area ?unsettled ?rate ?stamp WHERE {
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT ?gxp ?area ?unsettled ?rate ?low ?high ?n ?enough ?stamp ?stampLabel ?stampFull ?stampScope WHERE {
   ?sc rdfs:label "dryrun1.mapping" .
-  { SELECT ?sc ?gxp ?area (COUNT(DISTINCT ?e) AS ?unsettled) (SAMPLE(?s) AS ?stamp) WHERE {
-      ?sc rdfs:label "dryrun1.mapping" . ?c nk:scope ?sc ; nk:predicate covx:worklistItem ; lab:element ?e ; lab:inScope "true" ; lab:gxp ?gxp ; lab:area ?area ; lab:stamp ?s } GROUP BY ?sc ?gxp ?area }
-  OPTIONAL { ?r nk:scope ?sc ; nk:predicate covx:measuredRate ; lab:sample "covered" ; lab:dimension "area" ; lab:group ?area ; lab:n ?n ; lab:enough ?enough ; lab:rate ?rr ; lab:low ?lo ; lab:high ?hi }
-  BIND(IF(!BOUND(?n), "not measured", IF(STR(?enough) = "true", CONCAT(STR(?rr), " % (", STR(?lo), "–", STR(?hi), ", n=", STR(?n), ")"), CONCAT("too few to measure (n=", STR(?n), ")"))) AS ?rate)
+  { SELECT ?sc ?gxp ?area (COUNT(DISTINCT ?e) AS ?unsettled) (SAMPLE(?s) AS ?stamp) (SAMPLE(?tm) AS ?tmpl) WHERE {
+      ?sc rdfs:label "dryrun1.mapping" . ?c nk:scope ?sc ; nk:predicate covx:worklistItem ; lab:element ?e ; lab:inScope "true" ; lab:gxp ?gxp ; lab:area ?area ; lab:stamp ?s . OPTIONAL { ?c nk:template ?tm } } GROUP BY ?sc ?gxp ?area }
+  OPTIONAL { ?r nk:scope ?sc ; nk:predicate covx:measuredRate ; lab:sample "covered" ; lab:dimension "area" ; lab:group ?area ; lab:n ?rn ; lab:enough ?re ; lab:rate ?rr ; lab:low ?lo ; lab:high ?hi }
+  BIND(xsd:decimal(?rr) AS ?rate) BIND(xsd:decimal(?lo) AS ?low) BIND(xsd:decimal(?hi) AS ?high) BIND(xsd:integer(?rn) AS ?n) BIND(STR(?re) AS ?enough)
+  OPTIONAL { ?ss nk:scope ?sc ; nk:predicate covx:sourceStamp ; lab:dataSet ?ds ; lab:stamp ?ssStamp ; lab:label ?stampLabel .
+    FILTER(STR(?ds) = STR(?tmpl) && STR(?ssStamp) = STR(?stamp)) FILTER NOT EXISTS { ?ss nk:replacedBy ?ssNew } OPTIONAL { ?ss lab:viewSha256 ?stampFull } }
+  BIND("dryrun1.mapping" AS ?stampScope)
 }
 ORDER BY (?gxp = "none") ?gxp DESC(?unsettled)

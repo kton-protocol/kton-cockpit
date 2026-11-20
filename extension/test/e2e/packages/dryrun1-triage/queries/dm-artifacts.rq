@@ -5,12 +5,14 @@
 # ?kind "artifact", ?label, the bytes as ?run ?name ?sha256 ?mediaType ?bytes (opened from the artifacts root, checked
 # against ?sha256), or ?note. Run: pairs in "dryrun1.mapping", runs in "dryrun1.runs". Fields are read under tr: and
 # lab: (a registry whose aliases the cockpit does not apply gives lab:).
+# ?testName ?outcome ?artifact (its kind) ?passingWhy (run-capture's passingArtifacts): the runs table's columns; ?stampScope: the
+# runs' own source (no mapping round stamps them).
 PREFIX nk:   <https://kton.dev/v/>
 PREFIX lab:  <https://kton.dev/v/lab/>
 PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
 PREFIX covx: <https://w3id.org/improve/coverage-extra#>
 PREFIX tr:   <https://scinteco.com/ns/qm/dryrun1/runs/>
-SELECT DISTINCT ?kind ?label ?note ?run ?name ?sha256 ?mediaType ?bytes ?stamp (STR(?pe) AS ?for) WHERE {
+SELECT DISTINCT ?kind ?label ?note ?run ?name ?sha256 ?mediaType ?bytes ?stamp ?stampScope (STR(?test) AS ?testName) (STR(?result) AS ?outcome) (STR(?akind) AS ?artifact) (STR(?pa) AS ?passingWhy) (STR(?pe) AS ?for) WHERE {
   ?sc rdfs:label "dryrun1.mapping" .
   ?p nk:scope ?sc ; nk:predicate covx:evidencePair ; lab:element ?pe ; lab:test ?test . FILTER(STR(?pe) = STR($element))
   ?sr rdfs:label "dryrun1.runs" .
@@ -27,7 +29,7 @@ SELECT DISTINCT ?kind ?label ?note ?run ?name ?sha256 ?mediaType ?bytes ?stamp (
   BIND(IF(BOUND(?sh), CONCAT("sha256:", STRAFTER(STR(?sh), "https://kton.dev/o/")), ?unbound) AS ?sha256)
   BIND(IF(BOUND(?sh), CONCAT("Open ", STR(?akind), ": run ", STR(?run), " (", STR(?result), ")"), CONCAT("Run ", STR(?run), " (", STR(?result), "): ", STR(?test))) AS ?label)
   BIND(IF(BOUND(?sh), STR(?test), IF(STR(?result) = "passed", CONCAT("No artifact for passing runs: ", COALESCE(STR(?pa), "no artifact")), CONCAT("no artifact for this ", STR(?result), " result"))) AS ?note)
-  BIND(CONCAT("dryrun1.runs · ", STR(?run)) AS ?stamp)
+  BIND(CONCAT("dryrun1.runs · ", STR(?run)) AS ?stamp) BIND("dryrun1.runs" AS ?stampScope)
 }
 ORDER BY ?test ?run ?name
 LIMIT 200
