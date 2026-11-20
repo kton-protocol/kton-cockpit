@@ -1,4 +1,4 @@
-// CliTransport (contract C1.2): the shell's transport until `cockpit serve --stdio` (v0.6.0).
+// CliTransport (contract C1.2): the shell's default transport; `cockpit serve --stdio` (v0.5.6) is opt-in.
 //
 // - The executable is a setting (`cockpit` on git, another binary for another backend).
 // - It is always run with an argv array and `shell: false`. Field values come from viewers and
@@ -37,7 +37,7 @@ import type {
   Transport,
   WorkflowRunRequest,
 } from "./port.js";
-import { OperatorConfirmation, TransportError, TransportTimeout } from "./port.js";
+import { OperatorConfirmation, TransportError, TransportNotSent, TransportTimeout } from "./port.js";
 import { assertSayResult, assertAskResult, assertPublishResult, assertDoctorReport, assertObject } from "./schema.js";
 
 export interface CliTransportOptions {
@@ -94,7 +94,7 @@ export class CliTransport implements Transport {
           }
           if (err && typeof (err as NodeJS.ErrnoException).code === "string") {
             // ENOENT, EACCES, …: the executable could not be started at all.
-            reject(new TransportError(`cannot run ${this.opts.executable}: ${err.message}`, null, String(stderr)));
+            reject(new TransportNotSent(`cannot run ${this.opts.executable}: ${err.message}`, String(stderr)));
             return;
           }
           const code = err ? ((err as { code?: number | null }).code ?? null) : 0;
@@ -125,46 +125,24 @@ export class CliTransport implements Transport {
   }
 
   say(req: SayRequest): Promise<Outcome<SayResult>> {
-    if (!QNAME.test(req.template)) return bad(`template ${JSON.stringify(req.template)} is not a name`);
-    if (!SHA.test(req.subject)) return bad("say takes a sha256 id as its subject, never a path");
+    const why = checkSay(req);
+    if (why) return bad(why);
     const args = ["say", req.template, req.subject];
-    for (const k of Object.keys(req.fields ?? {}).sort()) {
-      if (!NAME.test(k)) return bad(`field ${JSON.stringify(k)} is not a name`);
-      args.push(`${k}=${(req.fields ?? {})[k] ?? ""}`);
-    }
-    if (req.as !== undefined) {
-      if (!NAME.test(req.as)) return bad("as is not a key name");
-      args.push("--as", req.as);
-    }
-    if (req.scope !== undefined) {
-      if (!NAME.test(req.scope)) return bad(`scope ${JSON.stringify(req.scope)} is not a name`);
-      args.push("--scope", req.scope);
-    }
-    if (req.expectHead !== undefined) {
-      if (!SHA.test(req.expectHead)) return bad("expectHead is not a sha256 id");
-      args.push("--expect-head", req.expectHead);
-    }
+    for (const k of Object.keys(req.fields ?? {}).sort()) args.push(`${k}=${(req.fields ?? {})[k] ?? ""}`);
+    if (req.as !== undefined) args.push("--as", req.as);
+    if (req.scope !== undefined) args.push("--scope", req.scope);
+    if (req.expectHead !== undefined) args.push("--expect-head", req.expectHead);
     // SPEC §8.5 (cockpit v0.5.5): the template, its revision and its predicate the dialog showed
-    if (req.expectTemplate !== undefined) {
-      if (!SHA.test(req.expectTemplate)) return bad("expectTemplate is not a sha256 hash");
-      args.push("--expect-template", req.expectTemplate);
-    }
-    if (req.expectRevision !== undefined) {
-      if (!SHA.test(req.expectRevision)) return bad("expectRevision is not a sha256 id");
-      args.push("--expect-revision", req.expectRevision);
-    }
-    if (req.expectPredicate !== undefined) {
-      if (!/^https?:\/\/[^\s"'<>\\]+$/.test(req.expectPredicate)) return bad("expectPredicate is not an IRI");
-      args.push("--expect-predicate", req.expectPredicate);
-    }
+    if (req.expectTemplate !== undefined) args.push("--expect-template", req.expectTemplate);
+    if (req.expectRevision !== undefined) args.push("--expect-revision", req.expectRevision);
+    if (req.expectPredicate !== undefined) args.push("--expect-predicate", req.expectPredicate);
     args.push("--json");
     return this.outcome(args, assertSayResult);
   }
 
   ask(req: AskRequest): Promise<Outcome<AskResult>> {
-    if (LINEAGE.has(req.query) && (req.ref === undefined || !SHA.test(req.ref))) {
-      return bad(`ask ${req.query} takes a sha256 id, never a path`);
-    }
+    const why = checkAsk(req);
+    if (why) return bad(why);
     return this.outcome(["ask", JSON.stringify(dropUndefined(req))], assertAskResult);
   }
 
@@ -293,7 +271,31 @@ const SHA = /^sha256:[0-9a-f]{64}$/;
 /** Queries whose ref is a record or content hash (cockpit/ask.go). */
 const LINEAGE: ReadonlySet<string> = new Set(["record", "producer", "uses", "lineage", "reproductions", "about"]);
 
-function bad(reason: string): Promise<{ ok: false; refusal: Refusal }> {
+/**
+ * The local checks of a say, before any cockpit is asked (both transports, kton-cockpit on #196): a sha256 subject
+ * (never a path), names for the template, fields, `as` and scope, sha256 expectations, an IRI predicate.
+ * The reason, or undefined when the request may go.
+ */
+export function checkSay(req: SayRequest): string | undefined {
+  if (!QNAME.test(req.template)) return `template ${JSON.stringify(req.template)} is not a name`;
+  if (!SHA.test(req.subject)) return "say takes a sha256 id as its subject, never a path";
+  for (const k of Object.keys(req.fields ?? {})) if (!NAME.test(k)) return `field ${JSON.stringify(k)} is not a name`;
+  if (req.as !== undefined && !NAME.test(req.as)) return "as is not a key name";
+  if (req.scope !== undefined && !NAME.test(req.scope)) return `scope ${JSON.stringify(req.scope)} is not a name`;
+  if (req.expectHead !== undefined && !SHA.test(req.expectHead)) return "expectHead is not a sha256 id";
+  if (req.expectTemplate !== undefined && !SHA.test(req.expectTemplate)) return "expectTemplate is not a sha256 hash";
+  if (req.expectRevision !== undefined && !SHA.test(req.expectRevision)) return "expectRevision is not a sha256 id";
+  if (req.expectPredicate !== undefined && !/^https?:\/\/[^\s"'<>\\]+$/.test(req.expectPredicate)) return "expectPredicate is not an IRI";
+  return undefined;
+}
+
+/** The local check of an ask: a lineage query takes a sha256 id as its ref, never a path. */
+export function checkAsk(req: AskRequest): string | undefined {
+  if (LINEAGE.has(req.query) && (req.ref === undefined || !SHA.test(req.ref))) return `ask ${req.query} takes a sha256 id, never a path`;
+  return undefined;
+}
+
+export function bad(reason: string): Promise<{ ok: false; refusal: Refusal }> {
   return Promise.resolve({ ok: false, refusal: { code: "argument", reason } });
 }
 

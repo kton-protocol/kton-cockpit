@@ -14,10 +14,12 @@
 //   say-locked   say       -32001 store.busy while <work dir>/faults/registry.lock exists, forwarded once it is gone
 //   say-pending  say       forwarded; its result gets pending {code: store.busy, …} (signed, not yet committed)
 //   say-gone     say       the process goes: the real cockpit is killed and this proxy exits 137, unanswered
+//   say-stdin-closed say   this proxy closes its stdin and stays, the say unanswered: the window's next write is
+//                          EPIPE (kton-cockpit #196, S1)
 // Always: ui/list's answer gets one unknown slot on hostile-good (S5.3 version skew), as the wrapper does for
 // `ui list`. Every injection is logged to <work dir>/faults/stdio.log (one JSON per line).
 import { spawn } from "node:child_process";
-import { appendFileSync, existsSync, readFileSync } from "node:fs";
+import { appendFileSync, closeSync, existsSync, readFileSync } from "node:fs";
 
 const WORK = process.argv[2];
 const args = process.argv.slice(3);
@@ -132,6 +134,11 @@ process.stdin.on(
         log({ fault: m, id });
         rewrite.set(key(id), (r) => ({ pending: { code: "store.busy", reason: "the registry was busy; the next write commits it" }, ...r }));
         return toServer(raw);
+      case "say-stdin-closed":
+        log({ fault: m, id });
+        process.stdin.destroy(); // the fd stays open until it is closed
+        closeSync(0);
+        return;
       case "say-gone":
         log({ fault: m, id });
         server.removeAllListeners("exit");

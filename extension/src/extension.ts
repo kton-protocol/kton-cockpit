@@ -268,9 +268,21 @@ async function build(host: VsHost): Promise<void> {
   const agentKey = cfg.get<string>("identity.agentKey") || "";
   const executable = cfg.get<string>("cockpit.path") || "cockpit";
   const timeout = Math.max(1, cfg.get<number>("cockpit.timeoutSeconds") ?? 120);
-  // the command line (default), or the frontend protocol: cockpit serve --stdio (SPEC §12.5, kton-cockpit v0.6.0)
+  // the command line (default), or the frontend protocol: cockpit serve --stdio (SPEC §12.5, cockpit v0.5.6)
   const opts = { executable, cwd: folder, timeoutMs: timeout * 1000 };
   const transport = cfg.get<string>("cockpit.transport") === "stdio" ? (stdio = new StdioTransport(opts)) : new CliTransport(opts);
+  if (stdio) {
+    // kton-review W1 on #196: an answer to a request already failed came after all. A say among them may have
+    // signed: name the claim and refresh, so the claim shows (it is never signed again).
+    stdio.onLateAnswer = (a) => {
+      const claim = (a.result as { claimId?: unknown } | undefined)?.claimId;
+      if (a.method === "say" && typeof claim === "string") {
+        host.log(`say answered after all (it had failed: ${a.failed}): signed ${claim}`);
+        host.info(`The say that failed (${a.failed}) was signed after all: ${claim}`);
+        void wb?.refreshNow();
+      } else host.log(`${a.method} answered after all (it had failed: ${a.failed})${a.error ? `: error ${String(a.error.code)} ${a.error.message ?? ""}` : ""}`);
+    };
+  }
   // Each key's id from its public half in the keyring (never a label), checked against doctor's answer
   // when doctor speaks for the same key. Without a person key id only person tiers count as persons.
   let doctor: DoctorReport | undefined;

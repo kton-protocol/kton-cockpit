@@ -3,7 +3,7 @@
 
 import { randomBytes } from "node:crypto";
 import type { TemplateInfo, Transport } from "../transport/port.js";
-import { TransportError, TransportTimeout } from "../transport/port.js";
+import { TransportError, TransportNotSent } from "../transport/port.js";
 import type { WindowIdentity, ShownSigner } from "../identity.js";
 import { hasKey, showSigner, signerKeyId, statusText, statusTooltip } from "../identity.js";
 import type { ControlInfo, SignPlan } from "../sign.js";
@@ -522,7 +522,8 @@ export class Workbench {
 
   /**
    * Plan, dialog (for the person key), sign. Never throws. A locked registry is retried and shown in the
-   * status bar (S7.4); a timeout is reported as failed, and the registry decides whether a claim exists (S7.3).
+   * status bar (S7.4); a timeout or any failure after the say was sent is "unknown whether signed", and the
+   * registry decides whether a claim exists (S7.3); "Not signed" only when it never reached the cockpit.
    */
   private async signThroughDialog(intent: { kind: "sign"; about: string; fields: Readonly<Record<string, string>>; scope?: string }, control: ControlInfo, title: string, expect?: ExpectRevision): Promise<SignResult> {
     const cannot = this.cannotSign(control.kind);
@@ -585,11 +586,11 @@ export class Workbench {
         this.host.info(`Signed ${out.value.id}`);
         break;
       } catch (e) {
-        if (e instanceof TransportTimeout) {
-          return fail(`Not signed: ${e.message}. Whether a claim was made is for the registry to say: check it before signing again.`);
-        }
-        // Any other error is never retried: the claim may already be signed (kton-review, cockpit v0.5.2).
-        return fail(`Not signed: ${describe(e)}. Whether a claim was made is for the registry to say: check it before signing again.`);
+        // "Not signed" only when the say never reached the cockpit (kton-review N2 on #196). After it was sent, a
+        // failure (a timeout, a lost connection, an unreadable answer) leaves it unknown, and it is never retried:
+        // the claim may already be signed (kton-review, cockpit v0.5.2).
+        if (e instanceof TransportNotSent) return fail(`Not signed: ${describe(e)}`);
+        return fail(`Unknown whether signed: ${describe(e)}. Check the registry before signing again.`);
       }
     }
     await this.scheduler.runNow("inbox");

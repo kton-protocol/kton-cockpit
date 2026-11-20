@@ -77,6 +77,7 @@ if [ "\$1" = say ] && [ "\${2:-}" != --json ]; then
     say-slow) sleep 120; exec /usr/local/bin/cockpit "\$@";;
     say-locked) if [ -e "$WORK/faults/registry.lock" ]; then echo '{"code":"store.busy","clause":"store","reason":"the registry is busy (git lock held); nothing was signed"}'; exit 2; fi;;
     say-gone) kill -9 \$\$;;
+    say-stdin-closed) exec 0<&-; echo "cockpit: its stdin was closed before it answered" >&2; exit 1;;
     say-pending) /usr/local/bin/cockpit "\$@" | sed '0,/{/s//{"pending":{"code":"store.busy","reason":"the registry was busy; the next write commits it"},/'; exit 0;;
   esac
 fi

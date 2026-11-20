@@ -487,7 +487,7 @@ function faultyCockpit(mode: "refuse" | "garbage"): string {
 for (const [label, exe, expect] of [
   ["S7.1 missing cockpit", "/nonexistent/cockpit", /Not signed: cannot run \/nonexistent\/cockpit.*kton\.cockpit\.path/],
   ["S7.5 a refusal", "refuse", /Not signed: the cockpit refused: the template decides is not allowed here/],
-  ["S7.6 malformed JSON", "garbage", /Not signed: say: the answer is not JSON/],
+  ["S7.6 malformed JSON", "garbage", /Unknown whether signed: say: the answer is not JSON\. Check the registry before signing again/],
 ] as const) {
   test(`${label}: a clear message, shown in the dialog too, and nothing signed`, async () => {
     const { h, wb } = await setup();
@@ -537,7 +537,7 @@ test("S7.3: say times out: the dialog shows it failed, and the registry decides;
   h.confirmAnswer = true;
   assert.equal(await wb.onDecisionIntent({ msg: P1 }, decisionIntent("a")), "failed");
   assert.equal(h.outcomes.at(-1)?.ok, false);
-  assert.match(h.outcomes.at(-1)?.text ?? "", /Not signed: say timed out after 4 s\. Whether a claim was made is for the registry to say/);
+  assert.match(h.outcomes.at(-1)?.text ?? "", /Unknown whether signed: say timed out after 4 s\. Check the registry before signing again/);
   assert.ok(!h.infos.some((i) => i.startsWith("Signed")));
 });
 
@@ -591,7 +591,7 @@ test("S7.4: an error that mentions a lock is NOT retried (the claim may be signe
   assert.equal(await wb.onDecisionIntent({ msg: P1 }, decisionIntent("b")), "failed");
   assert.equal(t.sayErrors.length, 0, "the one queued error was used");
   assert.equal(t.sayCalls, 0, "no second call: never retried");
-  assert.match(h.errors.at(-1) ?? "", /check it before signing again/);
+  assert.match(h.errors.at(-1) ?? "", /^Unknown whether signed: git commit failed: index\.lock exists\. Check the registry before signing again\.$/);
 });
 
 test("review check 7: a decides signed by an agent key is not shown as a decision (S4.5); a person's decides is", async () => {

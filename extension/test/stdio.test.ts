@@ -5,7 +5,7 @@ import { chmodSync, existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { StdioTransport } from "../src/transport/stdio.js";
-import { TransportTimeout } from "../src/transport/port.js";
+import { TransportNotSent, TransportTimeout } from "../src/transport/port.js";
 import { sparqlResultsOf } from "../src/ui/queries.js";
 
 const FAKE = join(process.cwd(), "test", "fixtures", "fake-serve.mjs");
@@ -137,8 +137,117 @@ test("stdio: a parsable message with an unknown id is ignored (SPEC §12.5): no 
   }
 });
 
-test("stdio: a cockpit that cannot be started is 'cannot run', as on the command line", async () => {
+test("stdio: a process that closed its stdin (EPIPE): the request fails at once, no uncaught exception, the next request starts a new process (S1)", async () => {
+  const uncaught: Error[] = [];
+  const onUncaught = (e: Error) => uncaught.push(e);
+  process.on("uncaughtException", onUncaught);
+  const dir = mkdtempSync(join(tmpdir(), "fake-serve-"));
+  chmodSync(FAKE, 0o755);
+  const t = new StdioTransport({ executable: FAKE, cwd: dir, env: { FAKE_SERVE_CLOSE_STDIN: "1" }, timeoutMs: 5000 });
+  try {
+    for (const round of [1, 2]) {
+      const t0 = Date.now();
+      await assert.rejects(t.ask({ query: "sparql", name: "count", format: "sparql-results+json" }), (e: Error) => !(e instanceof TransportTimeout) && /EPIPE/.test(e.message), `round ${round}`);
+      assert.ok(Date.now() - t0 < 2000, `round ${round}: not left to the timeout`);
+    }
+    await new Promise((r) => setTimeout(r, 200));
+    assert.deepEqual(uncaught.map((e) => e.message), [], "no uncaught exception");
+  } finally {
+    t.dispose();
+    process.off("uncaughtException", onUncaught);
+  }
+});
+
+test("stdio: an answer split across chunks, inside the header and inside multi-byte characters, is read whole", async () => {
+  const { t } = transport();
+  try {
+    const out = await t.ask({ query: "sparql", name: "split", format: "sparql-results+json" });
+    assert.ok(out.ok);
+    assert.deepEqual(sparqlResultsOf(out.value).results.bindings.map((b) => b["n"]?.value), ["Grüße – 検査 ✓ 𝄞"]);
+  } finally {
+    t.dispose();
+  }
+});
+
+test("stdio: an answer written after the process exited, while its stdout is still open, is read (the end is 'close', not 'exit') (Y2)", async () => {
+  const { t } = transport();
+  try {
+    const out = await t.ask({ query: "sparql", name: "orphan", format: "sparql-results+json" });
+    assert.ok(out.ok, "the answer that came after 'exit' arrives");
+    assert.deepEqual(sparqlResultsOf(out.value).results.bindings.map((b) => b["n"]?.value), ["after exit"]);
+  } finally {
+    t.dispose();
+  }
+});
+
+test("stdio: a 4 MB answer written just before exit is read whole (Y2)", async () => {
+  const { t } = transport();
+  try {
+    const out = await t.ask({ query: "sparql", name: "bigexit", format: "sparql-results+json" });
+    assert.ok(out.ok, "the 4 MB answer written just before exit arrives");
+    assert.equal((out.value as { raw?: string }).raw?.length, 4 << 20);
+  } finally {
+    t.dispose();
+  }
+});
+
+test("stdio: dispose sends shutdown and exit; an answer serve still gives is delivered; what has none is unknown (TransportTimeout), never 'not sent' (Y1)", async () => {
+  const { t, sent } = transport(5000);
+  const later = t.ask({ query: "sparql", name: "later", format: "sparql-results+json" });
+  const never = t.ask({ query: "sparql", name: "slow", format: "sparql-results+json" });
+  await new Promise((r) => setTimeout(r, 100));
+  t.dispose();
+  const out = await later;
+  assert.ok(out.ok, "the answer that came after dispose is delivered");
+  assert.deepEqual(sparqlResultsOf(out.value).results.bindings.map((b) => b["n"]?.value), ["later"]);
+  await assert.rejects(never, (e: Error) => e instanceof TransportTimeout && !(e instanceof TransportNotSent) && /the cockpit ended before it answered/.test(e.message));
+  const m = sent().map((x) => x.method);
+  assert.ok(m.indexOf("shutdown") > m.indexOf("ask") && m.indexOf("exit") > m.indexOf("shutdown"), `shutdown, then exit: ${m.join(", ")}`);
+});
+
+test("stdio: a say failed by another request's non-JSON answer, then answered after all, is reported with its claim id (W1)", async () => {
+  const { t } = transport(5000);
+  const late: Array<{ method: string; result?: unknown }> = [];
+  t.onLateAnswer = (a) => late.push(a);
+  try {
+    const say = t.say({ template: "note", subject: `sha256:${"a".repeat(64)}`, fields: { text: "late" }, as: "qa-decider" });
+    await new Promise((r) => setTimeout(r, 100));
+    await assert.rejects(t.ask({ query: "sparql", name: "garbage", format: "sparql-results+json" }), /the answer is not JSON/);
+    await assert.rejects(say, (e: Error) => /^say: the answer is not JSON$/.test(e.message) && !(e instanceof TransportNotSent));
+    await new Promise((r) => setTimeout(r, 600));
+    assert.deepEqual(late.map((a) => [a.method, (a.result as { claimId?: string })?.claimId]), [["say", `sha256:${"d".repeat(64)}`]]);
+  } finally {
+    t.dispose();
+  }
+});
+
+test("stdio: the command line's local checks run before any request; COCKPIT_REPO_DIR is not passed to serve", async () => {
+  const { t, sent, dir } = transport();
+  const repoLog = join(dir, "repo-dir.log");
+  const before = process.env["COCKPIT_REPO_DIR"];
+  process.env["COCKPIT_REPO_DIR"] = "/somewhere/else";
+  try {
+    const bad = await t.say({ template: "note", subject: "./a/path", fields: { text: "x" }, as: "qa-decider" });
+    assert.deepEqual(bad, { ok: false, refusal: { code: "argument", reason: "say takes a sha256 id as its subject, never a path" } });
+    const lineage = await t.ask({ query: "lineage", ref: "../x" });
+    assert.equal(lineage.ok, false);
+    assert.equal(sent().length, 0, "nothing was sent: no process started");
+    const t2 = new StdioTransport({ executable: FAKE, cwd: dir, env: { FAKE_SERVE_REPO_DIR_LOG: repoLog }, timeoutMs: 5000 });
+    try {
+      assert.ok((await t2.ask({ query: "sparql", name: "count", format: "sparql-results+json" })).ok);
+      assert.equal(readFileSync(repoLog, "utf8").trim(), "(unset)");
+    } finally {
+      t2.dispose();
+    }
+  } finally {
+    if (before === undefined) delete process.env["COCKPIT_REPO_DIR"];
+    else process.env["COCKPIT_REPO_DIR"] = before;
+    t.dispose();
+  }
+});
+
+test("stdio: a cockpit that cannot be started is 'cannot run' and not sent (Not signed), as on the command line", async () => {
   const t = new StdioTransport({ executable: "/nonexistent/cockpit", cwd: tmpdir(), timeoutMs: 2000 });
-  await assert.rejects(t.ask({ query: "sparql", name: "x" }), /cannot run \/nonexistent\/cockpit/);
+  await assert.rejects(t.say({ template: "note", subject: `sha256:${"a".repeat(64)}`, fields: { text: "x" }, as: "qa-decider" }), (e: Error) => e instanceof TransportNotSent && /cannot run \/nonexistent\/cockpit/.test(e.message));
   t.dispose();
 });

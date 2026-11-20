@@ -861,11 +861,11 @@ await step("S7", 5, "say refused (exit 2, JSON refusal): Not signed with the rea
   await clearToasts();
 });
 
-await step("S7", 6, "say prints non-JSON with exit 0: Not signed; no claim", async () => {
+await step("S7", 6, "say prints non-JSON with exit 0: unknown whether signed (check the registry); no claim", async () => {
   faults("say-garbage");
   const d = await chooseOnPanel("Decided by an agent key only", "b");
   await signInDialog(d);
-  await toast(/Not signed: say: the answer is not JSON/).waitFor({ timeout: 15000 });
+  await toast(/Unknown whether signed: say: the answer is not JSON\. Check the registry before signing again/).waitFor({ timeout: 15000 });
   await d.locator('[data-testid="sign-outcome"][data-state="failed"]').waitFor();
   check((await p4Person()).length === 0, "no claim", 0, (await p4Person()).length);
   await shot("s7-malformed");
@@ -924,7 +924,7 @@ await step("S7", 8, "say answers pending store.busy: shown as signed, not yet co
   await clearToasts();
 });
 
-await step("S7", 9, "the cockpit process is gone during a say: Not signed; no claim; the next poll recovers", async () => {
+await step("S7", 9, "the cockpit process is gone during a say: unknown whether signed (check the registry); no claim; the next poll recovers", async () => {
   const opts = JSON.stringify([{ id: "a", label: "Yes" }, { id: "b", label: "No" }]);
   const made = await cockpit(["say", "proposes", seed.scope, "area=qa", "title=Signed while the cockpit died", "text=t", "why=e2e S7.9", `options=${opts}`, "--as", "qa-requestor", "--scope", "lanes", "--json"]);
   check(made.code === 0, "the proposal is made", 0, made.code);
@@ -933,12 +933,34 @@ await step("S7", 9, "the cockpit process is gone during a say: Not signed; no cl
   faults("say-gone");
   const d = await chooseOnPanel("Signed while the cockpit died", "a");
   await signInDialog(d);
-  await toast(/Not signed: .*Whether a claim was made is for the registry to say/).waitFor({ timeout: 15000 });
+  await toast(/Unknown whether signed: .*Check the registry before signing again/).waitFor({ timeout: 15000 });
   await d.locator('[data-testid="sign-outcome"][data-state="failed"]').waitFor();
   await shot("s7-gone");
   faults("normal");
   check((await decidesAbout(P6)).filter((x) => x.s === PERSON).length === 0, "no claim", 0, (await decidesAbout(P6)).length);
   // the next poll starts the cockpit again (over stdio: a new serve process) and the window is fresh
+  await page.waitForTimeout(4500);
+  await status().getByText(/polling: inbox every 2s .* cockpit-faults$/).waitFor({ timeout: 30000 });
+  await clearToasts();
+});
+
+await step("S7", 10, "the cockpit closes its stdin during a say: unknown whether signed, no uncaught error; the next poll recovers", async () => {
+  // kton-cockpit #196 S1: over stdio the window's next write is EPIPE, which fails the waiting say and drops the
+  // process (before the fix: an uncaught exception in the extension host, the say waiting for its timeout)
+  const opts = JSON.stringify([{ id: "a", label: "Yes" }, { id: "b", label: "No" }]);
+  const made = await cockpit(["say", "proposes", seed.scope, "area=qa", "title=Signed while the cockpit closed its input", "text=t", "why=e2e S7.10", `options=${opts}`, "--as", "qa-requestor", "--scope", "lanes", "--json"]);
+  check(made.code === 0, "the proposal is made", 0, made.code);
+  const P7 = JSON.parse(made.stdout).claimId;
+  await row("Signed while the cockpit closed its input").waitFor({ timeout: 30000 });
+  faults("say-stdin-closed");
+  const d = await chooseOnPanel("Signed while the cockpit closed its input", "a");
+  await signInDialog(d);
+  await toast(/Unknown whether signed: .*Check the registry before signing again/).waitFor({ timeout: 15000 });
+  const text = await d.locator('[data-testid="sign-outcome"][data-state="failed"]').innerText();
+  if (process.env.TRANSPORT === "stdio") check(/EPIPE/.test(text), "over stdio the say failed on the closed input (EPIPE), not on its timeout", "…EPIPE…", text);
+  await shot("s7-stdin-closed");
+  faults("normal");
+  check((await decidesAbout(P7)).filter((x) => x.s === PERSON).length === 0, "no claim", 0, (await decidesAbout(P7)).length);
   await page.waitForTimeout(4500);
   await status().getByText(/polling: inbox every 2s .* cockpit-faults$/).waitFor({ timeout: 30000 });
   await clearToasts();

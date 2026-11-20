@@ -69,8 +69,9 @@ never through a shell:
   for signing.
 - **Polling**: the inbox is polled every `kton.poll.seconds`. Polls move to cockpit-runtime's jobs
   module once ADR-017 is built.
-- **Later**: when `cockpit serve --stdio` (ADR-011 P5, planned for cockpit v0.6.0) exists, the
-  transport switches to it. The `Transport` interface in `src/transport/port.ts` is the seam.
+- **Transport**: the command line is the default. `kton.cockpit.transport: stdio` opts in to one
+  `cockpit serve --stdio` per window (ADR-011 P5, SPEC §12.5, cockpit v0.5.6 or later). The `Transport`
+  interface in `src/transport/port.ts` is the seam.
 
 The queries the views run come from two places:
 
