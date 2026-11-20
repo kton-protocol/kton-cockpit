@@ -12,7 +12,8 @@
 //   done      what the card says once its act is signed (the claim id follows)
 //   nudge     read by the host, not here: the line it prints in its output channel after the act signed
 //   emptyText what to say when there is no row
-// Every card shows its row's ?stamp.
+// Every card shows its row's ?stamp. After any act of the same view signed or recorded a claim (this block's or another
+// block's, announced in the frame: ACTED), the block asks again and keeps asking for a while, until the request shows.
 export function mount(el, ctx) {
   const esc = ctx.kit.esc;
   const o = ctx.use.options ?? {};
@@ -87,10 +88,8 @@ export function mount(el, ctx) {
               : res?.result?.message ?? "Done.";
           outs.set(title, said);
           if (out) out.textContent = said;
-          if (res?.result?.signed) {
-            pollUntil = Date.now() + 180_000;
-            schedule(1000);
-          }
+          // its own act too: announced in the frame, so this block and every other requests block of the view ask again
+          if (!announceAct(res, ctx.use.key) && res?.result?.signed) acted();
         });
       });
     }
@@ -111,6 +110,18 @@ export function mount(el, ctx) {
     stamped(el, esc, ctx.request("query@1", canPoll ? { refine: { poll: String(n) } } : {})).then(draw, (e) => {
       el.innerHTML = `<div class="callout error" data-area-error role="alert"><p>${esc(e?.message ?? String(e))}</p></div>`;
     });
+  // an act of this view (any block) signed or recorded: ask again soon, then for a while (the index may still be building)
+  function acted() {
+    if (gone) return;
+    pollUntil = Date.now() + 180_000;
+    if (timer) {
+      clearTimeout(timer);
+      timer = null;
+    }
+    schedule(1000);
+  }
+  const doc = globalThis.document;
+  if (doc && typeof doc.addEventListener === "function") doc.addEventListener(ACTED, acted);
   function schedule(ms) {
     if (!canPoll || gone || timer) return;
     timer = setTimeout(() => {
@@ -127,6 +138,7 @@ export function mount(el, ctx) {
     destroy() {
       gone = true;
       if (timer) clearTimeout(timer);
+      if (doc && typeof doc.removeEventListener === "function") doc.removeEventListener(ACTED, acted);
     },
   };
 }
@@ -168,4 +180,16 @@ function stamped(el, esc, asked) {
       return drawn;
     },
   };
+}
+
+// One frame holds all blocks of a view. After an act of the view signed or recorded a claim, the block announces it in
+// the frame, and every requests block of the same view asks again: what it lists may have changed (an act in another
+// block, e.g. a row act in a table, records the request it shows). Nothing leaves the frame.
+export const ACTED = "kton-workbench:acted";
+export function announceAct(res, from) {
+  if (res?.result?.signed !== true) return false;
+  const d = globalThis.document;
+  if (!d || typeof d.dispatchEvent !== "function") return false;
+  d.dispatchEvent(new CustomEvent(ACTED, { detail: { from: from ?? null, claim: res.result.claim ?? null } }));
+  return true;
 }

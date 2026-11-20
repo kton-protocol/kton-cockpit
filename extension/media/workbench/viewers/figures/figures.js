@@ -61,6 +61,7 @@ export function mount(el, ctx) {
           const out = el.querySelector("[data-act-out]");
           ctx.intent({ kind: a.intent, control: a.control, about: a.about, fields: proposals }).then((res) => {
             if (out) out.textContent = res?.refused ? `Not done: ${res.refused.why ?? res.refused}` : res?.result?.message ?? "Done.";
+            announceAct(res, ctx.use.key);
           });
         });
       }
@@ -131,4 +132,16 @@ function stamped(el, esc, asked) {
       return drawn;
     },
   };
+}
+
+// One frame holds all blocks of a view. After an act of the view signed or recorded a claim, the block announces it in
+// the frame, and every requests block of the same view asks again: what it lists may have changed (an act in another
+// block, e.g. a row act in a table, records the request it shows). Nothing leaves the frame.
+export const ACTED = "kton-workbench:acted";
+export function announceAct(res, from) {
+  if (res?.result?.signed !== true) return false;
+  const d = globalThis.document;
+  if (!d || typeof d.dispatchEvent !== "function") return false;
+  d.dispatchEvent(new CustomEvent(ACTED, { detail: { from: from ?? null, claim: res.result.claim ?? null } }));
+  return true;
 }
