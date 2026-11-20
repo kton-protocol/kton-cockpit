@@ -79,7 +79,13 @@ func newSparqlFixture(t *testing.T) *sparqlFixture {
 	f.step = hexOf(mine.FotonID)
 	f.described = hexOf(sayValue(t, mine.FotonID, "describes", "dropped rows without a visit date"))
 	f.rationale = hexOf(sayValue(t, mine.FotonID, "rationale", "the protocol counts visits, not patients"))
-	time.Sleep(1100 * time.Millisecond) // a later signed time: claims are dated to the second
+	// A later signed time: claims are dated to the second, so wait until the clock has passed the second
+	// the earlier ones were signed in. A fixed sleep was not enough where the clock steps back (a WSL
+	// clock resync): the newer claim then carried the earlier second and lost "the latest".
+	signed := time.Now().Unix()
+	for time.Now().Unix() <= signed {
+		time.Sleep(50 * time.Millisecond)
+	}
 	f.newer = hexOf(sayValue(t, mine.FotonID, "describes", "dropped rows without a visit date, and duplicates"))
 	res, said, err := Say(ctx, nil, SayRequest{Subject: mine.FotonID, Template: "working-on", Scope: "study",
 		Fields: map[string]string{"step": "analysis", "by-session": testrepo.SessionID}})
