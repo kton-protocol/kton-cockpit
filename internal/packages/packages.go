@@ -226,10 +226,22 @@ func Usable(repoRoot string, allowed []string) (usable []Installed, refused []Re
 		}
 	}
 	sort.Slice(usable, func(i, j int) bool { return usable[i].Dir < usable[j].Dir })
+	var readable []Installed
+	for _, e := range entries {
+		if e.Err == nil {
+			readable = append(readable, e.Installed)
+		}
+	}
 	var checked []Installed
 	for _, in := range usable {
 		if probs := in.Package.Verify(); len(probs) > 0 {
 			refused = append(refused, Refused{Source: source(in), Reason: "fails its check: " + probs[0]})
+			continue
+		}
+		// An act on another package's control needs that package installed at the revision it pins
+		// (ktonpkg v0.9.13): otherwise the view is refused, not shown with an act that would fail.
+		if probs := ForeignControlProblems(in.Revision, readable, ok); len(probs) > 0 {
+			refused = append(refused, Refused{Source: source(in), Reason: "acts on another package's control: " + probs[0]})
 			continue
 		}
 		checked = append(checked, in)
