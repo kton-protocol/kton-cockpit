@@ -56,3 +56,13 @@ func keyAs(cfg *config.Config, name string) (string, string) {
 	}
 	return key, ""
 }
+
+// CheckIdentity says whether this checkout can sign as name, the way say would: a refusal
+// (identity.as) when it cannot. A frontend connection checks the identity it signs as when it opens
+// (SPEC §12.5), not first at its first say.
+func CheckIdentity(cfg *config.Config, name string) error {
+	if _, why := keyAs(cfg, name); why != "" {
+		return refuse("identity.as", "SPEC §8.7", "%s", why)
+	}
+	return nil
+}

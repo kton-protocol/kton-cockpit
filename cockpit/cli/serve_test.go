@@ -5,8 +5,10 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"io"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -216,17 +218,36 @@ func TestServe_VerbsAnswerAndRefuseAsTheCommandLine(t *testing.T) {
 		t.Errorf("a template outside the ceiling: want refusal template.not-allowed, got %+v", rep)
 	}
 
+	// a connection signs as one identity of the keyring, checked when it opens
+	if rep := startServe(t).call("initialize", map[string]any{"root": r.Root, "as": "nobody"}); rep.refusalCode() != "identity.as" {
+		t.Errorf("initialize as an identity this checkout cannot sign as: want identity.as, got %+v", rep)
+	}
+	ring := t.TempDir()
+	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
+	os.WriteFile(filepath.Join(ring, "lane-a-claims.key"), []byte(hex.EncodeToString(priv.Seed())+"\n"), 0o600)
+	os.WriteFile(filepath.Join(ring, "lane-a-claims.pub"), []byte(hex.EncodeToString(pub)+"\n"), 0o644)
+	r.Write(t, ".kton/keys/lanes/lane-a-claims.pub", hex.EncodeToString(pub)+"\n")
+	raw := r.Config(t).Raw
+	raw.Trust.Tiers = append(raw.Trust.Tiers, "lanes")
+	r.SetKeyring(t, ring)
+	r.WriteConfig(t, raw)
+
 	signed := startServe(t)
-	signed.ok("initialize", map[string]any{"root": r.Root, "as": "someone"})
+	signed.ok("initialize", map[string]any{"root": r.Root, "as": "lane-a"})
 	if rep := signed.call("say", map[string]any{"template": "working-on", "subject": "urn:example:x", "as": "else",
-		"fields": map[string]string{"step": "analysis", "by-session": "s"}}); rep.refusalCode() != "identity.as" || !strings.Contains(rep.Error.Message, `this connection signs as "someone"`) {
+		"fields": map[string]string{"step": "analysis", "by-session": "s"}}); rep.refusalCode() != "identity.as" || !strings.Contains(rep.Error.Message, `this connection signs as "lane-a"`) {
 		t.Errorf("a say naming another identity than the connection's: want identity.as from the connection, got %+v", rep)
 	}
-	// a say naming none is made as the connection's identity: "someone" has no keyring here, so it is
-	// refused for that (identity.as), not signed with the checkout's own key
-	if rep := signed.call("say", map[string]any{"template": "working-on", "subject": "urn:example:x",
-		"fields": map[string]string{"step": "analysis", "by-session": "s"}}); rep.refusalCode() != "identity.as" {
-		t.Errorf("a say over a connection signing as someone was not made as someone: %+v %+v", rep, rep.Error)
+	var mine struct {
+		ClaimID string `json:"claimId"`
+	}
+	if err := json.Unmarshal(signed.ok("say", map[string]any{"template": "working-on", "subject": "urn:example:x",
+		"fields": map[string]string{"step": "analysis", "by-session": "s"}}), &mine); err != nil {
+		t.Fatal(err)
+	}
+	byLane := c.ok("ask", map[string]any{"query": "by", "axis": "signer", "ref": keyIDOfHex(t, hex.EncodeToString(pub))})
+	if !strings.Contains(string(byLane), mine.ClaimID) {
+		t.Errorf("a say naming no identity over a connection signing as lane-a was not signed by lane-a:\n%s", byLane)
 	}
 }
 
@@ -283,4 +304,49 @@ func contains(xs []string, x string) bool {
 		}
 	}
 	return false
+}
+
+// A say running when the client shuts down is answered, as is everything accepted before: shutdown
+// waits for it, and exit after (kton-review S1 on #186). Sent at once to the binary.
+func TestServe_ASayRunningAtShutdownIsAnswered(t *testing.T) {
+	r := testrepo.New(t)
+	cmd := r.CockpitCommand(t, "serve", "--stdio")
+	var in strings.Builder
+	for _, m := range []map[string]any{
+		{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": map[string]any{"root": r.Root}},
+		{"jsonrpc": "2.0", "id": 2, "method": "say", "params": map[string]any{"template": "working-on", "subject": "urn:example:x",
+			"fields": map[string]string{"step": "analysis", "by-session": "s"}}},
+		{"jsonrpc": "2.0", "id": 3, "method": "shutdown"},
+		{"jsonrpc": "2.0", "method": "exit"},
+	} {
+		b, _ := json.Marshal(m)
+		_ = frontrpc.WriteMessage(&in, b)
+	}
+	cmd.Stdin = strings.NewReader(in.String())
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("serve --stdio: %v", err)
+	}
+	rd := bufio.NewReader(strings.NewReader(string(out)))
+	var order []string
+	var said string
+	for {
+		body, err := frontrpc.ReadMessage(rd)
+		if err != nil {
+			break
+		}
+		var rep serveReply
+		_ = json.Unmarshal(body, &rep)
+		order = append(order, string(rep.ID))
+		if string(rep.ID) == "2" {
+			var res struct {
+				ClaimID string `json:"claimId"`
+			}
+			_ = json.Unmarshal(rep.Result, &res)
+			said = res.ClaimID
+		}
+	}
+	if strings.Join(order, ",") != "1,2,3" || !strings.HasPrefix(said, "sha256:") {
+		t.Errorf("want initialize, the say (with its claim id) and shutdown answered in that order, got %v, claim %q\n%s", order, said, out)
+	}
 }

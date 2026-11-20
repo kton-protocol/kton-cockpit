@@ -172,3 +172,81 @@ func TestReadMessage_Framing(t *testing.T) {
 		t.Errorf("an empty stream is EOF: %v", err)
 	}
 }
+
+// shutdown (an inline handler calling Drain) answers only after every request it accepted before is
+// answered, and takes no new one; exit then ends the connection (kton-review S1 on #186).
+func TestServer_ShutdownAnswersWhatItAcceptedFirst(t *testing.T) {
+	release := make(chan struct{})
+	started := make(chan struct{})
+	var srv *Server
+	c := start(t, func(s *Server) {
+		srv = s
+		s.Handle("slow", func(context.Context, json.RawMessage) (any, error) {
+			close(started)
+			<-release
+			return "said", nil
+		})
+		s.HandleInline("shutdown", func(context.Context, json.RawMessage) (any, error) { srv.Drain(); return nil, nil })
+		s.Handle("echo", func(_ context.Context, p json.RawMessage) (any, error) { return json.RawMessage(p), nil })
+	})
+	c.send(t, req(1, "slow", nil))
+	<-started
+	c.send(t, req(2, "shutdown", nil))
+	go func() { time.Sleep(50 * time.Millisecond); close(release) }()
+	if r := c.read(t); string(r.ID) != "1" || string(r.Result) != `"said"` {
+		t.Fatalf("the request running at shutdown must be answered first: %+v", r)
+	}
+	if r := c.read(t); string(r.ID) != "2" || r.Error != nil {
+		t.Fatalf("shutdown answers after it: %+v", r)
+	}
+	c.send(t, req(3, "echo", "late"))
+	if r := c.read(t); r.Error == nil || r.Error.Code != CodeInvalidRequest {
+		t.Errorf("a request after shutdown: want refused, got %+v", r)
+	}
+}
+
+// exit ends the connection only after the requests still running are answered.
+func TestServer_ExitWaitsForWhatIsRunning(t *testing.T) {
+	release := make(chan struct{})
+	started := make(chan struct{})
+	c := start(t, func(s *Server) {
+		s.Handle("slow", func(context.Context, json.RawMessage) (any, error) {
+			close(started)
+			<-release
+			return "said", nil
+		})
+	})
+	c.send(t, req(1, "slow", nil))
+	<-started
+	c.send(t, map[string]any{"jsonrpc": "2.0", "method": "exit"})
+	go func() { time.Sleep(50 * time.Millisecond); close(release) }()
+	if r := c.read(t); string(r.ID) != "1" || string(r.Result) != `"said"` {
+		t.Errorf("a request running at exit: %+v", r)
+	}
+}
+
+// A number id is cancelled by its value (1 and 1.0); the string "1" is another id.
+func TestServer_CancelMatchesANumberIDByValue(t *testing.T) {
+	started := make(chan struct{}, 2)
+	c := start(t, func(s *Server) {
+		s.Handle("wait", func(ctx context.Context, _ json.RawMessage) (any, error) {
+			started <- struct{}{}
+			<-ctx.Done()
+			return nil, ctx.Err()
+		})
+	})
+	c.send(t, req(1, "wait", nil))
+	<-started
+	c.send(t, map[string]any{"jsonrpc": "2.0", "method": "$/cancelRequest", "params": map[string]any{"id": "1"}})
+	c.send(t, map[string]any{"jsonrpc": "2.0", "method": "$/cancelRequest", "params": map[string]any{"id": json.RawMessage("1.0")}})
+	got := make(chan reply, 1)
+	go func() { got <- c.read(t) }()
+	select {
+	case r := <-got:
+		if string(r.ID) != "1" || r.Error == nil || r.Error.Code != CodeRequestCancelled {
+			t.Errorf("1.0 cancels 1: %+v", r)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("1.0 did not cancel request 1")
+	}
+}

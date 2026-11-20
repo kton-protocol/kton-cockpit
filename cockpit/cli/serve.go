@@ -37,8 +37,9 @@ const (
 type ServeInit struct {
 	// Root is the workspace folder this connection serves: the repository, or a folder inside it.
 	Root string `json:"root"`
-	// As is the identity every say over this connection signs as (SPEC §8.7), as `mcp --as`; a say
-	// naming another is refused. Empty signs as the checkout's own identity.
+	// As is the identity every say over this connection signs as (SPEC §8.7), as `mcp --as`: checked
+	// here, and a say naming another is refused. Empty lets each say name any identity of the keyring,
+	// or none for the checkout's own, as `mcp` without --as.
 	As string `json:"as,omitempty"`
 	// RequestTimeoutMs ends any request still running after that many milliseconds (0: none). A
 	// client cancels one request with $/cancelRequest.
@@ -47,9 +48,11 @@ type ServeInit struct {
 
 // ServeInitResult is initialize's answer.
 type ServeInitResult struct {
-	Protocol int      `json:"protocol"`
-	Cockpit  Build    `json:"cockpit"`
-	Root     string   `json:"root"`
+	Protocol int    `json:"protocol"`
+	Cockpit  Build  `json:"cockpit"`
+	Root     string `json:"root"`
+	// RepoRoot is the repository the folder belongs to, the one every request answers for.
+	RepoRoot string   `json:"repoRoot"`
 	As       string   `json:"as,omitempty"`
 	Methods  []string `json:"methods"`
 }
@@ -86,16 +89,15 @@ func runServe(ctx context.Context, args []string) error {
 
 // serve answers the frontend protocol on r and w until r ends or exit arrives.
 func serve(ctx context.Context, r interface{ Read([]byte) (int, error) }, w interface{ Write([]byte) (int, error) }) error {
-	ctx, stop := context.WithCancel(ctx)
-	defer stop()
 	srv := frontrpc.NewServer(r, w)
 	srv.MapError = serveError
-	srv.OnNotification = func(method string, _ json.RawMessage) {
-		if method == "exit" {
-			stop()
-		}
-	}
 	sess := &serveSession{}
+	// shutdown takes no new request and answers once every request it accepted before is answered;
+	// exit and the end of the input end the connection after the same wait (SPEC §12.5).
+	srv.HandleInline("shutdown", func(context.Context, json.RawMessage) (any, error) {
+		srv.Drain()
+		return nil, nil
+	})
 	for name, h := range serveMethods(sess) {
 		if name == "initialize" {
 			srv.HandleInline(name, h) // what follows it runs in the workspace it names
@@ -103,14 +105,7 @@ func serve(ctx context.Context, r interface{ Read([]byte) (int, error) }, w inte
 		}
 		srv.Handle(name, h)
 	}
-	done := make(chan error, 1)
-	go func() { done <- srv.Serve(ctx) }()
-	select {
-	case err := <-done:
-		return err
-	case <-ctx.Done():
-		return nil
-	}
+	return srv.Serve(ctx)
 }
 
 // serveError sends a refusal as the CLI's JSON refusal, and any other error as code "error".
@@ -183,8 +178,14 @@ func serveMethods(sess *serveSession) map[string]frontrpc.Handler {
 					Reason: fmt.Sprintf("COCKPIT_REPO_DIR is %s, but this connection was asked to serve %s: unset it for serve", env, root)}
 			}
 		}
-		if _, err := config.Load(ctx, root); err != nil {
+		cfg, err := config.Load(ctx, root)
+		if err != nil {
 			return nil, &cockpit.Refusal{Code: "binding", Clause: "SPEC §5", Reason: err.Error()}
+		}
+		if in.As != "" {
+			if err := cockpit.CheckIdentity(cfg, in.As); err != nil {
+				return nil, err
+			}
 		}
 		sess.mu.Lock()
 		defer sess.mu.Unlock()
@@ -198,7 +199,7 @@ func serveMethods(sess *serveSession) map[string]frontrpc.Handler {
 			names = append(names, k)
 		}
 		sort.Strings(names)
-		return ServeInitResult{Protocol: ServeProtocol, Cockpit: versionInfo(), Root: root, As: in.As, Methods: names}, nil
+		return ServeInitResult{Protocol: ServeProtocol, Cockpit: versionInfo(), Root: root, RepoRoot: cfg.RepoRoot, As: in.As, Methods: names}, nil
 	}
 
 	// The verbs, with the same request and result types as the Go API, MCP and the JSON argument.
@@ -241,6 +242,5 @@ func serveMethods(sess *serveSession) map[string]frontrpc.Handler {
 	m["version"] = method(sess, func(context.Context, *ServeInit, *config.Config, none) (Build, error) {
 		return versionInfo(), nil
 	})
-	m["shutdown"] = func(context.Context, json.RawMessage) (any, error) { return nil, nil }
 	return m
 }

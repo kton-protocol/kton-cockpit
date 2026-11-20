@@ -52,7 +52,8 @@ type Server struct {
 	handlers map[string]Handler
 	inline   map[string]bool
 	inflight map[string]context.CancelFunc
-	wg       sync.WaitGroup
+	closing  bool           // shutdown came: no new request is taken
+	wg       sync.WaitGroup // the requests running alongside the reader
 
 	// MapError turns a handler's error into the error object sent. Nil sends CodeInternalError with
 	// the error's text.
@@ -117,6 +118,9 @@ func (s *Server) Serve(ctx context.Context) error {
 			continue
 		}
 		if len(m.ID) == 0 || string(m.ID) == "null" {
+			if m.Method == "exit" {
+				return nil // the deferred wait answers what is still running first
+			}
 			s.notification(m.Method, m.Params)
 			continue
 		}
@@ -131,7 +135,7 @@ func (s *Server) notification(method string, params json.RawMessage) {
 		}
 		if json.Unmarshal(params, &p) == nil {
 			s.mu.Lock()
-			if cancel := s.inflight[string(p.ID)]; cancel != nil {
+			if cancel := s.inflight[idKey(p.ID)]; cancel != nil {
 				cancel()
 			}
 			s.mu.Unlock()
@@ -147,11 +151,12 @@ func (s *Server) request(ctx context.Context, m message) {
 	s.mu.Lock()
 	h := s.handlers[m.Method]
 	inline := s.inline[m.Method]
-	key := string(m.ID)
+	closing := s.closing
+	key := idKey(m.ID)
 	_, busy := s.inflight[key]
 	var rctx context.Context
 	var cancel context.CancelFunc
-	if h != nil && !busy {
+	if h != nil && !busy && !closing {
 		rctx, cancel = context.WithCancel(ctx)
 		s.inflight[key] = cancel
 	}
@@ -160,13 +165,14 @@ func (s *Server) request(ctx context.Context, m message) {
 	case h == nil:
 		s.reply(m.ID, nil, &Error{Code: CodeMethodNotFound, Message: "no method " + strconv.Quote(m.Method)})
 		return
+	case closing:
+		s.reply(m.ID, nil, &Error{Code: CodeInvalidRequest, Message: "the connection is shutting down: no new request is taken"})
+		return
 	case busy:
-		s.reply(m.ID, nil, &Error{Code: CodeInvalidRequest, Message: "a request with id " + key + " is still running"})
+		s.reply(m.ID, nil, &Error{Code: CodeInvalidRequest, Message: "a request with id " + string(m.ID) + " is still running"})
 		return
 	}
-	s.wg.Add(1)
 	run := func() {
-		defer s.wg.Done()
 		defer func() {
 			s.mu.Lock()
 			delete(s.inflight, key)
@@ -200,7 +206,36 @@ func (s *Server) request(ctx context.Context, m message) {
 		run()
 		return
 	}
-	go run()
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+		run()
+	}()
+}
+
+// Drain takes no new request and waits until every request running alongside the reader is answered.
+// A handler registered inline calls it to shut down: every request accepted before is answered first.
+func (s *Server) Drain() {
+	s.mu.Lock()
+	s.closing = true
+	s.mu.Unlock()
+	s.wg.Wait()
+}
+
+// idKey is the key a request is cancelled by: a number by its value (1 and 1.0 are one id), a string
+// by its text. JSON-RPC keeps the number 1 and the string "1" apart, and so does this.
+func idKey(id json.RawMessage) string {
+	var v any
+	if json.Unmarshal(id, &v) != nil {
+		return "raw:" + string(id)
+	}
+	switch x := v.(type) {
+	case float64:
+		return "n:" + strconv.FormatFloat(x, 'g', -1, 64)
+	case string:
+		return "s:" + x
+	}
+	return "raw:" + string(id)
 }
 
 // call runs h, turning a panic into an error so one bad request does not end the connection.
