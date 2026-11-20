@@ -54,3 +54,19 @@ test("design step 3: figures: the guard states the relation only when the number
   assert.deepEqual([...f.pairs(["in scope (MH 10.11.)|in scope", "plain"])], [["in scope (MH 10.11.)", "in scope"], ["plain", "plain"]]);
   assert.equal(f.stampAttrs({ stamp: { value: "sha256:b610b5c6" }, stampLabel: { value: "mapping round 9 · b610b5c6" } }, (b: Any) => b?.value ?? "", esc), 'data-stamp="sha256:b610b5c6" data-stamp-label="mapping round 9 · b610b5c6"');
 });
+
+test("design step 4: estimate: positions on the stated scale, labels that never overlap, ticks, verdicts", async () => {
+  const e = await media("viewers/estimate/estimate.js");
+  const dom = e.domainOf("0,8", 6.1, 5);
+  assert.deepEqual(dom, [0, 8]);
+  assert.deepEqual(e.domainOf(undefined, 6.1, 5), [0, 8], "auto: ceil(max(high, target) × 1.3)");
+  assert.deepEqual(e.domainOf("8,0", 6.1, 5), [0, 8], "a reversed domain is not taken");
+  assert.deepEqual(e.positions({ rate: 4.5, low: 3.2, high: 6.1, target: 5 }, { rate: 4.4, low: 3.2, high: 6.0 }, dom), { lo: 40, hi: 76.25, pt: 56.25, t: 62.5, rpt: 55, rlo: 40, rhi: 75 });
+  assert.equal(e.pos(12, dom), 100, "clamped to the bar");
+  assert.deepEqual(e.labelSides(4.5, 5), { point: "end", target: "start" }, "point left of itself, target right of its line");
+  assert.deepEqual(e.labelSides(7.8, 5), { point: "start", target: "end" }, "above the target they swap");
+  assert.deepEqual(e.ticks([0, 8]), [0, 2, 4, 6, 8]);
+  assert.deepEqual(e.ticks([0, 20]), [0, 5, 10, 15, 20]);
+  const v = e.verdicts({ rate: 4.5, high: 6.1, target: 5 });
+  assert.deepEqual([v.point.ok, v.upper.ok, v.upper.text], [true, false, "upper bound 6.1 % does not"]);
+});

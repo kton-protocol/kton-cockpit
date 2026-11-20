@@ -1235,7 +1235,10 @@ if (seed.dm?.proposal) {
     const g = (await f.locator('[data-use$="#counts"] [data-guard]').textContent()) ?? "";
     check(/Mixed scopes\./.test(g) && /215 in scope \(MH 10\.11\.\)/.test(g) && /254 all judged/.test(g) && /39 outside your scope/.test(g), "the guard callout names the counts with their scopes: 215 in scope + 39 outside = 254 all judged", "Mixed scopes. … 215 in scope (MH 10.11.) + 39 outside your scope = 254 all judged", g);
     const est = (await f.locator('[data-use$="#estimate"]').textContent()) ?? "";
-    check(/4\.5 %/.test(est) && /3\.2–6\.1 %/.test(est) && /Reported: 4\.4/.test(est), "the recomputed rate and band with the reported one beside it", "4.5 % (3.2–6.1) … Reported: 4.4", est.slice(0, 300));
+    check(/4\.5 %/.test(est) && /3\.2–6\.1 %/.test(est) && /reported 4\.4 % \(3\.2–6\.0\), 09\.11\./.test(est), "the recomputed rate and band with the reported one beside it", "4.5 % (3.2–6.1) … reported 4.4 % (3.2–6.0), 09.11.", est.slice(0, 400));
+    // drawn to scale (DESIGN.md §5): 4.5 on the stated 0–8 % scale is 56.25 %, the target 5 % at 62.5 %
+    const rb = f.locator('[data-use$="#estimate"] .rb');
+    check((await rb.getAttribute("data-pt")) === "56.25" && (await rb.getAttribute("data-t")) === "62.5", "the range bar places the point and the target on its scale", "pt 56.25, t 62.5", [await rb.getAttribute("data-pt"), await rb.getAttribute("data-t")]);
     check(/≈ 362/.test(est) && /8,045/.test(est), "as elements on the covered base: ≈ 362 of 8,045", "≈ 362 … 8,045", est.slice(0, 300));
   });
 

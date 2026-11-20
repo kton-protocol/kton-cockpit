@@ -241,3 +241,40 @@ dl.kv dd, dl.kton-card dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
   .tiles .tile .scope, .tiles .tile .l, .tiles .tile .s { grid-column: 2; }
 }
 .kton-guard.callout { align-items: flex-start; }
+
+/* ---------- 4. estimate: the range bar drawn to scale ---------- */
+.est-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; margin: 0; }
+.est-head .big { font-size: 26px; font-weight: 600; }
+.est-sub { font-size: 12px; color: var(--wb-muted); }
+.rb { position: relative; margin: 12px 0 2px; font-size: 11px; font-variant-numeric: tabular-nums; }
+.rb-top, .rb-axis { position: relative; height: 16px; }
+.rb-track { position: relative; height: 26px; }
+.rb-track::before { content: ""; position: absolute; left: 0; right: 0; top: 9px; height: 1px; background: var(--wb-axis); }
+.rb .band, .rb .over { position: absolute; top: 3px; height: 13px; }
+.rb .band { left: calc(var(--lo) * 1%); width: calc(max(0, min(var(--hi), var(--t)) - var(--lo)) * 1%); background: color-mix(in srgb, var(--wb-accent) 22%, transparent); border: 1px solid var(--wb-accent); border-right: 0; border-radius: 2px 0 0 2px; }
+.rb .over { left: calc(max(var(--lo), var(--t)) * 1%); width: calc(max(0, var(--hi) - max(var(--lo), var(--t))) * 1%); background: color-mix(in srgb, var(--wb-over) 22%, transparent); border: 1px solid var(--wb-over); border-left: 0; border-radius: 0 2px 2px 0; }
+.rb .pt { position: absolute; left: calc(var(--pt) * 1%); top: 9.5px; width: 11px; height: 11px; border-radius: 50%; transform: translate(-50%, -50%); background: var(--wb-accent); border: 2px solid var(--wb-bg); }
+.rb .rep { position: absolute; left: calc(var(--rlo) * 1%); width: calc((var(--rhi) - var(--rlo)) * 1%); top: 21px; height: 1px; background: var(--wb-fg); opacity: .55; }
+.rb .repm { position: absolute; left: calc(var(--rpt) * 1%); top: 21.5px; width: 7px; height: 7px; transform: translate(-50%, -50%) rotate(45deg); background: var(--wb-bg); border: 1.5px solid var(--wb-fg); }
+.rb .tgt { position: absolute; left: calc(var(--t) * 1%); top: 0; height: 42px; border-left: 1.5px dashed var(--wb-target); }
+.rb .lab { position: absolute; top: 0; white-space: nowrap; left: calc(var(--x) * 1%); }
+.rb .lab.end { transform: translateX(calc(-100% - 6px)); }
+.rb .lab.start { transform: translateX(6px); }
+.rb .pt-lab { font-weight: 600; color: var(--wb-accent); }
+.rb .t-lab { color: var(--wb-muted); }
+.rb .tick { position: absolute; top: 2px; left: calc(var(--x) * 1%); transform: translateX(-50%); color: var(--wb-muted); white-space: nowrap; }
+.rb .tick:first-child { transform: none; }
+.rb .tick:last-child { transform: translateX(-100%); }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 11px; color: var(--wb-muted); margin-top: 6px; }
+.legend span { display: inline-flex; align-items: center; gap: 5px; }
+.sw-pt { width: 9px; height: 9px; border-radius: 50%; background: var(--wb-accent); }
+.sw-rep { width: 7px; height: 7px; transform: rotate(45deg); border: 1.5px solid var(--wb-fg); }
+.sw-tgt { width: 0; height: 11px; border-left: 1.5px dashed var(--wb-target); }
+.sw-over { width: 12px; height: 9px; background: color-mix(in srgb, var(--wb-over) 22%, transparent); border: 1px solid var(--wb-over); }
+.verdicts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.verdicts .pill { font-size: 12px; padding: 1px 8px; }
+details.more { margin-top: 12px; font-size: 12px; }
+details.more summary { cursor: pointer; color: var(--wb-link); }
+details.more p { margin: 6px 0; color: var(--wb-muted); }
+details.more .tbl-wrap { margin-top: 6px; }
+@media (forced-colors: active) { .rb .band, .rb .over, .mb .band, .mb .over { border: 1px solid CanvasText; } }
