@@ -127,7 +127,7 @@ export function mount(el, ctx) {
 
   const draw = (vars, rows) => {
     const stampMode = o.stamp === "section" || o.stamp === "hide" ? o.stamp : "column";
-    const cols = (o.columns && o.columns.length ? o.columns : vars).filter((c) => vars.includes(c)).filter((c) => !(stampMode !== "column" && c === "stamp") && c !== o.group);
+    const cols = (o.columns && o.columns.length ? o.columns : vars.filter((c) => !(c.endsWith("Label") && vars.includes(c.slice(0, -5))))).filter((c) => vars.includes(c)).filter((c) => !(stampMode !== "column" && c === "stamp") && c !== o.group);
     let body;
     if (!rows.length) body = `${emptyBox(esc, o.emptyText || "No rows.", o.emptyHow)}`;
     else if (o.card === "yes") {
@@ -319,7 +319,7 @@ function evidenceCell(esc, packed, traceNote) {
     .map((e, i) => {
       const tip = `${e.site || "assertion"}${e.text ? ` — ${e.text}` : ""}`;
       const img = e.thumb && /^data:image\/(png|jpeg|gif|webp);base64,[A-Za-z0-9+/=]+$/.test(e.thumb) ? `<img src="${e.thumb}" alt="">` : `<span class="n">${esc(e.assertion || String(i + 1))}</span>`;
-      return `<button type="button" class="thumb" data-art="${art(e)}" data-tip="${esc(tip)}" aria-label="Assertion ${esc(e.assertion || String(i + 1))}: ${esc(tip)}">${img}</button>`;
+      return `<button type="button" class="thumb" data-art="${art(e)}" data-tip="${esc(tip)}" aria-label="Assertion ${esc(e.assertion || String(i + 1))}: ${esc(tip)}">${img}${e.thumb ? `<span class="sr-only">assertion ${esc(e.assertion || String(i + 1))}</span>` : ""}</button>`;
     })
     .join("");
   const link = (e, label) => `<button type="button" class="ghost small" data-art="${art(e)}" data-tip="${esc(`${e.run}/${e.name}`)}">${esc(label)}</button>`;
@@ -374,7 +374,8 @@ function table(rows, cols, { o, esc, value, shortly, click, perRow, rowButtons }
     const num = numeric.has(c) || NUM_RE.test(value(r[c]));
     const full = value(r[c]);
     const label = value(r[`${c}Label`]);
-    const shown = (o.short ?? []).includes(c) ? label || shortId(full) : shortly(full);
+    // a column with a label beside it (<column>Label) shows the label, the IRI in the tooltip (DESIGN.md step 12)
+    const shown = label || ((o.short ?? []).includes(c) ? shortId(full) : shortly(full));
     const tip = shown !== full ? ` data-tip="${esc(full)}"` : "";
     const marker = o.groupNotes && k1(c) ? noteMarker(esc, value(r[o.groupNotes])) : "";
     const more = first && (o.details ?? []).length ? detailsOf(r) : "";
@@ -398,7 +399,7 @@ function table(rows, cols, { o, esc, value, shortly, click, perRow, rowButtons }
     const groups = groupRows(ordered, o.group, o.groupSum);
     tbody = groups
       .map((g) => {
-        const name = glabels.get(g.group) ?? (g.group ? g.group.charAt(0).toUpperCase() + g.group.slice(1) : "—");
+        const name = glabels.get(g.group) ?? (/^[a-z][a-z -]*$/.test(g.group) ? g.group.charAt(0).toUpperCase() + g.group.slice(1) : g.group || "—");
         const meta = `${g.rows.length} ${unit}${g.rows.length === 1 ? "" : "s"}${o.groupSum ? ` · ${g.sum.toLocaleString("en")} ${sumName}` : ""}`;
         const notes = o.groupNotes ? groupNotes(g.rows.map((x) => value(x[o.groupNotes]))) : [];
         const list = notes.length ? `<div class="grp-notes"><span class="muted">${esc(notesLabel(o.groupNotes))} (${notes.length}), the same for every row below:</span><ol>${notes.map((x) => `<li>${esc(x)}</li>`).join("")}</ol></div>` : "";

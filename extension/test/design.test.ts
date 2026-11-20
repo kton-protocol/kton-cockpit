@@ -269,3 +269,12 @@ test("design step 11: the sign dialog's structure keeps every line's text, decod
   assert.match(html, /cancelBtn\.focus\(\)/, "Cancel has the initial focus");
   assert.doesNotMatch(html, /autofocus|style="/);
 });
+
+test("design step 12: rows show a label beside an IRI (the IRI in the tooltip), and the label column is not a column of its own", async () => {
+  const m = await media("viewers/rows/rows.js");
+  const el: Any = { innerHTML: "", querySelectorAll: () => [], querySelector: () => null };
+  m.mount(el, { use: { options: {} }, kit, request: async () => ({ head: { vars: ["owner", "ownerLabel"] }, results: { bindings: [{ owner: { value: "https://example.org/person/p1" }, ownerLabel: { value: "Ann Example" } }] } }), intent: async () => ({}), setState: () => {} });
+  await new Promise((r) => setTimeout(r, 10));
+  assert.match(el.innerHTML, /<td data-col="owner"><span data-tip="https:\/\/example\.org\/person\/p1">Ann Example<\/span><\/td>/);
+  assert.doesNotMatch(el.innerHTML, /data-head="ownerLabel"/);
+});

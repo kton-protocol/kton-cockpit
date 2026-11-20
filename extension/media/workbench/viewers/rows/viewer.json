@@ -58,7 +58,14 @@
   "emptyHow": "literal",
   "short": {
    "set": "literal"
-  }
+  },
+  "groupNotes": "literal",
+  "evidence": "literal",
+  "traceNote": "literal",
+  "details": {
+   "set": "literal"
+  },
+  "actsIn": "literal"
  },
  "emits": {
   "select": {

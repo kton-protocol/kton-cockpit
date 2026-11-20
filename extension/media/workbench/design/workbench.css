@@ -405,3 +405,5 @@ tr.grp .grp-notes { font-weight: 400; font-size: 11px; margin-top: 4px; }
 tr.grp .grp-notes ol { margin: 2px 0 0; padding-left: 18px; color: var(--wb-muted); }
 .kton-block-body button.chip { font-size: 11px; line-height: 16px; padding: 1px 7px; border-radius: 9px; border: 1px solid var(--wb-hairline); background: transparent; color: var(--wb-muted); cursor: help; }
 h3[data-block-title] { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: baseline; }
+table.t td:not([data-number]):not(:first-child) { min-width: 7em; }
+td.ev-cell .kton-stamp { margin-top: 4px; }

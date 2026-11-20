@@ -1446,7 +1446,8 @@ if (seed.roles) {
   async function rowsIn(f, id) {
     await waitDrawn(f, id);
     await countIn(f, id);
-    return box(f, id).locator("tbody tr").evaluateAll((trs) => trs.map((tr) => Object.fromEntries([...tr.querySelectorAll("td[data-col]")].map((td) => [td.dataset.col, td.textContent]))));
+    // data rows only: a grouped table has a header row per group (DESIGN.md §5 rows)
+    return box(f, id).locator("tbody tr[data-row]").evaluateAll((trs) => trs.map((tr) => Object.fromEntries([...tr.querySelectorAll("td[data-col]")].map((td) => [td.dataset.col, td.textContent]))));
   }
   const waitDrawn = async (f, id, timeout = 120000) => box(f, id).locator("[data-area-table], [data-area-empty], [data-area-error]").first().waitFor({ timeout });
 
@@ -1522,8 +1523,21 @@ if (seed.roles) {
     const failures = await askR("failures");
     const shown = await rowsIn(f, "failures");
     check(shown.length === failures.length, "failures = rows of failures", failures.length, shown.length);
+    // MH 20.11. (qm 51c22b74): the class is what is signed in the workbench, never "unclassified"; the harness changes
+    // once per run; the evidence itself per row (thumbnails, links) or "none"; five columns, no stamp column
+    check(shown.every((r) => r.wbClass === "not classified in the workbench yet" || /\S/.test(r.wbClass ?? "")) && !shown.some((r) => /unclassified/.test(r.wbClass ?? "")), "the class: the signed triage-classifies, else 'not classified in the workbench yet'", "never 'unclassified'", [...new Set(shown.map((r) => r.wbClass))]);
+    check(Object.keys(shown[0] ?? {}).join(",") === "test,result,wbClass,gClass,evidence", "five columns: test, result, class, G proposal, evidence", "test,result,wbClass,gClass,evidence", Object.keys(shown[0] ?? {}));
+    const groups = await box(f, "failures").locator("tr.grp").count();
+    const runsShown = new Set(failures.map((r) => r.run)).size;
+    check(groups === runsShown, "one header per run", runsShown, groups);
+    check(shown.every((r) => /\S/.test(r.evidence ?? "")), "every row says its evidence (or none)");
+    const withArtifacts = (await askR("artifacts-of-test", [`test=${pick.test}`])).some((r) => r.sha256 && r.run === failures.find((x) => x.test === pick.test)?.run);
+    const evCell = box(f, "failures").locator("tbody tr[data-row]", { hasText: pick.test.slice(0, 60) }).first().locator('td[data-col="evidence"]');
+    if (withArtifacts) check((await evCell.locator("button[data-art]").count()) > 0, "a failure with artifacts shows them (thumbnail or link, each opening the hash-checked artifact)", "> 0", 0);
+    const overflow = await f.locator("body").evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    check(overflow <= 0, "the view does not scroll sideways", 0, overflow);
     const pick = failures.find((r) => /ics1829\.spec\.ts#STP-002/.test(r.test)) ?? failures.find((r) => /e2e/.test(r.suite)) ?? failures[0];
-    await box(f, "failures").locator("tbody tr", { hasText: pick.test.slice(0, 60) }).first().click();
+    await box(f, "failures").locator("tbody tr[data-row]", { hasText: pick.test.slice(0, 60) }).first().locator('td[data-col="test"] > span').first().click();
     await box(f, "history").locator("[data-area-table]").first().waitFor({ timeout: 120000 });
     const hist = await askR("history-of-test", [`test=${pick.test}`]);
     const h = await rowsIn(f, "history");
@@ -1565,9 +1579,11 @@ if (seed.roles) {
     const failures = await askR("failures");
     const pick = failures.find((r) => /ics1829\.spec\.ts#STP-002/.test(r.test)) ?? failures.find((r) => /e2e/.test(r.suite)) ?? failures[0];
     await rowsIn(f, "failures");
-    const tr = box(f, "failures").locator("tbody tr", { hasText: pick.test.slice(0, 60) }).filter({ hasText: pick.run }).first();
-    check((await tr.locator("button").count()) === 3, "each failure row: Request rerun, Request rerun (capture mode), Capture now", 3, await tr.locator("button").allTextContents());
-    await tr.locator("button", { hasText: "Request rerun (capture mode)" }).click();
+    const tr = box(f, "failures").locator("tbody tr[data-row]", { hasText: pick.test.slice(0, 60) }).filter({ hasText: pick.run }).first();
+    // the row's acts are in its details (MH 20.11., qm 51c22b74: fewer, narrower columns)
+    await tr.locator("details.rowmore > summary").click();
+    check((await tr.locator("details.rowmore button[data-row-act]").count()) === 3, "each failure row: Request rerun, Request rerun (capture mode), Capture now", 3, await tr.locator("details.rowmore button[data-row-act]").allTextContents());
+    await tr.locator("details.rowmore button", { hasText: "Request rerun (capture mode)" }).click();
     // the shell asks the template's open fields, in the template's order: the test (the row's, as the default) and
     // the reason (capture mode); both are only defaults, never signed unseen
     const asked = [];
@@ -1610,7 +1626,7 @@ if (seed.roles) {
     const fails = await askR("failures");
     const pickF = fails.find((r) => /ics1829\.spec\.ts#STP-002/.test(r.test)) ?? fails[0];
     await rowsIn(f, "failures");
-    await box(f, "failures").locator("tbody tr", { hasText: pickF.test.slice(0, 60) }).first().locator('td[data-col="test"]').click();
+    await box(f, "failures").locator("tbody tr[data-row]", { hasText: pickF.test.slice(0, 60) }).first().locator('td[data-col="test"] > span').first().click();
     await box(f, "history").locator("[data-area-table]").first().waitFor({ timeout: 120000 });
     const hist = await rowsIn(f, "history");
     const arts = await askR("artifacts-of-test", [`test=${(await askR("failures")).find((r) => /ics1829\.spec\.ts#STP-002/.test(r.test))?.test ?? hist[0].test}`]);
