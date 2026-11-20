@@ -309,7 +309,9 @@ func TestClaimView_AnAliasCannotNameATermTheViewWrites(t *testing.T) {
 // the aliases as a top-level field's do; a field without an alias stays lab:<field> (the C3 training
 // area's gap 3).
 func TestClaimView_ANestedObjectsFieldsGoThroughTheAliases(t *testing.T) {
-	set, err := ntemplate.New(nil, []byte(`{"terms":{"role":"https://example.org/q/role"}}`))
+	set, err := ntemplate.New(map[string][]byte{
+		"qualified": []byte(`{"name":"qualified","target":"either","predicate":"https://ex.org/qualified","fields":{"quals":{"type":"string"}}}`),
+	}, []byte(`{"terms":{"role":"https://example.org/q/role"}}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -396,5 +398,33 @@ func TestClaimView_APackagesFieldsResolveThroughItsOwnAliasesOnly(t *testing.T) 
 	other.Aliases = map[string]packages.Aliases{"one": vc.Aliases["two"], "two": vc.Aliases["one"]}
 	if vc.Fingerprint() == other.Fingerprint() {
 		t.Error("the fingerprint does not change when a package's aliases do")
+	}
+}
+
+// A claim whose template this repository does not know (one a federation source signed) keeps its
+// fields as lab:<field>: the repository's alias file renames the fields of the templates it resolves,
+// never another source's (userinterface, 20.11.: one source's 'status' term renamed another's field;
+// SPEC §9.11).
+func TestClaimView_TheAliasFileRenamesOnlyItsOwnTemplatesFields(t *testing.T) {
+	set, err := ntemplate.New(map[string][]byte{
+		"reviewed": []byte(`{"name":"reviewed","target":"either","predicate":"https://example.org/q/reviewed",
+		  "fields":{"status":{"type":"string"}}}`),
+	}, []byte(`{"prefixes":{"q":"https://example.org/q/"},"terms":{"status":"q:status"}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	own, ownPub := claimQuads("aa", oNS+"f00d", "https://example.org/q/reviewed",
+		map[string]string{"status": "open"}, "2026-03-04T10:00:00Z", "", "", "k1")
+	foreign, foreignPub := claimQuads("bb", oNS+"f00d", "https://example.org/elsewhere/covered",
+		map[string]string{"status": "Covered"}, "2026-03-04T10:00:00Z", "", "", "k1")
+	view := ClaimView(append(own, foreign...), append(ownPub, foreignPub...), ViewConfig{Templates: set})
+	if got := values(view, oNS+"aa", "https://example.org/q/status"); len(got) != 1 || got[0] != "open" {
+		t.Errorf("the repository's own template: want q:status, got %v", got)
+	}
+	if got := values(view, oNS+"bb", "https://example.org/q/status"); len(got) != 0 {
+		t.Errorf("a claim of a template this repository does not know must not take its alias: %v", got)
+	}
+	if got := values(view, oNS+"bb", labNS+"status"); len(got) != 1 || got[0] != "Covered" {
+		t.Errorf("a claim of a template this repository does not know keeps lab:status: %v", got)
 	}
 }

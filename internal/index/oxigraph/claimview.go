@@ -92,7 +92,7 @@ func (vc ViewConfig) resolve(tmpl, x string) string {
 
 // viewVersion changes whenever ClaimView builds something else from the same quads: a view kept
 // from an older build is then built again rather than answered from.
-const viewVersion = 6 // 4: view vocabulary 1; 5: nested fields through the aliases; 6: package aliases
+const viewVersion = 7 // 4: view vocabulary 1; 5: nested fields through the aliases; 6: package aliases; 7: no aliases for an unknown template
 
 // Fingerprint changes whenever the view a ViewConfig builds would.
 func (vc ViewConfig) Fingerprint() string {
@@ -307,7 +307,15 @@ func ClaimView(trusted, structure []Quad, vc ViewConfig) []Quad {
 			if known {
 				tmpl = t.Name
 			}
-			resolve := func(x string) string { return vc.resolve(tmpl, x) }
+			// A claim whose template this repository does not know (one a federation source signed) has
+			// no aliases here: its fields stay lab:<field>. The repository's alias file is the vocabulary
+			// of the templates it resolves, never another source's (SPEC §9.11; userinterface, 20.11.).
+			resolve := func(x string) string {
+				if !known {
+					return x
+				}
+				return vc.resolve(tmpl, x)
+			}
 			for _, f := range c.fields {
 				p, o := f.P, f.O
 				if key := strings.TrimPrefix(p.Value, labNS); key != p.Value {
