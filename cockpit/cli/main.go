@@ -121,6 +121,9 @@ func wantsJSON(cmd string, args []string) bool {
 	if (cmd == "publish" || cmd == "say" || cmd == "ask") && len(args) > 0 && strings.HasPrefix(strings.TrimSpace(args[0]), "{") {
 		return true
 	}
+	if cmd == "say" && len(args) > 0 && args[0] == "--batch" {
+		return true // a batch answers one JSON document, refusal or not
+	}
 	return hasFlag(args, "--json")
 }
 
@@ -170,6 +173,7 @@ usage:
   cockpit ask     <question> <run|file|sha256:id>          ask, re-verified against your trust tiers
                   say and ask with no arguments list the templates and the questions; --json prints
                   the full answer. A JSON argument ('{...}' [--field NAME]) works as before.
+                  say --batch <file.jsonl | ->: many claims in one write, one request per line
 
   cockpit run --dir DIR --in [NAME=]FILE... -- COMMAND...
                    run one step in DIR (inputs copied in), record what it wrote there

@@ -15,7 +15,7 @@ import (
 	"github.com/kton-protocol/kton-cockpit/internal/show"
 )
 
-// SayBatchRequest is many claims said in one write (SPEC §8.8). Each is a SayRequest, with the same
+// SayBatchRequest is many claims said in one write (SPEC §8.9). Each is a SayRequest, with the same
 // fields and the same checks as one say.
 type SayBatchRequest struct {
 	Claims []SayRequest `json:"claims" jsonschema:"the claims, in order; each is what say takes"`
@@ -47,9 +47,9 @@ func (c *Cockpit) SayBatch(ctx context.Context, in SayBatchRequest) (*SayBatchRe
 	}
 	switch {
 	case len(in.Claims) == 0:
-		return nil, refuse("argument", "SPEC §8.8", "a batch needs at least one claim")
+		return nil, refuse("argument", "SPEC §8.9", "a batch needs at least one claim")
 	case len(in.Claims) > maxBatch:
-		return nil, refuse("argument", "SPEC §8.8", "a batch holds at most %d claims, this one %d: split it", maxBatch, len(in.Claims))
+		return nil, refuse("argument", "SPEC §8.9", "a batch holds at most %d claims, this one %d: split it", maxBatch, len(in.Claims))
 	}
 	r := binaries.New(cfg)
 	at := func(i int, err error) error {
@@ -64,7 +64,7 @@ func (c *Cockpit) SayBatch(ctx context.Context, in SayBatchRequest) (*SayBatchRe
 	preps := make([]*preparedSay, len(in.Claims))
 	for i, one := range in.Claims {
 		if one.Template == "reproduces" {
-			return nil, at(i, refuse("argument", "SPEC §8.8", "reproduces runs a reproduction per claim and is said one at a time"))
+			return nil, at(i, refuse("argument", "SPEC §8.9", "reproduces runs a reproduction per claim and is said one at a time"))
 		}
 		p, err := prepareSay(ctx, cfg, r, one)
 		if err != nil {
