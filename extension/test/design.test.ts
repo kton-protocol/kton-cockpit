@@ -42,3 +42,15 @@ test("design: notice tones: the banner keeps its text (Dry run: <run>) and shows
   const p = await mountOn("notice", { text: "<b>plain</b>" });
   assert.match(p.innerHTML, /&lt;b&gt;plain&lt;\/b&gt;/, "escaped");
 });
+
+test("design step 3: figures: the guard states the relation only when the numbers hold it; scope tags; tiles", async () => {
+  const f = await media("viewers/figures/figures.js");
+  const figs = [{ value: "215", scope: "in scope (MH 10.11.)" }, { value: "254", scope: "all judged" }, { value: "39", scope: "outside your scope" }];
+  assert.equal(f.relationText(figs, "1+3=2"), "215 in scope (MH 10.11.) + 39 outside your scope = 254 all judged.");
+  assert.equal(f.relationText(figs, "1+2=3"), undefined, "215 + 254 is not 39: no relation is claimed");
+  assert.equal(f.relationText(figs, "1+3=4"), undefined);
+  assert.equal(f.relationText(figs, undefined), undefined);
+  assert.equal(f.relationText([{ value: "1,200" }, { value: "1,300" }, { value: "100" }], "3+1=2"), "100 + 1,200 = 1,300.");
+  assert.deepEqual([...f.pairs(["in scope (MH 10.11.)|in scope", "plain"])], [["in scope (MH 10.11.)", "in scope"], ["plain", "plain"]]);
+  assert.equal(f.stampAttrs({ stamp: { value: "sha256:b610b5c6" }, stampLabel: { value: "mapping round 9 · b610b5c6" } }, (b: Any) => b?.value ?? "", esc), 'data-stamp="sha256:b610b5c6" data-stamp-label="mapping round 9 · b610b5c6"');
+});

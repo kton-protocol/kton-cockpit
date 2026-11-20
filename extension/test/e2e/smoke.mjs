@@ -1233,7 +1233,7 @@ if (seed.dm?.proposal) {
   await step("DM", 2, "the guard flag shows the two scopes: 215 in scope vs 254 all judged", async () => {
     const f = await dmFrame();
     const g = (await f.locator('[data-use$="#counts"] [data-guard]').textContent()) ?? "";
-    check(/215 \(in scope/.test(g) && /254 \(all judged\)/.test(g), "the guard names both counts with their scope", "215 (in scope…) · 254 (all judged)", g);
+    check(/Mixed scopes\./.test(g) && /215 in scope \(MH 10\.11\.\)/.test(g) && /254 all judged/.test(g) && /39 outside your scope/.test(g), "the guard callout names the counts with their scopes: 215 in scope + 39 outside = 254 all judged", "Mixed scopes. … 215 in scope (MH 10.11.) + 39 outside your scope = 254 all judged", g);
     const est = (await f.locator('[data-use$="#estimate"]').textContent()) ?? "";
     check(/4\.5 %/.test(est) && /3\.2–6\.1 %/.test(est) && /Reported: 4\.4/.test(est), "the recomputed rate and band with the reported one beside it", "4.5 % (3.2–6.1) … Reported: 4.4", est.slice(0, 300));
     check(/≈ 362/.test(est) && /8,045/.test(est), "as elements on the covered base: ≈ 362 of 8,045", "≈ 362 … 8,045", est.slice(0, 300));
