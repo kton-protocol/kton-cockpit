@@ -1152,7 +1152,10 @@ values in the view, and an `iri` value written in its prefixes at `say`. What th
 is, the repository's alias file resolves. No package alias joins the set the repository's templates
 resolve through, so no package changes what another package's, or the repository's, words mean. A
 package whose alias file names template short names is refused (`doctor` names it): the kernel prefers
-such a name over a real template's, so one package could redirect another's `say` (kton-review A1).
+such a name over a real template's, so one package could redirect another's `say` (kton-review A1). A
+claim whose predicate no template of the set declares (one a federation source signed under a template
+this repository does not hold) has no aliases: its fields stay `lab:<field>`, so no alias file renames
+another source's words (`TestClaimView_TheAliasFileRenamesOnlyItsOwnTemplatesFields`).
 
 One predicate, one template: the view finds a claim's template, and with it the aliases its fields
 resolve through, by its predicate. The repository's own templates come first, then the admitted
