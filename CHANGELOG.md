@@ -1,5 +1,47 @@
 # Changelog
 
+## v0.5.8 — 2026-11-20
+
+Claims in a graph per scope (ADR-018), serve events, and federation that cannot look whole while missing a
+record; each reviewed by kton-review. Tracks kton v0.4.2 and ktonpkg v0.9.13.
+
+### Migrating from v0.5.7
+
+- **A federated claim keeps its own field names** where its predicate has no template here (#203): its
+  fields read `lab:<field>`, not this repository's alias terms. To read another source's data through
+  vocabulary terms, admit a package with its templates and aliases (as `qm.vocabulary` does for the qm
+  scopes).
+- **`GRAPH ?g`** in a claims query, with nothing else binding `?g`, now also reads the scope graphs, not only
+  loaded files: say which you want (`?g a nk:LoadedGraph`, `?g a nk:ClaimGraph`).
+- **Every view is built again once** after the update (the view's version changed): the first query of each
+  repository takes the build time.
+- **A view that acts on another package's control** installs only after that package, at the revision it pins
+  (#206).
+
+### Added
+
+- **Claims in a graph per scope** ([ADR-018](docs/decisions/adr-018-claims-in-a-graph-per-scope.md), #205,
+  #207, #208, #210): each scope's claims in a named graph of their own and the unscoped claims in one more,
+  described in the default graph (`nk:ClaimGraph`, `nk:scope`, `rdfs:label`, `nk:parent`, `nk:source`,
+  `nk:claims`); the default graph is unchanged. `GRAPH ?g` over one scope is many times faster on large data.
+  `ask --json` lists the claim graphs an answer read (`claimGraphs`) and the names more than one carries
+  (`repeatedLabels`).
+- **Row templates** (`"claims": "rows"`, ktonpkg v0.9.12): their claims say `nk:row true`, so "the latest per
+  subject" leaves them out (`docs/sparql.md`, the latest claim per subject and template, #195).
+- **Loaded graphs described:** `nk:LoadedGraph` with the output path of the trusted step that produced the
+  file, `cockpit load --label` as `nk:loadedAs`, and `nk:loadedAt`.
+- **A kton id bound as an IRI** (`--bind-iri X=sha256:<hex>`) is the node `https://kton.dev/o/<hex>`.
+- **Acts on another package's control** (ktonpkg v0.9.13, #206): checked against the owner revision in use.
+
+### Fixed
+
+- **A federation source with a record or a store line it cannot load fails the union**, naming the source
+  (#200, #214; kton v0.4.2 `Registry.Unreadable`).
+- **Aliases rename only the fields of templates this repository holds** (#203).
+- **The view build parses each claim once** (#210): about 15% faster than with the scope graphs as first
+  merged.
+- Tests that need a later signed second wait for it (#209).
+
 ## v0.5.7 — 2026-11-20
 
 Derived RDF in the index, and federation that scales, each reviewed by kton-review. Tracks kton v0.4.1 and
