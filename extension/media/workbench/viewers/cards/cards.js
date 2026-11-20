@@ -31,7 +31,7 @@ export function mount(el, ctx) {
   const uid = String(ctx.use.key ?? ctx.use.id ?? "cards").replace(/[^\w-]/g, "_");
   let n = Number(String(ctx.state?.draw ?? "").split(":")[1] ?? 0) || 0;
   const heading = o.heading ? `<h3 data-block-title>${esc(o.heading)}</h3>` : "";
-  el.innerHTML = `${heading}<div class="kton-muted" data-area-loading>Loading…</div>`;
+  el.innerHTML = `${heading}${skeleton("card")}`;
   stamped(el, esc, ctx.request("query@1", {})).then(
     (r) => {
       const rows = r?.results?.bindings ?? [];
@@ -148,7 +148,7 @@ export function mount(el, ctx) {
       }
     },
     (e) => {
-      el.innerHTML = `${heading}<p class="kton-error" data-area-error>${esc(e?.message ?? String(e))}</p>`;
+      el.innerHTML = `${heading}<div class="callout error" data-area-error role="alert"><p>${esc(e?.message ?? String(e))}</p></div>`;
     },
   );
   return { set() {}, destroy() {} };
@@ -221,16 +221,22 @@ function safeDecode(s) {
   }
 }
 
-function emptyBox(esc, text, how) {
-  return `<div class="empty" data-area-empty><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="M1.5 9.5 3.5 3h9l2 6.5V13.5h-13z"/><path d="M1.5 9.5h4l1 1.5h3l1-1.5h4"/></svg><div><b>${esc(text)}</b>${how ? `<p>${esc(how)}</p>` : ""}</div></div>`;
-}
-
 const ICON_PREV = `<svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3.5 5.5 8l4.5 4.5"/></svg>`;
 const ICON_NEXT = `<svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="M6 3.5 10.5 8 6 12.5"/></svg>`;
 
 /** The stamp's data attributes: the stamp and, when the query gives them, its source label, full hash and scope (the part's source chip). */
 export function stampAttrs(x, v, esc) {
   return `data-stamp="${esc(v(x.stamp))}"${v(x.stampLabel) ? ` data-stamp-label="${esc(v(x.stampLabel))}"` : ""}${v(x.stampFull) ? ` data-stamp-full="${esc(v(x.stampFull))}"` : ""}${v(x.stampScope) ? ` data-stamp-scope="${esc(v(x.stampScope))}"` : ""}`;
+}
+
+/** Loading: a skeleton of the block's own shape (lines or a tile row), busy for assistive tech (DESIGN.md §5). */
+export function skeleton(shape = "lines") {
+  return `<div class="wb-skel ${shape}" data-area-loading aria-busy="true" role="status"><span class="sr-only">Loading…</span><i></i><i></i><i></i></div>`;
+}
+
+/** Empty: what will appear (bold) and how it will (muted), never a bare "No data". */
+export function emptyBox(esc, text, how) {
+  return `<div class="empty" data-area-empty><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.3"/><path d="M8 7.2v4M8 4.8v.4"/></svg><div><b>${esc(text)}</b>${how ? `<p>${esc(how)}</p>` : ""}</div></div>`;
 }
 
 // An answer the host ran with a declared optional param unbound says so (`unfiltered`: the params): its FILTER did not

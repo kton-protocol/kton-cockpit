@@ -64,7 +64,7 @@ export function mount(el, ctx) {
   <div class="kton-act">${buttons}<span class="kton-muted" data-act-out="${gi}">${esc(outs.get(title) ?? "")}</span></div>
 </article>`;
     });
-    el.innerHTML = rows.length ? cards.join("") : `<p class="kton-muted" data-area-empty>${esc(o.emptyText || "Nothing to request.")}</p>`;
+    el.innerHTML = rows.length ? cards.join("") : `${emptyBox(esc, o.emptyText || "Nothing to request.", o.emptyHow)}`;
     const list = [...groups.entries()];
     for (const b of el.querySelectorAll("button[data-act]")) {
       b.addEventListener("click", () => {
@@ -109,7 +109,7 @@ export function mount(el, ctx) {
 
   const ask = () =>
     stamped(el, esc, ctx.request("query@1", canPoll ? { refine: { poll: String(n) } } : {})).then(draw, (e) => {
-      el.innerHTML = `<p class="kton-error" data-area-error>${esc(e?.message ?? String(e))}</p>`;
+      el.innerHTML = `<div class="callout error" data-area-error role="alert"><p>${esc(e?.message ?? String(e))}</p></div>`;
     });
   function schedule(ms) {
     if (!canPoll || gone || timer) return;
@@ -120,7 +120,7 @@ export function mount(el, ctx) {
       ask();
     }, ms);
   }
-  el.innerHTML = `<div class="kton-muted" data-area-loading>Loading…</div>`;
+  el.innerHTML = `${skeleton("lines")}`;
   ask();
   return {
     set() {},
@@ -140,6 +140,16 @@ export function actClasses(acts) {
 /** The stamp's data attributes: the stamp and, when the query gives them, its source label, full hash and scope (the part's source chip). */
 export function stampAttrs(x, v, esc) {
   return `data-stamp="${esc(v(x.stamp))}"${v(x.stampLabel) ? ` data-stamp-label="${esc(v(x.stampLabel))}"` : ""}${v(x.stampFull) ? ` data-stamp-full="${esc(v(x.stampFull))}"` : ""}${v(x.stampScope) ? ` data-stamp-scope="${esc(v(x.stampScope))}"` : ""}`;
+}
+
+/** Loading: a skeleton of the block's own shape (lines or a tile row), busy for assistive tech (DESIGN.md §5). */
+export function skeleton(shape = "lines") {
+  return `<div class="wb-skel ${shape}" data-area-loading aria-busy="true" role="status"><span class="sr-only">Loading…</span><i></i><i></i><i></i></div>`;
+}
+
+/** Empty: what will appear (bold) and how it will (muted), never a bare "No data". */
+export function emptyBox(esc, text, how) {
+  return `<div class="empty" data-area-empty><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.3"/><path d="M8 7.2v4M8 4.8v.4"/></svg><div><b>${esc(text)}</b>${how ? `<p>${esc(how)}</p>` : ""}</div></div>`;
 }
 
 // An answer the host ran with a declared optional param unbound says so (`unfiltered`: the params): its FILTER did not

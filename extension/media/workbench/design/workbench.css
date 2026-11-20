@@ -352,3 +352,17 @@ table.eff tbody tr:hover td { background: none; }
 .stack i { display: block; height: 100%; width: calc(var(--w, 0) * 1%); }
 .s-cov { background: var(--wb-accent); } .s-ex { background: var(--wb-purple); } .s-gap { background: var(--wb-over); }
 .rc-grid .card-head .id { font-family: var(--wb-font); font-size: 13px; }
+
+/* ---------- 10. empty, loading and error states ---------- */
+.wb-skel { display: grid; gap: 8px; padding: 4px 0; }
+.wb-skel i { display: block; height: 10px; border-radius: 3px; background: var(--wb-hairline); animation: wb-pulse 1.4s ease-in-out infinite; }
+.wb-skel i:nth-child(3) { width: 70%; } .wb-skel i:nth-child(4) { width: 45%; }
+.wb-skel.tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.wb-skel.tiles i { height: 64px; width: auto !important; border-radius: var(--wb-radius); }
+.wb-skel.card i:nth-child(2) { height: 120px; border-radius: var(--wb-radius); }
+@keyframes wb-pulse { 50% { opacity: .45; } }
+@media (prefers-reduced-motion: reduce) { .wb-skel i { animation: none; } }
+.empty > svg { color: var(--wb-muted); margin-top: 1px; }
+.wb-dash-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.wb-dash-chips span { font-size: 11px; border: 1px dashed var(--wb-hairline); border-radius: 9px; padding: 0 7px; }
+.callout.error p { margin: 0; }

@@ -16,7 +16,7 @@ export function mount(el, ctx) {
   const ask = o.ask
     ? `<form class="kton-act" data-ask><input type="text" data-testid="evidence-ask" placeholder="${esc(placeholder)}" value="${esc(String(ctx.state?.element ?? ""))}"><button type="submit" data-testid="evidence-show">Show evidence</button></form>`
     : "";
-  el.innerHTML = `${ask}<div class="kton-muted" data-area-loading>Loading…</div>`;
+  el.innerHTML = `${ask}${skeleton("lines")}`;
   const wireAsk = () => {
     const f = el.querySelector("form[data-ask]");
     if (!f) return;
@@ -55,7 +55,7 @@ export function mount(el, ctx) {
           return head + item(x, i);
         })
         .join("");
-      el.innerHTML = `${ask}${rows.length ? forWhat + items : `<p class="kton-muted" data-area-empty>${esc(o.emptyText || "Nothing to open.")}</p>`}`;
+      el.innerHTML = `${ask}${rows.length ? forWhat + items : `${emptyBox(esc, o.emptyText || "Nothing to open.", o.emptyHow)}`}`;
       wireAsk();
       for (const b of el.querySelectorAll("button[data-open]")) {
         b.addEventListener("click", () => {
@@ -69,7 +69,7 @@ export function mount(el, ctx) {
       }
     },
     (e) => {
-      el.innerHTML = `${ask}<p class="kton-error" data-area-error>${esc(e?.message ?? String(e))}</p>`;
+      el.innerHTML = `${ask}<div class="callout error" data-area-error role="alert"><p>${esc(e?.message ?? String(e))}</p></div>`;
       wireAsk();
     },
   );
@@ -79,6 +79,16 @@ export function mount(el, ctx) {
 /** The stamp's data attributes: the stamp and, when the query gives them, its source label, full hash and scope (the part's source chip). */
 export function stampAttrs(x, v, esc) {
   return `data-stamp="${esc(v(x.stamp))}"${v(x.stampLabel) ? ` data-stamp-label="${esc(v(x.stampLabel))}"` : ""}${v(x.stampFull) ? ` data-stamp-full="${esc(v(x.stampFull))}"` : ""}${v(x.stampScope) ? ` data-stamp-scope="${esc(v(x.stampScope))}"` : ""}`;
+}
+
+/** Loading: a skeleton of the block's own shape (lines or a tile row), busy for assistive tech (DESIGN.md §5). */
+export function skeleton(shape = "lines") {
+  return `<div class="wb-skel ${shape}" data-area-loading aria-busy="true" role="status"><span class="sr-only">Loading…</span><i></i><i></i><i></i></div>`;
+}
+
+/** Empty: what will appear (bold) and how it will (muted), never a bare "No data". */
+export function emptyBox(esc, text, how) {
+  return `<div class="empty" data-area-empty><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.3"/><path d="M8 7.2v4M8 4.8v.4"/></svg><div><b>${esc(text)}</b>${how ? `<p>${esc(how)}</p>` : ""}</div></div>`;
 }
 
 // An answer the host ran with a declared optional param unbound says so (`unfiltered`: the params): its FILTER did not

@@ -18,7 +18,7 @@ export function mount(el, ctx) {
   const acts = ctx.use.blockActs ?? ctx.use.acts ?? [];
   const v = (b) => (b && typeof b.value === "string" ? b.value : "");
   const tiles = o.display !== "list";
-  el.innerHTML = `<div class="kton-muted" data-area-loading>Loading…</div>`;
+  el.innerHTML = `${skeleton("tiles")}`;
   stamped(el, esc, ctx.request("query@1", {})).then(
     (r) => {
       const rows = r?.results?.bindings ?? [];
@@ -53,7 +53,7 @@ export function mount(el, ctx) {
       const buttons = acts.length
         ? `<div class="kton-act actions">${acts.map((a, i) => `<button type="button" class="${actClasses(acts)[i]}" data-act="${i}" data-testid="act-${esc(a.control?.name ?? a.intent)}">${esc(a.label ?? a.intent)}</button>`).join("")}<span class="kton-muted" data-act-out></span></div>`
         : "";
-      const body = rows.length ? (tiles ? `<div class="tiles" data-count="${rows.length}">${figs}</div>` : figs) : `<p class="kton-muted" data-area-empty>${esc(o.emptyText || "No figures.")}</p>`;
+      const body = rows.length ? (tiles ? `<div class="tiles" data-count="${rows.length}">${figs}</div>` : figs) : `${emptyBox(esc, o.emptyText || "No figures.", o.emptyHow)}`;
       el.innerHTML = `${body}${guard}${buttons}`;
       for (const b of el.querySelectorAll("[data-act]")) {
         b.addEventListener("click", () => {
@@ -66,7 +66,7 @@ export function mount(el, ctx) {
       }
     },
     (e) => {
-      el.innerHTML = `<p class="kton-error" data-area-error>${esc(e?.message ?? String(e))}</p>`;
+      el.innerHTML = `<div class="callout error" data-area-error role="alert"><p>${esc(e?.message ?? String(e))}</p></div>`;
     },
   );
   return { set() {}, destroy() {} };
@@ -104,6 +104,16 @@ export function stampAttrs(x, v, esc) {
 }
 
 const ICON_WARN = `<svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.8 15 14H1z"/><path d="M8 6.2v3.6M8 11.6v.4"/></svg>`;
+
+/** Loading: a skeleton of the block's own shape (lines or a tile row), busy for assistive tech (DESIGN.md §5). */
+export function skeleton(shape = "lines") {
+  return `<div class="wb-skel ${shape}" data-area-loading aria-busy="true" role="status"><span class="sr-only">Loading…</span><i></i><i></i><i></i></div>`;
+}
+
+/** Empty: what will appear (bold) and how it will (muted), never a bare "No data". */
+export function emptyBox(esc, text, how) {
+  return `<div class="empty" data-area-empty><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.3"/><path d="M8 7.2v4M8 4.8v.4"/></svg><div><b>${esc(text)}</b>${how ? `<p>${esc(how)}</p>` : ""}</div></div>`;
+}
 
 // An answer the host ran with a declared optional param unbound says so (`unfiltered`: the params): its FILTER did not
 // apply, so the block is stamped "unfiltered: <param> not set" above what it drew (the unbound-parameter guard).

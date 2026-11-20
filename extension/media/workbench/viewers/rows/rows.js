@@ -49,7 +49,7 @@ export function mount(el, ctx) {
   const cur = {};
   for (const [k, spec] of Object.entries(refine)) if (Array.isArray(spec.values)) cur[k] = value(ctx.use.params?.[k]) || String(spec.values[0] ?? "");
   const back = [];
-  el.innerHTML = `<div class="kton-muted" data-area-loading>Loading…</div>`;
+  el.innerHTML = `${skeleton("lines")}`;
 
   const split = (x) => {
     const i = x.indexOf("|");
@@ -119,7 +119,7 @@ export function mount(el, ctx) {
     const stampMode = o.stamp === "section" || o.stamp === "hide" ? o.stamp : "column";
     const cols = (o.columns && o.columns.length ? o.columns : vars).filter((c) => vars.includes(c)).filter((c) => !(stampMode !== "column" && c === "stamp") && c !== o.group);
     let body;
-    if (!rows.length) body = `<p class="kton-muted" data-area-empty>${esc(o.emptyText || "No rows.")}</p>`;
+    if (!rows.length) body = `${emptyBox(esc, o.emptyText || "No rows.", o.emptyHow)}`;
     else if (o.card === "yes") {
       const r = rows[0];
       body = `<dl class="kton-card" data-area-card>${cols
@@ -185,7 +185,7 @@ export function mount(el, ctx) {
       draw(vars, rows);
     },
     (e) => {
-      el.innerHTML = `<p class="kton-error" data-area-error>${esc(e?.message ?? String(e))}</p>`;
+      el.innerHTML = `<div class="callout error" data-area-error role="alert"><p>${esc(e?.message ?? String(e))}</p></div>`;
     },
   );
   load();
@@ -301,6 +301,16 @@ function table(rows, cols, { o, esc, value, shortly, click, perRow, rowButtons }
     ? `<tfoot><tr>${cols.map((c, k) => (k === 0 ? '<th scope="row">Total</th>' : c === o.total ? `<th class="r" data-total>${esc(rows.reduce((a, r) => a + (Number(value(r[c])) || 0), 0).toLocaleString("en"))}</th>` : "<th></th>")).join("")}${perRow ? "<th></th>" : ""}</tr></tfoot>`
     : "";
   return { html: `<div class="tbl-wrap"><table class="kton-table t" data-area-table data-count="${rows.length}"><thead><tr>${cols.map(th).join("")}${perRow ? '<th><span class="sr-only">Actions</span></th>' : ""}</tr></thead><tbody>${tbody}</tbody>${foot}</table></div>`, rows };
+}
+
+/** Loading: a skeleton of the block's own shape (lines or a tile row), busy for assistive tech (DESIGN.md §5). */
+export function skeleton(shape = "lines") {
+  return `<div class="wb-skel ${shape}" data-area-loading aria-busy="true" role="status"><span class="sr-only">Loading…</span><i></i><i></i><i></i></div>`;
+}
+
+/** Empty: what will appear (bold) and how it will (muted), never a bare "No data". */
+export function emptyBox(esc, text, how) {
+  return `<div class="empty" data-area-empty><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.3"/><path d="M8 7.2v4M8 4.8v.4"/></svg><div><b>${esc(text)}</b>${how ? `<p>${esc(how)}</p>` : ""}</div></div>`;
 }
 
 // An answer the host ran with a declared optional param unbound says so (`unfiltered`: the params): its FILTER did not

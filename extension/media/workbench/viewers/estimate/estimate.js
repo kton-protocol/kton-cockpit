@@ -15,13 +15,13 @@ export function mount(el, ctx) {
   const o = ctx.use.options ?? {};
   const unit = o.unit ?? "";
   const v = (b) => (b && typeof b.value === "string" ? b.value : "");
-  el.innerHTML = `${o.title ? `<h3 data-block-title>${esc(o.title)}</h3>` : ""}<div class="kton-muted" data-area-loading>Loading…</div>`;
+  el.innerHTML = `${o.title ? `<h3 data-block-title>${esc(o.title)}</h3>` : ""}${skeleton("lines")}`;
   stamped(el, esc, ctx.request("query@1", {})).then(
     (r) => {
       const x = (r?.results?.bindings ?? [])[0];
       const title = o.title ? `<h3 data-block-title>${esc(o.title)}</h3>` : "";
       if (!x) {
-        el.innerHTML = `${title}<p class="kton-muted" data-area-empty>${esc(o.emptyText || "No measurement.")}</p>`;
+        el.innerHTML = `${title}${emptyBox(esc, o.emptyText || "No measurement.", o.emptyHow)}`;
         return;
       }
       const n = (k) => (v(x[k]) === "" ? NaN : Number(v(x[k])));
@@ -51,7 +51,7 @@ export function mount(el, ctx) {
       for (const t of el.querySelectorAll?.(".rb [data-x]") ?? []) t.style.setProperty("--x", t.dataset.x);
     },
     (e) => {
-      el.innerHTML = `<p class="kton-error" data-area-error>${esc(e?.message ?? String(e))}</p>`;
+      el.innerHTML = `<div class="callout error" data-area-error role="alert"><p>${esc(e?.message ?? String(e))}</p></div>`;
     },
   );
   return { set() {}, destroy() {} };
@@ -131,6 +131,16 @@ export function stampAttrs(x, v, esc) {
 }
 
 const ICON_CHECK = `<svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="m3 8.5 3 3 7-7"/></svg>`;
+
+/** Loading: a skeleton of the block's own shape (lines or a tile row), busy for assistive tech (DESIGN.md §5). */
+export function skeleton(shape = "lines") {
+  return `<div class="wb-skel ${shape}" data-area-loading aria-busy="true" role="status"><span class="sr-only">Loading…</span><i></i><i></i><i></i></div>`;
+}
+
+/** Empty: what will appear (bold) and how it will (muted), never a bare "No data". */
+export function emptyBox(esc, text, how) {
+  return `<div class="empty" data-area-empty><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.3"/><path d="M8 7.2v4M8 4.8v.4"/></svg><div><b>${esc(text)}</b>${how ? `<p>${esc(how)}</p>` : ""}</div></div>`;
+}
 
 // An answer the host ran with a declared optional param unbound says so (`unfiltered`: the params): its FILTER did not
 // apply, so the block is stamped "unfiltered: <param> not set" above what it drew (the unbound-parameter guard).

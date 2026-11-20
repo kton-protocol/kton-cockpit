@@ -15,7 +15,7 @@ const kit = { esc };
 /** Mount a block on a stand-in element; returns the element (its innerHTML is what the block drew). */
 export async function mountOn(viewer: string, options: Record<string, unknown>, extra: Record<string, unknown> = {}): Promise<{ innerHTML: string }> {
   const m = await media(`viewers/${viewer}/${viewer}.js`);
-  const el = { innerHTML: "" };
+  const el = { innerHTML: "", querySelector: () => null, querySelectorAll: () => [] };
   m.mount(el, { use: { options, ...extra }, kit, request: () => new Promise(() => {}), intent: async () => ({}), setState: () => {} });
   return el;
 }
@@ -185,4 +185,21 @@ test("design step 9: one primary per object: the first sign act; record acts and
   (await media("viewers/figures/figures.js")).mount(el, { use: { options: {}, blockActs: [{ intent: "sign", label: "Choose and sign…", control: { name: "decides" } }, { intent: "record", label: "Ask a question", control: { name: "question" } }] }, kit, request: async () => ({ results: { bindings: [{ value: { value: "0" }, label: { value: "questions asked" }, stamp: { value: "s" } }] } }), intent: async () => ({}), setState: () => {} });
   await new Promise((r) => setTimeout(r, 10));
   assert.match(el.innerHTML, /class="primary" data-act="0" data-testid="act-decides">Choose and sign…<\/button><button type="button" class="secondary" data-act="1" data-testid="act-question">Ask a question</);
+});
+
+test("design step 10: every block: a skeleton while it loads (busy), an empty state that says what and how, an error callout", async () => {
+  for (const v of ["figures", "estimate", "rows", "evidence", "requests", "cards"]) {
+    const loading = await mountOn(v, { emptyText: "No data for dryrun2", emptyHow: "Counts come from dryrun2.mapping." });
+    assert.match(loading.innerHTML, /class="wb-skel [a-z]+" data-area-loading aria-busy="true"/, `${v}: skeleton`);
+    assert.doesNotMatch(loading.innerHTML, /<button/, `${v}: no act while it loads`);
+    const el: Any = { innerHTML: "", querySelectorAll: () => [], querySelector: () => null };
+    const m = await media(`viewers/${v}/${v}.js`);
+    m.mount(el, { use: { options: { emptyText: "No data for dryrun2", emptyHow: "Counts come from dryrun2.mapping.", title: "x" } }, kit, request: async () => ({ head: { vars: [] }, results: { bindings: [] } }), intent: async () => ({}), setState: () => {} });
+    await new Promise((r) => setTimeout(r, 10));
+    assert.match(el.innerHTML, /<div class="empty" data-area-empty>[\s\S]*<b>No data for dryrun2<\/b><p>Counts come from dryrun2\.mapping\.<\/p>/, `${v}: empty says what and how`);
+    const er: Any = { innerHTML: "", querySelectorAll: () => [], querySelector: () => null, insertAdjacentHTML: () => {} };
+    m.mount(er, { use: { options: {} }, kit, request: async () => { throw new Error("the cockpit refused <x>"); }, intent: async () => ({}), setState: () => {} });
+    await new Promise((r) => setTimeout(r, 10));
+    assert.match(er.innerHTML, /<div class="callout error" data-area-error role="alert"><p>the cockpit refused &lt;x&gt;<\/p><\/div>/, `${v}: error callout`);
+  }
 });
