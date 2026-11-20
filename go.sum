@@ -28,3 +28,5 @@ kton.dev/nekton v0.4.1-0.20261120023314-56553bed9483 h1:LdmeSmLzU63fig4haEFV6IVd
 kton.dev/nekton v0.4.1-0.20261120023314-56553bed9483/go.mod h1:ARbbnTMIf8lAsFnI7PdzQNJU5d+3be50rkYpZcd1gxM=
 kton.dev/plankton v0.4.0 h1:44e8tsohgYAp3slbrb3OmuwtC1KZvON8v0Ky7XxyTEQ=
 kton.dev/plankton v0.4.0/go.mod h1:Cn564opIXVuuNOVSn31sudCg09PWwCHYbQC/0Q0NpmM=
+kton.dev/plankton v0.4.1-0.20261120023314-56553bed9483 h1:Oqc3DXJCQstX2ZToUtPqbxa76BO8g11WIBCHnPpD5kM=
+kton.dev/plankton v0.4.1-0.20261120023314-56553bed9483/go.mod h1:Cn564opIXVuuNOVSn31sudCg09PWwCHYbQC/0Q0NpmM=
