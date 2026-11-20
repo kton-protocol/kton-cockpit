@@ -131,10 +131,12 @@ by name: `urn:kton:view:…:scope:` is claims, `https://kton.dev/o/` is a loaded
 ### 4a Loaded graphs get the same metadata
 
 A new version of a file is a new hash, so a loaded graph found only by its content breaks once two versions are
-loaded. Each loaded graph is described in the repository's catalogue. The view is per slot and the catalogue per
-repository, so the catalogue is never copied into a view: a claims-dataset query of this repository gets it as
-one more default graph, listed per request, and a repository sharing the slot does not see it. This amends
-ADR-017 (the catalogue was the cockpit's bookkeeping only):
+loaded. Each loaded graph is described in a graph of its own per repository
+(`urn:kton:loaded-described:<digest of the root>`), apart from the catalogue's bookkeeping, which no query
+lists (kton-review on #208). The view is per slot and the description per repository, so it is never copied
+into a view: a claims-dataset query of this repository gets it as one more default graph, listed per
+request, and a repository sharing the slot does not see it. This adds to ADR-017, where the catalogue was
+the cockpit's bookkeeping only:
 
 ```turtle
 <https://kton.dev/o/<hex>> a nk:LoadedGraph ;
