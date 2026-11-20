@@ -9,7 +9,8 @@ import { sparqlResultsOf } from "../ui/queries.js";
 import { CompositionHost, LeafHost, type Backend, type Plan } from "./host.js";
 import type { BoundTerm } from "../transport/port.js";
 import { applies, oneNumber, partition, planComposition, planEntry, type Subject } from "./slots.js";
-import { approvalCounts, areaComposition, BUILTIN, recordComposition, recordTerms, withBuiltin } from "./qm-area.js";
+import { approvalCounts, areaComposition, BUILTIN, recordComposition, recordTerms, signerKeyId, withBuiltin } from "./qm-area.js";
+import { SIGNER_QUERY } from "../identity.js";
 import type { AreaDecl } from "../packages/listing.js";
 
 export interface CompositionUi {
@@ -147,7 +148,11 @@ export class PackagesArea {
       const p = h as OpenPanel;
       p.busy++;
       try {
-        return await this.path.act(c, about, fields, title, { package: c.package, revision: p.revisions.get(c.package) as string }, scope ? { scope } : {});
+        const r = await this.path.act(c, about, fields, title, { package: c.package, revision: p.revisions.get(c.package) as string }, scope ? { scope } : {});
+        // a record is written with the agent key and no dialog: where it went is said, as the dialog says it for a
+        // decision (the records scope is the package's declaration; kton-review N1 on #187)
+        if (r === "signed" && c.kind === "record" && scope) this.ui.info(`${label}: recorded into scope ${scope} with the agent key (no dialog).`);
+        return r;
       } finally {
         p.busy--;
         if (p.retired && p.busy === 0) this.retire(key, p, p.retired);
@@ -325,7 +330,7 @@ export class PackagesArea {
     const backend: Backend = {
       query: async (p, name, terms) => {
         const r = await this.named(p, name, terms);
-        return annotate && p === annotate.package && name === annotate.query ? this.withCounts(r) : r;
+        return annotate && p === annotate.package && name === annotate.query ? await this.withCounts(r) : r;
       },
       bytes: (p, hash) => this.t.uiCat(p, hash),
       open: opts.open ?? ((target) => this.path.open(target)),
@@ -343,11 +348,22 @@ export class PackagesArea {
     return host;
   }
 
-  /** An approvals answer with the column `counts`: whether each approval counts, and why (approvalCounts). */
-  private withCounts(r: unknown): unknown {
+  /**
+   * An approvals answer with the column `counts`: whether each approval counts, and why (approvalCounts). Each
+   * signer's tier is the cockpit's answer for its key id (the shell's own signer query, as for the window's keys),
+   * never a column of the package's query.
+   */
+  private async withCounts(r: unknown): Promise<unknown> {
     const person = this.path.person?.() ?? { keyId: "", personTiers: [] };
     const a = r as { head?: { vars?: string[] }; results?: { bindings?: Array<Record<string, { value?: string }>> } };
-    const bindings = (a.results?.bindings ?? []).map((b) => ({ ...b, counts: { type: "literal", value: approvalCounts({ outcome: b["outcome"]?.value, signer: b["signer"]?.value, tier: b["tier"]?.value }, person).why } }));
+    const kids = [...new Set((a.results?.bindings ?? []).map((b) => signerKeyId(b["signer"]?.value)).filter((k): k is string => !!k))];
+    const tiers = new Map<string, string>();
+    for (const kid of kids) {
+      const out = await this.t.ask({ query: "sparql", sparql: SIGNER_QUERY, bind: { KEYID: kid }, format: "sparql-results+json", limit: 2 });
+      const rows = out.ok ? sparqlResultsOf(out.value).results.bindings : [];
+      if (rows.length === 1 && rows[0]?.["tier"]?.value) tiers.set(kid, rows[0]["tier"].value);
+    }
+    const bindings = (a.results?.bindings ?? []).map((b) => ({ ...b, counts: { type: "literal", value: approvalCounts({ outcome: b["outcome"]?.value, signer: b["signer"]?.value }, person, (k) => tiers.get(k)).why } }));
     return { ...a, head: { ...a.head, vars: [...(a.head?.vars ?? []), "counts"] }, results: { ...a.results, bindings } };
   }
 
@@ -406,15 +422,19 @@ export class PackagesArea {
 }
 
 /**
- * A slot entry's label for a tree item: the entry's own label, once; the slot kind ("Review", "Record") is put in
- * front only when the label does not already say it ("Review" stays "Review", "Test shell" becomes "Review · Test shell").
+ * An area's subject: its records scope (when {kind: scope}). Its IRI (https://kton.dev/scope/<name>) is the shell's
+ * own name for the panel's subject: it is never signed, asked or shown as a kton IRI, and no area query reads it
+ * (a scope's own id is its seed claim, which ui list does not give the shell).
  */
-/** An area's subject: its records scope (when {kind: scope}); the area's queries do not read it. */
 export function areaSubject(e: SlotEntry): Subject {
   const scope = e.area?.scopes?.records ?? `${e.package}/${e.file}`;
   return { kind: "scope", iri: `https://kton.dev/scope/${encodeURIComponent(scope)}`, id: scope, scope };
 }
 
+/**
+ * A slot entry's label for a tree item: the entry's own label, once; the slot kind ("Review", "Record") is put in
+ * front only when the label does not already say it ("Review" stays "Review", "Test shell" becomes "Review · Test shell").
+ */
 export function slotLabel(e: { readonly slot: string; readonly label: string }): string {
   const kind = e.slot === "review-view" ? "Review" : e.slot === "record-view" ? "Record" : e.slot;
   return new RegExp(`\\b${kind}\\b`, "i").test(e.label) ? e.label : `${kind} · ${e.label}`;

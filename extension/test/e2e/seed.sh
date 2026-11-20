@@ -123,12 +123,13 @@ rm -f .kton/keys/agent/qa-decider-claims.pub .kton/keys/agent/qa-decider.pub   #
 cockpit install "$E2E/vocab-package" --allow --json >/dev/null
 # the S6 packages, their scopes and seeded claims (qm-workbench/s6-packages/seed.sh, README "Seeded data")
 for p in qa.register qa.area-one qa.area-two qa.rules; do cockpit install "$E2E/pkgs/$p" --allow --json >/dev/null; done
-# the view reads aliases from the repo root only (cockpit gap): the packages' alias files are merged into it
+# the view reads one alias file, .kton/aliases.json (cockpit v0.5.5; a package's own is not applied): the packages'
+# alias files are merged into it
 node -e '
 const fs=require("fs");const m={schema:"https://kton.dev/aliases/v0",prefixes:{},terms:{}};
 for(const n of ["qa.register","qa.area-one","qa.area-two"]){const a=JSON.parse(fs.readFileSync("/e2e/packages/s6/"+n+"/templates/aliases.json"));
  for(const k of ["prefixes","terms"])for(const[x,v]of Object.entries(a[k]||{})){m[k]=m[k]||{};if(m[k][x]!==undefined&&JSON.stringify(m[k][x])!==JSON.stringify(v))throw new Error("alias "+x+" differs");m[k][x]=v;}}
-fs.writeFileSync("aliases.json",JSON.stringify(m,null,1));'
+fs.writeFileSync(".kton/aliases.json",JSON.stringify(m,null,1));'
 S6SCOPES="qa.deviations qa.deviations.raci qa.evaluations qa.evaluations.raci qa.documents"
 for s in $S6SCOPES; do
   id=$(cockpit scope seed "$s" 2>&1 | sed -n "s/.*\"$s\": \"\(sha256:[0-9a-f]*\)\".*/\1/p")

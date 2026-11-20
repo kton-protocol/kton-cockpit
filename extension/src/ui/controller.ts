@@ -7,7 +7,7 @@ import { TransportError, TransportTimeout } from "../transport/port.js";
 import type { WindowIdentity, ShownSigner } from "../identity.js";
 import { hasKey, showSigner, signerKeyId, statusText, statusTooltip } from "../identity.js";
 import type { ControlInfo, SignPlan } from "../sign.js";
-import { DialogConsent, plan, sign, templateFingerprint, templateFor, FOOTER } from "../sign.js";
+import { DialogConsent, meaningField, plan, sign, templateFor, FOOTER } from "../sign.js";
 import type { UiEntry, SlotContext } from "../intents.js";
 import { checkIntent } from "../intents.js";
 import { Scheduler } from "../poll.js";
@@ -535,6 +535,11 @@ export class Workbench {
       this.host.error(`Not signed: ${p.refusal.reason}`);
       return "failed";
     }
+    // a panel's act: the template must come from the package revision the panel showed (else the panel is stale)
+    if (expect && p.value.expect.revision !== undefined && p.value.expect.revision !== expect.revision) {
+      this.host.error(`Not signed: package ${expect.package} changed since the panel was opened${AGAIN}.`);
+      return "failed";
+    }
     let consent: DialogConsent | undefined;
     const viaDialog = p.value.keyRole === "person" || p.value.needsDialog;
     if (viaDialog) {
@@ -552,9 +557,8 @@ export class Workbench {
       this.host.error(text);
       return "failed";
     };
-    // after the yes, just before say: still what the person saw (one seam; see changedSinceDialog)
-    const changed = await this.changedSinceDialog(p.value, expect);
-    if (changed) return fail(`Not signed: ${changed}`);
+    // what the person saw is what say signs: the expectations (template hash, revision, predicate) go with the say
+    // request, and say refuses template.changed when the template it would sign with is another (SPEC §8.5)
     for (let attempt = 1; ; attempt++) {
       try {
         const out = await sign(this.t, p.value, consent);
@@ -566,6 +570,7 @@ export class Workbench {
             await sleep(this.cfg.lockRetry.delayMs);
             continue;
           }
+          if (out.refusal.code === "template.changed") return fail(`Not signed: the template changed since the dialog showed it (${out.refusal.reason})${AGAIN}.`);
           return fail(`Not signed: the cockpit refused: ${out.refusal.reason}`);
         }
         if (out.value.pending) {
@@ -612,40 +617,13 @@ export class Workbench {
     const tpl = templateFor(control, this.templates);
     const out: Record<string, string> = { ...fields };
     for (const [k, f] of Object.entries(tpl?.fields ?? {})) {
-      if (!f.required || out[k] !== undefined || (k === "meaning" && control.meaning !== undefined)) continue;
+      // a field the control's meaning fixes is never asked: the meaning shown is the meaning signed
+      if (!f.required || out[k] !== undefined || (tpl && k === meaningField(control, tpl))) continue;
       const v = f.values ? await this.host.pick(`${control.name}: ${k}`, f.values) : await this.host.input(`${control.name}: ${k}`);
       if (v === undefined || v === "") return undefined;
       out[k] = v;
     }
     return out;
-  }
-
-  /**
-   * The one seam between the dialog's yes and say (kton-review R1 on #177): say resolves the template NAME when it
-   * signs, so the plan the person saw must still be what the cockpit would sign. Read fresh, never from the poll:
-   * - the template the name resolves to now (`say --json`): its definition must be the plan's (templateSig, which
-   *   the dialog's digest covers: predicate, target, package, fields);
-   * - for a package's act, the package's installed revision (`ui list`) must be the one the panel was opened at.
-   * Returns why not, or undefined. When say takes these expectations itself (asked of kton-cockpit:
-   * an expected template and package revision, like expectHead), put them in the say request and drop this read.
-   */
-  private async changedSinceDialog(p: SignPlan, expect: ExpectRevision | undefined): Promise<string | undefined> {
-    try {
-      const [tpl, list] = await Promise.all([this.t.templates(), expect ? this.t.uiList() : Promise.resolve(undefined)]);
-      if (!tpl.ok) return `the template ${p.template} cannot be confirmed: ${tpl.refusal.reason}`;
-      const now = tpl.value.find((t) => t.name === p.template);
-      if (!now) return `the template ${p.template} is no longer installed${AGAIN}`;
-      if (templateFingerprint(now) !== p.templateSig) return `the template ${p.template} changed since the dialog showed it${now.predicate !== p.predicate ? ` (it now says ${now.predicate ?? "nothing"})` : ""}${AGAIN}`;
-      if (expect && list) {
-        if (!list.ok) return `the installed revision of ${expect.package} cannot be confirmed: ${list.refusal.reason}`;
-        const pkg = list.value.packages.find((x) => x.name === expect.package);
-        if (!pkg || pkg.refused.length || !pkg.allowed) return `package ${expect.package} is no longer installed and admitted${AGAIN}`;
-        if (pkg.revision !== expect.revision) return `package ${expect.package} changed (revision ${pkg.revision.slice(0, 19)}…) since it was shown${AGAIN}`;
-      }
-      return undefined;
-    } catch (e) {
-      return describe(e);
-    }
   }
 
   /** open@1: a claim this window knows opens its thread or decision; anything else is named, not fetched. */

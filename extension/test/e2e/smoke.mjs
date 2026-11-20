@@ -1028,15 +1028,15 @@ await step("S6", 7, "training: the package's training query result, computed now
   check(/person\/p1/.test(t) && /person\/p2/.test(t), "both RACI people's obligations");
 });
 
-await step("S6", 10, "a param: picking p2 in the RACI binds the training query to p2 only", async () => {
+await step("S6", 10, "a param: the record query is bound to the record (subject.iri), not to all records", async () => {
   const f = await openArea("qa.area-one");
-  await countIn(f, "raci");
-  await box(f, "raci").locator("tr", { hasText: `${QA}/person/p2` }).first().click();
-  await box(f, "training").locator('[data-area-table][data-count="2"]').waitFor({ timeout: 30000 });
-  check((await countIn(f, "training")) === 2, "p2's 2 obligations", 2, await countIn(f, "training"));
-  const t = await boxText(f, "training");
-  check(!/person\/p1/.test(t), "no other person's rows");
-  await shot("s6-training-p2");
+  await countIn(f, "records");
+  await box(f, "records").locator("tr", { hasText: "D-002" }).first().click();
+  const r = await recordFrame("qa.area-one");
+  await box(r, "record").locator('[data-col="identifier"]', { hasText: "D-002" }).waitFor({ timeout: 30000 });
+  const t = await boxText(r, "record");
+  check(!/D-001|D-003|D-004/.test(t), "only D-002's fields", "D-002 only", t.slice(0, 200));
+  await shot("s6-record-bound");
 });
 
 await step("S6", 11, "approvals: a rejected outcome is shown as rejected, never as approved", async () => {
@@ -1051,7 +1051,7 @@ await step("S6", 12, "an approval signed by the agent key does not count; the pe
   await countIn(f, "approvals");
   const t = await boxText(f, "approvals");
   check((t.match(/yes: person key/g) ?? []).length === 1, "one approval counts (D-001, person key)", 1, (t.match(/yes: person key/g) ?? []).length);
-  check(/no: not signed by a person key/.test(t), "the agent key's approval is not counted");
+  check(/no: tier agent is no person tier/.test(t), "the agent key's approval is not counted (its tier, as the cockpit answers it, is agent)");
   await shot("s6-approvals");
 });
 
@@ -1072,9 +1072,9 @@ await step("S6", 5, "actions: approves through the dialog with the person key; a
   await box(r, "record").locator("[data-act-out]", { hasText: "Recorded with the agent key" }).waitFor({ timeout: 60000 });
   // approves: a decision control, the outcome picked, then the one sign dialog with the meaning and the scope
   await box(r, "record").locator('[data-testid="act-approves"]').click();
-  await pickQuick("approved");
+  // the control's meaning (approved) fixes the outcome: nothing is asked, and the dialog shows what is signed
   const d = await dialog();
-  for (const s of ["Meaning: approved", "Into scope: qa.deviations", "outcome = approved", 'person key "qa-decider"']) await d.getByText(s, { exact: false }).first().waitFor({ timeout: 15000 });
+  for (const s of ["Meaning: approved (signed as outcome = approved)", "Into scope: qa.deviations", "outcome = approved", 'person key "qa-decider"']) await d.getByText(s, { exact: false }).first().waitFor({ timeout: 15000 });
   await signInDialog(d);
   await d.locator('[data-testid="sign-outcome"][data-state="signed"]').waitFor({ timeout: 60000 });
   await shot("s6-approve-dialog");

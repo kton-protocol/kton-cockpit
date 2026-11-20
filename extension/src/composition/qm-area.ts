@@ -15,27 +15,36 @@ import type { Term } from "./host.js";
 export { BUILTIN, loadBuiltin } from "../packages/vendored.js";
 import { BUILTIN } from "../packages/vendored.js";
 
-/** The document register: the area's own package, else the first admitted package that brings `documents` and `document`. */
-export function registerOf(pkg: string, loaded: Loaded): string | undefined {
+/**
+ * The document register: the area's own package if it brings the queries `documents` and `document`, else the one
+ * admitted package that does. Two or more such packages: none is picked (no order decides; kton-review A2), and the
+ * area says which ones.
+ */
+export function registerOf(pkg: string, loaded: Loaded): { register?: string; ambiguous?: string[] } {
   const has = (p: MirrorPackage | undefined) => !!p?.queries["documents"] && !!p.queries["document"];
-  if (has(loaded.packages[pkg])) return pkg;
-  return Object.keys(loaded.packages).sort().find((n) => has(loaded.packages[n]));
+  if (has(loaded.packages[pkg])) return { register: pkg };
+  const all = Object.keys(loaded.packages).filter((n) => has(loaded.packages[n]));
+  return all.length === 1 ? { register: all[0] as string } : all.length > 1 ? { ambiguous: all.sort() } : {};
 }
 
-/** The record query's terms for a record IRI: each of its $VARs the area binds from subject.iri, as that IRI. */
+/**
+ * The record query's terms for a record IRI, to find the record's latest claim before the record opens: each of its
+ * $VARs must be declared from subject.iri (the record's IRI). Undefined otherwise: nothing opens.
+ */
 export function recordTerms(area: AreaDecl, loaded: Loaded, pkg: string, iri: string): Record<string, { type: "iri"; value: string }> | undefined {
   const text = area.record ? loaded.packages[pkg]?.queries[area.record]?.text : undefined;
   if (text === undefined) return undefined;
-  const roles = paramRoles(area);
   const vars = varsOf(text) as string[];
-  if (!vars.length || vars.some((v) => !roles.record.includes(v))) return undefined;
+  if (!vars.length || vars.some((v) => area.params?.[v] !== "subject.iri")) return undefined;
   return Object.fromEntries(vars.map((v) => [v, { type: "iri" as const, value: iri }]));
 }
 
-/** The record's params (bound to the record's IRI) and the reader's (each a var a RACI row click sets). */
-function paramRoles(area: AreaDecl): { record: string[]; picked: string[] } {
-  const params = Object.entries(area.params ?? {});
-  return { record: params.filter(([, s]) => s === "subject.iri").map(([k]) => k), picked: params.filter(([, s]) => s !== "subject.iri").map(([k]) => k) };
+/** The param sources the area may declare: the record (the closed set's subject.*) and the window's identity. */
+const SOURCES = ["subject.iri", "subject.id", "subject.claim", "subject.type", "subject.kind", "identity.name"];
+/** Why the area's params cannot be bound as declared, or undefined (kton-cockpit N1, kton-review N3). */
+export function paramProblem(area: AreaDecl): string | undefined {
+  const bad = Object.entries(area.params ?? {}).filter(([, s]) => !SOURCES.includes(s));
+  return bad.length ? `params ${bad.map(([k, s]) => `${k} = ${s}`).join(", ")}: the shell binds ${SOURCES.join(", ")} only` : undefined;
 }
 
 interface Built {
@@ -49,25 +58,24 @@ interface Built {
 const lit = (value: string): Term => ({ type: "literal", value });
 
 /**
- * A use of `rows` on a named query of a package, with params for exactly the $VARs its text has: the record
- * params from the subject (only where `record` is true), the others from their vars. Undefined when a $VAR has no
- * source here (a record query has no place in the area list, for one).
+ * A use of `rows` on a named query of a package, with params for exactly the $VARs its text has, each bound from its
+ * declared source:
+ * - in a record's view, every declared source (subject.* is the record; identity.name the window's identity);
+ * - in the area's view, identity.name; a subject.* source is the record's, which the area view has none of, so that
+ *   $VAR stays unbound (an optional param, ktonpkg v0.9.10: the query runs without that filter).
+ * Undefined when a $VAR is not declared at all (or, in the area view, only the record's IRI can fill it).
  */
 function rowsUse(loaded: Loaded, area: AreaDecl, pkg: string, query: string, id: string, options: Record<string, unknown>, where: "area" | "record"): Record<string, unknown> | undefined {
   const text = loaded.packages[pkg]?.queries[query]?.text;
   if (text === undefined) return undefined;
-  const roles = paramRoles(area);
   const params: Record<string, string> = {};
   const optional: string[] = [];
   for (const v of varsOf(text) as string[]) {
-    if (roles.record.includes(v)) {
-      if (where !== "record") return undefined;
-      params[v] = "subject.iri";
-    } else if (roles.picked.includes(v)) {
-      // a reader's pick filters; until there is one the query runs unfiltered (ktonpkg v0.9.10 optional params)
-      params[v] = `var.${v}`;
-      optional.push(v);
-    } else return undefined;
+    const src = area.params?.[v];
+    if (!src || !SOURCES.includes(src)) return undefined;
+    if (where === "record" || src === "identity.name") params[v] = src;
+    else if (src === "subject.iri") return undefined;
+    else optional.push(v);
   }
   return { id, use: { package: BUILTIN, block: "rows" }, query: { package: pkg, query }, ...(Object.keys(params).length ? { params } : {}), ...(optional.length ? { optional } : {}), options, empty: "show" };
 }
@@ -80,10 +88,11 @@ export function areaComposition(e: SlotEntry & { area: AreaDecl }, loaded: Loade
   const a = e.area;
   const pkg = e.package;
   const used = new Set([pkg]);
-  const roles = paramRoles(a);
   const parts: unknown[] = [];
   const params: Record<string, Term> = {};
-  const register = registerOf(pkg, loaded);
+  const { register, ambiguous } = registerOf(pkg, loaded);
+  const noRegister = ambiguous ? `Two or more admitted packages bring a document register (${ambiguous.join(", ")}): none is picked` : "No document register is installed";
+  if (paramProblem(a)) parts.push(part("params", "Params", [notice("params", `This area declares ${paramProblem(a)}: queries that use them are not shown.`)]));
   // the governing SOP and its state (a draft is shown as one, S6.15)
   if (a.governing) {
     if (register) {
@@ -92,7 +101,7 @@ export function areaComposition(e: SlotEntry & { area: AreaDecl }, loaded: Loade
       // the register's `document` query takes the key ($key), bound from the composition's param
       const ok = JSON.stringify(varsOf(loaded.packages[register]?.queries["document"]?.text ?? "")) === JSON.stringify(["key"]);
       parts.push(part("governing", `Governing: ${a.governing}`, [ok ? { id: "governing", use: { package: BUILTIN, block: "rows" }, query: { package: register, query: "document" }, params: { key: "governing" }, options: { columns: ["title", "revision", "state", "effectiveDate"], card: "yes", emptyText: `${a.governing} is not in the document register.` }, empty: "show" } : notice("governing", `The register ${register} cannot look up ${a.governing}.`)]));
-    } else parts.push(part("governing", `Governing: ${a.governing}`, [notice("governing", "No document register is installed: the governing SOP's state is not known.")]));
+    } else parts.push(part("governing", `Governing: ${a.governing}`, [notice("governing", `${noRegister}: the governing SOP's state is not known.`)]));
   }
   const records = a.scopes?.records;
   const list = e.query ? rowsUse(loaded, a, pkg, e.query, "records", { open: "item", emptyText: records ? `Planned, 0 records (scope ${records}).` : "No records." }, "area") : undefined;
@@ -108,8 +117,8 @@ export function areaComposition(e: SlotEntry & { area: AreaDecl }, loaded: Loade
     }
   }
   if (a.raci) {
-    const r = rowsUse(loaded, a, pkg, a.raci, "raci", roles.picked.length ? { pick: roles.picked[0] as string } : {}, "area");
-    if (r) parts.push(part("raci", "RACI", [roles.picked.length ? { ...r, emits: { select: roles.picked[0] } } : r]));
+    const r = rowsUse(loaded, a, pkg, a.raci, "raci", {}, "area");
+    if (r) parts.push(part("raci", "RACI", [r]));
   }
   if (a.training) {
     const t = rowsUse(loaded, a, pkg, a.training, "training", { emptyText: "No training obligations." }, "area");
@@ -120,14 +129,13 @@ export function areaComposition(e: SlotEntry & { area: AreaDecl }, loaded: Loade
       used.add(register);
       const d = rowsUse(loaded, a, register, "documents", "documents", { keys: [...a.documents], open: "document", columns: ["key", "title", "revision", "state", "effectiveDate"] }, "area");
       parts.push(part("documents", "Documents", [d ?? notice("documents", `The register ${register} cannot list ${a.documents.join(", ")}.`)]));
-    } else parts.push(part("documents", "Documents", [notice("documents", `No document register is installed: ${a.documents.join(", ")}.`)]));
+    } else parts.push(part("documents", "Documents", [notice("documents", `${noRegister}: ${a.documents.join(", ")}.`)]));
   }
   if (a.approvals) {
     const r = rowsUse(loaded, a, pkg, a.approvals, "approvals", { columns: ["record", "outcome", "signer", "counts"] }, "area");
     if (r) parts.push(part("approvals", "Approvals", [r]));
   }
-  const vars = Object.fromEntries(roles.picked.map((k) => [k, { type: "iri" }]));
-  const decl = { composition: `area:${pkg}/${e.file}`, kind: "view", subject: { kind: "scope" }, params: Object.keys(params), ...(Object.keys(vars).length ? { vars } : {}), parts };
+  const decl = { composition: `area:${pkg}/${e.file}`, kind: "view", subject: { kind: "scope" }, params: Object.keys(params), parts };
   return { decl, params, packages: [...used] };
 }
 
@@ -161,22 +169,26 @@ export function withBuiltin(loaded: Loaded, builtin: MirrorPackage, built: Built
   return { ...loaded.packages, [BUILTIN]: { ...builtin, compositions: { [name]: { decl: built.decl, hash: `builtin:${name}`, text } } } };
 }
 
-/** The row an approvals query answers ({?claim ?record ?outcome ?signer}) and whether it counts. */
+/** The row an approvals query answers ({?claim ?record ?outcome ?signer}). Any ?tier it binds is never read. */
 export interface Approval {
   readonly outcome?: string | undefined;
   readonly signer?: string | undefined;
-  readonly tier?: string | undefined;
 }
 
+/** The key id in a signer IRI (https://kton.dev/agent/<key id>), or undefined. */
+export const signerKeyId = (signer: string | undefined): string | undefined => /^https:\/\/kton\.dev\/agent\/([0-9a-f]{16})$/.exec(signer ?? "")?.[1];
+
 /**
- * Does an approval count (S6.12, C1.3)? Only an outcome `approved` signed by a person: the window's person key
- * (by key id, from the signer IRI) or a key in a person tier. The query carries no tier of its own; an agent
- * key's approval is a record, never an approval. A rejected outcome is shown as rejected (S6.11).
+ * Does an approval count (S6.12, C1.3)? Only an outcome `approved` signed by a person: the window's person key (by
+ * key id, from the signer IRI) or a key whose tier, as the COCKPIT answers it for that key id (tierOf), is a person
+ * tier. The package's query never says who signed as what (ktonpkg ApprovalsShape): a ?tier it binds is ignored.
+ * A rejected outcome is shown as rejected (S6.11).
  */
-export function approvalCounts(a: Approval, person: { readonly keyId: string; readonly personTiers: readonly string[] }): { counts: boolean; why: string } {
+export function approvalCounts(a: Approval, person: { readonly keyId: string; readonly personTiers: readonly string[] }, tierOf: (keyId: string) => string | undefined): { counts: boolean; why: string } {
   if (a.outcome !== "approved") return { counts: false, why: a.outcome ? `no: ${a.outcome}` : "no: no outcome" };
-  const kid = /^https:\/\/kton\.dev\/agent\/([0-9a-f]{16})$/.exec(a.signer ?? "")?.[1];
+  const kid = signerKeyId(a.signer);
   if (kid && person.keyId && kid === person.keyId) return { counts: true, why: "yes: person key" };
-  if (a.tier && person.personTiers.includes(a.tier)) return { counts: true, why: `yes: tier ${a.tier}` };
-  return { counts: false, why: "no: not signed by a person key" };
+  const tier = kid ? tierOf(kid) : undefined;
+  if (tier && person.personTiers.includes(tier)) return { counts: true, why: `yes: tier ${tier}` };
+  return { counts: false, why: tier ? `no: tier ${tier} is no person tier` : "no: not signed by a person key" };
 }

@@ -46,19 +46,29 @@ export interface SignPlan {
   readonly rules: string;
   /** What the claim says (the template's predicate), when the listing names it. Shown in the dialog. */
   readonly predicate?: string;
-  /** The template as the listing defined it when the plan was made (templateFingerprint); the digest covers it. */
-  readonly templateSig: string;
+  /** The field the control's meaning fixes (its value is the meaning), if the template has one; else the meaning is
+   * the act's (the control's), shown as such and not a claim field (composition-format decision 4). */
+  readonly meaningField?: string;
+  /**
+   * What say must still sign with (SPEC §8.5, cockpit v0.5.5): the template's hash and, for a package template, its
+   * sealed revision, and its predicate, all as `say --json` listed them when the dialog was built. say refuses
+   * template.changed otherwise. The digest covers them.
+   */
+  readonly expect: { readonly template?: string; readonly revision?: string; readonly predicate?: string };
   /** Hash of exactly what is shown; a dialog confirmation is bound to it. */
   readonly digest: string;
 }
 
 /**
- * A template's definition as the listing gives it: name, predicate, target, package and fields. say resolves the
- * name when it signs, so the sign path compares this, read fresh, with the plan's before say (kton-review R1 on #177).
+ * The field a control's meaning fixes: the template's `meaning` field, else the one field whose fixed values include
+ * the meaning (a control meaning approved fixes a field whose values include approved, e.g. an outcome). Undefined: the meaning is the
+ * act's, not a field of the claim.
  */
-export function templateFingerprint(t: TemplateInfo): string {
-  const fields = Object.keys(t.fields).sort().map((k) => [k, t.fields[k]]);
-  return createHash("sha256").update(JSON.stringify([t.name, t.predicate ?? null, t.target ?? null, t.package ?? null, fields])).digest("hex");
+export function meaningField(control: Pick<ControlInfo, "meaning">, tpl: TemplateInfo): string | undefined {
+  if (control.meaning === undefined) return undefined;
+  if (tpl.fields["meaning"]) return "meaning";
+  const carrying = Object.entries(tpl.fields).filter(([, f]) => f.values?.includes(control.meaning as string)).map(([k]) => k);
+  return carrying.length === 1 ? carrying[0] : undefined;
 }
 
 /** The template a control signs: its own package's (named <package>/<name> on a clash, cockpit v0.5.3), else by name. */
@@ -77,19 +87,20 @@ export function plan(
   const tpl = templateFor(control, templates);
   if (!tpl) return refuse("template.not-allowed", `${control.package}/${control.name} signs ${control.template}, which is not installed here`);
 
+  const fixed = meaningField(control, tpl);
   const fields: Record<string, string> = {};
   for (const [k, v] of Object.entries(intent.fields)) {
-    if (k === "as" || k === "meaning" && control.meaning !== undefined) {
-      return refuse("argument", `an intent cannot set ${k}`);
-    }
+    if (k === "as") return refuse("argument", "an intent cannot set as");
+    // the meaning shown is the meaning signed: a field the control's meaning fixes takes no other value
+    if (k === fixed && v !== control.meaning) return refuse("argument", `${control.package}/${control.name} means ${control.meaning}: its ${k} is ${control.meaning}, not ${v}`);
     const f = tpl.fields[k];
     if (!f) return refuse("argument", `template ${tpl.name} has no field ${k}`);
     if (f.values && !f.values.includes(v)) return refuse("argument", `${k} must be one of ${f.values.join("|")}`);
     fields[k] = v;
   }
-  // a meaning declared on the control (C3.4, ktonpkg v0.9.2): into the template's meaning field when it has one;
-  // otherwise it is what the act means, shown in the dialog and covered by its digest, not a claim field
-  if (control.meaning !== undefined && tpl.fields["meaning"]) fields["meaning"] = control.meaning;
+  // a meaning declared on the control (C3.4, ktonpkg v0.9.2) is signed in the field it fixes; with none, it is the
+  // act's meaning (composition-format decision 4), shown as that and covered by the digest, never as a claim field
+  if (fixed) fields[fixed] = control.meaning as string;
   for (const [k, f] of Object.entries(tpl.fields)) {
     if (f.required && fields[k] === undefined) return refuse("argument", `${k} is required by ${tpl.name}`);
   }
@@ -97,9 +108,9 @@ export function plan(
   const key = keyFor(identity, control.kind);
   // No fallback: a decision needs the person key, a record the agent key; a missing one is named.
   if (!key.keyName) return refuse("identity.key-missing", `this window has no ${key.role} key, so it cannot sign a ${control.kind}`);
-  const templateSig = templateFingerprint(tpl);
   const meaning = control.meaning ?? fields["meaning"];
-  const shown = { template: tpl.name, templateSig, subject: intent.about, fields, as: key.keyName, control: `${control.package}/${control.name}`, meaning: meaning ?? null, scope: intent.scope ?? null };
+  const expect = { ...(tpl.hash ? { template: tpl.hash } : {}), ...(tpl.revision ? { revision: tpl.revision } : {}), ...(tpl.predicate ? { predicate: tpl.predicate } : {}) };
+  const shown = { template: tpl.name, expect, subject: intent.about, fields, as: key.keyName, control: `${control.package}/${control.name}`, meaning: meaning ?? null, meaningField: fixed ?? null, scope: intent.scope ?? null };
   const digest = createHash("sha256").update(JSON.stringify(shown, Object.keys(shown).sort())).update(JSON.stringify(Object.entries(fields).sort())).digest("hex");
   return {
     ok: true,
@@ -107,7 +118,8 @@ export function plan(
       control,
       template: tpl.name,
       ...(tpl.predicate !== undefined ? { predicate: tpl.predicate } : {}),
-      templateSig,
+      ...(fixed ? { meaningField: fixed } : {}),
+      expect,
       subject: intent.about,
       fields,
       ...(meaning !== undefined ? { meaning } : {}),
@@ -145,7 +157,7 @@ export async function sign(t: Transport, p: SignPlan, consent: DialogConsent | u
     if (!(consent instanceof DialogConsent)) return refuse("dialog.required", "a decision is signed through the sign dialog, never in one click");
     if (consent.digest !== p.digest) return refuse("dialog.mismatch", "the dialog showed something else than what would be signed");
   }
-  const out = await t.say({ template: p.template, subject: p.subject, fields: p.fields, as: p.as, ...(p.scope !== undefined ? { scope: p.scope } : {}) });
+  const out = await t.say({ template: p.template, subject: p.subject, fields: p.fields, as: p.as, ...(p.scope !== undefined ? { scope: p.scope } : {}), ...(p.expect.template ? { expectTemplate: p.expect.template } : {}), ...(p.expect.revision ? { expectRevision: p.expect.revision } : {}), ...(p.expect.predicate ? { expectPredicate: p.expect.predicate } : {}) });
   if (!out.ok) return out;
   return { ok: true, value: { id: out.value.claimId, ...(out.value.pending ? { pending: out.value.pending } : {}) } };
 }

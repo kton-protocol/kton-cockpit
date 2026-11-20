@@ -92,7 +92,7 @@ test("S6.1/S6.16: the QM areas are listed with their labels, ordered by order th
 
 test("S6.2-4, 7, 9, 13-15: the area's parts come from the declaration; the reads, register and findings resolve by name", async () => {
   const l = await s6();
-  assert.equal(registerOf("qa.area-one", l), "qa.register");
+  assert.deepEqual(registerOf("qa.area-one", l), { register: "qa.register" });
   const one = areaComposition(areaOf(l, "qa.area-one"), l).decl as { parts: Array<{ id: string; heading: string; blocks: Array<Record<string, unknown>> }>; vars: unknown };
   const parts = Object.fromEntries(one.parts.map((p) => [p.id, p]));
   assert.deepEqual(Object.keys(parts), ["governing", "records", "findings", "raci", "training", "documents", "approvals"]);
@@ -103,10 +103,11 @@ test("S6.2-4, 7, 9, 13-15: the area's parts come from the declaration; the reads
     ["major-deviation-owner", ["QA-R-MAJOR-OWNER", "QA-R-CLOSED-DATE"]],
     ["closed-deviation-date", ["QA-R-MAJOR-OWNER", "QA-R-CLOSED-DATE"]],
   ]);
-  // the reader's param ($person, from subject.id) is a var a RACI row sets; the training query reads it (S6.7, S6.10)
-  assert.deepEqual(one.vars, { person: { type: "iri" } });
-  assert.deepEqual(parts["raci"]?.blocks[0]?.["emits"], { select: "person" });
-  assert.deepEqual(parts["training"]?.blocks[0]?.["params"], { person: "var.person" });
+  // $person is declared from subject.id: the record's, which the area view has none of, so the training query runs
+  // unfiltered there (an optional param); no pick stands in for a declared source (kton-cockpit N1, kton-review N3/N4)
+  assert.equal(one.vars, undefined);
+  assert.equal(parts["raci"]?.blocks[0]?.["emits"], undefined);
+  assert.equal(parts["training"]?.blocks[0]?.["params"], undefined);
   assert.deepEqual(parts["training"]?.blocks[0]?.["optional"], ["person"]);
   // documents through the register, kept to the area's keys, shown as links (S6.4)
   assert.deepEqual((parts["documents"]?.blocks[0]?.["options"] as { keys: string[]; open: string }), { keys: ["QA-SOP-10", "QA-FOR-10"], open: "document", columns: ["key", "title", "revision", "state", "effectiveDate"] });
@@ -146,18 +147,21 @@ test("plan: the area and record compositions plan on PR 2's renderer contract; t
   assert.deepEqual(asked, [], "planning asks nothing (no every); the frame asks through the host");
 });
 
-test("S6.11/S6.12: an approval counts only as `approved` by a person key or a person tier; rejected and agent approvals do not", () => {
+test("S6.11/S6.12: an approval counts only as `approved` by the person key or a key the COCKPIT puts in a person tier", () => {
   const me = { keyId: PERSON_KID, personTiers: ["persons"] };
   const signer = (kid: string) => `https://kton.dev/agent/${kid}`;
-  assert.deepEqual(approvalCounts({ outcome: "approved", signer: signer(PERSON_KID) }, me), { counts: true, why: "yes: person key" });
-  assert.deepEqual(approvalCounts({ outcome: "rejected", signer: signer(PERSON_KID) }, me), { counts: false, why: "no: rejected" });
-  assert.deepEqual(approvalCounts({ outcome: "approved", signer: signer(AGENT_KID) }, me), { counts: false, why: "no: not signed by a person key" });
-  assert.deepEqual(approvalCounts({ outcome: "approved", signer: signer("ffffffffffffffff"), tier: "persons" }, me), { counts: true, why: "yes: tier persons" });
-  assert.deepEqual(approvalCounts({ outcome: "approved", signer: signer("ffffffffffffffff"), tier: "agent" }, me), { counts: false, why: "no: not signed by a person key" });
+  const cockpit = (kid: string) => ({ [AGENT_KID]: "agent", ffffffffffffffff: "persons" })[kid];
+  assert.deepEqual(approvalCounts({ outcome: "approved", signer: signer(PERSON_KID) }, me, cockpit), { counts: true, why: "yes: person key" });
+  assert.deepEqual(approvalCounts({ outcome: "rejected", signer: signer(PERSON_KID) }, me, cockpit), { counts: false, why: "no: rejected" });
+  assert.deepEqual(approvalCounts({ outcome: "approved", signer: signer(AGENT_KID) }, me, cockpit), { counts: false, why: "no: tier agent is no person tier" });
+  // a second person's key (another reviewer) in a person tier counts
+  assert.deepEqual(approvalCounts({ outcome: "approved", signer: signer("ffffffffffffffff") }, me, cockpit), { counts: true, why: "yes: tier persons" });
+  // a key the cockpit does not know
+  assert.deepEqual(approvalCounts({ outcome: "approved", signer: signer("eeeeeeeeeeeeeeee") }, me, cockpit), { counts: false, why: "no: not signed by a person key" });
 });
 
 /** The packages area with the S6 packages and a cockpit that answers with fixed rows. */
-function areaWith(fx: Fixture[], rows: Record<string, Array<Record<string, string>>>) {
+function areaWith(fx: Fixture[], rows: Record<string, Array<Record<string, string>>>, tiers: Record<string, string> = {}, personTiers: string[] = []) {
   const shown: Array<{ key: string; title: string }> = [];
   const errors: string[] = [];
   const asked: Array<{ name: string; terms: unknown }> = [];
@@ -166,7 +170,12 @@ function areaWith(fx: Fixture[], rows: Record<string, Array<Record<string, strin
     uiList: async () => ({ ok: true, value: { packages: fx.map((f) => f.pkg) } as UiListing }),
     uiCat: async (pkg: string, h: string) => reader(...fx)(pkg, h),
     list: async () => ({ ok: true, value: { queries: [] } }),
-    ask: async (req: { name: string; bindTerms?: unknown }) => {
+    ask: async (req: { name: string; bindTerms?: unknown; sparql?: string; bind?: Record<string, string> }) => {
+      if (req.sparql) {
+        // the shell's signer query: the cockpit's tier for a key id
+        const tier = tiers[req.bind?.["KEYID"] ?? ""];
+        return { ok: true, value: { results: { head: { vars: ["name", "tier"] }, results: { bindings: tier ? [{ name: { type: "literal", value: "k" }, tier: { type: "literal", value: tier } }] : [] } } } };
+      }
       asked.push({ name: req.name, terms: req.bindTerms });
       const r = rows[req.name] ?? [];
       const vars = [...new Set(r.flatMap((x) => Object.keys(x)))];
@@ -187,7 +196,7 @@ function areaWith(fx: Fixture[], rows: Record<string, Array<Record<string, strin
     act: async (control, about, fields, _title, expect, into) => (acts.push({ control, about, fields, expect, into }), "signed"),
     open: async () => "opened elsewhere",
     identityName: () => "qa-decider",
-    person: () => ({ keyId: PERSON_KID, personTiers: [] }),
+    person: () => ({ keyId: PERSON_KID, personTiers }),
   };
   return { area: new PackagesArea(t, ui, path, new Map(), builtin()), shown, errors, asked, acts, posts };
 }
@@ -233,4 +242,67 @@ test("S6.2/S6.5/S6.12: open the area, a list row opens its record; an act there 
   // S6.10: the record query is bound to the record (subject.iri), not to all
   await rec.onMessage({ type: "kton:request", id: "r#1", cap: "query@1", args: { use: use(rec, "record") } });
   assert.deepEqual(w.asked.at(-1), { name: "deviation", terms: { record: { type: "iri", value: "https://example.org/qa/deviation/D-002" } } });
+});
+
+test("A1/F1/O2: a ?tier the package's approvals query binds is never read; the cockpit's tier for the signer decides", async () => {
+  const D2 = `https://kton.dev/o/${"2".repeat(64)}`;
+  const OTHER = "ffffffffffffffff";
+  const w = areaWith(fixtures(), {
+    "deviation-approvals": [
+      // hostile: the query binds tier "persons" for an agent-signed approval
+      { claim: `https://kton.dev/o/${"a".repeat(64)}`, record: D2, outcome: "approved", signer: `https://kton.dev/agent/${AGENT_KID}`, tier: "persons" },
+      // a second person (another reviewer), whose key the cockpit puts in tier persons: the query says nothing of it
+      { claim: `https://kton.dev/o/${"b".repeat(64)}`, record: D2, outcome: "approved", signer: `https://kton.dev/agent/${OTHER}` },
+    ],
+  }, { [AGENT_KID]: "agent", [OTHER]: "persons" }, ["persons"]);
+  await w.area.refresh();
+  const e = areaOf(w.area.loaded as Loaded, "qa.area-one");
+  const host = (await w.area.openSlot(`qa.area-one/${e.file}`, areaSubject(e))) as CompositionHost;
+  const use = host.plan.uses.find((u) => u.key.endsWith("#approvals"))?.key as string;
+  await host.onMessage({ type: "kton:request", id: "ap#1", cap: "query@1", args: { use } });
+  const answer = (w.posts.at(-1) as { result: { results: { bindings: Array<Record<string, { value: string }>> } } }).result;
+  assert.deepEqual(answer.results.bindings.map((b) => b["counts"]?.value), ["no: tier agent is no person tier", "yes: tier persons"]);
+});
+
+test("N1/N3: declared param sources are bound as declared: identity.name to the window's identity; an undeclared source is refused with a notice", async () => {
+  const l = await s6();
+  const e = areaOf(l, "qa.area-one");
+  const mine = { ...e, area: { ...e.area, params: { ...e.area.params, person: "identity.name" } } };
+  const parts = Object.fromEntries((areaComposition(mine, l).decl["parts"] as Array<{ id: string; blocks: Array<Record<string, unknown>> }>).map((p) => [p.id, p]));
+  assert.deepEqual(parts["training"]?.blocks[0]?.["params"], { person: "identity.name" }, "\"my training\" is filtered to the window's identity");
+  const odd = { ...e, area: { ...e.area, params: { ...e.area.params, person: "subject.scope.owner" } } };
+  const p2 = Object.fromEntries((areaComposition(odd, l).decl["parts"] as Array<{ id: string; blocks: Array<Record<string, unknown>> }>).map((p) => [p.id, p]));
+  assert.match(JSON.stringify(p2["params"]), /person = subject\.scope\.owner: the shell binds/);
+  assert.equal(p2["training"], undefined, "a query using an unbindable param is not shown");
+});
+
+test("A2: two admitted registers: none is picked by name or order; the area names both", async () => {
+  const fx = fixtures();
+  const reg = fx.find((f) => f.pkg.name === "qa.register") as Fixture;
+  // a later-admitted package that sorts first by name and also brings documents and document
+  const aa = listed(join(S6, "qa.register"), "aa.notes", "2");
+  const l = await loadPackages({ packages: [...fx.map((f) => f.pkg), aa.pkg] }, reader(...fx, aa));
+  assert.deepEqual(registerOf("qa.area-one", l), { ambiguous: ["aa.notes", "qa.register"] });
+  const parts = Object.fromEntries((areaComposition(areaOf(l, "qa.area-one"), l).decl["parts"] as Array<{ id: string; blocks: unknown[] }>).map((p) => [p.id, p]));
+  assert.match(JSON.stringify(parts["governing"]), /Two or more admitted packages bring a document register \(aa\.notes, qa\.register\): none is picked/);
+  assert.match(JSON.stringify(parts["documents"]), /none is picked/);
+  assert.ok(reg);
+});
+
+test("T21: a record query answering two current rows opens nothing (no subject, nothing to sign)", async () => {
+  const two = [
+    { item: "https://example.org/qa/deviation/D-003", claim: `https://kton.dev/o/${"3".repeat(64)}`, identifier: "D-003" },
+    { item: "https://example.org/qa/deviation/D-003", claim: `https://kton.dev/o/${"4".repeat(64)}`, identifier: "D-003" },
+  ];
+  const w = areaWith(fixtures(), { deviations: two.slice(0, 1), deviation: two });
+  await w.area.refresh();
+  const e = areaOf(w.area.loaded as Loaded, "qa.area-one");
+  const key = `qa.area-one/${e.file}`;
+  const host = (await w.area.openSlot(key, areaSubject(e))) as CompositionHost;
+  const shown = w.shown.length;
+  const use = host.plan.uses.find((u) => u.key.endsWith("#records"))?.key as string;
+  await host.onMessage({ type: "kton:intent", intent: { id: "o#2", kind: "open", from: use, uri: "https://example.org/qa/deviation/D-003" } });
+  assert.equal(w.shown.length, shown, "no record panel");
+  assert.equal(w.area.hostOf(`${key}#record`), undefined);
+  assert.match(JSON.stringify(w.posts.at(-1)), /not one current record of Deviations \(2 rows\): nothing opened/);
 });
