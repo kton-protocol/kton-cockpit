@@ -1560,6 +1560,23 @@ A `say` that names an identity other than the connection's MUST be refused (`ide
 A frontend MUST NOT forward a request that comes from content it hosts (a package's viewer, a composition)
 to anything but the verbs it mediates for that content: never to `doctor`, `show` or `ui/*`.
 
+A connection MAY ask for events: `initialize` with `events: true` or `{since, intervalMs}`. They are
+notifications (no id), of what changed in the registries this repository reads, whoever changed them:
+- `events/published {ids, cursor, truncated?}`: steps new in the repository's own registry;
+- `events/said {ids, claims, cursor, truncated?}`: claims new in it, each entry `{id, scope: {seed, label},
+  template, predicate, about, signers}`;
+- `events/sourcePulled {source, newIds, head?, cursor}`: a federation source holds records it did not hold;
+- `events/indexMoved {slot, scopes}`: after any of these, once a query sees what they named (the index
+  is brought up to date first), the view `slot` and the scopes whose claims changed (`{seed, label}`;
+  an empty list means everything).
+The cursor is the feed's (§9.10): a connection that starts from `since` gets everything after it, so a
+frontend that restarts `serve` loses nothing; without `since` it starts at the present, fixed before
+`initialize` answers; a `since` that is no cursor the events handed out is refused (`events.cursor`).
+`truncated` says more arrived than one event carries: query again. An `indexMoved` that is owed (the
+index could not be brought up to date) is sent at the next tick that can, whatever that tick brings. Only records a
+key of the trust tiers signed are named, and nothing withheld is counted. Events look every `intervalMs`
+(2000 by default, at least 500).
+
 Requests run concurrently. Every request the connection accepted MUST be answered: `shutdown` takes no
 new request (one sent after it is error `-32600`) and answers once every request accepted before it is
 answered; `exit` and the end of the input end the connection after the same wait. `$/cancelRequest`
@@ -1568,12 +1585,22 @@ and `1.0`); a string id is another id (`"1"` is not `1`), as JSON-RPC keeps them
 `{code, clause, reason}`; any other failure as error `-32000` with `data.code` `error`. An unknown method is
 error `-32601`, and params with a field the method does not take are error `-32602`.
 
+A body that is not JSON, in intact framing, MUST be answered with error `-32700` under id `null`, and the
+connection goes on: the next message starts where the framing says. The answer cannot name the request the
+body was, so a frontend fails what it is waiting for; it never sends a `say` again, since the registry decides
+whether it was signed (the others may still be running). Lost framing (no or an
+invalid `Content-Length`, a header without its blank line) ends the connection, since where the next message
+starts is no longer known; every request accepted before it is answered first.
+
 > **Checked by:** `TestServe_InitializeNamesTheWorkspaceFirst`, `TestServe_ListingsAreTheCommandLinesJSON`,
 > `TestServe_VerbsAnswerAndRefuseAsTheCommandLine`, `TestServe_RefusesAWorkspaceTheEnvironmentWouldRedirect`,
 > `TestServe_TheBinaryKeepsStdoutForTheProtocol`, `TestServe_ASayRunningAtShutdownIsAnswered`,
+> `TestServe_EventsNameWhatWasSaidAndResumeFromTheirCursor`, `TestServe_IndexMovedComesOnceTheIndexHoldsTheClaim`,
+> `TestEvents_AnIndexMovedOwedIsSentOnceTheIndexIsBack`, `TestEvents_ASinceThatIsNoCursorIsRefused`,
 > `TestServer_AnswersRequestsAndErrorsAndGoesOn`, `TestServer_CancelsARunningRequest`,
 > `TestServer_AnswersWhatIsRunningWhenTheInputEnds`, `TestServer_ShutdownAnswersWhatItAcceptedFirst`,
-> `TestServer_ExitWaitsForWhatIsRunning`, `TestServer_CancelMatchesANumberIDByValue`, `TestReadMessage_Framing`.
+> `TestServer_ExitWaitsForWhatIsRunning`, `TestServer_CancelMatchesANumberIDByValue`, `TestReadMessage_Framing`,
+> `TestServer_ABodyThatIsNotJSONIsAnsweredAndTheConnectionGoesOn`, `TestServer_LostFramingEndsTheConnectionAfterAnsweringWhatRuns`.
 
 ### 12.6 Loading derived RDF *(optional)*
 

@@ -250,3 +250,42 @@ func TestServer_CancelMatchesANumberIDByValue(t *testing.T) {
 		t.Fatal("1.0 did not cancel request 1")
 	}
 }
+
+// A body that is not JSON, in intact framing, is answered with a parse error under id null, and the
+// connection goes on: the next message is read where the framing says it starts (SPEC §12.5).
+func TestServer_ABodyThatIsNotJSONIsAnsweredAndTheConnectionGoesOn(t *testing.T) {
+	c := start(t, func(s *Server) {
+		s.Handle("echo", func(_ context.Context, p json.RawMessage) (any, error) { return json.RawMessage(p), nil })
+	})
+	if err := WriteMessage(c.w, []byte(`{"jsonrpc": "2.0", "id": 1, "method": `)); err != nil {
+		t.Fatal(err)
+	}
+	if r := c.read(t); r.Error == nil || r.Error.Code != CodeParseError || string(r.ID) != "null" {
+		t.Errorf("a body that is not JSON: want -32700 under id null, got %+v (id %s)", r, r.ID)
+	}
+	c.send(t, req(2, "echo", "after"))
+	if r := c.read(t); string(r.ID) != "2" || string(r.Result) != `"after"` {
+		t.Errorf("the connection goes on: %+v", r)
+	}
+}
+
+// Lost framing ends the connection: where the next message starts is no longer known. A request
+// already running is answered first (SPEC §12.5).
+func TestServer_LostFramingEndsTheConnectionAfterAnsweringWhatRuns(t *testing.T) {
+	release := make(chan struct{})
+	c := start(t, func(s *Server) {
+		s.Handle("slow", func(context.Context, json.RawMessage) (any, error) { <-release; return "done", nil })
+	})
+	c.send(t, req(1, "slow", nil))
+	if _, err := io.WriteString(c.w, "garbage\r\n\r\n"); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(100 * time.Millisecond) // the server has read the garbage and waits for "slow"
+	close(release)
+	if r := c.read(t); string(r.ID) != "1" || string(r.Result) != `"done"` {
+		t.Errorf("the running request is answered: %+v", r)
+	}
+	if _, err := ReadMessage(c.r); !errors.Is(err, io.EOF) {
+		t.Errorf("then the connection ends: %v", err)
+	}
+}

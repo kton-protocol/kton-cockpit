@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -44,6 +45,48 @@ type ServeInit struct {
 	// RequestTimeoutMs ends any request still running after that many milliseconds (0: none). A
 	// client cancels one request with $/cancelRequest.
 	RequestTimeoutMs int `json:"requestTimeoutMs,omitempty"`
+	// Events asks for the events of the repository (SPEC §12.5): true, or {since, intervalMs}. since is
+	// a cursor an earlier connection's events carried, so nothing in between is lost.
+	Events *ServeEvents `json:"events,omitempty"`
+}
+
+// ServeEvents is initialize's events: where to start and how often to look.
+type ServeEvents struct {
+	Since      string `json:"since,omitempty"`
+	IntervalMs int    `json:"intervalMs,omitempty"`
+	off        bool
+}
+
+// UnmarshalJSON takes true and false as well as the object.
+func (e *ServeEvents) UnmarshalJSON(b []byte) error {
+	switch strings.TrimSpace(string(b)) {
+	case "true":
+		return nil
+	case "false":
+		e.off = true
+		return nil
+	}
+	type plain struct {
+		Since      string `json:"since,omitempty"`
+		IntervalMs int    `json:"intervalMs,omitempty"`
+	}
+	var p plain
+	dec := json.NewDecoder(bytes.NewReader(b))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&p); err != nil {
+		return fmt.Errorf("events: %w", err)
+	}
+	e.Since, e.IntervalMs = p.Since, p.IntervalMs
+	return nil
+}
+
+// eventsInterval is how often a connection's events look: 2 s unless asked otherwise, never under 0.5 s.
+func (e *ServeEvents) interval() time.Duration {
+	ms := e.IntervalMs
+	if ms == 0 {
+		ms = 2000
+	}
+	return time.Duration(max(ms, 500)) * time.Millisecond
 }
 
 // ServeInitResult is initialize's answer.
@@ -68,6 +111,9 @@ type serveSession struct {
 	init    *ServeInit
 	root    string
 	timeout time.Duration
+	// ctx ends with the connection; notify sends a notification on it (the events).
+	ctx    context.Context
+	notify func(method string, params any)
 }
 
 func (s *serveSession) get() (*ServeInit, string, time.Duration, bool) {
@@ -91,7 +137,9 @@ func runServe(ctx context.Context, args []string) error {
 func serve(ctx context.Context, r interface{ Read([]byte) (int, error) }, w interface{ Write([]byte) (int, error) }) error {
 	srv := frontrpc.NewServer(r, w)
 	srv.MapError = serveError
-	sess := &serveSession{}
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel() // ends the events once the connection is done
+	sess := &serveSession{ctx: ctx, notify: func(m string, p any) { _ = srv.Notify(m, p) }}
 	// shutdown takes no new request and answers once every request it accepted before is answered;
 	// exit and the end of the input end the connection after the same wait (SPEC §12.5).
 	srv.HandleInline("shutdown", func(context.Context, json.RawMessage) (any, error) {
@@ -194,6 +242,25 @@ func serveMethods(sess *serveSession) map[string]frontrpc.Handler {
 		}
 		sess.init, sess.root = &in, root
 		sess.timeout = time.Duration(in.RequestTimeoutMs) * time.Millisecond
+		if ev := in.Events; ev != nil && !ev.off && sess.notify != nil {
+			// The start is fixed before initialize answers: a say sent right after it is an event.
+			since := ev.Since
+			if since != "" {
+				if err := c(root).CheckEventsCursor(ctx, since); err != nil {
+					sess.init = nil
+					return nil, err
+				}
+			}
+			if since == "" {
+				if since, err = c(root).EventsCursor(ctx); err != nil {
+					sess.init = nil
+					return nil, err
+				}
+			}
+			go func() {
+				_ = c(root).Watch(sess.ctx, since, ev.interval(), sess.notify)
+			}()
+		}
 		names := make([]string, 0, len(m))
 		for k := range m {
 			names = append(names, k)

@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"kton.dev/plankton/core"
 
@@ -413,5 +414,52 @@ func TestLoad_AnUntrustedStepNamesNoPath(t *testing.T) {
 SELECT ?path WHERE { ?g a nk:LoadedGraph ; nk:path ?path }`)
 	if len(a.Rows) != 0 {
 		t.Errorf("only a trusted step names a path; theirs is not trusted: %v", a.Rows)
+	}
+}
+
+// A file on the load list whose bytes no longer hash to what was loaded is marked, and while it keeps
+// that size and modification time it is not read and hashed again before every query; once it changes
+// again it is read, and loaded if it is the loaded bytes once more (kton-review N1 on #192).
+func TestLoad_AChangedFileIsNotHashedBeforeEveryQuery(t *testing.T) {
+	r := loadingRepo(t)
+	ctx := context.Background()
+	c := New(Start{})
+	r.Write(t, "rdf/a.ttl", turtle)
+	if _, err := c.Load(ctx, LoadRequest{Files: []string{"rdf/a.ttl"}}); err != nil {
+		t.Fatal(err)
+	}
+	d, err := oxigraph.Ensure(ctx, r.Config(t))
+	must(t, err)
+	path := filepath.Join(r.Root, "rdf/a.ttl")
+	changed := strings.Replace(turtle, "Covered", "Coverd!", 1) // the same length
+	must(t, os.WriteFile(path, []byte(changed), 0o644))
+	q := AskRequest{Query: "sparql", Sparql: `SELECT ?g WHERE { GRAPH ?g { ?s ?p ?o } } GROUP BY ?g`}
+	ask := func() *SparqlAnswer {
+		t.Helper()
+		must(t, d.Clear(ctx))
+		a, err := c.Ask(ctx, q)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return a.Sparql
+	}
+	if a := ask(); a.LoadMissing != 1 {
+		t.Fatalf("a changed file: want it missing, got %+v", a)
+	}
+	st, err := os.Stat(path)
+	must(t, err)
+
+	// The loaded bytes again, under the marked size and time: not read, so still missing.
+	must(t, os.WriteFile(path, []byte(turtle), 0o644))
+	must(t, os.Chtimes(path, st.ModTime(), st.ModTime()))
+	if a := ask(); a.LoadMissing != 1 {
+		t.Errorf("an unchanged mark: want the file not read again, got %+v", a)
+	}
+
+	// A new modification time: read, and loaded again.
+	later := st.ModTime().Add(2 * time.Second)
+	must(t, os.Chtimes(path, later, later))
+	if a := ask(); a.LoadMissing != 0 || len(a.Rows) != 1 {
+		t.Errorf("a changed mark: want the file read and loaded, got %+v", a)
 	}
 }

@@ -83,6 +83,7 @@ type prepared struct {
 	// named graphs of a claims-dataset query, beside the repository's loaded graphs.
 	scopes     []string
 	graphs     []ClaimGraph // what the scope graphs are, for the answer
+	slot       string       // the view: one per set of registries, trusted keys and templates
 	registries int
 	kept       bool
 }
@@ -131,7 +132,7 @@ func (d *Daemon) prepare(ctx context.Context, cfg *config.Config, keys []ed25519
 		return nil, fmt.Errorf("writing the index's view of the trusted records: %w", err)
 	}
 	ds := &prepared{def: []string{viewIRI(slot)}, claims: []string{viewIRI(slot), claimsIRI(slot)},
-		named: named, scopes: sortedKeys(graphs), graphs: describeGraphs(meta), registries: len(regs), kept: kept}
+		named: named, scopes: sortedKeys(graphs), graphs: describeGraphs(meta), slot: slot, registries: len(regs), kept: kept}
 	d.keepDataset(slot, key, ds)
 	return ds, nil
 }
