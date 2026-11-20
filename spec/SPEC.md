@@ -636,6 +636,13 @@ A scope is one of kton's two deliberate closed worlds: its **seed fixes membersh
 seals order**. Seeding MUST NOT be a verb — it is an operator action, the same division as
 mirroring, and a scope exists before the session does.
 
+`cockpit scope seed <name>` MUST refuse a name this repository opened already with its key
+(`scope.exists`), naming the scope that exists: a name that meant two scopes is one `say` and `install`
+refuse to write under. When committing or sharing a new seed fails, the scope is still opened; the
+answer names its id and says not to seed it again.
+
+> **Checked by:** `TestScopeSeed_ANameIsOpenedOnce`.
+
 The tip MUST be read from the substrate on every claim, never remembered between them. A cockpit
 that cached it would hold mutable state about a chain it does not own, and would be stale the moment
 another writer's claim arrived.

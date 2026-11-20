@@ -131,6 +131,10 @@ func shellSay(ctx context.Context, args []string) error {
 		return printJSON(ts)
 	}
 	if args[0] == "--batch" {
+		// The answer is JSON in any case; --json is taken, as say's other forms take it (qm-dev-provenance).
+		if len(args) == 3 && args[2] == "--json" {
+			args = args[:2]
+		}
 		if len(args) != 2 {
 			return fmt.Errorf("usage: cockpit say --batch <file.jsonl | ->   (one say request as JSON per line)")
 		}

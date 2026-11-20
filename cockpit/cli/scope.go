@@ -80,12 +80,31 @@ func scopeSeed(ctx context.Context, args []string) error {
 		return err
 	}
 
-	id, err := binaries.New(cfg).SeedScope(ctx, name, cfg.NektonKey, parentID)
+	// One scope per name and key: a second seed would make the name mean two scopes, which say and
+	// install then refuse to write under. Checked and seeded under the claims lock, so two seeds at once
+	// cannot both pass the check (qm-dev-provenance, 20.11.).
+	r := binaries.New(cfg)
+	unlock, err := r.LockClaims()
+	if err != nil {
+		return err
+	}
+	existing, err := r.OwnScope(ctx, name, cfg.NektonKey)
+	if err != nil {
+		unlock()
+		return err
+	}
+	if existing != "" {
+		unlock()
+		return &cockpit.Refusal{Code: "scope.exists", Clause: "SPEC §8.5",
+			Reason: fmt.Sprintf("this repository opened scope %q already: %s. Configure that one; a second seed of the name would make it mean two scopes", name, existing)}
+	}
+	id, err := r.SeedScope(ctx, name, cfg.NektonKey, parentID)
+	unlock()
 	if err != nil {
 		return err
 	}
 	if _, err := cockpit.PersistStrict(ctx, cfg, []string{config.Rel("nekton")}, "scope: seed "+name); err != nil {
-		return fmt.Errorf("the scope was opened but committing it failed: %w", err)
+		return fmt.Errorf("the scope %q is opened and in the store (%s), but committing or sharing it failed: %w. Do not seed it again: configure this id, and the next write commits it", name, id, err)
 	}
 
 	fmt.Printf("opened scope %q\n  %s\n", name, id)
