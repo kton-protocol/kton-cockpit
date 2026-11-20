@@ -16,6 +16,7 @@ import (
 	"github.com/kton-protocol/kton-cockpit/cockpit"
 	"github.com/kton-protocol/kton-cockpit/internal/config"
 	"github.com/kton-protocol/kton-cockpit/internal/frontrpc"
+	"github.com/kton-protocol/kton-cockpit/internal/jobs"
 )
 
 // The frontend protocol (ADR-011, section 6; SPEC §12.5): `cockpit serve --stdio` answers JSON-RPC 2.0
@@ -268,6 +269,31 @@ func serveMethods(sess *serveSession) map[string]frontrpc.Handler {
 		sort.Strings(names)
 		return ServeInitResult{Protocol: ServeProtocol, Cockpit: versionInfo(), Root: root, RepoRoot: cfg.RepoRoot, As: in.As, Methods: names}, nil
 	}
+
+	// Runs (SPEC §12.5): workflow/run answers the run's id at once and runs it in the background, for as
+	// long as the connection lasts; run/list and run/status read the checkout's jobs journal.
+	m["workflow/run"] = method(sess, func(ctx context.Context, _ *ServeInit, cfg *config.Config, in cockpit.WorkflowRunRequest) (map[string]string, error) {
+		cc := c(cfg.RepoRoot)
+		id, err := cc.QueueRun(ctx, in)
+		if err != nil {
+			return nil, err
+		}
+		in.RunID = id
+		go func() {
+			if _, err := cc.WorkflowRun(sess.ctx, in); err != nil {
+				_ = cc.FailQueuedRun(context.Background(), id, err)
+			}
+		}()
+		return map[string]string{"runId": id}, nil
+	})
+	m["run/list"] = method(sess, func(ctx context.Context, _ *ServeInit, cfg *config.Config, in cockpit.RunListRequest) (*cockpit.RunList, error) {
+		return c(cfg.RepoRoot).RunList(ctx, in)
+	})
+	m["run/status"] = method(sess, func(ctx context.Context, _ *ServeInit, cfg *config.Config, in struct {
+		ID string `json:"id"`
+	}) (*jobs.Run, error) {
+		return c(cfg.RepoRoot).RunStatus(ctx, in.ID)
+	})
 
 	// The verbs, with the same request and result types as the Go API, MCP and the JSON argument.
 	m["publish"] = method(sess, func(ctx context.Context, _ *ServeInit, cfg *config.Config, in cockpit.PublishRequest) (*cockpit.PublishResult, error) {

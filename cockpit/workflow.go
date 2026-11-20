@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"io/fs"
@@ -19,6 +20,7 @@ import (
 
 	"github.com/kton-protocol/kton-cockpit/internal/binaries"
 	"github.com/kton-protocol/kton-cockpit/internal/config"
+	"github.com/kton-protocol/kton-cockpit/internal/jobs"
 	"github.com/kton-protocol/kton-cockpit/internal/packages"
 	"github.com/kton-protocol/kton-cockpit/internal/verify"
 )
@@ -311,12 +313,19 @@ type WorkflowRunRequest struct {
 	Check bool `json:"check,omitempty"`
 	// Dir is the working directory, repo-relative; work/<name> by default.
 	Dir string `json:"dir,omitempty"`
+	// Origin says where the run was started from, for a job monitor: one JSON object of at most 4 KiB,
+	// opaque to the cockpit (a frontend's {kind: act, package, composition, part, act, identity}).
+	Origin json.RawMessage `json:"origin,omitempty"`
+	// RunID is the id a run was queued under (serve's workflow/run); empty makes one.
+	RunID string `json:"runId,omitempty"`
 }
 
 // WorkflowRunResult reports a run, step by step.
 type WorkflowRunResult struct {
-	Name string `json:"name"`
-	Dir  string `json:"dir"`
+	// RunID names the run in the checkout's jobs journal (run/status).
+	RunID string `json:"runId"`
+	Name  string `json:"name"`
+	Dir   string `json:"dir"`
 	// InReferenceDir means a check ran where the reference ran — paths are part of a record's
 	// identity, so only there is the same work the same record.
 	InReferenceDir bool              `json:"inReferenceDir,omitempty"`
@@ -340,10 +349,13 @@ type WorkflowRunStep struct {
 }
 
 // WorkflowRun binds, stages and publishes the workflow's steps in order.
-func (c *Cockpit) WorkflowRun(ctx context.Context, in WorkflowRunRequest) (*WorkflowRunResult, error) {
+func (c *Cockpit) WorkflowRun(ctx context.Context, in WorkflowRunRequest) (res *WorkflowRunResult, err error) {
 	cfg, err := config.Load(ctx, c.dir())
 	if err != nil {
 		return nil, refuse("binding", "SPEC §5", "%v", err)
+	}
+	if err := checkOrigin(in.Origin); err != nil {
+		return nil, err
 	}
 	inst, b, err := installedWorkflow(cfg, in.Name)
 	if err != nil {
@@ -402,6 +414,29 @@ func (c *Cockpit) WorkflowRun(ctx context.Context, in WorkflowRunRequest) (*Work
 				"set execution.image to that image to run it", st.ID, st.Image, cfg.Raw.Execution.Image)
 		}
 	}
+	// From here the run runs: it is in the jobs journal, and its end is recorded however it ends.
+	out.RunID = in.RunID
+	if out.RunID == "" {
+		out.RunID = jobs.NewID()
+	}
+	journal := jobs.Dir(cfg.LocalDir)
+	ray := &jobs.Ray{Package: inst.Package.Name, Revision: inst.Revision.Label}
+	if err := jobs.Append(journal, JobsWriter, jobs.Line{ID: out.RunID, Kind: jobs.KindWorkflow, Ray: ray, Origin: in.Origin, State: jobs.Running}); err != nil {
+		return nil, refuse("io", "", "the jobs journal: %v", err)
+	}
+	defer func() {
+		end := jobs.Line{ID: out.RunID, Kind: jobs.KindWorkflow, State: jobs.Succeeded}
+		for _, s := range out.Steps {
+			end.Steps = append(end.Steps, s.FotonID)
+		}
+		switch {
+		case err != nil && ctx.Err() != nil:
+			end.State, end.Error = jobs.Cancelled, err.Error()
+		case err != nil:
+			end.State, end.Error = jobs.Failed, err.Error()
+		}
+		_ = jobs.Append(journal, JobsWriter, end) // the run's own answer stands; a lost line leaves it running
+	}()
 	for _, st := range plan.Steps {
 		// Here and not before the loop: a folder handed over from an earlier step exists only now.
 		if err := expandDirSlots(cfg.RepoRoot, b.Ray.Step(st.ID), &st, plan.Bindings); err != nil {
