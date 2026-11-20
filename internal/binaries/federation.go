@@ -127,9 +127,26 @@ func buildUnion(dir string, inputs []Input) error {
 			return fmt.Errorf("source %s: %w", name, err)
 		}
 		if n, err := OpenNektonSource(reg.NektonDir); err == nil {
-			for _, rec := range n.Records(0) {
-				if _, _, err := nreg.Add(rec.Envelope); err != nil {
-					return fmt.Errorf("source %s: nekton %s: %w", name, rec.ClaimID, err)
+			// One batch per source (kernel Registry.AddAll): each scope file and the position map are
+			// read once per chunk, not once per claim. One Add per claim made every union rebuild, and so
+			// every say in a federated repository, quadratic in the claims (userinterface, 20.11.: a say
+			// that did not return).
+			// Every record on disk, judged here as Add judges it: the kernel's own load (Records) leaves
+			// out what it refuses, and a source missing a record would make a clean-looking union that is
+			// not the source (kton-review F1 on #198). It is also what the kernel offers federation for: a
+			// record whose parent another source holds still transfers (registry.RawRecords).
+			recs := n.RawRecords()
+			envs := make([]core.Envelope, len(recs))
+			for i, rec := range recs {
+				envs[i] = rec.Envelope
+			}
+			results, err := nreg.AddAll(envs)
+			if err != nil {
+				return fmt.Errorf("source %s: nekton: %w", name, err)
+			}
+			for i, res := range results {
+				if res.Err != nil {
+					return fmt.Errorf("source %s: nekton %s: %w", name, recs[i].ClaimID, res.Err)
 				}
 			}
 		} else if !errors.Is(err, os.ErrNotExist) {

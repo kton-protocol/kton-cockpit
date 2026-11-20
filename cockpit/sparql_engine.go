@@ -30,6 +30,12 @@ func runSparql(ctx context.Context, cfg *config.Config, q, dataset string, timeo
 	if cfg.Raw.Index.Kind == "oxigraph" {
 		d, err := oxigraph.Ensure(ctx, cfg)
 		if err == nil {
+			missing := 0
+			if cfg.Raw.Index.Derived.Enabled {
+				if missing, err = reloadMissing(ctx, cfg, d); err != nil {
+					return nil, refuse("index", "SPEC §12.6", "loading again what this checkout loaded: %v", err)
+				}
+			}
 			a, err := oxigraph.Free(ctx, d, cfg, keys, q, dataset, timeout)
 			if err != nil {
 				code := "query.failed"
@@ -42,7 +48,9 @@ func runSparql(ctx context.Context, cfg *config.Config, q, dataset string, timeo
 			if a.Kept {
 				kept = "current"
 			}
-			return answerOf(form, &a.Results, fmt.Sprintf("index oxigraph, %d registries (%s)", a.Registries, kept)), nil
+			ans := answerOf(form, &a.Results, fmt.Sprintf("index oxigraph, %d registries (%s)", a.Registries, kept))
+			ans.LoadedGraphs, ans.LoadMissing = a.Loaded, missing
+			return ans, nil
 		}
 		if cfg.Raw.Query.Image == "" {
 			return nil, refuse("query.failed", "", "%v", err)

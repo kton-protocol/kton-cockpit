@@ -214,7 +214,17 @@
       "properties": {
         "kind": { "type": "string", "enum": ["none", "memory", "oxigraph"], "description": "\"none\" (default): the registries are opened on every call. \"memory\": the opened registries are kept for as long as the process runs and opened again when a file in one of them changes; useful for the MCP server, which runs across calls. An answer read through it says so (ask's \"index\" field). \"oxigraph\" (only in a build with the kernel's RDF projections): memory, plus one long-running Oxigraph per machine that keeps the projection vocabulary queries run on, started by the first query from query.image." },
         "url": { "type": "string", "description": "For kind oxigraph: an Oxigraph SPARQL server to connect to instead of starting one." },
-        "memory": { "type": "string", "description": "For kind oxigraph: the memory limit of the Oxigraph container the cockpit starts, in the engine's notation (\"8g\"). Default \"2g\". A running daemon started with less is restarted with this on the same store by the next query; one started with more is left as it is." }
+        "memory": { "type": "string", "description": "For kind oxigraph: the memory limit of the Oxigraph container the cockpit starts, in the engine's notation (\"8g\"). Default \"2g\". A running daemon started with less is restarted with this on the same store by the next query; one started with more is left as it is." },
+        "derived": {
+          "type": "object",
+          "description": "For kind oxigraph: what `cockpit load` may put into the index, a file's RDF as a graph named by its hash (ADR-017). Nothing loaded is signed; a rebuild of the index drops it until loaded again.",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean", "description": "Off unless true." },
+            "maxBytes": { "type": "integer", "minimum": 0, "description": "The largest file a load takes, in bytes. 0 or absent: 64 MiB." },
+            "maxTriples": { "type": "integer", "minimum": 0, "description": "How many triples this repository may have loaded, all graphs together. 0 or absent: 50 million." }
+          }
+        }
       }
     },
     "reproduction": {

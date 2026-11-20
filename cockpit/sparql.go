@@ -36,6 +36,10 @@ type SparqlAnswer struct {
 	// keeps its type (uri, literal, bnode), datatype and language; only with format
 	// "sparql-results+json".
 	Results *SparqlResults `json:"results,omitempty"`
+	// LoadedGraphs is how many graphs `cockpit load` put in for this repository the query's named graphs
+	// were, and LoadMissing how many on the checkout's load list could not be loaded again (ADR-017).
+	LoadedGraphs int `json:"loadedGraphs,omitempty"`
+	LoadMissing  int `json:"loadMissing,omitempty"`
 	// Truncated says Rows stop at the limit and the query had more.
 	Truncated bool `json:"truncated,omitempty"`
 	Limit     int  `json:"limit"`

@@ -39,6 +39,7 @@ type FreeAnswer struct {
 	Results
 	Registries int
 	Kept       bool
+	Loaded     int // the loaded graphs the query's named graphs were (ADR-017)
 }
 
 // ErrTimeout is a free query cut off at its timeout.
@@ -65,8 +66,17 @@ func Free(ctx context.Context, d *Daemon, cfg *config.Config, keys []ed25519.Pub
 	qctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	form := datasetForm(ds.def, ds.named, query)
+	loaded := 0
 	if dataset != DatasetNanopub {
-		form = datasetForm(ds.claims, nil, query)
+		// The graphs loaded for this repository are the named graphs (ADR-017, section 5): a derived fact
+		// is reached only through GRAPH ?g, never in the claim view, and only this repository's loads.
+		var named []string
+		if cfg.Raw.Index.Derived.Enabled {
+			if named, err = d.LoadedGraphs(ctx, cfg.RepoRoot); err != nil {
+				return nil, err
+			}
+		}
+		form, loaded = datasetForm(ds.claims, named, query), len(named)
 	}
 	body, err := d.post(qctx, "/query", "application/sparql-results+json", form)
 	if qctx.Err() == context.DeadlineExceeded {
@@ -79,7 +89,7 @@ func Free(ctx context.Context, d *Daemon, cfg *config.Config, keys []ed25519.Pub
 	if err != nil {
 		return nil, err
 	}
-	return &FreeAnswer{Results: *res, Registries: ds.registries, Kept: ds.kept}, nil
+	return &FreeAnswer{Results: *res, Registries: ds.registries, Kept: ds.kept, Loaded: loaded}, nil
 }
 
 // ParseResults reads SPARQL 1.1 query results in JSON.

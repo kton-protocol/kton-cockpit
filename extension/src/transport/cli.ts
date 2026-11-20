@@ -1,4 +1,4 @@
-// CliTransport (contract C1.2): the shell's transport until `cockpit serve --stdio` (v0.6.0).
+// CliTransport (contract C1.2): the shell's default transport; `cockpit serve --stdio` (v0.5.6) is opt-in.
 //
 // - The executable is a setting (`cockpit` on git, another binary for another backend).
 // - It is always run with an argv array and `shell: false`. Field values come from viewers and
@@ -37,7 +37,7 @@ import type {
   Transport,
   WorkflowRunRequest,
 } from "./port.js";
-import { OperatorConfirmation, TransportError, TransportTimeout } from "./port.js";
+import { OperatorConfirmation, TransportError, TransportNotSent, TransportTimeout } from "./port.js";
 import { assertSayResult, assertAskResult, assertPublishResult, assertDoctorReport, assertObject } from "./schema.js";
 
 export interface CliTransportOptions {
@@ -68,7 +68,7 @@ export class CliTransport implements Transport {
   /** Every argv the transport ran, newest last. For the local output channel (O7) and tests. */
   readonly calls: string[][] = [];
 
-  constructor(private readonly opts: CliTransportOptions) {}
+  constructor(protected readonly opts: CliTransportOptions) {}
 
   private run(args: readonly string[], binary = false): Promise<RunResult> {
     const argv = [...args];
@@ -94,7 +94,7 @@ export class CliTransport implements Transport {
           }
           if (err && typeof (err as NodeJS.ErrnoException).code === "string") {
             // ENOENT, EACCES, …: the executable could not be started at all.
-            reject(new TransportError(`cannot run ${this.opts.executable}: ${err.message}`, null, String(stderr)));
+            reject(new TransportNotSent(`cannot run ${this.opts.executable}: ${err.message}`, String(stderr)));
             return;
           }
           const code = err ? ((err as { code?: number | null }).code ?? null) : 0;
@@ -125,46 +125,24 @@ export class CliTransport implements Transport {
   }
 
   say(req: SayRequest): Promise<Outcome<SayResult>> {
-    if (!QNAME.test(req.template)) return bad(`template ${JSON.stringify(req.template)} is not a name`);
-    if (!SHA.test(req.subject)) return bad("say takes a sha256 id as its subject, never a path");
+    const why = checkSay(req);
+    if (why) return bad(why);
     const args = ["say", req.template, req.subject];
-    for (const k of Object.keys(req.fields ?? {}).sort()) {
-      if (!NAME.test(k)) return bad(`field ${JSON.stringify(k)} is not a name`);
-      args.push(`${k}=${(req.fields ?? {})[k] ?? ""}`);
-    }
-    if (req.as !== undefined) {
-      if (!NAME.test(req.as)) return bad("as is not a key name");
-      args.push("--as", req.as);
-    }
-    if (req.scope !== undefined) {
-      if (!NAME.test(req.scope)) return bad(`scope ${JSON.stringify(req.scope)} is not a name`);
-      args.push("--scope", req.scope);
-    }
-    if (req.expectHead !== undefined) {
-      if (!SHA.test(req.expectHead)) return bad("expectHead is not a sha256 id");
-      args.push("--expect-head", req.expectHead);
-    }
+    for (const k of Object.keys(req.fields ?? {}).sort()) args.push(`${k}=${(req.fields ?? {})[k] ?? ""}`);
+    if (req.as !== undefined) args.push("--as", req.as);
+    if (req.scope !== undefined) args.push("--scope", req.scope);
+    if (req.expectHead !== undefined) args.push("--expect-head", req.expectHead);
     // SPEC §8.5 (cockpit v0.5.5): the template, its revision and its predicate the dialog showed
-    if (req.expectTemplate !== undefined) {
-      if (!SHA.test(req.expectTemplate)) return bad("expectTemplate is not a sha256 hash");
-      args.push("--expect-template", req.expectTemplate);
-    }
-    if (req.expectRevision !== undefined) {
-      if (!SHA.test(req.expectRevision)) return bad("expectRevision is not a sha256 id");
-      args.push("--expect-revision", req.expectRevision);
-    }
-    if (req.expectPredicate !== undefined) {
-      if (!/^https?:\/\/[^\s"'<>\\]+$/.test(req.expectPredicate)) return bad("expectPredicate is not an IRI");
-      args.push("--expect-predicate", req.expectPredicate);
-    }
+    if (req.expectTemplate !== undefined) args.push("--expect-template", req.expectTemplate);
+    if (req.expectRevision !== undefined) args.push("--expect-revision", req.expectRevision);
+    if (req.expectPredicate !== undefined) args.push("--expect-predicate", req.expectPredicate);
     args.push("--json");
     return this.outcome(args, assertSayResult);
   }
 
   ask(req: AskRequest): Promise<Outcome<AskResult>> {
-    if (LINEAGE.has(req.query) && (req.ref === undefined || !SHA.test(req.ref))) {
-      return bad(`ask ${req.query} takes a sha256 id, never a path`);
-    }
+    const why = checkAsk(req);
+    if (why) return bad(why);
     return this.outcome(["ask", JSON.stringify(dropUndefined(req))], assertAskResult);
   }
 
@@ -230,18 +208,12 @@ export class CliTransport implements Transport {
    * [{package, id, dir}]}}: a label, never trust). Shape-checked; packages is passed on unchanged.
    */
   graph(): Promise<Outcome<{ records: unknown[]; keys: Record<string, unknown>; names: Record<string, unknown>; packages: Record<string, unknown> }>> {
-    return this.outcome(["show", "--json"], (v) => {
-      const o = assertObject(v, "show") as Record<string, unknown>;
-      if (!Array.isArray(o["union"])) throw new TransportError("show: union is not a list of records", 0, "");
-      const keys = assertObject(o["keys"] ?? {}, "show keys") as Record<string, unknown>;
-      const names = assertObject(o["names"] ?? {}, "show names") as Record<string, unknown>;
-      const packages = assertObject(o["packages"] ?? {}, "show packages") as Record<string, unknown>;
-      for (const [k, e] of Object.entries(packages)) {
-        const pk = e as { key?: unknown; packages?: unknown };
-        if (typeof pk !== "object" || pk === null || typeof pk.key !== "string" || !Array.isArray(pk.packages)) throw new TransportError(`show: packages.${k} is not {key, packages: [...]}`, 0, "");
-      }
-      return { records: o["union"] as unknown[], keys, names, packages };
-    });
+    return this.outcome(["show", "--json"], checkShow);
+  }
+
+  /** `cockpit workflow list --json`: the workflow names (stdio has no method for it: the command line answers). */
+  protected workflows(): Promise<Outcome<string[]>> {
+    return this.outcome(["workflow", "list", "--json"], parseWorkflowNames);
   }
 
   /** The templates this checkout's cockpit allows, with their fields (`cockpit say --json`, v0.5.0). */
@@ -252,11 +224,16 @@ export class CliTransport implements Transport {
   async list(): Promise<Outcome<Listing>> {
     const t = await this.templates();
     if (!t.ok) return t;
-    const q = await this.outcome(["ask", "--json"], parseQueries);
+    const q = await this.queries();
     if (!q.ok) return q;
-    const wf = await this.outcome(["workflow", "list", "--json"], parseWorkflowNames);
+    const wf = await this.workflows();
     if (!wf.ok) return wf;
     return { ok: true, value: { templates: t.value, queries: q.value, workflows: wf.value } };
+  }
+
+  /** `cockpit ask --json`: the named queries offered here. */
+  protected queries(): Promise<Outcome<QueryInfo[]>> {
+    return this.outcome(["ask", "--json"], parseQueries);
   }
 
   async doctor(): Promise<DoctorReport> {
@@ -294,7 +271,31 @@ const SHA = /^sha256:[0-9a-f]{64}$/;
 /** Queries whose ref is a record or content hash (cockpit/ask.go). */
 const LINEAGE: ReadonlySet<string> = new Set(["record", "producer", "uses", "lineage", "reproductions", "about"]);
 
-function bad(reason: string): Promise<{ ok: false; refusal: Refusal }> {
+/**
+ * The local checks of a say, before any cockpit is asked (both transports, kton-cockpit on #196): a sha256 subject
+ * (never a path), names for the template, fields, `as` and scope, sha256 expectations, an IRI predicate.
+ * The reason, or undefined when the request may go.
+ */
+export function checkSay(req: SayRequest): string | undefined {
+  if (!QNAME.test(req.template)) return `template ${JSON.stringify(req.template)} is not a name`;
+  if (!SHA.test(req.subject)) return "say takes a sha256 id as its subject, never a path";
+  for (const k of Object.keys(req.fields ?? {})) if (!NAME.test(k)) return `field ${JSON.stringify(k)} is not a name`;
+  if (req.as !== undefined && !NAME.test(req.as)) return "as is not a key name";
+  if (req.scope !== undefined && !NAME.test(req.scope)) return `scope ${JSON.stringify(req.scope)} is not a name`;
+  if (req.expectHead !== undefined && !SHA.test(req.expectHead)) return "expectHead is not a sha256 id";
+  if (req.expectTemplate !== undefined && !SHA.test(req.expectTemplate)) return "expectTemplate is not a sha256 hash";
+  if (req.expectRevision !== undefined && !SHA.test(req.expectRevision)) return "expectRevision is not a sha256 id";
+  if (req.expectPredicate !== undefined && !/^https?:\/\/[^\s"'<>\\]+$/.test(req.expectPredicate)) return "expectPredicate is not an IRI";
+  return undefined;
+}
+
+/** The local check of an ask: a lineage query takes a sha256 id as its ref, never a path. */
+export function checkAsk(req: AskRequest): string | undefined {
+  if (LINEAGE.has(req.query) && (req.ref === undefined || !SHA.test(req.ref))) return `ask ${req.query} takes a sha256 id, never a path`;
+  return undefined;
+}
+
+export function bad(reason: string): Promise<{ ok: false; refusal: Refusal }> {
   return Promise.resolve({ ok: false, refusal: { code: "argument", reason } });
 }
 
@@ -318,13 +319,13 @@ function dropUndefined<T extends object>(o: T): T {
   return Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined)) as T;
 }
 
-function parseWorkflowNames(v: unknown): string[] {
+export function parseWorkflowNames(v: unknown): string[] {
   const arr = Array.isArray(v) ? v : Array.isArray((v as { workflows?: unknown }).workflows) ? (v as { workflows: unknown[] }).workflows : null;
   if (!arr) throw new TransportError("workflow list: expected a list", 0, "");
   return arr.map((w) => (typeof w === "string" ? w : String((w as { name?: unknown }).name ?? ""))).filter((n) => n !== "");
 }
 
-function parseTemplates(v: unknown): TemplateInfo[] {
+export function parseTemplates(v: unknown): TemplateInfo[] {
   const arr = Array.isArray(v) ? v : (v as { templates?: unknown }).templates;
   if (!Array.isArray(arr)) throw new TransportError("template listing: expected a list", 0, "");
   return arr.map((t) => {
@@ -339,7 +340,7 @@ function parseTemplates(v: unknown): TemplateInfo[] {
   });
 }
 
-function parseQueries(v: unknown): QueryInfo[] {
+export function parseQueries(v: unknown): QueryInfo[] {
   const arr = Array.isArray(v) ? v : (v as { queries?: unknown }).queries;
   if (!Array.isArray(arr)) throw new TransportError("query listing: expected a list", 0, "");
   return arr.map((q) => {
@@ -348,4 +349,18 @@ function parseQueries(v: unknown): QueryInfo[] {
     if (typeof o.name !== "string") throw new TransportError("query listing: an entry has no name", 0, "");
     return { name: o.name, parameters: Array.isArray(o.params) ? o.params.map(String) : [], ...(typeof o.package === "string" ? { package: o.package } : {}) };
   });
+}
+
+/** `show --json`'s shape: the records, the ring and the admitted packages' build keys (a label, never trust). */
+export function checkShow(v: unknown): { records: unknown[]; keys: Record<string, unknown>; names: Record<string, unknown>; packages: Record<string, unknown> } {
+  const o = assertObject(v, "show") as Record<string, unknown>;
+  if (!Array.isArray(o["union"])) throw new TransportError("show: union is not a list of records", 0, "");
+  const keys = assertObject(o["keys"] ?? {}, "show keys") as Record<string, unknown>;
+  const names = assertObject(o["names"] ?? {}, "show names") as Record<string, unknown>;
+  const packages = assertObject(o["packages"] ?? {}, "show packages") as Record<string, unknown>;
+  for (const [k, e] of Object.entries(packages)) {
+    const pk = e as { key?: unknown; packages?: unknown };
+    if (typeof pk !== "object" || pk === null || typeof pk.key !== "string" || !Array.isArray(pk.packages)) throw new TransportError(`show: packages.${k} is not {key, packages: [...]}`, 0, "");
+  }
+  return { records: o["union"] as unknown[], keys, names, packages };
 }

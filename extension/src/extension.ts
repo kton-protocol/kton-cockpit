@@ -16,6 +16,7 @@ import { startMermaidServer } from "./composition/mermaid-server.js";
 import type { Subject } from "./composition/slots.js";
 import type { LeafViewer, LoadedViewer, MirrorPackage, ViewerTree } from "./packages/model.js";
 import { CliTransport } from "./transport/cli.js";
+import { StdioTransport } from "./transport/stdio.js";
 import { claimKeyId, readIdentityHint, type WindowIdentity } from "./identity.js";
 import type { DoctorReport } from "./transport/port.js";
 import { loadQueries } from "./ui/queries.js";
@@ -241,6 +242,7 @@ class VsHost implements UiHost {
 }
 
 let wb: Workbench | undefined;
+let stdio: StdioTransport | undefined;
 /** The viewers vendored from kton-web, read and tree-hashed once (src/packages/vendored.ts). */
 let vendored: ReadonlyMap<string, ViewerTree> = new Map();
 let builtin: MirrorPackage | undefined;
@@ -251,6 +253,8 @@ async function build(host: VsHost): Promise<void> {
   const mine = ++generation;
   wb?.stop();
   wb = undefined;
+  stdio?.dispose();
+  stdio = undefined;
   const folder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
   const cfg = vscode.workspace.getConfiguration("kton");
   if (!folder) {
@@ -264,7 +268,21 @@ async function build(host: VsHost): Promise<void> {
   const agentKey = cfg.get<string>("identity.agentKey") || "";
   const executable = cfg.get<string>("cockpit.path") || "cockpit";
   const timeout = Math.max(1, cfg.get<number>("cockpit.timeoutSeconds") ?? 120);
-  const transport = new CliTransport({ executable, cwd: folder, timeoutMs: timeout * 1000 });
+  // the command line (default), or the frontend protocol: cockpit serve --stdio (SPEC §12.5, cockpit v0.5.6)
+  const opts = { executable, cwd: folder, timeoutMs: timeout * 1000 };
+  const transport = cfg.get<string>("cockpit.transport") === "stdio" ? (stdio = new StdioTransport(opts)) : new CliTransport(opts);
+  if (stdio) {
+    // kton-review W1 on #196: an answer to a request already failed came after all. A say among them may have
+    // signed: name the claim and refresh, so the claim shows (it is never signed again).
+    stdio.onLateAnswer = (a) => {
+      const claim = (a.result as { claimId?: unknown } | undefined)?.claimId;
+      if (a.method === "say" && typeof claim === "string") {
+        host.log(`say answered after all (it had failed: ${a.failed}): signed ${claim}`);
+        host.info(`The say that failed (${a.failed}) was signed after all: ${claim}`);
+        void wb?.refreshNow();
+      } else host.log(`${a.method} answered after all (it had failed: ${a.failed})${a.error ? `: error ${String(a.error.code)} ${a.error.message ?? ""}` : ""}`);
+    };
+  }
   // Each key's id from its public half in the keyring (never a label), checked against doctor's answer
   // when doctor speaks for the same key. Without a person key id only person tiers count as persons.
   let doctor: DoctorReport | undefined;
@@ -334,4 +352,5 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
 
 export function deactivate(): void {
   wb?.stop();
+  stdio?.dispose();
 }

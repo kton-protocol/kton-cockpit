@@ -1,5 +1,41 @@
 # Changelog
 
+## v0.5.7 — 2026-11-20
+
+Derived RDF in the index, and federation that scales, each reviewed by kton-review. Tracks kton v0.4.1 and
+ktonpkg v0.9.11.
+
+### Migrating from v0.5.6
+
+- **ktonpkg v0.9.11:** a package's area `scopes` are labels. A package admitted with an IRI there fails its
+  check after the update; rebuild it with the scope's name.
+
+### Added
+
+- **`cockpit load <file|sha256>... [--as TYPE]`** (SPEC §12.6,
+  [ADR-017](docs/decisions/adr-017-derived-rdf-in-graphs-per-hash.md)): a file's RDF into the index as a named
+  graph named by its hash, `https://kton.dev/o/<hex>`, for this repository's queries. Off unless
+  `index.derived.enabled` (with `index.kind oxigraph`); limits `index.derived.maxBytes` (64 MiB per file) and
+  `maxTriples` (50 million per repository). Nothing is signed: the checkout keeps an unsigned load list and the
+  index loads it again after a rebuild. A query's named graphs are exactly this repository's loaded graphs; a
+  load never takes a record's graph name (`derived.clash`). `--list`, `--drop <sha256>`.
+- **ktonpkg v0.9.11:** ui entries carry their `scopes` (`records`).
+
+### Fixed
+
+- **A federated repository no longer hangs:** `say`, `federation add` and the first ask after a write rebuild
+  the union with one `Registry.AddAll` per source instead of one add per claim (1,500 + 1,500 claims, one say:
+  22 s to 1.5 s; `federation add` of 11,500 claims: 7 s, before it did not finish).
+- **A record a federation source cannot load fails the union** instead of going missing from it: the union reads
+  every record on disk and judges it as the registry does.
+- **`index.url` keeps its view:** a query no longer rebuilds the view each time (25–37 s per ask before). One
+  machine per store reached by URL.
+- **Example 10 runs offline:** it ships an extract of the Vienna tree register instead of downloading it.
+
+### Extension
+
+- The workbench's StdioTransport over `cockpit serve --stdio` (#196); the command line stays the default.
+
 ## v0.5.6 — 2026-11-20
 
 The frontend protocol's first part, many claims in one write, and the fixes the dry runs found, each reviewed by
