@@ -216,6 +216,15 @@ SELECT ?label ?source WHERE { ?g a nk:ClaimGraph ; rdfs:label ?label ; nk:source
 	if len(a.RepeatedLabels) != 0 {
 		t.Errorf("no label repeats here: %v", a.RepeatedLabels)
 	}
+	// Answered again from the view the first query built (kept, in the index), the list is the same
+	// (kton-review T30 on #207).
+	again := sparqlAsk(t, `ASK { ?s ?p ?o }`)
+	if len(again.ClaimGraphs) != len(a.ClaimGraphs) {
+		t.Errorf("a second query lists %d claim graphs, the first %d (via %s)", len(again.ClaimGraphs), len(a.ClaimGraphs), again.Via)
+	}
+	if kind == "oxigraph" && !strings.Contains(again.Via, "(current)") {
+		t.Errorf("the second query should be answered from the kept view: %s", again.Via)
+	}
 
 	// A second scope named "runs", this repository's own: the name now repeats, and reading by name
 	// reads both graphs.
