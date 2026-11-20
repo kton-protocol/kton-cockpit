@@ -773,8 +773,10 @@ say many claims in one write. Each claim takes the request and the checks of one
   it. With `expectHead`, the first names a head the scope has, and each later one the claim of the batch
   before it.
 - **`replace: previous` sees the earlier claims of the same batch.**
-- **The claims are stored through one open of the store, committed once, and confirmed once** (§8.3),
-  and answered in the order asked.
+- **The claims are stored through one open of the store, committed once, and confirmed once** (SPEC §8.3),
+  and answered in the order asked, each with its chain position.
+- **Each claim carries what one `say`'s claim carries:** the configured evidence (§11) and, where the
+  repository anchors, its own anchor, reported per claim. No form of `say` is laxer than another (SPEC §6).
 - `reproduces` runs a reproduction per claim and MUST NOT be in a batch.
 
 The store is append-only. A refusal by the substrate while storing leaves the claims before it stored,
@@ -782,7 +784,8 @@ and says how many.
 
 > **Checked by:** `TestSayBatch_ManyClaimsInOneWriteChainInOrder`,
 > `TestSayBatch_OneBadClaimRefusesTheBatchAndWritesNothing`,
-> `TestSayBatch_ReplacePreviousAndExpectHeadWithinTheBatch`, `TestShellSay_BatchFromAFile`.
+> `TestSayBatch_ReplacePreviousAndExpectHeadWithinTheBatch`, `TestSayBatch_AnchorsEveryClaimWhereTheRepositoryAnchors`,
+> `TestShellSay_BatchFromAFile`.
 
 ### 8.3 Registration
 

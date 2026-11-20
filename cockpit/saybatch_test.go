@@ -1,9 +1,16 @@
 package cockpit
 
 import (
+	"sync/atomic"
+
+	"kton.dev/plankton/core"
+
 	"context"
 	"errors"
 	"fmt"
+	"github.com/kton-protocol/kton-cockpit/internal/anchor"
+	"github.com/kton-protocol/kton-cockpit/internal/config"
+	"kton.dev/kton/sigstore"
 	"strings"
 	"testing"
 
@@ -139,4 +146,35 @@ func TestSayBatch_ReplacePreviousAndExpectHeadWithinTheBatch(t *testing.T) {
 	if _, length, branched := r.ScopeHead(t, scope); length != 3 || branched {
 		t.Errorf("after the batches: length %d branched %v, want 3, false", length, branched)
 	}
+}
+
+// A repository that anchors anchors every claim of a batch, as it anchors one say's claim, and each
+// claim reports its entry (kton-review A1 on #188). Each claim's chain says how many the scope held before it.
+func TestSayBatch_AnchorsEveryClaimWhereTheRepositoryAnchors(t *testing.T) {
+	r, scope := scopedRepo(t)
+	raw := r.Config(t).Raw
+	raw.Anchor = config.Anchor{Enabled: true}
+	r.WriteConfig(t, raw)
+	var calls atomic.Int64
+	t.Cleanup(anchor.Use(func(_ context.Context, _ *config.Config, _ core.Envelope, _ []byte) (*sigstore.Entry, error) {
+		n := calls.Add(1)
+		return &sigstore.Entry{LogIndex: 1000 + n, UUID: fmt.Sprintf("uuid-%d", n), IntegratedTime: 1788000000,
+			Body: "eyJhcGlWZXJzaW9uIjoiMC4wLjEifQ=="}, nil
+	}))
+	out, err := New(Start{}).SayBatch(context.Background(), SayBatchRequest{Claims: []SayRequest{working("review", 1), working("review", 2), working("review", 3)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls.Load() != 3 {
+		t.Errorf("want each of the 3 claims anchored, got %d anchor calls", calls.Load())
+	}
+	for i, c := range out.Claims {
+		if c.RekorLogIndex == 0 || c.RekorUUID == "" {
+			t.Errorf("claim %d does not report its anchor: %+v", i+1, c)
+		}
+		if c.Chain == nil || c.Chain.Length != i {
+			t.Errorf("claim %d: want the scope to have held %d before it, got %+v", i+1, i, c.Chain)
+		}
+	}
+	_ = scope
 }

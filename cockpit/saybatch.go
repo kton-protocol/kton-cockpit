@@ -9,6 +9,7 @@ import (
 
 	"kton.dev/plankton/core"
 
+	"github.com/kton-protocol/kton-cockpit/internal/anchor"
 	"github.com/kton-protocol/kton-cockpit/internal/binaries"
 	"github.com/kton-protocol/kton-cockpit/internal/config"
 	"github.com/kton-protocol/kton-cockpit/internal/material"
@@ -92,9 +93,10 @@ func (c *Cockpit) SayBatch(ctx context.Context, in SayBatchRequest) (*SayBatchRe
 
 	// Each scope's head is read once; within the batch a scope's next claim chains onto the one before.
 	type scopeState struct {
-		chain *binaries.Chain
-		head  *binaries.ScopeHead
-		said  bool // a claim of the batch went into it already
+		chain  *binaries.Chain
+		head   *binaries.ScopeHead
+		said   bool // a claim of the batch went into it already
+		length int  // the chain's length with the batch's claims so far
 	}
 	scopes := map[string]*scopeState{}
 	// The newest claim of the batch per (template, subject, signer), for replace: previous.
@@ -110,7 +112,7 @@ func (c *Cockpit) SayBatch(ctx context.Context, in SayBatchRequest) (*SayBatchRe
 				if cerr != "" {
 					return nil, at(i, refuse("scope.unknown", "", "%s", cerr))
 				}
-				st = &scopeState{chain: ch, head: head}
+				st = &scopeState{chain: ch, head: head, length: head.ChainLength}
 				scopes[p.in.Scope] = st
 			}
 			if p.in.ExpectHead != "" {
@@ -159,8 +161,11 @@ func (c *Cockpit) SayBatch(ctx context.Context, in SayBatchRequest) (*SayBatchRe
 		envs[i] = env
 		ownInBatch[key] = id
 		if chain != nil {
-			scopes[p.in.Scope].chain.Prev, scopes[p.in.Scope].said = id, true
-			out.Claims[i].Chain = &ChainPosition{Scope: chain.Scope, Prev: chain.Prev}
+			st := scopes[p.in.Scope]
+			// Length is how many claims the scope held before this one, as say answers it.
+			out.Claims[i].Chain = &ChainPosition{Scope: chain.Scope, Prev: chain.Prev, Length: st.length}
+			st.chain.Prev, st.said = id, true
+			st.length++
 		}
 		out.Claims[i].ClaimID, out.Claims[i].Subject, out.Claims[i].ResolvedFrom = id, p.in.Subject, p.resolvedFrom
 	}
@@ -172,9 +177,18 @@ func (c *Cockpit) SayBatch(ctx context.Context, in SayBatchRequest) (*SayBatchRe
 	if err != nil {
 		return nil, refuse("kernel", "", "claim %d: %v (the %d claim(s) before it are stored; say the rest again)", n+1, err, n)
 	}
+	// Each claim carries what one say's claim carries: the configured evidence, and its anchor when the
+	// repository anchors (kton-review A1 on #188), so no form of say is laxer than another (SPEC §6).
 	for i := range out.Claims {
 		if err := material.Attach(ctx, cfg, r, out.Claims[i].ClaimID, material.Claim); err != nil {
 			return nil, at(i, refuse("material", "SPEC §11", "%v", err))
+		}
+		if cfg.Raw.Anchor.Enabled {
+			e, err := anchor.Record(ctx, cfg, out.Claims[i].ClaimID, anchor.Claim)
+			if err != nil {
+				return nil, at(i, refuse("anchor", "", "the claim was registered but anchoring it failed: %v", err))
+			}
+			out.Claims[i].RekorLogIndex, out.Claims[i].RekorUUID = e.LogIndex, e.UUID
 		}
 	}
 
