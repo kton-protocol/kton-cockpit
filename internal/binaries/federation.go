@@ -131,7 +131,11 @@ func buildUnion(dir string, inputs []Input) error {
 			// read once per chunk, not once per claim. One Add per claim made every union rebuild, and so
 			// every say in a federated repository, quadratic in the claims (userinterface, 20.11.: a say
 			// that did not return).
-			recs := n.Records(0)
+			// Every record on disk, judged here as Add judges it: the kernel's own load (Records) leaves
+			// out what it refuses, and a source missing a record would make a clean-looking union that is
+			// not the source (kton-review F1 on #198). It is also what the kernel offers federation for: a
+			// record whose parent another source holds still transfers (registry.RawRecords).
+			recs := n.RawRecords()
 			envs := make([]core.Envelope, len(recs))
 			for i, rec := range recs {
 				envs[i] = rec.Envelope
