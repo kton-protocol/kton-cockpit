@@ -66,6 +66,18 @@ func (c *Cockpit) Install(ctx context.Context, in InstallRequest) (*InstallResul
 	if err != nil {
 		return nil, refuse("binding", "SPEC §5", "%v", err)
 	}
+	// An install writes the package folder, the configuration, the package's records, its scope's seed
+	// and the claim that it was installed. It holds the claims lock throughout, so two installs at once
+	// neither race on the folder nor seed two scopes of one name nor chain onto one head, and reads the
+	// configuration again under it, so neither loses the other's admission (kton-review M2 on #183).
+	unlockClaims, lerr := binaries.New(cfg).LockClaims()
+	if lerr != nil {
+		return nil, refuse("store", "", "%v", lerr)
+	}
+	defer unlockClaims()
+	if cfg, err = config.Load(ctx, c.dir()); err != nil {
+		return nil, refuse("binding", "SPEC §5", "%v", err)
+	}
 	if in.Path == "" {
 		return nil, refuse("argument", "", "install needs the package directory")
 	}
@@ -126,11 +138,11 @@ func (c *Cockpit) Install(ctx context.Context, in InstallRequest) (*InstallResul
 	if err != nil {
 		return nil, refuse("io", "", "%v", err)
 	}
+	r := binaries.New(cfg)
 	if _, err := kept.Install(rev.Label, cfg.PlanktonDir, cfg.NektonDir); err != nil {
 		return nil, refuse("kernel", "", "taking the package's records into this registry: %v", err)
 	}
 
-	r := binaries.New(cfg)
 	scopeName := p.Name + "@" + rev.Label
 	scopeID, err := r.OwnScope(ctx, scopeName, cfg.NektonKey)
 	if err != nil {
@@ -192,7 +204,7 @@ func rayOrPackage(in *InstallResult) string {
 }
 
 // sayIn writes a claim from an allowed template into a scope of this repository, through the same
-// path say takes for its chain.
+// path say takes for its chain. The caller holds the claims lock (binaries.Runner.LockClaims).
 func (c *Cockpit) sayIn(ctx context.Context, cfg *config.Config, r *binaries.Runner, subject, template string,
 	fields map[string]string, scopeName string) (string, error) {
 	chain, _, cerr := resolveChain(ctx, r, cfg, scopeName)

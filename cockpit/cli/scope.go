@@ -122,6 +122,19 @@ func scopeSeal(ctx context.Context, args []string) error {
 	}
 
 	r := binaries.New(cfg)
+	// From reading the two heads until the seal is stored, as say (kton-review M1 on #183).
+	unlockClaims, err := r.LockClaims()
+	if err != nil {
+		return err
+	}
+	claimsLocked := true
+	releaseClaims := func() {
+		if claimsLocked {
+			claimsLocked = false
+			unlockClaims()
+		}
+	}
+	defer releaseClaims()
 	seed, err := r.Seed(ctx, child)
 	if err != nil {
 		return err
@@ -153,6 +166,7 @@ func scopeSeal(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	releaseClaims()
 	if _, err := cockpit.PersistStrict(ctx, cfg, []string{config.Rel("nekton")}, "scope: seal "+args[0]); err != nil {
 		return fmt.Errorf("the seal was recorded but committing it failed: %w", err)
 	}
