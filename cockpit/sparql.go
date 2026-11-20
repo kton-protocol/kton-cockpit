@@ -40,6 +40,12 @@ type SparqlAnswer struct {
 	// were, and LoadMissing how many on the checkout's load list could not be loaded again (ADR-017).
 	LoadedGraphs int `json:"loadedGraphs,omitempty"`
 	LoadMissing  int `json:"loadMissing,omitempty"`
+	// ClaimGraphs are the claim graphs the query's named graphs were, one per scope and one for the
+	// unscoped claims (ADR-018): an answer is stamped with exactly the graphs it was computed over.
+	// RepeatedLabels are the names more than one of them carries: read by name, such a scope reads all
+	// of them.
+	ClaimGraphs    []oxigraph.ClaimGraph `json:"claimGraphs,omitempty"`
+	RepeatedLabels []string              `json:"repeatedLabels,omitempty"`
 	// Truncated says Rows stop at the limit and the query had more.
 	Truncated bool `json:"truncated,omitempty"`
 	Limit     int  `json:"limit"`
@@ -360,4 +366,8 @@ func escaped(q string, j int) bool {
 		n++
 	}
 	return n%2 == 1
+}
+
+func (a *SparqlAnswer) setGraphs(graphs []oxigraph.ClaimGraph) {
+	a.ClaimGraphs, a.RepeatedLabels = graphs, oxigraph.RepeatedLabels(graphs)
 }

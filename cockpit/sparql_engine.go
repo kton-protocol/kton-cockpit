@@ -50,6 +50,7 @@ func runSparql(ctx context.Context, cfg *config.Config, q, dataset string, timeo
 			}
 			ans := answerOf(form, &a.Results, fmt.Sprintf("index oxigraph, %d registries (%s)", a.Registries, kept))
 			ans.LoadedGraphs, ans.LoadMissing = a.Loaded, missing
+			ans.setGraphs(a.Graphs)
 			return ans, nil
 		}
 		if cfg.Raw.Query.Image == "" {
@@ -57,7 +58,7 @@ func runSparql(ctx context.Context, cfg *config.Config, q, dataset string, timeo
 		}
 		via += "; not the index: " + err.Error()
 	}
-	body, err := inContainer(ctx, cfg, keys, []byte(q), "json", dataset, timeout)
+	body, graphs, err := inContainer(ctx, cfg, keys, []byte(q), "json", dataset, timeout)
 	if err != nil {
 		return nil, err
 	}
@@ -65,7 +66,9 @@ func runSparql(ctx context.Context, cfg *config.Config, q, dataset string, timeo
 	if err != nil {
 		return nil, refuse("query.failed", "", "%v", err)
 	}
-	return answerOf(form, res, via), nil
+	ans := answerOf(form, res, via)
+	ans.setGraphs(graphs)
+	return ans, nil
 }
 
 func answerOf(form string, r *oxigraph.Results, via string) *SparqlAnswer {

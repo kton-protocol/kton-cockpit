@@ -71,3 +71,63 @@ func scopeGraphs(slot string, view []Quad, sources map[string][]string) (graphs 
 	}
 	return graphs, meta
 }
+
+// ClaimGraph describes one claim graph of a view as its metadata does (ADR-018, section 3): what
+// ask --json lists as the graphs a query read.
+type ClaimGraph struct {
+	Label    string   `json:"label,omitempty"`
+	Seed     string   `json:"seed,omitempty"`
+	Parent   string   `json:"parent,omitempty"`
+	Source   []string `json:"source,omitempty"`
+	Claims   int      `json:"claims"`
+	Unscoped bool     `json:"unscoped,omitempty"`
+}
+
+// describeGraphs reads the claim graphs back from the metadata scopeGraphs wrote, in its order.
+func describeGraphs(meta []Quad) []ClaimGraph {
+	var out []ClaimGraph
+	at := map[string]int{}
+	for _, q := range meta {
+		i, ok := at[q.S.Value]
+		if !ok {
+			i = len(out)
+			at[q.S.Value] = i
+			out = append(out, ClaimGraph{})
+		}
+		g := &out[i]
+		switch q.P.Value {
+		case rdfsLbl:
+			g.Label = q.O.Value
+		case nkNS + "scope":
+			g.Seed = q.O.Value
+		case nkNS + "parent":
+			g.Parent = q.O.Value
+		case nkNS + "source":
+			g.Source = append(g.Source, q.O.Value)
+		case nkNS + "claims":
+			g.Claims, _ = strconv.Atoi(q.O.Value)
+		case nkNS + "unscoped":
+			g.Unscoped = true
+		}
+	}
+	return out
+}
+
+// RepeatedLabels are the labels more than one of graphs carries: a name that is no scope's alone
+// (ADR-018, section 3). Read by name, such a scope reads all of them.
+func RepeatedLabels(graphs []ClaimGraph) []string {
+	n := map[string]int{}
+	for _, g := range graphs {
+		if g.Label != "" {
+			n[g.Label]++
+		}
+	}
+	var out []string
+	for l, c := range n {
+		if c > 1 {
+			out = append(out, l)
+		}
+	}
+	sort.Strings(out)
+	return out
+}

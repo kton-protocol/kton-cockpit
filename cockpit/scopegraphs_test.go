@@ -204,4 +204,29 @@ SELECT ?label ?source WHERE { ?g a nk:ClaimGraph ; rdfs:label ?label ; nk:source
 	if got["study"] != "own" || got["runs"] != "theirs" {
 		t.Errorf("want study from own, runs from theirs: %v", a.Rows)
 	}
+
+	// The answer lists the claim graphs it read, with their source (ADR-018, section 3).
+	listed := map[string]string{}
+	for _, g := range a.ClaimGraphs {
+		listed[g.Label] = strings.Join(g.Source, ",")
+	}
+	if listed["study"] != "own" || listed["runs"] != "theirs" {
+		t.Errorf("the answer's claim graphs: %+v", a.ClaimGraphs)
+	}
+	if len(a.RepeatedLabels) != 0 {
+		t.Errorf("no label repeats here: %v", a.RepeatedLabels)
+	}
+
+	// A second scope named "runs", this repository's own: the name now repeats, and reading by name
+	// reads both graphs.
+	runs2 := ours.SeedScope(t, "runs")
+	raw.Claims.Scopes["runs"] = runs2
+	ours.WriteConfig(t, raw)
+	say(publishOne(t, ours).FotonID, "runs", "ours too")
+	a = sparqlAsk(t, `PREFIX nk: <https://kton.dev/v/>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+SELECT ?c WHERE { ?g a nk:ClaimGraph ; rdfs:label "runs" . GRAPH ?g { ?c nk:about ?s } }`)
+	if len(a.Rows) != 2 || strings.Join(a.RepeatedLabels, ",") != "runs" {
+		t.Errorf("two scopes named runs: want both graphs read and the label named, got %d rows, repeated %v", len(a.Rows), a.RepeatedLabels)
+	}
 }
