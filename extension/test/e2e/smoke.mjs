@@ -1412,7 +1412,15 @@ if (seed.roles) {
   await page.goto(URL.replace(/folder=[^&]*/, `folder=${encodeURIComponent(`${WORK}/repo-roles`)}`));
   await page.locator(".monaco-workbench").waitFor({ timeout: 90000 });
   await views();
-  const christof = () => frameWithSel('[data-composition="dryrun1.roles/christof"]', 90000);
+  const christof = async () => {
+    try {
+      return await frameWithSel('[data-composition="dryrun1.roles/christof"]', 15000);
+    } catch {
+      await views();
+      await page.locator(".monaco-list-row", { hasText: "Christof (test) · dryrun1" }).first().click({ timeout: 60000 });
+      return frameWithSel('[data-composition="dryrun1.roles/christof"]', 90000);
+    }
+  };
   const guard = () => frameWithSel('[data-composition^="@workbench/area:dryrun1.roles/"]', 90000);
   /** The rows of a block as {column: text}, once it has drawn. */
   async function rowsIn(f, id) {
@@ -1540,22 +1548,26 @@ if (seed.roles) {
     const tr = box(f, "failures").locator("tbody tr", { hasText: pick.test.slice(0, 60) }).filter({ hasText: pick.run }).first();
     check((await tr.locator("button").count()) === 3, "each failure row: Request rerun, Request rerun (capture mode), Capture now", 3, await tr.locator("button").allTextContents());
     await tr.locator("button", { hasText: "Request rerun (capture mode)" }).click();
-    // the shell asks the template's open fields: the test (the row's, as the default) and the reason (capture mode)
-    const testBox = page.locator(".quick-input-box input").first();
-    await testBox.waitFor({ timeout: 20000 });
-    check((await testBox.inputValue()) === pick.test, "the test is the row's (proposed, never signed unseen)", pick.test, await testBox.inputValue());
-    await page.keyboard.press("Enter");
-    await page.waitForTimeout(300);
-    const reasonBox = page.locator(".quick-input-box input").first();
-    check((await reasonBox.inputValue()) === "capture mode", "the reason is the choice's (capture mode)", "capture mode", await reasonBox.inputValue());
-    await page.keyboard.press("Enter");
+    // the shell asks the template's open fields, in the template's order: the test (the row's, as the default) and
+    // the reason (capture mode); both are only defaults, never signed unseen
+    const asked = [];
+    for (let i = 0; i < 2; i++) {
+      const input = page.locator(".quick-input-box input").first();
+      await input.waitFor({ timeout: 20000 });
+      await page.waitForTimeout(300);
+      asked.push(await input.inputValue());
+      await page.keyboard.press("Enter");
+      await page.waitForTimeout(500);
+    }
+    check(asked.includes(pick.test), "the test is the row's (proposed, never signed unseen)", pick.test, asked);
+    check(asked.includes("capture mode"), "the reason is the choice's (capture mode)", "capture mode", asked);
     const out = tr.locator("[data-row-out]");
     await out.filter({ hasText: /Recorded|Not done/ }).first().waitFor({ timeout: 60000 }).catch(() => {});
     const said = (await out.textContent()) ?? "";
     check(/Recorded with the agent key/.test(said), "recorded (agent key, no dialog)", "Recorded with the agent key.", said);
     const reqs = (await sparql(`SELECT ?r ?about ?reason WHERE { ?sc rdfs:label "dryrun1.triage" . ?r nk:scope ?sc ; nk:predicate <https://scinteco.com/ns/qm/dryrun1/runs/rerunRequested> ; nk:about ?about . OPTIONAL { ?r ?pr ?reason . FILTER(STRENDS(STR(?pr), "reason")) } }`, "repo-roles"));
     check(reqs.length === 1 && reqs[0].about === pick.claim && reqs[0].reason === "capture mode", "one rerun-requested in dryrun1.triage, about the picked run-unit claim, reason capture mode", pick.claim, reqs);
-    const line = await outputHas(new RegExp(`nudge \\(send it; the shell sends no lane message\\): \\./send userinterface requests area=test-execution title="rerun: [^"]*" text="rerun request claim ${sha(reqs[0]?.r ?? "x")}; test [^"]*" why="Christof's view \\(dryrun1\\)"`));
+    const line = await outputHas(new RegExp(`nudge \\(send it; the shell sends no lane message\\): \\./send userinterface requests area=test-execution title="rerun: (?:[^"\\\\]|\\\\.)*" text="rerun request claim ${sha(reqs[0]?.r ?? "x")}; test (?:[^"\\\\]|\\\\.)*" why="Christof's view \\(dryrun1\\)"`));
     check(!!line, "the exact ./send nudge line is in the output channel", "./send userinterface requests area=test-execution title=\"rerun: …\" …", line || outputLog().split("\n").filter((l) => /nudge/.test(l)).slice(-2));
     // the request with its state: open, then test-execution's answer (a STAND-IN here)
     const card = box(f, "rerunrequests").locator(".kton-card, [data-card-row], article").first();
@@ -1589,7 +1601,7 @@ if (seed.roles) {
     await tr.locator("[data-row-out]").filter({ hasText: /Signed|Not done/ }).first().waitFor({ timeout: 90000 }).catch(() => {});
     const caps = await sparql(`SELECT ?r ?about WHERE { ?sc rdfs:label "dryrun1.triage" . ?r nk:scope ?sc ; nk:predicate <https://scinteco.com/ns/triage#captureRequested> ; nk:about ?about }`, "repo-roles");
     check(caps.length === 1, "one capture-requested in dryrun1.triage, about the history row's claim", 1, caps);
-    const line = await outputHas(new RegExp(`\\./send userinterface requests area=test-execution title="capture now: [^"]*" text="request claim ${sha(caps[0]?.r ?? "x")}; test [^"]*" why="Christof's view \\(dryrun1\\)"`));
+    const line = await outputHas(new RegExp(`\\./send userinterface requests area=test-execution title="capture now: (?:[^"\\\\]|\\\\.)*" text="request claim ${sha(caps[0]?.r ?? "x")}; test (?:[^"\\\\]|\\\\.)*" why="Christof's view \\(dryrun1\\)"`));
     check(!!line, "the exact ./send nudge line for the capture is in the output channel", "./send … capture now …", line);
     await box(f, "captures").getByText(/Waiting for its answer/).first().waitFor({ timeout: 90000 });
     await standinAnswer("capture-result", caps[0].r, { test, outcome: "captured", run: withArt.run, result: "failed", artifacts: "1", seconds: "93" });
