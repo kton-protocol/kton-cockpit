@@ -206,9 +206,11 @@ export class StdioConnection {
         this.failWaiting("the answer is not JSON");
         continue;
       }
-      if (typeof msg.id !== "number") continue; // a notification (events: part 2) or a string id we never sent
+      // SPEC §12.5: a parsable message with an unknown id is ignored (no failure, nothing logged): a notification
+      // (events: part 2), a string id we never sent, an id we cancelled after the timeout (its -32800 is dropped)
+      if (typeof msg.id !== "number") continue;
       const p = this.pending.get(msg.id);
-      if (!p) continue; // cancelled after the timeout: dropped
+      if (!p) continue;
       this.pending.delete(msg.id);
       clearTimeout(p.timer);
       if (!msg.error) p.resolve(msg.result);

@@ -36,6 +36,12 @@ function handle(m) {
       if (params.name === "garbage") return process.stdout.write("Content-Length: 16\r\n\r\nthis is not json");
       if (params.name === "noheader") return process.stdout.write("this is not json\r\n\r\n");
       if (params.name === "die") return process.exit(137);
+      if (params.name === "stray") {
+        // parsable answers that name no request of the client's: an unknown number id, the same id as a string
+        send({ id: 99999, result: { stray: true } });
+        send({ id: String(id), error: { code: -32000, message: "not yours", data: { code: "error" } } });
+        send({ method: "$/progress", params: { id } });
+      }
       if (params.name === "nope") return refuse(id, "query.unknown", "no allowed package brings the query nope");
       return send({ id, result: { query: "sparql", ref: "", raw: "", sparql: { results: { head: { vars: ["n"] }, results: { bindings: [{ n: { type: "literal", value: "7" } }] } } } } });
     case "say":

@@ -123,6 +123,20 @@ test("stdio: the process gone mid-request: the request fails (not a timeout) and
   }
 });
 
+test("stdio: a parsable message with an unknown id is ignored (SPEC §12.5): no failure, the request gets its own answer", async () => {
+  const { t, sent } = transport(5000);
+  try {
+    const out = await t.ask({ query: "sparql", name: "stray", format: "sparql-results+json" });
+    assert.ok(out.ok, "the stray answers (id 99999, the id as a string, a notification) fail nothing");
+    assert.deepEqual(sparqlResultsOf(out.value).results.bindings.map((b) => b["n"]?.value), ["7"]);
+    const next = await t.ask({ query: "sparql", name: "count", format: "sparql-results+json" });
+    assert.ok(next.ok, "the connection goes on");
+    assert.equal(sent().filter((m) => m.method === "initialize").length, 1, "not restarted");
+  } finally {
+    t.dispose();
+  }
+});
+
 test("stdio: a cockpit that cannot be started is 'cannot run', as on the command line", async () => {
   const t = new StdioTransport({ executable: "/nonexistent/cockpit", cwd: tmpdir(), timeoutMs: 2000 });
   await assert.rejects(t.ask({ query: "sparql", name: "x" }), /cannot run \/nonexistent\/cockpit/);
