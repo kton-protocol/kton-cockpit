@@ -1,0 +1,69 @@
+{
+ "_doc": "cockpit v0.5.4 `ui list --json` for the e2e package workbench-graph (it has templates/aliases.json, listed as the member {role: aliases, name: \"\"}), and each member's `ui cat` bytes (base64), from a throwaway registry",
+ "package": {
+  "name": "workbench-graph",
+  "package": "sha256:2b35894b5f896a4a92873ee070a1a6dcf8c63e2e2cb50b895a07fb9d59733ee8",
+  "revision": "sha256:8e9ff8c5673d2c5628d4d676c49b53dd3465da93d3d34157a4408ac2a618be0c",
+  "label": "1",
+  "profile": "https://kton.dev/profile/verticle",
+  "dir": ".kton/packages/workbench-graph@1",
+  "allowed": true,
+  "ui": [
+   {
+    "file": "ui/claims.json",
+    "label": "Claims in view",
+    "order": 30,
+    "query": "claim-count",
+    "slot": "home-tile"
+   },
+   {
+    "file": "ui/graph.json",
+    "label": "Provenance",
+    "order": 20,
+    "slot": "record-view",
+    "viewer": "graph",
+    "when": {
+     "kind": "claim",
+     "type": "https://example.org/workbench-e2e/proposes"
+    }
+   }
+  ],
+  "blocks": [],
+  "compositions": [],
+  "members": [
+   {
+    "role": "aliases",
+    "name": "",
+    "hash": "sha256:d00194209aeb28ec4df935ea74451109bb32b61e879fc9215fa62903fec27dcc"
+   },
+   {
+    "role": "query",
+    "name": "claim-count",
+    "hash": "sha256:22005a261c542790167aaded39a640a10f533086c57694eeee1ea59e3cd403e8"
+   },
+   {
+    "role": "ui",
+    "name": "claims",
+    "hash": "sha256:847f445290d6199961157b3ae5fb27591b4ba226af1d673c91040e888cdce1af"
+   },
+   {
+    "role": "ui",
+    "name": "graph",
+    "hash": "sha256:735dc010da72ee1eee2a3d47d0f0734deb0b47e83f22b5b8ca6fa24b79053a37"
+   },
+   {
+    "role": "viewer",
+    "name": "graph",
+    "hash": "sha256:c29d88e228b315cceca8885a4ae94d3a1dddae62ec05a0b468800fbd4341a12c"
+   }
+  ],
+  "refused": []
+ },
+ "blobs": {
+  "sha256:d00194209aeb28ec4df935ea74451109bb32b61e879fc9215fa62903fec27dcc": "eyJzY2hlbWEiOiAiaHR0cHM6Ly9rdG9uLmRldi9hbGlhc2VzL3YwIiwgInByZWZpeGVzIjogeyJ3YmciOiAiaHR0cHM6Ly9leGFtcGxlLm9yZy93b3JrYmVuY2gtZ3JhcGgvIn0sICJ0ZXJtcyI6IHt9fQo=",
+  "sha256:22005a261c542790167aaded39a640a10f533086c57694eeee1ea59e3cd403e8": "IyBUaGUgbnVtYmVyIG9mIGNsYWltcyBpbiB0aGUgd2luZG93J3Mgdmlldzogb25lIHJvdywgb25lIG51bWJlciAoYSBob21lIHRpbGUsIHJlYWQgZnJvbSB0aGUgcmVhbCBjb2NrcGl0KS4KUFJFRklYIG5rOiA8aHR0cHM6Ly9rdG9uLmRldi92Lz4KU0VMRUNUIChDT1VOVCg/YykgQVMgP24pIFdIRVJFIHsgP2MgYSBuazpDbGFpbSB9Cg==",
+  "sha256:847f445290d6199961157b3ae5fb27591b4ba226af1d673c91040e888cdce1af": "eyJzbG90IjogImhvbWUtdGlsZSIsICJsYWJlbCI6ICJDbGFpbXMgaW4gdmlldyIsICJxdWVyeSI6ICJjbGFpbS1jb3VudCIsICJvcmRlciI6IDMwfQo=",
+  "sha256:735dc010da72ee1eee2a3d47d0f0734deb0b47e83f22b5b8ca6fa24b79053a37": "ewogInNsb3QiOiAicmVjb3JkLXZpZXciLAogImxhYmVsIjogIlByb3ZlbmFuY2UiLAogIndoZW4iOiB7CiAgImtpbmQiOiAiY2xhaW0iLAogICJ0eXBlIjogImh0dHBzOi8vZXhhbXBsZS5vcmcvd29ya2JlbmNoLWUyZS9wcm9wb3NlcyIKIH0sCiAidmlld2VyIjogImdyYXBoIiwKICJvcmRlciI6IDIwCn0K",
+  "sha256:c29d88e228b315cceca8885a4ae94d3a1dddae62ec05a0b468800fbd4341a12c": "ewogInZpZXdlciI6ICJrdG9uLXdlYi9ncmFwaCIsCiAiYXQiOiAiOTkwOTU5NzVmNTc3Njk1MzE2MzgwMmY3YWY4YTJjMzJhOThiZjNiNiIsCiAidHJlZSI6ICJzaGEyNTY6YmQ1ZWUxY2E1MDg2ZTQ3YTkyYjRhNWI5ODhhNzRhNmJlZjk2ODA2ZDdhNGRmMWUwM2ExMDg4YWQ3NjViMmJhYiIKfQo="
+ }
+}

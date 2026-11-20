@@ -1,0 +1,39 @@
+{
+  "query": "sparql",
+  "ref": "",
+  "raw": "",
+  "filterApplied": "none — the query narrows itself; a record is attributed only where a key in your trust tiers verifies it, and only claims such a key signed are in it",
+  "sparql": {
+    "form": "SELECT",
+    "dataset": "claims",
+    "vars": [
+      "n"
+    ],
+    "rows": [
+      {
+        "n": "20"
+      }
+    ],
+    "results": {
+      "head": {
+        "vars": [
+          "n"
+        ]
+      },
+      "results": {
+        "bindings": [
+          {
+            "n": {
+              "type": "literal",
+              "value": "20",
+              "datatype": "http://www.w3.org/2001/XMLSchema#integer"
+            }
+          }
+        ]
+      }
+    },
+    "limit": 1000,
+    "via": "a container for this query",
+    "from": "workbench-graph (.kton/packages/workbench-graph@1)"
+  }
+}

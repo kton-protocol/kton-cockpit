@@ -38,6 +38,17 @@ export function rowsOf(a: AskResult): Row[] {
   return b.map((r) => Object.fromEntries(Object.entries(r).map(([k, v]) => [k, v.value])));
 }
 
+/**
+ * The W3C SPARQL JSON of an answer, whichever form the cockpit used: `--results-json` puts it at the top
+ * (`results`), the JSON-argument form (`ask {query: sparql, name, …}`, what named queries use) under
+ * `sparql.results`. Shape-checked; an answer with neither is an error, never "no rows".
+ */
+export function sparqlResultsOf(a: AskResult): { head: { vars: string[] }; results: { bindings: Array<Record<string, { type: string; value: string }>> } } {
+  const r = (a.results ?? (a["sparql"] as { results?: unknown } | undefined)?.results) as { head?: { vars?: unknown }; results?: { bindings?: unknown } } | undefined;
+  if (!r || !Array.isArray(r.head?.vars) || !Array.isArray(r.results?.bindings)) throw new Error("the cockpit's answer holds no SPARQL results (neither results nor sparql.results)");
+  return r as ReturnType<typeof sparqlResultsOf>;
+}
+
 /** https://kton.dev/o/<hex> → sha256:<hex>; anything else unchanged. */
 export function idOf(iri: string): string {
   const m = /^https:\/\/kton\.dev\/o\/([0-9a-f]{64})$/.exec(iri);
