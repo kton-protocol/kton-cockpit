@@ -6,6 +6,8 @@ import (
 	"syscall"
 )
 
+const oNoFollow = syscall.O_NOFOLLOW
+
 // Lock holds an exclusive lock on path until the returned function is called. Two cockpits
 // starting the daemon, or reading one registry into it, take turns.
 func Lock(path string) (func(), error) {

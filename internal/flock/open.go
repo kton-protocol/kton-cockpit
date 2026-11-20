@@ -14,9 +14,11 @@ func open(path string) (*os.File, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, err
 	}
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o666)
+	// O_NOFOLLOW: a symlink planted at the lock's name is not followed to create or open another file
+	// (kton-review N5 on #183).
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR|oNoFollow, 0o666)
 	if errors.Is(err, fs.ErrPermission) {
-		return os.Open(path)
+		return os.OpenFile(path, os.O_RDONLY|oNoFollow, 0)
 	}
 	return f, err
 }

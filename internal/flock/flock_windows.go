@@ -6,6 +6,9 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+// Windows has no O_NOFOLLOW.
+const oNoFollow = 0
+
 // Lock holds an exclusive lock on path until the returned function is called.
 func Lock(path string) (func(), error) {
 	f, err := open(path)

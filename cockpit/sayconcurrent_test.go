@@ -101,14 +101,16 @@ func TestInstall_ConcurrentInstallsSeedTheScopeOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	c := New(Start{})
-	const n = 4
+	const n = 16
 	var wg sync.WaitGroup
+	start := make(chan struct{}) // released together, so they overlap (kton-review T17 on #183)
 	scopes := make([]string, n)
 	errs := make([]error, n)
 	for i := 0; i < n; i++ {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
+			<-start
 			inst, err := c.Install(ctx, InstallRequest{Path: pkg, Allow: true})
 			errs[i] = err
 			if inst != nil {
@@ -116,6 +118,7 @@ func TestInstall_ConcurrentInstallsSeedTheScopeOnce(t *testing.T) {
 			}
 		}(i)
 	}
+	close(start)
 	wg.Wait()
 	for i := range errs {
 		if errs[i] != nil {
@@ -127,5 +130,49 @@ func TestInstall_ConcurrentInstallsSeedTheScopeOnce(t *testing.T) {
 	}
 	if _, err := c.Install(ctx, InstallRequest{Path: pkg, Allow: true}); err != nil {
 		t.Errorf("an install after the concurrent ones: %v", err)
+	}
+}
+
+// A seal writes into the parent scope as say does, so seals and says into the parent at the same time
+// chain one after another there too (kton-review M1, T18 on #183).
+func TestScope_ConcurrentSealsAndSaysKeepTheParentUnbranched(t *testing.T) {
+	r := testrepo.New(t)
+	parent := r.SeedScope(t, "lab-commons")
+	child := r.SeedScopeUnder(t, "review-2026-09", parent)
+	raw := testrepo.DefaultConfig()
+	raw.Claims.Scopes = map[string]string{"commons": parent, "review": child}
+	r.WriteConfig(t, raw)
+	r.Use(t)
+	pub := publishOne(t, r)
+	sayInScope(t, pub.FotonID, "review")
+	r.Cockpit(t, "--version") // builds the binary once, before the processes race to
+
+	var cmds []*exec.Cmd
+	for i := 0; i < 3; i++ {
+		cmds = append(cmds, r.CockpitCommand(t, "scope", "seal", "review"))
+		cmds = append(cmds, r.CockpitCommand(t, "say", "working-on", pub.FotonID, "step=analysis", "by-session=c"+string(rune('a'+i)), "--scope", "commons"))
+	}
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	outs := make([]string, len(cmds))
+	fails := make([]bool, len(cmds))
+	for i, cmd := range cmds {
+		wg.Add(1)
+		go func(i int, cmd *exec.Cmd) {
+			defer wg.Done()
+			<-start
+			out, err := cmd.CombinedOutput()
+			outs[i], fails[i] = string(out), err != nil
+		}(i, cmd)
+	}
+	close(start)
+	wg.Wait()
+	for i := range cmds {
+		if fails[i] {
+			t.Errorf("%v:\n%s", cmds[i].Args[1:], outs[i])
+		}
+	}
+	if _, length, branched := r.ScopeHead(t, parent); branched || length != len(cmds) {
+		t.Errorf("seals and says into the parent at once: want one chain of %d, got length %d, branched %v", len(cmds), length, branched)
 	}
 }
