@@ -251,3 +251,21 @@ test("design: rows: short test ids, group notes once, the packed evidence in ass
   const ev = r.parseEvidence([["2", "assertion-screenshot", sha("b"), "r", "n2", "image/jpeg", "1", "a.ts:9", "two"], ["1", "assertion-screenshot", sha("a"), "r", "n1", "image/jpeg", "1", "a.ts:3", "one"], ["", "trace", sha("c"), "r", "t.zip", "application/zip", "1", "", ""], ["", "bad", "nohash"]].map((x) => x.join("\t")).join("\n"));
   assert.deepEqual(ev.map((x: Any) => [x.assertion, x.kind, x.site]), [["1", "assertion-screenshot", "a.ts:3"], ["2", "assertion-screenshot", "a.ts:9"], ["", "trace", ""]]);
 });
+
+test("design step 11: the sign dialog's structure keeps every line's text, decodes the references, and Sign stays gated", async () => {
+  const { signDialogPage, refLabel } = await import("../src/ui/pages.js");
+  assert.deepEqual(refLabel("kton-src:/improve-specs/specifications/Rights%20Management/ics1000%20Publish%20rights.md?49966c23eceb754264ea6c36296a6ca2ff6214b8#L31"), { title: "ics1000 Publish rights.md", sub: "line 31", loc: "improve-specs · specifications/Rights Management/ · at 49966c23eceb" });
+  assert.deepEqual(refLabel(`run-artifact:p2-e2e-1/out/a/test-failed-1.png@sha256:${"c".repeat(64)}`), { title: "test-failed-1.png", sub: "screenshot, hash checked", loc: `run p2-e2e-1 · out/a/ · sha256 ${"c".repeat(12)}` });
+  const refs = ["kton-src:/improve/A%20B.java?fa218aa8#L127", `run-artifact:r/x.png@sha256:${"d".repeat(64)}`];
+  const plan: Any = { control: { package: "dryrun1.triage", name: "decides", template: "triage-decides", kind: "decision", title: "Choose and sign" }, template: "triage-decides", subject: `https://kton.dev/o/${"4".repeat(64)}`, fields: { choice: "a", lookedAt: refs.join(" ") }, meaning: "approved", scope: "dryrun1.triage", opened: refs, as: "qa-decider", keyRole: "person", needsDialog: true, footer: "A kton signature is not yet a QMS e-signature: every signature here is test-only.", rules: "Rules shown for information.", predicate: "https://scinteco.com/ns/triage#decides", expect: { template: `sha256:${"e".repeat(64)}`, revision: `sha256:${"f".repeat(64)}` }, digest: "x" };
+  const html = signDialogPage("Choose and sign: dryrun1.triage/decision", "detail", "qa (qa-decider)", "n0", { plan, signer: { verified: false, hint: "qa", why: "no identity verb yet" } as Any });
+  const text = html.replace(/<script[\s\S]*<\/script>/, "").replace(/<[^>]+>/g, "").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/\s+/g, " ");
+  for (const t of ["Template: triage-decides", "choice = a", "Act: approved (the control's meaning, not a field of the claim)", "Into scope: dryrun1.triage", 'person key "qa-decider"', "Evidence you opened in this view (2)", "(in lookedAt)", `About: https://kton.dev/o/${"4".repeat(64)}`, "not yet a QMS e-signature"]) assert.ok(text.includes(t), `the dialog still says ${t}`);
+  assert.match(html, /data-testid="sign-detail"/);
+  assert.equal((html.match(/data-in-lookedat/g) ?? []).length, 2);
+  assert.match(html, /<div class="t" title="kton-src:\/improve\/A%20B\.java\?fa218aa8#L127" tabindex="0">A B\.java <span class="muted">· line 127<\/span>/, "decoded name, full reference in the tooltip");
+  assert.match(html, /lookedAt<span class="hide"> = <\/span><\/span><span class="v">2 references: the evidence below/, "lookedAt is not printed twice");
+  assert.match(html, /<button id="sign" type="button" data-testid="sign-button" disabled>Sign<\/button><button id="cancel"/);
+  assert.match(html, /cancelBtn\.focus\(\)/, "Cancel has the initial focus");
+  assert.doesNotMatch(html, /autofocus|style="/);
+});

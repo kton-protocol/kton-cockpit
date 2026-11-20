@@ -590,7 +590,7 @@ export class Workbench {
     const viaDialog = p.value.keyRole === "person" || p.value.needsDialog;
     if (viaDialog) {
       const who = await this.signer(p.value.keyRole);
-      const yes = await this.host.signDialog(title, signDialogDetail(p.value, who), `${this.identity.hintName} (${this.identity.person.keyName})`);
+      const yes = await this.host.signDialog(title, signDialogDetail(p.value, who), `${this.identity.hintName} (${this.identity.person.keyName})`, { plan: p.value, signer: who });
       if (!yes) {
         this.host.log(`not signed: the dialog was closed (${p.value.template} about ${p.value.subject})`);
         this.host.info("Not signed.");

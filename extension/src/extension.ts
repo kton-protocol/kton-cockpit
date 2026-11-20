@@ -264,7 +264,7 @@ class VsHost implements UiHost {
   }
   /** The open sign dialog after its Sign was pressed: it shows "Signing…" and then the outcome. */
   private signing: vscode.WebviewPanel | undefined;
-  signDialog(title: string, detail: string, person: string): Promise<boolean> {
+  signDialog(title: string, detail: string, person: string, view?: Parameters<UiHost["signDialog"]>[3]): Promise<boolean> {
     this.signing?.dispose();
     this.signing = undefined;
     return new Promise((resolve) => {
@@ -290,7 +290,7 @@ class VsHost implements UiHost {
           resolve(false);
         }
       });
-      panel.webview.html = signDialogPage(title, detail, person, randomBytes(16).toString("base64url"));
+      panel.webview.html = signDialogPage(title, detail, person, randomBytes(16).toString("base64url"), view);
     });
   }
   signOutcome(ok: boolean, text: string): void {

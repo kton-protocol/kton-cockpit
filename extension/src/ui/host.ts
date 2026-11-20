@@ -50,7 +50,8 @@ export interface UiHost {
    * "I know I sign this now as <person>" and pressed Sign with a deliberate act. Enter, Escape and
    * closing the dialog never sign.
    */
-  signDialog(title: string, detail: string, person: string): Promise<boolean>;
+  /** `view`: the plan and the shown signer, for the structured dialog (DESIGN.md §6); the detail is the same plan as text. */
+  signDialog(title: string, detail: string, person: string, view?: { readonly plan: import("../sign.js").SignPlan; readonly signer: import("../identity.js").ShownSigner }): Promise<boolean>;
   /**
    * What became of the signature the last sign dialog asked for, shown in that dialog (S7.3: a timeout
    * shows as failed there, and the registry decides whether a claim exists).
