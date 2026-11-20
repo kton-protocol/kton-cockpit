@@ -278,3 +278,29 @@ details.more summary { cursor: pointer; color: var(--wb-link); }
 details.more p { margin: 6px 0; color: var(--wb-muted); }
 details.more .tbl-wrap { margin-top: 6px; }
 @media (forced-colors: active) { .rb .band, .rb .over, .mb .band, .mb .over { border: 1px solid CanvasText; } }
+
+/* ---------- 5. rows: groups, numbers, mini range bars ---------- */
+table tr.grp th { font-weight: 600; font-size: 12px; padding-top: 10px; color: var(--wb-fg); border-bottom: 1px solid var(--wb-hairline); background: var(--wb-bg); }
+table tr.grp th .muted { font-weight: 400; margin-left: 6px; }
+table tr.grp:hover th { background: var(--wb-bg); }
+table td[data-ind]:first-child { padding-left: 20px; }
+table td.few { color: var(--wb-muted); font-style: italic; }
+table td .wb-rowstamp { margin-left: 6px; }
+.wb-dup { display: none !important; }
+.ratecell { display: flex; align-items: center; gap: 8px; justify-content: flex-start; }
+table td[data-col] .ratecell { text-align: left; }
+td:has(> .ratecell) { text-align: left; }
+.ratecell .rv { min-width: 3.6em; text-align: right; }
+.ratecell .rv.above { color: var(--wb-over); }
+.mb { position: relative; display: inline-block; width: 100px; height: 12px; flex: none; }
+.mb::before { content: ""; position: absolute; left: 0; right: 0; top: 6px; height: 1px; background: var(--wb-axis); }
+.mb .band, .mb .over { position: absolute; top: 2px; height: 9px; }
+.mb .band { left: calc(var(--lo) * 1%); width: calc(max(0, min(var(--hi), var(--t)) - var(--lo)) * 1%); background: color-mix(in srgb, var(--wb-accent) 28%, transparent); }
+.mb .over { left: calc(max(var(--lo), var(--t)) * 1%); width: calc(max(0, var(--hi) - max(var(--lo), var(--t))) * 1%); background: color-mix(in srgb, var(--wb-over) 30%, transparent); }
+.mb .pt { position: absolute; left: calc(var(--pt) * 1%); top: 6.5px; width: 7px; height: 7px; border-radius: 50%; transform: translate(-50%, -50%); background: var(--wb-accent); }
+.mb .pt.above { background: var(--wb-over); }
+.mb .tg { position: absolute; left: calc(var(--t) * 1%); top: 0; bottom: 0; border-left: 1px dashed var(--wb-target); }
+table td[data-col] { overflow-wrap: anywhere; }
+.kton-pager { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; font-size: 12px; }
+.kton-refine { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 0 0 6px; }
+.kton-refine select { padding: 2px 6px; background: var(--wb-input-bg); color: var(--wb-input-fg); border: 1px solid var(--wb-input-border); }

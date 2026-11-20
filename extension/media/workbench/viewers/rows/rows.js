@@ -23,6 +23,17 @@
 //             its own is one plain button)
 //   propose   "field=column": each row's act proposes that row's column for the field (never signed unseen: the shell
 //             asks it, with the value as the default)
+// The look (DESIGN.md §5 rows):
+//   title     a heading above the table; labels "column|Header": header text
+//   numeric   columns that are numbers (also: typed xsd numbers, and values that read as one): right-aligned, tabular
+//   group     a column: rows grouped under a header row per value (query order kept within a group), the column itself
+//             not shown; groupLabels "value|Label"; groupSum a column summed in the header ("4 areas · 84 unsettled")
+//   range     "rate,low,high,n": the rate cell is the value with a mini range bar on the scale "lo,hi,target" (scale),
+//             the low column shows "low–high", n right-aligned; measurable a column: a row whose value is not "true"
+//             reads "too few to measure" (muted, no bar)
+//   total     a column summed in a footer row
+//   stamp     column (default: a stamp column when the query answers one) | section (no column: each row keeps its
+//             stamp, hidden when the part's source chip names it) | hide
 export function mount(el, ctx) {
   const esc = ctx.kit.esc;
   const o = ctx.use.options ?? {};
@@ -105,7 +116,8 @@ export function mount(el, ctx) {
   };
 
   const draw = (vars, rows) => {
-    const cols = (o.columns && o.columns.length ? o.columns : vars).filter((c) => vars.includes(c));
+    const stampMode = o.stamp === "section" || o.stamp === "hide" ? o.stamp : "column";
+    const cols = (o.columns && o.columns.length ? o.columns : vars).filter((c) => vars.includes(c)).filter((c) => !(stampMode !== "column" && c === "stamp") && c !== o.group);
     let body;
     if (!rows.length) body = `<p class="kton-muted" data-area-empty>${esc(o.emptyText || "No rows.")}</p>`;
     else if (o.card === "yes") {
@@ -116,14 +128,9 @@ export function mount(el, ctx) {
         .join("")}</dl>`;
     } else {
       const click = o.pick || o.open;
-      body = `<table class="kton-table" data-area-table data-count="${rows.length}"><thead><tr>${cols.map((c) => `<th>${esc(c)}</th>`).join("")}${perRow ? "<th></th>" : ""}</tr></thead><tbody>${rows
-        .map(
-          (r, i) =>
-            `<tr data-row="${i}"${click && value(r[click]) ? ` class="kton-clickable" tabindex="0" data-target="${esc(value(r[click]))}"` : ""}>${cols
-              .map((c) => (c === "stamp" ? `<td data-col="stamp"><span class="kton-stamp" data-stamp>${esc(value(r[c]))}</span></td>` : `<td data-col="${esc(c)}"${/^-?\d+(\.\d+)?%?$/.test(value(r[c])) ? " data-number" : ""}>${esc(shortly(value(r[c])))}</td>`))
-              .join("")}${perRow ? `<td data-acts>${rowButtons(r, i)}</td>` : ""}</tr>`,
-        )
-        .join("")}</tbody></table>`;
+      const t = table(rows, cols, { o, esc, value, shortly, click, perRow, rowButtons });
+      body = t.html;
+      rows = t.rows; // grouped: the drawn order, which data-row indexes
     }
     const choices = Object.entries(refine)
       .filter(([, spec]) => Array.isArray(spec.values))
@@ -132,7 +139,8 @@ export function mount(el, ctx) {
     const page = paging
       ? `<div class="kton-pager" data-pager data-page="${back.length + 1}"><span class="kton-muted">Page ${back.length + 1} · rows ${back.length * pageSize + (rows.length ? 1 : 0)}–${back.length * pageSize + rows.length}</span>${back.length ? ` <button type="button" data-page-prev>Previous</button>` : ""}${pageSize && rows.length >= pageSize ? ` <button type="button" data-page-next>Next</button>` : ""}</div>`
       : "";
-    el.innerHTML = `${choices ? `<div class="kton-refine" data-refines>${choices}</div>` : ""}${body}${page}${actButtons()}`;
+    el.innerHTML = `${o.title ? `<h3 data-block-title>${esc(o.title)}</h3>` : ""}${choices ? `<div class="kton-refine" data-refines>${choices}</div>` : ""}${body}${page}${actButtons()}`;
+    for (const mb of el.querySelectorAll(".mb[data-lo]")) for (const k of ["lo", "hi", "pt", "t"]) mb.style.setProperty(`--${k}`, mb.dataset[k]);
     wireActs();
     wireRowActs(rows);
     for (const sel of el.querySelectorAll("select[data-refine]")) {
@@ -182,6 +190,111 @@ export function mount(el, ctx) {
   );
   load();
   return { set() {}, destroy() {} };
+}
+
+const NUM_RE = /^-?\d+(\.\d+)?%?$/;
+const XSD_NUM = /XMLSchema#(integer|decimal|double|float|int|long|short|nonNegativeInteger|positiveInteger)$/;
+
+/** Is a column numeric: named in `numeric`, typed as an xsd number in the rows, or every value reads as one. */
+export function isNumeric(col, rows, numeric = []) {
+  if (numeric.includes(col)) return true;
+  const vals = rows.map((r) => r[col]).filter((b) => b && b.value !== "");
+  return vals.length > 0 && vals.every((b) => XSD_NUM.test(b.datatype ?? "") || NUM_RE.test(b.value));
+}
+
+/** Rows grouped by a column's value, in first-seen order; query order kept within a group; sum of a column per group. */
+export function groupRows(rows, col, sumCol) {
+  const out = [];
+  const at = new Map();
+  for (const r of rows) {
+    const g = r[col]?.value ?? "";
+    if (!at.has(g)) {
+      at.set(g, out.length);
+      out.push({ group: g, rows: [], sum: 0 });
+    }
+    const e = out[at.get(g)];
+    e.rows.push(r);
+    if (sumCol) e.sum += Number(r[sumCol]?.value ?? 0) || 0;
+  }
+  return out;
+}
+
+/** "rate,low,high,n" and "lo,hi,target" → the range spec, or undefined. */
+export function rangeSpec(range, scale) {
+  if (typeof range !== "string") return undefined;
+  const [rate, low, high, n] = range.split(",").map((x) => x.trim());
+  const sc = String(scale ?? "0,20,5").split(",").map(Number);
+  if (!rate || !low || !high || !(sc[1] > sc[0])) return undefined;
+  return { rate, low, high, n, lo: sc[0], hi: sc[1], target: Number.isFinite(sc[2]) ? sc[2] : undefined };
+}
+
+/** A value's place on the mini bar, in percent, clamped. */
+export function barPos(x, lo, hi) {
+  return Math.round(Math.min(100, Math.max(0, ((Number(x) - lo) / (hi - lo)) * 100)) * 100) / 100;
+}
+
+const pct = (x) => `${Number(x).toFixed(1)} %`;
+
+function table(rows, cols, { o, esc, value, shortly, click, perRow, rowButtons }) {
+  const labels = new Map((o.labels ?? []).map((l) => (l.includes("|") ? [l.slice(0, l.indexOf("|")), l.slice(l.indexOf("|") + 1)] : [l, l])));
+  const rg = rangeSpec(o.range, o.scale);
+  const numeric = new Set(cols.filter((c) => isNumeric(c, rows, o.numeric ?? [])));
+  if (rg) for (const c of [rg.rate, rg.low, rg.n]) numeric.add(c);
+  const section = o.stamp === "section" || o.stamp === "hide";
+  const label = (c) => labels.get(c) ?? c;
+  const th = (c) => {
+    if (rg && c === rg.rate) return `<th scope="col" data-head="${esc(c)}">${esc(labels.get(c) ?? "Rate")} <span class="muted">(scale ${rg.lo}–${rg.hi} %${rg.target !== undefined ? `, dashed = target ${rg.target} %` : ""})</span></th>`;
+    if (rg && c === rg.low) return `<th scope="col" class="r" data-head="${esc(c)}">${esc(labels.get(c) ?? "Range %")}</th>`;
+    return `<th scope="col"${numeric.has(c) ? ' class="r"' : ""} data-head="${esc(c)}">${esc(label(c))}</th>`;
+  };
+  const stampSpan = (r) => {
+    const st = value(r.stamp);
+    if (!section || o.stamp === "hide" || !("stamp" in r)) return "";
+    return st ? `<span class="kton-stamp wb-rowstamp" data-stamp="${esc(st)}"${value(r.stampLabel) ? ` data-stamp-label="${esc(value(r.stampLabel))}"` : ""}${value(r.stampFull) ? ` data-stamp-full="${esc(value(r.stampFull))}"` : ""}${value(r.stampScope) ? ` data-stamp-scope="${esc(value(r.stampScope))}"` : ""}>${esc(st)}</span>` : `<span class="kton-stamp kton-error" data-stamp-missing>no source</span>`;
+  };
+  const measurable = (r) => !o.measurable || value(r[o.measurable]) === "true";
+  const cell = (r, c, first) => {
+    const lead = first ? stampSpan(r) : "";
+    if (c === "stamp") return `<td data-col="stamp"><span class="kton-stamp" data-stamp="${esc(value(r[c]))}">${esc(value(r[c]))}</span></td>`;
+    if (rg && c === rg.rate) {
+      if (!value(r[rg.rate])) return `<td data-col="${esc(c)}" class="few">not measured${lead}</td>`;
+      if (!measurable(r)) return `<td data-col="${esc(c)}" class="few">too few to measure${lead}</td>`;
+      const lo = barPos(value(r[rg.low]), rg.lo, rg.hi), hi = barPos(value(r[rg.high]), rg.lo, rg.hi), pt = barPos(value(r[rg.rate]), rg.lo, rg.hi);
+      const t = rg.target !== undefined ? barPos(rg.target, rg.lo, rg.hi) : 100;
+      const above = rg.target !== undefined && Number(value(r[rg.rate])) > rg.target;
+      return `<td data-col="${esc(c)}" data-number><div class="ratecell"><span class="rv${above ? " above" : ""}">${esc(pct(value(r[rg.rate])))}</span><span class="mb" aria-hidden="true" data-lo="${lo}" data-hi="${hi}" data-pt="${pt}" data-t="${t}"><i class="band"></i><i class="over"></i>${rg.target !== undefined ? '<i class="tg"></i>' : ""}<i class="pt${above ? " above" : ""}"></i></span></div>${lead}</td>`;
+    }
+    if (rg && c === rg.low) return `<td data-col="${esc(c)}" class="r muted">${value(r[rg.low]) && measurable(r) ? `${esc(pct(value(r[rg.low])).slice(0, -2))}–${esc(pct(value(r[rg.high])).slice(0, -2))}` : ""}${lead}</td>`;
+    if (rg && c === rg.n) return `<td data-col="${esc(c)}" class="r${measurable(r) ? "" : " muted"}" data-number>${esc(value(r[c]))}${lead}</td>`;
+    const num = numeric.has(c) || NUM_RE.test(value(r[c]));
+    return `<td data-col="${esc(c)}"${num ? ' class="r" data-number' : ""}${o.group ? ' data-ind' : ""}>${esc(shortly(value(r[c])))}${lead}</td>`;
+  };
+  let i = 0;
+  const tr = (r) => {
+    const n = i++;
+    return `<tr data-row="${n}"${click && value(r[click]) ? ` class="kton-clickable" tabindex="0" data-target="${esc(value(r[click]))}"` : ""}>${cols.map((c, k) => cell(r, c, k === 0)).join("")}${perRow ? `<td data-acts>${rowButtons(r, n)}</td>` : ""}</tr>`;
+  };
+  const width = cols.length + (perRow ? 1 : 0);
+  let tbody;
+  if (o.group) {
+    const glabels = new Map((o.groupLabels ?? []).map((l) => (l.includes("|") ? [l.slice(0, l.indexOf("|")), l.slice(l.indexOf("|") + 1)] : [l, l])));
+    const unit = label(cols[0] ?? "").toLowerCase();
+    const sumName = o.groupSum ? label(o.groupSum).toLowerCase() : "";
+    const ordered = rows.slice();
+    const groups = groupRows(ordered, o.group, o.groupSum);
+    tbody = groups
+      .map((g) => {
+        const name = glabels.get(g.group) ?? (g.group ? g.group.charAt(0).toUpperCase() + g.group.slice(1) : "—");
+        const meta = `${g.rows.length} ${unit}${g.rows.length === 1 ? "" : "s"}${o.groupSum ? ` · ${g.sum.toLocaleString("en")} ${sumName}` : ""}`;
+        return `<tr class="grp" data-group="${esc(g.group)}"><th colspan="${width}" scope="colgroup">${esc(name)} <span class="muted">${esc(meta)}</span></th></tr>${g.rows.map(tr).join("")}`;
+      })
+      .join("");
+    rows = groups.flatMap((g) => g.rows); // the row index follows the drawn order
+  } else tbody = rows.map(tr).join("");
+  const foot = o.total && cols.includes(o.total)
+    ? `<tfoot><tr>${cols.map((c, k) => (k === 0 ? '<th scope="row">Total</th>' : c === o.total ? `<th class="r" data-total>${esc(rows.reduce((a, r) => a + (Number(value(r[c])) || 0), 0).toLocaleString("en"))}</th>` : "<th></th>")).join("")}${perRow ? "<th></th>" : ""}</tr></tfoot>`
+    : "";
+  return { html: `<div class="tbl-wrap"><table class="kton-table t" data-area-table data-count="${rows.length}"><thead><tr>${cols.map(th).join("")}${perRow ? '<th><span class="sr-only">Actions</span></th>' : ""}</tr></thead><tbody>${tbody}</tbody>${foot}</table></div>`, rows };
 }
 
 // An answer the host ran with a declared optional param unbound says so (`unfiltered`: the params): its FILTER did not

@@ -70,3 +70,47 @@ test("design step 4: estimate: positions on the stated scale, labels that never 
   const v = e.verdicts({ rate: 4.5, high: 6.1, target: 5 });
   assert.deepEqual([v.point.ok, v.upper.ok, v.upper.text], [true, false, "upper bound 6.1 % does not"]);
 });
+
+test("design step 5: rows: groups keep query order and sum, numbers by type, the range spec and mini-bar positions", async () => {
+  const r = await media("viewers/rows/rows.js");
+  const b = (o: Record<string, string>) => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, { type: "literal", value: v }]));
+  // dm-areas, 20.11.: 4 groups, the unsettled per group 4/3/84/17/107 = 215
+  const rows = [
+    b({ gxp: "access control", area: "usersGroups", unsettled: "3" }), b({ gxp: "access control", area: "rightsManagement", unsettled: "1" }),
+    b({ gxp: "audit trail", area: "auditTrail", unsettled: "3" }),
+    b({ gxp: "data integrity", area: "repository", unsettled: "70" }), b({ gxp: "data integrity", area: "steps", unsettled: "8" }), b({ gxp: "data integrity", area: "purge", unsettled: "4" }), b({ gxp: "data integrity", area: "filesViewingEditing", unsettled: "2" }),
+    b({ gxp: "e-signature", area: "review", unsettled: "17" }),
+    b({ gxp: "none", area: "vscode-extension", unsettled: "49" }), b({ gxp: "none", area: "CLI", unsettled: "30" }), b({ gxp: "none", area: "analysis", unsettled: "20" }), b({ gxp: "none", area: "search", unsettled: "3" }), b({ gxp: "none", area: "workspace", unsettled: "2" }), b({ gxp: "none", area: "reporting", unsettled: "1" }), b({ gxp: "none", area: "workbench", unsettled: "1" }), b({ gxp: "none", area: "Notification", unsettled: "1" }),
+  ];
+  const g = r.groupRows(rows, "gxp", "unsettled");
+  assert.deepEqual(g.map((x: Any) => [x.group, x.rows.length, x.sum]), [["access control", 2, 4], ["audit trail", 1, 3], ["data integrity", 4, 84], ["e-signature", 1, 17], ["none", 8, 107]]);
+  assert.equal(g.reduce((a: number, x: Any) => a + x.sum, 0), 215);
+  assert.deepEqual(g[2].rows.map((x: Any) => x.area.value), ["repository", "steps", "purge", "filesViewingEditing"], "query order within a group");
+  assert.ok(r.isNumeric("n", [{ n: { type: "literal", value: "235", datatype: "http://www.w3.org/2001/XMLSchema#integer" } }]));
+  assert.ok(r.isNumeric("rate", [{ rate: { type: "literal", value: "1.7" } }]));
+  assert.ok(!r.isNumeric("rate", [{ rate: { type: "literal", value: "1.7 % (0.7–4.3, n=235)" } }]), "formatted text is not a number");
+  assert.ok(r.isNumeric("x", [{ x: { value: "a" } }], ["x"]), "named numeric");
+  assert.deepEqual(r.rangeSpec("rate,low,high,n", "0,20,5"), { rate: "rate", low: "low", high: "high", n: "n", lo: 0, hi: 20, target: 5 });
+  assert.equal(r.rangeSpec("rate", "0,20,5"), undefined);
+  assert.equal(r.barPos(1.7, 0, 20), 8.5);
+  assert.equal(r.barPos(37.7, 0, 20), 100, "clamped");
+});
+
+test("design step 5: rows draws group headers, too few muted, a total, no stamp column with stamp: section", async () => {
+  const m = await media("viewers/rows/rows.js");
+  const answer = { head: { vars: ["gxp", "area", "unsettled", "rate", "low", "high", "n", "enough", "stamp"] }, results: { bindings: [
+    { gxp: { value: "data integrity" }, area: { value: "repository" }, unsettled: { value: "70" }, rate: { value: "1.7" }, low: { value: "0.7" }, high: { value: "4.3" }, n: { value: "235" }, enough: { value: "true" }, stamp: { value: "sha256:b610b5c6" } },
+    { gxp: { value: "data integrity" }, area: { value: "purge" }, unsettled: { value: "4" }, rate: { value: "0" }, low: { value: "0" }, high: { value: "41" }, n: { value: "7" }, enough: { value: "false" }, stamp: { value: "sha256:b610b5c6" } },
+  ] } };
+  const el: Any = { innerHTML: "", querySelectorAll: () => [], querySelector: () => null };
+  m.mount(el, { use: { options: { columns: ["area", "unsettled", "rate", "low", "n", "stamp"], group: "gxp", groupSum: "unsettled", range: "rate,low,high,n", scale: "0,20,5", measurable: "enough", total: "unsettled", stamp: "section", labels: ["area|Area", "unsettled|Unsettled"] } }, kit, request: async () => answer, intent: async () => ({}), setState: () => {} });
+  await new Promise((r) => setTimeout(r, 10));
+  const h = el.innerHTML as string;
+  assert.match(h, /<tr class="grp" data-group="data integrity"><th colspan="5" scope="colgroup">Data integrity <span class="muted">2 areas · 74 unsettled<\/span><\/th><\/tr>/);
+  assert.doesNotMatch(h, /data-head="stamp"/, "no stamp column");
+  assert.match(h, /data-stamp="sha256:b610b5c6"/, "each row keeps its stamp");
+  assert.match(h, /class="few">too few to measure/);
+  assert.match(h, /<span class="rv">1\.7 %<\/span><span class="mb" aria-hidden="true" data-lo="3\.5" data-hi="21\.5" data-pt="8\.5" data-t="25">/);
+  assert.match(h, /<th class="r" data-total>74<\/th>/);
+  assert.match(h, /Rate <span class="muted">\(scale 0–20 %, dashed = target 5 %\)<\/span>/);
+});
