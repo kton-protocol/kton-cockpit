@@ -73,15 +73,20 @@ func Free(ctx context.Context, d *Daemon, cfg *config.Config, keys []ed25519.Pub
 		// The graphs loaded for this repository are the named graphs (ADR-017, section 5): a derived fact
 		// is reached only through GRAPH ?g, never in the claim view, and only this repository's loads.
 		var named []string
+		def := ds.claims
 		if cfg.Raw.Index.Derived.Enabled {
 			if named, err = d.LoadedGraphs(ctx, cfg.RepoRoot); err != nil {
 				return nil, err
 			}
+			// The repository's catalogue describes its loaded graphs (nk:LoadedGraph, ADR-018 section 4a):
+			// listed per request as this repository's default graph, so another repository on the same
+			// view never sees it (kton-review B1 on ADR-018).
+			def = append(append([]string(nil), def...), CatalogueIRI(cfg.RepoRoot))
 		}
 		loaded = len(named)
 		// And the view's claim graphs, one per scope (ADR-018): GRAPH ?g reads one scope's claims.
 		named = append(append([]string(nil), ds.scopes...), named...)
-		form = datasetForm(ds.claims, named, query)
+		form = datasetForm(def, named, query)
 	}
 	body, err := d.post(qctx, "/query", "application/sparql-results+json", form)
 	if qctx.Err() == context.DeadlineExceeded {

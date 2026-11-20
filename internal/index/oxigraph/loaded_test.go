@@ -30,7 +30,7 @@ func TestLoadGraph_NeverWritesOverARecordsGraph(t *testing.T) {
 	if a := query(t, d, cfg, attributed); !holds(a, "a", f) {
 		t.Fatalf("want f read in: %+v", a)
 	}
-	_, err = d.LoadGraph(ctx, cfg, strings.TrimPrefix(f, "sha256:"), []byte("<https://x.org/s> <https://x.org/p> 1 .\n"), "application/n-triples", "rdf/x.nt")
+	_, err = d.LoadGraph(ctx, cfg, strings.TrimPrefix(f, "sha256:"), []byte("<https://x.org/s> <https://x.org/p> 1 .\n"), "application/n-triples", "rdf/x.nt", oxigraph.Description{})
 	if !errors.Is(err, oxigraph.ErrClash) {
 		t.Fatalf("a load over a foton's record graph: want ErrClash, got %v", err)
 	}

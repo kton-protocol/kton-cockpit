@@ -29,8 +29,16 @@ your trust moves (ADR-013):
 - **`claims`, the default: the query projection.** The default graph holds every step (foton) of
   the union with its attribution to the keys your tiers trust, and **every claim a key you trust
   signed, as one node**, with its subjects, its fields, its signer, its scope, its position in the
-  scope's chain and what it replaces. There are no named graphs: a query names nothing, and
-  stays fast as the work grows.
+  scope's chain and what it replaces. A query that names no graph reads all of it. Each scope's
+  claims are also in a named graph of their own, and the claims with no scope in one more
+  (ADR-018); the default graph describes each (`?g a nk:ClaimGraph ; nk:scope <seed> ;
+  rdfs:label "name" ; nk:source "own" ; nk:parent <seed> ; nk:claims 12`, or `nk:unscoped true`).
+  Naming the scope's graph (`GRAPH ?g`) reads only it, which on large data is many times faster.
+  The files `cockpit load` loaded for this repository are named graphs too, each described as
+  `?g a nk:LoadedGraph ; nk:path "out/x.ttl" ; nk:loadedAs "label" ; nk:loadedAt …`. A
+  `GRAPH ?g` whose `?g` nothing else binds reads both kinds: say which (`?g a nk:ClaimGraph`).
+  `ask --json` lists the claim graphs an answer read (`claimGraphs`) and the scope names more
+  than one of them carries (`repeatedLabels`).
 - **`nanopub`: the kernel's projection.** The same steps, and each trusted claim as a
   nanopublication of four named graphs (`"dataset":"nanopub"`, or `# dataset: nanopub` as the
   query's first line). For queries about the signed form.
@@ -238,6 +246,28 @@ ORDER BY ?position
 
 One scope at a time: a study's project and programme are not in the projection, and `ask scope`
 names them (`context`).
+
+### The claims of one scope, read from its graph
+
+```sparql
+PREFIX nk:   <https://kton.dev/v/>
+SELECT ?claim ?subject ?predicate WHERE {
+  ?g a nk:ClaimGraph ; nk:scope <https://kton.dev/o/SCOPE> .
+  GRAPH ?g { ?claim nk:about ?subject ; nk:predicate ?predicate }
+}
+```
+
+The scope's graph holds its claims and its seed, nothing of other scopes. Found by the seed, exactly
+(`--bind-iri SCOPE=sha256:<hex>` binds it too); by the name (`rdfs:label`) it reads every scope of that
+name, which `repeatedLabels` says. The version of a loaded data set loaded last is found the same way:
+
+```text
+SELECT ?path (MAX(?when) AS ?latest) WHERE { ?g a nk:LoadedGraph ; nk:path ?path ; nk:loadedAt ?when }
+GROUP BY ?path
+```
+
+That is the version loaded last, not the one produced last: reloading an old file makes it the latest
+loaded.
 
 ### The latest claim per subject in a scope
 

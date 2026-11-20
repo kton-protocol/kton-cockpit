@@ -42,6 +42,16 @@ type LoadedGraph struct {
 	MediaType string `json:"mediaType"` // the parser it was read with
 	Triples   int64  `json:"triples"`
 	Loaded    string `json:"loaded"` // when, RFC 3339
+	// Paths are the output paths the steps that produced the file record for it; Label is what the
+	// load named it (--label). Both describe the graph to a query (ADR-018, section 4a).
+	Paths []string `json:"paths,omitempty"`
+	Label string   `json:"label,omitempty"`
+}
+
+// Description is how a loaded graph is found by a query (ADR-018, section 4a).
+type Description struct {
+	Paths []string
+	Label string
 }
 
 // CatalogueIRI is the graph listing what was loaded for the repository at root.
@@ -62,7 +72,7 @@ func GraphOf(hexHash string) string { return fileNS + hexHash }
 // LoadGraph puts data, read as mediaType, into the graph of hexHash, and lists it in the catalogue
 // of the repository at cfg.RepoRoot, refusing a load that would take the repository past maxTriples.
 // The graph is replaced whole: the same hash is the same bytes, so loading it again changes nothing.
-func (d *Daemon) LoadGraph(ctx context.Context, cfg *config.Config, hexHash string, data []byte, mediaType, from string) (*LoadedGraph, error) {
+func (d *Daemon) LoadGraph(ctx context.Context, cfg *config.Config, hexHash string, data []byte, mediaType, from string, desc Description) (*LoadedGraph, error) {
 	if err := d.schema(ctx, true); err != nil {
 		return nil, err
 	}
@@ -114,13 +124,25 @@ func (d *Daemon) LoadGraph(ctx context.Context, cfg *config.Config, hexHash stri
 		return nil, fmt.Errorf("%w: %d triples, and this repository has %d loaded already: past index.derived.maxTriples (%d)", ErrLoadRefused, n, have, limit)
 	}
 	when := time.Now().UTC().Format(time.RFC3339)
+	// The description a query finds the graph by (ADR-018, section 4a): the catalogue is this
+	// repository's default graph in a claims query, never copied into a view.
+	described := fmt.Sprintf(` ; a <%[1]sLoadedGraph> ; <%[1]sloadedAt> "%[2]s"^^<http://www.w3.org/2001/XMLSchema#dateTime>`, nkNS, when)
+	for _, p := range desc.Paths {
+		described += fmt.Sprintf(` ; <%spath> %s`, nkNS, nqLit(p))
+	}
+	// Not rdfs:label: the graph's name is the file's own IRI, which the records already label with
+	// its path.
+	if desc.Label != "" {
+		described += fmt.Sprintf(` ; <%sloadedAs> %s`, nkNS, nqLit(desc.Label))
+	}
 	update := fmt.Sprintf(`DELETE WHERE { GRAPH <%[1]s> { <%[2]s> ?p ?o } } ;
-INSERT DATA { GRAPH <%[1]s> { <%[2]s> <%[3]sfrom> %[4]s ; <%[3]smediaType> %[5]s ; <%[3]striples> "%[6]d"^^<http://www.w3.org/2001/XMLSchema#integer> ; <%[3]sloaded> "%[7]s"^^<http://www.w3.org/2001/XMLSchema#dateTime> } }`,
-		cat, g, loadedNS, nqLit(from), nqLit(mediaType), n, when)
+INSERT DATA { GRAPH <%[1]s> { <%[2]s> <%[3]sfrom> %[4]s ; <%[3]smediaType> %[5]s ; <%[3]striples> "%[6]d"^^<http://www.w3.org/2001/XMLSchema#integer> ; <%[3]sloaded> "%[7]s"^^<http://www.w3.org/2001/XMLSchema#dateTime>%[8]s } }`,
+		cat, g, loadedNS, nqLit(from), nqLit(mediaType), n, when, described)
 	if _, err := d.request(ctx, "/update", "", "update", update); err != nil {
 		return nil, err
 	}
-	return &LoadedGraph{Graph: g, Hash: "sha256:" + hexHash, From: from, MediaType: mediaType, Triples: n, Loaded: when}, nil
+	return &LoadedGraph{Graph: g, Hash: "sha256:" + hexHash, From: from, MediaType: mediaType, Triples: n, Loaded: when,
+		Paths: desc.Paths, Label: desc.Label}, nil
 }
 
 // Loaded lists the catalogue of the repository at root, by graph.
