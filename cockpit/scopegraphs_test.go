@@ -4,9 +4,13 @@ package cockpit
 
 import (
 	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/kton-protocol/kton-cockpit/cockpit/source"
 	"github.com/kton-protocol/kton-cockpit/internal/index/oxigraph"
 	"github.com/kton-protocol/kton-cockpit/internal/testrepo"
 )
@@ -136,5 +140,102 @@ SELECT ?p WHERE { ?g a nk:ClaimGraph ; nk:scope <https://kton.dev/o/`+hexOf(stud
 	got := terms()
 	if !got["https://example.org/q/value"] || got["https://kton.dev/v/lab/value"] {
 		t.Errorf("after the alias: want q:value alone in the scope's graph, got %v", got)
+	}
+}
+
+// A scope graph names the source its seed came from: "own" for the repository's, the source's name
+// for a federated one; both engines alike (ADR-018, section 3).
+func TestScopeGraphs_AGraphNamesItsSource(t *testing.T) {
+	for _, kind := range []string{"", "oxigraph"} {
+		t.Run("index="+kind, func(t *testing.T) { scopeSourcesIn(t, kind) })
+	}
+}
+
+func scopeSourcesIn(t *testing.T, kind string) {
+	t.Setenv("COCKPIT_INDEX_DIR", t.TempDir())
+	ctx := context.Background()
+	say := func(subject, scope, value string) {
+		t.Helper()
+		if res, _, err := Say(ctx, nil, SayRequest{Subject: subject, Template: "describes", Scope: scope,
+			Fields: map[string]string{"value": value}}); err != nil || res.IsError {
+			t.Fatalf("say in %q: %v %s", scope, err, errText(res))
+		}
+	}
+
+	theirs := testrepo.New(t)
+	runs := theirs.SeedScope(t, "runs")
+	raw := testrepo.DefaultConfig()
+	raw.Claims.AllowedTemplates = append(raw.Claims.AllowedTemplates, "describes")
+	raw.Claims.Scopes = map[string]string{"runs": runs}
+	theirs.WriteConfig(t, raw)
+	theirs.Use(t)
+	say(publishOne(t, theirs).FotonID, "runs", "theirs")
+
+	ours := testrepo.New(t)
+	study := ours.SeedScope(t, "study")
+	raw = testrepo.DefaultConfig()
+	raw.Claims.AllowedTemplates = append(raw.Claims.AllowedTemplates, "describes")
+	raw.Claims.Scopes = map[string]string{"study": study}
+	var spec source.Spec
+	b, _ := json.Marshal(map[string]string{"name": "theirs", "kind": "dir", "path": theirs.Root})
+	must(t, json.Unmarshal(b, &spec))
+	raw.Federation.Sources = []source.Spec{spec}
+	key, err := os.ReadFile(filepath.Join(theirs.Root, ".kton", "keys", "self", testrepo.SessionID+"-claims.pub"))
+	must(t, err)
+	ours.Write(t, ".kton/keys/peer/theirs.pub", string(key))
+	raw.Trust.Tiers = append(raw.Trust.Tiers, "peer")
+	raw.Query.Image = oxigraphImage
+	raw.Index.Kind = kind
+	ours.WriteConfig(t, raw)
+	ours.Use(t)
+	if kind == "oxigraph" {
+		t.Cleanup(func() { oxigraph.Stop(context.Background(), ours.Config(t)) })
+	}
+	say(publishOne(t, ours).FotonID, "study", "ours")
+
+	a := sparqlAsk(t, `PREFIX nk: <https://kton.dev/v/>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+SELECT ?label ?source WHERE { ?g a nk:ClaimGraph ; rdfs:label ?label ; nk:source ?source }`)
+	got := map[string]string{}
+	for _, row := range a.Rows {
+		got[row["label"]] += row["source"]
+	}
+	// Each repository's root scope has a graph too, from its own source.
+	if got["study"] != "own" || got["runs"] != "theirs" {
+		t.Errorf("want study from own, runs from theirs: %v", a.Rows)
+	}
+
+	// The answer lists the claim graphs it read, with their source (ADR-018, section 3).
+	listed := map[string]string{}
+	for _, g := range a.ClaimGraphs {
+		listed[g.Label] = strings.Join(g.Source, ",")
+	}
+	if listed["study"] != "own" || listed["runs"] != "theirs" {
+		t.Errorf("the answer's claim graphs: %+v", a.ClaimGraphs)
+	}
+	if len(a.RepeatedLabels) != 0 {
+		t.Errorf("no label repeats here: %v", a.RepeatedLabels)
+	}
+	// Answered again from the view the first query built (kept, in the index), the list is the same
+	// (kton-review T30 on #207).
+	again := sparqlAsk(t, `ASK { ?s ?p ?o }`)
+	if len(again.ClaimGraphs) != len(a.ClaimGraphs) {
+		t.Errorf("a second query lists %d claim graphs, the first %d (via %s)", len(again.ClaimGraphs), len(a.ClaimGraphs), again.Via)
+	}
+	if kind == "oxigraph" && !strings.Contains(again.Via, "(current)") {
+		t.Errorf("the second query should be answered from the kept view: %s", again.Via)
+	}
+
+	// A second scope named "runs", this repository's own: the name now repeats, and reading by name
+	// reads both graphs.
+	runs2 := ours.SeedScope(t, "runs")
+	raw.Claims.Scopes["runs"] = runs2
+	ours.WriteConfig(t, raw)
+	say(publishOne(t, ours).FotonID, "runs", "ours too")
+	a = sparqlAsk(t, `PREFIX nk: <https://kton.dev/v/>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+SELECT ?c WHERE { ?g a nk:ClaimGraph ; rdfs:label "runs" . GRAPH ?g { ?c nk:about ?s } }`)
+	if len(a.Rows) != 2 || strings.Join(a.RepeatedLabels, ",") != "runs" {
+		t.Errorf("two scopes named runs: want both graphs read and the label named, got %d rows, repeated %v", len(a.Rows), a.RepeatedLabels)
 	}
 }

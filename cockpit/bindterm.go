@@ -39,6 +39,9 @@ func isIRI(v string) bool {
 	return true
 }
 
+// ktonID is a kton id as the cockpit writes one (sha256:<64 hex>).
+var ktonID = regexp.MustCompile(`^(?i:sha256):([0-9A-Fa-f]{64})$`)
+
 // pctBad is a '%' that does not start a percent-encoded octet.
 var pctBad = regexp.MustCompile(`%([^0-9A-Fa-f]|[0-9A-Fa-f][^0-9A-Fa-f]|[0-9A-Fa-f]?$)`)
 
@@ -57,6 +60,14 @@ var xsdLexical = map[string]*regexp.Regexp{
 func (t BoundTerm) sparqlTerm() (string, error) {
 	switch t.Type {
 	case "iri":
+		// A kton id, sha256:<hex>, is the node https://kton.dev/o/<hex> in every dataset: bound as
+		// written it would be another IRI and match nothing, silently (kton-review B3 on ADR-018).
+		if m := ktonID.FindStringSubmatch(t.Value); m != nil {
+			return "<https://kton.dev/o/" + strings.ToLower(m[1]) + ">", nil
+		}
+		if strings.HasPrefix(strings.ToLower(t.Value), "sha256:") {
+			return "", fmt.Errorf("%q is not a kton id: sha256: and 64 hex digits", t.Value)
+		}
 		if !isIRI(t.Value) {
 			return "", fmt.Errorf("%q is not an absolute IRI", t.Value)
 		}

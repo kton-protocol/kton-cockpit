@@ -77,6 +77,7 @@ type keptFile struct {
 	Key        string
 	Named      []string
 	Scopes     []string
+	Graphs     []ClaimGraph
 	Registries int
 }
 
@@ -93,7 +94,7 @@ func (d *Daemon) keptDataset(ctx context.Context, slot, key string) (*prepared, 
 		return nil, false
 	}
 	return &prepared{def: []string{viewIRI(slot)}, claims: []string{viewIRI(slot), claimsIRI(slot)},
-		named: k.Named, scopes: k.Scopes, registries: k.Registries, kept: true}, true
+		named: k.Named, scopes: k.Scopes, graphs: k.Graphs, registries: k.Registries, kept: true}, true
 }
 
 // viewIs tells whether slot's view holds the dataset key names; another process may have replaced it.
@@ -175,7 +176,7 @@ func (d *Daemon) keepDataset(slot, key string, p *prepared) {
 	if d.Dir == "" || key == "" {
 		return
 	}
-	b, _ := json.Marshal(keptFile{key, p.named, p.scopes, p.registries})
+	b, _ := json.Marshal(keptFile{key, p.named, p.scopes, p.graphs, p.registries})
 	if os.MkdirAll(d.datasetDir(), 0o755) != nil {
 		return
 	}

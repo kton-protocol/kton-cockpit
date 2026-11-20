@@ -40,6 +40,8 @@ type FreeAnswer struct {
 	Registries int
 	Kept       bool
 	Loaded     int // the loaded graphs the query's named graphs were (ADR-017)
+	// Graphs are the claim graphs the query's named graphs were (ADR-018); none for the nanopub dataset.
+	Graphs []ClaimGraph
 }
 
 // ErrTimeout is a free query cut off at its timeout.
@@ -92,7 +94,11 @@ func Free(ctx context.Context, d *Daemon, cfg *config.Config, keys []ed25519.Pub
 	if err != nil {
 		return nil, err
 	}
-	return &FreeAnswer{Results: *res, Registries: ds.registries, Kept: ds.kept, Loaded: loaded}, nil
+	ans := &FreeAnswer{Results: *res, Registries: ds.registries, Kept: ds.kept, Loaded: loaded}
+	if dataset != DatasetNanopub {
+		ans.Graphs = ds.graphs
+	}
+	return ans, nil
 }
 
 // ParseResults reads SPARQL 1.1 query results in JSON.

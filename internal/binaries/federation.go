@@ -363,3 +363,30 @@ func Exists(dir string) bool {
 	fi, err := os.Stat(dir)
 	return err == nil && fi.IsDir()
 }
+
+// ClaimSources maps each claim the inputs hold, by its lower-case hex, to the names of the inputs that
+// hold it ("own" for the repository's own registry), in the order the inputs are joined: which source
+// a scope's seed came from (ADR-018, section 3). Both query engines ask it, so they name the same.
+func ClaimSources(inputs []Input) (map[string][]string, error) {
+	out := map[string][]string{}
+	for _, in := range inputs {
+		n, err := OpenNektonSource(in.NektonDir)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return nil, fmt.Errorf("source %s: %w", in.Name, err)
+		}
+		name := in.Name
+		if name == Own {
+			name = "own"
+		}
+		for _, rec := range n.RawRecords() {
+			h := strings.ToLower(strings.TrimPrefix(rec.ClaimID, "sha256:"))
+			if l := out[h]; len(l) == 0 || l[len(l)-1] != name {
+				out[h] = append(l, name)
+			}
+		}
+	}
+	return out, nil
+}

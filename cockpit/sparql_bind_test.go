@@ -104,3 +104,22 @@ func TestBind_TypedTermsAreOneTermEach(t *testing.T) {
 		t.Error("a variable bound in bind and bindTerms must be refused")
 	}
 }
+
+// A kton id bound as an IRI is the node it names in every dataset, https://kton.dev/o/<hex>; a
+// sha256: value that is no kton id is refused, never bound as an IRI that matches nothing
+// (kton-review B3 on ADR-018).
+func TestBind_AKtonIDIsTheNodeItNames(t *testing.T) {
+	hex := strings.Repeat("Ab", 32)
+	got, err := BoundTerm{Type: "iri", Value: "sha256:" + hex}.sparqlTerm()
+	if err != nil || got != "<https://kton.dev/o/"+strings.ToLower(hex)+">" {
+		t.Errorf("a kton id: %q %v", got, err)
+	}
+	for _, bad := range []string{"sha256:abc", "SHA256:" + hex + "0"} {
+		if got, err := (BoundTerm{Type: "iri", Value: bad}).sparqlTerm(); err == nil {
+			t.Errorf("%q: want a refusal, got %q", bad, got)
+		}
+	}
+	if got, err := (BoundTerm{Type: "iri", Value: "https://example.org/x"}).sparqlTerm(); err != nil || got != "<https://example.org/x>" {
+		t.Errorf("any other IRI stays as written: %q %v", got, err)
+	}
+}

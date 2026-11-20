@@ -35,6 +35,9 @@ func ViewConfigFor(cfg *config.Config) (ViewConfig, error) {
 		return vc, err
 	}
 	vc.Templates, vc.Aliases = set, own
+	if vc.Rows, err = binaries.New(cfg).RowTemplates(); err != nil {
+		return vc, err
+	}
 	for _, n := range set.Names() {
 		t, _ := set.Get(n)
 		for field := range t.Fields {
@@ -49,12 +52,12 @@ func ViewConfigFor(cfg *config.Config) (ViewConfig, error) {
 
 // ClaimDataset is the query projection of the claims for a container started for one query: the
 // same ClaimView the daemon builds, from the same kernel projection, as N-Triples.
-func ClaimDataset(u *binaries.Union, keys []ed25519.PublicKey, vc ViewConfig) (claims, scopes []byte, err error) {
+func ClaimDataset(u *binaries.Union, keys []ed25519.PublicKey, vc ViewConfig, sources map[string][]string) (claims, scopes []byte, graphs []ClaimGraph, err error) {
 	var trusted, structure []Quad
 	for _, p := range projectNekton(u.Nekton.Records(0), keys) {
 		own, err := ParseNQuads(p.own)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		for _, q := range own {
 			if isClaimGraph(q.G, npPub) {
@@ -68,7 +71,7 @@ func ClaimDataset(u *binaries.Union, keys []ed25519.PublicKey, vc ViewConfig) (c
 		for _, a := range p.attr {
 			qs, err := ParseNQuads(a)
 			if err != nil {
-				return nil, nil, err
+				return nil, nil, nil, err
 			}
 			trusted = append(trusted, qs...)
 		}
@@ -76,8 +79,8 @@ func ClaimDataset(u *binaries.Union, keys []ed25519.PublicKey, vc ViewConfig) (c
 	// The scope graphs as a container loads them (ADR-018): named graphs beside the default graph,
 	// under a slot of their own; a query finds them by their metadata, not by their names.
 	view := ClaimView(trusted, structure, vc)
-	graphs, meta := scopeGraphs("query", view)
-	return NTriples(append(view, meta...)), NQuads(graphs), nil
+	split, meta := scopeGraphs("query", view, sources)
+	return NTriples(append(view, meta...)), NQuads(split), describeGraphs(meta), nil
 }
 
 // claimView builds the query projection from the store: the quads of the trusted claims' graphs
