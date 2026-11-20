@@ -13,7 +13,7 @@
 // arrives as {intent: {id, kind, …}}; (c) a page viewer asks query@1 {input}: the host maps it to the installed
 // package's named query through the slot entry and binds it from the closed set; (d) product@1 {hash} is
 // answered like content@1; (e) graph@1 is {records, keys, names, attested?} (not provided yet: refused).
-import { bindVars, typedTerm } from "../../media/kton-web/core/ktonpkg-mirror/plan.js";
+import { bindVars, typedTerm, varValuesOf } from "../../media/kton-web/core/ktonpkg-mirror/plan.js";
 import type { Control, Loaded } from "../packages/model.js";
 import type { BoundTerm } from "../transport/port.js";
 
@@ -61,14 +61,22 @@ export interface Backend {
   bytes(pkg: string, hash: string): Promise<Uint8Array>;
   /** open@1: show a file, a claim or a screen in the window; resolves with what was opened. */
   open(target: Readonly<Record<string, unknown>>): Promise<string>;
-  /** sign@1 / record@1 through the shell's one sign path (C1.4): the dialog for a decision, none for a record. */
-  act(control: Control, about: string, fields: Readonly<Record<string, string>>, title: string, proposed?: Readonly<Record<string, string>>): Promise<"signed" | "cancelled" | "failed">;
+  /**
+   * sign@1 / record@1 through the shell's one sign path (C1.4): the dialog for a decision, none for a record. `signed`
+   * is called with the claim id and the fields as signed (what the person may have edited), once it is signed.
+   */
+  act(control: Control, about: string, fields: Readonly<Record<string, string>>, title: string, proposed?: Readonly<Record<string, string>>, signed?: (s: Signed) => void): Promise<"signed" | "cancelled" | "failed">;
   /** run@1: a ray (workflow run) with its holes. */
   run(ray: string, holes: Readonly<Record<string, string>>): Promise<string>;
   /** graph@1 (e): the registry's records with the ring to verify them: {records, keys, names}. */
   graph?(): Promise<{ readonly records: readonly unknown[]; readonly keys: unknown; readonly names: unknown; readonly packages: unknown }>;
   /** a URL the frame may fetch for bytes above the content cap (or undefined: then above the cap is refused). */
   urlFor?(pkg: string, hash: string): string | undefined;
+}
+/** A signature as made: its claim id and the fields signed. */
+export interface Signed {
+  readonly id: string;
+  readonly fields: Readonly<Record<string, string>>;
 }
 export interface HostUi {
   post(msg: unknown): void;
@@ -93,6 +101,49 @@ export const LEAF_PROVIDES = ["graph@1", "query@1", "product@1", "open@1", "sign
 const KIND_FOR: Readonly<Record<string, "decision" | "record">> = { sign: "decision", record: "record" };
 
 export class Refused extends Error {}
+
+/** The claim an act of a claimless subject (a view's own place) is planned about: never signed; such an act is only
+ * about a row its block was shown (option target). */
+export const ROW_ONLY = `sha256:${"0".repeat(64)}`;
+
+/**
+ * The unbound-parameter guard (kton-review on ktonpkg v0.9.11): an optional $VAR left unbound is a free SPARQL variable,
+ * so a FILTER that uses it vanishes and the query answers unfiltered. These are the use's declared optional params
+ * (queryOptional) that the params given lack.
+ */
+export function unboundParams(u: PlanUse, params: Readonly<Record<string, unknown>>): string[] {
+  return ((u as { queryOptional?: readonly string[] }).queryOptional ?? []).filter((k) => params[k] === undefined);
+}
+/** Does a use feed a signature or a record: an act with intent sign or record, or a field it proposes (option propose)? */
+export function feedsAct(u: PlanUse): boolean {
+  const propose = (u as { options?: Record<string, unknown> }).options?.["propose"];
+  const proposes = Array.isArray(propose) ? propose.length > 0 : typeof propose === "string" && propose !== "";
+  return proposes || (u.acts ?? []).some((a) => a.intent === "sign" || a.intent === "record");
+}
+const notSet = (names: readonly string[]) => `${names.join(", ")} ${names.length > 1 ? "are" : "is"} not set`;
+/** What a guarded use shows instead of its answer: it neither runs its query nor offers an act. */
+export const cannotShow = (names: readonly string[]) => `cannot show: ${notSet(names)}`;
+/** An answer run with unbound optional params, stamped so: `unfiltered` names them (blocks show "unfiltered: <p> not set"). */
+export function stampUnfiltered(answer: unknown, names: readonly string[]): unknown {
+  return answer && typeof answer === "object" && !Array.isArray(answer) ? { ...(answer as Record<string, unknown>), unfiltered: [...names] } : answer;
+}
+
+/**
+ * A use's `nudge` option filled in after its act signed: {claim} is the claim id, {<field>} a signed field. The values go
+ * into a shell double-quoted string (", \\, $ and ` escaped; line breaks as spaces). Undefined when a placeholder has no
+ * value. The shell sends no lane message; it prints the line for the person (or a lane) to send.
+ */
+export function nudgeLine(template: unknown, s: Signed): string | undefined {
+  if (typeof template !== "string" || !template) return undefined;
+  const esc = (v: string) => v.replace(/[\\"$`]/g, (c) => `\\${c}`).replace(/[\r\n]+/g, " ");
+  let missing = false;
+  const line = template.replace(/\{([A-Za-z][A-Za-z0-9_]*)\}/g, (_m, k: string) => {
+    const v = k === "claim" ? s.id : s.fields[k];
+    if (v === undefined) missing = true;
+    return esc(v ?? "");
+  });
+  return missing ? undefined : line;
+}
 
 /** A frame's state without acts: frames must not report them (host-held, H8). */
 export function withoutActs(state: unknown): Record<string, unknown> {
@@ -340,6 +391,8 @@ export class CompositionHost {
         this.state = withoutActs(m["state"]);
         if (this.setPending) this.acts.received();
         this.setPending = false;
+        // a var change that guards a use (or frees it) changes which acts the frame may offer: a new set
+        if (this.loads > 0 && JSON.stringify([...this.guarded()]) !== this.sentGuard) this.sendSet();
         return;
       case "kton:request":
         // (a) vars beside args
@@ -358,8 +411,13 @@ export class CompositionHost {
       let result: unknown;
       if (cap === "query@1") {
         const q = u.query as { package: string; name: string };
+        // the unbound-parameter guard: a use that feeds a sign act or proposes a field never runs unfiltered; any
+        // other use runs, and its answer says it is unfiltered
+        const unbound = unboundParams(u, params);
+        if (unbound.length && feedsAct(u)) throw new Refused(cannotShow(unbound));
         result = await this.backend.query(q.package, q.name, termsOf(params));
         this.remember(u, result);
+        if (unbound.length) result = stampUnfiltered(result, unbound);
       }
       else if (cap === "content@1") {
         if (!u.content?.binary || args["hash"] !== u.content.hash) throw new Refused(`${u.key}: the content differs from the plan's`);
@@ -382,7 +440,31 @@ export class CompositionHost {
   private sendSet(): void {
     this.setPending = true;
     // the state is host-held as the frame reported it: vars and layout ({tab, ratio}), never acts (H8: held apart)
-    this.ui.post({ type: "kton:set", state: { ...this.state, acts: this.acts.forSet() }, plan: this.plan, host: { name: "vscode", provides: VSCODE_PROVIDES, narrow: NARROW_PX } });
+    this.ui.post({ type: "kton:set", state: { ...this.state, acts: this.acts.forSet() }, plan: this.framePlan(), host: { name: "vscode", provides: VSCODE_PROVIDES, narrow: NARROW_PX } });
+  }
+
+  /** the guarded uses as last sent to the frame (JSON of [key, params] pairs) */
+  private sentGuard = "[]";
+  /**
+   * The uses that feed an act (sign or record, or a proposed field) while a declared optional param is unbound under the
+   * vars the frame last reported: key → the unbound params. Their query is refused and their acts are not offered.
+   */
+  guarded(): Map<string, string[]> {
+    const p = this.plan as unknown as { compositions?: unknown[]; vars?: unknown; uses: readonly PlanUse[] };
+    const uses = p.compositions && p.vars ? ((bindVars(p, varValuesOf(p, this.state)) as Plan).uses) : p.uses;
+    const out = new Map<string, string[]>();
+    for (const u of uses) {
+      const unbound = unboundParams(u, u.params ?? {});
+      if (unbound.length && feedsAct(u)) out.set(u.key, unbound);
+    }
+    return out;
+  }
+  /** The plan as the frame gets it: a guarded use without its acts (it offers none) and its options say why. */
+  framePlan(): Plan {
+    const g = this.guarded();
+    this.sentGuard = JSON.stringify([...g]);
+    if (!g.size) return this.plan;
+    return { ...this.plan, uses: this.plan.uses.map((u) => (g.has(u.key) ? { ...u, acts: [], options: { ...((u as { options?: object }).options ?? {}), unset: g.get(u.key) } } : u)) } as Plan;
   }
 
   /**
@@ -413,7 +495,10 @@ export class CompositionHost {
    * intent names it as `target`). Anything else is refused.
    */
   private aboutOf(i: Intent, act: PlanAct): string {
-    if (i["target"] === undefined) return act.about as string;
+    if (i["target"] === undefined) {
+      if (act.about === ROW_ONLY) throw new Refused(`${i.from}: this view has no record of its own; its acts are about a row (pick one)`);
+      return act.about as string;
+    }
     const u = this.plan.uses.find((x) => x.key === i.from);
     const t = i["target"];
     if (typeof t !== "string" || !this.served.get(u?.key ?? "")?.has(t)) throw new Refused(`${i.from}: the act's target is not a row this block was shown`);
@@ -432,9 +517,15 @@ export class CompositionHost {
     const act = (u.acts ?? []).find((a) => a.intent === i.kind && (i.kind === "run" ? a.ray === i.ray : a.control?.package === ctl?.package && a.control?.name === ctl?.name));
     if (!act) throw new Refused(`${u.key} declares no ${i.kind} act${i.kind === "run" ? ` for ray ${String(i.ray)}` : ` through ${String(ctl?.package)}/${String(ctl?.name)}`}: the intent cannot change the kind`);
     if (i.kind === "run") return { act };
+    const g = this.guarded().get(u.key);
+    if (g) throw new Refused(`${u.key}: ${cannotShow(g)}; it offers no act`);
     if (!act.about || i.about !== act.about) throw new Refused(`${u.key}: the intent is about another subject than the plan's act`);
     const control = this.loaded.controls.get(`${act.control?.package}/${act.control?.name}`);
-    if (!control) throw new Refused(`${act.control?.package} has no control ${act.control?.name}`);
+    if (!control) {
+      // another package's control (ktonpkg v0.9.13): the cockpit serves the view only while its owner is in use at the pin
+      const pin = (act.control as { pin?: { at?: string } } | undefined)?.pin;
+      throw new Refused(pin ? `${act.control?.package}@${String(pin.at)} is not in use here: its control ${act.control?.name} cannot sign` : `${act.control?.package} has no control ${act.control?.name}`);
+    }
     if (control.kind !== KIND_FOR[i.kind]) throw new Refused(`control ${control.name} is a ${control.kind} control, not ${KIND_FOR[i.kind]}`);
     return { act, control };
   }
@@ -462,9 +553,17 @@ export class CompositionHost {
         // fields a frame proposes are offered to the person, never signed unseen: a value of a field with fixed values
         // shows in the dialog, any other is the default of the shell's input box (Workbench.askOpenFields)
         const proposed = Object.fromEntries(Object.entries((i["fields"] ?? {}) as Record<string, unknown>).filter(([k, v]) => typeof v === "string" && !(k in checked.act.fields))) as Record<string, string>;
-        const r = await this.backend.act(c, this.aboutOf(i, checked.act), checked.act.fields, `${checked.act.label}: ${this.plan.root.package}/${this.plan.root.composition}`, proposed);
+        let made: Signed | undefined;
+        const r = await this.backend.act(c, this.aboutOf(i, checked.act), checked.act.fields, `${checked.act.label}: ${this.plan.root.package}/${this.plan.root.composition}`, proposed, (s) => (made = s));
         if (r === "failed") return refuse(c.kind === "decision" ? "not signed (see the sign dialog)" : "not recorded");
-        result = r === "signed" ? { signed: true, key: c.kind === "decision" ? "person" : "agent", message: c.kind === "decision" ? "Signed with the person key (test-only)." : "Recorded with the agent key." } : { signed: false, message: "Not signed: the dialog was cancelled." };
+        result = r === "signed" ? { signed: true, key: c.kind === "decision" ? "person" : "agent", message: c.kind === "decision" ? "Signed with the person key (test-only)." : "Recorded with the agent key.", ...(made ? { claim: made.id } : {}) } : { signed: false, message: "Not signed: the dialog was cancelled." };
+        // the use's nudge (option): the shell sends no lane message; it prints the exact line in its output channel
+        const use = this.plan.uses.find((x) => x.key === i.from) as { options?: Record<string, unknown> } | undefined;
+        if (r === "signed" && made && use?.options?.["nudge"] !== undefined) {
+          const line = nudgeLine(use.options["nudge"], made);
+          this.ui.log(line ? `nudge (send it; the shell sends no lane message): ${line}` : `nudge: a placeholder of ${i.from}'s nudge has no value; nothing to print`);
+          if (line) result = { ...result, nudge: line };
+        }
       }
       this.ui.post({ type: "kton:data", id: i.id, result });
       if (held) this.hold(i, loadsAtStart, { use: i.from, intent: i.kind, status: "done", result });

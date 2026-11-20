@@ -205,7 +205,8 @@ async function openedWithScopes(path: ActPath, records: string) {
 test("entry scopes: a review-view's scopes.records is where its acts sign (the area's records-scope path); a non-label is refused", async () => {
   const intos: unknown[] = [];
   const path: ActPath = {
-    act: async (_c, _a, _f, _t, _e, into) => (intos.push(into), "signed"),
+    // the signed callback (the claim id for a nudge) is the host's; the rest is what these tests check
+    act: async (_c, _a, _f, _t, _e, into) => { const { signed: _s, ...rest } = into ?? {}; intos.push(rest); return "signed"; },
     open: async () => "opened",
     identityName: () => "qa-decider",
   };
@@ -223,7 +224,8 @@ test("entry scopes: a review-view's scopes.records is where its acts sign (the a
 test("looked-at: the evidence a panel opened goes with its acts (in memory, per panel); a refused open is not listed", async () => {
   const intos: Array<{ opened?: readonly string[] } | undefined> = [];
   const path: ActPath = {
-    act: async (_c, _a, _f, _t, _e, into) => (intos.push(into), "signed"),
+    // the signed callback (the claim id for a nudge) is the host's; the rest is what these tests check
+    act: async (_c, _a, _f, _t, _e, into) => { const { signed: _s, ...rest } = into ?? {}; intos.push(rest); return "signed"; },
     open: async (target, opened) => {
       const s = target["source"] as { path?: string } | undefined;
       if (s?.path === "refused.md") return "not opened: does not hash";

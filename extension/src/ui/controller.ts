@@ -560,7 +560,7 @@ export class Workbench {
    * status bar (S7.4); a timeout or any failure after the say was sent is "unknown whether signed", and the
    * registry decides whether a claim exists (S7.3); "Not signed" only when it never reached the cockpit.
    */
-  private async signThroughDialog(intent: { kind: "sign"; about: string; fields: Readonly<Record<string, string>>; scope?: string; opened?: readonly string[] }, control: ControlInfo, title: string, expect?: ExpectRevision): Promise<SignResult> {
+  private async signThroughDialog(intent: { kind: "sign"; about: string; fields: Readonly<Record<string, string>>; scope?: string; opened?: readonly string[] }, control: ControlInfo, title: string, expect?: ExpectRevision, onSigned?: (s: { id: string; fields: Readonly<Record<string, string>> }) => void): Promise<SignResult> {
     const cannot = this.cannotSign(control.kind);
     if (cannot) {
       this.host.error(`Not signed: ${cannot}`);
@@ -615,10 +615,12 @@ export class Workbench {
           if (viaDialog) this.host.signOutcome(true, text);
           this.host.info(text);
           this.host.log(`signed, pending ${out.value.pending.code}: ${out.value.id}`);
+          onSigned?.({ id: out.value.id, fields: p.value.fields });
           break;
         }
         if (viaDialog) this.host.signOutcome(true, `Signed ${out.value.id}`);
         this.host.info(`Signed ${out.value.id}`);
+        onSigned?.({ id: out.value.id, fields: p.value.fields });
         break;
       } catch (e) {
         // "Not signed" only when the say never reached the cockpit (kton-review N2 on #196). After it was sent, a
@@ -638,7 +640,7 @@ export class Workbench {
    * dialog. Same path as every other signature (signThroughDialog), so the dialog has one call site.
    */
   async signAct(c: Control, about: string, fields: Readonly<Record<string, string>>, title: string, expect?: ExpectRevision, into?: ActInto): Promise<SignResult> {
-    const control: ControlInfo = { package: c.package, name: c.name, template: c.template, kind: c.kind, ...(c.meaning !== undefined ? { meaning: c.meaning } : {}) };
+    const control: ControlInfo = { package: c.package, name: c.name, template: c.template, kind: c.kind, ...(c.meaning !== undefined ? { meaning: c.meaning } : {}), ...(c.title ? { title: c.title } : {}) };
     // the evidence this view session opened is offered for a template's lookedAt (after what the frame proposed), and
     // listed in the dialog; it is kept nowhere else and counted nowhere
     const tpl = templateFor(control, this.templates);
@@ -647,7 +649,7 @@ export class Workbench {
     if (opened) proposed["lookedAt"] = [...new Set([...(proposed["lookedAt"] ?? "").split(/\s+/).filter(Boolean), ...opened])].join(" ");
     const asked = await this.askOpenFields(control, fields, proposed);
     if (!asked) return "cancelled";
-    return this.signThroughDialog({ kind: "sign", about, fields: asked, ...(into?.scope ? { scope: into.scope } : {}), ...(opened ? { opened } : {}) }, control, title, expect);
+    return this.signThroughDialog({ kind: "sign", about, fields: asked, ...(into?.scope ? { scope: into.scope } : {}), ...(opened ? { opened } : {}) }, control, title, expect, into?.signed);
   }
 
   /**

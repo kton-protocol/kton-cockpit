@@ -19,7 +19,7 @@ export function mount(el, ctx) {
   };
   let n = Number(String(ctx.state?.draw ?? "").split(":")[1] ?? 0) || 0;
   el.innerHTML = `<div class="kton-muted" data-area-loading>Loading…</div>`;
-  ctx.request("query@1", {}).then(
+  stamped(el, esc, ctx.request("query@1", {})).then(
     (r) => {
       const rows = r?.results?.bindings ?? [];
       const choices = (o.choices ?? []).map((c) => {
@@ -80,4 +80,22 @@ export function mount(el, ctx) {
     },
   );
   return { set() {}, destroy() {} };
+}
+
+// An answer the host ran with a declared optional param unbound says so (`unfiltered`: the params): its FILTER did not
+// apply, so the block is stamped "unfiltered: <param> not set" above what it drew (the unbound-parameter guard).
+function stamped(el, esc, asked) {
+  return {
+    then(ok, err) {
+      const drawn = asked.then(ok, err);
+      asked.then(
+        (r) => {
+          const u = Array.isArray(r?.unfiltered) ? r.unfiltered.filter((x) => typeof x === "string") : [];
+          if (u.length) el.insertAdjacentHTML("afterbegin", `<p class="kton-stamp kton-unfiltered" data-unfiltered>unfiltered: ${esc(u.join(", "))} not set</p>`);
+        },
+        () => {},
+      );
+      return drawn;
+    },
+  };
 }

@@ -109,6 +109,7 @@ class VsHost implements UiHost {
     const line = Math.max(0, (t.line ?? 1) - 1);
     // beside the view, without taking the focus: the decision view stays open (its session's looked-at list)
     await vscode.window.showTextDocument(doc, { preview: true, viewColumn: vscode.ViewColumn.Beside, preserveFocus: true, selection: new vscode.Range(line, 0, line, 0) });
+    if (t.diff) return `Opened the change of ${t.repo} ${t.commit.slice(0, 12)}${t.path ? ` to ${t.path}` : ""} (read-only)`;
     return `Opened ${t.repo}:${t.path}${t.line ? `#L${t.line}` : ""} at ${t.commit.slice(0, 12)} (read-only)`;
   }
   /** A run artifact: checked against its sha256 before anything is shown; an image in the preview, text read-only. */

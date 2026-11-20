@@ -5,6 +5,8 @@
 // The host decides what an open shows and keeps what was shown in the view session's looked-at list.
 // Option ask "var|Placeholder": an input that sets the state `element` (the event element) to a typed id.
 // Option emptyText: what to say when there is no row.
+// A row with ?diff "true" and ?repo ?commit (?path optional) opens that commit's change (open@1 {source: {diff}}), as a
+// reviewer reads it. Rows with ?group are shown under a heading per group, in the query's order.
 export function mount(el, ctx) {
   const esc = ctx.kit.esc;
   const o = ctx.use.options ?? {};
@@ -24,10 +26,11 @@ export function mount(el, ctx) {
     });
   };
   wireAsk();
-  ctx.request("query@1", {}).then(
+  stamped(el, esc, ctx.request("query@1", {})).then(
     (r) => {
       const rows = r?.results?.bindings ?? [];
       const target = (x) => {
+        if (v(x.diff) === "true" && v(x.repo) && v(x.commit)) return { source: { repo: v(x.repo), commit: v(x.commit), diff: true, ...(v(x.path) ? { path: v(x.path) } : {}) } };
         if (v(x.repo) && v(x.commit) && v(x.path)) return { source: { repo: v(x.repo), commit: v(x.commit), path: v(x.path), ...(v(x.line) ? { line: Number(v(x.line)) } : {}), ...(v(x.sha256) ? { sha256: v(x.sha256) } : {}) } };
         if (v(x.run) && v(x.name) && v(x.sha256)) return { artifact: { run: v(x.run), name: v(x.name), sha256: v(x.sha256), ...(v(x.mediaType) ? { mediaType: v(x.mediaType) } : {}) } };
         return null;
@@ -43,7 +46,14 @@ export function mount(el, ctx) {
         return `<div class="kton-field" data-evidence="${esc(v(x.kind))}" data-row="${i}">${head} ${chip}${v(x.note) || size ? `<div class="kton-muted">${esc(v(x.note))}${size}</div>` : ""}<span class="kton-muted" data-open-out="${i}"></span></div>`;
       };
       const forWhat = rows.length && v(rows[0].for) ? `<p class="kton-muted" data-evidence-for>for ${esc(v(rows[0].for))}</p>` : "";
-      el.innerHTML = `${ask}${rows.length ? forWhat + rows.map(item).join("") : `<p class="kton-muted" data-area-empty>${esc(o.emptyText || "Nothing to open.")}</p>`}`;
+      const items = rows
+        .map((x, i) => {
+          const g = v(x.group);
+          const head = g && (i === 0 || v(rows[i - 1].group) !== g) ? `<h4 data-group="${esc(g)}">${esc(g)} (${rows.filter((y) => v(y.group) === g).length})</h4>` : "";
+          return head + item(x, i);
+        })
+        .join("");
+      el.innerHTML = `${ask}${rows.length ? forWhat + items : `<p class="kton-muted" data-area-empty>${esc(o.emptyText || "Nothing to open.")}</p>`}`;
       wireAsk();
       for (const b of el.querySelectorAll("button[data-open]")) {
         b.addEventListener("click", () => {
@@ -62,4 +72,22 @@ export function mount(el, ctx) {
     },
   );
   return { set() {}, destroy() {} };
+}
+
+// An answer the host ran with a declared optional param unbound says so (`unfiltered`: the params): its FILTER did not
+// apply, so the block is stamped "unfiltered: <param> not set" above what it drew (the unbound-parameter guard).
+function stamped(el, esc, asked) {
+  return {
+    then(ok, err) {
+      const drawn = asked.then(ok, err);
+      asked.then(
+        (r) => {
+          const u = Array.isArray(r?.unfiltered) ? r.unfiltered.filter((x) => typeof x === "string") : [];
+          if (u.length) el.insertAdjacentHTML("afterbegin", `<p class="kton-stamp kton-unfiltered" data-unfiltered>unfiltered: ${esc(u.join(", "))} not set</p>`);
+        },
+        () => {},
+      );
+      return drawn;
+    },
+  };
 }

@@ -58,3 +58,21 @@ test("evidence: a source open's looked-at reference names the repo, path, commit
   // lookedAt is space-separated: a spec path with spaces stays one reference
   assert.equal(sourceRef({ repo: "improve-specs", commit: "49966c23", path: "Rights Management/ics1000 Publish rights.md", line: 31 }), "kton-src:/improve-specs/Rights%20Management/ics1000%20Publish%20rights.md?49966c23#L31");
 });
+
+test("evidence: a commit's change (diff) from the mirror's objects, whole or for one path; read-only, round-trips", async () => {
+  const m = mirror();
+  const r = await readAtCommit(m.root, { repo: "ext-core", commit: m.commit, path: "", diff: true });
+  assert.ok("bytes" in r);
+  assert.match(r.bytes.toString(), /round 9/);
+  assert.match(r.bytes.toString(), /\+line 2 at the round's commit/);
+  const one = await readAtCommit(m.root, { repo: "ext-core", commit: m.commit, path: "test/a.spec.ts", diff: true });
+  assert.ok("bytes" in one && /a\.spec\.ts/.test(one.bytes.toString()));
+  const t = sourceTarget({ repo: "christof-testdev", commit: "b2b4f50", diff: true });
+  assert.deepEqual(t, { repo: "christof-testdev", commit: "b2b4f50", path: "", diff: true });
+  assert.deepEqual(targetOf(sourceUri(t as Exclude<typeof t, string>)), t);
+  const t2 = sourceTarget({ repo: "r", commit: "b2b4f50", path: "test/x.ts", diff: "true" });
+  assert.deepEqual(targetOf(sourceUri(t2 as Exclude<typeof t2, string>)), t2);
+  for (const bad of [{ repo: "r", commit: "b2b4f50", diff: true, line: 3 }, { repo: "r", commit: "b2b4f50", diff: true, path: "-p" }, { repo: "r", commit: "--all", diff: true }]) assert.equal(typeof sourceTarget(bad), "string", JSON.stringify(bad));
+  const { sourceRef } = await import("../src/ui/sources.js");
+  assert.equal(sourceRef(t as Exclude<typeof t, string>), "kton-src:/christof-testdev/?b2b4f50&diff");
+});

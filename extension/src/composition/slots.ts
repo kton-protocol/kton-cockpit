@@ -9,7 +9,7 @@
 import { planRounds } from "../../media/kton-web/core/ktonpkg-mirror/plan.js";
 import type { Loaded, MirrorPackage, SlotEntry } from "../packages/model.js";
 import type { Plan, Term } from "./host.js";
-import { termsOf } from "./host.js";
+import { ROW_ONLY, termsOf } from "./host.js";
 import type { BoundTerm } from "../transport/port.js";
 
 export const SLOTS = ["activity", "home-tile", "status-item", "review-view", "record-view", "run-action", "finding-source", "material-editor"] as const;
@@ -84,7 +84,9 @@ export async function planEntry(e: SlotEntry, subject: Subject, loaded: Loaded, 
   const { ref, packages: own } = compositionOf(e, loaded);
   // the workbench's own blocks are there for every composition, as the package "@workbench"
   const packages = builtin ? { ...own, [builtin.name]: builtin } : own;
-  const mirrorSubject = { iri: subject.iri, id: subject.id, ...(subject.claim ? { claim: subject.claim } : {}) };
+  // a subject without a claim (a view's own place) plans its acts about ROW_ONLY: the JS mirror needs a claim for a
+  // sign/record act, ktonpkg does not; the host signs such an act only about a row the block was shown (option target)
+  const mirrorSubject = { iri: subject.iri, id: subject.id, claim: subject.claim ?? ROW_ONLY };
   return (await planRounds(ref, mirrorSubject, {}, packages, { identity: { name: identityName } }, async (n: { query: { package: string; name: string }; params: Record<string, Term> }) => {
     const r = (await query(n.query.package, n.query.name, termsOf(n.params))) as { results?: { bindings?: unknown[] } };
     return r.results?.bindings ?? [];

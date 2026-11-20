@@ -1070,12 +1070,15 @@ await step("S6", 9, "a read scope's data is shown (RACI from qa.deviations.raci)
   scopesBefore = await perScope();
 });
 
-await step("S6", 7, "training: the package's training query result, computed nowhere else", async () => {
+await step("S6", 7, "training: the package's training query result, computed nowhere else; unfiltered until a person is set, and stamped so", async () => {
   const f = await openArea("qa.area-one");
   // unfiltered until a person is picked (ktonpkg v0.9.10 optional params): the package's query, all 4 obligations
   check((await countIn(f, "training")) === 4, "the training query's 4 rows, unfiltered", 4, await countIn(f, "training"));
   const t = await boxText(f, "training");
   check(/person\/p1/.test(t) && /person\/p2/.test(t), "both RACI people's obligations");
+  // the unbound-parameter guard: a block that feeds no act runs unfiltered, and says so (the stamp above its rows)
+  const stampText = ((await box(f, "training").locator("[data-unfiltered]").first().textContent({ timeout: 10000 }).catch(() => "")) ?? "").trim();
+  check(stampText === "unfiltered: person not set", "the training block is stamped unfiltered", "unfiltered: person not set", stampText);
 });
 
 await step("S6", 10, "a param: the record query is bound to the record (subject.iri), not to all records", async () => {

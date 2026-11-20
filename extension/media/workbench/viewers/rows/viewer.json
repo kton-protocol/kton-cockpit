@@ -26,7 +26,15 @@
   "emptyText": "literal",
   "atLeast": "literal",
   "page": "literal",
-  "pageSize": "literal"
+  "pageSize": "literal",
+  "target": "literal",
+  "choices": {
+   "set": "literal"
+  },
+  "propose": {
+   "set": "literal"
+  },
+  "nudge": "literal"
  },
  "emits": {
   "select": {

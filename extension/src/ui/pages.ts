@@ -172,6 +172,7 @@ export function signDialogDetail(p: SignPlan, signer: ShownSigner): string {
     .join("\n");
   return [
     `Template: ${p.template}  (control ${p.control.package}/${p.control.name})`,
+    ...(p.control.title ? [`Control: ${p.control.title}`] : []),
     ...(p.predicate !== undefined ? [`Says: ${p.predicate}`] : []),
     `About: ${p.subject}`,
     `Fields:\n${fields || "  (none)"}`,

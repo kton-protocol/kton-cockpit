@@ -90,3 +90,84 @@ test("views: the rows block offers paging and refine choices as options it accep
   assert.equal(accepts["page"], "literal");
   assert.equal(accepts["pageSize"], "literal");
 });
+
+// Row acts (dry run 1, Christof): a view with no record of its own acts about a row it showed (option target), through
+// another package's control pinned to its sealed revision (ktonpkg v0.9.13 `from`), into the entry's records scope.
+function rowActs(withOwner = true) {
+  const fx = [listed(join(PKGS, "views", "qa.rowacts"), "qa.rowacts"), ...(withOwner ? [listed(join(PKGS, "views", "qa.owner"), "qa.owner")] : [])];
+  const acts: Array<{ control: string; about: string; fields: unknown; scope?: string }> = [];
+  const errors: string[] = [];
+  const posts: Array<Record<string, unknown>> = [];
+  const logs: string[] = [];
+  const UNIT = `https://kton.dev/o/${"7".repeat(64)}`;
+  const t = {
+    uiList: async () => ({ ok: true, value: { packages: fx.map((f) => f.pkg) } as UiListing }),
+    uiCat: async (pkg: string, h: string) => reader(...fx)(pkg, h),
+    list: async () => ({ ok: true, value: { queries: [] } }),
+    ask: async () => ({ ok: true, value: { results: { head: { vars: ["test", "result", "stamp", "claim"] }, results: { bindings: [{ test: { type: "literal", value: "ics1829 STP-002" }, result: { type: "literal", value: "error" }, stamp: { type: "literal", value: "dryrun1.runs · r1" }, claim: { type: "uri", value: UNIT } }] } } } }),
+  } as unknown as Transport;
+  const ui: CompositionUi = {
+    showComposition: () => ({ post: (m) => posts.push(m as Record<string, unknown>), urls: new Map() }),
+    showLeaf: () => ({ post: () => undefined }),
+    closePanel: () => undefined,
+    openPanels: () => [],
+    info: () => undefined,
+    error: (x) => errors.push(x),
+    log: (l) => logs.push(l),
+  };
+  const path: ActPath = {
+    act: async (c, about, fields, _t, _e, into) => {
+      acts.push({ control: `${c.package}/${c.name}`, about, fields, ...(into?.scope ? { scope: into.scope } : {}) });
+      into?.signed?.({ id: `sha256:${"9".repeat(64)}`, fields: { ...fields, test: "ics1829 STP-002" } });
+      return "signed";
+    },
+    open: async () => "opened",
+    identityName: () => "christof-dryrun",
+  };
+  return { area: new PackagesArea(t, ui, path, new Map(), builtin()), acts, errors, posts, logs, UNIT };
+}
+
+test("row acts: a claimless view's act is about the picked row, through another package's pinned control, into the entry's records scope; the nudge is printed", async () => {
+  const w = rowActs();
+  await w.area.refresh();
+  const e = (w.area.loaded as Loaded).entries.find((x) => x.package === "qa.rowacts");
+  assert.ok(e);
+  const host = (await w.area.openSlot(`qa.rowacts/${e.file}`, viewSubject(e))) as CompositionHost;
+  assert.ok(host instanceof CompositionHost, w.errors.join("; "));
+  const u = host.plan.uses[0] as unknown as { key: string; acts: Array<{ control: { package: string; name: string; pin: { at: string } } }> };
+  assert.deepEqual([u.acts[0]?.control.package, u.acts[0]?.control.name, u.acts[0]?.control.pin.at], ["qa.owner", "rerun-request", "1"], "the foreign control, with its pin");
+  const act = { intent: "record", control: { package: "qa.owner", name: "rerun-request" } };
+  // without a picked row there is nothing to be about
+  await host.onMessage({ type: "kton:intent", intent: { id: "i0", kind: "record", from: u.key, control: act.control, about: (u.acts[0] as unknown as { about: string }).about, fields: {} } });
+  assert.match(JSON.stringify(w.posts.at(-1)), /its acts are about a row/);
+  assert.equal(w.acts.length, 0);
+  // a row this block was not shown is refused; a served one signs about it
+  await host.onMessage({ type: "kton:request", id: "q1", cap: "query@1", args: { use: u.key } });
+  await host.onMessage({ type: "kton:intent", intent: { id: "i1", kind: "record", from: u.key, control: act.control, about: (u.acts[0] as unknown as { about: string }).about, target: `https://kton.dev/o/${"8".repeat(64)}`, fields: {} } });
+  assert.match(JSON.stringify(w.posts.at(-1)), /not a row this block was shown/);
+  await host.onMessage({ type: "kton:intent", intent: { id: "i2", kind: "record", from: u.key, control: act.control, about: (u.acts[0] as unknown as { about: string }).about, target: w.UNIT, fields: { test: "ics1829 STP-002", reason: "capture mode" } } });
+  assert.deepEqual(w.acts, [{ control: "qa.owner/rerun-request", about: `sha256:${"7".repeat(64)}`, fields: {}, scope: "qa.requests" }]);
+  assert.ok(w.logs.some((l) => l.endsWith(`./send userinterface requests area=test-execution title="rerun: ics1829 STP-002" text="rerun request claim sha256:${"9".repeat(64)}; test ics1829 STP-002" why="row acts"`)), w.logs.join("\n"));
+});
+
+test("row acts: with the owner package not in use, the act is refused and names the pin", async () => {
+  const w = rowActs(false);
+  await w.area.refresh();
+  const e = (w.area.loaded as Loaded).entries.find((x) => x.package === "qa.rowacts");
+  assert.ok(e);
+  const host = (await w.area.openSlot(`qa.rowacts/${e.file}`, viewSubject(e))) as CompositionHost;
+  assert.ok(host instanceof CompositionHost, w.errors.join("; "));
+  const u = host.plan.uses[0] as unknown as { key: string; acts: Array<{ about: string }> };
+  await host.onMessage({ type: "kton:request", id: "q1", cap: "query@1", args: { use: u.key } });
+  await host.onMessage({ type: "kton:intent", intent: { id: "i1", kind: "record", from: u.key, control: { package: "qa.owner", name: "rerun-request" }, about: u.acts[0]?.about, target: w.UNIT, fields: {} } });
+  assert.match(JSON.stringify(w.posts.at(-1)), /qa\.owner@1 is not in use here/);
+  assert.equal(w.acts.length, 0);
+});
+
+test("row acts: a malformed pin refuses the package; the rows block accepts target, choices, propose and nudge", async () => {
+  const { withForeignControls } = await import("../src/packages/model.js");
+  assert.throws(() => withForeignControls({ parts: [{ blocks: [{ acts: [{ intent: "record", control: "c", from: { package: "p", at: "1", head: "x" } }] }] }] }, "self", "f"), /from must be/);
+  assert.throws(() => withForeignControls({ parts: [{ blocks: [{ acts: [{ intent: "record", control: "c", from: { package: "self", at: "1", head: `sha256:${"a".repeat(64)}` } }] }] }] }, "self", "f"), /from must be/);
+  const accepts = (builtin().viewers["rows"]?.decl["accepts"] ?? {}) as Record<string, unknown>;
+  assert.deepEqual([accepts["target"], accepts["choices"], accepts["propose"], accepts["nudge"]], ["literal", { set: "literal" }, { set: "literal" }, "literal"]);
+});

@@ -193,7 +193,7 @@ function areaWith(fx: Fixture[], rows: Record<string, Array<Record<string, strin
     log: () => undefined,
   };
   const path: ActPath = {
-    act: async (control, about, fields, _title, expect, into) => (acts.push({ control, about, fields, expect, into }), "signed"),
+    act: async (control, about, fields, _title, expect, into) => (acts.push({ control, about, fields, expect, into: withoutSigned(into) }), "signed"),
     open: async () => "opened elsewhere",
     identityName: () => "qa-decider",
     person: () => ({ keyId: PERSON_KID, personTiers }),
@@ -306,3 +306,10 @@ test("T21: a record query answering two current rows opens nothing (no subject, 
   assert.equal(w.area.hostOf(`${key}#record`), undefined);
   assert.match(JSON.stringify(w.posts.at(-1)), /not one current record of Deviations \(2 rows\): nothing opened/);
 });
+
+/** An act's `into` without its signed callback (a function: the host passes one for a nudge line; not compared here). */
+function withoutSigned<T>(into: T): T {
+  if (!into || typeof into !== "object") return into;
+  const { signed: _signed, ...rest } = into as Record<string, unknown>;
+  return rest as T;
+}

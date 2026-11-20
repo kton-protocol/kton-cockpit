@@ -26,6 +26,8 @@ export interface ControlInfo {
   readonly meaning?: string;
   /** O1: a decision (person key, dialog) or a record (agent key, no dialog). Declared by the package. */
   readonly kind: "decision" | "record";
+  /** the control's title, shown in the dialog (and covered by the digest, as everything shown) */
+  readonly title?: string;
 }
 
 export const FOOTER = "A kton signature is not yet a QMS e-signature: every signature here is test-only.";
@@ -124,7 +126,7 @@ export function plan(
   if (!key.keyName) return refuse("identity.key-missing", `this window has no ${key.role} key, so it cannot sign a ${control.kind}`);
   const meaning = control.meaning ?? fields["meaning"];
   const expect = { ...(tpl.hash ? { template: tpl.hash } : {}), ...(tpl.revision ? { revision: tpl.revision } : {}), ...(tpl.predicate ? { predicate: tpl.predicate } : {}) };
-  const shown = { template: tpl.name, expect, subject: intent.about, fields, as: key.keyName, control: `${control.package}/${control.name}`, meaning: meaning ?? null, meaningField: fixed ?? null, scope: intent.scope ?? null, opened: intent.opened ?? [] };
+  const shown = { template: tpl.name, expect, subject: intent.about, fields, as: key.keyName, control: `${control.package}/${control.name}`, meaning: meaning ?? null, meaningField: fixed ?? null, scope: intent.scope ?? null, opened: intent.opened ?? [], ...(control.title ? { title: control.title } : {}) };
   const digest = createHash("sha256").update(JSON.stringify(shown, Object.keys(shown).sort())).update(JSON.stringify(Object.entries(fields).sort())).digest("hex");
   return {
     ok: true,

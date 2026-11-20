@@ -699,7 +699,7 @@ test("S4.2: a decision act goes through the one sign dialog and signs with the p
   assert.equal(t.says.at(-1)?.template, "test-note");
   assert.equal(t.says.at(-1)?.as, "qa-decider", "the person key");
   assert.equal(t.says.at(-1)?.subject, sha("1"));
-  assert.deepEqual(c.posted.at(-1), { type: "kton:data", id: "acts/probe#x.1", result: { signed: true, key: "person", message: "Signed with the person key (test-only)." } });
+  assert.deepEqual(c.posted.at(-1), { type: "kton:data", id: "acts/probe#x.1", result: { signed: true, key: "person", message: "Signed with the person key (test-only).", claim: `sha256:${"9".repeat(64)}` } });
 });
 
 test("S4.3: a record act is written with the agent key and no dialog", async () => {
