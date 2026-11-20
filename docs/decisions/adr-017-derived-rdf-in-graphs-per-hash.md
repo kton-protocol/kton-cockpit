@@ -1,5 +1,5 @@
 ---
-title: "Derived RDF in the index: one named graph per output hash, claims unchanged"
+title: "Derived RDF in the index: one named graph per file hash, loaded by a cockpit action, claims unchanged"
 type: "decision"
 project: "kton-cockpit"
 date: 2026-11-20
@@ -7,13 +7,14 @@ status: "accepted"
 tags: [architecture, index, query, oxigraph, sparql, provenance, derived-data]
 ---
 
-# ADR-017: Derived RDF in the index, one named graph per output hash
+# ADR-017: Derived RDF in the index, one named graph per file hash
 
 ## Status
 
 Accepted by MH (2026-11-20, his initiative; decision `7f62db0e55`): graph name the file's own IRI (1a),
-derived graphs also through the named-query packages from the start (2b), the proposed limits (3a). Proposed
-2026-11-20. Amends ADR-012, section 1 ("ingests through the substrate … never the files"), and adds to
+derived graphs also through the named-query packages from the start (2b), the proposed limits (3a). Amended the
+same day by MH: **loading is a cockpit action, not something a foton declares**, and nothing about a load is
+signed; marking a file, if anyone wants to, is a claim (section 1). Proposed 2026-11-20. Amends ADR-012, section 1 ("ingests through the substrate … never the files"), and adds to
 ADR-013's query projection.
 
 ## Context
@@ -53,24 +54,26 @@ This fits the rest of the system:
 
 ## Decision
 
-### 1 What is loaded
+### 1 What is loaded: what a person or a script loads
 
-An output of a foton is loaded when **all** of these hold:
+**Loading is a cockpit action.** `cockpit load <file|sha256> [--as <media type>]` loads one file's RDF into
+the index, as a graph named by the file's hash. A person runs it, or a script does, in whatever way it is
+automated; nothing has to declare beforehand that a file is RDF. The foton format is not touched: it has no
+place for an output's media type (foton/v1 carries path, hash and, beside the record, locators), and the
+cockpit signs no statement of its own (SPEC §13).
 
-- **The foton is in the view.** It is part of the configuration's union and verified under the configuration's
-  trusted keys (ADR-013, section 1). An output of a foton the configuration does not trust is not loaded for
-  that configuration. A foton in a federation source counts like any other.
-- **The output is RDF.** Its declared `mediaType` is one the index parses (section 7). The media type is a
-  carried field, not covered by the foton id (plankton SPEC §6.1). It only chooses the parser. What is loaded
-  is decided by the hash, never by the media type: a wrong media type fails to parse, and the failure is
-  reported.
-- **The bytes are held, and they hash to the output's digest.** The index reads them from, in this order:
-  the repository's content store (`.kton/blobs/<hh>/<hex>`, ADR-016; `publish` does not put outputs there
-  today, a package or a step that wants its result kept by hash does), then the file at the output's path in
-  the working tree, then the same in a federation source's tree. Never from the network. Bytes that are
-  missing or hash differently are not loaded and are reported per hash (`derived.missing`,
-  `derived.mismatch`). That is ADR-012's "verified once at read-in", applied to content.
-- **It is under the limits** (section 6).
+- **The bytes are verified.** A path is read and hashed; a `sha256:` is read from the repository's content
+  store (`.kton/blobs/<hh>/<hex>`, ADR-016), and refused when it is not there. The bytes are hashed again right
+  before loading, so a graph's name cannot lie about its content.
+- **The media type chooses the parser.** `--as` names it; without it, the file extension does (`.ttl`,
+  `.nt`, `.rdf` / `.owl`, `.jsonld`), and a file with none of them is refused. A wrong media type fails to parse
+  and loads nothing.
+- **Nothing is signed.** A load is not a record and not a claim. It is index state, like the index itself:
+  derived, local to this machine, and gone with a rebuild until loaded again (section 9). Who loaded what is
+  not attested; where the content came from is what its hash says (section 3).
+- **Marking a file is a claim.** Anyone who wants to say that a file is to be read as RDF, or that a graph is
+  the one that counts, says a claim about its hash. A load does not need one, and a claim does not load.
+- **Under the limits** (section 6).
 
 ### 2 One named graph per hash, named by the hash
 
@@ -78,7 +81,7 @@ An output of a foton is loaded when **all** of these hold:
   kton v0.4), one graph per distinct content hash. It is the hash of the **exact bytes loaded**, the output
   file, never of a source it was derived from. A step's sources are its foton's inputs; naming by a source would
   put two files derived from one source into one graph. Two fotons that produced the same bytes share one
-  graph, and it is loaded once.
+  graph, and it is loaded once; loading it again changes nothing.
 - **Why this name:** it is the IRI the foton's record already uses for the file. `GRAPH ?g { … } ?g
   prov:wasGeneratedBy ?foton` joins with no mapping. A foton's *record* graph is in the same namespace
   (`https://kton.dev/o/<foton id>`, kernel `rdf.RecordGraph`), but a query never sees both as named graphs: in
@@ -86,21 +89,22 @@ An output of a foton is loaded when **all** of these hold:
   record is read from where it sits, not from its name. An alternative, `urn:kton:derived:sha256:<hex>`, would
   make the kind readable from the name, at the cost of a mapping in every join (decided: the file's own IRI).
 - **The data is loaded as it is.** No triple is added, none removed. Blank nodes stay local to their graph.
-- **What ties a graph to its foton is already in the index:** the foton's record says
-  `https://kton.dev/o/<hex> prov:wasGeneratedBy <foton>`. The index adds one catalogue entry per graph,
-  per view: `urn:kton:view:<id>:derived` lists the derived graphs the view sees. For each graph it gives the
-  file IRI it holds, and the output path(s) and foton(s) it came from. That catalogue is index metadata, like
-  the registry graphs of ADR-012. It is not added to the derived data.
+- **What ties a graph to a foton is already in the index:** a foton's record that produced the file says
+  `https://kton.dev/o/<hex> prov:wasGeneratedBy <foton>`. The index keeps a catalogue per repository,
+  `urn:kton:loaded:<repository>`, listing the graphs loaded for it, each with the path or hash it was loaded
+  from, its media type and when. That catalogue is index metadata, like the registry graphs of ADR-012. It is
+  not added to the derived data.
 
 ### 3 Evidence levels, checked rather than assumed
 
 - **Hash and produced:** the graph's hash is an output of a foton in the view, whose signer the configuration
-  trusts. Under section 1, this is every graph the index loads.
-- **Hash only:** bytes the index holds whose hash no trusted foton names. The index does not load them. A
-  reader of another store, built otherwise, cannot assume every graph has a producer. In the store measured
-  above, 1 of 4,013 graphs had none. A guard checks for the producing foton; it does not infer one from the
-  name.
+  trusts. Then who made the file, how, and from what is on record.
+- **Hash only:** the graph's hash is what the bytes are, and nothing more is known. A loaded file need not have
+  a producer; in the store measured above, 1 of 4,013 graphs had none.
 - **Claim:** a signed statement, in the claim view (section 4).
+
+A reader or a guard checks for the producing foton (`?g prov:wasGeneratedBy ?f` with `?f` in the view); it
+never infers one from the graph being loaded.
 
 ### 4 Claims stay apart
 
@@ -108,21 +112,22 @@ An output of a foton is loaded when **all** of these hold:
   receives no derived triple. A derived fact is reached only through `GRAPH ?g { … }`, so every answer that
   uses one can return `?g`, which is its hash.
 - **A derived fact is never a claim,** and is never counted as one: not by `ask about`, not by trust tiers,
-  not by the guard. It is unsigned content, attributed only through the foton that produced its file. A
+  not by the guard. It is unsigned content, attributed only through a foton that produced its file, where there is one. A
   viewer labels it as derived, as it labels observations (ADR-012, `urn:kton:observed:`).
 - **Signing stays for statements.** Reviewing, deciding, approving a derived fact is a claim, and its subject
   is the derived graph's file hash (or a node inside it).
 
 ### 5 How a query sees them
 
-- **Dataset:** the view as the default graph, as today. The **view's derived graphs are the named graphs**.
+- **Dataset:** the view as the default graph, as today. The **graphs loaded for the repository are the named
+  graphs**.
   A query with no `GRAPH` pattern answers exactly as it does today.
 - **How the view's set is enforced, and what it costs:** ADR-013 found that *listing* thousands of graphs per
   request is slow, because the engine evaluates one listed graph at a time. Derived graphs are one per *file*,
   not one per row, but there can still be thousands: 4,013 in the store measured above, where queries over all
-  of them with `GRAPH ?g` and no list took 7–170 ms. So the view's derived graphs are not listed per request.
-  The query is rewritten to join each `GRAPH ?g` with the view's catalogue (`?g` listed in
-  `urn:kton:view:<id>:derived`). Measured on the same 4,013 graphs (ai1, Oxigraph 0.5.13, median of 5 runs):
+  of them with `GRAPH ?g` and no list took 7–170 ms. So the loaded graphs are not listed per request.
+  The query is rewritten to join each `GRAPH ?g` with the repository's catalogue (`?g` listed in
+  `urn:kton:loaded:<repository>`). Measured on the same 4,013 graphs (ai1, Oxigraph 0.5.13, median of 5 runs):
   - with a view of 10% of the graphs, the catalogue join is *faster* than the unrestricted query: 2.5–4.5 ms
     against 7.6–16.4 ms, because it filters early;
   - at the full view it costs at most 1.7x: 14.7–22.6 ms against 10.5–13.5 ms;
@@ -132,55 +137,49 @@ An output of a foton is loaded when **all** of these hold:
   Result counts matched in every case. The catalogue graph itself is never in the catalogue. At a much larger
   scale this is measured again. If it is then slow, the fallback is a per-view union graph of derived triples,
   with the hash kept as `nk:inGraph` on each subject, as an amendment to this ADR.
-- **Ask and poll stay cheap.** A hash is loaded once, at ingest, and never again: the content cannot change
-  under a hash. A head check that finds no new fotons does no derived work. A new foton loads only its outputs'
-  hashes that are not loaded yet.
-- **Answers say what they covered:** `ask sparql` reports how many derived graphs the dataset held, and every
-  hash that was missing or mismatched (SPEC §9.9 gains this).
+- **Ask and poll stay cheap.** A hash is loaded once, when someone loads it, and never again: the content cannot
+  change under a hash. A query does no derived work beyond reading the catalogue.
+- **Answers say what they covered:** `ask sparql` reports how many loaded graphs the dataset held (SPEC §9.9).
 
 ### 6 Limits, and opt-in
 
 - **Off by default** (ADR-009's configuration ceiling): `index.derived.enabled` in `cockpit.config.json`.
-- **Per output:** `index.derived.maxBytes`, default 64 MiB. A larger output is reported (`derived.too-large`),
-  not loaded.
-- **Per index:** `index.derived.maxTriples` per view, default 50 million. Past it, the oldest-ingested hashes
-  are left out of the view first, and the answer says so.
-- **Per source:** a federation source loads derived graphs only when its entry says `derived: true`.
-  Someone else's large result set never swamps this machine by accident.
+- **Per file:** `index.derived.maxBytes`, default 64 MiB. A larger file is refused (`derived.too-large`).
+- **Per repository:** `index.derived.maxTriples`, default 50 million. A load past it is refused, and says so.
+- A federation source's loads are its own machine's; nothing loaded elsewhere arrives here.
 
 ### 7 Media types
 
 Loaded: `text/turtle`, `application/n-triples`, `application/rdf+xml`. `application/ld+json` is loaded only
-with an inline context; a remote `@context` is not fetched, and the output is reported. `application/n-quads`
+with an inline context; a remote `@context` is not fetched, and the load is refused. `application/n-quads`
 and `application/trig` are refused (`derived.quads`): their own graph names would compete with the hash as the
 graph's name.
 
-**Data that is not RDF** (CSV, JSON rows) is not loaded as such. A converter step projects it to RDF, and that
-step is a foton like any other. Its Turtle output is what gets a graph. Every loaded graph then has a producer,
-and the conversion itself can be checked and reproduced.
+**Data that is not RDF** (CSV, JSON rows) is not loaded as such. A converter step projects it to RDF. Published
+as a foton, its Turtle output is a graph that has a producer, and the conversion can be checked and reproduced.
 
 ### 8 Older hashes of the same file
 
-**Kept.** A graph stays in the view as long as a foton in the view names its hash as an output. A new version
-of a file is a new hash, a new graph, and a new catalogue entry with the same path. "The current version" is a
-query over the catalogue: the newest foton that output that path. When a person decides which version holds, that
-decision is a claim about the hash. "Changed since" is a comparison of two graphs. Nothing is deleted from the index
-except by the size limit (section 6) or by a rebuild.
+**Kept until dropped.** A new version of a file is a new hash and a new graph, loaded beside the old one, for
+comparison and for "changed since I last looked". "The current version" is a query: the catalogue says when
+each was loaded and from which path, and a foton, where there is one, says which run produced which. When a
+person decides which version holds, that decision is a claim about the hash. `cockpit load --drop <sha256>`
+removes a graph from the repository's catalogue.
 
-### 9 Loading
+### 9 Loading and rebuilding
 
-- **Verified at read-in:** the bytes are hashed again right before loading, so a graph's name cannot lie about its
-  content.
-- **In bulk:** the new graphs of one catch-up go to the store as one N-Quads request, as measured above.
-- **Rebuild:** graphs the view no longer names are dropped. The store stays derived: deleting it loses nothing that
-  the registries and the bytes held cannot give back.
+- **In bulk:** `cockpit load` takes several files in one call; they go to the store as one N-Quads request.
+- **A rebuild drops what was loaded.** The index stays derived: rebuilding it from the registries does not
+  bring loaded graphs back, because nothing records them outside the index. Whoever loaded them loads them
+  again, by hand or by the script that loaded them first. `cockpit load --list` says what is loaded, so a
+  script can see what is missing.
 
 ### 10 What stays
 
-- **ADR-012, section 1** changes in one point: the index now also reads **content bytes**, verified against
-  hashes the records name. Everything else holds:
-  - the index is derived (rebuildable from the registries and the bytes held), never authoritative, and never
-    consulted by the binding guard;
+- **ADR-012, section 1** changes in one point: the index now also holds **content a person loaded**, verified
+  against its hash. Everything else holds:
+  - the index is derived (what it holds from the registries is rebuildable from them; what was loaded is loaded
+    again), never authoritative, and never consulted by the binding guard;
   - it stores no trust tier;
   - it says where an answer came from.
 - **The kernel does not change.** The triples live in the index, not in plankton or nekton. Vocabularies such
@@ -194,18 +193,17 @@ except by the size limit (section 6) or by a rebuild.
   source visible.
 - Content is now part of what the index holds: the cache grows with the derived data, and a rebuild re-reads the
   bytes.
-- A step that wants its result queryable must declare an RDF media type on that output, and keep the bytes
-  where the index can read them (the content store, or the working tree at the recorded path).
-- SPEC: §9.9 (the dataset and the report), §12.4 (what the index reads), and the configuration schema
+- Loading is a step someone takes: a script that wants its result queryable runs `cockpit load` on it, and loads
+  it again after an index rebuild.
+- SPEC: §9.9 (the dataset), §12.4 (what the index holds), the `load` command, and the configuration schema
   (`index.derived`).
 
 ## Decided (MH, 2026-11-20)
 
 - **Graph name:** the file's own IRI, `https://kton.dev/o/<hex>`.
 - **Who sees derived graphs:** `ask sparql` and the named-query packages (`query@1`, `ui list`) alike, from
-  the first release: a package's named query may use `GRAPH ?g { … }` and is answered over the view's derived
+  the first release: a package's named query may use `GRAPH ?g { … }` and is answered over the repository's loaded
   graphs as an inline query is.
-- **Limits:** 64 MiB per output, 50 million triples per view, off by default (`index.derived.enabled`),
-  opt-in per federation source.
-- **How an output declares its media type:** `publish` takes `mediaTypes`, a map from output path to media
-  type (`--media-type PATH=TYPE` on the command line), as a carried field of the output (plankton SPEC §6.1).
+- **Limits:** 64 MiB per file, 50 million triples per repository, off by default (`index.derived.enabled`).
+- **Loading is a cockpit action, nothing is signed** (amended the same day): `cockpit load`, automated however
+  one likes; a rebuild needs it again; marking a file, if wanted, is a claim.
