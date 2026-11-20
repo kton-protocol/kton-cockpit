@@ -76,6 +76,7 @@ func (d *Daemon) datasetDir() string { return filepath.Join(d.Dir, "datasets") }
 type keptFile struct {
 	Key        string
 	Named      []string
+	Scopes     []string
 	Registries int
 }
 
@@ -92,7 +93,7 @@ func (d *Daemon) keptDataset(ctx context.Context, slot, key string) (*prepared, 
 		return nil, false
 	}
 	return &prepared{def: []string{viewIRI(slot)}, claims: []string{viewIRI(slot), claimsIRI(slot)},
-		named: k.Named, registries: k.Registries, kept: true}, true
+		named: k.Named, scopes: k.Scopes, registries: k.Registries, kept: true}, true
 }
 
 // viewIs tells whether slot's view holds the dataset key names; another process may have replaced it.
@@ -110,7 +111,7 @@ func (d *Daemon) viewIs(ctx context.Context, slot, key string) bool {
 // (claimsNT) beside it, and marks both with key, all in one update: the store applies an update
 // whole, so a reader sees the old view or the new one, never a view without its claims. Building
 // takes turns per slot, and a builder that waited finds the view already made under its key.
-func (d *Daemon) makeView(ctx context.Context, slot, key string, def []string, claimsNT []byte) error {
+func (d *Daemon) makeView(ctx context.Context, slot, key string, def []string, claims []Quad, scopes map[string][]Quad) error {
 	if d.Dir != "" {
 		if err := os.MkdirAll(d.datasetDir(), 0o755); err != nil {
 			return err
@@ -125,7 +126,15 @@ func (d *Daemon) makeView(ctx context.Context, slot, key string, def []string, c
 		}
 	}
 	v, c, m := "<"+viewIRI(slot)+">", "<"+claimsIRI(slot)+">", "<"+markIRI(slot)+">"
+	// The scope graphs of the view being replaced are named in its metadata; they go with it.
+	old, err := d.claimGraphs(ctx, slot)
+	if err != nil {
+		return err
+	}
 	var u bytes.Buffer
+	for _, g := range old {
+		u.WriteString("DROP SILENT GRAPH <" + g + "> ;\n")
+	}
 	u.WriteString("DROP SILENT GRAPH " + m + " ;\nDROP SILENT GRAPH " + v + " ;\nDROP SILENT GRAPH " + c + " ;\n")
 	if len(def) > 0 {
 		u.WriteString("INSERT { GRAPH " + v + " { ?s ?p ?o } } WHERE { VALUES ?g {")
@@ -134,10 +143,16 @@ func (d *Daemon) makeView(ctx context.Context, slot, key string, def []string, c
 		}
 		u.WriteString(" } GRAPH ?g { ?s ?p ?o } } ;\n")
 	}
-	if len(claimsNT) > 0 {
-		// N-Triples lines are triples SPARQL's INSERT DATA takes as they are.
+	// N-Triples lines are triples SPARQL's INSERT DATA takes as they are. The union of the claims, then
+	// each scope's graph (ADR-018): one update, so a reader sees the old view or the new one whole.
+	if len(claims) > 0 {
 		u.WriteString("INSERT DATA { GRAPH " + c + " {\n")
-		u.Write(claimsNT)
+		u.Write(NTriples(claims))
+		u.WriteString("\n} } ;\n")
+	}
+	for _, g := range sortedKeys(scopes) {
+		u.WriteString("INSERT DATA { GRAPH <" + g + "> {\n")
+		u.Write(NTriples(scopes[g]))
 		u.WriteString("\n} } ;\n")
 	}
 	u.WriteString("INSERT DATA { GRAPH " + m + " { " + v + " <" + kNS + "key> " + strconv.Quote(key) + " } }")
@@ -160,7 +175,7 @@ func (d *Daemon) keepDataset(slot, key string, p *prepared) {
 	if d.Dir == "" || key == "" {
 		return
 	}
-	b, _ := json.Marshal(keptFile{key, p.named, p.registries})
+	b, _ := json.Marshal(keptFile{key, p.named, p.scopes, p.registries})
 	if os.MkdirAll(d.datasetDir(), 0o755) != nil {
 		return
 	}
@@ -175,4 +190,31 @@ func (d *Daemon) forgetDatasets() {
 	if d.Dir != "" {
 		os.RemoveAll(d.datasetDir())
 	}
+}
+
+// claimGraphs are the scope graphs slot's view holds now, as its metadata names them.
+func (d *Daemon) claimGraphs(ctx context.Context, slot string) ([]string, error) {
+	q := "SELECT ?g WHERE { GRAPH <" + claimsIRI(slot) + "> { ?g a <" + nkNS + "ClaimGraph> } }"
+	body, err := d.post(ctx, "/query", "application/sparql-results+json", url.Values{"query": {q}})
+	if err != nil {
+		return nil, err
+	}
+	r, err := ParseResults(body)
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, row := range r.Rows {
+		out = append(out, row["g"])
+	}
+	return out, nil
+}
+
+func sortedKeys[V any](m map[string]V) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }

@@ -76,7 +76,10 @@ func Free(ctx context.Context, d *Daemon, cfg *config.Config, keys []ed25519.Pub
 				return nil, err
 			}
 		}
-		form, loaded = datasetForm(ds.claims, named, query), len(named)
+		loaded = len(named)
+		// And the view's claim graphs, one per scope (ADR-018): GRAPH ?g reads one scope's claims.
+		named = append(append([]string(nil), ds.scopes...), named...)
+		form = datasetForm(ds.claims, named, query)
 	}
 	body, err := d.post(qctx, "/query", "application/sparql-results+json", form)
 	if qctx.Err() == context.DeadlineExceeded {
