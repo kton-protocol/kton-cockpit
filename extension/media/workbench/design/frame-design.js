@@ -93,8 +93,9 @@ function decorate() {
       eb.dataset.done = "1";
       const comp = plan.compositions?.find((c) => c.key === "") ?? {};
       if (comp.package) eb.append(el("span", { "aria-hidden": "true" }, "·"), el("span", { class: "mono" }, comp.package));
+      // a proposal chip only for a real claim (a view of a scope carries the zero claim)
       const claim = plan.subject?.claim ?? (/^https:\/\/kton\.dev\/o\/([0-9a-f]{64})$/.exec(plan.subject?.iri ?? "")?.[1] ? `sha256:${plan.subject.iri.slice(19)}` : "");
-      if (claim) {
+      if (claim && /^sha256:[0-9a-f]{64}$/.test(claim) && !/^sha256:0+$/.test(claim)) {
         eb.append(el("span", { "aria-hidden": "true" }, "·"));
         const c = el("button", { type: "button", class: "chip", "data-tip": `Proposal\n${fullHash(claim)}` }, "proposal ");
         c.append(el("span", { class: "mono" }, claim.replace(/^sha256:/, "").slice(0, 8)));

@@ -29,7 +29,7 @@ export function chipFor(s, what = "Every number in this section comes from this 
 
 /**
  * Split a part's stamps: the section's source and, per block, the source of a block whose stamps all differ from it.
- * Each block votes once, for the source most of its stamps name; the section's source is the one most blocks vote for,
+ * Each block whose stamps all name one source votes once for it; the section's source is the one most blocks vote for,
  * the first block's on a tie (54 runs in one block do not outvote the evidence block above them). Stamps equal to the
  * section's are `dup` (the frame hides them); a block that mixes sources keeps its own row stamps.
  *   blocks: [{id, stamps: [{stamp,label,full,scope}]}]  →  {section: stamp|null, blocks: {id: stamp|null|"mixed"}}
@@ -45,9 +45,11 @@ export function sectionStamps(blocks) {
       inBlock.set(k, (inBlock.get(k) ?? 0) + 1);
       if (!first.has(k)) first.set(k, s);
     }
-    let top = null;
-    for (const [k, n] of inBlock) if (top === null || n > inBlock.get(top)) top = k;
-    if (top !== null) votes.set(top, (votes.get(top) ?? 0) + 1);
+    // a block votes only when all its stamps name one source (DESIGN.md §4); rows with a stamp each keep theirs
+    if (inBlock.size === 1) {
+      const [top] = inBlock.keys();
+      votes.set(top, (votes.get(top) ?? 0) + 1);
+    }
   }
   let best = null;
   for (const [k, n] of votes) if (best === null || n > votes.get(best)) best = k;

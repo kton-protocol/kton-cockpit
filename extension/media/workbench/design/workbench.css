@@ -180,6 +180,8 @@ dl.kv dd, dl.kton-card dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
 
 /* ---------- 2. frame: banner, nav, view head, part heads, layouts ---------- */
 .wb-sticky { position: sticky; top: 0; z-index: 10; background: var(--wb-bg); }
+/* what scrolls into view (focus, find, a link) is not hidden under the sticky banner and nav */
+html { scroll-padding-top: calc(var(--wb-top-h, 0px) + 8px); }
 .wb-banner { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; margin: 0; padding: 4px 16px; font-size: 12px;
   background: var(--wb-warn-bg); border-bottom: 1px solid var(--wb-warn-border); }
 .wb-banner-lead { letter-spacing: .06em; font-size: 11px; color: var(--wb-warn-fg); text-transform: uppercase; }
@@ -302,7 +304,8 @@ td:has(> .ratecell) { text-align: left; }
 .mb .pt { position: absolute; left: calc(var(--pt) * 1%); top: 6.5px; width: 7px; height: 7px; border-radius: 50%; transform: translate(-50%, -50%); background: var(--wb-accent); }
 .mb .pt.above { background: var(--wb-over); }
 .mb .tg { position: absolute; left: calc(var(--t) * 1%); top: 0; bottom: 0; border-left: 1px dashed var(--wb-target); }
-table td[data-col] { overflow-wrap: anywhere; }
+table td[data-col] { overflow-wrap: break-word; }
+table td[data-col]:first-child { min-width: 9em; }
 .kton-pager { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; font-size: 12px; }
 .kton-refine { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 0 0 6px; }
 .kton-refine select { padding: 2px 6px; background: var(--wb-input-bg); color: var(--wb-input-fg); border: 1px solid var(--wb-input-border); }

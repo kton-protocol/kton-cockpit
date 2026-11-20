@@ -136,6 +136,9 @@ test("design step 6: source chips: once per part, the round's label (MH 20.11.),
   assert.equal(r.blocks.none, null);
   assert.equal(r.blocks.mixed, "mixed", "a block that mixes sources keeps its row stamps");
   assert.deepEqual(s.sectionStamps([]), { section: null, blocks: {} });
+  const perRun = s.sectionStamps([{ id: "runs", stamps: [{ stamp: "r1 · run.json sha256:1" }, { stamp: "r2 · run.json sha256:2" }] }]);
+  assert.equal(perRun.section, null, "rows with a stamp each: no part chip naming one of them");
+  assert.equal(perRun.blocks.runs, "mixed");
 });
 
 test("design step 7: cards: short test names and decoded locations, verdict pills, the segmented choice gates the one primary", async () => {

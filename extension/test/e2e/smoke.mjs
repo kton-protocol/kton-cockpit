@@ -1222,7 +1222,8 @@ if (seed.dm?.proposal) {
     const tabTo = async (fr, name) => fr.locator('[role="tab"]', { hasText: name }).first().click();
     for (const id of ["counts", "estimate", "areas", "parts", "cards", "rulecases"]) {
       if (id === "parts") await tabTo(f, "By product part");
-      await f.locator(`[data-use$="#${id}"] [data-stamp], [data-use$="#${id}"] [data-area-empty]`).first().waitFor({ timeout: 60000 });
+      // attached: a stamp equal to its part's source chip is hidden in the row, never removed (DESIGN.md §4)
+      await f.locator(`[data-use$="#${id}"] [data-stamp], [data-use$="#${id}"] [data-area-empty]`).first().waitFor({ state: "attached", timeout: 60000 });
     }
     await tabTo(f, "By area");
     const missing = await f.locator("[data-stamp-missing]").count();
@@ -1408,7 +1409,8 @@ if (seed.dm?.proposal) {
     const data = ["counts", "estimate", "areas", "parts", "cards", "agreement", "evidence", "artifacts", "rulecases", "examples", "summary"];
     // the parts table is a tab's (built when first shown)
     await f.locator('[role="tab"]', { hasText: "By product part" }).first().click();
-    for (const id of data) await f.locator(`[data-use$="#${id}"] [data-area-empty], [data-use$="#${id}"] [data-area-error]`).first().waitFor({ timeout: 90000 });
+    // attached: the areas table is in the tab not shown now
+    for (const id of data) await f.locator(`[data-use$="#${id}"] [data-area-empty], [data-use$="#${id}"] [data-area-error]`).first().waitFor({ state: "attached", timeout: 90000 });
     const empties = [];
     for (const id of data) empties.push([id, ((await f.locator(`[data-use$="#${id}"]`).textContent()) ?? "").replace(/\s+/g, " ").trim()]);
     const bad = empties.filter(([, t]) => !/No data for dryrun2/.test(t));
@@ -1548,12 +1550,12 @@ if (seed.roles) {
     const runsShown = new Set(failures.map((r) => r.run)).size;
     check(groups === runsShown, "one header per run", runsShown, groups);
     check(shown.every((r) => /\S/.test(r.evidence ?? "")), "every row says its evidence (or none)");
-    const withArtifacts = (await askR("artifacts-of-test", [`test=${pick.test}`])).some((r) => r.sha256 && r.run === failures.find((x) => x.test === pick.test)?.run);
-    const evCell = box(f, "failures").locator("tbody tr[data-row]", { hasText: pick.test.slice(0, 60) }).first().locator('td[data-col="evidence"]');
-    if (withArtifacts) check((await evCell.locator("button[data-art]").count()) > 0, "a failure with artifacts shows them (thumbnail or link, each opening the hash-checked artifact)", "> 0", 0);
     const overflow = await f.locator("body").evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     check(overflow <= 0, "the view does not scroll sideways", 0, overflow);
     const pick = failures.find((r) => /ics1829\.spec\.ts#STP-002/.test(r.test)) ?? failures.find((r) => /e2e/.test(r.suite)) ?? failures[0];
+    const withArtifacts = (await askR("artifacts-of-test", [`test=${pick.test}`])).some((r) => r.sha256 && r.run === pick.run);
+    const evCell = box(f, "failures").locator("tbody tr[data-row]", { hasText: pick.test.slice(0, 60) }).first().locator('td[data-col="evidence"]');
+    if (withArtifacts) check((await evCell.locator("button[data-art]").count()) > 0, "a failure with artifacts shows them (thumbnail or link, each opening the hash-checked artifact)", "> 0", await evCell.locator("button[data-art]").count());
     await box(f, "failures").locator("tbody tr[data-row]", { hasText: pick.test.slice(0, 60) }).first().locator('td[data-col="test"] > span').first().click();
     await box(f, "history").locator("[data-area-table]").first().waitFor({ timeout: 120000 });
     const hist = await askR("history-of-test", [`test=${pick.test}`]);
