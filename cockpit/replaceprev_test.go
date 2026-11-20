@@ -94,7 +94,11 @@ func TestSay_ReplacePreviousNeverNamesAClaimThatOnlyDeclaresTheKeyid(t *testing.
 		return out
 	}
 	approved := say("", "approved")
-	time.Sleep(1100 * time.Millisecond) // lane-a's claim is the newer one, as an attacker's would be
+	// lane-a's claim is the newer one, as an attacker's would be: claims are dated to the second, so the
+	// clock passes the second the first was signed in.
+	for signed := time.Now().Unix(); time.Now().Unix() <= signed; {
+		time.Sleep(50 * time.Millisecond)
+	}
 	say("lane-a", "noted")
 
 	// lane-a's stored claim now declares my keyid; its signature is still lane-a's.

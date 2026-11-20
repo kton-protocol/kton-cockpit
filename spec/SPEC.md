@@ -1038,8 +1038,8 @@ way a repo backend is registered (§5.5).
   change it either: it is opened read-only, so no numbering is persisted into it and no registry is
   created where it has none. A source with no registry at all MUST be refused, not read as an empty one.
 - Every record entering the union MUST pass the registry's own checks. A source holding a record that
-  does not, or one whose registry reports skipped records, MUST be named in the failure; a partial
-  union MUST NOT pass for a whole one.
+  does not, one whose registry reports skipped records, or one whose store has a line that does not parse
+  (kton v0.4.2 `Unreadable`), MUST be named in the failure; a partial union MUST NOT pass for a whole one.
 - A source MAY yield more than one registry — a place holding several participants side by side
   (a site and the packages installed in it, each with its own records). Each is read as it is; none
   is copied into another.
@@ -1055,7 +1055,8 @@ way a repo backend is registered (§5.5).
   building take turns under a lock.
 
 > **Checked by:** `TestFederation_ReadsTheUnionOfOwnAndSources`, `TestFederation_UnknownKindIsRefusedAtLoad`,
-> `TestFederation_ReadingASourceLeavesItAsItWas`, `TestFederation_ConcurrentReadersAllAnswerWhileTheSourceChanges`.
+> `TestFederation_ReadingASourceLeavesItAsItWas`, `TestFederation_ConcurrentReadersAllAnswerWhileTheSourceChanges`,
+> `TestFederation_ALineASourceCannotParseFailsTheUnion`.
 
 ### 9.9 A query of one's own *(optional)*
 
@@ -1584,6 +1585,13 @@ and `1.0`); a string id is another id (`"1"` is not `1`), as JSON-RPC keeps them
 `{code, clause, reason}`; any other failure as error `-32000` with `data.code` `error`. An unknown method is
 error `-32601`, and params with a field the method does not take are error `-32602`.
 
+A body that is not JSON, in intact framing, MUST be answered with error `-32700` under id `null`, and the
+connection goes on: the next message starts where the framing says. The answer cannot name the request the
+body was, so a frontend fails what it is waiting for; it never sends a `say` again, since the registry decides
+whether it was signed (the others may still be running). Lost framing (no or an
+invalid `Content-Length`, a header without its blank line) ends the connection, since where the next message
+starts is no longer known; every request accepted before it is answered first.
+
 > **Checked by:** `TestServe_InitializeNamesTheWorkspaceFirst`, `TestServe_ListingsAreTheCommandLinesJSON`,
 > `TestServe_VerbsAnswerAndRefuseAsTheCommandLine`, `TestServe_RefusesAWorkspaceTheEnvironmentWouldRedirect`,
 > `TestServe_TheBinaryKeepsStdoutForTheProtocol`, `TestServe_ASayRunningAtShutdownIsAnswered`,
@@ -1591,7 +1599,8 @@ error `-32601`, and params with a field the method does not take are error `-326
 > `TestEvents_AnIndexMovedOwedIsSentOnceTheIndexIsBack`, `TestEvents_ASinceThatIsNoCursorIsRefused`,
 > `TestServer_AnswersRequestsAndErrorsAndGoesOn`, `TestServer_CancelsARunningRequest`,
 > `TestServer_AnswersWhatIsRunningWhenTheInputEnds`, `TestServer_ShutdownAnswersWhatItAcceptedFirst`,
-> `TestServer_ExitWaitsForWhatIsRunning`, `TestServer_CancelMatchesANumberIDByValue`, `TestReadMessage_Framing`.
+> `TestServer_ExitWaitsForWhatIsRunning`, `TestServer_CancelMatchesANumberIDByValue`, `TestReadMessage_Framing`,
+> `TestServer_ABodyThatIsNotJSONIsAnsweredAndTheConnectionGoesOn`, `TestServer_LostFramingEndsTheConnectionAfterAnsweringWhatRuns`.
 
 ### 12.6 Loading derived RDF *(optional)*
 
