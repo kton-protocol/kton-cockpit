@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/kton-protocol/kton-cockpit/internal/anchor"
+	"github.com/kton-protocol/kton-cockpit/internal/binaries"
 	"github.com/kton-protocol/kton-cockpit/internal/config"
 	"kton.dev/kton/sigstore"
 	"strings"
@@ -177,4 +178,51 @@ func TestSayBatch_AnchorsEveryClaimWhereTheRepositoryAnchors(t *testing.T) {
 		}
 	}
 	_ = scope
+}
+
+// When the store refuses a claim in the middle of a scope's chain, the later claims of that scope are
+// stored but hang on it: the refusal names them as hanging, not as stored and whole, and says to say
+// them again from the scope's current head (kton-review C1 on #189). Reproduced as the review did it:
+// three claims chained into a scope, the middle one without its signature.
+func TestSayBatch_AStoreRefusalNamesTheClaimsLeftHanging(t *testing.T) {
+	r, scope := scopedRepo(t)
+	ctx := context.Background()
+	cfg, err := config.Load(ctx, r.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := binaries.New(cfg)
+	signer, err := run.NewClaimSigner()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var envs []core.Envelope
+	prev := scope
+	for i := 0; i < 3; i++ {
+		env, id, err := signer.Sign(ctx, "urn:example:item", "working-on",
+			map[string]string{"step": fmt.Sprint(i), "by-session": testrepo.SessionID}, cfg.NektonKey,
+			&binaries.Chain{Scope: scope, Prev: prev}, binaries.Expect{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		envs, prev = append(envs, env), id
+	}
+	envs[1].Signatures = nil
+
+	_, err = run.AddClaims(envs)
+	var refused *binaries.AddRefused
+	if !errors.As(err, &refused) || len(refused.Refused) != 1 || refused.Refused[0].Index != 1 {
+		t.Fatalf("want the store to refuse claim 2 alone, got %v", err)
+	}
+	msg := batchRefusal(refused, []string{"review", "review", "review"}).Error()
+	for _, want := range []string{"refused claim(s) 2", "claim(s) 3 are stored but chain onto a refused claim and hang", "1 claim(s) are stored and whole", "from the scope's current head"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("the refusal does not say %q:\n%s", want, msg)
+		}
+	}
+	// Another scope, or no scope, does not hang on it.
+	msg = batchRefusal(refused, []string{"review", "review", "other"}).Error()
+	if strings.Contains(msg, "hang") || !strings.Contains(msg, "2 claim(s) are stored and whole") {
+		t.Errorf("a claim of another scope does not hang on the refused one:\n%s", msg)
+	}
 }

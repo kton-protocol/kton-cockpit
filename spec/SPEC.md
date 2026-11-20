@@ -781,13 +781,15 @@ say many claims in one write. Each claim takes the request and the checks of one
   repository anchors, its own anchor, reported per claim. No form of `say` is laxer than another (SPEC §6).
 - `reproduces` runs a reproduction per claim and MUST NOT be in a batch.
 
-The store is append-only. A refusal by the substrate while storing leaves the claims before it stored,
-and says how many.
+The store is append-only. A claim the substrate refuses while storing is named in the refusal, and the
+others are stored. A later claim of the same scope is stored but chains onto the refused claim, so it
+hangs: the refusal MUST name it as such, not as stored, and say to say the refused and the hanging claims
+again as a new batch from the scope's current head.
 
 > **Checked by:** `TestSayBatch_ManyClaimsInOneWriteChainInOrder`,
 > `TestSayBatch_OneBadClaimRefusesTheBatchAndWritesNothing`,
 > `TestSayBatch_ReplacePreviousAndExpectHeadWithinTheBatch`, `TestSayBatch_AnchorsEveryClaimWhereTheRepositoryAnchors`,
-> `TestShellSay_BatchFromAFile`.
+> `TestSayBatch_AStoreRefusalNamesTheClaimsLeftHanging`, `TestShellSay_BatchFromAFile`.
 
 ### 8.3 Registration
 

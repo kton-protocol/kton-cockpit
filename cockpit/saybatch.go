@@ -174,8 +174,15 @@ func (c *Cockpit) SayBatch(ctx context.Context, in SayBatchRequest) (*SayBatchRe
 	// claims before it stored, and says how many.
 	n, err := r.AddClaims(envs)
 	release()
-	if err != nil {
-		return nil, refuse("kernel", "", "claim %d: %v (the %d claim(s) before it are stored; say the rest again)", n+1, err, n)
+	var refused *binaries.AddRefused
+	if errors.As(err, &refused) {
+		scopeOf := make([]string, len(preps))
+		for k, p := range preps {
+			scopeOf[k] = p.in.Scope
+		}
+		return nil, batchRefusal(refused, scopeOf)
+	} else if err != nil {
+		return nil, refuse("kernel", "", "%v (%d claim(s) are stored, not committed)", err, n)
 	}
 	// Each claim carries what one say's claim carries: the configured evidence, and its anchor when the
 	// repository anchors (kton-review A1 on #188), so no form of say is laxer than another (SPEC §6).
@@ -236,4 +243,44 @@ func cloneSets(m map[string]string) map[string]string {
 		out[k] = v
 	}
 	return out
+}
+
+// batchRefusal says what a substrate refusal while storing a batch left behind. A claim of a scope
+// after a refused one of that scope is stored but chains onto a claim the store does not hold, so it
+// hangs: saying the refused claim again makes a new claim, which it does not chain onto. So the answer
+// names the refused claims, the ones left hanging, and the ones stored and whole, and says to say the
+// refused and the hanging ones again as a new batch, from the scope's current head (kton-review C1 on
+// #189).
+func batchRefusal(refused *binaries.AddRefused, scopeOf []string) error {
+	isRefused := map[int]bool{}
+	for _, x := range refused.Refused {
+		isRefused[x.Index] = true
+	}
+	broken := map[string]bool{} // scopes with a refused claim so far
+	var bad, hanging []string
+	whole := 0
+	for i, scope := range scopeOf {
+		switch {
+		case isRefused[i]:
+			bad = append(bad, fmt.Sprint(i+1))
+			if scope != "" {
+				broken[scope] = true
+			}
+		case scope != "" && broken[scope]:
+			hanging = append(hanging, fmt.Sprint(i+1))
+		default:
+			whole++
+		}
+	}
+	reason := fmt.Sprintf("the store refused claim(s) %s, the first: %v", strings.Join(bad, ", "), refused.Refused[0].Err)
+	if len(hanging) > 0 {
+		reason += fmt.Sprintf("; claim(s) %s are stored but chain onto a refused claim and hang", strings.Join(hanging, ", "))
+	}
+	reason += fmt.Sprintf("; %d claim(s) are stored and whole, not committed yet (the next write commits them)", whole)
+	if len(hanging) > 0 {
+		reason += ". Say the refused and the hanging claims again, as a new batch from the scope's current head"
+	} else {
+		reason += ". Say the refused claims again"
+	}
+	return refuse("kernel", "SPEC §8.9", "%s", reason)
 }
