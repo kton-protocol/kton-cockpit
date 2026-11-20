@@ -1031,6 +1031,10 @@ way a repo backend is registered (§5.5).
   (a site and the packages installed in it, each with its own records). Each is read as it is; none
   is copied into another.
 - A source adds records, never signers: the configured trust tiers remain the ceiling (§9.1).
+- A source adds records, never vocabulary: a source's claim reads through this repository's templates and
+  aliases (§9.11). One predicate, one template: a source's claim whose predicate a template here declares
+  reads that template's field terms; one whose predicate no template here declares keeps `lab:<field>`.
+  To read a source's own terms, admit its package (`claims.allowedPackages`, §8.1).
 - A kind that is not available in the build MUST be refused when the configuration is loaded.
 - Readers of one repository MUST be able to run at once — an editor, a watcher and a script are
   separate processes. A union, once built, MUST NOT change under a reader: it is kept under the
