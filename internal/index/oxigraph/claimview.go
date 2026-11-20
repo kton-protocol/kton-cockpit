@@ -92,7 +92,7 @@ func (vc ViewConfig) resolve(tmpl, x string) string {
 
 // viewVersion changes whenever ClaimView builds something else from the same quads: a view kept
 // from an older build is then built again rather than answered from.
-const viewVersion = 7 // 4: view vocabulary 1; 5: nested fields through the aliases; 6: package aliases; 7: no aliases for an unknown template
+const viewVersion = 8 // 4: view vocabulary 1; 5: nested fields through the aliases; 6: package aliases; 7: no aliases for an unknown template; 8: scope graphs (ADR-018)
 
 // Fingerprint changes whenever the view a ViewConfig builds would.
 func (vc ViewConfig) Fingerprint() string {
