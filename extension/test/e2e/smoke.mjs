@@ -1750,7 +1750,7 @@ if (seed.roles) {
     });
   }
 
-  await step("R", 10, "Gregor's view: a review item opens the reviewed commit's diff read-only from the persona lane's clone; product-side failures equal test-execution's failures whose class or cause names a product cause", async () => {
+  await step("R", 10, "Gregor's view: a review item opens the reviewed commit's diff read-only from the persona lane's clone, its verdict's approved commit flagged stale when the approved files changed; product-side failures equal test-execution's failures whose class or cause names a product cause", async () => {
     await views();
     await page.locator(".monaco-list-row", { hasText: "Gregor (dev + review) · dryrun1" }).first().click({ timeout: 60000 });
     const f = await frameWithSel('[data-composition="dryrun1.roles/gregor"]', 90000);
@@ -1760,7 +1760,14 @@ if (seed.roles) {
     await box(f, "reviews").locator("[data-evidence], [data-area-empty], [data-area-error]").first().waitFor({ timeout: 120000 });
     const items = await boxText(f, "reviews");
     const cc = seed.roles.christofCommit;
-    check(new RegExp(`Awaiting review \\(1\\)`).test(items) && items.includes(`Diff of christof-ext-core@${cc} (read-only)`) && /G2\.1 · https:\/\/scinteco\.com\/ns\/dryrun1\/element\/e8/.test(items), "the stand-in review item, awaiting review, naming its commit", `Awaiting review (1) · Diff of christof-ext-core@${cc}`, items.slice(0, 300));
+    check(/Reviewed: approved \(1\)/.test(items) && items.includes(`Diff of christof-ext-core@${cc} (read-only)`) && /G2\.1 · https:\/\/scinteco\.com\/ns\/dryrun1\/element\/e8/.test(items), "the stand-in review item, reviewed (approved), naming its commit", `Reviewed: approved (1) · Diff of christof-ext-core@${cc}`, items.slice(0, 300));
+    // the verdict's approved commit, read out of its why, and whether it holds for the reviewed commit (persona finding a5f326ae)
+    const approval = ((await box(f, "reviews").locator("[data-approval]").first().textContent({ timeout: 30000 }).catch(() => "")) ?? "").trim();
+    const ac = seed.roles.approvedCommit;
+    check(approval.startsWith(`approves ${ac} (commit from text)`), "the approved commit, marked as read from text", `approves ${ac} (commit from text) · …`, approval);
+    if (process.env.CHRISTOF_CLONE_MOUNTED === "1") {
+      check(new RegExp(`STALE for ${cc}: approved files changed since: .*packages/improve-core/test/e2e/lib/scenario\\.ts`).test(approval) && (await box(f, "reviews").locator("[data-approval][data-stale]").count()) === 1, "stale: b2b4f50 changes files 453f574 approved, named", `STALE for ${cc}: … scenario.ts …`, approval);
+    }
     await box(f, "reviews").locator("button[data-open]").first().click();
     await box(f, "reviews").locator("[data-open-out]").filter({ hasText: /Opened|Not opened|not available/ }).first().waitFor({ timeout: 30000 });
     const said = await boxText(f, "reviews");

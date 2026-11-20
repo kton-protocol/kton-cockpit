@@ -39,6 +39,8 @@ export interface UiHost {
   openPanels(): string[];
   /** Open a file as it was at a commit, read-only (kton-src), at its line; says what was opened or why not. */
   openSource?(t: import("./sources.js").SourceTarget): Promise<string>;
+  /** Whether an approval on one commit holds at another (read-only git over the mirrors, kton.sources.dir). */
+  approvalStaleness?(repo: string, approved: string, head: string, paths: readonly string[]): Promise<import("./sources.js").Staleness>;
   /** A run artifact, read-only, checked against its sha256: "Opened …" / "Shown …" when shown, else why not. */
   openArtifact?(t: import("./artifacts.js").ArtifactTarget): Promise<string>;
   /**

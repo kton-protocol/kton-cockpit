@@ -76,3 +76,39 @@ test("evidence: a commit's change (diff) from the mirror's objects, whole or for
   const { sourceRef } = await import("../src/ui/sources.js");
   assert.equal(sourceRef(t as Exclude<typeof t, string>), "kton-src:/christof-testdev/?b2b4f50&diff");
 });
+
+test("review: an approval on one commit is stale for a later one when the approved files changed (persona finding a5f326ae)", async () => {
+  const { approvalStaleness } = await import("../src/ui/sources.js");
+  const root = mkdtempSync(join(tmpdir(), "mirrors-"));
+  const repo = join(root, "christof-ext-core");
+  mkdirSync(join(repo, "e2e"), { recursive: true });
+  const git = (...a: string[]) => execFileSync("git", ["-C", repo, ...a], { encoding: "utf8" }).trim();
+  git("init", "-q");
+  git("config", "user.email", "t@example.org");
+  git("config", "user.name", "t");
+  writeFileSync(join(repo, "e2e", "a.ts"), "a1\n");
+  writeFileSync(join(repo, "e2e", "other.ts"), "o1\n");
+  git("add", "-A");
+  git("commit", "-q", "-m", "base");
+  writeFileSync(join(repo, "e2e", "a.ts"), "a2\n");
+  writeFileSync(join(repo, "e2e", "b.ts"), "b2\n");
+  git("add", "-A");
+  git("commit", "-q", "-m", "group 1 (approved)");
+  const approved = git("rev-parse", "HEAD");
+  writeFileSync(join(repo, "e2e", "other.ts"), "o2\n");
+  git("commit", "-q", "-am", "elsewhere");
+  const holds = git("rev-parse", "HEAD");
+  writeFileSync(join(repo, "e2e", "b.ts"), "b3\n");
+  git("commit", "-q", "-am", "follow-up touching an approved file");
+  const head = git("rev-parse", "HEAD");
+  // the approved commit's own files when the approval names none
+  assert.deepEqual(await approvalStaleness(root, "christof-ext-core", approved.slice(0, 7), holds.slice(0, 7)), { stale: false, files: [], paths: ["e2e/a.ts", "e2e/b.ts"] });
+  assert.deepEqual(await approvalStaleness(root, "christof-ext-core", approved.slice(0, 7), head.slice(0, 7)), { stale: true, files: ["e2e/b.ts"], paths: ["e2e/a.ts", "e2e/b.ts"] });
+  // structured paths win
+  assert.deepEqual(await approvalStaleness(root, "christof-ext-core", approved, head, ["e2e/a.ts"]), { stale: false, files: [], paths: ["e2e/a.ts"] });
+  assert.deepEqual(await approvalStaleness(root, "christof-ext-core", approved, head, ["e2e/other.ts"]), { stale: true, files: ["e2e/other.ts"], paths: ["e2e/other.ts"] });
+  // nothing is guessed
+  assert.ok("why" in (await approvalStaleness(root, "christof-ext-core", "1234567", head)));
+  assert.ok("why" in (await approvalStaleness(root, "christof-ext-core", approved, head, ["../x"])));
+  assert.ok("why" in (await approvalStaleness("", "christof-ext-core", approved, head)));
+});

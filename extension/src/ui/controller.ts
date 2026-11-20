@@ -150,6 +150,7 @@ export class Workbench {
     this.packages = new PackagesArea(t, host, {
       act: (c, about, fields, title, expect, into) => this.signAct(c, about, fields, title, expect, into),
       person: () => ({ keyId: this.identity.person.keyId, personTiers: this.cfg.personTiers }),
+      ...(this.host.approvalStaleness ? { staleness: (repo: string, approved: string, head: string, paths: readonly string[]) => (this.host.approvalStaleness as NonNullable<UiHost["approvalStaleness"]>)(repo, approved, head, paths) } : {}),
       // open@1: a source at a commit (read-only, kton-src), a run artifact (read-only, kton-art), or a claim this
       // window knows. What was shown goes into the panel's looked-at list (opened); a refusal does not.
       open: async (target, opened) => {

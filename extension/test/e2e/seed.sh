@@ -264,6 +264,10 @@ c.persist=Object.assign(c.persist||{},{share:false});c.index={kind:"oxigraph"};f
   # a review item naming the commit it reviews, in the persona lane's clone (mounted read-only as christof-ext-core)
   CC="${CHRISTOF_COMMIT:-b2b4f50}"
   E8=$(sayq triage-classifies ${E}e8 $T $AG "{$SRC,\"class\":\"G2.1\",\"evidence\":\"run\",\"examples\":\"fix in christof-ext-core@$CC (stand-in review item, e2e)\"}")
+  # its verdict names the approved commit only in its free text (persona finding a5f326ae: an approval of 453f574
+  # claimed to hold for b2b4f50); the review screen reads it out and checks it against the clone
+  AC="${APPROVED_COMMIT:-453f574}"
+  sayq triage-reviews "$(node_of "$E8")" $T $PE "{\"outcome\":\"approved\",\"why\":\"approved on $AC (group 1); holds for $CC (stand-in, e2e)\"}" >/dev/null
   # STAND-IN for test-execution's answers (rerun-compared, capture-result): a throwaway key of this run, never theirs;
   # the steps sign the answers with it into dryrun1.runs and say so
   cockpit keygen standin-test-execution >/dev/null
@@ -296,7 +300,7 @@ c.persist=Object.assign(c.persist||{},{share:false});c.index={kind:"oxigraph"};f
     cockpit federation add "$n" "$src" >/dev/null
     case "$n" in verification-coverage) ROLES_COV=true;; verification-mapping) ROLES_MAP=true;; esac
   done
-  ROLES="{\"e1\": \"$E1\", \"e2static\": \"$E2S\", \"e6\": \"$E6\", \"e8\": \"$E8\", \"christofCommit\": \"$CC\", \"coverage\": $ROLES_COV, \"mapping\": $ROLES_MAP, \"specReview\": $ROLES_SR}"
+  ROLES="{\"e1\": \"$E1\", \"e2static\": \"$E2S\", \"e6\": \"$E6\", \"e8\": \"$E8\", \"christofCommit\": \"$CC\", \"approvedCommit\": \"$AC\", \"coverage\": $ROLES_COV, \"mapping\": $ROLES_MAP, \"specReview\": $ROLES_SR}"
   cd "$E2E/repo"
 fi
 

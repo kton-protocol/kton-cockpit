@@ -39,6 +39,8 @@ export interface ActPath {
   identityName(): string;
   /** The window's person key id and the person tiers: whether an approval counts is decided over them (S6.12). */
   person?(): { readonly keyId: string; readonly personTiers: readonly string[] };
+  /** Whether an approval given on one commit still holds at another (read-only git over the mirrors). */
+  staleness?(repo: string, approved: string, head: string, paths: readonly string[]): Promise<import("../ui/sources.js").Staleness>;
 }
 
 /** Where an act goes and what goes with it: the records scope, the frame's proposals, the panel's evidence opens. */
@@ -416,7 +418,7 @@ export class PackagesArea {
     const backend: Backend = {
       query: async (p, name, terms) => {
         const r = await this.named(p, name, terms);
-        return annotate && p === annotate.package && name === annotate.query ? await this.withCounts(r) : r;
+        return this.withApprovals(annotate && p === annotate.package && name === annotate.query ? await this.withCounts(r) : r);
       },
       bytes: (p, hash) => this.t.uiCat(p, hash),
       open: opts.open ?? ((target) => this.path.open(target, (ref) => me && noteOpened(me, ref))),
@@ -453,6 +455,42 @@ export class PackagesArea {
     }
     const bindings = (a.results?.bindings ?? []).map((b) => ({ ...b, counts: { type: "literal", value: approvalCounts({ outcome: b["outcome"]?.value, signer: b["signer"]?.value }, person, (k) => tiers.get(k)).why } }));
     return { ...a, head: { ...a.head, vars: [...(a.head?.vars ?? []), "counts"] }, results: { ...a.results, bindings } };
+  }
+
+  /**
+   * Rows that name the commit a verdict approves (?approvedCommit, with ?repo and the reviewed ?commit; persona finding
+   * a5f326ae) get ?approval: which commit the verdict approves (and "commit from text" when it was read out of the
+   * free-text why, ?approvedFrom "text"), and whether it is stale: the approved files (?approvedPaths, space-separated,
+   * else the approved commit's own files) changed up to the reviewed commit, named. Read-only git over the mirrors.
+   */
+  private async withApprovals(answer: unknown): Promise<unknown> {
+    const a = answer as { head?: { vars?: string[] }; results?: { bindings?: Array<Record<string, { type: string; value: string }>> } };
+    const b = a.results?.bindings ?? [];
+    if (!b.some((r) => r["approvedCommit"]?.value)) return answer;
+    const bindings = await Promise.all(
+      b.map(async (r) => {
+        const approved = r["approvedCommit"]?.value;
+        const repo = r["repo"]?.value;
+        const head = r["commit"]?.value;
+        if (!approved || !repo || !head) return r;
+        const from = r["approvedFrom"]?.value === "text" ? " (commit from text)" : "";
+        const paths = (r["approvedPaths"]?.value ?? "").split(/\s+/).filter(Boolean);
+        let text = `approves ${approved.slice(0, 12)}${from}`;
+        let stale = "";
+        if (approved.startsWith(head) || head.startsWith(approved)) text += " · the reviewed commit itself";
+        else if (!this.path.staleness) text += ` · not checked against ${head.slice(0, 12)} (no sources on this host)`;
+        else {
+          const s = await this.path.staleness(repo, approved, head, paths);
+          if ("why" in s) text += ` · not checked against ${head.slice(0, 12)}: ${s.why}`;
+          else if (s.stale) {
+            stale = "true";
+            text += ` · STALE for ${head.slice(0, 12)}: approved files changed since: ${s.files.join(", ")}`;
+          } else text += ` · holds for ${head.slice(0, 12)}: none of its ${s.paths.length} approved file(s) changed`;
+        }
+        return { ...r, approval: { type: "literal", value: text }, ...(stale ? { stale: { type: "literal", value: stale } } : {}) };
+      }),
+    );
+    return { ...a, head: { ...a.head, vars: [...new Set([...(a.head?.vars ?? []), "approval", "stale"])] }, results: { ...a.results, bindings } };
   }
 
   /** The QM areas (activity entries with an area), in their order (order, then package name: C2.5, S6.16). */

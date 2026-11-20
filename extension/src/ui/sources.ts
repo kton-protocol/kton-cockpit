@@ -102,3 +102,33 @@ export function sourceRef(t: SourceTarget): string {
   if (t.diff) return `kton-src:/${t.repo}/${encodeURI(t.path)}?${t.commit}&diff`;
   return `kton-src:/${t.repo}/${encodeURI(t.path)}?${t.commit}${t.line ? `#L${t.line}` : ""}`;
 }
+
+/** Whether an approval given on one commit still holds at another: the approved files changed between them, or not. */
+export type Staleness = { readonly stale: boolean; readonly files: readonly string[]; readonly paths: readonly string[] } | { readonly why: string };
+
+/**
+ * An approval given on `approved` claimed for `head` (persona finding a5f326ae): read-only, from the mirror's objects,
+ * `git diff --name-only <approved>..<head> -- <paths>`. The paths are the approval's own (a structured field) or, when
+ * it names none, the files the approved commit changed (`git show --name-only <approved>`). Stale when any of them
+ * changed; the changed files are named.
+ */
+export async function approvalStaleness(mirrors: string, repo: string, approved: string, head: string, paths: readonly string[] = []): Promise<Staleness> {
+  if (!mirrors) return { why: "source not available on this host (no mirrors configured: kton.sources.dir)" };
+  if (!NAME.test(repo) || !COMMIT.test(approved) || !COMMIT.test(head)) return { why: "repo or commit is not plain" };
+  for (const p of paths) if (!p || p.startsWith("/") || p.startsWith("-") || p.split("/").some((x) => x === ".." || x === "")) return { why: `path ${JSON.stringify(p)} is not a plain repository path` };
+  const dir = join(mirrors, REPO_ALIASES[repo] ?? repo);
+  const git = (args: string[]) =>
+    new Promise<string | undefined>((resolve) => execFile("git", ["-C", dir, ...args], { encoding: "utf8", maxBuffer: 16 * 1024 * 1024, shell: false, windowsHide: true }, (err, out) => resolve(err ? undefined : String(out))));
+  const lines = (x: string) => x.split("\n").map((l) => l.trim()).filter(Boolean);
+  let watched = [...paths];
+  if (!watched.length) {
+    const own = await git(["show", "--no-color", "--name-only", "--format=", approved, "--"]);
+    if (own === undefined) return { why: `source not available on this host: ${repo} has no commit ${approved.slice(0, 12)}` };
+    watched = lines(own);
+  }
+  if (!watched.length) return { stale: false, files: [], paths: [] };
+  const changed = await git(["diff", "--no-color", "--no-ext-diff", "--name-only", `${approved}..${head}`, "--", ...watched]);
+  if (changed === undefined) return { why: `source not available on this host: ${repo} has no ${approved.slice(0, 12)}..${head.slice(0, 12)}` };
+  const files = lines(changed);
+  return { stale: files.length > 0, files, paths: watched };
+}
