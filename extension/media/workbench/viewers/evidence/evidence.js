@@ -53,14 +53,14 @@ export function mount(el, ctx) {
           const thumb = v(x.thumb) && /^data:image\/(png|jpeg|gif|webp);base64,[A-Za-z0-9+/=]+$/.test(v(x.thumb)) ? `<img class="ev-img" src="${v(x.thumb)}" alt="">` : "";
           return `<li data-evidence="${esc(v(x.kind))}" data-row="${i}" data-label="${esc(v(x.label))}">${icon(v(x.kind))}
   <div><div class="t" data-testid="evidence-${esc(v(x.kind))}-${i}"${shown.title !== v(x.label) ? ` data-tip="${esc(v(x.label))}" tabindex="0"` : ""}>${esc(shown.title)}${shown.sub ? ` <span class="muted">· ${esc(shown.sub)}</span>` : ""}</div>
-  ${shown.loc ? `<span class="loc">${esc(shown.loc)}</span>` : ""}${note ? `<div class="note kton-muted">${esc(note)}</div>` : ""}${thumb}${approval}${flag ? `<div class="flag">${ICON_WARN}<span>${esc(flag)}</span></div>` : ""} ${chip(x)}</div>
+  ${shown.loc ? `<span class="loc">${esc(shown.loc)}</span>` : ""}${shown.title !== v(x.label) && v(x.label) && !/^Open\b/.test(v(x.label)) ? `<div class="what">${esc(v(x.label))}</div>` : ""}${note ? `<div class="note kton-muted">${esc(note)}</div>` : ""}${thumb}${approval}${flag ? `<div class="flag">${ICON_WARN}<span>${esc(flag)}</span></div>` : ""} ${chip(x)}</div>
   <div class="side"><span class="kton-muted" data-open-out="${i}" role="status"></span>${t ? `<button type="button" class="ghost small" data-open="${i}" aria-label="${esc(v(x.label) || "Open")}">Open</button>` : ""}</div></li>`;
         };
         let lastG = null;
         const items = rows
           .map((x, i) => {
             const g = v(x.group);
-            const head = g && g !== lastG ? `</ul><h4 data-group="${esc(g)}">${esc(g)} <span class="muted">${rows.filter((y) => v(y.group) === g).length}</span></h4><ul class="ev">` : "";
+            const head = g && g !== lastG ? `</ul><h4 data-group="${esc(g)}">${esc(g)} <span class="muted">(${rows.filter((y) => v(y.group) === g).length})</span></h4><ul class="ev">` : "";
             lastG = g || lastG;
             return head + item(x, i);
           })

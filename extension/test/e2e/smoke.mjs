@@ -1218,7 +1218,13 @@ if (seed.dm?.proposal) {
   await step("DM", 1, "the decision view opens from the proposal; every number shows its stamp", async () => {
     await row("Can the 5.0.0 mapping be the basis for G1 triage?").waitFor({ timeout: 60000 });
     const f = await openDecisionView();
-    for (const id of ["counts", "estimate", "areas", "parts", "cards", "rulecases"]) await f.locator(`[data-use$="#${id}"] [data-stamp], [data-use$="#${id}"] [data-area-empty]`).first().waitFor({ timeout: 60000 });
+    // by area | by product part are tabs (DESIGN.md §3): a tab's blocks are built when it is first shown
+    const tabTo = async (fr, name) => fr.locator('[role="tab"]', { hasText: name }).first().click();
+    for (const id of ["counts", "estimate", "areas", "parts", "cards", "rulecases"]) {
+      if (id === "parts") await tabTo(f, "By product part");
+      await f.locator(`[data-use$="#${id}"] [data-stamp], [data-use$="#${id}"] [data-area-empty]`).first().waitFor({ timeout: 60000 });
+    }
+    await tabTo(f, "By area");
     const missing = await f.locator("[data-stamp-missing]").count();
     check(missing === 0, "no number without a source", 0, missing);
     const figures = await f.locator("[data-figure]").count();
@@ -1280,7 +1286,7 @@ if (seed.dm?.proposal) {
       t = ((await f.locator('[data-use$="#summary"]').textContent()) ?? "").replace(/\s+/g, " ");
     }
     check(/1 spot checks judged/.test(t), "1 spot check judged", "1 spot checks judged", t.slice(0, 300));
-    check(/0 rule cases settled/.test(t) && /0 questions asked/.test(t), "no rule case settled, no question asked");
+    check(/0 of 3 rule cases settled/.test(t) && /0 questions asked/.test(t), "no rule case settled (of the 3), no question asked", "0 of 3 rule cases settled · 0 questions asked", t.slice(0, 300));
   });
 
   // Evidence on demand, on verification's tested examples (mapping-rounds queries/dryrun1 @f518429). The panel stays
@@ -1400,6 +1406,8 @@ if (seed.dm?.proposal) {
     await frameWithSel('[data-composition="dryrun2.triage/decision"]', 90000).catch(() => openReview("Can the 5.0.0 mapping be the basis for G1 triage?", "Decision view: mapping (dryrun2)", "dryrun2.triage"));
     const f = await frameWithSel('[data-composition="dryrun2.triage/decision"]', 60000);
     const data = ["counts", "estimate", "areas", "parts", "cards", "agreement", "evidence", "artifacts", "rulecases", "examples", "summary"];
+    // the parts table is a tab's (built when first shown)
+    await f.locator('[role="tab"]', { hasText: "By product part" }).first().click();
     for (const id of data) await f.locator(`[data-use$="#${id}"] [data-area-empty], [data-use$="#${id}"] [data-area-error]`).first().waitFor({ timeout: 90000 });
     const empties = [];
     for (const id of data) empties.push([id, ((await f.locator(`[data-use$="#${id}"]`).textContent()) ?? "").replace(/\s+/g, " ").trim()]);

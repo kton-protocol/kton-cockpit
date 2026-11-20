@@ -382,6 +382,7 @@ ul.ev .k { color: var(--wb-muted); margin-top: 2px; }
 ul.ev .t { font-weight: 600; overflow-wrap: anywhere; }
 ul.ev .t .muted { font-weight: 400; }
 ul.ev .note { margin-top: 2px; overflow-wrap: anywhere; }
+ul.ev .what { font-size: 12px; margin-top: 2px; overflow-wrap: anywhere; }
 ul.ev .side { display: flex; align-items: center; gap: 6px; justify-self: end; }
 ul.ev .side [data-opened="yes"] { color: var(--wb-ok); }
 @container view (max-width: 520px) { ul.ev > li { grid-template-columns: 20px minmax(0, 1fr); } ul.ev .side { grid-column: 2; justify-self: start; } }
