@@ -1551,6 +1551,39 @@ error `-32601`, and params with a field the method does not take are error `-326
 > `TestServer_AnswersWhatIsRunningWhenTheInputEnds`, `TestServer_ShutdownAnswersWhatItAcceptedFirst`,
 > `TestServer_ExitWaitsForWhatIsRunning`, `TestServer_CancelMatchesANumberIDByValue`, `TestReadMessage_Framing`.
 
+### 12.6 Loading derived RDF *(optional)*
+
+`cockpit load <file|sha256:hex>... [--as TYPE]` puts a file's RDF into the index as a named graph, for this
+repository's queries ([ADR-017](../docs/decisions/adr-017-derived-rdf-in-graphs-per-hash.md)). It is an
+operator command, not a verb: it signs nothing and writes no record.
+
+- It MUST be refused unless `index.kind` is `oxigraph` and `index.derived.enabled` is true.
+- The graph's name MUST be the file's own IRI, `https://kton.dev/o/<sha256 of the bytes loaded>`. A path is
+  read inside the repository (never a signing key or `.kton/local/`); a `sha256:` is read from the content
+  store (`.kton/blobs`) and its bytes MUST hash to it. One request loads one file, so no two files' blank
+  nodes meet.
+- The media type comes from `--as`, or from the extension (`.ttl`, `.nt`, `.rdf`, `.owl`, `.jsonld`); anything
+  else MUST be refused (`derived.type`), and so MUST N-Quads and TriG (`derived.quads`), RDF/XML that declares
+  entities, content the engine cannot read (`derived.refused`), a file past `index.derived.maxBytes`
+  (`derived.too-large`, default 64 MiB), and a load that takes the repository past
+  `index.derived.maxTriples` (default 50 million).
+- The index keeps a catalogue per repository (a digest of its resolved root). A query's named graphs MUST be
+  the graphs in its own repository's catalogue, listed in the request, and nothing else; its default graph
+  is the view as in §12.4. So a loaded fact is reached only through `GRAPH`, never in the claim view, and
+  every answer that uses one can name its graph, which is its hash.
+- `--drop <sha256>` takes a graph out of the repository's catalogue, and out of the store only when no
+  catalogue lists it. `--list` names what is loaded, and what the load list names that could not be loaded.
+- The checkout keeps a load list (`.kton/local/loaded.json`), local and unsigned. When a query finds a hash
+  of it missing from the catalogue (after a rebuild, a schema change, a cleared cache), it MUST read the file
+  again, check it against the hash and load it. One that is gone or changed is not loaded, and the answer
+  MUST count it (`loadMissing`).
+- A loaded graph is derived content, not a claim: a check for the foton that produced a file reads the view,
+  never the file's own triples.
+
+> **Checked by:** `TestLoad_AFileIsAGraphNamedByItsHash`, `TestLoad_Refuses`,
+> `TestLoad_TheIndexLoadsAgainFromTheLoadList`, `TestLoad_AFileCannotNameItsOwnProducer`,
+> `TestLoad_AGraphTwoRepositoriesLoadedStaysUntilBothDropIt` (all `-tags docker`).
+
 ## 13 What a cockpit does not do
 
 From the governing design, restated normatively:
@@ -1560,7 +1593,9 @@ From the governing design, restated normatively:
 - No trust logic beyond applying the configuration.
 - No **authoritative** state of its own beyond that static configuration. Derived caches (the index
   of §12.4, source clones) are allowed when they are rebuildable from the substrate alone, are never
-  consulted for the binding verdict or the trust tier, and deleting them changes no answer. (The
+  consulted for the binding verdict or the trust tier, and deleting them changes no answer. What `cockpit
+  load` put in (§12.6) is loaded again from the checkout's load list and the files it names; a file no
+  longer there is counted in the answer, never silently missing. (The
   former "no fourth verb" is lifted by [ADR-009](../docs/decisions/adr-009-no-fixed-verb-count.md): a
   verb may be added; each one has a single implementation for every transport, sits under the
   configuration ceiling and is specified here.)
