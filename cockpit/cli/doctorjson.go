@@ -149,6 +149,20 @@ func identityOf(cfg *config.Config) doctorIdentity {
 }
 
 func printDoctorJSON(ctx context.Context, cfg *config.Config) error {
+	rep := doctorReportOf(ctx, cfg)
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(rep); err != nil {
+		return err
+	}
+	if !rep.Ready {
+		return errNotReady
+	}
+	return nil
+}
+
+// doctorReportOf is what `doctor --json` prints, for the command line and the frontend protocol alike.
+func doctorReportOf(ctx context.Context, cfg *config.Config) doctorReport {
 	steps := readiness(ctx, cfg)
 	rep := doctorReport{Ready: !blocked(steps), Steps: []doctorStep{}}
 	for _, s := range steps {
@@ -203,16 +217,7 @@ func printDoctorJSON(ctx context.Context, cfg *config.Config) error {
 	}
 
 	f.Identity = identityOf(cfg)
-
-	enc := json.NewEncoder(os.Stdout)
-	enc.SetIndent("", "  ")
-	if err := enc.Encode(rep); err != nil {
-		return err
-	}
-	if !rep.Ready {
-		return errNotReady
-	}
-	return nil
+	return rep
 }
 
 func pathState(p string) string {

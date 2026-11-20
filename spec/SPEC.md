@@ -218,12 +218,14 @@ MUST NOT expose the configuration, the signing keys, the registry, or a general 
 through any of them.
 
 A cockpit MAY offer those three verbs over more than one transport — this one offers them as
-subcommands and over MCP. Where it does, every transport MUST reach the same implementation: a guard
+subcommands, over MCP, and over the frontend protocol (§12.5). Where it does, every transport MUST reach the same implementation: a guard
 belongs to the configuration, never to the way a call arrived, and a verb that is stricter over one
 transport than another has a ceiling that depends on who is asking.
 
 Operator subcommands (`init`, `doctor`, `show`, `scope`) MAY exist on the binary. They MUST NOT be
-reachable over the tool transport.
+reachable over the tool transport (MCP), which an agent uses. The frontend protocol (§12.5) serves a
+person's editor, and reaches the listings an operator reads (`doctor`, `ui list`, `show`), never one
+that changes the repository.
 
 A linked module (ADR-015) adds operator subcommands only, as `cockpit <module> <command>`. Its name
 MUST NOT shadow a core command, and no two modules may claim one name or one package profile. A
@@ -1465,6 +1467,48 @@ written under another schema is emptied first.
 > `TestOxigraph_AttributionIsTheRegistrysOwn`, `TestOxigraph_AReaderNeverSeesARegistryHalfRead`,
 > `TestCheckQuery_RefusesServiceAndOnlyService`, `TestConfig_QueryImageIsPinnedByDigest`,
 > `TestQuery_TheIndexAnswersAsAContainerForTheQueryDoes` (both `-tags docker`).
+
+### 12.5 The frontend protocol *(optional)*
+
+`cockpit serve --stdio` answers JSON-RPC 2.0 on stdin and stdout, for an editor extension or a viewer
+(ADR-011, section 6). Messages are framed as a language server frames them: a `Content-Length` header,
+a blank line, the JSON body. stdout MUST carry protocol messages and nothing else.
+
+A connection serves one workspace folder. `initialize` MUST come first: it names the folder (`root`), and
+optionally the identity every `say` signs as (`as`, as `mcp --as`) and a timeout for every request
+(`requestTimeoutMs`). It answers the repository the folder belongs to (`repoRoot`). Any other method before
+it MUST be answered with error `-32002`. `initialize` MUST refuse a folder the configuration does not bind
+(`binding`), an identity this checkout cannot sign as (`identity.as`), a second `initialize` on one
+connection, and a folder that `COCKPIT_REPO_DIR` would redirect elsewhere (SPEC §5.1). A request sent after `initialize`, before its
+answer, runs in the folder `initialize` named. The binding guard runs again on every request.
+
+The methods reach the same implementation as the command line:
+- `publish`, `say` and `ask` take the request types of the Go API, MCP and the JSON argument, and answer
+  their result types;
+- `say/templates`, `ask/questions`, `ui/list`, `doctor` and `version` answer what the command line prints
+  under `--json`;
+- `ui/cat` (`{package, hashes}`) answers what `ui cat … --json` prints, with the bytes base64;
+- `show/snapshot` answers what `show --json` prints.
+
+A `say` that names an identity other than the connection's MUST be refused (`identity.as`).
+
+A frontend MUST NOT forward a request that comes from content it hosts (a package's viewer, a composition)
+to anything but the verbs it mediates for that content: never to `doctor`, `show` or `ui/*`.
+
+Requests run concurrently. Every request the connection accepted MUST be answered: `shutdown` takes no
+new request (one sent after it is error `-32600`) and answers once every request accepted before it is
+answered; `exit` and the end of the input end the connection after the same wait. `$/cancelRequest`
+cancels a running request, which is answered with error `-32800`. A number id matches by its value (`1`
+and `1.0`); a string id is another id (`"1"` is not `1`), as JSON-RPC keeps them. A refusal MUST be answered as error `-32001` whose `data` is the command line's JSON refusal,
+`{code, clause, reason}`; any other failure as error `-32000` with `data.code` `error`. An unknown method is
+error `-32601`, and params with a field the method does not take are error `-32602`.
+
+> **Checked by:** `TestServe_InitializeNamesTheWorkspaceFirst`, `TestServe_ListingsAreTheCommandLinesJSON`,
+> `TestServe_VerbsAnswerAndRefuseAsTheCommandLine`, `TestServe_RefusesAWorkspaceTheEnvironmentWouldRedirect`,
+> `TestServe_TheBinaryKeepsStdoutForTheProtocol`, `TestServe_ASayRunningAtShutdownIsAnswered`,
+> `TestServer_AnswersRequestsAndErrorsAndGoesOn`, `TestServer_CancelsARunningRequest`,
+> `TestServer_AnswersWhatIsRunningWhenTheInputEnds`, `TestServer_ShutdownAnswersWhatItAcceptedFirst`,
+> `TestServer_ExitWaitsForWhatIsRunning`, `TestServer_CancelMatchesANumberIDByValue`, `TestReadMessage_Framing`.
 
 ## 13 What a cockpit does not do
 
