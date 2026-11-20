@@ -222,7 +222,8 @@
           "properties": {
             "enabled": { "type": "boolean", "description": "Off unless true." },
             "maxBytes": { "type": "integer", "minimum": 0, "description": "The largest file a load takes, in bytes. 0 or absent: 64 MiB." },
-            "maxTriples": { "type": "integer", "minimum": 0, "description": "How many triples this repository may have loaded, all graphs together. 0 or absent: 50 million." }
+            "maxTriples": { "type": "integer", "minimum": 0, "description": "How many triples this repository may have loaded, all graphs together. 0 or absent: 50 million." },
+            "maxBytesShared": { "type": "integer", "minimum": 0, "description": "The most one load puts into the machine's shared index (no COCKPIT_INDEX_DIR, no index.url), all its files together, in bytes. Absent: 16 MiB; 0: no limit. An index of the repository's own is not bound by it." }
           }
         }
       }

@@ -18,6 +18,7 @@ import (
 
 	"github.com/kton-protocol/kton-cockpit/cockpit/backend"
 	"github.com/kton-protocol/kton-cockpit/internal/config"
+	"github.com/kton-protocol/kton-cockpit/internal/index/oxigraph"
 	"github.com/kton-protocol/kton-cockpit/internal/packages"
 	"github.com/kton-protocol/kton-cockpit/internal/show"
 )
@@ -121,6 +122,21 @@ func readiness(ctx context.Context, cfg *config.Config) []nextStep {
 	if !cfg.Raw.Execution.Enabled() {
 		steps = append(steps, nextStep{false, "optional: `cockpit pin <image>` runs every publish in a digest-pinned container, so the environment is observed, not asserted"})
 	}
+	// The machine's shared index: what it runs with and where that came from, and a memory file that is
+	// not used (cockpit-runtime, 20.11.).
+	if cfg.Raw.Index.Kind == "oxigraph" && oxigraph.SharedIndex(cfg) {
+		running, from, problem := oxigraph.SharedMemory(cfg)
+		if problem != "" {
+			steps = append(steps, nextStep{false, problem})
+		}
+		if running != "" {
+			if from == "" {
+				from = "not recorded: started by an older cockpit"
+			}
+			steps = append(steps, nextStep{false, fmt.Sprintf("the machine's shared index runs with %s of memory (from %s)", running, from)})
+		}
+	}
+
 	// The admitted packages that contribute nothing, and the names offered only qualified: the rest
 	// of the vocabulary works, so these are said, not blocking.
 	if voc, err := packages.Allowed(cfg.RepoRoot, cfg.Raw.Claims.AllowedPackages, cfg.Raw.Claims.AllowedModules); err == nil {

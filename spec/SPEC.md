@@ -1601,8 +1601,15 @@ operator command, not a verb: it signs nothing and writes no record.
 - The media type comes from `--as`, or from the extension (`.ttl`, `.nt`, `.rdf`, `.owl`, `.jsonld`); anything
   else MUST be refused (`derived.type`), and so MUST N-Quads and TriG (`derived.quads`), RDF/XML that declares
   entities, content the engine cannot read (`derived.refused`), a file past `index.derived.maxBytes`
-  (`derived.too-large`, default 64 MiB), and a load that takes the repository past
-  `index.derived.maxTriples` (default 50 million).
+  (`derived.too-large`, default 64 MiB), a load that takes the repository past
+  `index.derived.maxTriples` (default 50 million), and a load into the machine's shared index (no
+  `COCKPIT_INDEX_DIR`, no `index.url`) whose files together are past `index.derived.maxBytesShared`
+  (`derived.shared-too-large`, default 16 MiB, 0 for none), before the index is asked anything: several
+  repositories read that daemon, and one large load can restart it under them. An index of the
+  repository's own is not bound by it.
+- The shared daemon starts with the larger of its index directory's `memory` file (one limit, like `4g`)
+  and the starting repository's `index.memory`; a file that is no limit is named by `doctor` and not used.
+  `doctor` says what the shared daemon runs with and where that came from.
 - The index keeps a catalogue per repository (a digest of its resolved root). A query's named graphs MUST be
   the graphs in its own repository's catalogue, listed in the request, and nothing else; its default graph
   is the view as in §12.4. So a loaded fact is reached only through `GRAPH`, never in the claim view, and
@@ -1620,7 +1627,8 @@ operator command, not a verb: it signs nothing and writes no record.
 > `TestLoad_TheIndexLoadsAgainFromTheLoadList`, `TestLoad_AFileCannotNameItsOwnProducer`,
 > `TestLoad_AGraphTwoRepositoriesLoadedStaysUntilBothDropIt`, `TestLoad_AFileThatHashesToARecordIsRefused`,
 > `TestLoad_APathIsCheckedWhereItLeads`, `TestLoad_TheTripleLimitAndAChangedFile`,
-> `TestLoadGraph_NeverWritesOverARecordsGraph` (all `-tags docker`).
+> `TestLoadGraph_NeverWritesOverARecordsGraph`, `TestLoad_AnOwnIndexIsNotBoundByTheSharedLimit` (all `-tags docker`),
+> `TestLoad_TheSharedIndexTakesABoundedLoad`, `TestWanted_TheMemoryFileIsTheFloor`.
 
 ## 13 What a cockpit does not do
 

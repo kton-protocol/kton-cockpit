@@ -415,3 +415,16 @@ SELECT ?path WHERE { ?g a nk:LoadedGraph ; nk:path ?path }`)
 		t.Errorf("only a trusted step names a path; theirs is not trusted: %v", a.Rows)
 	}
 }
+
+// An index of the repository's own (COCKPIT_INDEX_DIR) is not bound by the shared index's limit.
+func TestLoad_AnOwnIndexIsNotBoundByTheSharedLimit(t *testing.T) {
+	r := loadingRepo(t)
+	raw := r.Config(t).Raw
+	limit := int64(8)
+	raw.Index.Derived.MaxBytesShared = &limit
+	r.WriteConfig(t, raw)
+	r.Write(t, "rdf/a.ttl", turtle)
+	if _, err := New(Start{}).Load(context.Background(), LoadRequest{Files: []string{"rdf/a.ttl"}}); err != nil {
+		t.Errorf("an own index: want the load, got %v", err)
+	}
+}
