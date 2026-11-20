@@ -61,7 +61,7 @@ async function cockpit(argv, stdin, extra = {}) {
   const req = `${WORK}/rpc/${id}.req.json`;
   writeFileSync(`${req}.tmp`, JSON.stringify({ argv, ...(stdin !== undefined ? { stdin } : {}), ...extra }));
   renameSync(`${req}.tmp`, req);
-  const end = Date.now() + 180_000;
+  const end = Date.now() + (extra.repo?.startsWith("repo-dm") ? 660_000 : 180_000);
   while (Date.now() < end) {
     const res = `${WORK}/rpc/${id}.res.json`;
     if (existsSync(res)) return JSON.parse(readFileSync(res, "utf8"));
@@ -1175,7 +1175,7 @@ if (seed.dm?.proposal) {
       r = await cockpit(["ask", "sparql", "-", "--results-json"], `PREFIX nk: <https://kton.dev/v/>\nPREFIX lab: <https://kton.dev/v/lab/>\nPREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>\n${q}`, { repo: "repo-dm" });
       if (r.code === 0) break;
     }
-    if (r.code !== 0) throw new Error(`registry check failed (exit ${r.code}): ${r.stderr.split("\n")[0]}`);
+    if (r.code !== 0) throw new Error(`registry check failed (exit ${r.code}): ${r.stderr.split("\n")[0]} ${r.stdout.slice(0, 300)}`);
     return JSON.parse(r.stdout).results.bindings.map((b) => Object.fromEntries(Object.entries(b).map(([k, v]) => [k, v.value])));
   }
   await page.goto(URL.replace(/folder=[^&]*/, `folder=${encodeURIComponent(`${WORK}/repo-dm`)}`));

@@ -101,9 +101,7 @@ if [ "\$1" = ui ] && [ "\${2:-}" = list ]; then
   printf '%s' "\$OUT" | /usr/lib/code-server/lib/node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const l=JSON.parse(s);const p=l.packages.find(x=>x.name==="hostile-good"&&Array.isArray(x.ui));if(p)p.ui.push({file:"ui/sidebar.json",slot:"sidebar-ad",label:"Sidebar ad",when:{kind:"claim"}});process.stdout.write(JSON.stringify(l));})'
   exit 0
 fi
-# repo-dm federates test-execution's runs: cockpit v0.5.5's say never returns with a federation source (reported to
-# kton-cockpit 20.11.), so a say there runs with the sources taken out for its duration (say-unfederated.sh)
-COCKPIT_REAL=/usr/local/bin/cockpit exec sh "$HERE/say-unfederated.sh" "\$@"
+exec /usr/local/bin/cockpit "\$@"
 EOF
 chmod +x "$WORK/bin/cockpit-faults"
 echo normal > "$WORK/faults/mode"
@@ -146,6 +144,10 @@ CID=$(docker run -d --rm --name kton-wb-e2e-$RUN_ID $CS_COMMON "$CS_IMAGE" --use
 cleanup() {
   docker stop kton-wb-e2e-$RUN_ID >/dev/null 2>&1 || true
   docker stop kton-wb-e2e-sidecar-$RUN_ID >/dev/null 2>&1 || true
+  # the cockpit's index containers for this run's registries (persistent index, mounts under the work dir)
+  for c in $(docker ps -aq --filter name=kton-cockpit-index); do
+    docker inspect "$c" --format '{{range .Mounts}}{{.Source}} {{end}}' 2>/dev/null | grep -q "$WORK/" && docker rm -f "$c" >/dev/null 2>&1 || true
+  done
   # Discard the throwaway registry and its test keys unless KEEP=1.
   [ "${KEEP:-0}" = 1 ] || rm -r -f -- "$WORK"
 }

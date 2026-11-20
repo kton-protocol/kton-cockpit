@@ -55,4 +55,6 @@ test("evidence: a source open's looked-at reference names the repo, path, commit
   const { sourceRef } = await import("../src/ui/sources.js");
   assert.equal(sourceRef({ repo: "improve", commit: "fa218aa8", path: "a/B.java", line: 127 }), "kton-src:/improve/a/B.java?fa218aa8#L127");
   assert.equal(sourceRef({ repo: "improve", commit: "fa218aa8", path: "a/B.java" }), "kton-src:/improve/a/B.java?fa218aa8");
+  // lookedAt is space-separated: a spec path with spaces stays one reference
+  assert.equal(sourceRef({ repo: "improve-specs", commit: "49966c23", path: "Rights Management/ics1000 Publish rights.md", line: 31 }), "kton-src:/improve-specs/Rights%20Management/ics1000%20Publish%20rights.md?49966c23#L31");
 });

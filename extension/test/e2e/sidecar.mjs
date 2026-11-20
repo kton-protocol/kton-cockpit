@@ -15,10 +15,13 @@ let stop = false;
 // the registry to run in: the lanes one (repo), or the S6 one (repo-s6: the QM areas' packages bring field
 // aliases that would rename the lanes vocabulary's fields, since the view reads one alias file per registry)
 function run({ argv, stdin, repo }) {
-  const dir = repo === "repo-s6" || repo === "repo-dm" ? repo : "repo";
+  const dir = repo === "repo-s6" || repo === "repo-dm" || repo === "repo-dm2" ? repo : "repo";
+  // repo-dm federates test-execution's runs: the first ask after a say rebuilds the view with the federation, which
+  // took over 2 minutes on ai1 (the old 120 s timeout killed it: exit 1, empty stderr)
+  const timeout = dir.startsWith("repo-dm") ? 600_000 : 120_000;
   return new Promise((resolve) => {
-    const child = execFile("cockpit", argv, { cwd: join(WORK, dir), env, shell: false, timeout: 120_000, maxBuffer: 32 * 1024 * 1024 }, (err, stdout, stderr) => {
-      resolve({ code: err ? (typeof err.code === "number" ? err.code : 1) : 0, stdout: String(stdout), stderr: String(stderr) });
+    const child = execFile("cockpit", argv, { cwd: join(WORK, dir), env, shell: false, timeout, maxBuffer: 32 * 1024 * 1024 }, (err, stdout, stderr) => {
+      resolve({ code: err ? (typeof err.code === "number" ? err.code : 1) : 0, stdout: String(stdout), stderr: err && err.killed ? `killed after ${timeout / 1000} s (${err.signal})` : String(stderr) });
     });
     if (stdin !== undefined) child.stdin.end(stdin);
   });

@@ -55,7 +55,7 @@ test("artifacts: a frame's target is checked (run and name plain, sha256 require
   const t = artifactTarget({ run: "p2-e2e", name: "out/e2e-ärtifacts/test-failed-1.png", sha256: h, mediaType: "image/png" });
   assert.ok(typeof t !== "string");
   assert.deepEqual(artifactOf(artifactUri(t)), t);
-  assert.equal(artifactRef(t), `run-artifact:p2-e2e/out/e2e-ärtifacts/test-failed-1.png@${h}`);
+  assert.equal(artifactRef(t), `run-artifact:p2-e2e/out/e2e-%C3%A4rtifacts/test-failed-1.png@${h}`);
   assert.equal(showAs(t), "image");
   assert.equal(showAs({ run: "p", name: "error-context.md", sha256: h, mediaType: "text/markdown" }), "text");
   assert.equal(showAs({ run: "p", name: "trace.zip", sha256: h, mediaType: "application/zip" }), "info");

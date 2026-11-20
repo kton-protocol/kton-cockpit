@@ -65,7 +65,8 @@ export function targetOf(uri: { path: string; query: string; fragment: string })
   return sourceTarget({ repo, commit, path: rest.join("/"), ...(line ? { line: Number(line) } : {}), ...(sha256 ? { sha256 } : {}) });
 }
 
-/** The reference an open leaves in a view session's looked-at list (the source at its commit and line). */
+/** The reference an open leaves in a view session's looked-at list (the source at its commit and line). lookedAt is
+ * space-separated, so the path is URI-encoded (a spec path has spaces). */
 export function sourceRef(t: SourceTarget): string {
-  return `kton-src:/${t.repo}/${t.path}?${t.commit}${t.line ? `#L${t.line}` : ""}`;
+  return `kton-src:/${t.repo}/${encodeURI(t.path)}?${t.commit}${t.line ? `#L${t.line}` : ""}`;
 }

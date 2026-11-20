@@ -104,7 +104,16 @@ export class PackagesArea {
         this.loaded = await loadPackages(out.value, (pkg, h) => this.t.uiCat(pkg, h), this.vendored);
         this.listingText = text;
         const l = await Promise.resolve().then(() => this.t.list()).catch(() => undefined);
+        // a name several packages bring is offered as <package>/<name> (by design, kton-cockpit); the listing may name it
+        // that way, or plainly with its package: both are read
         this.queryNames = new Set(l?.ok ? l.value.queries.map((q) => q.name) : []);
+        this.queryOwners = new Map();
+        for (const q of l?.ok ? l.value.queries : []) {
+          const slash = q.name.indexOf("/");
+          const base = slash < 0 ? q.name : q.name.slice(slash + 1);
+          const owner = q.package ?? (slash < 0 ? undefined : q.name.slice(0, slash));
+          if (owner) this.queryOwners.set(base, new Set([...(this.queryOwners.get(base) ?? []), owner]));
+        }
         for (const r of this.loaded.refusals) this.ui.log(`package ${r.package} refused: ${r.file ? `${r.file}: ` : ""}${r.reason} (${r.code})`);
       }
       this.error = undefined;
@@ -210,10 +219,13 @@ export class PackagesArea {
 
   /** The names the cockpit offers its named queries under (`ask --json`): a clashing one as <package>/<name>. */
   private queryNames = new Set<string>();
+  /** the packages that bring each query name (from `ask --json`'s package field or a qualified name) */
+  private queryOwners = new Map<string, Set<string>>();
 
   /** A package's named query: by <package>/<name> when the cockpit offers it so (two packages bring the name). */
   private async named(pkg: string, name: string, terms: Readonly<Record<string, BoundTerm>>): Promise<unknown> {
-    const q = this.queryNames.has(`${pkg}/${name}`) ? `${pkg}/${name}` : name;
+    const owners = this.queryOwners.get(name);
+    const q = this.queryNames.has(`${pkg}/${name}`) || (owners !== undefined && owners.size > 1 && owners.has(pkg)) ? `${pkg}/${name}` : name;
     const out = await this.t.ask({ query: "sparql", name: q, ...(Object.keys(terms).length ? { bindTerms: terms } : {}), format: "sparql-results+json" });
     if (!out.ok) throw new Error(`the cockpit refused ${q}: ${out.refusal.reason}`);
     // the JSON-argument form answers under sparql.results (cockpit v0.5.x); read there, never as "no rows"

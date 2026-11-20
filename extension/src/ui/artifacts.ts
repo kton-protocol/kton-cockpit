@@ -82,7 +82,8 @@ export function showAs(t: ArtifactTarget): "image" | "text" | "info" {
 
 /** The reference an open leaves in a view session's looked-at list. */
 export function artifactRef(t: ArtifactTarget): string {
-  return `run-artifact:${t.run}/${t.name}@${t.sha256}`;
+  // lookedAt is space-separated: the name is URI-encoded
+  return `run-artifact:${t.run}/${encodeURI(t.name)}@${t.sha256}`;
 }
 
 /** The read-only URI of an artifact (kton-art:/<run>/<name>?<sha256>). */

@@ -192,14 +192,15 @@ c.claims.allowedTemplates=[...new Set([...(c.claims.allowedTemplates||[]),...nam
     # the view's records scope (its entry's scopes.records): the triage claims land here, never in verification's scope
     [ "$2" = dryrun1 ] && seedScope dryrun1.triage >/dev/null
     # test-execution's dryrun1.runs (a copy, /runs-data), federated read-only; its dev key's public halves in a tier
+    cockpit say proposes "$LS" area=qm title="Can the 5.0.0 mapping be the basis for G1 triage?" text="Stand-in for verification's 2c50ddd6 (dry run 1). Option b names 237 elements." why="e2e seed" \
+      options='[{"id":"a","label":"Take round 9"},{"id":"b","label":"Wolfgang reviews the 237"},{"id":"c","label":"Settle rules 6, 9, 10"}]' --scope lanes --as qa-requestor --json | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s).claimId))'
+    # federation after the seed's own says: a say with a federation source was slow before kton-cockpit #198 (main 99fe43e)
     if [ -d /runs-data/.kton ]; then
       [ -d "$E2E/runs-dm" ] || { mkdir -p "$E2E/runs-dm" && cp -R /runs-data/. "$E2E/runs-dm/"; }
       mkdir -p .kton/keys/lane && cp /runs-data/.kton/keys/self/lane-test-execution-dryrun1-dev*.pub .kton/keys/lane/
       node -e 'const fs=require("fs");const p=".kton/cockpit.config.json";const c=JSON.parse(fs.readFileSync(p));c.trust.tiers=[...new Set([...c.trust.tiers,"lane"])];fs.writeFileSync(p,JSON.stringify(c,null,2));'
       cockpit federation add test-execution-runs "$E2E/runs-dm" >/dev/null 2>&1
     fi
-    cockpit say proposes "$LS" area=qm title="Can the 5.0.0 mapping be the basis for G1 triage?" text="Stand-in for verification's 2c50ddd6 (dry run 1). Option b names 237 elements." why="e2e seed" \
-      options='[{"id":"a","label":"Take round 9"},{"id":"b","label":"Wolfgang reviews the 237"},{"id":"c","label":"Settle rules 6, 9, 10"}]' --scope lanes --as qa-requestor --json | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s).claimId))'
     cd "$E2E/repo"
 }
 DM_PROPOSAL=""; DM2_PROPOSAL=""

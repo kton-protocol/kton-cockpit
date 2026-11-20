@@ -17,14 +17,14 @@ const good = (label = "1", edit?: (p: string, b: Buffer) => Buffer) => listed(jo
 
 /** A cockpit whose ui list the test sets (a fixture, or a failure), and what the area asked it. */
 function cockpit(first: Fixture) {
-  const state: { fx: Fixture | undefined; asked: string[]; queries: string[] } = { fx: first, asked: [], queries: [] };
+  const state: { fx: Fixture | undefined; asked: string[]; queries: Array<string | { name: string; package: string }> } = { fx: first, asked: [], queries: [] };
   const t = {
     uiList: async () => {
       if (!state.fx) throw new Error("the cockpit cannot be reached");
       return { ok: true, value: { packages: [state.fx.pkg] } as UiListing };
     },
     uiCat: async (pkg: string, h: string) => reader(state.fx as Fixture)(pkg, h),
-    list: async () => ({ ok: true, value: { queries: state.queries.map((name) => ({ name })) } }),
+    list: async () => ({ ok: true, value: { queries: state.queries.map((q) => (typeof q === "string" ? { name: q } : q)) } }),
     ask: async (req: { name: string }) => {
       state.asked.push(req.name);
       return { ok: true, value: { results: { head: { vars: ["n"] }, results: { bindings: [{ n: { type: "literal", value: "3" } }] } } } };
@@ -247,4 +247,18 @@ test("looked-at: the evidence a panel opened goes with its acts (in memory, per 
   assert.deepEqual(openedOf(o.area, o.key), []);
   await again.onMessage(signIntent(again, 6));
   assert.deepEqual(intos.at(-1), { scope: "dryrun1.triage" });
+});
+
+test("a query name two packages bring, listed plainly with each package: the panel's package asks it qualified", async () => {
+  const tile = (p: string, b: Buffer) => (p === "ui/review.json" ? Buffer.from(JSON.stringify({ slot: "home-tile", label: "Items", query: "items" })) : b);
+  const c = cockpit(good("1", tile));
+  c.state.queries = [{ name: "items", package: "hostile-good" }, { name: "items", package: "dryrun2.triage" }];
+  const area = new PackagesArea(c.t, windowUi().ui, actPath().path);
+  await area.refresh();
+  assert.deepEqual(c.state.asked, ["hostile-good/items"]);
+  // one package only: the bare name
+  c.state.queries = [{ name: "items", package: "hostile-good" }];
+  c.state.asked.length = 0;
+  await new PackagesArea(c.t, windowUi().ui, actPath().path).refresh();
+  assert.deepEqual(c.state.asked, ["items"]);
 });
