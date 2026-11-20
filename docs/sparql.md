@@ -225,6 +225,32 @@ ORDER BY ?position
 One scope at a time: a study's project and programme are not in the projection, and `ask scope`
 names them (`context`).
 
+### The latest claim per subject in a scope
+
+```sparql
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX nk:   <https://kton.dev/v/>
+SELECT ?subject ?pred ?claim WHERE {
+  { SELECT ?seed ?subject ?pred (MAX(?position) AS ?latest) WHERE {
+      ?seed nk:genesis true ; rdfs:label "study-af-2026" .
+      ?c nk:scope ?seed ; nk:about ?subject ; nk:predicate ?pred ; nk:position ?position .
+    } GROUP BY ?seed ?subject ?pred }
+  ?claim nk:scope ?seed ; nk:about ?subject ; nk:predicate ?pred ; nk:position ?latest .
+}
+```
+
+The latest claim per subject **and template**: ask for the highest position per subject and predicate with
+`GROUP BY` and `MAX`, then join back. Leave the predicate out of the group and a later claim of another
+template about the same subject (a comment after a decision) hides the one you meant. The scope's name is
+bound inside the sub-select, so it groups over that scope's claims only. Positions order the claims of one
+scope's chain; a claim outside a scope has none. Where the chain forked, two claims share a position and both
+come back. The form
+`FILTER NOT EXISTS { ?later … nk:position ?p2 FILTER(?p2 > ?p) }` compares every claim of a subject with
+every other, and where many claims share a subject it does not return: on dry run 1, 2,556 claims about one
+foton took longer than ten minutes that way and 0.04 s with `GROUP BY`. Mind what "latest" means for a
+template: claims that are rows (each about the same foton, none a version of another) are not versions, and
+"latest per subject" would keep one of them.
+
 ### The descriptions of a step, in the nanopublication graphs
 
 ```sparql

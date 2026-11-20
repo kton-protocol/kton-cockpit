@@ -225,6 +225,12 @@ func TestSparql_TheExamplesAnswerOverAFixture(t *testing.T) {
 				t.Errorf("want the one claim chained in the study, first after its seed: %v", a.Rows)
 			}
 		}},
+		{"The latest claim per subject in a scope", nil, func(t *testing.T, a *SparqlAnswer) {
+			if len(a.Rows) != 1 || a.Rows[0]["claim"] != o(f.scoped) || a.Rows[0]["subject"] != o(f.step) ||
+				a.Rows[0]["pred"] != "https://kton.dev/v/working-on" {
+				t.Errorf("want the one claim of the study as its step's latest: %v", a.Rows)
+			}
+		}},
 		{"The descriptions of a step, in the nanopublication graphs", map[string]string{"STEP": f.step}, func(t *testing.T, a *SparqlAnswer) {
 			texts := column(a, "text")
 			if a.Dataset != "nanopub" || len(a.Rows) != 2 || !texts["dropped rows without a visit date"] ||
@@ -302,5 +308,39 @@ func TestSparql_TheExamplesAnswerOverAFixture(t *testing.T) {
 		if texts := column(a, "text"); texts["said by a key nobody here trusts"] || len(texts) != 2 {
 			t.Errorf("%s: want our two descriptions only: %v", dataset, a.Rows)
 		}
+	}
+}
+
+// The latest claim per subject is the latest of each template: a later claim of another template
+// about the same subject (a comment after a decision) does not hide it, and of two claims of one
+// template the later one answers (kton-review D1, T27 on #195).
+func TestSparql_TheLatestPerSubjectIsPerTemplate(t *testing.T) {
+	t.Setenv("COCKPIT_INDEX_DIR", t.TempDir())
+	ctx := context.Background()
+	r := testrepo.New(t)
+	study := r.SeedScope(t, "study-af-2026")
+	raw := testrepo.DefaultConfig()
+	raw.Claims.AllowedTemplates = append(raw.Claims.AllowedTemplates, "describes")
+	raw.Claims.Scopes = map[string]string{"study": study}
+	raw.Query.Image = oxigraphImage
+	r.WriteConfig(t, raw)
+	r.Use(t)
+	step := publishOne(t, r).FotonID
+	say := func(template string, fields map[string]string) string {
+		t.Helper()
+		res, out, err := Say(ctx, nil, SayRequest{Subject: step, Template: template, Scope: "study", Fields: fields})
+		if err != nil || res.IsError {
+			t.Fatalf("say %s: %v %s", template, err, errText(res))
+		}
+		return "https://kton.dev/o/" + hexOf(out.ClaimID)
+	}
+	say("working-on", map[string]string{"step": "first", "by-session": testrepo.SessionID})
+	second := say("working-on", map[string]string{"step": "second", "by-session": testrepo.SessionID})
+	described := say("describes", map[string]string{"value": "a comment after it"})
+
+	a := sparqlAsk(t, docExamples(t)["The latest claim per subject in a scope"])
+	claims := column(a, "claim")
+	if len(a.Rows) != 2 || !claims[second] || !claims[described] {
+		t.Errorf("want the later working-on and the describes, each its template's latest: %v", a.Rows)
 	}
 }
