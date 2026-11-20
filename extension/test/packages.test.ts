@@ -243,7 +243,7 @@ test("member names on #184: only the aliases member listed as \"\" is exempt; a 
     const f = withMember(role, name);
     return loadPackages({ packages: [f.pkg] }, reader(f));
   };
-  for (const [role, name] of [["query", "../x"], ["template", "../x"], ["aliases", "../x"], ["aliases", "/x"], ["control", "a:b"]] as const) {
+  for (const [role, name] of [["query", "../x"], ["template", "../x"], ["aliases", "../x"], ["aliases", "/x"], ["control", "a:b"], ["content", "content/../../x.md"]] as const) {
     const l = await load(role, name);
     assert.deepEqual(Object.keys(l.packages), [], `${role} ${name} refuses the package`);
     assert.equal(l.refusals[0]?.code, "member.name", `${role} ${name}`);
