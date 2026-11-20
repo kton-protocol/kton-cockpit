@@ -79,6 +79,9 @@ type ViewConfig struct {
 	// Aliases are a package template's own package aliases, by template name: they resolve that
 	// template's fields, and the repository's (the set's) only what they leave as it is (SPEC §9.11).
 	Aliases map[string]packages.Aliases
+	// Rows are the templates whose claims are rows, not versions: each such claim's node says nk:row
+	// true, so a "latest per subject" query leaves it out (ADR-018, section 5).
+	Rows map[string]bool
 }
 
 // resolve is x as the template named tmpl means it: through its package's own aliases when they
@@ -108,6 +111,9 @@ func (vc ViewConfig) Fingerprint() string {
 		for k, field := range t.Fields {
 			f[k] = field.Type
 			terms[n+"#"+k] = vc.resolve(n, k)
+		}
+		if vc.Rows[n] {
+			f["@claims"] = "rows"
 		}
 		ts = append(ts, tmpl{n + "=" + t.Predicate, f})
 	}
@@ -303,6 +309,9 @@ func ClaimView(trusted, structure []Quad, vc ViewConfig) []Quad {
 			}
 			if known {
 				out = append(out, triple(n, nkNS+"template", lit(t.Name)))
+				if vc.Rows[t.Name] {
+					out = append(out, triple(n, nkNS+"row", typed("true", xsdNS+"boolean")))
+				}
 			}
 			tmpl := ""
 			if known {

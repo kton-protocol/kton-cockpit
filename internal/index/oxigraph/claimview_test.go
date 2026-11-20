@@ -428,3 +428,29 @@ func TestClaimView_TheAliasFileRenamesOnlyItsOwnTemplatesFields(t *testing.T) {
 		t.Errorf("a claim of a template this repository does not know keeps lab:status: %v", got)
 	}
 }
+
+// A claim of a template whose claims are rows says nk:row true; one of a template of versions does
+// not; and the flag changes the view's fingerprint, so a view built before it is built again (ADR-018,
+// section 5).
+func TestClaimView_ARowTemplatesClaimsSayNkRow(t *testing.T) {
+	set, err := ntemplate.New(map[string][]byte{
+		"covered": []byte(`{"name":"covered","target":"either","predicate":"https://example.org/q/covered","claims":"rows","fields":{"element":{"type":"string"}}}`),
+		"decided": []byte(`{"name":"decided","target":"either","predicate":"https://example.org/q/decided","fields":{"outcome":{"type":"string"}}}`),
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	row, rowPub := claimQuads("aa", oNS+"f00d", "https://example.org/q/covered", map[string]string{"element": "e1"}, "2026-03-04T10:00:00Z", "", "", "k1")
+	version, versionPub := claimQuads("bb", oNS+"f00d", "https://example.org/q/decided", map[string]string{"outcome": "ok"}, "2026-03-04T10:00:00Z", "", "", "k1")
+	vc := ViewConfig{Templates: set, Rows: map[string]bool{"covered": true}}
+	view := ClaimView(append(row, version...), append(rowPub, versionPub...), vc)
+	if got := values(view, oNS+"aa", nkNS+"row"); len(got) != 1 || got[0] != "true" {
+		t.Errorf("a row template's claim: want nk:row true, got %v", got)
+	}
+	if got := values(view, oNS+"bb", nkNS+"row"); len(got) != 0 {
+		t.Errorf("a versions template's claim says no nk:row: %v", got)
+	}
+	if vc.Fingerprint() == (ViewConfig{Templates: set}).Fingerprint() {
+		t.Error("the rows flag must change the view's fingerprint")
+	}
+}

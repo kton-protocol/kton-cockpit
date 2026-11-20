@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/gitmick/ktonpkg/scope"
 	"os"
 	"path/filepath"
 	"sort"
@@ -72,6 +73,9 @@ type TemplateOrigin struct {
 	Hash, Package, Revision string
 	// Problem says why say refuses the template: its predicate or context is no IRI once resolved.
 	Problem string
+	// Rows: the template says its claims are rows, not versions ("claims": "rows", ktonpkg v0.9.12;
+	// ADR-018, section 5).
+	Rows bool
 }
 
 // MisplacedAliases names an alias file left at the repository root while .kton/aliases.json is absent:
@@ -855,6 +859,18 @@ func (r *Runner) TemplatesAndAliases() (ntemplate.Set, map[string]packages.Alias
 	return set, own, err
 }
 
+// RowTemplates are the names of the templates whose claims are rows, not versions (ADR-018, section 5).
+func (r *Runner) RowTemplates() (map[string]bool, error) {
+	_, _, _, origins, err := r.templatesFull()
+	out := map[string]bool{}
+	for name, o := range origins {
+		if o.Rows {
+			out[name] = true
+		}
+	}
+	return out, err
+}
+
 // TemplateAllowed is the claim-template ceiling (SPEC §8.1) over the set say signs with, by origin: a
 // name the set gives an admitted package's template is allowed, the package admitted it; a name the
 // set gives the repository's own template is allowed only when claims.allowedTemplates names it. So a
@@ -1016,6 +1032,13 @@ func (r *Runner) templatesFull() (ntemplate.Set, map[string]packages.Aliases, []
 			}
 		}
 		o.Hash = hashOf(append(append(canon, '\n'), aliasHash...))
+		body := raw[name]
+		if b, ok := raw["package:"+name]; ok {
+			body = b
+		}
+		if c, err := scope.TemplateClaims(body); err == nil && c == scope.ClaimsRows {
+			o.Rows = true
+		}
 		origins[name] = o
 	}
 	// Reported rather than absorbed: a file in the template directory that is not a template is

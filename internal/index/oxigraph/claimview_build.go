@@ -35,6 +35,9 @@ func ViewConfigFor(cfg *config.Config) (ViewConfig, error) {
 		return vc, err
 	}
 	vc.Templates, vc.Aliases = set, own
+	if vc.Rows, err = binaries.New(cfg).RowTemplates(); err != nil {
+		return vc, err
+	}
 	for _, n := range set.Names() {
 		t, _ := set.Get(n)
 		for field := range t.Fields {
