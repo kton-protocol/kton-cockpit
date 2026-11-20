@@ -7,29 +7,30 @@
 # What a cockpit adds is not a lie detector — nobody lies here. It records the SCRIPT as an
 # input by hash, so "which of these two did you run" is a lookup instead of a question.
 #
-# Needs R and network.
+# Needs R. The data is a pinned extract shipped with the example (data/), so it runs offline.
 cd "$(dirname "$0")"
+EXAMPLE="$PWD"
 source ../lib/common.sh
 command -v Rscript >/dev/null || { echo "10 needs R (Rscript) — skipping is not an option here, so this is a failure" >&2; exit 1; }
 WORK="$PWD/.work"; participant "$WORK/repo"; cd "$WORK/repo"
 mkdir -p R
 
 echo ""
-echo "== the data, fetched the way a person fetches it =="
+echo "== the data, an extract of the register =="
 # Required by the licence, and printed rather than buried: the register is Open Government Data
 # of the City of Vienna under CC BY 4.0, and attribution is a condition of use, not a courtesy.
 echo "  Datenquelle: Stadt Wien – data.wien.gv.at"
 echo "  Vienna Tree Register (BAUMKATOGD), CC BY 4.0"
-# Only the two columns this is about, which the WFS will project for us: 9 MB instead of 53.
-WFS="https://data.wien.gv.at/daten/geo?service=WFS&request=GetFeature&version=1.1.0"
-WFS="$WFS&typeName=ogdwien:BAUMKATOGD&srsName=EPSG:4326&outputFormat=csv&propertyName=BEZIRK,PFLANZJAHR"
-curl -sL --max-time 300 -o data/trees.csv "$WFS" || { echo "  the download failed; this example needs network" >&2; exit 1; }
-require "the register downloaded" test -s data/trees.csv
-echo "  $(wc -l < data/trees.csv) rows, $(du -h data/trees.csv | cut -f1)"
+# Fetched on 2026-11-20 from the city's WFS (typeName=ogdwien:BAUMKATOGD, outputFormat=csv,
+# propertyName=BEZIRK,PFLANZJAHR), kept to the two columns this is about, and shipped with the
+# example: the live service was not reachable from CI often enough to download at run time.
+mkdir -p data && cp "$EXAMPLE/data/trees-2026-11-20.csv.gz" data/trees.csv.gz
+require "the register extract is here" test -s data/trees.csv.gz
+echo "  $(gzip -dc data/trees.csv.gz | wc -l) rows, $(du -h data/trees.csv.gz | cut -f1) compressed"
 
 # The hash pins the BYTES that were used. data.wien.gv.at is a live service: the register this
 # ran against is not the one somebody downloads next month, and nothing but a hash records which.
-DATA=$(./bin/plankton hash data/trees.csv)
+DATA=$(./bin/plankton hash data/trees.csv.gz)
 echo "  pinned as ${DATA:0:24}"
 
 echo ""
@@ -40,7 +41,7 @@ cat > R/oldest-districts.R <<'RS'
 #
 # Which Vienna districts have the oldest trees?
 # PFLANZJAHR is the planting year. Read it, take the mean per district, rank.
-d <- read.csv("data/trees.csv", colClasses = "character")
+d <- read.csv("data/trees.csv.gz", colClasses = "character")
 d <- data.frame(district = d$BEZIRK, year = as.numeric(d$PFLANZJAHR))
 a <- aggregate(year ~ district, data = d, FUN = function(y) round(2026 - mean(y), 1))
 a <- a[order(-a$year), ]
@@ -49,7 +50,7 @@ RS
 CODE_ASIS=$(./bin/plankton hash R/oldest-districts.R)
 Rscript R/oldest-districts.R
 AS_IS=$(cockpit publish '{"cmd":"Rscript R/oldest-districts.R",
-                          "inputs":["data/trees.csv","R/oldest-districts.R"],
+                          "inputs":["data/trees.csv.gz","R/oldest-districts.R"],
                           "outputs":["work/oldest.csv"]}')
 RANK_ASIS=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["outputHashes"]["work/oldest.csv"])' <<<"$AS_IS")
 echo "  as written:"; sed 's/^/    /' work/oldest.csv
@@ -61,7 +62,7 @@ cat > R/oldest-districts-cleaned.R <<'RS'
 #
 # Which Vienna districts have the oldest trees?
 # PFLANZJAHR is the planting year, and 0 is its "unknown" sentinel. Drop those first.
-d <- read.csv("data/trees.csv", colClasses = "character")
+d <- read.csv("data/trees.csv.gz", colClasses = "character")
 d <- data.frame(district = d$BEZIRK, year = as.numeric(d$PFLANZJAHR))
 d <- d[d$year > 0, ]
 a <- aggregate(year ~ district, data = d, FUN = function(y) round(2026 - mean(y), 1))
@@ -71,7 +72,7 @@ RS
 CODE_CLEAN=$(./bin/plankton hash R/oldest-districts-cleaned.R)
 Rscript R/oldest-districts-cleaned.R
 CLEANED=$(cockpit publish '{"cmd":"Rscript R/oldest-districts-cleaned.R",
-                            "inputs":["data/trees.csv","R/oldest-districts-cleaned.R"],
+                            "inputs":["data/trees.csv.gz","R/oldest-districts-cleaned.R"],
                             "outputs":["work/oldest.csv"]}')
 RANK_CLEAN=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["outputHashes"]["work/oldest.csv"])' <<<"$CLEANED")
 echo "  with the sentinel dropped:"; sed 's/^/    /' work/oldest.csv
