@@ -127,6 +127,11 @@ func buildUnion(dir string, inputs []Input) error {
 			return fmt.Errorf("source %s: %w", name, err)
 		}
 		if n, err := OpenNektonSource(reg.NektonDir); err == nil {
+			// A store line that does not parse (half a line, a torn write) is in neither RawRecords nor
+			// Dropped: the union would look whole without it (kton-review F2 on #200; kton v0.4.2).
+			if u := n.Unreadable(); u > 0 {
+				return fmt.Errorf("source %s: its nekton store has %d line(s) that do not parse: this copy is incomplete", name, u)
+			}
 			// One batch per source (kernel Registry.AddAll): each scope file and the position map are
 			// read once per chunk, not once per claim. One Add per claim made every union rebuild, and so
 			// every say in a federated repository, quadratic in the claims (userinterface, 20.11.: a say

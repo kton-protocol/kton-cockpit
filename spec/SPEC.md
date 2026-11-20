@@ -1038,8 +1038,8 @@ way a repo backend is registered (§5.5).
   change it either: it is opened read-only, so no numbering is persisted into it and no registry is
   created where it has none. A source with no registry at all MUST be refused, not read as an empty one.
 - Every record entering the union MUST pass the registry's own checks. A source holding a record that
-  does not, or one whose registry reports skipped records, MUST be named in the failure; a partial
-  union MUST NOT pass for a whole one.
+  does not, one whose registry reports skipped records, or one whose store has a line that does not parse
+  (kton v0.4.2 `Unreadable`), MUST be named in the failure; a partial union MUST NOT pass for a whole one.
 - A source MAY yield more than one registry — a place holding several participants side by side
   (a site and the packages installed in it, each with its own records). Each is read as it is; none
   is copied into another.
@@ -1055,7 +1055,8 @@ way a repo backend is registered (§5.5).
   building take turns under a lock.
 
 > **Checked by:** `TestFederation_ReadsTheUnionOfOwnAndSources`, `TestFederation_UnknownKindIsRefusedAtLoad`,
-> `TestFederation_ReadingASourceLeavesItAsItWas`, `TestFederation_ConcurrentReadersAllAnswerWhileTheSourceChanges`.
+> `TestFederation_ReadingASourceLeavesItAsItWas`, `TestFederation_ConcurrentReadersAllAnswerWhileTheSourceChanges`,
+> `TestFederation_ALineASourceCannotParseFailsTheUnion`.
 
 ### 9.9 A query of one's own *(optional)*
 
