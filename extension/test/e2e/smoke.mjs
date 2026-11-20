@@ -1313,16 +1313,19 @@ if (seed.dm?.proposal) {
     await spec.locator("button").click();
     const specOut = await openedOut(spec);
     check(/^Opened improve-specs:.*ics1000 Publish rights\.md#L31 at 49966c23eceb \(read-only\)$/.test(specOut), "the spec opens at its line and commit", "Opened improve-specs:…ics1000 Publish rights.md#L31 at 49966c23eceb (read-only)", specOut);
-    const code = b.locator('[data-evidence="code"]', { hasText: "AccessControlListService.java:127" }).first();
-    check(/Where it is implemented \(static reading\)/.test((await code.textContent()) ?? ""), "named as a static reading, not a trace");
+    // the row shows the decoded file name and line; the query's label (what it is) is the row's data-label and the Open button's name
+    const code = b.locator('[data-evidence="code"][data-label*="AccessControlListService.java:127"]').first();
+    check(/Where it is implemented \(static reading\)/.test((await code.getAttribute("data-label")) ?? "") && /AccessControlListService\.java\s*· line 127/.test((await code.locator(".t").textContent()) ?? ""), "named as a static reading, not a trace; shown as the file and its line", "AccessControlListService.java · line 127", await code.locator(".t").textContent());
     await code.locator("button").click();
     const codeOut = await openedOut(code);
     check(/^Opened improve:.*AccessControlListService\.java#L127 at fa218aa892af \(read-only\)$/.test(codeOut), "the code opens at line 127 of the stamped commit", "Opened improve:…AccessControlListService.java#L127 at fa218aa892af (read-only)", codeOut);
     // shown only after git show's bytes hashed to the claim's specFileSha256 / codeFileSha256 (sources.ts)
     await page.locator(".tab", { hasText: "AccessControlListService.java" }).first().waitFor({ timeout: 20000 });
     await shot("dm-evidence-code");
-    const test = b.locator('[data-evidence="test"]', { hasText: "Open test at line 749" }).first();
-    check((await test.count()) === 1, "the REST test pair offers 'Open test at line 749'");
+    const test = b.locator('[data-evidence="test"][data-label*="Open test at line 749"]').first();
+    check((await test.count()) === 1 && (await test.locator("button").count()) === 1, "the REST test pair offers 'Open test at line 749'");
+    // bug 5 (DESIGN.md §7): the open goes to the shared helper, not the test the label names; the row says so
+    check(/Opens BasicTest\.kt line 749, not the test in ResourceAclTest\.kt/.test((await test.locator(".flag").textContent()) ?? ""), "the mismatch between the named test and what opens is flagged", "Opens BasicTest.kt line 749, not the test in ResourceAclTest.kt", await test.locator(".flag").allTextContents());
   });
 
   await step("DM", 7, "ics1128#e6: an unresolved code match says why, with nothing to open", async () => {
@@ -1340,10 +1343,10 @@ if (seed.dm?.proposal) {
     const a = f.locator('[data-use$="#artifacts"]');
     await a.locator('[data-evidence="artifact"]').first().waitFor({ timeout: 60000 });
     // a FAILING run's screenshot (test-execution's capture runs since 20.11. also give passing tests an end screenshot)
-    const shotRow = a.locator('[data-evidence="artifact"]', { has: f.locator("button", { hasText: /Open screenshot: .*\(failed\)/ }) }).first();
-    const label = ((await shotRow.locator("button").textContent()) ?? "").trim();
+    const shotRow = a.locator('[data-evidence="artifact"]', { has: f.locator('button[data-label^="Open screenshot: "][data-label$="(failed)"]') }).first();
+    const label = ((await shotRow.locator("button").getAttribute("data-label")) ?? "").trim();
     const run = /run (\S+) \(/.exec(label)?.[1];
-    const testId = ((await shotRow.locator("div.kton-muted").first().textContent()) ?? "").replace(/ · \d+ bytes$/, "").trim();
+    const testId = (await shotRow.getAttribute("data-test")) ?? "";
     const claims = await sparqlDM(`SELECT ?sha WHERE { ?a nk:predicate <https://scinteco.com/ns/qm/dryrun1/runs/runArtifact> ; lab:run ${JSON.stringify(run)} ; lab:kind "screenshot" ; lab:test ?t ; lab:sha256 ?sha . FILTER(STR(?t) = ${JSON.stringify(testId)}) }`);
     const sha = `sha256:${String(claims[0]?.sha ?? "").split("/").pop()}`;
     await shotRow.locator("button").click();
@@ -1357,7 +1360,8 @@ if (seed.dm?.proposal) {
     await shot("dm-artifact-screenshot");
     check((await a.locator(".wb-block-source").textContent()) === "source: dryrun1.runs", "the runs name their own source (not a mapping round)", "source: dryrun1.runs", await a.locator(".wb-block-source").allTextContents());
     const none = ((await a.textContent()) ?? "").replace(/\s+/g, " ");
-    check(/No artifact for passing runs: /.test(none), "a passing run: no artifact, and why (run-capture's passingArtifacts)", "No artifact for passing runs: …", none.slice(0, 200));
+    // passing runs without an artifact are counted once, with run-capture's passingArtifacts as the why (DESIGN.md §5, bug 13)
+    check(/\d+ passing runs? without an artifact: \S/.test(none) && (await a.locator("[data-passing]").count()) === 1, "passing runs: no artifact, counted once, and why (run-capture's passingArtifacts)", "<n> passing runs without an artifact: …", none.match(/.{0,20}passing run.{0,120}/)?.[0]);
   });
 
   await step("DM", 9, "the decision lists what this view session opened and signs it as lookedAt (nothing unsigned is counted)", async () => {

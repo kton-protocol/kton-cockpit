@@ -41,6 +41,8 @@ export interface UiHost {
   openSource?(t: import("./sources.js").SourceTarget): Promise<string>;
   /** Whether an approval on one commit holds at another (read-only git over the mirrors, kton.sources.dir). */
   approvalStaleness?(repo: string, approved: string, head: string, paths: readonly string[]): Promise<import("./sources.js").Staleness>;
+  /** A run artifact's bytes as a data URL for a thumbnail, only after its sha256 checks (undefined: not shown). */
+  artifactThumb?(t: import("./artifacts.js").ArtifactTarget): Promise<string | undefined>;
   /** A run artifact, read-only, checked against its sha256: "Opened …" / "Shown …" when shown, else why not. */
   openArtifact?(t: import("./artifacts.js").ArtifactTarget): Promise<string>;
   /**

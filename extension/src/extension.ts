@@ -8,7 +8,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { inside, writeTree } from "./packages/store.js";
 import { approvalStaleness, readAtCommit, sourceUri, SRC_SCHEME, targetOf, type SourceTarget } from "./ui/sources.js";
-import { ART_SCHEME, artifactOf, artifactUri, readArtifact, showAs, type ArtifactTarget } from "./ui/artifacts.js";
+import { ART_SCHEME, artifactOf, artifactUri, readArtifact, showAs, THUMB_MAX_BYTES, type ArtifactTarget } from "./ui/artifacts.js";
 
 const artifactsDir = (): string => vscode.workspace.getConfiguration("kton").get<string>("artifacts.dir") ?? "";
 
@@ -114,6 +114,13 @@ class VsHost implements UiHost {
     await vscode.window.showTextDocument(doc, { preview: true, viewColumn: vscode.ViewColumn.Beside, preserveFocus: true, selection: new vscode.Range(line, 0, line, 0) });
     if (t.diff) return `Opened the change of ${t.repo} ${t.commit.slice(0, 12)}${t.path ? ` to ${t.path}` : ""} (read-only)`;
     return `Opened ${t.repo}:${t.path}${t.line ? `#L${t.line}` : ""} at ${t.commit.slice(0, 12)} (read-only)`;
+  }
+  /** A thumbnail: the artifact's bytes as a data URL, only after they hash to its sha256, and only up to THUMB_MAX_BYTES. */
+  async artifactThumb(t: ArtifactTarget): Promise<string | undefined> {
+    if (!artifactsDir()) return undefined;
+    const r = await readArtifact(artifactsDir(), t);
+    if (!("bytes" in r) || r.bytes.byteLength > THUMB_MAX_BYTES || !/^image\/(png|jpeg|gif|webp)$/.test(t.mediaType ?? "")) return undefined;
+    return `data:${t.mediaType};base64,${r.bytes.toString("base64")}`;
   }
   /** A run artifact: checked against its sha256 before anything is shown; an image in the preview, text read-only. */
   async openArtifact(t: ArtifactTarget): Promise<string> {

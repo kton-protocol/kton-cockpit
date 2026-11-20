@@ -32,6 +32,16 @@
 //             the low column shows "low–high", n right-aligned; measurable a column: a row whose value is not "true"
 //             reads "too few to measure" (muted, no bar)
 //   total     a column summed in a footer row
+//   short     columns shown short: a test id "repo:dir/File.kt#name" as "File.kt · name", an IRI with a label column
+//             (<column>Label) as its label; the full value stays in the tooltip
+//   evidence  a column of packed artifacts (assertion, kind, sha256, run, name, mediaType, bytes, site, text[, thumb] per
+//             line): assertion screenshots as thumbnails in assertion order (file:line and the assertion in the tooltip;
+//             a click opens it full size, hash-checked), the error-context and the trace as links, "trace removed by
+//             the token scan" (traceNote: a column saying so), "none" where nothing exists
+//   groupNotes a column whose " | "-separated items repeat across a group's rows (e.g. the lane harness changes of a run): listed
+//             once under the group's header; each row shows a small marker with the count and the items in its tooltip
+//   details   "column|Label": an expandable row detail (in the first cell) with these fields; with actsIn "details" the
+//             row's acts go there too
 //   stamp     column (default: a stamp column when the query answers one) | section (no column: each row keeps its
 //             stamp, hidden when the part's source chip names it) | hide
 export function mount(el, ctx) {
@@ -141,6 +151,18 @@ export function mount(el, ctx) {
       : "";
     el.innerHTML = `${o.title ? `<h3 data-block-title>${esc(o.title)}</h3>` : ""}${choices ? `<div class="kton-refine" data-refines>${choices}</div>` : ""}${body}${page}${actButtons()}`;
     for (const mb of el.querySelectorAll(".mb[data-lo]")) for (const k of ["lo", "hi", "pt", "t"]) mb.style.setProperty(`--${k}`, mb.dataset[k]);
+    for (const b of el.querySelectorAll("button[data-art]")) {
+      b.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        const [run, name, sha256, mediaType] = JSON.parse(b.dataset.art);
+        b.disabled = true;
+        ctx.intent({ kind: "open", artifact: { run, name, sha256, ...(mediaType ? { mediaType } : {}) } }).then((res) => {
+          b.disabled = false;
+          if (res?.refused) b.title = `Not opened: ${res.refused.why ?? res.refused}`;
+        });
+      });
+    }
+    for (const d of el.querySelectorAll("details.rowmore")) d.addEventListener("click", (ev) => ev.stopPropagation());
     wireActs();
     wireRowActs(rows);
     for (const sel of el.querySelectorAll("select[data-refine]")) {
@@ -241,6 +263,74 @@ export function barPos(x, lo, hi) {
 
 const pct = (x) => `${Number(x).toFixed(1)} %`;
 
+/** A test id "repo:dir/File.kt#name|ids" → "File.kt · name"; an IRI → its last segment; else as it is (decoded). */
+export function shortId(v) {
+  const s = String(v ?? "");
+  if (/^https?:\/\//.test(s)) {
+    if (/^https:\/\/kton\.dev\/o\/[0-9a-f]{64}$/.test(s)) return `sha256:${s.slice(19, 31)}…`;
+    const tail = s.replace(/[#/]+$/, "").split(/[#/]/).pop() ?? s;
+    return dec(tail) || s;
+  }
+  const m = /^(?:lane:)?[\w.-]+:(.+)$/.exec(s);
+  if (!m) return s;
+  const [body] = m[1].split("|");
+  const h = body.indexOf("#");
+  const file = dec((h < 0 ? body : body.slice(0, h)).split("/").pop() ?? body);
+  return h < 0 ? file : `${file} · ${body.slice(h + 1)}`;
+}
+const dec = (x) => {
+  try {
+    return decodeURIComponent(x);
+  } catch {
+    return x;
+  }
+};
+
+/** The items that repeat in a group (" | "-separated), in first-seen order, each once. */
+export function groupNotes(values) {
+  const out = [];
+  for (const v of values) for (const x of String(v ?? "").split(" | ").map((y) => y.trim()).filter(Boolean)) if (!out.includes(x)) out.push(x);
+  return out;
+}
+const notesLabel = (col) => (col === "harness" ? "Lane harness changes" : col);
+function noteMarker(esc, v) {
+  const items = groupNotes([v]);
+  return items.length ? ` <span class="badge note-marker" tabindex="0" data-tip="${esc(items.join("\n"))}" data-notes="${items.length}">${items.length === 1 ? "1 harness change" : `${items.length} harness changes`}</span>` : "";
+}
+
+/** The packed evidence column → entries sorted by assertion: {assertion, kind, sha256, run, name, mediaType, bytes, site, text, thumb}. */
+export function parseEvidence(packed) {
+  return String(packed ?? "")
+    .split("\n")
+    .filter((l) => l.trim() !== "")
+    .map((l) => {
+      const [assertion, kind, sha256, run, name, mediaType, bytes, site, text, thumb] = l.split("\t");
+      return { assertion, kind, sha256, run, name, mediaType, bytes, site, text, thumb };
+    })
+    .filter((e) => e.kind && /^sha256:[0-9a-f]{64}$/.test(e.sha256 ?? ""))
+    .sort((a, b) => (Number(a.assertion) || 1e9) - (Number(b.assertion) || 1e9));
+}
+
+function evidenceCell(esc, packed, traceNote) {
+  const es = parseEvidence(packed);
+  const art = (e) => esc(JSON.stringify([e.run, e.name, e.sha256, e.mediaType || ""]));
+  const shots = es.filter((e) => e.kind === "assertion-screenshot");
+  const thumbs = shots
+    .map((e, i) => {
+      const tip = `${e.site || "assertion"}${e.text ? ` — ${e.text}` : ""}`;
+      const img = e.thumb && /^data:image\/(png|jpeg|gif|webp);base64,[A-Za-z0-9+/=]+$/.test(e.thumb) ? `<img src="${e.thumb}" alt="">` : `<span class="n">${esc(e.assertion || String(i + 1))}</span>`;
+      return `<button type="button" class="thumb" data-art="${art(e)}" data-tip="${esc(tip)}" aria-label="Assertion ${esc(e.assertion || String(i + 1))}: ${esc(tip)}">${img}</button>`;
+    })
+    .join("");
+  const link = (e, label) => `<button type="button" class="ghost small" data-art="${art(e)}" data-tip="${esc(`${e.run}/${e.name}`)}">${esc(label)}</button>`;
+  const ctx = es.filter((e) => e.kind === "error-context").map((e) => link(e, "error-context")).join("");
+  const shot = es.filter((e) => e.kind === "screenshot").map((e) => link(e, "screenshot")).join("");
+  const trace = es.filter((e) => e.kind === "trace").map((e) => link(e, "trace")).join("") || (traceNote ? `<span class="muted">${esc(traceNote)}</span>` : "");
+  const other = es.filter((e) => !["assertion-screenshot", "error-context", "screenshot", "trace", "assertions"].includes(e.kind)).map((e) => link(e, e.kind)).join("");
+  const any = thumbs || ctx || shot || trace || other;
+  return any ? `<div class="ev-thumbs">${thumbs}</div><div class="ev-links">${shot}${ctx}${trace}${other}</div>` : `<span class="muted">none</span>`;
+}
+
 function table(rows, cols, { o, esc, value, shortly, click, perRow, rowButtons }) {
   const labels = new Map((o.labels ?? []).map((l) => (l.includes("|") ? [l.slice(0, l.indexOf("|")), l.slice(l.indexOf("|") + 1)] : [l, l])));
   const rg = rangeSpec(o.range, o.scale);
@@ -259,6 +349,14 @@ function table(rows, cols, { o, esc, value, shortly, click, perRow, rowButtons }
     return st ? `<span class="kton-stamp wb-rowstamp" data-stamp="${esc(st)}"${value(r.stampLabel) ? ` data-stamp-label="${esc(value(r.stampLabel))}"` : ""}${value(r.stampFull) ? ` data-stamp-full="${esc(value(r.stampFull))}"` : ""}${value(r.stampScope) ? ` data-stamp-scope="${esc(value(r.stampScope))}"` : ""}>${esc(st)}</span>` : `<span class="kton-stamp kton-error" data-stamp-missing>no source</span>`;
   };
   const measurable = (r) => !o.measurable || value(r[o.measurable]) === "true";
+  // the marker sits in the second shown column (the result), the details in the first
+  const k1 = (c) => cols[1] === c;
+  let curRow = 0; // the row being drawn (its acts are about it)
+  const detailsOf = (r) => {
+    const f = (o.details ?? []).map((d) => (d.includes("|") ? [d.slice(0, d.indexOf("|")), d.slice(d.indexOf("|") + 1)] : [d, d])).filter(([col]) => value(r[col]));
+    const acts = o.actsIn === "details" && perRow ? `<div class="actions">${rowButtons(r, curRow)}</div>` : "";
+    return `<details class="rowmore"><summary>Details</summary><dl class="kv">${f.map(([col, l]) => `<dt>${esc(l)}</dt><dd data-detail="${esc(col)}">${esc(value(r[col]))}</dd>`).join("")}</dl>${acts}</details>`;
+  };
   const cell = (r, c, first) => {
     const lead = first ? stampSpan(r) : "";
     if (c === "stamp") return `<td data-col="stamp"><span class="kton-stamp" data-stamp="${esc(value(r[c]))}">${esc(value(r[c]))}</span></td>`;
@@ -272,15 +370,25 @@ function table(rows, cols, { o, esc, value, shortly, click, perRow, rowButtons }
     }
     if (rg && c === rg.low) return `<td data-col="${esc(c)}" class="r muted">${value(r[rg.low]) && measurable(r) ? `${esc(pct(value(r[rg.low])).slice(0, -2))}–${esc(pct(value(r[rg.high])).slice(0, -2))}` : ""}${lead}</td>`;
     if (rg && c === rg.n) return `<td data-col="${esc(c)}" class="r${measurable(r) ? "" : " muted"}" data-number>${esc(value(r[c]))}${lead}</td>`;
+    if (o.evidence && c === o.evidence) return `<td data-col="${esc(c)}" class="ev-cell">${evidenceCell(esc, value(r[c]), o.traceNote ? value(r[o.traceNote]) : "")}${lead}</td>`;
     const num = numeric.has(c) || NUM_RE.test(value(r[c]));
-    return `<td data-col="${esc(c)}"${num ? ' class="r" data-number' : ""}${o.group ? ' data-ind' : ""}>${esc(shortly(value(r[c])))}${lead}</td>`;
+    const full = value(r[c]);
+    const label = value(r[`${c}Label`]);
+    const shown = (o.short ?? []).includes(c) ? label || shortId(full) : shortly(full);
+    const tip = shown !== full ? ` data-tip="${esc(full)}"` : "";
+    const marker = o.groupNotes && k1(c) ? noteMarker(esc, value(r[o.groupNotes])) : "";
+    const more = first && (o.details ?? []).length ? detailsOf(r) : "";
+    return `<td data-col="${esc(c)}"${num ? ' class="r" data-number' : ""}${o.group ? " data-ind" : ""}><span${tip}>${esc(shown)}</span>${marker}${more}${lead}</td>`;
   };
   let i = 0;
   const tr = (r) => {
     const n = i++;
-    return `<tr data-row="${n}"${click && value(r[click]) ? ` class="kton-clickable" tabindex="0" data-target="${esc(value(r[click]))}"` : ""}>${cols.map((c, k) => cell(r, c, k === 0)).join("")}${perRow ? `<td data-acts>${rowButtons(r, n)}</td>` : ""}</tr>`;
+    curRow = n;
+    const inline = perRow && o.actsIn !== "details";
+    return `<tr data-row="${n}"${click && value(r[click]) ? ` class="kton-clickable" tabindex="0" data-target="${esc(value(r[click]))}"` : ""}>${cols.map((c, k) => cell(r, c, k === 0)).join("")}${inline ? `<td data-acts>${rowButtons(r, n)}</td>` : ""}</tr>`;
   };
-  const width = cols.length + (perRow ? 1 : 0);
+  const inlineActs = perRow && o.actsIn !== "details";
+  const width = cols.length + (inlineActs ? 1 : 0);
   let tbody;
   if (o.group) {
     const glabels = new Map((o.groupLabels ?? []).map((l) => (l.includes("|") ? [l.slice(0, l.indexOf("|")), l.slice(l.indexOf("|") + 1)] : [l, l])));
@@ -292,7 +400,9 @@ function table(rows, cols, { o, esc, value, shortly, click, perRow, rowButtons }
       .map((g) => {
         const name = glabels.get(g.group) ?? (g.group ? g.group.charAt(0).toUpperCase() + g.group.slice(1) : "—");
         const meta = `${g.rows.length} ${unit}${g.rows.length === 1 ? "" : "s"}${o.groupSum ? ` · ${g.sum.toLocaleString("en")} ${sumName}` : ""}`;
-        return `<tr class="grp" data-group="${esc(g.group)}"><th colspan="${width}" scope="colgroup">${esc(name)} <span class="muted">${esc(meta)}</span></th></tr>${g.rows.map(tr).join("")}`;
+        const notes = o.groupNotes ? groupNotes(g.rows.map((x) => value(x[o.groupNotes]))) : [];
+        const list = notes.length ? `<div class="grp-notes"><span class="muted">${esc(notesLabel(o.groupNotes))} (${notes.length}), the same for every row below:</span><ol>${notes.map((x) => `<li>${esc(x)}</li>`).join("")}</ol></div>` : "";
+        return `<tr class="grp" data-group="${esc(g.group)}"><th colspan="${width}" scope="colgroup">${esc(name)} <span class="muted">${esc(meta)}</span>${list}</th></tr>${g.rows.map(tr).join("")}`;
       })
       .join("");
     rows = groups.flatMap((g) => g.rows); // the row index follows the drawn order
@@ -300,7 +410,7 @@ function table(rows, cols, { o, esc, value, shortly, click, perRow, rowButtons }
   const foot = o.total && cols.includes(o.total)
     ? `<tfoot><tr>${cols.map((c, k) => (k === 0 ? '<th scope="row">Total</th>' : c === o.total ? `<th class="r" data-total>${esc(rows.reduce((a, r) => a + (Number(value(r[c])) || 0), 0).toLocaleString("en"))}</th>` : "<th></th>")).join("")}${perRow ? "<th></th>" : ""}</tr></tfoot>`
     : "";
-  return { html: `<div class="tbl-wrap"><table class="kton-table t" data-area-table data-count="${rows.length}"><thead><tr>${cols.map(th).join("")}${perRow ? '<th><span class="sr-only">Actions</span></th>' : ""}</tr></thead><tbody>${tbody}</tbody>${foot}</table></div>`, rows };
+  return { html: `<div class="tbl-wrap"><table class="kton-table t" data-area-table data-count="${rows.length}"><thead><tr>${cols.map(th).join("")}${inlineActs ? '<th><span class="sr-only">Actions</span></th>' : ""}</tr></thead><tbody>${tbody}</tbody>${foot}</table></div>`, rows };
 }
 
 /** Loading: a skeleton of the block's own shape (lines or a tile row), busy for assistive tech (DESIGN.md §5). */

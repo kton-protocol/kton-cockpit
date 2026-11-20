@@ -151,6 +151,7 @@ export class Workbench {
       act: (c, about, fields, title, expect, into) => this.signAct(c, about, fields, title, expect, into),
       person: () => ({ keyId: this.identity.person.keyId, personTiers: this.cfg.personTiers }),
       ...(this.host.approvalStaleness ? { staleness: (repo: string, approved: string, head: string, paths: readonly string[]) => (this.host.approvalStaleness as NonNullable<UiHost["approvalStaleness"]>)(repo, approved, head, paths) } : {}),
+      ...(this.host.artifactThumb ? { thumb: (t: import("./artifacts.js").ArtifactTarget) => (this.host.artifactThumb as NonNullable<UiHost["artifactThumb"]>)(t) } : {}),
       // open@1: a source at a commit (read-only, kton-src), a run artifact (read-only, kton-art), or a claim this
       // window knows. What was shown goes into the panel's looked-at list (opened); a refusal does not.
       open: async (target, opened) => {

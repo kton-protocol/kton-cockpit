@@ -141,7 +141,7 @@ function decorate() {
           const k = s.dataset.stampLabel || s.dataset.stampScope || s.dataset.stamp;
           s.classList.toggle("wb-dup", !!key && k === key || (own && own !== "mixed" && k === (own.label || own.scope || own.stamp)));
         }
-        let bc = x.b.querySelector(":scope > .wb-block-source");
+        let bc = x.b.querySelector(".wb-block-source");
         const bkey = own && own !== "mixed" ? own.label || own.scope || own.stamp : "";
         if (bc && bc.dataset.source !== bkey) (bc.remove(), (bc = null));
         if (bkey && !bc) {

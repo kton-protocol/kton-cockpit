@@ -11,6 +11,7 @@ import type { BoundTerm } from "../transport/port.js";
 import { applies, isView, oneNumber, partition, planComposition, planEntry, type Subject } from "./slots.js";
 import { approvalCounts, areaComposition, BUILTIN, recordComposition, recordTerms, signerKeyId, withBuiltin } from "./qm-area.js";
 import { SIGNER_QUERY } from "../identity.js";
+import { withThumbs } from "../ui/artifacts.js";
 import type { AreaDecl } from "../packages/listing.js";
 
 export interface CompositionUi {
@@ -41,6 +42,8 @@ export interface ActPath {
   person?(): { readonly keyId: string; readonly personTiers: readonly string[] };
   /** Whether an approval given on one commit still holds at another (read-only git over the mirrors). */
   staleness?(repo: string, approved: string, head: string, paths: readonly string[]): Promise<import("../ui/sources.js").Staleness>;
+  /** A run artifact's thumbnail as a data URL, after its sha256 is checked (or undefined: shown as a link only). */
+  thumb?(t: import("../ui/artifacts.js").ArtifactTarget): Promise<string | undefined>;
 }
 
 /** Where an act goes and what goes with it: the records scope, the frame's proposals, the panel's evidence opens. */
@@ -418,7 +421,8 @@ export class PackagesArea {
     const backend: Backend = {
       query: async (p, name, terms) => {
         const r = await this.named(p, name, terms);
-        return this.withApprovals(annotate && p === annotate.package && name === annotate.query ? await this.withCounts(r) : r);
+        const shown = await this.withApprovals(annotate && p === annotate.package && name === annotate.query ? await this.withCounts(r) : r);
+        return this.path.thumb ? withThumbs(shown, this.path.thumb) : shown;
       },
       bytes: (p, hash) => this.t.uiCat(p, hash),
       open: opts.open ?? ((target) => this.path.open(target, (ref) => me && noteOpened(me, ref))),

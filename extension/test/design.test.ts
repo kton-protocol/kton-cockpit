@@ -203,3 +203,51 @@ test("design step 10: every block: a skeleton while it loads (busy), an empty st
     assert.match(er.innerHTML, /<div class="callout error" data-area-error role="alert"><p>the cockpit refused &lt;x&gt;<\/p><\/div>/, `${v}: error callout`);
   }
 });
+
+test("design: evidence: decoded names with line and location, the mismatch flag (bug 5), runs collapsed when passing without artifacts", async () => {
+  const e = await media("viewers/evidence/evidence.js");
+  const v = (b: Any) => (b && typeof b.value === "string" ? b.value : "");
+  const b = (o: Record<string, string>) => Object.fromEntries(Object.entries(o).map(([k, x]) => [k, { value: x }]));
+  const spec = b({ kind: "spec", repo: "improve-specs", commit: "49966c23eceb754264ea6c36296a6ca2ff6214b8", path: "specifications/Rights%20Management/ics1000%20Publish%20rights.md", line: "31", label: "Open spec: ics1000 Publish rights.md at line 31" });
+  assert.deepEqual(e.itemTitle(spec, v), { title: "ics1000 Publish rights.md", sub: "line 31", loc: "improve-specs · specifications/Rights Management/ · at 49966c23eceb" }, "never %20");
+  const test = b({ kind: "test", repo: "improve-rest-test", commit: "d74be51196a3", path: "src/test/kotlin/BasicTest.kt", line: "749", label: "Open test at line 749: improve-rest-test:com/x/ResourceAclTest.kt#an acl for a publish user" });
+  assert.equal(e.mismatch(test, v), "Opens BasicTest.kt line 749, not the test in ResourceAclTest.kt.");
+  assert.equal(e.mismatch(b({ ...Object.fromEntries(Object.entries(test).map(([k, x]: Any) => [k, x.value])), path: "src/x/ResourceAclTest.kt" }), v), "", "the same file: no flag");
+  const runs = [b({ run: "r1", testName: "t", outcome: "failed", sha256: "sha256:" + "a".repeat(64), name: "x.png", label: "Open screenshot: run r1 (failed)", artifact: "screenshot" }), b({ run: "r2", testName: "t", outcome: "passed", note: "no", passingWhy: "a passing test leaves no screenshot" }), b({ run: "r3", testName: "t", outcome: "passed", passingWhy: "a passing test leaves no screenshot" })];
+  const h = e.runsTable(esc, runs, v, () => "", true);
+  assert.equal((h.match(/data-evidence="artifact"/g) ?? []).length, 1, "passing runs without artifacts are not listed one per line (bug 13)");
+  assert.match(h, /<p class="kton-muted" data-passing="2">2 passing runs without an artifact: a passing test leaves no screenshot/);
+  assert.match(h, /data-label="Open screenshot: run r1 \(failed\)"/);
+});
+
+test("design: thumbnails: hash-checked data URLs in assertion order, at most per row and per answer; nothing else changes", async () => {
+  const { withThumbs } = await import("../src/ui/artifacts.js");
+  const sha = (c: string) => `sha256:${c.repeat(64)}`;
+  const entry = (n: string, kind: string, c: string, mt = "image/jpeg") => [n, kind, sha(c), "run1", `out/${c}.jpg`, mt, "100", "a.spec.ts:12", "expect visible"].join("\t");
+  const answer = { head: { vars: ["test", "evidence"] }, results: { bindings: [
+    { test: { type: "literal", value: "t1" }, evidence: { type: "literal", value: [entry("2", "assertion-screenshot", "b"), entry("1", "assertion-screenshot", "a"), entry("", "error-context", "c", "text/markdown")].join("\n") } },
+    { test: { type: "literal", value: "t2" }, run: { type: "literal", value: "run1" }, name: { type: "literal", value: "x.png" }, sha256: { type: "literal", value: sha("d") }, mediaType: { type: "literal", value: "image/png" }, artifact: { type: "literal", value: "screenshot" } },
+  ] } };
+  const asked: string[] = [];
+  const out = (await withThumbs(answer, async (t) => (asked.push(t.sha256), t.sha256.endsWith("b") ? undefined : `data:${t.mediaType};base64,QQ==`), { perRow: 4, total: 2 })) as Any;
+  const es = out.results.bindings[0].evidence.value.split("\n").map((l: string) => l.split("\t"));
+  assert.deepEqual(es.map((x: string[]) => [x[0], x[1], x[9]]), [["1", "assertion-screenshot", "data:image/jpeg;base64,QQ=="], ["2", "assertion-screenshot", ""], ["", "error-context", ""]], "assertion order; a refused hash gets none; text is never a thumbnail");
+  assert.equal(out.results.bindings[1].thumb.value, "data:image/png;base64,QQ==");
+  assert.deepEqual(asked, [sha("a"), sha("b"), sha("d")]);
+  const capped = (await withThumbs(answer, async () => "data:image/png;base64,QQ==", { perRow: 1, total: 1 })) as Any;
+  assert.equal(capped.results.bindings[1].thumb, undefined, "the answer's cap");
+  const plain = { head: { vars: ["x"] }, results: { bindings: [{ x: { type: "literal", value: "1" } }] } };
+  assert.equal(await withThumbs(plain, async () => "data:"), plain, "an answer without artifacts is returned as it is");
+});
+
+test("design: rows: short test ids, group notes once, the packed evidence in assertion order", async () => {
+  const r = await media("viewers/rows/rows.js");
+  assert.equal(r.shortId("ext-core-e2e:uat/ics1824.spec.ts#RBN-002: Explorer toolbar"), "ics1824.spec.ts · RBN-002: Explorer toolbar");
+  assert.equal(r.shortId("lane:improve-rest-test:ReviewsTest.kt#entries of another review"), "ReviewsTest.kt · entries of another review");
+  assert.equal(r.shortId(`https://kton.dev/o/${"a".repeat(64)}`), "sha256:aaaaaaaaaaaa…");
+  assert.equal(r.shortId("https://scinteco.com/ns/improve/spec/ics2041/6da9"), "6da9");
+  assert.deepEqual(r.groupNotes(["lane harness 1: login | lane harness 3: New (+)", "lane harness 1: login", ""]), ["lane harness 1: login", "lane harness 3: New (+)"]);
+  const sha = (c: string) => `sha256:${c.repeat(64)}`;
+  const ev = r.parseEvidence([["2", "assertion-screenshot", sha("b"), "r", "n2", "image/jpeg", "1", "a.ts:9", "two"], ["1", "assertion-screenshot", sha("a"), "r", "n1", "image/jpeg", "1", "a.ts:3", "one"], ["", "trace", sha("c"), "r", "t.zip", "application/zip", "1", "", ""], ["", "bad", "nohash"]].map((x) => x.join("\t")).join("\n"));
+  assert.deepEqual(ev.map((x: Any) => [x.assertion, x.kind, x.site]), [["1", "assertion-screenshot", "a.ts:3"], ["2", "assertion-screenshot", "a.ts:9"], ["", "trace", ""]]);
+});

@@ -97,3 +97,73 @@ export function artifactOf(uri: { path: string; query: string }): ArtifactTarget
   const [sha256, mediaType] = uri.query.split("&");
   return artifactTarget({ run, name: rest.join("/"), sha256, ...(mediaType ? { mediaType } : {}) });
 }
+
+/** Thumbnails in a query answer (qm 51c22b74): how many, and how large an image may be to travel as one. */
+export interface ThumbLimits {
+  readonly perRow: number;
+  readonly total: number;
+}
+export const THUMB_LIMITS: ThumbLimits = { perRow: 4, total: 24 };
+/** The bytes a thumbnail may have (a data URL in the answer; larger images are links only). */
+export const THUMB_MAX_BYTES = 400_000;
+const THUMB_KINDS = /^(assertion-screenshot|screenshot)$/;
+
+/** A packed evidence entry (ch-failures ?evidence): assertion, kind, sha256, run, name, mediaType, bytes, site, text[, thumb]. */
+export function evidenceEntries(packed: string): string[][] {
+  return packed
+    .split("\n")
+    .filter((l) => l.trim() !== "")
+    .map((l) => l.split("\t"));
+}
+
+/**
+ * Add hash-checked thumbnails to an answer, for the blocks to show (the frame has no other way to the bytes):
+ * - a packed ?evidence column: each assertion screenshot (in assertion order) gets its data URL as a tenth field;
+ * - a row with ?run ?name ?sha256 whose ?artifact (or ?kind) is a screenshot: a ?thumb binding.
+ * `thumb` reads the artifact and checks its sha256 (readArtifact); it answers undefined for anything it will not show.
+ * At most `perRow` per row and `total` per answer; nothing else in the answer changes.
+ */
+export async function withThumbs(answer: unknown, thumb: (t: ArtifactTarget) => Promise<string | undefined>, lim: ThumbLimits = THUMB_LIMITS): Promise<unknown> {
+  const a = answer as { head?: { vars?: string[] }; results?: { bindings?: Array<Record<string, { type: string; value: string }>> } };
+  const rows = a.results?.bindings;
+  if (!Array.isArray(rows)) return answer;
+  let left = lim.total;
+  let added = false;
+  const out = [];
+  for (const r of rows) {
+    const row = { ...r };
+    const ev = r["evidence"]?.value;
+    if (typeof ev === "string" && ev.includes("\t")) {
+      const es = evidenceEntries(ev).sort((x, y) => (Number(x[0]) || 1e9) - (Number(y[0]) || 1e9));
+      let n = 0;
+      for (const e of es) {
+        const [, kind, sha256, run, name, mediaType] = e;
+        let url = "";
+        if (left > 0 && n < lim.perRow && kind === "assertion-screenshot" && /^image\//.test(mediaType ?? "")) {
+          const t = artifactTarget({ run, name, sha256, mediaType });
+          if (typeof t !== "string") url = (await thumb(t)) ?? "";
+          if (url) (n++, left--);
+        }
+        e.length = 9;
+        e.push(url);
+      }
+      row["evidence"] = { type: "literal", value: es.map((e) => e.map((x) => x ?? "").join("\t")).join("\n") };
+      added = true;
+    } else {
+      const kind = r["artifact"]?.value ?? r["kind"]?.value ?? "";
+      if (left > 0 && THUMB_KINDS.test(kind) && r["sha256"] && r["run"] && r["name"] && /^image\//.test(r["mediaType"]?.value ?? "")) {
+        const t = artifactTarget({ run: r["run"].value, name: r["name"].value, sha256: r["sha256"].value, mediaType: r["mediaType"]?.value });
+        const url = typeof t === "string" ? undefined : await thumb(t);
+        if (url) {
+          row["thumb"] = { type: "literal", value: url };
+          left--;
+          added = true;
+        }
+      }
+    }
+    out.push(row);
+  }
+  if (!added) return answer;
+  const vars = a.head?.vars ?? [];
+  return { ...a, head: { ...a.head, vars: vars.includes("thumb") ? vars : [...vars, "thumb"] }, results: { ...a.results, bindings: out } };
+}
