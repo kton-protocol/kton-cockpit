@@ -115,7 +115,9 @@ and `ask --json` name them (a warning, not a refusal: two scopes may share a nam
 claims), so an answer can be stamped with exactly the graphs it was computed over.
 
 A bound `$SCOPE` is a plain literal (docs/sparql.md); a seed is compared as an IRI, so a query binds it with
-`BIND(IRI(?SCOPE) AS ?seed)` or the cockpit binds an IRI where the parameter is declared one.
+`BIND(IRI(?SCOPE) AS ?seed)` or the cockpit binds an IRI where the parameter is declared one. A scope id written
+`sha256:<hex>` is converted to its seed `https://kton.dev/o/<hex>` where a parameter is declared a scope;
+anything else that is not an IRI there is refused, so a mistyped seed never answers zero rows silently.
 
 ### 4 Namespaces
 
@@ -126,8 +128,10 @@ by name: `urn:kton:view:…:scope:` is claims, `https://kton.dev/o/` is a loaded
 ### 4a Loaded graphs get the same metadata
 
 A new version of a file is a new hash, so a loaded graph found only by its content breaks once two versions are
-loaded. Each loaded graph is described in the repository's catalogue, which a claims-dataset query gets in its
-default graph:
+loaded. Each loaded graph is described in the repository's catalogue. The view is per slot and the catalogue per
+repository, so the catalogue is never copied into a view: a claims-dataset query of this repository gets it as
+one more default graph, listed per request, and a repository sharing the slot does not see it. This amends
+ADR-017 (the catalogue was the cockpit's bookkeeping only):
 
 ```turtle
 <https://kton.dev/o/<hex>> a nk:LoadedGraph ;
@@ -136,8 +140,11 @@ default graph:
     nk:loadedAt "2026-11-20T12:45:00Z"^^xsd:dateTime .
 ```
 
-"The current version of a data set" is then a `GROUP BY` over `nk:path` (or the label) and `MAX(nk:loadedAt)`, as
-in section 5. The load list keeps the label and the time; nothing about a load is signed (ADR-017).
+"The version of a data set loaded last" is then a `GROUP BY` over `nk:path` (or the label) and `MAX(nk:loadedAt)`,
+as in section 5. That is the version loaded last, not the one produced last: reloading an old file makes it the
+latest loaded. "Produced last" orders by the producing step (`prov:wasGeneratedBy` and the step's time) instead.
+One file may have several paths (the same bytes written twice); each is a triple. The load list keeps the label
+and the time; nothing about a load is signed (ADR-017).
 
 ### 5 Latest, and rows
 
@@ -176,6 +183,8 @@ template carries the flag, a "latest per subject" query leaves it out by name. I
   - `bindTerms` reaches a group inside `GRAPH` (VALUES in the outer group joins into it), and `BIND(IRI(?X))` in
     the outer group does too (to be shown by test);
   - two graphs of one label are both read, and `doctor` names the label;
+  - two repositories on one slot each see only their own `nk:LoadedGraph` descriptions;
+  - a scope parameter given as `sha256:<hex>` reads the seed's graph;
   - a claim of a template with `"claims": "rows"` carries `nk:row true`, one of a template without it does not;
   - a claim is in its signed scope's graph whatever store file holds it;
   - `cockpit load` refuses a `urn:kton:view:` name.
