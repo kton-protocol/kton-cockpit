@@ -1585,7 +1585,7 @@ error `-32601`, and params with a field the method does not take are error `-326
 > **Checked by:** `TestServe_InitializeNamesTheWorkspaceFirst`, `TestServe_ListingsAreTheCommandLinesJSON`,
 > `TestServe_VerbsAnswerAndRefuseAsTheCommandLine`, `TestServe_RefusesAWorkspaceTheEnvironmentWouldRedirect`,
 > `TestServe_TheBinaryKeepsStdoutForTheProtocol`, `TestServe_ASayRunningAtShutdownIsAnswered`,
-> `TestServe_EventsNameWhatWasSaidAndResumeFromTheirCursor`,
+> `TestServe_EventsNameWhatWasSaidAndResumeFromTheirCursor`, `TestServe_IndexMovedComesOnceTheIndexHoldsTheClaim`,
 > `TestServer_AnswersRequestsAndErrorsAndGoesOn`, `TestServer_CancelsARunningRequest`,
 > `TestServer_AnswersWhatIsRunningWhenTheInputEnds`, `TestServer_ShutdownAnswersWhatItAcceptedFirst`,
 > `TestServer_ExitWaitsForWhatIsRunning`, `TestServer_CancelMatchesANumberIDByValue`, `TestReadMessage_Framing`.
