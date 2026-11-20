@@ -211,7 +211,7 @@ lists it (kton-review D4.3).
   bytes.
 - Loading is a step someone takes: a script that wants its result queryable runs `cockpit load` on it once; the
   checkout remembers it, and the index loads it again after a rebuild as long as the file is where it was.
-- SPEC: §9.9 (the dataset), §12.4 (what the index holds), the `load` command, and the configuration schema
+- SPEC §9.9 (the dataset), SPEC §12.4 (what the index holds), SPEC §12.6 (the `load` command), and the configuration schema
   (`index.derived`).
 
 ## Decided (MH, 2026-11-20)
