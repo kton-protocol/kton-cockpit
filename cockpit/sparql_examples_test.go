@@ -225,6 +225,11 @@ func TestSparql_TheExamplesAnswerOverAFixture(t *testing.T) {
 				t.Errorf("want the one claim chained in the study, first after its seed: %v", a.Rows)
 			}
 		}},
+		{"The latest claim per subject in a scope", nil, func(t *testing.T, a *SparqlAnswer) {
+			if len(a.Rows) != 1 || a.Rows[0]["claim"] != o(f.scoped) || a.Rows[0]["subject"] != o(f.step) {
+				t.Errorf("want the one claim of the study as its step's latest: %v", a.Rows)
+			}
+		}},
 		{"The descriptions of a step, in the nanopublication graphs", map[string]string{"STEP": f.step}, func(t *testing.T, a *SparqlAnswer) {
 			texts := column(a, "text")
 			if a.Dataset != "nanopub" || len(a.Rows) != 2 || !texts["dropped rows without a visit date"] ||
