@@ -1592,7 +1592,9 @@ cockpit writes under `cockpit`, the machine's jobs runner under its own name, a 
 past 16 MiB, and a line that does not parse is skipped. `workflow run` takes an `origin` (one JSON object, at
 most 4 KiB, opaque: where a frontend started it) and answers the run's `runId`; a run is recorded from its
 first step to its end, however it ends, and one refused before it ran records nothing (over `serve`: `failed`,
-since it was queued). `workflow/run` over `serve` answers the id at once and runs in the background;
+since it was queued). `workflow/run` over `serve` answers the id at once and runs in the background, for
+as long as the connection lasts: when it ends, its runs are cancelled and waited for (at most 10 s), and one
+that has not ended is recorded `cancelled` before the process exits;
 `run/list {origin?, limit?}` and `run/status {id}` read the journal (CLI: `workflow runs`, `workflow status`).
 An origin filter of kind `act` MUST name a prefix of `package`, `composition`, `part`, `act`, so a subtree is
 one filter; another filter matches on every key it names. With events, `events/runStarted`, `events/runState`
@@ -1612,7 +1614,7 @@ starts is no longer known; every request accepted before it is answered first.
 > `TestServe_TheBinaryKeepsStdoutForTheProtocol`, `TestServe_ASayRunningAtShutdownIsAnswered`,
 > `TestServe_EventsNameWhatWasSaidAndResumeFromTheirCursor`, `TestServe_IndexMovedComesOnceTheIndexHoldsTheClaim`,
 > `TestEvents_AnIndexMovedOwedIsSentOnceTheIndexIsBack`, `TestEvents_ASinceThatIsNoCursorIsRefused`,
-> `TestServe_AWorkflowRunIsAJobWithItsOrigin` (`-tags docker`), `TestJournal_FoldsRunsAcrossWritersAndRotations`,
+> `TestServe_AWorkflowRunIsAJobWithItsOrigin`, `TestServe_ARunEndsWhenTheConnectionDoes` (`-tags docker`), `TestJournal_FoldsRunsAcrossWritersAndRotations`,
 > `TestJournal_AnActFilterIsAPrefix`,
 > `TestServer_AnswersRequestsAndErrorsAndGoesOn`, `TestServer_CancelsARunningRequest`,
 > `TestServer_AnswersWhatIsRunningWhenTheInputEnds`, `TestServer_ShutdownAnswersWhatItAcceptedFirst`,

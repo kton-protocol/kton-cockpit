@@ -105,15 +105,16 @@ func (c *Cockpit) QueueRun(ctx context.Context, in WorkflowRunRequest) (string, 
 	return id, nil
 }
 
-// FailQueuedRun ends a queued run that was refused before it ran, so it does not stay queued.
-func (c *Cockpit) FailQueuedRun(ctx context.Context, id string, why error) error {
+// EndRun records state for a run that has not ended yet (queued or running), with why: a run refused
+// before it ran, or one whose connection ended under it. A run that ended is left as it ended.
+func (c *Cockpit) EndRun(ctx context.Context, id, state, why string) error {
 	r, err := c.RunStatus(ctx, id)
-	if err != nil || r.State != jobs.Queued {
+	if err != nil || jobs.Terminal(r.State) {
 		return err
 	}
 	cfg, err := config.Load(ctx, c.dir())
 	if err != nil {
 		return err
 	}
-	return jobs.Append(jobs.Dir(cfg.LocalDir), JobsWriter, jobs.Line{ID: id, Kind: jobs.KindWorkflow, State: jobs.Failed, Error: why.Error()})
+	return jobs.Append(jobs.Dir(cfg.LocalDir), JobsWriter, jobs.Line{ID: id, Kind: r.Kind, State: state, Error: why})
 }

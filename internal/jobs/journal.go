@@ -143,7 +143,8 @@ func Append(dir, writer string, l Line) error {
 }
 
 // Runs folds every writer's lines under dir into runs, the newest first. Ticks are left out, and so is
-// a line that does not parse (a write cut short by a crash).
+// a line that does not parse (a write cut short by a crash). Lines fold in file order, which is time
+// order while each run has one writer, as every run does (kton-review on #218).
 func Runs(dir string) ([]Run, error) {
 	files, err := filepath.Glob(filepath.Join(dir, "*.jsonl"))
 	if err != nil {

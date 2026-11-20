@@ -3,8 +3,10 @@
 package cli
 
 import (
+	"bufio"
 	"encoding/json"
 	"testing"
+	"time"
 )
 
 // Over serve, workflow/run answers the run's id at once; the run is in the checkout's jobs journal with
@@ -70,5 +72,44 @@ func TestServe_AWorkflowRunIsAJobWithItsOrigin(t *testing.T) {
 	must(t, json.Unmarshal(got[len(got)-1].Params, &fin))
 	if fin.ID != started.RunID || fin.State != "failed" {
 		t.Errorf("a run refused before it ran: want failed, got %+v", fin)
+	}
+}
+
+// The binary itself: a run started over serve, then the input closed at once. serve cancels the run,
+// waits for it, and records how it ended before the process exits; it is never left queued or running
+// (kton-review J1 on #218).
+func TestServe_ARunEndsWhenTheConnectionDoes(t *testing.T) {
+	r := verticleRepo(t, alpineImage, alpineImage)
+	cmd := r.CockpitCommand(t, "serve", "--stdio")
+	in, err := cmd.StdinPipe()
+	must(t, err)
+	out, err := cmd.StdoutPipe()
+	must(t, err)
+	must(t, cmd.Start())
+	c := &serveClient{t: t, w: in, r: bufio.NewReader(out)}
+	c.ok("initialize", map[string]any{"root": r.Root})
+	var started struct {
+		RunID string `json:"runId"`
+	}
+	must(t, json.Unmarshal(c.ok("workflow/run", map[string]any{"name": "greet",
+		"bindings": map[string]string{"name": "data/ada.txt"}}), &started))
+	in.Close()
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	select {
+	case <-done:
+	case <-time.After(60 * time.Second):
+		_ = cmd.Process.Kill()
+		t.Fatal("serve did not end after its input closed")
+	}
+	stdout, _, code := r.CockpitSplit(t, "workflow", "status", started.RunID, "--json")
+	var st struct {
+		State string `json:"state"`
+	}
+	if code != 0 || json.Unmarshal([]byte(stdout), &st) != nil {
+		t.Fatalf("workflow status (exit %d): %s", code, stdout)
+	}
+	if st.State != "cancelled" && st.State != "succeeded" {
+		t.Errorf("after the connection ended the run has ended: want cancelled or succeeded, got %q", st.State)
 	}
 }
