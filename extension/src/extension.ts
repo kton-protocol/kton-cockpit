@@ -197,6 +197,7 @@ class VsHost implements UiHost {
    */
   showComposition(key: string, title: string, viewers: readonly LoadedViewer[], onMessage: (msg: unknown) => void): { post: (msg: unknown) => void; urls: ReadonlyMap<string, string> } {
     const kit = vscode.Uri.joinPath(this.ctx.extensionUri, "media", "kton-web");
+    const design = vscode.Uri.joinPath(this.ctx.extensionUri, "media", "workbench", "design");
     const store = vscode.Uri.joinPath(this.ctx.globalStorageUri, "viewers");
     // the trees first, each path checked to stay under its tree's folder (F1 on #174): a refusal opens no panel
     const written = viewers.map((v) => {
@@ -207,7 +208,7 @@ class VsHost implements UiHost {
     this.handlers.set(key, onMessage);
     let p = this.panels.get(key);
     if (!p) {
-      p = vscode.window.createWebviewPanel("ktonWorkbench.composition", title, vscode.ViewColumn.Active, { enableScripts: true, retainContextWhenHidden: false, localResourceRoots: [kit, store] });
+      p = vscode.window.createWebviewPanel("ktonWorkbench.composition", title, vscode.ViewColumn.Active, { enableScripts: true, retainContextWhenHidden: false, localResourceRoots: [kit, store, design] });
       const panel = p;
       this.panels.set(key, panel);
       panel.onDidDispose(() => {
@@ -224,6 +225,7 @@ class VsHost implements UiHost {
       cspSource: webview.cspSource,
       frame: webview.asWebviewUri(vscode.Uri.joinPath(kit, "viewers", "compose", "frame.js")).toString(),
       css: webview.asWebviewUri(vscode.Uri.joinPath(kit, "core", "compose.css")).toString(),
+      design: { css: webview.asWebviewUri(vscode.Uri.joinPath(design, "workbench.css")).toString() },
       ...(this.mermaidFrame ? { mermaidFrame: this.mermaidFrame } : {}),
     });
     p.reveal();
