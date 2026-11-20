@@ -35,7 +35,8 @@ your trust moves (ADR-013):
   rdfs:label "name" ; nk:source "own" ; nk:parent <seed> ; nk:claims 12`, or `nk:unscoped true`).
   Naming the scope's graph (`GRAPH ?g`) reads only it, which on large data is many times faster.
   The files `cockpit load` loaded for this repository are named graphs too, each described as
-  `?g a nk:LoadedGraph ; nk:path "out/x.ttl" ; nk:loadedAs "label" ; nk:loadedAt …`. A
+  `?g a nk:LoadedGraph ; nk:path "out/x.ttl" ; nk:loadedAs "label" ; nk:loadedAt …` (a path
+  only from a step a key you trust signed). A
   `GRAPH ?g` whose `?g` nothing else binds reads both kinds: say which (`?g a nk:ClaimGraph`).
   `ask --json` lists the claim graphs an answer read (`claimGraphs`) and the scope names more
   than one of them carries (`repeatedLabels`).

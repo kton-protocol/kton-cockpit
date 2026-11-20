@@ -161,6 +161,8 @@ type loadEntry struct {
 
 // describe is how a loaded file's graph is found (ADR-018, section 4a): the output paths the steps
 // that produced it record for it, and the label the load gave it. A file no step produced has none.
+// Only steps a key of the trust tiers signed name a path: an untrusted step writing the same bytes
+// elsewhere would otherwise name this repository's graph (kton-review F1 on #208).
 func describe(ctx context.Context, run *binaries.Runner, hex, label string) oxigraph.Description {
 	desc := oxigraph.Description{Label: label}
 	prod, err := run.Producer(ctx, "sha256:"+hex)
@@ -170,7 +172,7 @@ func describe(ctx context.Context, run *binaries.Runner, hex, label string) oxig
 	seen := map[string]bool{}
 	for _, rec := range prod.Records {
 		f, err := run.FotonByID(ctx, rec.ID)
-		if err != nil {
+		if err != nil || f.SignerKeyID == "" {
 			continue
 		}
 		for _, o := range f.Outputs {

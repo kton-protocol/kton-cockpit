@@ -78,10 +78,10 @@ func Free(ctx context.Context, d *Daemon, cfg *config.Config, keys []ed25519.Pub
 			if named, err = d.LoadedGraphs(ctx, cfg.RepoRoot); err != nil {
 				return nil, err
 			}
-			// The repository's catalogue describes its loaded graphs (nk:LoadedGraph, ADR-018 section 4a):
-			// listed per request as this repository's default graph, so another repository on the same
-			// view never sees it (kton-review B1 on ADR-018).
-			def = append(append([]string(nil), def...), CatalogueIRI(cfg.RepoRoot))
+			// The description of the repository's loaded graphs (nk:LoadedGraph, ADR-018 section 4a): listed
+			// per request as this repository's default graph, so another repository on the same view never
+			// sees it (kton-review B1 on ADR-018); the catalogue's bookkeeping stays unlisted.
+			def = append(append([]string(nil), def...), DescribedIRI(cfg.RepoRoot))
 		}
 		loaded = len(named)
 		// And the view's claim graphs, one per scope (ADR-018): GRAPH ?g reads one scope's claims.
