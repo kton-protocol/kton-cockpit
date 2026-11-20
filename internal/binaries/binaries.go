@@ -771,32 +771,68 @@ func (s *ClaimSigner) Sign(ctx context.Context, subject, tmplName string, sets m
 	return env, id, nil
 }
 
-// AddClaims stores signed claims in this repository's nekton store, in order, through one open of
-// it, and says how many it stored. The kernel's write registry loads only the scope files the claims
-// touch (kton #248); where only a whole open stores a claim identically (ErrNeedsFullOpen, raised before
-// that claim is stored), the rest go through one. A refusal leaves the claims before it stored: the
-// store is append-only, so a caller checks everything it can before signing.
+// AddClaims stores signed claims in this repository's nekton store, in order, as one batch of the
+// kernel's (Registry.AddAll, kton #281: each scope file and the position map read once per chunk, the
+// same bytes on disk as one Add per claim). It opens the store with the kernel's write registry, and
+// through a whole open for the rest when the kernel asks for one (ErrNeedsFullOpen). It returns how
+// many claims the store holds from this call. A claim the substrate refuses is reported in an
+// *AddRefused and the others go on; a failure to write the store stops it there.
 func (r *Runner) AddClaims(envs []core.Envelope) (int, error) {
 	defer r.wrote()
 	reg, err := nregistry.OpenForWrite(r.cfg.NektonDir)
 	if err != nil {
 		return 0, fmt.Errorf("opening the nekton registry: %w", err)
 	}
-	full := false
-	for i, env := range envs {
-		_, _, err := reg.Add(env)
-		if errors.Is(err, nregistry.ErrNeedsFullOpen) && !full {
-			if reg, err = nregistry.Open(r.cfg.NektonDir); err != nil {
-				return i, fmt.Errorf("opening the nekton registry: %w", err)
-			}
-			full = true
-			_, _, err = reg.Add(env)
+	results, err := reg.AddAll(envs)
+	if errors.Is(err, nregistry.ErrNeedsFullOpen) {
+		full, oerr := nregistry.Open(r.cfg.NektonDir)
+		if oerr != nil {
+			return stored(results), fmt.Errorf("opening the nekton registry: %w", oerr)
 		}
-		if err != nil {
-			return i, fmt.Errorf("the claim was signed but the registry refused it: %w", err)
+		var rest []nregistry.AddResult
+		rest, err = full.AddAll(envs[len(results):])
+		results = append(results, rest...)
+	}
+	if err != nil {
+		return stored(results), fmt.Errorf("writing the nekton store after %d of %d claims: %w", len(results), len(envs), err)
+	}
+	var refused []AddRefusal
+	for i, res := range results {
+		if res.Err != nil {
+			refused = append(refused, AddRefusal{Index: i, Err: res.Err})
 		}
 	}
+	if len(refused) > 0 {
+		return stored(results), &AddRefused{Stored: stored(results), Refused: refused}
+	}
 	return len(envs), nil
+}
+
+func stored(results []nregistry.AddResult) int {
+	n := 0
+	for _, res := range results {
+		if res.Err == nil {
+			n++
+		}
+	}
+	return n
+}
+
+// AddRefusal is one claim the substrate refused, by its position in the batch (from 0).
+type AddRefusal struct {
+	Index int
+	Err   error
+}
+
+// AddRefused says which claims of a batch the substrate refused; the others are stored.
+type AddRefused struct {
+	Stored  int
+	Refused []AddRefusal
+}
+
+func (e *AddRefused) Error() string {
+	first := e.Refused[0]
+	return fmt.Sprintf("the registry refused %d claim(s), the first at position %d: %v", len(e.Refused), first.Index+1, first.Err)
 }
 
 // templates loads this repo's template set. An alias file is optional and this cockpit ships none:

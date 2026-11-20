@@ -174,8 +174,16 @@ func (c *Cockpit) SayBatch(ctx context.Context, in SayBatchRequest) (*SayBatchRe
 	// claims before it stored, and says how many.
 	n, err := r.AddClaims(envs)
 	release()
-	if err != nil {
-		return nil, refuse("kernel", "", "claim %d: %v (the %d claim(s) before it are stored; say the rest again)", n+1, err, n)
+	var refused *binaries.AddRefused
+	if errors.As(err, &refused) {
+		pos := make([]string, len(refused.Refused))
+		for k, x := range refused.Refused {
+			pos[k] = fmt.Sprint(x.Index + 1)
+		}
+		return nil, refuse("kernel", "", "the store refused claim(s) %s, the first: %v (the other %d are stored, not committed: say the refused ones again)",
+			strings.Join(pos, ", "), refused.Refused[0].Err, refused.Stored)
+	} else if err != nil {
+		return nil, refuse("kernel", "", "%v (%d claim(s) are stored, not committed)", err, n)
 	}
 	// Each claim carries what one say's claim carries: the configured evidence, and its anchor when the
 	// repository anchors (kton-review A1 on #188), so no form of say is laxer than another (SPEC §6).

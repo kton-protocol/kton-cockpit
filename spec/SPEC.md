@@ -779,8 +779,8 @@ say many claims in one write. Each claim takes the request and the checks of one
   repository anchors, its own anchor, reported per claim. No form of `say` is laxer than another (SPEC §6).
 - `reproduces` runs a reproduction per claim and MUST NOT be in a batch.
 
-The store is append-only. A refusal by the substrate while storing leaves the claims before it stored,
-and says how many.
+The store is append-only. A claim the substrate refuses while storing is named in the refusal; the
+others are stored, and the refusal says how many.
 
 > **Checked by:** `TestSayBatch_ManyClaimsInOneWriteChainInOrder`,
 > `TestSayBatch_OneBadClaimRefusesTheBatchAndWritesNothing`,
