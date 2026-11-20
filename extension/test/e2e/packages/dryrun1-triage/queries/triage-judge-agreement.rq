@@ -1,0 +1,26 @@
+# judge-agreement: how often a person's spot checks (triage-spotcheck) side with each judge. Per signer and
+# judge ("rule judge", "second model"): ?agreed (verdicts naming that judge right), ?total (all of the signer's
+# current verdicts, spec-unclear included), ?share = agreed / total in percent, rounded. Only unreplaced spot
+# checks (one per subject and signer). $minVerdicts (optional, integer): rows only once the signer has at least
+# that many verdicts; unbound, every row. Run: only spot checks in "dryrun1.triage"; the verdict under triage: (this
+# package's aliases) or lab: (a cockpit that does not apply them).
+PREFIX nk:     <https://kton.dev/v/>
+PREFIX triage: <https://scinteco.com/ns/triage#>
+PREFIX lab:    <https://kton.dev/v/lab/>
+PREFIX rdfs:   <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX xsd:    <http://www.w3.org/2001/XMLSchema#>
+SELECT ?signer ?judge ?agreed ?total ?share WHERE {
+  {
+    SELECT ?signer ?judge (SUM(?hit) AS ?agreed) (COUNT(?claim) AS ?total) WHERE {
+      ?ts rdfs:label "dryrun1.triage" .
+      ?claim nk:scope ?ts ; nk:predicate triage:spotchecks ; nk:signer ?signer ; triage:verdict|lab:verdict ?verdict .
+      FILTER NOT EXISTS { ?claim nk:replacedBy ?newer }
+      VALUES (?judge ?right) { ("rule judge" "rule-judge-right") ("second model" "second-model-right") }
+      BIND(IF(STR(?verdict) = ?right, 1, 0) AS ?hit)
+    }
+    GROUP BY ?signer ?judge
+  }
+  FILTER( ?total >= COALESCE(xsd:integer($minVerdicts), 0) )
+  BIND(ROUND(100 * ?agreed / ?total) AS ?share)
+}
+ORDER BY ?signer ?judge

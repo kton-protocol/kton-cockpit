@@ -33,14 +33,25 @@ export interface ExpectRevision {
 }
 export interface ActPath {
   /** The shell's one sign path (Workbench.signAct): the dialog for a decision control, the agent key for a record. */
-  act(control: Control, about: string, fields: Readonly<Record<string, string>>, title: string, expect?: ExpectRevision, into?: { readonly scope?: string; readonly proposed?: Readonly<Record<string, string>> }): Promise<"signed" | "cancelled" | "failed">;
-  open(target: Readonly<Record<string, unknown>>): Promise<string>;
+  act(control: Control, about: string, fields: Readonly<Record<string, string>>, title: string, expect?: ExpectRevision, into?: ActInto): Promise<"signed" | "cancelled" | "failed">;
+  /** open@1; `opened` is called with a reference to the evidence when it was shown (a source, a run artifact) */
+  open(target: Readonly<Record<string, unknown>>, opened?: (ref: string) => void): Promise<string>;
   identityName(): string;
   /** The window's person key id and the person tiers: whether an approval counts is decided over them (S6.12). */
   person?(): { readonly keyId: string; readonly personTiers: readonly string[] };
 }
 
+/** Where an act goes and what goes with it: the records scope, the frame's proposals, the panel's evidence opens. */
+export interface ActInto {
+  readonly scope?: string;
+  readonly proposed?: Readonly<Record<string, string>>;
+  /** the evidence this panel opened in this session (in memory only; never counted, only offered to lookedAt) */
+  readonly opened?: readonly string[];
+}
+
 export const SLOT_CMD = "ktonWorkbench.openSlot";
+/** A scope label (as `say --scope` takes it), never an IRI or a path. */
+export const SCOPE_LABEL = /^[A-Za-z][A-Za-z0-9_.-]*$/;
 
 const PANEL = "composition:";
 const entryKey = (e: SlotEntry) => `${e.package}/${e.file}`;
@@ -54,6 +65,8 @@ interface OpenPanel {
   busy: number;
   /** why the panel is to close once no act is in progress */
   retired?: string;
+  /** the evidence opened from this panel, in order, once each (this view session only) */
+  readonly opened: string[];
 }
 
 export class PackagesArea {
@@ -148,7 +161,7 @@ export class PackagesArea {
       const p = h as OpenPanel;
       p.busy++;
       try {
-        const r = await this.path.act(c, about, fields, title, { package: c.package, revision: p.revisions.get(c.package) as string }, { ...(scope ? { scope } : {}), ...(proposed && Object.keys(proposed).length ? { proposed } : {}) });
+        const r = await this.path.act(c, about, fields, title, { package: c.package, revision: p.revisions.get(c.package) as string }, { ...(scope ? { scope } : {}), ...(proposed && Object.keys(proposed).length ? { proposed } : {}), ...(p.opened.length ? { opened: [...p.opened] } : {}) });
         // a record is written with the agent key and no dialog: where it went is said, as the dialog says it for a
         // decision (the records scope is the package's declaration; kton-review N1 on #187)
         if (r === "signed" && c.kind === "record" && scope) this.ui.info(`${label}: recorded into scope ${scope} with the agent key (no dialog).`);
@@ -249,6 +262,12 @@ export class PackagesArea {
     if (e.area) return this.openArea(key, { ...e, area: e.area }, s, loaded, "area");
     const leaf = e.viewer ? loaded.packages[e.package]?.leaves[e.viewer] : undefined;
     if (leaf) return this.openLeaf(key, e, s, leaf, loaded);
+    // the entry's records scope (ktonpkg v0.9.11, the area's shape): its acts sign into it, as an area's do
+    const records = e.scopes?.records;
+    if (records !== undefined && !SCOPE_LABEL.test(records)) {
+      this.ui.error(`${e.label} cannot be shown: its scopes.records ${JSON.stringify(records)} is not a scope label`);
+      return undefined;
+    }
     let plan: Plan;
     try {
       plan = await planEntry(e, s, loaded, this.path.identityName(), (p, n, b) => this.named(p, n, b), this.builtin);
@@ -256,7 +275,7 @@ export class PackagesArea {
       this.ui.error(`${e.label} cannot be shown: ${(err as Error).message}`);
       return undefined;
     }
-    return this.showPlanned(`${PANEL}${key}`, e.label, e.package, plan, loaded, this.builtin ? { ...loaded.packages, [BUILTIN]: this.builtin } : loaded.packages, {});
+    return this.showPlanned(`${PANEL}${key}`, e.label, e.package, plan, loaded, this.builtin ? { ...loaded.packages, [BUILTIN]: this.builtin } : loaded.packages, { ...(records ? { scope: records } : {}) });
   }
 
   /**
@@ -278,6 +297,10 @@ export class PackagesArea {
       return undefined;
     }
     const a = e.area;
+    if (a.scopes?.records !== undefined && !SCOPE_LABEL.test(a.scopes.records)) {
+      this.ui.error(`${e.label} cannot be shown: its scopes.records ${JSON.stringify(a.scopes.records)} is not a scope label`);
+      return undefined;
+    }
     const panel = which === "area" ? `${PANEL}${key}` : `${PANEL}${key}#record`;
     const label = which === "area" ? e.label : `${e.label}: ${s.iri.split("/").pop() ?? s.iri}`;
     return this.showPlanned(panel, label, e.package, plan, loaded, packages, {
@@ -333,7 +356,7 @@ export class PackagesArea {
         return annotate && p === annotate.package && name === annotate.query ? await this.withCounts(r) : r;
       },
       bytes: (p, hash) => this.t.uiCat(p, hash),
-      open: opts.open ?? ((target) => this.path.open(target)),
+      open: opts.open ?? ((target) => this.path.open(target, (ref) => me && noteOpened(me, ref))),
       act: this.actFor(panel, label, () => me, opts.scope),
       run: async (ray, holes) => {
         const out = await this.t.workflowRun({ workflow: ray, bind: holes });
@@ -343,7 +366,7 @@ export class PackagesArea {
     };
     host = new CompositionHost(plan, loaded, backend, { post: shown.post, log: (l) => this.ui.log(l) });
     const acting = plan.uses.flatMap((u) => (u.acts ?? []).map((a) => a.control?.package)).filter((x): x is string => !!x);
-    me = { host, package: pkg, revisions: this.revisionsOf(loaded, [pkg, ...acting, ...(opts.revisions ?? [])]), busy: 0 };
+    me = { host, package: pkg, revisions: this.revisionsOf(loaded, [pkg, ...acting, ...(opts.revisions ?? [])]), busy: 0, opened: [] };
     this.open(panel, me);
     return host;
   }
@@ -386,7 +409,7 @@ export class PackagesArea {
     return {
       query: (pkg, name, terms) => this.named(pkg, name, terms),
       bytes: (pkg, hash) => this.t.uiCat(pkg, hash),
-      open: (target) => this.path.open(target),
+      open: (target) => this.path.open(target, (ref) => { const m = mine(); if (m) noteOpened(m, ref); }),
       act: this.actFor(key, label, mine),
       run: async (ray, holes) => {
         const out = await this.t.workflowRun({ workflow: ray, bind: holes });
@@ -410,7 +433,7 @@ export class PackagesArea {
     let me: OpenPanel | undefined;
     const shown = this.ui.showLeaf(panel, e.label, leaf, (m) => void host?.onMessage(m));
     host = new LeafHost({ decl: leaf.decl, slot: e.slot }, { ...(e.inputs ? { inputs: e.inputs } : {}), ...(control ? { control } : {}), label: e.label, package: e.package }, { id: s.id, ...(s.claim ? { claim: s.claim } : {}), closed }, loaded, this.backend(panel, e.label, () => me), { post: shown.post, log: (l) => this.ui.log(l) });
-    me = { host, package: e.package, revisions: this.revisionsOf(loaded, [e.package]), busy: 0 };
+    me = { host, package: e.package, revisions: this.revisionsOf(loaded, [e.package]), busy: 0, opened: [] };
     this.open(panel, me);
     return host;
   }
@@ -419,6 +442,16 @@ export class PackagesArea {
   hostOf(key: string): CompositionHost | LeafHost | undefined {
     return this.hosts.get(`${PANEL}${key}`)?.host;
   }
+}
+
+/** Evidence opened from a panel: kept once, in order, in memory. */
+function noteOpened(p: OpenPanel, ref: string): void {
+  if (!p.opened.includes(ref)) p.opened.push(ref);
+}
+
+/** The evidence a panel opened in this session (tests). */
+export function openedOf(area: PackagesArea, key: string): readonly string[] {
+  return (area as unknown as { hosts: Map<string, OpenPanel> }).hosts.get(`${PANEL}${key}`)?.opened ?? [];
 }
 
 /**

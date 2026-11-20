@@ -1,9 +1,0 @@
-{
-  "title": "Spot-check a judged element",
-  "kind": "decision",
-  "meaning": "reviewed",
-  "about": "subject.iri",
-  "say": {
-    "template": "triage-spotcheck"
-  }
-}

@@ -182,6 +182,11 @@
           "type": "string",
           "default": "",
           "description": "Folder with the local git mirrors (one per repository) from which evidence opens files as they were at a commit, read-only (git show). Empty: sources are not available on this host."
+        },
+        "kton.artifacts.dir": {
+          "type": "string",
+          "default": "",
+          "description": "Read-only root of run artifacts (test-execution's records/work): <run>/<name>, shown only when the bytes hash to the run-artifact claim's sha256. Empty: run artifacts are not available on this host."
         }
       }
     },

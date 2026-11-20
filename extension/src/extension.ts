@@ -8,6 +8,47 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { inside, writeTree } from "./packages/store.js";
 import { readAtCommit, sourceUri, SRC_SCHEME, targetOf, type SourceTarget } from "./ui/sources.js";
+import { ART_SCHEME, artifactOf, artifactUri, readArtifact, showAs, type ArtifactTarget } from "./ui/artifacts.js";
+
+const artifactsDir = (): string => vscode.workspace.getConfiguration("kton").get<string>("artifacts.dir") ?? "";
+
+/** Run artifacts, read-only: every read checks the bytes against the hash the URI carries (from the claim). */
+class ArtifactFs implements vscode.FileSystemProvider {
+  private readonly emitter = new vscode.EventEmitter<vscode.FileChangeEvent[]>();
+  readonly onDidChangeFile = this.emitter.event;
+  private async bytes(uri: vscode.Uri): Promise<Uint8Array> {
+    const t = artifactOf({ path: uri.path, query: uri.query });
+    if (typeof t === "string") throw vscode.FileSystemError.FileNotFound(`not shown: ${t}`);
+    const r = await readArtifact(artifactsDir(), t);
+    if (!("bytes" in r)) throw vscode.FileSystemError.NoPermissions(r.why);
+    return r.bytes;
+  }
+  async stat(uri: vscode.Uri): Promise<vscode.FileStat> {
+    const b = await this.bytes(uri);
+    return { type: vscode.FileType.File, ctime: 0, mtime: 0, size: b.byteLength, permissions: vscode.FilePermission.Readonly };
+  }
+  readFile(uri: vscode.Uri): Promise<Uint8Array> {
+    return this.bytes(uri);
+  }
+  watch(): vscode.Disposable {
+    return new vscode.Disposable(() => undefined);
+  }
+  readDirectory(): never {
+    throw vscode.FileSystemError.NoPermissions("read-only");
+  }
+  createDirectory(): never {
+    throw vscode.FileSystemError.NoPermissions("read-only");
+  }
+  writeFile(): never {
+    throw vscode.FileSystemError.NoPermissions("read-only");
+  }
+  delete(): never {
+    throw vscode.FileSystemError.NoPermissions("read-only");
+  }
+  rename(): never {
+    throw vscode.FileSystemError.NoPermissions("read-only");
+  }
+}
 
 const STALE_TITLE = " (stale: the last poll failed)";
 import { compositionPage, leafPage } from "./composition/page.js";
@@ -23,7 +64,7 @@ import type { DoctorReport } from "./transport/port.js";
 import { loadQueries } from "./ui/queries.js";
 import { loadSurfaces } from "./ui/surfaces.js";
 import { CMD, DEFAULT_CONFIG, Workbench } from "./ui/controller.js";
-import { signDialogPage } from "./ui/pages.js";
+import { artifactImagePage, signDialogPage } from "./ui/pages.js";
 import { workbenchCommands } from "./ui/commands.js";
 import type { StatusId, TreeNode, UiHost, ViewId } from "./ui/host.js";
 
@@ -66,8 +107,34 @@ class VsHost implements UiHost {
     const u = sourceUri(t);
     const doc = await vscode.workspace.openTextDocument(vscode.Uri.from({ scheme: SRC_SCHEME, path: u.path, query: u.query, fragment: u.fragment }));
     const line = Math.max(0, (t.line ?? 1) - 1);
-    await vscode.window.showTextDocument(doc, { preview: true, selection: new vscode.Range(line, 0, line, 0) });
+    // beside the view, without taking the focus: the decision view stays open (its session's looked-at list)
+    await vscode.window.showTextDocument(doc, { preview: true, viewColumn: vscode.ViewColumn.Beside, preserveFocus: true, selection: new vscode.Range(line, 0, line, 0) });
     return `Opened ${t.repo}:${t.path}${t.line ? `#L${t.line}` : ""} at ${t.commit.slice(0, 12)} (read-only)`;
+  }
+  /** A run artifact: checked against its sha256 before anything is shown; an image in the preview, text read-only. */
+  async openArtifact(t: ArtifactTarget): Promise<string> {
+    const r = await readArtifact(artifactsDir(), t);
+    if (!("bytes" in r)) {
+      this.out.appendLine(`run artifact not shown: ${r.why}`);
+      return r.why;
+    }
+    const u = artifactUri(t);
+    const uri = vscode.Uri.from({ scheme: ART_SCHEME, path: u.path, query: u.query });
+    const what = `${t.run}/${t.name} (${t.sha256.slice(0, 19)}…, ${r.bytes.byteLength} bytes, hash checked)`;
+    const how = showAs(t);
+    if (how === "image") {
+      this.showPanel(`artifact:${t.sha256}`, t.name.split("/").pop() ?? t.name, artifactImagePage(`${t.run}: ${t.name.split("/").pop() ?? t.name}`, what, t.mediaType ?? "image/png", r.bytes.toString("base64"), randomBytes(16).toString("base64")), undefined, true, vscode.ViewColumn.Beside);
+      return `Opened ${what}`;
+    }
+    if (how === "text") {
+      const doc = await vscode.workspace.openTextDocument(uri);
+      await vscode.window.showTextDocument(doc, { preview: true, viewColumn: vscode.ViewColumn.Beside, preserveFocus: true });
+      return `Opened ${what}`;
+    }
+    // a trace or a video: no viewer here; its hash and size, and where a trace viewer can open it
+    const text = `Shown ${what}: open it with the Playwright trace viewer (npx playwright show-trace <file>) from ${artifactsDir()}/${t.run}/${t.name}`;
+    void vscode.window.showInformationMessage(text);
+    return text;
   }
   private readonly status = new Map<StatusId, vscode.StatusBarItem>();
   private readonly panels = new Map<string, vscode.WebviewPanel>();
@@ -102,12 +169,12 @@ class VsHost implements UiHost {
   openPanels(): string[] {
     return [...this.panels.keys()];
   }
-  showPanel(key: string, title: string, html: string, onMessage?: (msg: unknown) => void, reveal = true): void {
+  showPanel(key: string, title: string, html: string, onMessage?: (msg: unknown) => void, reveal = true, column: vscode.ViewColumn = vscode.ViewColumn.Active): void {
     if (onMessage) this.handlers.set(key, onMessage);
     else this.handlers.delete(key);
     let p = this.panels.get(key);
     if (!p) {
-      p = vscode.window.createWebviewPanel("ktonWorkbench.panel", title, vscode.ViewColumn.Active, { enableScripts: !!onMessage, localResourceRoots: [] });
+      p = vscode.window.createWebviewPanel("ktonWorkbench.panel", title, { viewColumn: column, preserveFocus: column === vscode.ViewColumn.Beside }, { enableScripts: !!onMessage, localResourceRoots: [] });
       const panel = p;
       this.panels.set(key, panel);
       panel.onDidDispose(() => {
@@ -118,7 +185,7 @@ class VsHost implements UiHost {
     }
     p.title = title;
     p.webview.html = html;
-    if (reveal) p.reveal();
+    if (reveal) p.reveal(undefined, column === vscode.ViewColumn.Beside);
   }
   /**
    * A composition panel: the vendored kton-web frame, a CSP the host owns, and exactly the viewer trees the
@@ -358,6 +425,8 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
         return "bytes" in r ? r.bytes.toString("utf8") : r.why;
       },
     }),
+    // run artifacts: read-only, each read checked against the claim's sha256
+    vscode.workspace.registerFileSystemProvider(ART_SCHEME, new ArtifactFs(), { isReadonly: true, isCaseSensitive: true }),
     vscode.window.registerTreeDataProvider("ktonWorkbench.inbox", host.trees.inbox),
     vscode.window.registerTreeDataProvider("ktonWorkbench.lanes", host.trees.lanes),
     ...workbenchCommands(() => wb).map(([id, run]) => vscode.commands.registerCommand(id, run as (...args: unknown[]) => unknown)),

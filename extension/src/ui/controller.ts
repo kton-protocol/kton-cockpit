@@ -11,8 +11,9 @@ import { DialogConsent, meaningField, plan, sign, templateFor, FOOTER } from "..
 import type { UiEntry, SlotContext } from "../intents.js";
 import { checkIntent } from "../intents.js";
 import { Scheduler } from "../poll.js";
-import { sourceTarget } from "./sources.js";
-import { PackagesArea, SLOT_CMD, type ExpectRevision } from "../composition/area.js";
+import { sourceRef, sourceTarget } from "./sources.js";
+import { artifactRef, artifactTarget } from "./artifacts.js";
+import { PackagesArea, SLOT_CMD, type ActInto, type ExpectRevision } from "../composition/area.js";
 import type { Subject } from "../composition/slots.js";
 import type { Control, MirrorPackage, ViewerTree } from "../packages/model.js";
 import type { TreeNode, UiHost } from "./host.js";
@@ -140,14 +141,25 @@ export class Workbench {
     this.packages = new PackagesArea(t, host, {
       act: (c, about, fields, title, expect, into) => this.signAct(c, about, fields, title, expect, into),
       person: () => ({ keyId: this.identity.person.keyId, personTiers: this.cfg.personTiers }),
-      // open@1: a source at a commit (read-only, kton-src), a run artifact, or a claim this window knows
-      open: async (target) => {
+      // open@1: a source at a commit (read-only, kton-src), a run artifact (read-only, kton-art), or a claim this
+      // window knows. What was shown goes into the panel's looked-at list (opened); a refusal does not.
+      open: async (target, opened) => {
         if (target["source"] !== undefined) {
           const t = sourceTarget(target["source"]);
           if (typeof t === "string") return `not opened: ${t}`;
-          return this.host.openSource ? this.host.openSource(t) : "source not available on this host";
+          if (!this.host.openSource) return "source not available on this host";
+          const r = await this.host.openSource(t);
+          if (r.startsWith("Opened ")) opened?.(sourceRef(t));
+          return r;
         }
-        if (target["artifact"] !== undefined) return "no artifact for this run (run artifacts are not joined yet)";
+        if (target["artifact"] !== undefined) {
+          const t = artifactTarget(target["artifact"]);
+          if (typeof t === "string") return `not opened: ${t}`;
+          if (!this.host.openArtifact) return "run artifacts not available on this host";
+          const r = await this.host.openArtifact(t);
+          if (r.startsWith("Opened ") || r.startsWith("Shown ")) opened?.(artifactRef(t));
+          return r;
+        }
         return this.openTarget(target);
       },
       identityName: () => this.identity.hintName,
@@ -535,7 +547,7 @@ export class Workbench {
    * status bar (S7.4); a timeout or any failure after the say was sent is "unknown whether signed", and the
    * registry decides whether a claim exists (S7.3); "Not signed" only when it never reached the cockpit.
    */
-  private async signThroughDialog(intent: { kind: "sign"; about: string; fields: Readonly<Record<string, string>>; scope?: string }, control: ControlInfo, title: string, expect?: ExpectRevision): Promise<SignResult> {
+  private async signThroughDialog(intent: { kind: "sign"; about: string; fields: Readonly<Record<string, string>>; scope?: string; opened?: readonly string[] }, control: ControlInfo, title: string, expect?: ExpectRevision): Promise<SignResult> {
     const cannot = this.cannotSign(control.kind);
     if (cannot) {
       this.host.error(`Not signed: ${cannot}`);
@@ -612,11 +624,17 @@ export class Workbench {
    * control through the one sign dialog with the person key, a record control with the agent key and no
    * dialog. Same path as every other signature (signThroughDialog), so the dialog has one call site.
    */
-  async signAct(c: Control, about: string, fields: Readonly<Record<string, string>>, title: string, expect?: ExpectRevision, into?: { readonly scope?: string; readonly proposed?: Readonly<Record<string, string>> }): Promise<SignResult> {
+  async signAct(c: Control, about: string, fields: Readonly<Record<string, string>>, title: string, expect?: ExpectRevision, into?: ActInto): Promise<SignResult> {
     const control: ControlInfo = { package: c.package, name: c.name, template: c.template, kind: c.kind, ...(c.meaning !== undefined ? { meaning: c.meaning } : {}) };
-    const asked = await this.askOpenFields(control, fields, into?.proposed ?? {});
+    // the evidence this view session opened is offered for a template's lookedAt (after what the frame proposed), and
+    // listed in the dialog; it is kept nowhere else and counted nowhere
+    const tpl = templateFor(control, this.templates);
+    const opened = tpl?.fields["lookedAt"] && into?.opened?.length ? into.opened : undefined;
+    const proposed = { ...(into?.proposed ?? {}) };
+    if (opened) proposed["lookedAt"] = [...new Set([...(proposed["lookedAt"] ?? "").split(/\s+/).filter(Boolean), ...opened])].join(" ");
+    const asked = await this.askOpenFields(control, fields, proposed);
     if (!asked) return "cancelled";
-    return this.signThroughDialog({ kind: "sign", about, fields: asked, ...(into?.scope ? { scope: into.scope } : {}) }, control, title, expect);
+    return this.signThroughDialog({ kind: "sign", about, fields: asked, ...(into?.scope ? { scope: into.scope } : {}), ...(opened ? { opened } : {}) }, control, title, expect);
   }
 
   /**

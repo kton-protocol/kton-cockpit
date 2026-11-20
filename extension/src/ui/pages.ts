@@ -178,6 +178,7 @@ export function signDialogDetail(p: SignPlan, signer: ShownSigner): string {
     ...(p.meaning !== undefined ? [p.meaningField ? `Meaning: ${p.meaning} (signed as ${p.meaningField} = ${p.meaning})` : `Act: ${p.meaning} (the control's meaning, not a field of the claim)`] : []),
     ...(p.expect.template ? [`Template as listed: ${p.expect.template.slice(0, 19)}…${p.expect.revision ? ` · package revision ${p.expect.revision.slice(0, 19)}…` : ""}`] : []),
     ...(p.scope !== undefined ? [`Into scope: ${p.scope}`] : []),
+    ...(p.opened?.length ? [`Evidence you opened in this view (${p.opened.length}):\n${p.opened.map((r) => `  ${r}${(p.fields["lookedAt"] ?? "").split(/\s+/).includes(r) ? "  (in lookedAt)" : "  (not in lookedAt: you took it out)"}`).join("\n")}`] : []),
     `Signs with: ${p.keyRole} key "${p.as}" · ${who}`,
     "",
     p.rules,
@@ -207,4 +208,15 @@ signBtn.addEventListener('click',()=>{if(box.checked&&!signBtn.disabled){signBtn
 cancelBtn.addEventListener('click',()=>vscode.postMessage({type:'cancel'}));
 window.addEventListener('message',(e)=>{const m=e.data;if(m&&m.type==='outcome'){out.textContent=String(m.text);out.dataset.state=m.ok?'signed':'failed';}});`;
   return page(title, body, nonce, script);
+}
+
+/**
+ * A run artifact's image, read-only: the bytes (already checked against the claim's sha256) inlined as a data URI. The
+ * page's CSP allows images from data: only; no script.
+ */
+export function artifactImagePage(title: string, info: string, mediaType: string, base64: string, nonce: string): string {
+  const type = /^image\/(png|jpeg|gif|webp)$/.test(mediaType) ? mediaType : "image/png";
+  const body = `<h1>${esc(title)}</h1><div class="muted" data-testid="artifact-info">${esc(info)}</div>
+<img data-testid="artifact-image" alt="${esc(title)}" style="max-width:100%;border:1px solid var(--vscode-panel-border)" src="data:${type};base64,${base64}">`;
+  return page(title, body, nonce).replace("img-src 'none'", "img-src data:");
 }

@@ -1,12 +1,15 @@
-# Four spot checks; ?target is the element's canonical IRI (verification's element-key claims), what a verdict is about. $draw (optional) is "<kind>:<n>": gxp (GxP groups only), any (all in scope), covered (the covered-element
+# Four spot checks; ?target is the element's canonical IRI (verification's element-key claims), what a verdict is about;
+# ?element the element id (the evidence pick). Run: only claims in "dryrun1.mapping". $draw (optional) is "<kind>:<n>": gxp (GxP groups only), any (all in scope), covered (the covered-element
 # draw pool, to look for the hidden errors). Same draw, same cards. Unbound: the first GxP draw.
 PREFIX nk: <https://kton.dev/v/>
 PREFIX lab: <https://kton.dev/v/lab/>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
 PREFIX covx: <https://w3id.org/improve/coverage-extra#>
 PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
-SELECT ?item ?target ?title ?statement ?where ?test ?judge1 ?judge2 ?earlier ?stamp WHERE {
+SELECT ?item ?target ?element ?title ?statement ?where ?test ?judge1 ?judge2 ?earlier ?stamp WHERE {
   {
-    ?item nk:predicate covx:worklistItem ; lab:element ?e ; lab:inScope "true" ; lab:gxp ?gxp ; lab:stamp ?stamp .
+    ?sc rdfs:label "dryrun1.mapping" .
+    ?item nk:scope ?sc ; nk:predicate covx:worklistItem ; lab:element ?e ; lab:inScope "true" ; lab:gxp ?gxp ; lab:stamp ?stamp .
     OPTIONAL { ?item lab:statement ?statement } OPTIONAL { ?item lab:area ?area } OPTIONAL { ?item lab:test ?t } OPTIONAL { ?item lab:testFile ?tf } OPTIONAL { ?item lab:testLine ?tl }
     OPTIONAL { ?item lab:judge1 ?j1 } OPTIONAL { ?item lab:judge1Why ?j1w } OPTIONAL { ?item lab:judge1Source ?j1s }
     OPTIONAL { ?item lab:judge2 ?j2 } OPTIONAL { ?item lab:judge2Why ?j2w } OPTIONAL { ?item lab:judge2Source ?j2s } OPTIONAL { ?item lab:earlier ?earlierRaw }
@@ -17,19 +20,20 @@ SELECT ?item ?target ?title ?statement ?where ?test ?judge1 ?judge2 ?earlier ?st
     BIND(CONCAT(COALESCE(?j1s, "judge 1"), " · ", COALESCE(?j1, "?"), ": ", COALESCE(?j1w, "")) AS ?judge1)
     BIND(CONCAT(COALESCE(?j2s, "judge 2"), " · ", COALESCE(?j2, "?"), ": ", COALESCE(?j2w, "")) AS ?judge2)
     BIND(COALESCE(?earlierRaw, "") AS ?earlier)
-    OPTIONAL { ?k nk:predicate covx:elementKey ; lab:element ?e ; lab:elementIri ?eiri }
-    BIND(COALESCE(?eiri, ?item) AS ?target)
+    OPTIONAL { ?k nk:scope ?sc ; nk:predicate covx:elementKey ; lab:element ?e ; lab:elementIri ?eiri }
+    BIND(COALESCE(?eiri, ?item) AS ?target) BIND(STR(?e) AS ?element)
     BIND(SHA256(CONCAT(?d, STR(?e))) AS ?order)
   } UNION {
-    ?item nk:predicate covx:coveredDraw ; lab:element ?e ; lab:part ?part ; lab:gxp ?gxp ; lab:stamp ?stamp .
+    ?sc rdfs:label "dryrun1.mapping" .
+    ?item nk:scope ?sc ; nk:predicate covx:coveredDraw ; lab:element ?e ; lab:part ?part ; lab:gxp ?gxp ; lab:stamp ?stamp .
     OPTIONAL { ?item lab:statement ?statement } OPTIONAL { ?item lab:test ?t } OPTIONAL { ?item lab:testFile ?tf } OPTIONAL { ?item lab:testLine ?tl } OPTIONAL { ?item lab:why ?why }
     BIND(COALESCE(STR($draw), "gxp:0") AS ?d)
     FILTER(STRBEFORE(?d, ":") = "covered")
     BIND(CONCAT("covered · ", ?gxp, " · ", STR(?e)) AS ?title) BIND(?part AS ?where)
     BIND(CONCAT(COALESCE(?t, ""), " · ", COALESCE(?tf, ""), ":", COALESCE(?tl, "")) AS ?test)
     BIND(CONCAT("mapping: covered: ", COALESCE(?why, "")) AS ?judge1) BIND("" AS ?judge2) BIND("covered" AS ?earlier)
-    OPTIONAL { ?k nk:predicate covx:elementKey ; lab:element ?e ; lab:elementIri ?eiri }
-    BIND(COALESCE(?eiri, ?item) AS ?target)
+    OPTIONAL { ?k nk:scope ?sc ; nk:predicate covx:elementKey ; lab:element ?e ; lab:elementIri ?eiri }
+    BIND(COALESCE(?eiri, ?item) AS ?target) BIND(STR(?e) AS ?element)
     BIND(SHA256(CONCAT(?d, STR(?e))) AS ?order)
   }
 }

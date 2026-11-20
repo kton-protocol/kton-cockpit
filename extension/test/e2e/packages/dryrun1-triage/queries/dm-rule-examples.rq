@@ -1,0 +1,17 @@
+# Examples of a rule case ($ruleCase, the number; the rule-case card's pick): unsettled elements whose judges split on
+# that rule (worklist items naming it), the first eight by element. Run: "dryrun1.mapping". ?element: the evidence pick.
+PREFIX nk: <https://kton.dev/v/>
+PREFIX lab: <https://kton.dev/v/lab/>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX covx: <https://w3id.org/improve/coverage-extra#>
+SELECT ?item ?element ?title ?where ?statement ?judge1 ?judge2 ?stamp WHERE {
+  ?sc rdfs:label "dryrun1.mapping" .
+  ?item nk:scope ?sc ; nk:predicate covx:worklistItem ; lab:element ?element ; lab:ruleCase ?rc ; lab:gxp ?gxp ; lab:stamp ?stamp .
+  FILTER(CONTAINS(CONCAT(",", REPLACE(STR(?rc), " ", ""), ","), CONCAT(",", STR($ruleCase), ",")))
+  OPTIONAL { ?item lab:statement ?statement } OPTIONAL { ?item lab:area ?area }
+  OPTIONAL { ?item lab:judge1 ?j1 } OPTIONAL { ?item lab:judge1Why ?j1w } OPTIONAL { ?item lab:judge2 ?j2 } OPTIONAL { ?item lab:judge2Why ?j2w }
+  BIND(CONCAT(?gxp, " · ", STR(?element)) AS ?title) BIND(COALESCE(?area, "") AS ?where)
+  BIND(CONCAT(COALESCE(?j1, "?"), ": ", COALESCE(?j1w, "")) AS ?judge1)
+  BIND(CONCAT(COALESCE(?j2, "?"), ": ", COALESCE(?j2w, "")) AS ?judge2)
+}
+ORDER BY ?element LIMIT 8

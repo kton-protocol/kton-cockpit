@@ -64,3 +64,8 @@ export function targetOf(uri: { path: string; query: string; fragment: string })
   const line = /^L(\d+)$/.exec(uri.fragment)?.[1];
   return sourceTarget({ repo, commit, path: rest.join("/"), ...(line ? { line: Number(line) } : {}), ...(sha256 ? { sha256 } : {}) });
 }
+
+/** The reference an open leaves in a view session's looked-at list (the source at its commit and line). */
+export function sourceRef(t: SourceTarget): string {
+  return `kton-src:/${t.repo}/${t.path}?${t.commit}${t.line ? `#L${t.line}` : ""}`;
+}

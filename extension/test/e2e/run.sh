@@ -47,19 +47,27 @@ ENGINE_IMAGE=oxigraph/oxigraph@sha256:10677fb643f8c5a7bfb03dd8f7971c79a84b01e795
 echo "== engine image"
 docker pull -q "$ENGINE_IMAGE" >/dev/null
 
-# PR 2: ktonpkg v0.9.7's scope CLI (the version the cockpit links) builds the test packages, from a golang image
-# pinned by digest.
+# ktonpkg v0.9.11's scope CLI builds the test packages (entry scopes on review-view entries need v0.9.11 in the
+# cockpit too), from a golang image pinned by digest.
 GO_IMAGE=golang:1.25@sha256:699337d620559a59b4a2bb298ad59611e535d2ee755a34cf2d2a98f37578dc80
-echo "== ktonpkg v0.9.7 scope CLI"
+echo "== ktonpkg v0.9.11 scope CLI"
 mkdir -p "$WORK/go"
 docker run --rm --network host -u "$UIDGID" -e HOME=/tmp -e GOPATH="$WORK/go" -e GOCACHE="$WORK/go/cache" -e CGO_ENABLED=0 -e GOTOOLCHAIN=local -e GOFLAGS=-modcacherw \
   -v "$WORK:$WORK" "$GO_IMAGE" \
-  sh -c "GOBIN=$WORK/bin go install github.com/gitmick/ktonpkg/cmd/scope@v0.9.7"
+  sh -c "GOBIN=$WORK/bin go install github.com/gitmick/ktonpkg/cmd/scope@v0.9.11"
 
 echo "== seed"
 # DM_DATA (optional): a registry with verification's dryrun1 mapping data (qm-dev-provenance/dryrun1-mapping), copied
 # read-only into repo-dm for the decision view's steps (DM); without it those steps do not run.
 DM_MOUNT=""; [ -n "${DM_DATA:-}" ] && DM_MOUNT="-v $DM_DATA:/dm-data:ro"
+# DM_RUNS (optional): test-execution's dryrun1.runs registry, copied and federated read-only into repo-dm.
+[ -n "${DM_RUNS:-}" ] && DM_MOUNT="$DM_MOUNT -v $DM_RUNS:/runs-data:ro"
+# DM_MIRRORS (optional, space-separated git checkouts): mounted read-only as $WORK/mirrors/<name> (kton.sources.dir),
+# for evidence at a commit (git show; never the worktree). DM_ARTIFACTS (optional): test-execution's records/work,
+# read-only as $WORK/artifacts (kton.artifacts.dir).
+EVIDENCE_MOUNTS=""
+for m in ${DM_MIRRORS:-}; do mkdir -p "$WORK/mirrors/$(basename "$m")"; EVIDENCE_MOUNTS="$EVIDENCE_MOUNTS -v $m:$WORK/mirrors/$(basename "$m"):ro"; done
+[ -n "${DM_ARTIFACTS:-}" ] && { mkdir -p "$WORK/artifacts"; EVIDENCE_MOUNTS="$EVIDENCE_MOUNTS -v $DM_ARTIFACTS:$WORK/artifacts:ro"; }
 docker run --rm -u "$UIDGID" -v "$WORK:$WORK" -v "$HERE/seed.sh:/seed.sh:ro" $DM_MOUNT \
   -v "$COCKPIT:/usr/local/bin/cockpit:ro" -v "$VOCAB:/vocab:ro" -v "$HERE/vocabulary-package:/vocab-package:ro" -v "$HERE:/e2e:ro" \
   "$NODE_IMAGE" sh /seed.sh "$WORK" /vocab /vocab-package
@@ -93,7 +101,9 @@ if [ "\$1" = ui ] && [ "\${2:-}" = list ]; then
   printf '%s' "\$OUT" | /usr/lib/code-server/lib/node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const l=JSON.parse(s);const p=l.packages.find(x=>x.name==="hostile-good"&&Array.isArray(x.ui));if(p)p.ui.push({file:"ui/sidebar.json",slot:"sidebar-ad",label:"Sidebar ad",when:{kind:"claim"}});process.stdout.write(JSON.stringify(l));})'
   exit 0
 fi
-exec /usr/local/bin/cockpit "\$@"
+# repo-dm federates test-execution's runs: cockpit v0.5.5's say never returns with a federation source (reported to
+# kton-cockpit 20.11.), so a say there runs with the sources taken out for its duration (say-unfederated.sh)
+COCKPIT_REAL=/usr/local/bin/cockpit exec sh "$HERE/say-unfederated.sh" "\$@"
 EOF
 chmod +x "$WORK/bin/cockpit-faults"
 echo normal > "$WORK/faults/mode"
@@ -103,7 +113,7 @@ echo normal > "$WORK/faults/mode"
 cat > "$WORK/cs/data/User/settings.json" <<EOF
 {
   "kton.cockpit.path": "$WORK/bin/cockpit-faults",
-  "kton.cockpit.timeoutSeconds": 20,
+  "kton.cockpit.timeoutSeconds": 60,
   "kton.cockpit.transport": "${TRANSPORT:-cli}",
   "kton.queries.dir": "$WORK/queries",
   "kton.identity.personKey": "qa-decider",
@@ -111,6 +121,8 @@ cat > "$WORK/cs/data/User/settings.json" <<EOF
   "kton.identity.personTiers": [],
   "kton.poll.seconds": 2,
   "kton.surfaces.file": "$WORK/surfaces.json",
+  "kton.sources.dir": "$WORK/mirrors",
+  "kton.artifacts.dir": "$WORK/artifacts",
   "security.workspace.trust.enabled": false,
   "workbench.startupEditor": "none",
   "telemetry.telemetryLevel": "off",
@@ -126,7 +138,7 @@ SIDE=$(docker run -d --rm --name kton-wb-e2e-sidecar-$RUN_ID -u "$UIDGID" --grou
 echo "== code-server"
 CS_COMMON="-u $UIDGID --group-add $DOCKER_GID --network host -e HOME=$WORK/home -e TMPDIR=$WORK/tmp \
   -v $WORK:$WORK -v /var/run/docker.sock:/var/run/docker.sock $DOCKER_MOUNT \
-  -v $COCKPIT:/usr/local/bin/cockpit:ro -v $EXT/out:/vsix:ro --entrypoint code-server"
+  -v $COCKPIT:/usr/local/bin/cockpit:ro -v $EXT/out:/vsix:ro -v $HERE:$HERE:ro $EVIDENCE_MOUNTS --entrypoint code-server"
 docker run --rm $CS_COMMON "$CS_IMAGE" --user-data-dir "$WORK/cs/data" --extensions-dir "$WORK/cs/ext" \
   --install-extension /vsix/kton-workbench.vsix
 CID=$(docker run -d --rm --name kton-wb-e2e-$RUN_ID $CS_COMMON "$CS_IMAGE" --user-data-dir "$WORK/cs/data" --extensions-dir "$WORK/cs/ext" \

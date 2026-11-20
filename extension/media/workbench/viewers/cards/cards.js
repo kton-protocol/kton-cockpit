@@ -5,6 +5,8 @@
 //   choices  "field=value|Button label": one button per choice and act; the value is proposed for the field
 //            (the shell shows it in the sign dialog)
 //   draws    "kind|Button label": buttons that set the state `draw` (the event draw) to "<kind>:<n>"
+//   pick     "column|Button label": a button per card that sets the state `pick` (the event pick) to the row's column,
+//            e.g. the element whose evidence another block shows
 // Every card shows its row's ?stamp; a row with ?fixture "true" is marked as fixture data.
 export function mount(el, ctx) {
   const esc = ctx.kit.esc;
@@ -36,12 +38,14 @@ export function mount(el, ctx) {
           .flatMap((a, ai) => (choices.length ? choices.map((c, ci) => ({ a, ai, c, ci })) : [{ a, ai, c: null, ci: -1 }]))
           .map(({ a, ai, c, ci }) => `<button type="button" data-card="${i}" data-act="${ai}" data-choice="${ci}" data-testid="card-${i}-${esc(c ? c.value : a.control?.name ?? a.intent)}">${esc(c ? c.label : a.label ?? a.intent)}</button>`)
           .join("");
+        const pick = pickCol && v(x[pickCol]) ? `<button type="button" data-pick="${i}" data-testid="pick-${i}">${esc(pickLabel)}</button>` : "";
         return `<article class="kton-card" data-card-row="${i}" data-target="${esc(o.target ? v(x[o.target]) : "")}">
   <h4>${esc(v(x[o.title]) || "(untitled)")} ${stamp ? `<span class="kton-stamp" data-stamp>${esc(stamp)}</span>` : `<span class="kton-stamp kton-error" data-stamp-missing>no source</span>`}${v(x.fixture) === "true" ? ` <span class="kton-stamp" data-fixture>fixture</span>` : ""}</h4>
   ${fields}
-  ${buttons ? `<div class="kton-act">${buttons}<span class="kton-muted" data-act-out="${i}"></span></div>` : ""}
+  ${buttons || pick ? `<div class="kton-act">${buttons}${pick}<span class="kton-muted" data-act-out="${i}"></span></div>` : ""}
 </article>`;
       };
+      const [pickCol, pickLabel] = o.pick ? split(o.pick) : [null, null];
       const draws = (o.draws ?? []).map(split).map(([kind, label]) => `<button type="button" data-draw="${esc(kind)}" data-testid="draw-${esc(kind)}">${esc(label)}</button>`).join("");
       el.innerHTML = `${rows.length ? rows.map(card).join("") : `<p class="kton-muted" data-area-empty>${esc(o.emptyText || "Nothing to show.")}</p>`}${draws ? `<div class="kton-act" data-draws>${draws}</div>` : ""}`;
       for (const b of el.querySelectorAll("button[data-act]")) {
@@ -54,6 +58,14 @@ export function mount(el, ctx) {
           ctx.intent(intent).then((res) => {
             if (out) out.textContent = res?.refused ? `Not done: ${res.refused.why ?? res.refused}` : res?.result?.message ?? "Done.";
           });
+        });
+      }
+      for (const b of el.querySelectorAll("button[data-pick]")) {
+        b.addEventListener("click", () => {
+          const row = rows[Number(b.dataset.pick)];
+          ctx.setState({ ...(ctx.state ?? {}), pick: v(row[pickCol]) });
+          const out = el.querySelector(`[data-act-out="${b.dataset.pick}"]`);
+          if (out) out.textContent = `${pickLabel}: ${v(row[pickCol])}`;
         });
       }
       for (const b of el.querySelectorAll("button[data-draw]")) {

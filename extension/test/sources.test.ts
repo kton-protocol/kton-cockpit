@@ -50,3 +50,9 @@ test("evidence: a frame's source target is checked (no climbing path, no option-
   assert.notEqual(typeof t, "string");
   assert.deepEqual(targetOf(sourceUri(t as Exclude<typeof t, string>)), t);
 });
+
+test("evidence: a source open's looked-at reference names the repo, path, commit and line", async () => {
+  const { sourceRef } = await import("../src/ui/sources.js");
+  assert.equal(sourceRef({ repo: "improve", commit: "fa218aa8", path: "a/B.java", line: 127 }), "kton-src:/improve/a/B.java?fa218aa8#L127");
+  assert.equal(sourceRef({ repo: "improve", commit: "fa218aa8", path: "a/B.java" }), "kton-src:/improve/a/B.java?fa218aa8");
+});

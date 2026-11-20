@@ -255,3 +255,12 @@ test("member names on #184: only the aliases member listed as \"\" is exempt; a 
   // and an empty name in any other role is still refused
   assert.equal((await load("query", "")).refusals[0]?.code, "member.name");
 });
+
+test("ui list: a review-view entry's scopes (ktonpkg v0.9.11, the area's shape) are read; a wrong shape is refused", () => {
+  const pkg = kwt().pkg as unknown as { ui: Array<Record<string, unknown>> };
+  const withScopes = { ...pkg, ui: pkg.ui.map((e) => ({ ...e, scopes: { records: "dryrun1.triage", reads: ["dryrun1.mapping"] } })) };
+  const ok = assertUiListing({ packages: [withScopes] });
+  assert.deepEqual(ok.packages[0]?.ui[0]?.scopes, { records: "dryrun1.triage", reads: ["dryrun1.mapping"] });
+  assert.throws(() => assertUiListing({ packages: [{ ...pkg, ui: pkg.ui.map((e) => ({ ...e, scopes: { records: 7 } })) }] }), TransportError);
+  assert.throws(() => assertUiListing({ packages: [{ ...pkg, ui: pkg.ui.map((e) => ({ ...e, scopes: "dryrun1.triage" })) }] }), TransportError);
+});

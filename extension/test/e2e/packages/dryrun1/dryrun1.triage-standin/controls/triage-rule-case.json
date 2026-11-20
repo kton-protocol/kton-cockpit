@@ -1,9 +1,0 @@
-{
-  "title": "Answer a rule case",
-  "kind": "decision",
-  "meaning": "reviewed",
-  "about": "subject.iri",
-  "say": {
-    "template": "triage-rule-case"
-  }
-}

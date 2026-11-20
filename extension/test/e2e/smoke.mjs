@@ -1169,8 +1169,13 @@ await step("S6", "15b", "area-two's governing SOP QA-SOP-20 is shown as a draft"
 if (seed.dm?.proposal) {
   const DMP = seed.dm.proposal;
   async function sparqlDM(q) {
-    const r = await cockpit(["ask", "sparql", "-", "--results-json"], `PREFIX nk: <https://kton.dev/v/>\nPREFIX lab: <https://kton.dev/v/lab/>\nPREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>\n${q}`, { repo: "repo-dm" });
-    if (r.code !== 0) throw new Error(`registry check failed: ${r.stderr.split("\n")[0]}`);
+    // the federated copy is slow to ask right after a say (the window's view asks at the same time): up to 3 tries
+    let r;
+    for (let i = 0; i < 3; i++) {
+      r = await cockpit(["ask", "sparql", "-", "--results-json"], `PREFIX nk: <https://kton.dev/v/>\nPREFIX lab: <https://kton.dev/v/lab/>\nPREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>\n${q}`, { repo: "repo-dm" });
+      if (r.code === 0) break;
+    }
+    if (r.code !== 0) throw new Error(`registry check failed (exit ${r.code}): ${r.stderr.split("\n")[0]}`);
     return JSON.parse(r.stdout).results.bindings.map((b) => Object.fromEntries(Object.entries(b).map(([k, v]) => [k, v.value])));
   }
   await page.goto(URL.replace(/folder=[^&]*/, `folder=${encodeURIComponent(`${WORK}/repo-dm`)}`));
@@ -1180,7 +1185,7 @@ if (seed.dm?.proposal) {
   async function openDecisionView() {
     await closeEditors();
     await views();
-    await openReview("Can the 5.0.0 mapping be the basis for G1 triage?", "Decision view: mapping", "dryrun1.triage");
+    await openReview("Can the 5.0.0 mapping be the basis for G1 triage?", "Decision view: mapping (dryrun1)", "dryrun1.triage");
     const f = await dmFrame();
     await f.locator('[data-use$="#summary"] [data-figure]').first().waitFor({ timeout: 60000 });
     return f;
@@ -1216,14 +1221,15 @@ if (seed.dm?.proposal) {
     const item = await card.getAttribute("data-target");
     await card.locator('[data-testid="card-0-second-model-right"]').click();
     const d = await dialog();
-    for (const s of ["verdict = second-model-right", "Act: reviewed (the control's meaning, not a field of the claim)", 'person key "qa-decider"']) await d.getByText(s, { exact: false }).first().waitFor({ timeout: 15000 });
+    for (const s of ["verdict = second-model-right", "Act: reviewed (the control's meaning, not a field of the claim)", "Into scope: dryrun1.triage", 'person key "qa-decider"']) await d.getByText(s, { exact: false }).first().waitFor({ timeout: 15000 });
     await signInDialog(d);
     await d.locator('[data-testid="sign-outcome"][data-state="signed"]').waitFor({ timeout: 60000 });
     await shot("dm-spotcheck-dialog");
     // dryrun1.triage 7579351: predicate triage:spotchecks; fields under lab: while the view ignores the package's aliases
-    const rows = await sparqlDM(`SELECT ?c ?s ?v ?p WHERE { ?c nk:predicate <https://scinteco.com/ns/triage#spotchecks> ; nk:about <${item}> ; nk:signer ?s ; (lab:verdict|<https://scinteco.com/ns/triage#verdict>) ?v ; (lab:proposal|<https://scinteco.com/ns/triage#proposal>) ?p }`);
+    const rows = await sparqlDM(`SELECT ?c ?s ?v ?p ?scope WHERE { ?c nk:predicate <https://scinteco.com/ns/triage#spotchecks> ; nk:about <${item}> ; nk:signer ?s ; (lab:verdict|<https://scinteco.com/ns/triage#verdict>) ?v ; (lab:proposal|<https://scinteco.com/ns/triage#proposal>) ?p ; nk:scope ?sc . ?sc rdfs:label ?scope }`);
     check(/^https:\/\/scinteco\.com\/ns\/improve\/spec\/[^/]+\/[0-9a-f]+$/.test(item ?? ""), "the verdict is about the element's canonical IRI", "https://scinteco.com/ns/improve/spec/<spec>/<hash>", item);
     check(rows.length === 1 && rows[0].s === PERSON && rows[0].v === "second-model-right" && rows[0].p === iriOf(DMP), "one spot check about the card's item, by the person key, naming the proposal", { s: PERSON, v: "second-model-right", p: iriOf(DMP) }, rows);
+    check(rows[0]?.scope === "dryrun1.triage", "it lands in the view's records scope dryrun1.triage (the entry's scopes.records), not in verification's", "dryrun1.triage", rows[0]?.scope);
   });
 
   await step("DM", 4, "the sign summary counts what was looked at", async () => {
@@ -1236,6 +1242,128 @@ if (seed.dm?.proposal) {
     }
     check(/1 spot checks judged/.test(t), "1 spot check judged", "1 spot checks judged", t.slice(0, 300));
     check(/0 rule cases settled/.test(t) && /0 questions asked/.test(t), "no rule case settled, no question asked");
+  });
+
+  // Evidence on demand, on verification's tested examples (mapping-rounds queries/dryrun1 @f518429). The panel stays
+  // open from here to DM.9: its view session's opens are what the decision lists.
+  const evidence = async (f, element) => {
+    const b = f.locator('[data-use$="#evidence"]');
+    await b.locator('[data-testid="evidence-ask"]').fill(element);
+    await b.locator('[data-testid="evidence-show"]').click();
+    await b.locator("[data-evidence-for]", { hasText: element }).waitFor({ timeout: 60000 });
+    return b;
+  };
+  const openedOut = async (row) => {
+    await row.locator('[data-open-out]').filter({ hasText: /\S/ }).filter({ hasNotText: "Opening…" }).waitFor({ timeout: 60000 });
+    return ((await row.locator("[data-open-out]").textContent()) ?? "").trim();
+  };
+  await step("DM", 5, "a workbook test shows its locator, not an editor line: ics1742#e23 → UAT14.xlsx, sheet Test, row 2", async () => {
+    const f = await dmFrame();
+    const b = await evidence(f, "ics1742#e23");
+    const test = b.locator('[data-evidence="test"]', { hasText: "UAT14.xlsx" }).first();
+    const t = ((await test.textContent()) ?? "").replace(/\s+/g, " ");
+    check(/sheet Test, row 2/.test(t), "the workbook locator is shown", "UAT14.xlsx · sheet Test, row 2", t.slice(0, 200));
+    check((await test.locator("button").count()) === 0, "no 'Open test at line' for a workbook (nothing to open at a line)", 0, await test.locator("button").count());
+    check((await b.locator('[data-evidence="trace"]', { hasText: "Test → product trace: no data" }).count()) === 1, "the trace says no data, never a trace");
+  });
+
+  await step("DM", 6, "ics1000#e2: the spec and AccessControlListService.java:127 open read-only at the stamped commit, the hash checked", async () => {
+    const f = await dmFrame();
+    const b = await evidence(f, "ics1000#e2");
+    const spec = b.locator('[data-evidence="spec"]').first();
+    await spec.locator("button").click();
+    const specOut = await openedOut(spec);
+    check(/^Opened improve-specs:.*ics1000 Publish rights\.md#L31 at 49966c23eceb \(read-only\)$/.test(specOut), "the spec opens at its line and commit", "Opened improve-specs:…ics1000 Publish rights.md#L31 at 49966c23eceb (read-only)", specOut);
+    const code = b.locator('[data-evidence="code"]', { hasText: "AccessControlListService.java:127" }).first();
+    check(/Where it is implemented \(static reading\)/.test((await code.textContent()) ?? ""), "named as a static reading, not a trace");
+    await code.locator("button").click();
+    const codeOut = await openedOut(code);
+    check(/^Opened improve:.*AccessControlListService\.java#L127 at fa218aa892af \(read-only\)$/.test(codeOut), "the code opens at line 127 of the stamped commit", "Opened improve:…AccessControlListService.java#L127 at fa218aa892af (read-only)", codeOut);
+    // shown only after git show's bytes hashed to the claim's specFileSha256 / codeFileSha256 (sources.ts)
+    await page.locator(".tab", { hasText: "AccessControlListService.java" }).first().waitFor({ timeout: 20000 });
+    await shot("dm-evidence-code");
+    const test = b.locator('[data-evidence="test"]', { hasText: "Open test at line 749" }).first();
+    check((await test.count()) === 1, "the REST test pair offers 'Open test at line 749'");
+  });
+
+  await step("DM", 7, "ics1128#e6: an unresolved code match says why, with nothing to open", async () => {
+    const f = await dmFrame();
+    const b = await evidence(f, "ics1128#e6");
+    const code = b.locator('[data-evidence="code"]').first();
+    const t = ((await code.textContent()) ?? "").replace(/\s+/g, " ");
+    check(/not resolved: no file in reference/.test(t), "not resolved: <why>", "not resolved: no file in reference", t.slice(0, 200));
+    check((await code.locator("button").count()) === 0, "no button for an unresolved match", 0, await code.locator("button").count());
+  });
+
+  await step("DM", 8, "a failing test's screenshot from test-execution's dryrun1.runs opens with its hash checked; a passing run says why it has none", async () => {
+    const f = await dmFrame();
+    await evidence(f, "ics2146#e14");
+    const a = f.locator('[data-use$="#artifacts"]');
+    await a.locator('[data-evidence="artifact"]').first().waitFor({ timeout: 60000 });
+    const shotRow = a.locator('[data-evidence="artifact"]', { has: f.locator("button", { hasText: "Open screenshot" }) }).first();
+    const label = ((await shotRow.locator("button").textContent()) ?? "").trim();
+    const run = /run (\S+) \(/.exec(label)?.[1];
+    const testId = ((await shotRow.locator("div.kton-muted").first().textContent()) ?? "").replace(/ · \d+ bytes$/, "").trim();
+    const claims = await sparqlDM(`SELECT ?sha WHERE { ?a nk:predicate <https://scinteco.com/ns/qm/dryrun1/runs/runArtifact> ; lab:run ${JSON.stringify(run)} ; lab:kind "screenshot" ; lab:test ?t ; lab:sha256 ?sha . FILTER(STR(?t) = ${JSON.stringify(testId)}) }`);
+    const sha = `sha256:${String(claims[0]?.sha ?? "").split("/").pop()}`;
+    await shotRow.locator("button").click();
+    const out = await openedOut(shotRow);
+    check(/^Opened .*test-failed-1\.png \(sha256:[0-9a-f]{12}…, \d+ bytes, hash checked\)$/.test(out), "opened after the hash check", "Opened <run>/…/test-failed-1.png (sha256:…, n bytes, hash checked)", out);
+    const img = await frameWithSel('[data-testid="artifact-image"]', 30000);
+    const info = (await img.locator('[data-testid="artifact-info"]').textContent()) ?? "";
+    check(claims.length === 1 && info.includes(sha.slice(0, 19)), "the image panel names the claim's sha256", sha.slice(0, 19), info);
+    const natural = await img.locator('[data-testid="artifact-image"]').evaluate((e) => e.naturalWidth);
+    check(natural > 0, "the screenshot renders", "> 0 px", natural);
+    await shot("dm-artifact-screenshot");
+    const none = ((await a.textContent()) ?? "").replace(/\s+/g, " ");
+    check(/No artifact for passing runs: /.test(none), "a passing run: no artifact, and why (run-capture's passingArtifacts)", "No artifact for passing runs: …", none.slice(0, 200));
+  });
+
+  await step("DM", 9, "the decision lists what this view session opened and signs it as lookedAt (nothing unsigned is counted)", async () => {
+    // back to the panel (the image took the column), the same view session
+    const f = await dmFrame();
+    const before = ((await f.locator('[data-use$="#summary"]').textContent()) ?? "").replace(/\s+/g, " ");
+    check(/1 spot checks judged/.test(before), "the opens are counted nowhere (the summary still counts signed claims only)", "1 spot checks judged", before.slice(0, 120));
+    await f.locator('[data-use$="#summary"] [data-testid="act-decides"]').click();
+    await inputQuick("b");
+    const box = page.locator(".quick-input-box input").first();
+    await box.waitFor({ timeout: 10000 });
+    const proposed = await box.inputValue();
+    check(/kton-src:\/improve\/.*AccessControlListService\.java\?fa218aa8[0-9a-f]*#L127/.test(proposed) && /run-artifact:/.test(proposed), "lookedAt is proposed with the opened evidence", "… kton-src:/improve/…#L127 … run-artifact:…", proposed.slice(0, 300));
+    await page.keyboard.press("Enter");
+    const d = await dialog();
+    await d.getByText("Evidence you opened in this view (3)", { exact: false }).first().waitFor({ timeout: 15000 });
+    const detail = (await d.locator('[data-testid="sign-detail"]').textContent()) ?? "";
+    check((detail.match(/\(in lookedAt\)/g) ?? []).length === 3, "each open is listed before signing, in lookedAt", 3, detail.slice(0, 600));
+    await signInDialog(d);
+    await d.locator('[data-testid="sign-outcome"][data-state="signed"]').waitFor({ timeout: 60000 });
+    await shot("dm-decides-lookedat");
+    const rows = await sparqlDM(`SELECT ?l ?scope WHERE { ?c nk:predicate <https://scinteco.com/ns/triage#decides> ; nk:about <${iriOf(DMP)}> ; (lab:lookedAt|<https://scinteco.com/ns/triage#lookedAt>) ?l ; nk:scope ?sc . ?sc rdfs:label ?scope }`);
+    check(rows.length === 1 && /kton-src:\/improve\//.test(rows[0].l) && /run-artifact:/.test(rows[0].l) && rows[0].scope === "dryrun1.triage", "the signed decision's lookedAt names the opens, in dryrun1.triage", "kton-src:… run-artifact:… (dryrun1.triage)", rows);
+    await closeEditors();
+  });
+
+  await step("DM", 10, "the same view built for dryrun2, against a registry with dryrun1's data and no dryrun2.* scope: every part says no data for dryrun2, never dryrun1's", async () => {
+    await closeEditors();
+    // repo-dm2: verification's dryrun1 data and test-execution's dryrun1.runs, with only the view built for dryrun2
+    check(!!seed.dm.proposal2, "the dryrun2 registry is seeded");
+    await page.goto(URL.replace(/folder=[^&]*/, `folder=${encodeURIComponent(`${WORK}/repo-dm2`)}`));
+    await page.locator(".monaco-workbench").waitFor({ timeout: 90000 });
+    await views();
+    await row("Can the 5.0.0 mapping be the basis for G1 triage?").waitFor({ timeout: 60000 });
+    await openReview("Can the 5.0.0 mapping be the basis for G1 triage?", "Decision view: mapping (dryrun2)", "dryrun2.triage");
+    const f = await frameWithSel('[data-composition="dryrun2.triage/decision"]', 60000);
+    const data = ["counts", "estimate", "areas", "parts", "cards", "agreement", "evidence", "artifacts", "rulecases", "examples", "summary"];
+    for (const id of data) await f.locator(`[data-use$="#${id}"] [data-area-empty], [data-use$="#${id}"] [data-area-error]`).first().waitFor({ timeout: 90000 });
+    const empties = [];
+    for (const id of data) empties.push([id, ((await f.locator(`[data-use$="#${id}"]`).textContent()) ?? "").replace(/\s+/g, " ").trim()]);
+    const bad = empties.filter(([, t]) => !/No data for dryrun2/.test(t));
+    check(bad.length === 0, "every data part says no data for dryrun2", "No data for dryrun2 …", bad);
+    const all = (await f.locator("body").textContent()) ?? "";
+    check(!/dryrun1/.test(all) && !/\b(215|254|8,045)\b/.test(all), "nothing of dryrun1 shows (no fallback)", "no dryrun1, no 215/254/8,045", all.match(/.{0,40}(dryrun1|215|254|8,045).{0,40}/)?.[0]);
+    check((await f.locator("[data-figure]").count()) === 0 && (await f.locator("[data-number]").count()) === 0, "no number at all", 0, await f.locator("[data-number]").count());
+    check(/Dry run: dryrun2/.test(all) && /test keys · does not settle 2c50ddd6/.test(all), "the header names the run, stamped", "Dry run: dryrun2 · test keys · does not settle 2c50ddd6", all.slice(0, 160));
+    await shot("dm-dryrun2-empty");
     await closeEditors();
   });
 }

@@ -1,0 +1,6 @@
+{
+  "slot": "finding-source",
+  "label": "Exposure claimed without a run",
+  "query": "triage-evidence-vs-reach",
+  "order": 2
+}

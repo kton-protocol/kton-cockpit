@@ -1,0 +1,9 @@
+{
+ "title": "Choose and sign",
+ "kind": "decision",
+ "meaning": "approved",
+ "say": {
+  "template": "triage-decides"
+ },
+ "about": "subject.claim"
+}

@@ -1,15 +1,16 @@
 # The two-judge wrong-rate over covered elements (rounds 7/8), recomputed by verification, with the reported values beside it.
-# target: the 5 % the decision names. ?base: the covered elements in scope, so the band reads as elements too.
+# target: the 5 % the decision names. ?base: the covered elements in scope (verification's mapping-base claim, 8,045 of
+# 21,135), so the band reads as elements too. Run: only claims in "dryrun1.mapping".
 PREFIX nk: <https://kton.dev/v/>
 PREFIX lab: <https://kton.dev/v/lab/>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
 PREFIX covx: <https://w3id.org/improve/coverage-extra#>
-PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
 SELECT ?rate ?low ?high ?base ?target ?single ?stamp WHERE {
-  ?c nk:predicate covx:measuredRate ; lab:sample "covered" ; lab:dimension "all" ; lab:rate ?rate ; lab:low ?low ; lab:high ?high ; lab:stamp ?stamp ;
+  ?sc rdfs:label "dryrun1.mapping" .
+  ?c nk:scope ?sc ; nk:predicate covx:measuredRate ; lab:sample "covered" ; lab:dimension "all" ; lab:rate ?rate ; lab:low ?low ; lab:high ?high ; lab:stamp ?stamp ;
      lab:sameModelRate ?same ; lab:secondModelRate ?second ; lab:n ?n ; lab:wrong ?wrong .
   OPTIONAL { ?c lab:reportedRate ?reported } OPTIONAL { ?c lab:note ?note }
-  # the base: covered elements in MH's scope (verification's mapping-base claims, 8,045 of 21,135)
-  OPTIONAL { ?b nk:predicate covx:mappingBase ; lab:status "covered" ; lab:elements ?base }
+  OPTIONAL { ?b nk:scope ?sc ; nk:predicate covx:mappingBase ; lab:status "covered" ; lab:elements ?base }
   BIND("5" AS ?target)
   BIND(CONCAT("Recomputed: ", STR(?wrong), " of ", STR(?n), " judged wrong by both; one judge alone ", STR(?same), " % (same model), ", STR(?second), " % (second model). Reported: ", COALESCE(STR(?reported), "none"), ". ", COALESCE(STR(?note), "")) AS ?single)
 }

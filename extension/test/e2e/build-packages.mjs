@@ -1,4 +1,4 @@
-// Build the e2e's verticle packages with ktonpkg v0.9.7's scope CLI (cmd/scope), each sealed with a throwaway
+// Build the e2e's verticle packages with ktonpkg v0.9.11's scope CLI (cmd/scope), each sealed with a throwaway
 // key that is deleted afterwards. Sources (test/e2e/packages/):
 //   - kton-web-test/: kton-web's test package at the pinned kton-web commit, unchanged (vendored with the kit,
 //     scripts/vendor-kton-web.mjs): a decision and a record control, a review-view entry (S4.2-4, S4.6).
@@ -10,6 +10,7 @@
 //       hostile-pin       good, pinning a kton-web viewer at a commit with a tree no one has (refused at load)
 //   - s6/: the S6 packages (PR 3): qa.area-one and qa.area-two (two QM areas), qa.register (the document
 //     register), qa.rules (findings). qa.rules-suppliers, which qa.area-two names, is not built (S6.13).
+//   - dryrun1-triage/: qm-packages areas/dryrun1-triage (a143ac3 + the run-name patch): dryrun1.triage and dryrun2.triage.
 //
 //   node build-packages.mjs <scope CLI> <out dir>
 import { execFileSync } from "node:child_process";
@@ -79,13 +80,22 @@ try {
   hostile("hostile-pin", "pin");
   // PR 3 (S6): the generic QM area's test packages (userinterface qm-workbench/s6-packages, ktonpkg v0.9.3 form)
   for (const n of ["qa.register", "qa.area-one", "qa.area-two", "qa.rules"]) build(n, "1", join(SRC, "s6", n));
-  // the decision view for the dry run (imvprototypes workbench/dryrun1-decision-mapping): its view and the triage
-  // templates as one package dryrun1.triage (ktonpkg wants a control's template in its own package)
-  const dm = mkdtempSync(join(tmpdir(), "dryrun1-"));
-  // dryrun1.triage-standin: a copy of qm-packages areas/dryrun1-triage at 7579351 (templates, controls, queries)
-  cpSync(join(SRC, "dryrun1", "dryrun1.triage-standin"), dm, { recursive: true });
-  cpSync(join(SRC, "dryrun1", "dryrun1.decision-mapping"), dm, { recursive: true });
-  build("dryrun1.triage", "1", dm);
+  // the decision view for the dry run: qm-packages areas/dryrun1-triage at a143ac3 with userinterface's run-name patch
+  // (the view ships in the triage package; ktonpkg wants a control's template in its own package), built as
+  // dryrun1.triage, and as dryrun2.triage with its scope labels rewritten as build.sh RUN=dryrun2 does
+  for (const run of ["dryrun1", "dryrun2"]) {
+    const dm = mkdtempSync(join(tmpdir(), `${run}-`));
+    cpSync(join(SRC, "dryrun1-triage"), dm, { recursive: true });
+    if (run !== "dryrun1") {
+      const files = [...readdirSync(join(dm, "queries")).filter((f) => /^dm-.*\.rq$|^triage-judge-agreement\.rq$/.test(f)).map((f) => join(dm, "queries", f)), join(dm, "ui", "review.json"), join(dm, "ui", "compositions", "decision.json")];
+      for (const f of files) {
+        const t = readFileSync(f, "utf8").replace(/dryrun1\.(mapping|triage|runs)\b/g, `${run}.$1`).replace(/Dry run: dryrun1/g, `Dry run: ${run}`).replace(/No data for dryrun1/g, `No data for ${run}`).replace(/\(dryrun1\)/g, `(${run})`);
+        if (/dryrun1\.(mapping|triage|runs)/.test(t)) throw new Error(`${f}: a scope label still names dryrun1`);
+        writeFileSync(f, t);
+      }
+    }
+    build(`${run}.triage`, run, dm);
+  }
 } finally {
   rmSync(keys, { recursive: true, force: true });
 }

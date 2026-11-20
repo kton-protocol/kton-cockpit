@@ -1,0 +1,6 @@
+{
+  "slot": "finding-source",
+  "label": "Assigned before ranked",
+  "query": "triage-ranked-before-assigned",
+  "order": 3
+}

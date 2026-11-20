@@ -985,3 +985,48 @@ test("proposed fields: a value of a field with fixed values is taken (the dialog
   assert.deepEqual(inputs, [["decides: choice", undefined], ["decides: lookedAt", `${iri("a")} ${iri("b")}`]]);
   assert.deepEqual(t.says.at(-1)?.fields, { choice: "a", lookedAt: `${iri("a")} ${iri("b")}` });
 });
+
+test("looked-at: the view session's evidence opens are offered for lookedAt and listed in the dialog; a template without lookedAt gets none", async () => {
+  const t = new FakeTransport();
+  const SPOT: TemplateInfo = { name: "triage-spotcheck", package: "dryrun1.triage", fields: { verdict: { type: "enum", values: ["rule-judge-right", "second-model-right", "spec-unclear"], required: true }, proposal: { type: "string", required: true } } };
+  const DEC: TemplateInfo = { name: "triage-decides", package: "dryrun1.triage", fields: { choice: { type: "string", required: true }, lookedAt: { type: "string" } } };
+  t.templateList = [...TEMPLATES, SPOT, DEC];
+  const { h, wb } = await setup({}, t);
+  h.confirmAnswer = true;
+  const opened = ["kton-src:/improve/A.java?c0ffee0#L127", `run-artifact:p2/out/x.png@sha256:${"a".repeat(64)}`];
+  (h as unknown as { input: (p: string, v?: string) => Promise<string | undefined> }).input = async (p: string, v?: string) => (p.endsWith("choice") ? "a" : v);
+  const dec = { package: "dryrun1.triage", name: "decides", template: "triage-decides", kind: "decision" as const };
+  assert.equal(await wb.signAct(dec, iri("1"), {}, "Choose", undefined, { scope: "dryrun1.triage", proposed: { lookedAt: iri("s") }, opened }), "signed");
+  assert.equal(t.says.at(-1)?.fields?.["lookedAt"], `${iri("s")} ${opened.join(" ")}`);
+  assert.equal(t.says.at(-1)?.scope, "dryrun1.triage");
+  const detail = h.dialogs.at(-1)?.detail ?? "";
+  assert.match(detail, /Into scope: dryrun1\.triage/);
+  assert.match(detail, /Evidence you opened in this view \(2\):\n {2}kton-src:\/improve\/A\.java\?c0ffee0#L127 {2}\(in lookedAt\)\n {2}run-artifact:p2\/out\/x\.png@sha256:a{64} {2}\(in lookedAt\)/);
+  // the person takes one out of lookedAt: the dialog says so
+  (h as unknown as { input: (p: string, v?: string) => Promise<string | undefined> }).input = async (p: string) => (p.endsWith("choice") ? "a" : opened[0]);
+  assert.equal(await wb.signAct(dec, iri("1"), {}, "Choose", undefined, { opened }), "signed");
+  assert.match(h.dialogs.at(-1)?.detail ?? "", /x\.png@sha256:a{64} {2}\(not in lookedAt: you took it out\)/);
+  // a spot check has no lookedAt: nothing is offered or listed
+  const spot = { package: "dryrun1.triage", name: "spotcheck", template: "triage-spotcheck", kind: "decision" as const, meaning: "reviewed" };
+  assert.equal(await wb.signAct(spot, iri("e"), { proposal: iri("1") }, "Verdict", undefined, { proposed: { verdict: "spec-unclear" }, opened }), "signed");
+  assert.doesNotMatch(h.dialogs.at(-1)?.detail ?? "", /Evidence you opened/);
+  assert.equal(t.says.at(-1)?.fields?.["lookedAt"], undefined);
+});
+
+test("open@1 evidence: a shown source or artifact is reported to the panel's looked-at list; a refused one is not", async () => {
+  const { h, wb } = await setup();
+  const shown: string[] = [];
+  const answers = { source: "Opened improve:a/B.java#L127 at fa218aa8 (read-only)", artifact: "Opened p2/x.png (hash checked)" };
+  (h as unknown as Record<string, unknown>)["openSource"] = async () => answers.source;
+  (h as unknown as Record<string, unknown>)["openArtifact"] = async () => answers.artifact;
+  const open = (wb.packages as unknown as { path: { open: (t: Record<string, unknown>, cb: (r: string) => void) => Promise<string> } }).path.open;
+  const h64 = `sha256:${"b".repeat(64)}`;
+  await open({ source: { repo: "improve", commit: "fa218aa8", path: "a/B.java", line: 127 } }, (r) => shown.push(r));
+  await open({ artifact: { run: "p2", name: "x.png", sha256: h64, mediaType: "image/png" } }, (r) => shown.push(r));
+  answers.source = "source not available on this host: improve has no a/C.java at fa218aa8";
+  answers.artifact = "p2/y.png does not hash to sha256:…: refused, nothing shown";
+  await open({ source: { repo: "improve", commit: "fa218aa8", path: "a/C.java" } }, (r) => shown.push(r));
+  await open({ artifact: { run: "p2", name: "y.png", sha256: h64 } }, (r) => shown.push(r));
+  assert.match(await open({ artifact: { run: "../p2", name: "y.png", sha256: h64 } }, (r) => shown.push(r)), /not opened: run is not a run name/);
+  assert.deepEqual(shown, ["kton-src:/improve/a/B.java?fa218aa8#L127", `run-artifact:p2/x.png@${h64}`]);
+});

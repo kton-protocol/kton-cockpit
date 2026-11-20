@@ -1,7 +1,7 @@
 // estimate: a measured rate applied to a base, with its band, against a target. The query's first row:
 // ?rate ?low ?high (percent), ?base (count), ?target (percent), ?stamp, and ?single (other measurements, text).
 // Shows ≈ rate × base [low × base – high × base] and whether the point and the upper bound meet the target.
-// Option unit: what the base counts (e.g. "covered elements").
+// Option unit: what the base counts (e.g. "covered elements"); emptyText: what to say when there is no row.
 export function mount(el, ctx) {
   const esc = ctx.kit.esc;
   const unit = ctx.use.options?.unit ?? "";
@@ -11,7 +11,7 @@ export function mount(el, ctx) {
     (r) => {
       const x = (r?.results?.bindings ?? [])[0];
       if (!x) {
-        el.innerHTML = `<p class="kton-muted" data-area-empty>No measurement.</p>`;
+        el.innerHTML = `<p class="kton-muted" data-area-empty>${esc(ctx.use.options?.emptyText || "No measurement.")}</p>`;
         return;
       }
       const n = (k) => Number(v(x[k]));

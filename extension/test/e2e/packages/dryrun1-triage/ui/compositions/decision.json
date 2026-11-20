@@ -12,9 +12,34 @@
   "minVerdicts": {
    "type": "literal",
    "default": "10"
+  },
+  "element": {
+   "type": "literal",
+   "default": "none"
+  },
+  "ruleCase": {
+   "type": "literal",
+   "default": "none"
   }
  },
  "parts": [
+  {
+   "id": "run",
+   "heading": "This dry run",
+   "blocks": [
+    {
+     "id": "run",
+     "use": {
+      "package": "@workbench",
+      "block": "notice"
+     },
+     "options": {
+      "text": "Dry run: dryrun1",
+      "stamp": "test keys · does not settle 2c50ddd6"
+     }
+    }
+   ]
+  },
   {
    "id": "question",
    "heading": "Can the 5.0.0 mapping be the basis for G1 triage, and who settles the elements the judges disagree on?",
@@ -28,7 +53,8 @@
      "query": "dm-figures",
      "empty": "show",
      "options": {
-      "guard": "scope"
+      "guard": "scope",
+      "emptyText": "No data for dryrun1 (scope dryrun1.mapping)."
      }
     }
    ]
@@ -46,7 +72,8 @@
      "query": "dm-estimate",
      "empty": "show",
      "options": {
-      "unit": "of covered elements"
+      "unit": "of covered elements",
+      "emptyText": "No data for dryrun1: no measured rate in dryrun1.mapping."
      }
     }
    ]
@@ -70,7 +97,8 @@
        "unsettled",
        "rate",
        "stamp"
-      ]
+      ],
+      "emptyText": "No data for dryrun1 (scope dryrun1.mapping)."
      }
     },
     {
@@ -87,7 +115,8 @@
        "unsettled",
        "rate",
        "stamp"
-      ]
+      ],
+      "emptyText": "No data for dryrun1 (scope dryrun1.mapping)."
      }
     }
    ]
@@ -118,14 +147,15 @@
       "choices": [
        "verdict=rule-judge-right|Rule judge is right",
        "verdict=second-model-right|Second model is right",
-       "verdict=spec-unclear|Spec unclear \u2192 Wolfgang"
+       "verdict=spec-unclear|Spec unclear → Wolfgang"
       ],
       "draws": [
        "gxp|Draw 4 more (GxP areas)",
        "any|Draw 4 more (anywhere)",
        "covered|Draw from covered (find the hidden errors)"
       ],
-      "emptyText": "Nothing to draw."
+      "emptyText": "No data for dryrun1: nothing to draw.",
+      "pick": "element|Evidence"
      },
      "params": {
       "draw": "var.draw"
@@ -134,14 +164,15 @@
       {
        "intent": "sign",
        "label": "Verdict",
-       "control": "triage-spotcheck",
+       "control": "spotcheck",
        "fields": {
         "proposal": "subject.iri"
        }
       }
      ],
      "emits": {
-      "draw": "draw"
+      "draw": "draw",
+      "pick": "element"
      }
     },
     {
@@ -150,13 +181,53 @@
       "package": "@workbench",
       "block": "rows"
      },
-     "query": "dm-agreement",
+     "query": "triage-judge-agreement",
      "empty": "show",
      "options": {
-      "emptyText": "Your agreement with each judge shows after 10 verdicts."
+      "emptyText": "No data for dryrun1 yet: your agreement with each judge shows after 10 verdicts."
      },
      "params": {
       "minVerdicts": "var.minVerdicts"
+     }
+    }
+   ]
+  },
+  {
+   "id": "evidence",
+   "heading": "Evidence for the picked element (opened read-only at the stamped commit, the bytes checked against their hash; what you open is listed when you sign)",
+   "blocks": [
+    {
+     "id": "evidence",
+     "use": {
+      "package": "@workbench",
+      "block": "evidence"
+     },
+     "query": "dm-evidence",
+     "empty": "show",
+     "params": {
+      "element": "var.element"
+     },
+     "options": {
+      "ask": "element|Element id, e.g. ics1000#e2",
+      "emptyText": "No data for dryrun1 on this element: pick one with “Evidence” on a card, or type its id."
+     },
+     "emits": {
+      "element": "element"
+     }
+    },
+    {
+     "id": "artifacts",
+     "use": {
+      "package": "@workbench",
+      "block": "evidence"
+     },
+     "query": "dm-artifacts",
+     "empty": "show",
+     "params": {
+      "element": "var.element"
+     },
+     "options": {
+      "emptyText": "No data for dryrun1: no recorded run of this element's tests in dryrun1.runs."
      }
     }
    ]
@@ -184,15 +255,46 @@
        "answer=asserted|Asserted",
        "answer=exercised|Exercised",
        "answer=no-relation|No relation"
-      ]
+      ],
+      "pick": "ruleCase|Show examples",
+      "emptyText": "No data for dryrun1: no rule cases in dryrun1.mapping."
      },
      "acts": [
       {
        "intent": "sign",
        "label": "Settle",
-       "control": "triage-rule-case"
+       "control": "rule-case"
       }
-     ]
+     ],
+     "emits": {
+      "pick": "ruleCase"
+     }
+    },
+    {
+     "id": "examples",
+     "use": {
+      "package": "@workbench",
+      "block": "cards"
+     },
+     "query": "dm-rule-examples",
+     "empty": "show",
+     "params": {
+      "ruleCase": "var.ruleCase"
+     },
+     "options": {
+      "title": "title",
+      "fields": [
+       "statement|Spec",
+       "where|Area",
+       "judge1|Judge 1",
+       "judge2|Judge 2"
+      ],
+      "pick": "element|Evidence (shown under “Evidence” above)",
+      "emptyText": "No data for dryrun1 for this rule case: pick one with “Show examples”."
+     },
+     "emits": {
+      "pick": "element"
+     }
     }
    ]
   },
@@ -227,7 +329,8 @@
      "options": {
       "propose": [
        "lookedAt=lookedAt"
-      ]
+      ],
+      "emptyText": "No data for dryrun1: nothing recorded for this dry run."
      },
      "params": {
       "proposal": "subject.iri"
@@ -236,12 +339,12 @@
       {
        "intent": "record",
        "label": "Ask a question about this",
-       "control": "triage-question"
+       "control": "question"
       },
       {
        "intent": "sign",
        "label": "Choose and sign",
-       "control": "triage-decides"
+       "control": "decides"
       }
      ]
     }

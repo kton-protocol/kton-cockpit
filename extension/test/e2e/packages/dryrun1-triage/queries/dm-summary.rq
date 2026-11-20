@@ -1,0 +1,26 @@
+# What was looked at for this decision ($proposal): spot-check verdicts (naming the proposal), rule cases settled,
+# questions asked about it; per row the claim ids (?lookedAt, space-separated). No sub-select reads $proposal: the
+# cockpit binds it in the WHERE clause's outermost group, which a sub-select does not see.
+# Run: the claims in "dryrun1.triage"; no rows at all when the registry has no scope "dryrun1.triage" (never another run's).
+# Terms under triage: (this package's aliases) and lab: (a cockpit that does not apply them).
+PREFIX nk: <https://kton.dev/v/>
+PREFIX triage: <https://scinteco.com/ns/triage#>
+PREFIX lab: <https://kton.dev/v/lab/>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+SELECT ?label (COUNT(DISTINCT ?x) AS ?value) (GROUP_CONCAT(DISTINCT STR(?x); separator=" ") AS ?lookedAt) (SAMPLE(?s) AS ?stamp) WHERE {
+  VALUES (?o ?label ?pred) {
+    (1 "spot checks judged" triage:spotchecks)
+    (2 "rule cases settled (of 3)" triage:ruleCase)
+    (3 "questions asked (each logged as a UI requirement)" triage:asks)
+  }
+  FILTER EXISTS { ?run rdfs:label "dryrun1.triage" }
+  BIND("this dry run (dryrun1.triage)" AS ?s)
+  OPTIONAL {
+    ?x nk:predicate ?pred ; nk:scope ?ts . ?ts rdfs:label "dryrun1.triage" .
+    OPTIONAL { ?x triage:proposal|lab:proposal ?pp } OPTIONAL { ?x nk:about ?ab }
+    FILTER NOT EXISTS { ?x nk:replacedBy ?n }
+    FILTER(?pred = triage:ruleCase || STR(?pp) = STR($proposal) || STR(?ab) = STR($proposal))
+  }
+}
+GROUP BY ?o ?label
+ORDER BY ?o

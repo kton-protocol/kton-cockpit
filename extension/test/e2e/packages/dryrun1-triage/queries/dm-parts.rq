@@ -1,0 +1,13 @@
+# The unsettled elements in scope by product part, with the part's measured wrong-rate where n >= 30. Run: "dryrun1.mapping".
+PREFIX nk: <https://kton.dev/v/>
+PREFIX lab: <https://kton.dev/v/lab/>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX covx: <https://w3id.org/improve/coverage-extra#>
+SELECT ?part ?unsettled ?rate ?stamp WHERE {
+  ?sc rdfs:label "dryrun1.mapping" .
+  { SELECT ?sc ?part (COUNT(DISTINCT ?e) AS ?unsettled) (SAMPLE(?s) AS ?stamp) WHERE {
+      ?sc rdfs:label "dryrun1.mapping" . ?c nk:scope ?sc ; nk:predicate covx:worklistItem ; lab:element ?e ; lab:inScope "true" ; lab:part ?part ; lab:stamp ?s } GROUP BY ?sc ?part }
+  OPTIONAL { ?r nk:scope ?sc ; nk:predicate covx:measuredRate ; lab:sample "covered" ; lab:dimension "part" ; lab:group ?part ; lab:n ?n ; lab:enough ?enough ; lab:rate ?rr ; lab:low ?lo ; lab:high ?hi }
+  BIND(IF(!BOUND(?n), "not measured", IF(STR(?enough) = "true", CONCAT(STR(?rr), " % (", STR(?lo), "–", STR(?hi), ", n=", STR(?n), ")"), CONCAT("too few to measure (n=", STR(?n), ")"))) AS ?rate)
+}
+ORDER BY DESC(?unsettled)

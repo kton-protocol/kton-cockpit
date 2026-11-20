@@ -1,15 +1,37 @@
 {
  "viewer": "cards",
  "module": "cards.js",
- "requires": ["query@1"],
- "optional": ["sign@1", "record@1", "open@1"],
+ "requires": [
+  "query@1"
+ ],
+ "optional": [
+  "sign@1",
+  "record@1",
+  "open@1"
+ ],
  "accepts": {
   "title": "literal",
-  "fields": {"set": "literal"},
+  "fields": {
+   "set": "literal"
+  },
   "target": "literal",
-  "choices": {"set": "literal"},
-  "draws": {"set": "literal"},
-  "emptyText": "literal"
+  "choices": {
+   "set": "literal"
+  },
+  "draws": {
+   "set": "literal"
+  },
+  "emptyText": "literal",
+  "pick": "literal"
  },
- "emits": {"draw": {"from": "state.draw", "type": "literal"}}
+ "emits": {
+  "draw": {
+   "from": "state.draw",
+   "type": "literal"
+  },
+  "pick": {
+   "from": "state.pick",
+   "type": "literal"
+  }
+ }
 }

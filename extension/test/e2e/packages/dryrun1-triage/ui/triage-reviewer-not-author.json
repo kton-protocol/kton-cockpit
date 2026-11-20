@@ -1,0 +1,6 @@
+{
+  "slot": "finding-source",
+  "label": "Reviewer is the author",
+  "query": "triage-reviewer-not-author",
+  "order": 1
+}
