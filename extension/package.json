@@ -109,6 +109,10 @@
       {
         "command": "ktonWorkbench.openSlot",
         "title": "kton workbench: open a package view for a subject"
+      },
+      {
+        "command": "ktonWorkbench.openEntry",
+        "title": "kton workbench: open a package's review view for a waiting decision"
       }
     ],
     "configuration": {
@@ -124,6 +128,11 @@
           "default": 120,
           "minimum": 1,
           "description": "How long one cockpit call may take. A call that takes longer is reported as failed; whether it signed is then for the registry to say."
+        },
+        "kton.home.openOnStart": {
+          "type": "boolean",
+          "default": true,
+          "description": "When the window starts and exactly one decision is waiting that a package's review view applies to, open that review view."
         },
         "kton.poll.seconds": {
           "type": "number",
@@ -222,6 +231,10 @@
         },
         {
           "command": "ktonWorkbench.openSlot",
+          "when": "false"
+        },
+        {
+          "command": "ktonWorkbench.openEntry",
           "when": "false"
         }
       ]

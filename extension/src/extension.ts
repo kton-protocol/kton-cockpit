@@ -146,7 +146,7 @@ class VsHost implements UiHost {
   /** the Mermaid frame's URL as the webview reaches it (asExternalUri of 127.0.0.1), once the server runs */
   mermaidFrame: string | undefined;
   constructor(private readonly ctx: vscode.ExtensionContext) {
-    const order: StatusId[] = ["surface", "identity", "mode", "poll", "slots"];
+    const order: StatusId[] = ["surface", "identity", "mode", "decisions", "poll", "slots"];
     order.forEach((id, i) => {
       const s = vscode.window.createStatusBarItem(`ktonWorkbench.${id}`, vscode.StatusBarAlignment.Left, 100 - i);
       s.name = `kton workbench ${id}`;
@@ -391,13 +391,18 @@ async function build(host: VsHost): Promise<void> {
     vendoredViewers: vendored,
     ...(builtin ? { builtinPackage: builtin } : {}),
     pollSeconds: Math.max(1, cfg.get<number>("poll.seconds") ?? 30),
+    // once per window: a rebuild after a changed setting does not open it again
+    openOnStart: firstBuild && (cfg.get<boolean>("home.openOnStart") ?? true),
     cockpitLabel: executable.split(/[\\/]/).pop() ?? executable,
     surfaces,
     ...(pattern ? { surfaceFolderPattern: pattern } : {}),
     ...(initial ? { initialSurface: initial } : {}),
   });
+  firstBuild = false;
   await wb.start(host.openPanels());
 }
+/** the window's first workbench (kton.home.openOnStart applies to it only) */
+let firstBuild = true;
 
 export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
   vendored = loadVendored(join(ctx.extensionUri.fsPath, "media", "kton-web"));

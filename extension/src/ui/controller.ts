@@ -5,7 +5,7 @@ import { randomBytes } from "node:crypto";
 import type { TemplateInfo, Transport } from "../transport/port.js";
 import { TransportError, TransportNotSent } from "../transport/port.js";
 import type { WindowIdentity, ShownSigner } from "../identity.js";
-import { hasKey, showSigner, signerKeyId, statusText, statusTooltip } from "../identity.js";
+import { hasKey, showSigner, signerKeyId, statusText, statusTooltip, unverifiedWhy } from "../identity.js";
 import type { ControlInfo, SignPlan } from "../sign.js";
 import { DialogConsent, meaningField, plan, sign, templateFor, FOOTER } from "../sign.js";
 import type { UiEntry, SlotContext } from "../intents.js";
@@ -68,6 +68,8 @@ export interface WorkbenchConfig {
   readonly builtinPackage?: MirrorPackage;
   /** A locked registry (S7.4): how often and how far apart a `say` is retried. */
   readonly lockRetry: { readonly attempts: number; readonly delayMs: number };
+  /** kton.home.openOnStart: after the first good poll, open the review view of the one waiting decision that has one */
+  readonly openOnStart?: boolean;
 }
 
 export const DEFAULT_CONFIG: WorkbenchConfig = {
@@ -103,6 +105,8 @@ export const CMD = {
   say: "ktonWorkbench.say",
   compose: "ktonWorkbench.compose",
   openSlot: SLOT_CMD,
+  openEntry: "ktonWorkbench.openEntry",
+  focusHome: "ktonWorkbench.home.focus",
 } as const;
 
 const SHA = /^sha256:[0-9a-f]{64}$/;
@@ -196,10 +200,12 @@ export class Workbench {
     }
     const p = hasKey(this.identity.person) ? await this.signer("person") : "missing";
     const a = hasKey(this.identity.agent) ? await this.signer("agent") : "missing";
+    // the window always runs in test mode (status "TEST MODE"): its keys are test keys
+    const why = unverifiedWhy(p, a, true);
     this.host.setStatus(
       "identity",
-      statusText(p, a, { person: this.identity.person.keyName, agent: this.identity.agent.keyName }),
-      `${statusTooltip(p, a)}\nOne person per window; another identity means another window. Person key: decisions, always through the sign dialog. Agent key: records, no dialog. A missing key is never replaced by the other.`,
+      statusText(p, a, { person: this.identity.person.keyName, agent: this.identity.agent.keyName }, true),
+      `${why ? `${why}\n` : ""}${statusTooltip(p, a)}\nOne person per window; another identity means another window. Person key: decisions, always through the sign dialog. Agent key: records, no dialog. A missing key is never replaced by the other.`,
     );
   }
 
@@ -283,6 +289,10 @@ export class Workbench {
     this.stale = false;
     this.goodAt = new Date();
     this.render();
+    if (this.cfg.openOnStart && !this.startOpened) {
+      this.startOpened = true;
+      await this.openOnStart();
+    }
     if (this.reopen.length) {
       const keys = this.reopen;
       this.reopen = [];
@@ -350,10 +360,12 @@ export class Workbench {
     if (!this.stale) {
       this.host.setStatus(
         "poll",
-        `polling: inbox every ${this.cfg.pollSeconds}s · ${open.length} open · ${decisions.length} decisions${this.cfg.cockpitLabel ? ` · ${this.cfg.cockpitLabel}` : ""}`,
+        `polling: inbox every ${this.cfg.pollSeconds}s · ${open.length} open${this.cfg.cockpitLabel ? ` · ${this.cfg.cockpitLabel}` : ""}`,
         "Polled by code, never by an LLM. One scheduler.",
       );
     }
+    // proposals are not inbox messages: the decisions waiting have their own item, which shows them on Home
+    this.host.setStatus("decisions", decisionsText(decisions.length), "Proposals waiting for your decision: Home → Decisions waiting", CMD.focusHome);
   }
 
   private areaFilter(): (area: string | undefined) => boolean {
@@ -433,7 +445,7 @@ export class Workbench {
         description: String(areas.size),
         children: [...areas.entries()].sort().map(([a, n]) => ({ id: `a:${a}`, label: a, description: String(n) })),
       },
-      { id: "recorder", label: "Recorded runs (recorder)", tooltip: "Opens the kton recorder extension", command: { id: CMD.openRecorder, args: [] } },
+      { id: "recorder", label: "Recorder", tooltip: "Recorded runs: opens the kton recorder extension (it stays its own extension)", command: { id: CMD.openRecorder, args: [] } },
       ...this.packages.areaNodes(),
       ...this.packages.homeNodes(),
     ];
@@ -680,6 +692,48 @@ export class Workbench {
     return `Named ${ref}; this window does not open it`;
   }
 
+  /** whether the start's review view was looked for already (once per workbench) */
+  private startOpened = false;
+
+  /** The waiting decisions (in the current surface) a review-view entry applies to. */
+  private decisionsFor(key: string): Row[] {
+    const inSurface = this.areaFilter();
+    return this.openDecisions().filter((d) => inSurface(d["area"]) && this.packages.reviewEntriesFor(claimSubject(d["msg"] ?? "", d["type"])).includes(key));
+  }
+
+  /**
+   * A review-view entry clicked under Home → Packages: it needs its proposal. One waiting proposal it applies to: that
+   * one opens; several: a pick; none: where it opens from.
+   */
+  async openEntry(key: string): Promise<void> {
+    const ds = this.decisionsFor(key);
+    let d: Row | undefined = ds[0];
+    if (ds.length === 0) {
+      this.host.info("This review view opens from its proposal under Decisions waiting; no waiting decision is one it applies to.");
+      return;
+    }
+    if (ds.length > 1) {
+      const labels = ds.map((x, i) => `${i + 1}. ${x["title"] ?? x["msg"]}`);
+      const pick = await this.host.pick("Open the review view for which proposal?", labels);
+      if (!pick) return;
+      d = ds[labels.indexOf(pick)];
+    }
+    if (d) await this.packages.openSlot(key, claimSubject(d["msg"] ?? "", d["type"]));
+  }
+
+  /** kton.home.openOnStart: exactly one waiting decision with a review view: its (first) review view opens. */
+  private async openOnStart(): Promise<void> {
+    const inSurface = this.areaFilter();
+    const withView = this.openDecisions()
+      .filter((d) => inSurface(d["area"]))
+      .map((d) => ({ d, keys: this.packages.reviewEntriesFor(claimSubject(d["msg"] ?? "", d["type"])) }))
+      .filter((x) => x.keys.length > 0);
+    const one = withView.length === 1 ? withView[0] : undefined;
+    if (!one) return;
+    this.host.log(`open on start: ${one.keys[0]} for ${one.d["msg"]} (kton.home.openOnStart)`);
+    await this.packages.openSlot(one.keys[0] as string, claimSubject(one.d["msg"] ?? "", one.d["type"]));
+  }
+
   /** A slot entry for a subject, from the Home tree or a command (C2.1). */
   async openSlot(key: string, subject: Subject): Promise<void> {
     await this.packages.openSlot(key, subject);
@@ -830,4 +884,9 @@ function nonce(): string {
 export function claimSubject(iri: string, type?: string): Subject {
   const id = idOf(iri);
   return { kind: "claim", iri, id, claim: id, ...(type ? { type } : {}) };
+}
+
+/** The status bar's decisions item: "1 decision waiting", "2 decisions waiting". */
+export function decisionsText(n: number): string {
+  return `${n} decision${n === 1 ? "" : "s"} waiting`;
 }

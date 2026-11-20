@@ -14,6 +14,9 @@ SELECT ?label (COUNT(DISTINCT ?x) AS ?value) (GROUP_CONCAT(DISTINCT STR(?x); sep
     (3 "questions asked (each logged as a UI requirement)" triage:asks)
   }
   FILTER EXISTS { ?run rdfs:label "dryrun1.triage" }
+  # a second guard (kton-review on ktonpkg v0.9.11 #199): an unbound optional $proposal is a free variable, and the
+  # filter below would then count every proposal's claims; with no proposal there is no row
+  FILTER(BOUND($proposal))
   BIND("this dry run (dryrun1.triage)" AS ?s)
   OPTIONAL {
     ?x nk:predicate ?pred ; nk:scope ?ts . ?ts rdfs:label "dryrun1.triage" .

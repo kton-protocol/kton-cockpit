@@ -13,7 +13,7 @@ export interface TreeNode {
   readonly disabled?: boolean;
 }
 
-export type StatusId = "identity" | "mode" | "poll" | "surface" | "slots";
+export type StatusId = "identity" | "mode" | "poll" | "decisions" | "surface" | "slots";
 export type ViewId = "home" | "inbox" | "lanes";
 
 import type { LeafViewer, LoadedViewer } from "../packages/model.js";

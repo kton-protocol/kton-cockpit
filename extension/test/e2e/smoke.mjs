@@ -188,10 +188,11 @@ await page.goto(URL);
 await page.locator(".monaco-workbench").waitFor({ timeout: 90000 });
 await views();
 
-await step("S1", 1, "status bar: both keys, unverified, no name from a claim; test mode; one poller", async () => {
-  await status().getByText("person key qa-decider · agent key qa-decider-agent · unverified", { exact: true }).waitFor({ timeout: 60000 });
+await step("S1", 1, "status bar: both keys, test (not verified: test keys), no name from a claim; test mode; one poller; decisions waiting apart from the inbox", async () => {
+  await status().getByText("person key qa-decider · agent key qa-decider-agent · test", { exact: true }).waitFor({ timeout: 60000 });
   await status().getByText("TEST MODE").waitFor();
-  await status().getByText(/polling: inbox every 2s · 2 open · 4 decisions/).waitFor({ timeout: 60000 });
+  await status().getByText(/polling: inbox every 2s · 2 open · cockpit-faults$/).waitFor({ timeout: 60000 });
+  await status().getByText("4 decisions waiting", { exact: true }).waitFor({ timeout: 60000 });
   const id = await status().getByText(/person key /).first().textContent();
   check(!/qa-requestor/.test(id), "the identity shows no name from a claim's signer", false, /qa-requestor/.test(id));
   await shot("s1-status-bar");
@@ -795,7 +796,7 @@ await step("S1", 5, "no identity file: reading works, signing is disabled", asyn
   await shot("s1-no-identity");
   renameSync(`${WORK}/repo/.kton/local/identity.json.away`, `${WORK}/repo/.kton/local/identity.json`);
   rebuild();
-  await status().getByText(/person key qa-decider · agent key qa-decider-agent · unverified/).waitFor({ timeout: 30000 });
+  await status().getByText(/person key qa-decider · agent key qa-decider-agent · test/).waitFor({ timeout: 30000 });
 });
 
 await step("S1", 7, "a missing person or agent key is named; neither stands in for the other", async () => {
@@ -811,7 +812,7 @@ await step("S1", 7, "a missing person or agent key is named; neither stands in f
   await shot("s1-no-agent-key");
   await clearToasts();
   setWorkspace({ "kton.identity.agentKey": "qa-decider-agent" });
-  await status().getByText(/agent key qa-decider-agent · unverified/).waitFor({ timeout: 30000 });
+  await status().getByText(/agent key qa-decider-agent · test/).waitFor({ timeout: 30000 });
 });
 
 await step("S7", 1, "cockpit missing: one clear error with the setting to check; the views say no data", async () => {
@@ -1190,6 +1191,24 @@ if (seed.dm?.proposal) {
     await f.locator('[data-use$="#summary"] [data-figure]').first().waitFor({ timeout: 60000 });
     return f;
   }
+
+  await step("DM", 0, "first screen (MH 20.11.): the one waiting decision's review view opens on start; 1 decision waiting; Home → Packages → the review-view entry opens it too; guard rules show their state", async () => {
+    await row("Can the 5.0.0 mapping be the basis for G1 triage?").waitFor({ timeout: 60000 });
+    await status().getByText("1 decision waiting", { exact: true }).waitFor({ timeout: 60000 });
+    // kton.home.openOnStart (default true): exactly one decision waiting, with a review view
+    await (await dmFrame()).locator('[data-use$="#summary"] [data-figure], [data-use$="#summary"] [data-area-empty]').first().waitFor({ timeout: 90000 });
+    await closeEditors();
+    const rows = page.locator(".monaco-list-row");
+    const texts = await rows.allTextContents();
+    const at = texts.findIndex((t) => /^Packages/.test(t.trim()));
+    const i = texts.findIndex((t, j) => j > at && t.includes("Decision view: mapping (dryrun1)") && t.includes("review-view"));
+    check(at >= 0 && i > at, "the review-view entry is listed under Packages", "Packages → Decision view: mapping (dryrun1) · review-view", texts.slice(at, at + 12));
+    await rows.nth(i).click();
+    await (await dmFrame()).locator('[data-use$="#summary"]').first().waitFor({ timeout: 60000 });
+    const home = (await page.locator(".monaco-list-row").allTextContents()).join("\n");
+    check(/Guard rules/.test(home) && /Reviewer is the author\s*(passed \(0 findings\)|findings \(\d+\)|not run)/.test(home) && !/Reviewer is the author\s*not rendered/.test(home), "the guard rules show a state (passed / findings / not run), never a cut-off 'not rendered'", "Reviewer is the author · passed (0 findings) | findings (n) | not run", home.match(/Guard rules[\s\S]{0,300}/)?.[0]);
+    await shot("dm-first-screen");
+  });
 
   await step("DM", 1, "the decision view opens from the proposal; every number shows its stamp", async () => {
     await row("Can the 5.0.0 mapping be the basis for G1 triage?").waitFor({ timeout: 60000 });

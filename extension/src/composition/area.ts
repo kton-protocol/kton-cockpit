@@ -50,6 +50,17 @@ export interface ActInto {
 }
 
 export const SLOT_CMD = "ktonWorkbench.openSlot";
+/** A review-view entry clicked under Home → Packages: the shell finds its proposal (Workbench.openEntry). */
+export const ENTRY_CMD = "ktonWorkbench.openEntry";
+
+/** A guard rule's state on Home: its finding-source query run, or why it did not run. */
+export type RuleState = { readonly n: number } | { readonly why: string };
+/** A guard rule's line on Home: passed (0 findings), findings (n), or not run (the detail goes in the tooltip). */
+export function ruleText(s: RuleState | undefined): string {
+  if (!s) return "…";
+  if ("why" in s) return "not run";
+  return s.n === 0 ? "passed (0 findings)" : `findings (${s.n})`;
+}
 /** A scope label (as `say --scope` takes it), never an IRI or a path. */
 export const SCOPE_LABEL = /^[A-Za-z][A-Za-z0-9_.-]*$/;
 
@@ -78,6 +89,8 @@ export class PackagesArea {
   private stale = false;
   /** home-tile / status-item numbers, by entry key */
   private readonly numbers = new Map<string, string>();
+  /** finding-source entries (guard rules): their state at the last poll, by entry key */
+  private readonly rules = new Map<string, RuleState>();
 
   constructor(
     private readonly t: Transport,
@@ -194,6 +207,22 @@ export class PackagesArea {
 
   private async tiles(): Promise<void> {
     this.numbers.clear();
+    this.rules.clear();
+    for (const e of this.loaded?.entries ?? []) {
+      if (e.slot !== "finding-source") continue;
+      if (!e.query) {
+        this.rules.set(entryKey(e), { why: "the entry names no query" });
+        continue;
+      }
+      try {
+        const terms = Object.fromEntries(Object.entries(this.closedSet(e, undefined)).map(([k, v]) => [k, { type: "literal" as const, value: v }]));
+        const r = (await this.named(e.package, e.query, terms)) as { results?: { bindings?: unknown[] } };
+        const b = r.results?.bindings;
+        this.rules.set(entryKey(e), Array.isArray(b) ? { n: b.length } : { why: "the answer has no rows (no data)" });
+      } catch (err) {
+        this.rules.set(entryKey(e), { why: (err as Error).message });
+      }
+    }
     for (const e of this.loaded?.entries ?? []) {
       if ((e.slot !== "home-tile" && e.slot !== "status-item") || !e.query) continue;
       try {
@@ -237,21 +266,41 @@ export class PackagesArea {
     if (this.error) return [{ id: "pkgs", label: "Packages", description: "cannot be read", tooltip: this.error, children: [{ id: "pkgs:error", label: this.error }] }];
     const l = this.loaded;
     if (!l || (Object.keys(l.packages).length === 0 && l.refusals.length === 0 && l.notAdmitted.length === 0)) return [];
-    const { rendered, listed } = partition(l.entries);
+    const { rendered, listed: all } = partition(l.entries);
+    // guard rules (finding-source) have their own node with their state; the rest of the listed ones as before
+    const findings = all.filter((e) => e.slot === "finding-source");
+    const listed = all.filter((e) => e.slot !== "finding-source");
     const children: TreeNode[] = [
-      ...Object.keys(l.packages).sort().map((name) => ({ id: `pkg:${name}`, label: name, description: "admitted", children: rendered.filter((e) => e.package === name).map((e) => ({ id: `slot:${entryKey(e)}`, label: e.label, description: e.slot })) })),
+      ...Object.keys(l.packages).sort().map((name) => ({ id: `pkg:${name}`, label: name, description: "admitted", children: rendered.filter((e) => e.package === name).map((e) => ({ id: `slot:${entryKey(e)}`, label: e.label, description: e.slot, ...(e.slot === "review-view" ? { tooltip: "A review view opens for a waiting proposal: click to open it for one", command: { id: ENTRY_CMD, args: [entryKey(e)] } } : {}) })) })),
       ...l.refusals.map((r, i) => ({ id: `ref:${i}:${r.package}`, label: r.package, description: `refused: ${r.code}`, tooltip: r.reason, children: [{ id: `ref:${i}:why`, label: r.reason, description: r.file }] })),
       ...l.notAdmitted.map((n) => ({ id: `na:${n}`, label: n, description: "installed, not admitted" })),
       ...listed.map((e) => ({ id: `listed:${entryKey(e)}`, label: `${e.package}: ${e.label}`, description: "not rendered", tooltip: e.why })),
     ];
     const tiles = rendered.filter((e) => e.slot === "home-tile").map((e) => ({ id: `tile:${entryKey(e)}`, label: e.label, description: this.numbers.get(entryKey(e)) ?? "…" }));
-    return [...tiles, { id: "pkgs", label: "Packages", description: `${Object.keys(l.packages).length} admitted${l.refusals.length ? ` · ${l.refusals.length} refused` : ""}`, children }];
+    const rules: TreeNode[] = findings.length
+      ? [{
+          id: "rules",
+          label: "Guard rules",
+          description: String(findings.length),
+          children: findings.map((e) => {
+            const s = this.rules.get(entryKey(e));
+            const why = s && "why" in s ? `\nNot run: ${s.why}` : "";
+            return { id: `rule:${entryKey(e)}`, label: e.label, description: ruleText(s), tooltip: `${e.label}\n${e.package} · query ${e.query ?? "(none)"}${s && "n" in s ? `\n${s.n} finding(s) at the last poll` : ""}${why}` };
+          }),
+        }]
+      : [];
+    return [...tiles, ...rules, { id: "pkgs", label: "Packages", description: `${Object.keys(l.packages).length} admitted${l.refusals.length ? ` · ${l.refusals.length} refused` : ""}`, children }];
   }
 
   /** status-item entries: label: number, for the status bar. */
   statusText(): string | undefined {
     const e = (this.loaded?.entries ?? []).filter((x) => x.slot === "status-item");
     return e.length ? e.map((x) => `${x.label}: ${this.numbers.get(entryKey(x)) ?? "…"}`).join(" · ") : undefined;
+  }
+
+  /** The keys of the review-view entries that apply to a subject, in their order. */
+  reviewEntriesFor(s: Subject): string[] {
+    return (this.loaded?.entries ?? []).filter((e) => e.slot === "review-view" && applies(e, s)).map(entryKey);
   }
 
   /** The review-view / record-view entries for a subject: children of its node (a click opens the panel). */

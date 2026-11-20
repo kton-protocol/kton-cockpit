@@ -182,13 +182,16 @@ async function setup(cfg: Partial<typeof DEFAULT_CONFIG> = {}, t: Transport = ne
 }
 const decisionIntent = (choice: string, extra: Record<string, string> = {}) => ({ kind: "sign", about: sha("1"), fields: { answers: sha("1"), outcome: "https://schema.org/AcceptAction", choice, ...extra } });
 
-test("S1.1: status bar shows both keys, unverified until the cockpit has an identity verb, and test mode", async () => {
+test("S1.1: status bar shows both keys, \"test\" (unverified: test keys, no identity verb) and test mode; decisions waiting apart from the inbox", async () => {
   const { h } = await setup();
   const s = h.status.get("identity") ?? "";
-  assert.equal(s, "person key qa-decider · agent key qa-decider-agent · unverified");
+  assert.equal(s, "person key qa-decider · agent key qa-decider-agent · test");
   assert.ok(!/qa-requestor/.test(s), "no name comes from a claim's signer");
   assert.equal(h.status.get("mode"), "TEST MODE");
-  assert.match(h.status.get("poll") ?? "", /polling: inbox every 30s · 1 open · 2 decisions/);
+  assert.match(h.status.get("poll") ?? "", /^polling: inbox every 30s · 1 open$/);
+  // proposals are not inbox messages: their own item, singular/plural, a click shows Home's Decisions waiting
+  assert.equal(h.status.get("decisions"), "2 decisions waiting");
+  assert.equal(h.statusCommand.get("decisions"), "ktonWorkbench.home.focus");
 });
 
 test("S1.3: a signer the view gives no tier for is shown as unknown, never by its label", async () => {
@@ -236,14 +239,14 @@ test("S1.5: after a rebuild (identity file back) the open panels are rendered ag
 
 test("S1.7: a missing person or agent key is named, and neither key stands in for the other", async () => {
   const noPerson = await setup({}, new FakeTransport(), { ...identity, person: { role: "person", keyName: "", keyId: "" } });
-  assert.match(noPerson.h.status.get("identity") ?? "", /^person key missing · agent key qa-decider-agent · unverified$/);
+  assert.match(noPerson.h.status.get("identity") ?? "", /^person key missing · agent key qa-decider-agent · test$/);
   noPerson.h.confirmAnswer = true;
   assert.equal(await noPerson.wb.chooseOption(P1, "a"), "failed");
   assert.match(noPerson.h.errors.at(-1) ?? "", /no person key.*agent key never stands in/);
   assert.equal(noPerson.t.says.length, 0);
 
   const noAgent = await setup({}, new FakeTransport(), { ...identity, agent: { role: "agent", keyName: "", keyId: "" } });
-  assert.match(noAgent.h.status.get("identity") ?? "", /^person key qa-decider · agent key missing · unverified$/);
+  assert.match(noAgent.h.status.get("identity") ?? "", /^person key qa-decider · agent key missing · test$/);
   noAgent.h.picks = ["announces"];
   assert.equal(await noAgent.wb.sayCommand(), "failed");
   assert.match(noAgent.h.errors.at(-1) ?? "", /no agent key.*person key never stands in/);
@@ -782,7 +785,7 @@ test("status bar (MH's demo): both key names, distinct and short; the hint and t
   const id = { ...identity, hintName: "demo-person", person: { ...identity.person, keyName: "demo-person" }, agent: { ...identity.agent, keyName: "demo-person-agent" } };
   const { h } = await setup({}, new FakeTransport(), id);
   const s = h.status.get("identity") ?? "";
-  assert.equal(s, "person key demo-person · agent key demo-person-agent · unverified");
+  assert.equal(s, "person key demo-person · agent key demo-person-agent · test");
   assert.ok(s.length < 80, `${s.length} characters`);
   assert.ok(!/identity verb|\(/.test(s), "no reason in the bar");
 });
@@ -1029,4 +1032,87 @@ test("open@1 evidence: a shown source or artifact is reported to the panel's loo
   await open({ artifact: { run: "p2", name: "y.png", sha256: h64 } }, (r) => shown.push(r));
   assert.match(await open({ artifact: { run: "../p2", name: "y.png", sha256: h64 } }, (r) => shown.push(r)), /not opened: run is not a run name/);
   assert.deepEqual(shown, ["kton-src:/improve/a/B.java?fa218aa8#L127", `run-artifact:p2/x.png@${h64}`]);
+});
+
+// ---- MH's first screen in the dry-run workbench (20.11.)
+const oneProposal = (t: FakeTransport) => {
+  t.answers["Q proposals"] = (t.answers["Q proposals"] ?? []).filter((p) => p["msg"] === P1);
+  return t;
+};
+const REVIEW_KEY = "kton-web-test/ui/test-shell.json";
+
+test("MH 1: a review-view entry under Home → Packages opens its review view: one waiting proposal directly, several by a pick, none says where", async () => {
+  // two waiting proposals (P1, and P2 which only an agent key decided): a pick
+  const two = await setup({}, withTestPackage());
+  const pk = (two.h.trees["home"] ?? []).find((n) => n.label === "Packages");
+  const entry = pk?.children?.find((n) => n.label === "kton-web-test")?.children?.find((n) => n.description === "review-view");
+  assert.deepEqual(entry?.command, { id: "ktonWorkbench.openEntry", args: [REVIEW_KEY] });
+  two.h.picks.push("1. Which build?");
+  await workbenchCommands(() => two.wb).find(([id]) => id === CMD.openEntry)?.[1]?.(REVIEW_KEY as never);
+  assert.equal(two.h.compositions.length, 1, "the picked proposal's review view opened");
+  // exactly one: no pick
+  const one = await setup({}, oneProposal(withTestPackage()));
+  await one.wb.openEntry(REVIEW_KEY);
+  assert.equal(one.h.compositions.length, 1);
+  assert.equal(one.h.picks.length, 0);
+  // none waiting: it says where it opens from, opens nothing
+  const none = withTestPackage();
+  none.answers["Q proposals"] = [];
+  const z = await setup({}, none);
+  await z.wb.openEntry(REVIEW_KEY);
+  assert.equal(z.h.compositions.length, 0);
+  assert.match(z.h.infos.at(-1) ?? "", /opens from its proposal under Decisions waiting/);
+});
+
+test("MH 2: on start, exactly one waiting decision with a review view opens it (kton.home.openOnStart); off, or two, nothing opens", async () => {
+  const on = await setup({ openOnStart: true }, oneProposal(withTestPackage()));
+  assert.equal(on.h.compositions.length, 1, "the one decision's review view opened");
+  assert.equal(on.h.compositions[0]?.key, `composition:${REVIEW_KEY}`);
+  await on.wb.refresh();
+  assert.equal(on.h.compositions.length, 1, "once per start, not per poll");
+  const off = await setup({ openOnStart: false }, oneProposal(withTestPackage()));
+  assert.equal(off.h.compositions.length, 0);
+  const two = await setup({ openOnStart: true }, withTestPackage());
+  assert.equal(two.h.compositions.length, 0, "two waiting decisions: nothing opens by itself");
+});
+
+test("MH 3: the decisions item says 1 decision waiting (singular) and is not part of the inbox count", async () => {
+  const { h } = await setup({}, oneProposal(new FakeTransport()));
+  assert.equal(h.status.get("decisions"), "1 decision waiting");
+  assert.match(h.status.get("poll") ?? "", /· 1 open$/);
+});
+
+test("MH 4: guard rules (finding-source) on Home: passed (0 findings), findings (n), or not run, with the full rule name", async () => {
+  const t = withTestPackage();
+  const f = t.fixtures[0] as ReturnType<typeof listed>;
+  const rule = (file: string, label: string, query: string) => ({ file, slot: "finding-source", label, query });
+  t.fixtures = [{ ...f, pkg: { ...f.pkg, ui: [...f.pkg.ui, rule("ui/r1.json", "triage-reviewer-not-author: a review signed by a key that also signed the reviewed claim", "r-pass"), rule("ui/r2.json", "triage-ranked-before-assigned", "r-find"), rule("ui/r3.json", "triage-evidence-vs-reach", "r-error")] } }];
+  // the named queries answer in the JSON-argument form (sparql.results), as the cockpit does
+  const sparqlOf = (n: number) => ({ ok: true as const, value: { query: "sparql", ref: "", raw: "", sparql: { results: { head: { vars: ["rule", "focus"] }, results: { bindings: Array.from({ length: n }, (_x, i) => ({ rule: { type: "literal", value: "x" }, focus: { type: "literal", value: `f${i}` } })) } } } } });
+  const ask = t.ask.bind(t);
+  t.ask = async (req) => (req.name === "r-error" ? { ok: false, refusal: { code: "query.timeout", reason: "the query took over 30 s" } } : req.name === "r-pass" ? sparqlOf(0) : req.name === "r-find" ? sparqlOf(2) : ask(req));
+  const { h } = await setup({}, t);
+  const rules = (h.trees["home"] ?? []).find((n) => n.label === "Guard rules");
+  const lines = (rules?.children ?? []).map((n) => `${n.label} | ${n.description}`);
+  assert.deepEqual(lines, [
+    "triage-reviewer-not-author: a review signed by a key that also signed the reviewed claim | passed (0 findings)",
+    "triage-ranked-before-assigned | findings (2)",
+    "triage-evidence-vs-reach | not run",
+  ]);
+  assert.match(rules?.children?.[2]?.tooltip ?? "", /Not run: .*took over 30 s/);
+  const pk = (h.trees["home"] ?? []).find((n) => n.label === "Packages");
+  assert.ok(!(pk?.children ?? []).some((n) => /not rendered/.test(n.description ?? "") && /triage/.test(n.label)), "no rule is listed as a cut-off 'not rendered'");
+});
+
+test("MH 5 + 6: the identity item's tooltip says why the keys are not verified; the recorder row is short with a tooltip", async () => {
+  const h = new FakeHost();
+  const tips = new Map<string, string | undefined>();
+  h.setStatus = (id, text, tip) => { h.status.set(id, text); tips.set(id, tip); };
+  const wb = new Workbench(new FakeTransport(), h, queries, identity, { ...DEFAULT_CONFIG, surfaces: SURFACES }, new Scheduler(manualClock));
+  await wb.start();
+  await wb.refresh();
+  assert.match(tips.get("identity") ?? "", /^Test keys; this cockpit has no identity verb, so the name isn't verified\./);
+  const rec = (h.trees["home"] ?? []).find((n) => n.id === "recorder");
+  assert.equal(rec?.label, "Recorder");
+  assert.match(rec?.tooltip ?? "", /Recorded runs/);
 });
