@@ -285,15 +285,17 @@ func lockLoads(cfg *config.Config) (func(), error) {
 // a rebuild, a schema change or a cleared cache. Each file is read again and checked against its hash;
 // one that is gone or changed is not loaded and is counted (ADR-017, section 9).
 func reloadMissing(ctx context.Context, cfg *config.Config, d *oxigraph.Daemon) (missing int, err error) {
-	l, err := readLoadList(cfg)
-	if err != nil || len(l) == 0 {
-		return 0, err
-	}
+	// Read under the lock: the list is written back when an entry is (un)marked, and a load running
+	// meanwhile adds its entry under the same lock (kton-review L1 on #211).
 	unlock, err := lockLoads(cfg)
 	if err != nil {
 		return 0, err
 	}
 	defer unlock()
+	l, err := readLoadList(cfg)
+	if err != nil || len(l) == 0 {
+		return 0, err
+	}
 	have, err := d.Loaded(ctx, cfg.RepoRoot)
 	if err != nil {
 		return 0, err
