@@ -38,7 +38,7 @@ func inContainer(ctx context.Context, cfg *config.Config, keys []ed25519.PublicK
 	}
 	files := []string{"--file", "/q/default.nt", "--file", "/q/named.nq"}
 	if dataset == oxigraph.DatasetClaims {
-		files = []string{"--file", "/q/default.nt", "--file", "/q/claims.nt"}
+		files = []string{"--file", "/q/default.nt", "--file", "/q/claims.nt", "--file", "/q/scopes.nq"}
 	}
 	if _, err := container.RunTool(ctx, cfg, cfg.Raw.Query.Image, dir, append([]string{"load", "--location", "/q/store"}, files...)...); err != nil {
 		return "", refuse("query.failed", "", "%v", err)
@@ -80,8 +80,11 @@ func projectRegistries(rctx context.Context, cfg *config.Config, keys []ed25519.
 		if err != nil {
 			return err
 		}
-		claims, err := oxigraph.ClaimDataset(u, keys, vc)
+		claims, scopes, err := oxigraph.ClaimDataset(u, keys, vc)
 		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(filepath.Join(dir, "scopes.nq"), scopes, 0o644); err != nil {
 			return err
 		}
 		return os.WriteFile(filepath.Join(dir, "claims.nt"), claims, 0o644)

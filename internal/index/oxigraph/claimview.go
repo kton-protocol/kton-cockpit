@@ -92,7 +92,7 @@ func (vc ViewConfig) resolve(tmpl, x string) string {
 
 // viewVersion changes whenever ClaimView builds something else from the same quads: a view kept
 // from an older build is then built again rather than answered from.
-const viewVersion = 7 // 4: view vocabulary 1; 5: nested fields through the aliases; 6: package aliases; 7: no aliases for an unknown template
+const viewVersion = 8 // 4: view vocabulary 1; 5: nested fields through the aliases; 6: package aliases; 7: no aliases for an unknown template; 8: scope graphs (ADR-018)
 
 // Fingerprint changes whenever the view a ViewConfig builds would.
 func (vc ViewConfig) Fingerprint() string {
@@ -293,6 +293,7 @@ func ClaimView(trusted, structure []Quad, vc ViewConfig) []Quad {
 			continue
 		}
 		n := oNS + h
+		start := len(out)
 		out = append(out, triple(n, rdfType, iri(nkNS+"Claim")))
 		if c.hasPred {
 			t, known := byPred[c.pred.Value]
@@ -386,6 +387,18 @@ func ClaimView(trusted, structure []Quad, vc ViewConfig) []Quad {
 		for _, kid := range c.signers {
 			out = append(out, triple(n, nkNS+"signer", iri(agentNS+kid)))
 			agents[kid] = true
+		}
+		// The graph this claim belongs to (ADR-018): its signed scope; a seed's, its own; none, the
+		// unscoped graph. Signer labels below belong to no scope and stay in the union only.
+		g := c.scope
+		if g == "" && c.genesis {
+			g = h
+		}
+		if g == "" {
+			g = Unscoped
+		}
+		for i := start; i < len(out); i++ {
+			out[i].G = g
 		}
 	}
 	kids := make([]string, 0, len(agents))
