@@ -8,7 +8,7 @@
 export function mount(el, ctx) {
   const esc = ctx.kit.esc;
   const o = ctx.use.options ?? {};
-  const acts = ctx.use.acts ?? [];
+  const acts = ctx.use.blockActs ?? ctx.use.acts ?? [];
   const v = (b) => (b && typeof b.value === "string" ? b.value : "");
   el.innerHTML = `<div class="kton-muted" data-area-loading>Loading…</div>`;
   stamped(el, esc, ctx.request("query@1", {})).then(

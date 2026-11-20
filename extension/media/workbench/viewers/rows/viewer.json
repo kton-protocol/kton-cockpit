@@ -44,5 +44,6 @@
    "from": "intent.select",
    "type": "iri"
   }
- }
+ },
+ "rendersActs": true
 }

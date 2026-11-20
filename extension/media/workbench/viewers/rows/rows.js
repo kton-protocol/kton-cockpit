@@ -26,7 +26,7 @@
 export function mount(el, ctx) {
   const esc = ctx.kit.esc;
   const o = ctx.use.options ?? {};
-  const acts = ctx.use.acts ?? [];
+  const acts = ctx.use.blockActs ?? ctx.use.acts ?? [];
   const subjectClaim = ctx.subject?.claim ? `https://kton.dev/o/${String(ctx.subject.claim).replace(/^sha256:/, "")}` : null;
   const value = (b) => (b && typeof b.value === "string" ? b.value : "");
   const shortly = (v) => (/^https:\/\/kton\.dev\/o\/[0-9a-f]{64}$/.test(v) ? `sha256:${v.slice(19, 31)}…` : v);

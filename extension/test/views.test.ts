@@ -171,3 +171,17 @@ test("row acts: a malformed pin refuses the package; the rows block accepts targ
   const accepts = (builtin().viewers["rows"]?.decl["accepts"] ?? {}) as Record<string, unknown>;
   assert.deepEqual([accepts["target"], accepts["choices"], accepts["propose"], accepts["nudge"]], ["literal", { set: "literal" }, { set: "literal" }, "literal"]);
 });
+
+test("acts once (DESIGN.md §7.1): a block that draws its own act buttons gets its acts as blockActs, and no act for the renderer's own bar", async () => {
+  const w = rowActs();
+  await w.area.refresh();
+  const e = (w.area.loaded as Loaded).entries.find((x) => x.package === "qa.rowacts");
+  assert.ok(e);
+  const host = (await w.area.openSlot(`qa.rowacts/${e.file}`, viewSubject(e))) as CompositionHost;
+  await host.onMessage({ type: "kton:ready" });
+  const set = w.posts.find((m) => m["type"] === "kton:set") as { plan: { uses: Array<{ acts?: unknown[]; blockActs?: Array<{ label: string }> }> } };
+  assert.deepEqual(set.plan.uses[0]?.acts, [], "compose.js draws no bar of its own for it");
+  assert.deepEqual(set.plan.uses[0]?.blockActs?.map((a) => a.label), ["Request rerun"], "the block draws each act once");
+  assert.equal(host.plan.uses[0]?.acts?.length, 1, "the host's plan keeps the act: intents are checked against it");
+  for (const v of ["cards", "figures", "rows", "requests"]) assert.equal(builtin().viewers[v]?.decl["rendersActs"], true, v);
+});

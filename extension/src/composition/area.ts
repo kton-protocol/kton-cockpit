@@ -427,7 +427,9 @@ export class PackagesArea {
         return `ran ${ray}`;
       },
     };
-    host = new CompositionHost(plan, loaded, backend, { post: shown.post, log: (l) => this.ui.log(l) });
+    // blocks that draw their own act buttons (viewer.json rendersActs): their acts go to the frame as blockActs only
+    const drawsActs = new Set(plan0.uses.filter((u) => viewers.get((u as { module?: string }).module ?? "")?.decl["rendersActs"] === true).map((u) => u.key));
+    host = new CompositionHost(plan, loaded, backend, { post: shown.post, log: (l) => this.ui.log(l) }, {}, drawsActs);
     const acting = plan.uses.flatMap((u) => (u.acts ?? []).map((a) => a.control?.package)).filter((x): x is string => !!x);
     me = { host, package: pkg, revisions: this.revisionsOf(loaded, [pkg, ...acting, ...(opts.revisions ?? [])]), busy: 0, opened: [] };
     this.open(panel, me);

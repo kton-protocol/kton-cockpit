@@ -33,5 +33,6 @@
    "from": "state.pick",
    "type": "literal"
   }
- }
+ },
+ "rendersActs": true
 }

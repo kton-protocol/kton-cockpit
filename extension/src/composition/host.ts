@@ -383,6 +383,11 @@ export class CompositionHost {
     private readonly backend: Backend,
     private readonly ui: HostUi,
     initialState: unknown = {},
+    /**
+     * The uses whose block draws its own act buttons (viewer.json `rendersActs`): the frame gets their acts as
+     * `blockActs` and `acts` empty, so the composition renderer adds no second, target-less act bar (DESIGN.md §7.1).
+     */
+    private readonly rendersActs: ReadonlySet<string> = new Set(),
   ) {
     this.state = withoutActs(initialState);
   }
@@ -475,8 +480,14 @@ export class CompositionHost {
   framePlan(): Plan {
     const g = this.guarded();
     this.sentGuard = JSON.stringify([...g]);
-    if (!g.size) return this.plan;
-    return { ...this.plan, uses: this.plan.uses.map((u) => (g.has(u.key) ? { ...u, acts: [], options: { ...((u as { options?: object }).options ?? {}), unset: g.get(u.key) } } : u)) } as Plan;
+    if (!g.size && !this.rendersActs.size) return this.plan;
+    return {
+      ...this.plan,
+      uses: this.plan.uses.map((u0) => {
+        const u = g.has(u0.key) ? ({ ...u0, acts: [], options: { ...((u0 as { options?: object }).options ?? {}), unset: g.get(u0.key) } } as PlanUse) : u0;
+        return this.rendersActs.has(u.key) ? ({ ...u, acts: [], blockActs: u.acts ?? [] } as PlanUse) : u;
+      }),
+    } as Plan;
   }
 
   /**
