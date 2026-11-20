@@ -1568,12 +1568,20 @@ and `1.0`); a string id is another id (`"1"` is not `1`), as JSON-RPC keeps them
 `{code, clause, reason}`; any other failure as error `-32000` with `data.code` `error`. An unknown method is
 error `-32601`, and params with a field the method does not take are error `-32602`.
 
+A body that is not JSON, in intact framing, MUST be answered with error `-32700` under id `null`, and the
+connection goes on: the next message starts where the framing says. The answer cannot name the request the
+body was, so a frontend fails what it is waiting for; it never sends a `say` again, since the registry decides
+whether it was signed (the others may still be running). Lost framing (no or an
+invalid `Content-Length`, a header without its blank line) ends the connection, since where the next message
+starts is no longer known; every request accepted before it is answered first.
+
 > **Checked by:** `TestServe_InitializeNamesTheWorkspaceFirst`, `TestServe_ListingsAreTheCommandLinesJSON`,
 > `TestServe_VerbsAnswerAndRefuseAsTheCommandLine`, `TestServe_RefusesAWorkspaceTheEnvironmentWouldRedirect`,
 > `TestServe_TheBinaryKeepsStdoutForTheProtocol`, `TestServe_ASayRunningAtShutdownIsAnswered`,
 > `TestServer_AnswersRequestsAndErrorsAndGoesOn`, `TestServer_CancelsARunningRequest`,
 > `TestServer_AnswersWhatIsRunningWhenTheInputEnds`, `TestServer_ShutdownAnswersWhatItAcceptedFirst`,
-> `TestServer_ExitWaitsForWhatIsRunning`, `TestServer_CancelMatchesANumberIDByValue`, `TestReadMessage_Framing`.
+> `TestServer_ExitWaitsForWhatIsRunning`, `TestServer_CancelMatchesANumberIDByValue`, `TestReadMessage_Framing`,
+> `TestServer_ABodyThatIsNotJSONIsAnsweredAndTheConnectionGoesOn`, `TestServer_LostFramingEndsTheConnectionAfterAnsweringWhatRuns`.
 
 ### 12.6 Loading derived RDF *(optional)*
 
