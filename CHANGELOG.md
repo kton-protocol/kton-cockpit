@@ -1,5 +1,60 @@
 # Changelog
 
+## v0.5.8 — 2026-11-20
+
+Claims in a graph per scope (ADR-018), serve events, and federation that cannot look whole while missing a
+record; each reviewed by kton-review (#195, #203, #205-#215). Tracks kton v0.4.2 and ktonpkg v0.9.13.
+
+### Migrating from v0.5.7
+
+- **A federated claim keeps its own field names** where its predicate has no template here (#203): its
+  fields read `lab:<field>`, not this repository's alias terms. To read another source's data through
+  vocabulary terms, admit a package with its templates and aliases (as `qm.vocabulary` does for the qm
+  scopes).
+- **`GRAPH ?g`** in a claims query, with nothing else binding `?g`, now also reads the scope graphs, not only
+  loaded files: say which you want (`?g a nk:LoadedGraph`, `?g a nk:ClaimGraph`).
+- **Every view is built again once** after the update (the view's version changed): the first query of each
+  repository takes the build time.
+- **A view that acts on another package's control** installs only after that package, at the revision it pins
+  (#206).
+- **A load into the machine's shared index is bounded** (#215): its files together at most
+  `index.derived.maxBytesShared`, 16 MiB by default. A repository loading more uses an index of its own
+  (`COCKPIT_INDEX_DIR` and `index.memory`), or raises the limit.
+
+### Added
+
+- **Claims in a graph per scope** ([ADR-018](docs/decisions/adr-018-claims-in-a-graph-per-scope.md), #205,
+  #207, #208, #210): each scope's claims in a named graph of their own and the unscoped claims in one more,
+  described in the default graph (`nk:ClaimGraph`, `nk:scope`, `rdfs:label`, `nk:parent`, `nk:source`,
+  `nk:claims`); the default graph is unchanged. `GRAPH ?g` over one scope is many times faster on large data.
+  `ask --json` lists the claim graphs an answer read (`claimGraphs`) and the names more than one carries
+  (`repeatedLabels`).
+- **Row templates** (`"claims": "rows"`, ktonpkg v0.9.12): their claims say `nk:row true`, so "the latest per
+  subject" leaves them out (`docs/sparql.md`, the latest claim per subject and template, #195).
+- **Loaded graphs described:** `nk:LoadedGraph` with the output path of the trusted step that produced the
+  file, `cockpit load --label` as `nk:loadedAs`, and `nk:loadedAt`.
+- **A kton id bound as an IRI** (`--bind-iri X=sha256:<hex>`) is the node `https://kton.dev/o/<hex>`.
+- **Acts on another package's control** (ktonpkg v0.9.13, #206): checked against the owner revision in use.
+- **The shared index's memory floor** (#215): a `memory` file in the machine's index directory (e.g. `4g`) is
+  the least every start of the shared daemon takes; `doctor` says what it runs with and where that came from.
+- **serve events** (SPEC §12.5, #213): with `initialize` `events: true` or `{since, intervalMs}`, a frontend
+  gets `events/published`, `events/said` (each claim with its scope, template, predicate, subject and
+  signers), `events/sourcePulled` and `events/indexMoved` (after the index holds them; the view and the
+  scopes that changed). The cursor is the feed's, so a restarted `serve` resumes where it was.
+
+### Fixed
+
+- **A federation source with a record or a store line it cannot load fails the union**, naming the source
+  (#200, #214; kton v0.4.2 `Registry.Unreadable`).
+- **Aliases rename only the fields of templates this repository holds** (#203).
+- **The view build parses each claim once** (#210): about 15% faster than with the scope graphs as first
+  merged.
+- **A changed file on the load list is not hashed before every query** while its size and modification time
+  stay as marked (#211).
+- **serve:** a body that is not JSON is answered `-32700` and the connection goes on; lost framing ends it
+  after answering what runs (SPEC §12.5, #212).
+- Tests that need a later signed second wait for it (#209).
+
 ## v0.5.7 — 2026-11-20
 
 Derived RDF in the index, and federation that scales, each reviewed by kton-review. Tracks kton v0.4.1 and
