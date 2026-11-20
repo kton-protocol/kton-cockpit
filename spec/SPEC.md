@@ -1566,7 +1566,8 @@ error `-32601`, and params with a field the method does not take are error `-326
 
 A body that is not JSON, in intact framing, MUST be answered with error `-32700` under id `null`, and the
 connection goes on: the next message starts where the framing says. The answer cannot name the request the
-body was, so a frontend that sent one fails what it is waiting for, or retries it. Lost framing (no or an
+body was, so a frontend fails what it is waiting for; it never sends a `say` again, since the registry decides
+whether it was signed (the others may still be running). Lost framing (no or an
 invalid `Content-Length`, a header without its blank line) ends the connection, since where the next message
 starts is no longer known; every request accepted before it is answered first.
 
