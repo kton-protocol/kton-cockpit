@@ -21,7 +21,9 @@
   "keys": {
    "set": "literal"
   },
-  "match": "literal",
+  "match": {
+   "set": "literal"
+  },
   "card": "literal",
   "caption": "literal",
   "ruleState": {"set": "literal"},

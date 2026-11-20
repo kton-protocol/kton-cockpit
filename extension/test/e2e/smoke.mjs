@@ -1982,6 +1982,31 @@ if (process.env.TRAINING === "1" && selected("T")) {
     await shot("t-record");
     await closeEditors();
   });
+
+  await step("T", 7, "the valid date (effectiveDate) in documents and governing; a record's confirmations as its approvals", async () => {
+    const f = await openTraining();
+    await countIn(f, "documents");
+    const sop02 = reg["documents"].find((d) => d.key === "SOP-02");
+    check(!!sop02?.effectiveDate, "the register gives SOP-02 a valid date", "a date", sop02?.effectiveDate);
+    const dates = await box(f, "documents").locator('td[data-col="effectiveDate"]').allTextContents();
+    const want = reg["documents"].filter((d) => ["SOP-02", "FOR-04", "FOR-05", "LIS-04", "LIS-09"].includes(d.key) && d.effectiveDate).length;
+    check(dates.filter(Boolean).length === want && want > 0, "documents: each valid date the register has is shown", want, dates);
+    const g = box(f, "governing").locator('[data-col="effectiveDate"]').first();
+    await g.waitFor({ timeout: 30000 });
+    check(((await g.textContent()) ?? "").includes(sop02.effectiveDate.slice(0, 10)), "governing: SOP-02's valid date", sop02.effectiveDate, await g.textContent());
+    const rec = "https://scinteco.com/ns/qms#RT-gxp-CP2-refresh-day3-christof-winkler";
+    const ap = await askT("training-approvals", [`recordId=${rec}`]);
+    check(ap.length === 2, "the registry: the 2 seeded confirmations of the record", 2, ap.length);
+    await box(f, "records").locator(`tr[data-target="${rec}"]`).first().click();
+    const r = await tRecordFrame();
+    await box(r, "record").locator("[data-area-card]").first().waitFor({ timeout: 60000 });
+    const n = await countIn(r, "approvals");
+    check(n === 2, "the record's approvals: 2 rows", 2, n);
+    const t = await boxText(r, "approvals");
+    check(/attended/.test(t) && /read-confirmed/.test(t), "both confirmations, by their outcome", "attended, read-confirmed", t.slice(0, 300));
+    await shot("t-record-approvals");
+    await closeEditors();
+  });
 }
 
 await browser.close();

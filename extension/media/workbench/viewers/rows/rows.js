@@ -6,7 +6,8 @@
 //   open      a row click asks the host to open this column's IRI (with the row's claim): list → record
 //   rules     keep only the rows whose ?rule is one of these (an area's findings.rules)
 //   keys      keep only the rows whose ?key is one of these (an area's documents)
-//   match     keep only the rows whose column equals the subject's claim (a record's approvals)
+//   match     keep only the rows where one of these columns equals the subject's claim (a record's approvals: the
+//             S6 packages name the record's claim ?record, the training package ?claim)
 //   card      "yes": the first row as fields, not a table; a long-form answer (?field ?value, one row per field)
 //             as all its rows' fields
 //   caption   a line above the rows (a finding source's label)
@@ -221,7 +222,7 @@ export function mount(el, ctx) {
       let rows = r?.results?.bindings ?? [];
       if (o.rules) rows = rows.filter((x) => o.rules.includes(value(x.rule)));
       if (o.keys) rows = rows.filter((x) => o.keys.includes(value(x.key)));
-      if (o.match) rows = subjectClaim ? rows.filter((x) => value(x[o.match]) === subjectClaim) : [];
+      if (o.match) rows = subjectClaim ? rows.filter((x) => [].concat(o.match).some((c) => value(x[c]) === subjectClaim)) : [];
       if (o.atLeast) {
         const [col, min] = o.atLeast.split(":");
         rows = rows.filter((x) => Number(value(x[col])) >= Number(min));

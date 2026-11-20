@@ -158,14 +158,15 @@ sayq deviation-approves "$D3" qa.deviations $AG '{"outcome":"approved"}' >/dev/n
 sayq deviation-note "$D2" qa.deviations $AG '{"text":"Waiting for the cleaning supervisor."}' >/dev/null
 
 # T (optional; run.sh mounts TRAINING_QP read-only at /training-qp): the training area, the first real QM area, in a
-# registry of its own, repo-training. qm-packages' areas/training and areas/rules are built here as qm.training and
-# qm.rules with ktonpkg v0.9.11's scope CLI, each sealed with a throwaway key deleted afterwards. The real scopes
+# registry of its own, repo-training. qm-packages' areas/training, areas/rules and areas/vocabulary are built here as
+# qm.training, qm.rules and qm.vocabulary (the imported scopes' templates) with ktonpkg v0.9.11's scope CLI, each
+# sealed with a throwaway key deleted afterwards. The real scopes
 # (scopes/*: schulungen, qualifications, roles, dokumente, …) are COPIED as read-only dir sources; they are signed with
 # qm-packages' development key, whose PUBLIC key alone is put in a trust tier "qm" (nothing is signed with it here).
 if [ -d /training-qp ]; then
   T="$E2E/repo-training"; mkdir -p "$T" "$E2E/training-src" "$E2E/training-pkgs"
   K=$(mktemp -d)
-  for p in rules:qm.rules training:qm.training; do
+  for p in rules:qm.rules training:qm.training vocabulary:qm.vocabulary; do
     "$E2E/bin/scope-0911" verticle "$E2E/training-pkgs/${p#*:}" "${p#*:}" 1 --src "/training-qp/areas/${p%%:*}" --key "$K/${p#*:}.key" >/dev/null
   done
   rm -rf "$K"
@@ -185,18 +186,9 @@ if [ -d /training-qp ]; then
   rm -f .kton/keys/agent/qa-decider-claims.pub .kton/keys/agent/qa-decider.pub   # no look-alike here
   mkdir -p .kton/keys/qm
   for k in /training-qp/scopes/*/keys/*.pub; do cp "$k" .kton/keys/qm/; done
-  # the imported scopes' claims have no template: the qm-core alias file names their fields (SPEC §9.11)
-  cp /training-qp/vocabulary/qm-core/aliases.json .kton/aliases.json
-  # Since kton-cockpit #203 a claim whose predicate no template here declares keeps its fields as lab:<field>, so
-  # the alias file renames nothing of the imported claims. One stand-in template per imported predicate (no
-  # fields: the alias file still names them) makes them this repository's own words again.
-  node -e '
-const fs=require("fs"),path=require("path");const src=process.argv[1];const preds=new Set();
-const walk=(d)=>{for(const f of fs.readdirSync(d)){const p=path.join(d,f);if(fs.statSync(p).isDirectory())walk(p);else if(f.endsWith(".jsonl"))for(const l of fs.readFileSync(p,"utf8").split("\n")){if(!l.trim())continue;
- const st=JSON.parse(Buffer.from(JSON.parse(l).envelope.payload,"base64").toString("utf8"));const u=st.predicate&&st.predicate.predicate&&st.predicate.predicate.uri;if(u&&!u.startsWith("https://kton.dev/"))preds.add(u);}}};
-walk(src);
-for(const u of [...preds].sort()){const n="qm-import-"+u.replace(/^.*[#/]/,"");fs.writeFileSync(".kton/templates/"+n+".json",JSON.stringify({name:n,target:"either",predicate:u,fields:{}},null,1));}
-console.error("stand-in templates: "+preds.size);' "$E2E/training-src"
+  # the imported scopes' claims are read through qm.vocabulary (installed below): a template per imported predicate,
+  # with the qm-core aliases, so their fields are qmso:/org: terms (kton-cockpit #203: a claim of a template this
+  # repository does not hold keeps lab:<field>)
   E2E="$E2E" node -e '
 const fs=require("fs");const p=".kton/cockpit.config.json";const c=JSON.parse(fs.readFileSync(p));
 c.repo={owner:"qa",name:"workbench-e2e-training"};c.persist=Object.assign(c.persist||{},{share:false});
@@ -206,7 +198,15 @@ const src=process.env.E2E+"/training-src";
 c.federation={sources:fs.readdirSync(src).sort().map((n)=>({name:n,kind:"dir",path:src+"/"+n}))};
 fs.writeFileSync(p,JSON.stringify(c,null,2));'
   cockpit install "$E2E/vocab-package" --allow --json >/dev/null
-  for p in qm.rules qm.training; do cockpit install "$E2E/training-pkgs/$p" --allow --json >/dev/null; done
+  for p in qm.vocabulary qm.rules qm.training; do cockpit install "$E2E/training-pkgs/$p" --allow --json >/dev/null; done
+  # two confirmations of one imported record (the real scopes hold none), through the package's templates, in a local
+  # scope labelled as the area's records scope: attended by the person key, read-confirmed by the agent key
+  id=$(cockpit scope seed qm.schulungen 2>&1 | sed -n 's/.*"qm.schulungen": "\(sha256:[0-9a-f]*\)".*/\1/p')
+  [ -n "$id" ] || { echo "seed of qm.schulungen failed" >&2; exit 1; }
+  node -e 'const fs=require("fs");const p=".kton/cockpit.config.json";const c=JSON.parse(fs.readFileSync(p));c.claims=c.claims||{};c.claims.scopes=Object.assign(c.claims.scopes||{},{"qm.schulungen":process.argv[1]});fs.writeFileSync(p,JSON.stringify(c,null,2));' "$id"
+  RT=https://scinteco.com/ns/qms#RT-gxp-CP2-refresh-day3-christof-winkler
+  sayq training-attended "$RT" qm.schulungen qa-decider '{"outcome":"attended","trainingDate":"2026-08-19"}' >/dev/null
+  sayq training-read-confirmed "$RT" qm.schulungen qa-decider-agent '{"document":"https://scinteco.com/ns/qms#SOP-02","revision":"7","trainingDate":"2026-08-19"}' >/dev/null
 fi
 
 cd "$E2E/repo"

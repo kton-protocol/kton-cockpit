@@ -190,7 +190,9 @@ export function recordComposition(e: SlotEntry & { area: AreaDecl }, loaded: Loa
   const rec = a.record ? rowsUse(loaded, a, pkg, a.record, "record", { card: "yes", emptyText: "This record has no current version." }, "record") : undefined;
   parts.push(part("record", "Record", [rec ? { ...rec, ...(acts.length ? { acts } : {}) } : notice("record", `The record query ${a.record ?? "(none)"} is not one this area can show.`)]));
   if (a.approvals) {
-    const r = rowsUse(loaded, a, pkg, a.approvals, "approvals", { columns: ["outcome", "signer", "counts"], match: "record", emptyText: "No approvals of this version." }, "record");
+    // ApprovalsShape (?claim ?record ?outcome ?signer) does not fix which column names the record's claim: a row
+    // belongs to this version when either does (S6: ?record; the training package: ?claim, ?approval the confirmation)
+    const r = rowsUse(loaded, a, pkg, a.approvals, "approvals", { columns: ["outcome", "signer", "counts"], match: ["record", "claim"], emptyText: "No approvals of this version." }, "record");
     if (r) parts.push(part("approvals", "Approvals", [r]));
   }
   if (a.history) {
