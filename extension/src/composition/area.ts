@@ -322,7 +322,9 @@ export class PackagesArea {
       this.ui.error(`No admitted package declares ${key}.`);
       return undefined;
     }
-    if (!applies(e, s)) {
+    // an area (activity + area) opens on its records scope, from the QM areas node: a `when` it declares must say
+    // scope; one without a `when` (ktonpkg does not ask for it on an activity) applies to its scope subject
+    if (!(e.area && e.when === undefined && s.kind === "scope") && !applies(e, s)) {
       this.ui.error(`${e.label} does not accept this subject (${s.kind}${s.type ? ` ${s.type}` : ""}).`);
       return undefined;
     }
@@ -382,7 +384,9 @@ export class PackagesArea {
         if (!terms || !a.record) return this.path.open(target);
         const r = (await this.named(e.package, a.record, terms)) as { results?: { bindings?: Array<Record<string, { value?: string }>> } };
         const rows = r.results?.bindings ?? [];
-        const claim = rows.length === 1 ? /^https:\/\/kton\.dev\/o\/([0-9a-f]{64})$/.exec(rows[0]?.["claim"]?.value ?? "")?.[1] : undefined;
+        // one current record: every row names the same claim (a record query may answer one row per field)
+        const claims = [...new Set(rows.map((x) => x["claim"]?.value ?? ""))];
+        const claim = rows.length >= 1 && claims.length === 1 ? /^https:\/\/kton\.dev\/o\/([0-9a-f]{64})$/.exec(claims[0] as string)?.[1] : undefined;
         if (!claim) return `${uri} is not one current record of ${e.label} (${rows.length} rows): nothing opened`;
         const opened = await this.openArea(key, e, { kind: "claim", iri: uri, id: `sha256:${claim}`, claim: `sha256:${claim}` }, loaded, "record");
         return opened ? `Opened ${uri}` : `${uri} cannot be shown`;

@@ -7,7 +7,10 @@
 //   rules     keep only the rows whose ?rule is one of these (an area's findings.rules)
 //   keys      keep only the rows whose ?key is one of these (an area's documents)
 //   match     keep only the rows whose column equals the subject's claim (a record's approvals)
-//   card      "yes": the first row as fields, not a table
+//   card      "yes": the first row as fields, not a table; a long-form answer (?field ?value, one row per field)
+//             as all its rows' fields
+//   caption   a line above the rows (a finding source's label)
+//   ruleState rule ids this query checks: each is shown as passed, findings (n) or not run (the query failed)
 //   emptyText what to say when no row is left (default: "No rows.")
 //   atLeast   "column:n": keep only the rows whose column is at least n (e.g. agreement after 10 verdicts)
 // A column `stamp` is shown as each row's source chip, and the row's numbers are marked as numbers.
@@ -125,12 +128,31 @@ export function mount(el, ctx) {
     }
   };
 
+  const caption = () => (o.caption ? `<p class="kton-muted" data-area-caption>${esc(o.caption)}</p>` : "");
+  // one line per rule this query checks: passed, findings (n), or not run (why)
+  const ruleStates = (rows, why) =>
+    o.ruleState && o.ruleState.length
+      ? `<ul data-rule-states>${o.ruleState
+          .map((id) => {
+            const n = rows ? rows.filter((x) => value(x.rule) === id).length : 0;
+            const state = !rows ? "not-run" : n ? "findings" : "passed";
+            const text = !rows ? `not run (${why})` : n ? `findings (${n})` : "passed";
+            return `<li data-rule-state="${esc(id)}" data-state="${state}" data-n="${n}"><strong>${esc(id)}</strong>: ${esc(text)}</li>`;
+          })
+          .join("")}</ul>`
+      : "";
+  const short = (v) => v.replace(/^.*[#/]/, "") || v;
   const draw = (vars, rows) => {
     const stampMode = o.stamp === "section" || o.stamp === "hide" ? o.stamp : "column";
     const cols = (o.columns && o.columns.length ? o.columns : vars.filter((c) => !(c.endsWith("Label") && vars.includes(c.slice(0, -5))))).filter((c) => vars.includes(c)).filter((c) => !(stampMode !== "column" && c === "stamp") && c !== o.group);
     let body;
     if (!rows.length) body = `${emptyBox(esc, o.emptyText || "No rows.", o.emptyHow)}`;
-    else if (o.card === "yes") {
+    else if (o.card === "yes" && vars.includes("field") && vars.includes("value")) {
+      // long form: one row per field (a field may repeat: a list of values)
+      body = `<dl class="kton-card" data-area-card data-count="${rows.length}">${rows
+        .map((r) => `<dt>${esc(short(value(r.field)))}</dt><dd data-col="${esc(short(value(r.field)))}">${esc(shortly(value(r.value)))}</dd>`)
+        .join("")}</dl>`;
+    } else if (o.card === "yes") {
       const r = rows[0];
       body = `<dl class="kton-card" data-area-card>${cols
         .filter((c) => r[c])
@@ -149,7 +171,7 @@ export function mount(el, ctx) {
     const page = paging
       ? `<div class="kton-pager" data-pager data-page="${back.length + 1}"><span class="kton-muted">Page ${back.length + 1} · rows ${back.length * pageSize + (rows.length ? 1 : 0)}–${back.length * pageSize + rows.length}</span>${back.length ? ` <button type="button" class="small" data-page-prev>Previous</button>` : ""}${pageSize && rows.length >= pageSize ? ` <button type="button" class="small" data-page-next>Next</button>` : ""}</div>`
       : "";
-    el.innerHTML = `${o.title ? `<h3 data-block-title>${esc(o.title)}</h3>` : ""}${choices ? `<div class="kton-refine" data-refines>${choices}</div>` : ""}${body}${page}${actButtons()}`;
+    el.innerHTML = `${o.title ? `<h3 data-block-title>${esc(o.title)}</h3>` : ""}${caption()}${ruleStates(rows)}${choices ? `<div class="kton-refine" data-refines>${choices}</div>` : ""}${body}${page}${actButtons()}`;
     for (const mb of el.querySelectorAll(".mb[data-lo]")) for (const k of ["lo", "hi", "pt", "t"]) mb.style.setProperty(`--${k}`, mb.dataset[k]);
     for (const b of el.querySelectorAll("button[data-art]")) {
       b.addEventListener("click", (ev) => {
@@ -207,7 +229,7 @@ export function mount(el, ctx) {
       draw(vars, rows);
     },
     (e) => {
-      el.innerHTML = `<div class="callout error" data-area-error role="alert"><p>${esc(e?.message ?? String(e))}</p></div>`;
+      el.innerHTML = `${caption()}${ruleStates(null, "the query failed")}<div class="callout error" data-area-error role="alert"><p>${esc(e?.message ?? String(e))}</p></div>`;
     },
   );
   load();

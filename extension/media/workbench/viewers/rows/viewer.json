@@ -23,6 +23,8 @@
   },
   "match": "literal",
   "card": "literal",
+  "caption": "literal",
+  "ruleState": {"set": "literal"},
   "emptyText": "literal",
   "atLeast": "literal",
   "page": "literal",

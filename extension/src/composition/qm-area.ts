@@ -39,6 +39,30 @@ export function recordTerms(area: AreaDecl, loaded: Loaded, pkg: string, iri: st
   return Object.fromEntries(vars.map((v) => [v, { type: "iri" as const, value: iri }]));
 }
 
+/**
+ * The column a list row opens its record by: the list query's first projected variable other than ?claim (the
+ * record's IRI, whatever the package calls it: ?item, ?record, …). Aggregates `(… AS ?x)` are skipped. Undefined
+ * when the query projects none (SELECT *, or ?claim only): the rows then open nothing.
+ */
+export function listColumn(text: string): string | undefined {
+  const body = text.split("\n").filter((l) => !/^\s*#/.test(l)).join("\n");
+  const m = /\bSELECT\s+(?:DISTINCT\s+|REDUCED\s+)?([\s\S]*?)\bWHERE\b/i.exec(body);
+  if (!m) return undefined;
+  let proj = m[1] as string;
+  // drop parenthesised expressions, innermost first
+  for (let prev = ""; prev !== proj; ) [prev, proj] = [proj, proj.replace(/\([^()]*\)/g, " ")];
+  return [...proj.matchAll(/[?$]([A-Za-z_]\w*)/g)].map((x) => x[1] as string).find((v) => v !== "claim");
+}
+
+/**
+ * The rule ids of an area (findings.rules) a finding source checks: those its query text names as a string literal
+ * (`BIND("<rule id>" AS ?rule)`, the one finding shape). Comment lines do not count.
+ */
+export function rulesChecked(text: string, rules: readonly string[]): string[] {
+  const body = text.split("\n").filter((l) => !/^\s*#/.test(l)).join("\n");
+  return rules.filter((r) => body.includes(`"${r}"`) || body.includes(`'${r}'`));
+}
+
 /** The param sources the area may declare: the record (the closed set's subject.*) and the window's identity. */
 const SOURCES = ["subject.iri", "subject.id", "subject.claim", "subject.type", "subject.kind", "identity.name"];
 /** Why the area's params cannot be bound as declared, or undefined (kton-cockpit N1, kton-review N3). */
@@ -104,7 +128,8 @@ export function areaComposition(e: SlotEntry & { area: AreaDecl }, loaded: Loade
     } else parts.push(part("governing", `Governing: ${a.governing}`, [notice("governing", `${noRegister}: the governing SOP's state is not known.`)]));
   }
   const records = a.scopes?.records;
-  const list = e.query ? rowsUse(loaded, a, pkg, e.query, "records", { open: "item", emptyText: records ? `Planned, 0 records (scope ${records}).` : "No records." }, "area") : undefined;
+  const openBy = e.query ? listColumn(loaded.packages[pkg]?.queries[e.query]?.text ?? "") : undefined;
+  const list = e.query ? rowsUse(loaded, a, pkg, e.query, "records", { ...(openBy ? { open: openBy } : {}), emptyText: records ? `Planned, 0 records (scope ${records}).` : "No records." }, "area") : undefined;
   parts.push(part("records", records ? `Records · ${records}` : "Records", [list ?? notice("records", `The list query ${e.query ?? "(none)"} is not one this area can show.`)]));
   if (a.findings) {
     const fp = loaded.packages[a.findings.package];
@@ -112,7 +137,21 @@ export function areaComposition(e: SlotEntry & { area: AreaDecl }, loaded: Loade
     if (!fp) parts.push(part("findings", "Findings", [notice("findings", `The findings package ${a.findings.package} is not installed: its findings are not known.`)]));
     else {
       used.add(fp.name);
-      const blocks = sources.map((s, i) => rowsUse(loaded, a, fp.name, s.query as string, `findings-${i + 1}`, { columns: ["rule", "focus", "message"], rules: a.findings?.rules ?? [], emptyText: `${s.label}: no findings.` }, "area")).filter((x): x is Record<string, unknown> => !!x);
+      const rules = a.findings.rules ?? [];
+      const checked = new Set<string>();
+      // per finding source: its rows kept to the area's rules, and the state of each area rule it checks (passed,
+      // findings (n), or not run when its query fails); a source checking none of them is still shown, unstated
+      const blocks = sources
+        .map((s, i) => {
+          const mine = rulesChecked(fp.queries[s.query as string]?.text ?? "", rules);
+          const u = rowsUse(loaded, a, fp.name, s.query as string, `findings-${i + 1}`, { caption: s.label, columns: ["rule", "focus", "message"], rules, ...(mine.length ? { ruleState: mine } : {}), emptyText: `${s.label}: no findings.` }, "area");
+          if (u) for (const r of mine) checked.add(r);
+          return u;
+        })
+        .filter((x): x is Record<string, unknown> => !!x);
+      // a rule of the area that no shown source checks has not run: said so, never counted as passed
+      const notRun = rules.filter((r) => !checked.has(r));
+      if (notRun.length) blocks.push(notice("findings-not-run", `Not run (no finding source of ${fp.name} this area can show checks it): ${notRun.join(", ")}.`));
       parts.push(part("findings", `Findings · ${a.findings.package}`, blocks.length ? blocks : [notice("findings", `${a.findings.package} declares no finding source this area can show.`)]));
     }
   }
