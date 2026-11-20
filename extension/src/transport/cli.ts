@@ -68,7 +68,7 @@ export class CliTransport implements Transport {
   /** Every argv the transport ran, newest last. For the local output channel (O7) and tests. */
   readonly calls: string[][] = [];
 
-  constructor(private readonly opts: CliTransportOptions) {}
+  constructor(protected readonly opts: CliTransportOptions) {}
 
   private run(args: readonly string[], binary = false): Promise<RunResult> {
     const argv = [...args];
@@ -230,18 +230,12 @@ export class CliTransport implements Transport {
    * [{package, id, dir}]}}: a label, never trust). Shape-checked; packages is passed on unchanged.
    */
   graph(): Promise<Outcome<{ records: unknown[]; keys: Record<string, unknown>; names: Record<string, unknown>; packages: Record<string, unknown> }>> {
-    return this.outcome(["show", "--json"], (v) => {
-      const o = assertObject(v, "show") as Record<string, unknown>;
-      if (!Array.isArray(o["union"])) throw new TransportError("show: union is not a list of records", 0, "");
-      const keys = assertObject(o["keys"] ?? {}, "show keys") as Record<string, unknown>;
-      const names = assertObject(o["names"] ?? {}, "show names") as Record<string, unknown>;
-      const packages = assertObject(o["packages"] ?? {}, "show packages") as Record<string, unknown>;
-      for (const [k, e] of Object.entries(packages)) {
-        const pk = e as { key?: unknown; packages?: unknown };
-        if (typeof pk !== "object" || pk === null || typeof pk.key !== "string" || !Array.isArray(pk.packages)) throw new TransportError(`show: packages.${k} is not {key, packages: [...]}`, 0, "");
-      }
-      return { records: o["union"] as unknown[], keys, names, packages };
-    });
+    return this.outcome(["show", "--json"], checkShow);
+  }
+
+  /** `cockpit workflow list --json`: the workflow names (stdio has no method for it: the command line answers). */
+  protected workflows(): Promise<Outcome<string[]>> {
+    return this.outcome(["workflow", "list", "--json"], parseWorkflowNames);
   }
 
   /** The templates this checkout's cockpit allows, with their fields (`cockpit say --json`, v0.5.0). */
@@ -252,11 +246,16 @@ export class CliTransport implements Transport {
   async list(): Promise<Outcome<Listing>> {
     const t = await this.templates();
     if (!t.ok) return t;
-    const q = await this.outcome(["ask", "--json"], parseQueries);
+    const q = await this.queries();
     if (!q.ok) return q;
-    const wf = await this.outcome(["workflow", "list", "--json"], parseWorkflowNames);
+    const wf = await this.workflows();
     if (!wf.ok) return wf;
     return { ok: true, value: { templates: t.value, queries: q.value, workflows: wf.value } };
+  }
+
+  /** `cockpit ask --json`: the named queries offered here. */
+  protected queries(): Promise<Outcome<QueryInfo[]>> {
+    return this.outcome(["ask", "--json"], parseQueries);
   }
 
   async doctor(): Promise<DoctorReport> {
@@ -318,13 +317,13 @@ function dropUndefined<T extends object>(o: T): T {
   return Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined)) as T;
 }
 
-function parseWorkflowNames(v: unknown): string[] {
+export function parseWorkflowNames(v: unknown): string[] {
   const arr = Array.isArray(v) ? v : Array.isArray((v as { workflows?: unknown }).workflows) ? (v as { workflows: unknown[] }).workflows : null;
   if (!arr) throw new TransportError("workflow list: expected a list", 0, "");
   return arr.map((w) => (typeof w === "string" ? w : String((w as { name?: unknown }).name ?? ""))).filter((n) => n !== "");
 }
 
-function parseTemplates(v: unknown): TemplateInfo[] {
+export function parseTemplates(v: unknown): TemplateInfo[] {
   const arr = Array.isArray(v) ? v : (v as { templates?: unknown }).templates;
   if (!Array.isArray(arr)) throw new TransportError("template listing: expected a list", 0, "");
   return arr.map((t) => {
@@ -339,7 +338,7 @@ function parseTemplates(v: unknown): TemplateInfo[] {
   });
 }
 
-function parseQueries(v: unknown): QueryInfo[] {
+export function parseQueries(v: unknown): QueryInfo[] {
   const arr = Array.isArray(v) ? v : (v as { queries?: unknown }).queries;
   if (!Array.isArray(arr)) throw new TransportError("query listing: expected a list", 0, "");
   return arr.map((q) => {
@@ -348,4 +347,18 @@ function parseQueries(v: unknown): QueryInfo[] {
     if (typeof o.name !== "string") throw new TransportError("query listing: an entry has no name", 0, "");
     return { name: o.name, parameters: Array.isArray(o.params) ? o.params.map(String) : [], ...(typeof o.package === "string" ? { package: o.package } : {}) };
   });
+}
+
+/** `show --json`'s shape: the records, the ring and the admitted packages' build keys (a label, never trust). */
+export function checkShow(v: unknown): { records: unknown[]; keys: Record<string, unknown>; names: Record<string, unknown>; packages: Record<string, unknown> } {
+  const o = assertObject(v, "show") as Record<string, unknown>;
+  if (!Array.isArray(o["union"])) throw new TransportError("show: union is not a list of records", 0, "");
+  const keys = assertObject(o["keys"] ?? {}, "show keys") as Record<string, unknown>;
+  const names = assertObject(o["names"] ?? {}, "show names") as Record<string, unknown>;
+  const packages = assertObject(o["packages"] ?? {}, "show packages") as Record<string, unknown>;
+  for (const [k, e] of Object.entries(packages)) {
+    const pk = e as { key?: unknown; packages?: unknown };
+    if (typeof pk !== "object" || pk === null || typeof pk.key !== "string" || !Array.isArray(pk.packages)) throw new TransportError(`show: packages.${k} is not {key, packages: [...]}`, 0, "");
+  }
+  return { records: o["union"] as unknown[], keys, names, packages };
 }

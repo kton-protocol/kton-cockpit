@@ -168,6 +168,15 @@
           "type": "string",
           "default": "all",
           "description": "The surface the views show at start (\"all\" for every area)."
+        },
+        "kton.cockpit.transport": {
+          "type": "string",
+          "enum": [
+            "cli",
+            "stdio"
+          ],
+          "default": "cli",
+          "description": "How the workbench talks to the cockpit: the command line (one process per call, the default), or one cockpit serve --stdio per window (the frontend protocol, cockpit v0.6.0)."
         }
       }
     },

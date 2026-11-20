@@ -4,6 +4,7 @@
 # containers (--rm), from images pinned by digest.
 #
 #   test/e2e/run.sh <work dir (absolute, scratch)> <cockpit binary> [<vocabulary folder>]
+#   TRANSPORT=stdio …   the window talks to the cockpit over cockpit serve --stdio (default: the command line)
 #
 # SECURITY: the code-server and sidecar containers get the host's docker socket (the cockpit starts
 # its SPARQL engine through docker). Access to the socket is root on the host. Run this only on a
@@ -94,6 +95,7 @@ cat > "$WORK/cs/data/User/settings.json" <<EOF
 {
   "kton.cockpit.path": "$WORK/bin/cockpit-faults",
   "kton.cockpit.timeoutSeconds": 20,
+  "kton.cockpit.transport": "${TRANSPORT:-cli}",
   "kton.queries.dir": "$WORK/queries",
   "kton.identity.personKey": "qa-decider",
   "kton.identity.agentKey": "qa-decider-agent",
