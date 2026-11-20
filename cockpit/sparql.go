@@ -214,18 +214,40 @@ func valuesClause(bind map[string]string, terms map[string]BoundTerm) (string, e
 }
 
 // bindIntoWhere puts the VALUES clause first in the query's outermost group, the WHERE clause's
-// opening brace. There, every pattern and FILTER of that group sees the bound variables: a FILTER
-// that compares with an as-of date takes it as a parameter. A clause appended after the query would
-// only be joined with the finished solutions, after every FILTER had run without it.
+// opening brace, and first in the group of every sub-select. There, every pattern and FILTER of those
+// groups sees the bound variables: a FILTER that compares with an as-of date takes it as a parameter.
+// A clause appended after the query would only be joined with the finished solutions, after every
+// FILTER had run without it; and a sub-select is evaluated on its own, so a binding in the outer group
+// does not reach it (userinterface, 20.11.). The clause has one row, so joining it into a group that
+// does not use a variable binds that variable to its one value and changes nothing else.
 //
-// The brace is the first one that is not in a comment, a string or an IRI: nothing before the WHERE
-// clause (prologue, SELECT expressions, dataset clauses) has a brace of its own.
+// Braces and keywords are found outside comments, strings and IRIs, and a group is told from an
+// expression's brace (EXISTS in a SELECT expression) by the parentheses around it.
 func bindIntoWhere(q, clause string) (string, error) {
-	i := whereBrace(q)
-	if i < 0 {
+	first := whereBrace(q)
+	if first < 0 {
 		return "", fmt.Errorf("the query has no WHERE clause to bind into")
 	}
-	return q[:i+1] + clause + q[i+1:], nil
+	at := []int{first}
+	// A SELECT's group is the first brace at the depth of its keyword: braces inside its expressions'
+	// parentheses (EXISTS { }) are deeper (kton-review E1 on #190). A sub-select can sit in another
+	// sub-select's expression, so the open ones are a stack of depths.
+	var pending []int
+	scanQuery(q, first+1, func(i int, kind byte, depth int) {
+		switch kind {
+		case 'S':
+			pending = append(pending, depth)
+		case '{':
+			if n := len(pending); n > 0 && pending[n-1] == depth {
+				at = append(at, i)
+				pending = pending[:n-1]
+			}
+		}
+	})
+	for k := len(at) - 1; k >= 0; k-- {
+		q = q[:at[k]+1] + clause + q[at[k]+1:]
+	}
+	return q, nil
 }
 
 // iriRef is an IRIREF as SPARQL's grammar has it: no space, no brace, no quote inside.
@@ -233,7 +255,20 @@ var iriRef = regexp.MustCompile("^<[^<>\"{}|^`\\\\\\x00-\\x20]*>")
 
 // whereBrace is the index of the first "{" outside comments, strings and IRIs, or -1.
 func whereBrace(q string) int {
-	for i := 0; i < len(q); {
+	at := -1
+	scanQuery(q, 0, func(i int, kind byte, depth int) {
+		if kind == '{' && depth == 0 && at < 0 {
+			at = i // a brace inside parentheses is an expression's (EXISTS in a SELECT expression)
+		}
+	})
+	return at
+}
+
+// scanQuery walks q from start, past comments, strings and IRIs, and calls visit with each "{" (kind
+// '{') and each SELECT keyword (kind 'S', at its first letter), with the parentheses open there.
+func scanQuery(q string, start int, visit func(i int, kind byte, depth int)) {
+	depth := 0 // parentheses open: an EXISTS { } in a SELECT expression is deeper than the SELECT
+	for i := start; i < len(q); {
 		switch c := q[i]; {
 		case c == '#':
 			for i < len(q) && q[i] != '\n' && q[i] != '\r' {
@@ -247,13 +282,41 @@ func whereBrace(q string) int {
 			}
 		case c == '"' || c == '\'':
 			i = skipString(q, i)
+		case c == '(':
+			depth++
+			i++
+		case c == ')':
+			depth--
+			i++
 		case c == '{':
-			return i
+			visit(i, '{', depth)
+			i++
+		case (c == 'S' || c == 's') && isKeyword(q, i, "select"):
+			visit(i, 'S', depth)
+			i += len("select")
 		default:
 			i++
 		}
 	}
-	return -1
+}
+
+// isKeyword reports whether word (lower case) starts at i as a keyword: not part of a longer name, a
+// variable (?select) or a prefixed name (ex:select).
+func isKeyword(q string, i int, word string) bool {
+	if len(q)-i < len(word) || !strings.EqualFold(q[i:i+len(word)], word) {
+		return false
+	}
+	nameChar := func(b byte) bool {
+		return b == '_' || b == '-' || b == ':' || b == '?' || b == '$' || b == '.' ||
+			(b >= '0' && b <= '9') || (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z')
+	}
+	if i > 0 && nameChar(q[i-1]) {
+		return false
+	}
+	if end := i + len(word); end < len(q) && nameChar(q[end]) && q[end] != '?' && q[end] != '$' {
+		return false
+	}
+	return true
 }
 
 // skipString returns the index just past the string literal that starts at i, short or long form.
