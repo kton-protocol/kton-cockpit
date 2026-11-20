@@ -1319,7 +1319,8 @@ if (seed.dm?.proposal) {
     await evidence(f, "ics2146#e14");
     const a = f.locator('[data-use$="#artifacts"]');
     await a.locator('[data-evidence="artifact"]').first().waitFor({ timeout: 60000 });
-    const shotRow = a.locator('[data-evidence="artifact"]', { has: f.locator("button", { hasText: "Open screenshot" }) }).first();
+    // a FAILING run's screenshot (test-execution's capture runs since 20.11. also give passing tests an end screenshot)
+    const shotRow = a.locator('[data-evidence="artifact"]', { has: f.locator("button", { hasText: /Open screenshot: .*\(failed\)/ }) }).first();
     const label = ((await shotRow.locator("button").textContent()) ?? "").trim();
     const run = /run (\S+) \(/.exec(label)?.[1];
     const testId = ((await shotRow.locator("div.kton-muted").first().textContent()) ?? "").replace(/ · \d+ bytes$/, "").trim();
@@ -1370,7 +1371,8 @@ if (seed.dm?.proposal) {
     await page.locator(".monaco-workbench").waitFor({ timeout: 90000 });
     await views();
     await row("Can the 5.0.0 mapping be the basis for G1 triage?").waitFor({ timeout: 60000 });
-    await openReview("Can the 5.0.0 mapping be the basis for G1 triage?", "Decision view: mapping (dryrun2)", "dryrun2.triage");
+    // kton.home.openOnStart opens it (the one waiting decision); opening it again over it would detach the frame
+    await frameWithSel('[data-composition="dryrun2.triage/decision"]', 90000).catch(() => openReview("Can the 5.0.0 mapping be the basis for G1 triage?", "Decision view: mapping (dryrun2)", "dryrun2.triage"));
     const f = await frameWithSel('[data-composition="dryrun2.triage/decision"]', 60000);
     const data = ["counts", "estimate", "areas", "parts", "cards", "agreement", "evidence", "artifacts", "rulecases", "examples", "summary"];
     for (const id of data) await f.locator(`[data-use$="#${id}"] [data-area-empty], [data-use$="#${id}"] [data-area-error]`).first().waitFor({ timeout: 90000 });
