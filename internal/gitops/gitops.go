@@ -6,9 +6,7 @@ package gitops
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/base64"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -320,8 +318,9 @@ var (
 )
 
 // LockRepo takes the lock for writing root's git index: every cockpit write to the store holds it
-// (commits here, the merge of cockpit sync). The lock file lives in the temp directory,
-// named by the repository's resolved path, so it is never part of the working tree.
+// (commits here, the merge of cockpit sync). The lock file is .kton/local/git.lock, this checkout's
+// own and never shared, so processes with different temp directories take the same one (kton-review
+// X1 on #183).
 func LockRepo(root string) (func(), error) {
 	abs, err := filepath.Abs(root)
 	if err != nil {
@@ -338,8 +337,7 @@ func LockRepo(root string) (func(), error) {
 	}
 	repoLocksMu.Unlock()
 	mu.Lock()
-	sum := sha256.Sum256([]byte(abs))
-	unlock, err := flock.Lock(filepath.Join(os.TempDir(), "kton-cockpit-git-"+hex.EncodeToString(sum[:8])+".lock"))
+	unlock, err := flock.Lock(flock.InCheckout(abs, "git"))
 	if err != nil {
 		mu.Unlock()
 		return nil, fmt.Errorf("locking %s for a commit: %w", root, err)

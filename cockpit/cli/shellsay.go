@@ -10,7 +10,10 @@ package cli
 //	cockpit say reproduces runs/check                    a run made with run new --from sha256:…
 
 import (
+	"bufio"
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -126,6 +129,24 @@ func shellSay(ctx context.Context, args []string) error {
 			return err
 		}
 		return printJSON(ts)
+	}
+	if args[0] == "--batch" {
+		// The answer is JSON in any case; --json is taken, as say's other forms take it (qm-dev-provenance).
+		if len(args) == 3 && args[2] == "--json" {
+			args = args[:2]
+		}
+		if len(args) != 2 {
+			return fmt.Errorf("usage: cockpit say --batch <file.jsonl | ->   (one say request as JSON per line)")
+		}
+		in, err := readBatch(args[1])
+		if err != nil {
+			return err
+		}
+		out, err := cockpit.New(cockpit.Start{}).SayBatch(ctx, in)
+		if err != nil {
+			return err
+		}
+		return printJSON(out)
 	}
 	in := cockpit.SayRequest{Template: args[0], Fields: map[string]string{}}
 	asJSON := false
@@ -356,4 +377,37 @@ func usedValues(ctx context.Context, cfg *config.Config, template, field string)
 	}
 	sort.Strings(out)
 	return out
+}
+
+// readBatch reads `say --batch`'s input: one say request as JSON per line (blank lines skipped), from
+// a file or from stdin ("-"). A line that is not a request is refused by its number, and nothing is said.
+func readBatch(path string) (cockpit.SayBatchRequest, error) {
+	var in cockpit.SayBatchRequest
+	f := os.Stdin
+	if path != "-" {
+		var err error
+		if f, err = os.Open(path); err != nil {
+			return in, &cockpit.Refusal{Code: "argument", Clause: "SPEC §8.9", Reason: err.Error()}
+		}
+		defer f.Close()
+	}
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 64<<10), 64<<20)
+	for n := 1; sc.Scan(); n++ {
+		line := bytes.TrimSpace(sc.Bytes())
+		if len(line) == 0 {
+			continue
+		}
+		var one cockpit.SayRequest
+		dec := json.NewDecoder(bytes.NewReader(line))
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&one); err != nil {
+			return in, &cockpit.Refusal{Code: "argument", Clause: "SPEC §8.9", Reason: fmt.Sprintf("line %d is not a say request: %v", n, err)}
+		}
+		in.Claims = append(in.Claims, one)
+	}
+	if err := sc.Err(); err != nil {
+		return in, &cockpit.Refusal{Code: "argument", Clause: "SPEC §8.9", Reason: err.Error()}
+	}
+	return in, nil
 }

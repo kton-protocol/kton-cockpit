@@ -36,6 +36,10 @@ func TestVocabulary_AnAllowedPackageBringsItsTemplatesAndQueries(t *testing.T) {
   "predicate": "https://example.org/ln/requests", "fields": {"lane": {"type": "string", "required": true}}}`)
 	write(filepath.Join(src, "queries", "open.rq"), `PREFIX nk: <https://kton.dev/v/>
 SELECT ?msg WHERE { ?msg nk:predicate <https://example.org/ln/requests> ; <https://kton.dev/v/lab/lane> $LANE }`)
+	// a parameter used only inside a sub-select: it sees the binding only if the binding is in its group too
+	write(filepath.Join(src, "queries", "in-sub.rq"), `PREFIX nk: <https://kton.dev/v/>
+SELECT ?msg WHERE { { SELECT ?msg WHERE { ?msg nk:predicate <https://example.org/ln/requests> ; <https://kton.dev/v/lab/lane> ?lane
+  FILTER(?lane = ?SUBLANE) } } }`)
 	// a parameter a FILTER compares with: it sees the binding only if the binding is in its group
 	write(filepath.Join(src, "queries", "not-to.rq"), `PREFIX nk: <https://kton.dev/v/>
 SELECT ?msg WHERE { ?msg nk:predicate <https://example.org/ln/requests> ; <https://kton.dev/v/lab/lane> ?lane
@@ -82,6 +86,10 @@ SELECT ?msg WHERE { ?msg nk:predicate <https://example.org/ln/requests> ; <https
 	out, err = c.Ask(ctx, AskRequest{Query: "sparql", Name: "not-to", Bind: map[string]string{"NOT": "kton-cockpit"}})
 	if err != nil || len(out.Sparql.Rows) != 1 || out.Sparql.Rows[0]["msg"] != "https://kton.dev/o/"+hexOf(said["kton"]) {
 		t.Fatalf("a FILTER must see the bound value: want only the request for kton: %+v %v", out, err)
+	}
+	out, err = c.Ask(ctx, AskRequest{Query: "sparql", Name: "in-sub", Bind: map[string]string{"SUBLANE": "kton"}})
+	if err != nil || len(out.Sparql.Rows) != 1 || out.Sparql.Rows[0]["msg"] != "https://kton.dev/o/"+hexOf(said["kton"]) {
+		t.Fatalf("a sub-select must see the bound value: want only the request for kton: %+v %v", out, err)
 	}
 	if _, err := c.Ask(ctx, AskRequest{Query: "sparql", Name: "open", Bind: map[string]string{"LANE x": "y"}}); err == nil {
 		t.Fatal("a binding to something that is not a variable name must be refused")

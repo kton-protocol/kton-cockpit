@@ -98,14 +98,21 @@ type ChainPosition struct {
 	Unresolved int `json:"unresolved,omitempty"`
 }
 
-func (c *Cockpit) Say(ctx context.Context, in SayRequest) (*SayResult, error) {
-	cfg, err := config.Load(ctx, c.dir())
-	if err != nil {
-		return nil, refuse("binding", "SPEC §5", "%v", err)
-	}
-	if !cfg.Raw.Verbs.Say {
-		return nil, refuse("verb.disabled", "SPEC §6", "say is disabled by this repo's cockpit.config.json")
-	}
+// preparedSay is a claim checked and ready to sign: everything say decides before it reads where the
+// claim goes. Say and SayBatch take the same path to it.
+type preparedSay struct {
+	in           SayRequest
+	resolvedFrom string
+	signKey      string
+	expect       binaries.Expect
+	sets         map[string]string
+	via, viaFrom string
+}
+
+// prepareSay makes the checks say makes before it takes the claims lock: the template ceiling, the
+// subject, the identity, the vocabulary, the expectations, the fields, and the reproduction
+// precondition for reproduces.
+func prepareSay(ctx context.Context, cfg *config.Config, r *binaries.Runner, in SayRequest) (*preparedSay, error) {
 	if ok, verr := templateAllowed(cfg, in.Template); verr != nil {
 		return nil, refuse("vocabulary", "SPEC §8.1", "%v", verr)
 	} else if !ok {
@@ -119,6 +126,7 @@ func (c *Cockpit) Say(ctx context.Context, in SayRequest) (*SayResult, error) {
 		return nil, refuse("argument", "SPEC §8", "%s", why)
 	}
 	in.Subject = subject
+	p := &preparedSay{in: in, resolvedFrom: resolvedFrom}
 
 	signKey := cfg.NektonKey
 	if in.As != "" {
@@ -128,8 +136,8 @@ func (c *Cockpit) Say(ctx context.Context, in SayRequest) (*SayResult, error) {
 		}
 		signKey = k
 	}
+	p.signKey = signKey
 
-	r := binaries.New(cfg)
 	if why := binaries.MisplacedAliases(cfg); why != "" {
 		return nil, refuse("vocabulary", "SPEC §5.6", "%s", why)
 	}
@@ -138,9 +146,9 @@ func (c *Cockpit) Say(ctx context.Context, in SayRequest) (*SayResult, error) {
 		if !ok {
 			return nil, refuse("argument", "SPEC §8", "expectTemplate is a content hash (sha256:<hex>), not %q", in.ExpectTemplate)
 		}
-		r.ExpectTemplate = h
+		p.expect.Template = h
 	}
-	r.ExpectRevision, r.ExpectPredicate = in.ExpectRevision, in.ExpectPredicate
+	p.expect.Revision, p.expect.Predicate = in.ExpectRevision, in.ExpectPredicate
 	sets := map[string]string{}
 	for k, v := range in.Fields {
 		sets[k] = v
@@ -149,7 +157,6 @@ func (c *Cockpit) Say(ctx context.Context, in SayRequest) (*SayResult, error) {
 		FillIdentity(cfg, in.Template, in.As, sets)
 	}
 
-	var reproducedVia, reproducedViaFrom string
 	if in.Template == "reproduces" {
 		via, viaFrom, verr := reproductionVia(ctx, cfg, r, in)
 		if verr != nil {
@@ -160,10 +167,45 @@ func (c *Cockpit) Say(ctx context.Context, in SayRequest) (*SayResult, error) {
 		if err != "" {
 			return nil, refuse("reproduction.not-met", "SPEC §8.2", "%s", err)
 		}
-		reproducedVia, reproducedViaFrom = via, viaFrom
+		p.via, p.viaFrom = via, viaFrom
 		sets = map[string]string{"level": level, "reproducedBy": in.ReproducedFotonID}
 	}
+	p.in.Via = in.Via
+	p.sets = sets
+	return p, nil
+}
 
+func (c *Cockpit) Say(ctx context.Context, in SayRequest) (*SayResult, error) {
+	cfg, err := config.Load(ctx, c.dir())
+	if err != nil {
+		return nil, refuse("binding", "SPEC §5", "%v", err)
+	}
+	if !cfg.Raw.Verbs.Say {
+		return nil, refuse("verb.disabled", "SPEC §6", "say is disabled by this repo's cockpit.config.json")
+	}
+	r := binaries.New(cfg)
+	p, prepErr := prepareSay(ctx, cfg, r, in)
+	if prepErr != nil {
+		return nil, prepErr
+	}
+	in, sets, signKey, resolvedFrom := p.in, p.sets, p.signKey, p.resolvedFrom
+	reproducedVia, reproducedViaFrom := p.via, p.viaFrom
+	r.ExpectTemplate, r.ExpectRevision, r.ExpectPredicate = p.expect.Template, p.expect.Revision, p.expect.Predicate
+
+	// From reading where the claim goes (its scope's head, the claim it replaces) until it is stored,
+	// no other claim is said in this repository, so two at once never take the same head.
+	unlockClaims, lerr := r.LockClaims()
+	if lerr != nil {
+		return nil, refuse("store", "", "%v", lerr)
+	}
+	claimsLocked := true
+	releaseClaims := func() {
+		if claimsLocked {
+			claimsLocked = false
+			unlockClaims()
+		}
+	}
+	defer releaseClaims()
 	chain, head, cerr := resolveChain(ctx, r, cfg, in.Scope)
 	if cerr != "" {
 		return nil, refuse("scope.unknown", "", "%s", cerr)
@@ -195,6 +237,7 @@ func (c *Cockpit) Say(ctx context.Context, in SayRequest) (*SayResult, error) {
 		}
 	}
 	claimID, err := r.Annotate(ctx, in.Subject, in.Template, sets, signKey, chain)
+	releaseClaims()
 	var changed *binaries.TemplateChanged
 	if errors.As(err, &changed) {
 		return nil, refuse("template.changed", "SPEC §8", "%s", changed.Reason)

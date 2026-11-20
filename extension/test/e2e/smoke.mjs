@@ -197,6 +197,28 @@ await step("S1", 1, "status bar: both keys, unverified, no name from a claim; te
   await shot("s1-status-bar");
 });
 
+await step("S5", 6, "a home tile shows its named query's number as the real cockpit answers it (rows read from sparql.results)", async () => {
+  // workbench-graph's tile counts the claims in the window's view; the registry answers the same query from outside.
+  // workbench-graph also carries an alias file (cockpit lists it as the member {role: aliases, name: ""}): it loads.
+  await views();
+  const tile = page.locator(".monaco-list-row", { hasText: "Claims in view" }).first();
+  await tile.waitFor({ timeout: 30000 });
+  const end = Date.now() + 30000;
+  let shown = "";
+  let want = "";
+  while (Date.now() < end) {
+    want = (await sparql("SELECT (COUNT(?c) AS ?n) WHERE { ?c a nk:Claim }"))[0]?.n ?? "";
+    shown = ((await tile.textContent()) ?? "").replace("Claims in view", "").trim();
+    if (shown === want) break;
+    await page.waitForTimeout(1000);
+  }
+  check(/^\d+$/.test(shown) && Number(shown) > 0, "the tile shows a number above 0, not an error", "a number > 0", shown);
+  check(shown === want, "the tile's number is the registry's", want, shown);
+  const admitted = await page.locator(".monaco-list-row", { hasText: "workbench-graph" }).filter({ hasText: "admitted" }).count(); // the row reads "workbench-graph" + "admitted"
+  check(admitted >= 1, "the package with an alias file is admitted, not refused", ">= 1", admitted);
+  await shot("s5-tile");
+});
+
 await step("S9", 1, "surfaces and lanes: the switch filters the same window; Lanes view with open counts", async () => {
   await views();
   await row("qa-lane").waitFor({ timeout: 15000 });

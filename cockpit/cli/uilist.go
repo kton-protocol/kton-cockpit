@@ -248,9 +248,26 @@ func uiCat(ctx context.Context, ref string, hashes []string, asJSON bool) error 
 	if err != nil {
 		return err
 	}
-	usable, _, err := packages.Usable(cfg.RepoRoot, cfg.Raw.Claims.AllowedPackages)
+	out, err := uiCatOf(cfg, ref, hashes)
 	if err != nil {
 		return err
+	}
+	if !asJSON {
+		_, err = os.Stdout.Write(out.Members[0].Bytes)
+		return err
+	}
+	return json.NewEncoder(os.Stdout).Encode(out)
+}
+
+// uiCatOf is what `ui cat` serves, for the command line and the frontend protocol alike: the members
+// asked, all of them or none.
+func uiCatOf(cfg *config.Config, ref string, hashes []string) (UICat, error) {
+	if len(hashes) == 0 {
+		return UICat{}, &cockpit.Refusal{Code: "argument", Clause: "SPEC §6", Reason: "ui cat needs a package and at least one member hash"}
+	}
+	usable, _, err := packages.Usable(cfg.RepoRoot, cfg.Raw.Claims.AllowedPackages)
+	if err != nil {
+		return UICat{}, err
 	}
 	var pkg *packages.Installed
 	for i := range usable {
@@ -259,25 +276,21 @@ func uiCat(ctx context.Context, ref string, hashes []string, asJSON bool) error 
 			if pkg != nil {
 				// A reference that names two usable packages (one's name another's dir or id) is
 				// refused rather than resolved by order (kton-review's nit on #170).
-				return &cockpit.Refusal{Code: "ui.package", Clause: "SPEC §6", Reason: fmt.Sprintf("%q names both %s and %s: name it by its dir or id", ref, pkg.Dir, in.Dir)}
+				return UICat{}, &cockpit.Refusal{Code: "ui.package", Clause: "SPEC §6", Reason: fmt.Sprintf("%q names both %s and %s: name it by its dir or id", ref, pkg.Dir, in.Dir)}
 			}
 			pkg = in
 		}
 	}
 	if pkg == nil {
-		return &cockpit.Refusal{Code: "ui.package", Clause: "SPEC §6", Reason: fmt.Sprintf("%q is not a usable installed package (admitted and passing its check): ui list says why", ref)}
+		return UICat{}, &cockpit.Refusal{Code: "ui.package", Clause: "SPEC §6", Reason: fmt.Sprintf("%q is not a usable installed package (admitted and passing its check): ui list says why", ref)}
 	}
 	out := UICat{Package: pkg.Package.ID, Name: pkg.Package.Name, Dir: pkg.Dir, Members: []UICatMember{}}
 	for _, hash := range hashes {
 		b, err := pkg.Revision.MemberBytes(hash)
 		if err != nil {
-			return &cockpit.Refusal{Code: "ui.member", Clause: "SPEC §6", Reason: fmt.Sprintf("%s of %s: %v", hash, pkg.Package.Name, err)}
+			return UICat{}, &cockpit.Refusal{Code: "ui.member", Clause: "SPEC §6", Reason: fmt.Sprintf("%s of %s: %v", hash, pkg.Package.Name, err)}
 		}
 		out.Members = append(out.Members, UICatMember{Hash: hash, Bytes: b})
 	}
-	if !asJSON {
-		_, err = os.Stdout.Write(out.Members[0].Bytes)
-		return err
-	}
-	return json.NewEncoder(os.Stdout).Encode(out)
+	return out, nil
 }

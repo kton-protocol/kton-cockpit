@@ -218,12 +218,14 @@ MUST NOT expose the configuration, the signing keys, the registry, or a general 
 through any of them.
 
 A cockpit MAY offer those three verbs over more than one transport — this one offers them as
-subcommands and over MCP. Where it does, every transport MUST reach the same implementation: a guard
+subcommands, over MCP, and over the frontend protocol (§12.5). Where it does, every transport MUST reach the same implementation: a guard
 belongs to the configuration, never to the way a call arrived, and a verb that is stricter over one
 transport than another has a ceiling that depends on who is asking.
 
 Operator subcommands (`init`, `doctor`, `show`, `scope`) MAY exist on the binary. They MUST NOT be
-reachable over the tool transport.
+reachable over the tool transport (MCP), which an agent uses. The frontend protocol (§12.5) serves a
+person's editor, and reaches the listings an operator reads (`doctor`, `ui list`, `show`), never one
+that changes the repository.
 
 A linked module (ADR-015) adds operator subcommands only, as `cockpit <module> <command>`. Its name
 MUST NOT shadow a core command, and no two modules may claim one name or one package profile. A
@@ -634,6 +636,13 @@ A scope is one of kton's two deliberate closed worlds: its **seed fixes membersh
 seals order**. Seeding MUST NOT be a verb — it is an operator action, the same division as
 mirroring, and a scope exists before the session does.
 
+`cockpit scope seed <name>` MUST refuse a name this repository opened already with its key
+(`scope.exists`), naming the scope that exists: a name that meant two scopes is one `say` and `install`
+refuse to write under. When committing or sharing a new seed fails, the scope is still opened; the
+answer names its id and says not to seed it again.
+
+> **Checked by:** `TestScopeSeed_ANameIsOpenedOnce`.
+
 The tip MUST be read from the substrate on every claim, never remembered between them. A cockpit
 that cached it would hold mutable state about a chain it does not own, and would be stale the moment
 another writer's claim arrived.
@@ -655,12 +664,17 @@ not judge the chain: it is the caller's own condition, for a program that append
 must not fork a conversation because another process or an agent wrote first. Any claim that moved the
 head refuses it, trusted or not. The caller reads what was written and decides.
 
+**Claims said at the same time in one repository MUST chain one after another.** From reading where a
+claim goes (its scope's head, the claim it replaces) until it is stored, no other claim is written to
+the repository, in that process or another, so concurrent `say` calls (an MCP client that does not wait)
+never take the same head.
+
 > **Checked by:** `TestScope_ClaimsChainInOrderAndAdvanceTheTip`,
 > `TestScope_UnconfiguredLeavesClaimsUnchained`, `TestScope_TheAskFilterFindsWhatSayChained`,
 > `TestScope_RefusesAScopeThisRegistryDoesNotHold`, `TestScope_RefusesANameTheConfigDoesNotHave`,
 > `TestScope_TwoScopesInOneRepoChainIndependently`,
 > `TestScope_NeitherABranchNorAGapStopsAClaimBeingRecorded`,
-> `TestScope_ExpectHeadAppendsOnlyToTheHeadTheCallerSaw`.
+> `TestScope_ExpectHeadAppendsOnlyToTheHeadTheCallerSaw`, `TestScope_ConcurrentSaysChainOneAfterAnother`.
 
 **A caller MAY name the template it showed (`expectTemplate`, `expectRevision`).** `expectTemplate`
 is the `hash` `say --json` lists for the template: the sha256 of the template as `say` signs with it
@@ -754,6 +768,35 @@ digest an image tag resolved to) stay carried material (§7.5). A claim without 
 refused.
 
 > **Checked by:** `TestSay_LocatedAtAndRunsOnAreClaims`, `TestInitTemplates_MatchTheSkeleton`.
+
+### 8.9 Many claims in one write
+
+`say --batch <file.jsonl>` (one say request as JSON per line, `-` for stdin) and the Go API's `SayBatch`
+say many claims in one write. Each claim takes the request and the checks of one `say`.
+
+- **Every claim MUST be checked before any is signed.** A claim that would be refused refuses the whole
+  batch, the refusal names its position (`claim N: …`, or `line N` for a line that is no request), and
+  nothing is written.
+- **Claims into one scope chain one after another, in the order given.** The scope's head is read once.
+  The first claim of a scope in the batch chains onto that head, and each later one onto the claim before
+  it. With `expectHead`, the first names a head the scope has, and each later one the claim of the batch
+  before it.
+- **`replace: previous` sees the earlier claims of the same batch.**
+- **The claims are stored through one open of the store, committed once, and confirmed once** (SPEC §8.3),
+  and answered in the order asked, each with its chain position.
+- **Each claim carries what one `say`'s claim carries:** the configured evidence (§11) and, where the
+  repository anchors, its own anchor, reported per claim. No form of `say` is laxer than another (SPEC §6).
+- `reproduces` runs a reproduction per claim and MUST NOT be in a batch.
+
+The store is append-only. A claim the substrate refuses while storing is named in the refusal, and the
+others are stored. A later claim of the same scope is stored but chains onto the refused claim, so it
+hangs: the refusal MUST name it as such, not as stored, and say to say the refused and the hanging claims
+again as a new batch from the scope's current head.
+
+> **Checked by:** `TestSayBatch_ManyClaimsInOneWriteChainInOrder`,
+> `TestSayBatch_OneBadClaimRefusesTheBatchAndWritesNothing`,
+> `TestSayBatch_ReplacePreviousAndExpectHeadWithinTheBatch`, `TestSayBatch_AnchorsEveryClaimWhereTheRepositoryAnchors`,
+> `TestSayBatch_AStoreRefusalNamesTheClaimsLeftHanging`, `TestShellSay_BatchFromAFile`.
 
 ### 8.3 Registration
 
@@ -1026,7 +1069,12 @@ reaches no record outside that dataset, so it is under the same ceiling as every
   answer MUST name the package it came from (`from`). Naming a query no allowed package brings, or
   giving both `name` and `sparql`, MUST be refused.
 - `bind` MAY give the query's variables values, each a plain literal in a `VALUES` clause put first into
-  the query's outermost group (the `WHERE` clause), so a `FILTER` of that group sees it. A value MUST NOT
+  the query's outermost group (the `WHERE` clause) and first into the group of every sub-select, so a
+  `FILTER` of those groups sees it: a sub-select is evaluated on its own and would not. A group is told
+  from the brace of an expression (`EXISTS { }` in a `SELECT`'s expressions) by the parentheses around it.
+  A sub-select that uses a bound variable's name for its own purpose is bound too, so one that needs the
+  variable free MUST name it otherwise. A `FILTER` in a group nested inside `OPTIONAL` sees the bound
+  value only through the join, as SPARQL evaluates such a group on its own. A value MUST NOT
   become query text, a name that is not a variable name MUST be refused, and so MUST a query without a
   group to bind into.
 - `bindTerms` MAY give variables typed terms in the same clause: an IRI, or a literal with a datatype
@@ -1460,6 +1508,48 @@ written under another schema is emptied first.
 > `TestOxigraph_AttributionIsTheRegistrysOwn`, `TestOxigraph_AReaderNeverSeesARegistryHalfRead`,
 > `TestCheckQuery_RefusesServiceAndOnlyService`, `TestConfig_QueryImageIsPinnedByDigest`,
 > `TestQuery_TheIndexAnswersAsAContainerForTheQueryDoes` (both `-tags docker`).
+
+### 12.5 The frontend protocol *(optional)*
+
+`cockpit serve --stdio` answers JSON-RPC 2.0 on stdin and stdout, for an editor extension or a viewer
+(ADR-011, section 6). Messages are framed as a language server frames them: a `Content-Length` header,
+a blank line, the JSON body. stdout MUST carry protocol messages and nothing else.
+
+A connection serves one workspace folder. `initialize` MUST come first: it names the folder (`root`), and
+optionally the identity every `say` signs as (`as`, as `mcp --as`) and a timeout for every request
+(`requestTimeoutMs`). It answers the repository the folder belongs to (`repoRoot`). Any other method before
+it MUST be answered with error `-32002`. `initialize` MUST refuse a folder the configuration does not bind
+(`binding`), an identity this checkout cannot sign as (`identity.as`), a second `initialize` on one
+connection, and a folder that `COCKPIT_REPO_DIR` would redirect elsewhere (SPEC §5.1). A request sent after `initialize`, before its
+answer, runs in the folder `initialize` named. The binding guard runs again on every request.
+
+The methods reach the same implementation as the command line:
+- `publish`, `say` and `ask` take the request types of the Go API, MCP and the JSON argument, and answer
+  their result types;
+- `say/templates`, `ask/questions`, `ui/list`, `doctor` and `version` answer what the command line prints
+  under `--json`;
+- `ui/cat` (`{package, hashes}`) answers what `ui cat … --json` prints, with the bytes base64;
+- `show/snapshot` answers what `show --json` prints.
+
+A `say` that names an identity other than the connection's MUST be refused (`identity.as`).
+
+A frontend MUST NOT forward a request that comes from content it hosts (a package's viewer, a composition)
+to anything but the verbs it mediates for that content: never to `doctor`, `show` or `ui/*`.
+
+Requests run concurrently. Every request the connection accepted MUST be answered: `shutdown` takes no
+new request (one sent after it is error `-32600`) and answers once every request accepted before it is
+answered; `exit` and the end of the input end the connection after the same wait. `$/cancelRequest`
+cancels a running request, which is answered with error `-32800`. A number id matches by its value (`1`
+and `1.0`); a string id is another id (`"1"` is not `1`), as JSON-RPC keeps them. A refusal MUST be answered as error `-32001` whose `data` is the command line's JSON refusal,
+`{code, clause, reason}`; any other failure as error `-32000` with `data.code` `error`. An unknown method is
+error `-32601`, and params with a field the method does not take are error `-32602`.
+
+> **Checked by:** `TestServe_InitializeNamesTheWorkspaceFirst`, `TestServe_ListingsAreTheCommandLinesJSON`,
+> `TestServe_VerbsAnswerAndRefuseAsTheCommandLine`, `TestServe_RefusesAWorkspaceTheEnvironmentWouldRedirect`,
+> `TestServe_TheBinaryKeepsStdoutForTheProtocol`, `TestServe_ASayRunningAtShutdownIsAnswered`,
+> `TestServer_AnswersRequestsAndErrorsAndGoesOn`, `TestServer_CancelsARunningRequest`,
+> `TestServer_AnswersWhatIsRunningWhenTheInputEnds`, `TestServer_ShutdownAnswersWhatItAcceptedFirst`,
+> `TestServer_ExitWaitsForWhatIsRunning`, `TestServer_CancelMatchesANumberIDByValue`, `TestReadMessage_Framing`.
 
 ## 13 What a cockpit does not do
 

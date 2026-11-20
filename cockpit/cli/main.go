@@ -49,6 +49,8 @@ func Main() {
 	switch os.Args[1] {
 	case "mcp":
 		err = runMCP(ctx, os.Args[2:])
+	case "serve":
+		err = runServe(ctx, os.Args[2:])
 	case "init":
 		err = runInit(ctx)
 	case "show":
@@ -121,6 +123,9 @@ func wantsJSON(cmd string, args []string) bool {
 	if (cmd == "publish" || cmd == "say" || cmd == "ask") && len(args) > 0 && strings.HasPrefix(strings.TrimSpace(args[0]), "{") {
 		return true
 	}
+	if cmd == "say" && len(args) > 0 && args[0] == "--batch" {
+		return true // a batch answers one JSON document, refusal or not
+	}
 	return hasFlag(args, "--json")
 }
 
@@ -170,6 +175,7 @@ usage:
   cockpit ask     <question> <run|file|sha256:id>          ask, re-verified against your trust tiers
                   say and ask with no arguments list the templates and the questions; --json prints
                   the full answer. A JSON argument ('{...}' [--field NAME]) works as before.
+                  say --batch <file.jsonl | ->: many claims in one write, one request per line
 
   cockpit run --dir DIR --in [NAME=]FILE... -- COMMAND...
                    run one step in DIR (inputs copied in), record what it wrote there
@@ -190,6 +196,7 @@ usage:
                    [--scope NAME] their claims chain into that scope, about it by default;
                    [--bind VAR=VALUE]... fixes a query parameter $VAR;
                    [--runs] a tool per installed workflow (run_<name>), its holes as arguments
+  cockpit serve    --stdio: the frontend protocol for an editor extension, JSON-RPC 2.0 (SPEC §12.5)
   cockpit init     scaffold .kton/ (configuration, templates) in the current repo
   cockpit doctor   validate .kton/cockpit.config.json + the repo binding; --json for a program,
                    exit 3 while a step marked ! is left
@@ -365,15 +372,24 @@ func showJSON(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	union, keys, names, err := show.Snapshot(ctx, cfg)
+	snap, err := showSnapshot(ctx, cfg)
 	if err != nil {
 		return err
+	}
+	return printJSON(snap)
+}
+
+// showSnapshot is what `show --json` prints, for the command line and the frontend protocol alike.
+func showSnapshot(ctx context.Context, cfg *config.Config) (ShowSnapshot, error) {
+	union, keys, names, err := show.Snapshot(ctx, cfg)
+	if err != nil {
+		return ShowSnapshot{}, err
 	}
 	pkgs, _, err := show.Packages(cfg)
 	if err != nil {
-		return err
+		return ShowSnapshot{}, err
 	}
-	return printJSON(ShowSnapshot{Union: union, Keys: keys, Names: names, Packages: pkgs})
+	return ShowSnapshot{Union: union, Keys: keys, Names: names, Packages: pkgs}, nil
 }
 
 // runShow serves this repo's records to a kton-web viewer. It is an operator subcommand alongside

@@ -420,6 +420,13 @@ func (r *Repo) CockpitSplit(t *testing.T, args ...string) (stdout, stderr string
 }
 
 // cockpitCmd is the built cockpit binary, run in this repository.
+// CockpitCommand is the command Cockpit runs, for a test that starts it itself (concurrently, or with
+// its own environment).
+func (r *Repo) CockpitCommand(t *testing.T, args ...string) *exec.Cmd {
+	t.Helper()
+	return r.cockpitCmd(t, args...)
+}
+
 func (r *Repo) cockpitCmd(t *testing.T, args ...string) *exec.Cmd {
 	t.Helper()
 	bin := filepath.Join(r.Bin, "cockpit")

@@ -5,8 +5,8 @@ go 1.25.0
 require (
 	github.com/google/jsonschema-go v0.4.3
 	github.com/modelcontextprotocol/go-sdk v1.6.1
-	kton.dev/nekton v0.4.0
-	kton.dev/plankton v0.4.0
+	kton.dev/nekton v0.4.1-0.20261120023314-56553bed9483
+	kton.dev/plankton v0.4.1-0.20261120023314-56553bed9483
 )
 
 require github.com/gitmick/ktonpkg v0.9.9
