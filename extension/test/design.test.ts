@@ -137,3 +137,26 @@ test("design step 6: source chips: once per part, the round's label (MH 20.11.),
   assert.equal(r.blocks.mixed, "mixed", "a block that mixes sources keeps its row stamps");
   assert.deepEqual(s.sectionStamps([]), { section: null, blocks: {} });
 });
+
+test("design step 7: cards: short test names and decoded locations, verdict pills, the segmented choice gates the one primary", async () => {
+  const c = await media("viewers/cards/cards.js");
+  assert.equal(c.shortTest("improve-rest-test:com/scinteco/improve/integrationtests/resources/StepRunTest.kt#a step can be run with a clean inventory"), "StepRunTest.kt · a step can be run with a clean inventory");
+  assert.equal(c.shortTest("improver:test-reviews.R#deleteReviewer returns FALSE for invalid review ID|ics369,ics2045"), "test-reviews.R · deleteReviewer returns FALSE for invalid review ID");
+  assert.equal(c.shortTest("improve-test:Basic/Workbench/iat340%20Views.rsc"), "iat340 Views.rsc", "decoded, never %20");
+  assert.equal(c.shortTest("plain text"), "plain text");
+  assert.equal(c.locLabel("improve-rest-test/src/test/kotlin/com/scinteco/improve/integrationtests/BasicTest.kt:749"), "improve-rest-test · …/integrationtests/BasicTest.kt:749");
+  assert.deepEqual(["asserted", "exercised", "no-relation", "unclear", "covered"].map(c.verdictClass), ["v-asserted", "v-exercised", "v-norel", "v-unclear", "v-asserted"]);
+  const el: Any = { innerHTML: "", querySelectorAll: () => [], querySelector: () => null };
+  const row = { element: { value: "ics2041#e6" }, gxp: { value: "data integrity" }, target: { value: "https://x/e6" }, statement: { value: "The export body" }, earlier: { value: "unclear" }, stamp: { value: "sha256:b610b5c6" } };
+  c.mount(el, { use: { key: "spot#cards", options: { title: "element", group: "gxp", badge: "earlier|earlier: ", quote: "statement", fields: ["testName|Test"], compare: ["judge1|Judge 1 · rule judge"], target: "target", choices: ["verdict=rule-judge-right|Rule judge is right", "verdict=spec-unclear|Spec unclear"], choiceLegend: "Your verdict", layout: "pager", pick: "element|Show evidence" }, blockActs: [{ intent: "sign", label: "Sign verdict…", control: { name: "spotcheck" } }] }, kit, request: async () => ({ results: { bindings: [row] } }), intent: async () => ({}), setState: () => {} });
+  await new Promise((r) => setTimeout(r, 10));
+  const h = el.innerHTML as string;
+  assert.match(h, /<dd class="empty-line" data-col="testName">No test recorded\.<\/dd>/, "a missing value is said, never \" · :\" (bug 6)");
+  assert.match(h, /<div class="jh">Judge 1 · rule judge<\/div><p class="empty-line">No verdict recorded\.<\/p>/);
+  assert.match(h, /<fieldset class="seg" data-choices="0"><legend>Your verdict<\/legend>/);
+  assert.equal((h.match(/class="primary"/g) ?? []).length, 1, "one primary per card");
+  assert.match(h, /<button type="button" class="primary" data-card="0" data-act="0" disabled data-needs-choice data-testid="card-0-spotcheck">Sign verdict…<\/button>/, "disabled until a choice");
+  assert.match(h, /class="ghost" data-pick="0"[^>]*>Show evidence</);
+  assert.match(h, /<span class="badge" data-badge>earlier: unclear<\/span>/);
+  assert.doesNotMatch(h, /class="pager"/, "one card: no pager");
+});

@@ -1252,7 +1252,13 @@ if (seed.dm?.proposal) {
     const f = await dmFrame();
     const card = f.locator('[data-use$="#cards"] [data-card-row="0"]');
     const item = await card.getAttribute("data-target");
+    // the verdict is a segmented control; its one primary act stays disabled until a verdict is chosen (DESIGN.md §5)
+    const sign = card.locator('[data-testid="card-0-spotcheck"]');
+    check(await sign.isDisabled(), "Sign verdict… is disabled before a verdict is chosen", "disabled", "enabled");
+    check((await f.locator('[data-use$="#cards"] button[data-act]').count()) === (await f.locator('[data-use$="#cards"] [data-card-row]').count()), "one act button per card (the choices are the segmented control)");
     await card.locator('[data-testid="card-0-second-model-right"]').click();
+    check(!(await sign.isDisabled()), "a chosen verdict enables it", "enabled", "disabled");
+    await sign.click();
     const d = await dialog();
     for (const s of ["verdict = second-model-right", "Act: reviewed (the control's meaning, not a field of the claim)", "Into scope: dryrun1.triage", 'person key "qa-decider"']) await d.getByText(s, { exact: false }).first().waitFor({ timeout: 15000 });
     await signInDialog(d);
