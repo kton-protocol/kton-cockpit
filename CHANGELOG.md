@@ -3,7 +3,7 @@
 ## v0.5.8 — 2026-11-20
 
 Claims in a graph per scope (ADR-018), serve events, and federation that cannot look whole while missing a
-record; each reviewed by kton-review. Tracks kton v0.4.2 and ktonpkg v0.9.13.
+record; each reviewed by kton-review (#195, #203, #205-#214). Tracks kton v0.4.2 and ktonpkg v0.9.13.
 
 ### Migrating from v0.5.7
 
@@ -32,6 +32,10 @@ record; each reviewed by kton-review. Tracks kton v0.4.2 and ktonpkg v0.9.13.
   file, `cockpit load --label` as `nk:loadedAs`, and `nk:loadedAt`.
 - **A kton id bound as an IRI** (`--bind-iri X=sha256:<hex>`) is the node `https://kton.dev/o/<hex>`.
 - **Acts on another package's control** (ktonpkg v0.9.13, #206): checked against the owner revision in use.
+- **serve events** (SPEC §12.5, #213): with `initialize` `events: true` or `{since, intervalMs}`, a frontend
+  gets `events/published`, `events/said` (each claim with its scope, template, predicate, subject and
+  signers), `events/sourcePulled` and `events/indexMoved` (after the index holds them; the view and the
+  scopes that changed). The cursor is the feed's, so a restarted `serve` resumes where it was.
 
 ### Fixed
 
@@ -40,6 +44,10 @@ record; each reviewed by kton-review. Tracks kton v0.4.2 and ktonpkg v0.9.13.
 - **Aliases rename only the fields of templates this repository holds** (#203).
 - **The view build parses each claim once** (#210): about 15% faster than with the scope graphs as first
   merged.
+- **A changed file on the load list is not hashed before every query** while its size and modification time
+  stay as marked (#211).
+- **serve:** a body that is not JSON is answered `-32700` and the connection goes on; lost framing ends it
+  after answering what runs (SPEC §12.5, #212).
 - Tests that need a later signed second wait for it (#209).
 
 ## v0.5.7 — 2026-11-20
