@@ -94,7 +94,7 @@ func (d *Daemon) keptDataset(ctx context.Context, slot, key string) (*prepared, 
 		return nil, false
 	}
 	return &prepared{def: []string{viewIRI(slot)}, claims: []string{viewIRI(slot), claimsIRI(slot)},
-		named: k.Named, scopes: k.Scopes, graphs: k.Graphs, registries: k.Registries, kept: true}, true
+		named: k.Named, scopes: k.Scopes, graphs: k.Graphs, slot: slot, registries: k.Registries, kept: true}, true
 }
 
 // viewIs tells whether slot's view holds the dataset key names; another process may have replaced it.
