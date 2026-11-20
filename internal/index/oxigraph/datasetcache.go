@@ -147,6 +147,8 @@ func (d *Daemon) makeView(ctx context.Context, slot, key string, def []string, c
 	// N-Triples lines are triples SPARQL's INSERT DATA takes as they are. Each scope's graph (ADR-018),
 	// then the union: what belongs to no scope (signer labels, the graphs' metadata) as data, and each
 	// scope graph added to it by the engine, so a claim's triples are sent and parsed once, not twice.
+	// Once also matters for blank nodes: the engine refuses an update in which one blank-node label
+	// appears in two INSERT DATA blocks (kton-review on #210), so every quad goes into exactly one.
 	// One update, so a reader sees the old view or the new one whole.
 	for _, g := range sortedKeys(scopes) {
 		u.WriteString("INSERT DATA { GRAPH <" + g + "> {\n")
