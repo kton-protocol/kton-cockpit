@@ -157,6 +157,58 @@ sayq deviation-approves "$D2" qa.deviations $PE '{"outcome":"rejected"}' >/dev/n
 sayq deviation-approves "$D3" qa.deviations $AG '{"outcome":"approved"}' >/dev/null
 sayq deviation-note "$D2" qa.deviations $AG '{"text":"Waiting for the cleaning supervisor."}' >/dev/null
 
+# T (optional; run.sh mounts TRAINING_QP read-only at /training-qp): the training area, the first real QM area, in a
+# registry of its own, repo-training. qm-packages' areas/training and areas/rules are built here as qm.training and
+# qm.rules with ktonpkg v0.9.11's scope CLI, each sealed with a throwaway key deleted afterwards. The real scopes
+# (scopes/*: schulungen, qualifications, roles, dokumente, …) are COPIED as read-only dir sources; they are signed with
+# qm-packages' development key, whose PUBLIC key alone is put in a trust tier "qm" (nothing is signed with it here).
+if [ -d /training-qp ]; then
+  T="$E2E/repo-training"; mkdir -p "$T" "$E2E/training-src" "$E2E/training-pkgs"
+  K=$(mktemp -d)
+  for p in rules:qm.rules training:qm.training; do
+    "$E2E/bin/scope-0911" verticle "$E2E/training-pkgs/${p#*:}" "${p#*:}" 1 --src "/training-qp/areas/${p%%:*}" --key "$K/${p#*:}.key" >/dev/null
+  done
+  rm -rf "$K"
+  for d in /training-qp/scopes/*/; do
+    [ -d "$d/nekton" ] || continue   # aenderungen holds no registry
+    n=$(basename "$d"); mkdir -p "$E2E/training-src/$n"; cp -R "$d" "$E2E/training-src/$n/.kton"
+  done
+  cd "$T"
+  git init -q
+  git config user.email qa@example.org
+  git config user.name qa
+  git commit -q --allow-empty -m "throwaway registry for the training area"
+  git remote add origin https://github.com/qa/workbench-e2e-training.git
+  cockpit init >/dev/null
+  cp -R "$E2E/repo/.kton/keys/." .kton/keys/
+  cp "$E2E/repo/.kton/local/identity.json" .kton/local/identity.json
+  rm -f .kton/keys/agent/qa-decider-claims.pub .kton/keys/agent/qa-decider.pub   # no look-alike here
+  mkdir -p .kton/keys/qm
+  for k in /training-qp/scopes/*/keys/*.pub; do cp "$k" .kton/keys/qm/; done
+  # the imported scopes' claims have no template: the qm-core alias file names their fields (SPEC §9.11)
+  cp /training-qp/vocabulary/qm-core/aliases.json .kton/aliases.json
+  # Since kton-cockpit #203 a claim whose predicate no template here declares keeps its fields as lab:<field>, so
+  # the alias file renames nothing of the imported claims. One stand-in template per imported predicate (no
+  # fields: the alias file still names them) makes them this repository's own words again.
+  node -e '
+const fs=require("fs"),path=require("path");const src=process.argv[1];const preds=new Set();
+const walk=(d)=>{for(const f of fs.readdirSync(d)){const p=path.join(d,f);if(fs.statSync(p).isDirectory())walk(p);else if(f.endsWith(".jsonl"))for(const l of fs.readFileSync(p,"utf8").split("\n")){if(!l.trim())continue;
+ const st=JSON.parse(Buffer.from(JSON.parse(l).envelope.payload,"base64").toString("utf8"));const u=st.predicate&&st.predicate.predicate&&st.predicate.predicate.uri;if(u&&!u.startsWith("https://kton.dev/"))preds.add(u);}}};
+walk(src);
+for(const u of [...preds].sort()){const n="qm-import-"+u.replace(/^.*[#/]/,"");fs.writeFileSync(".kton/templates/"+n+".json",JSON.stringify({name:n,target:"either",predicate:u,fields:{}},null,1));}
+console.error("stand-in templates: "+preds.size);' "$E2E/training-src"
+  E2E="$E2E" node -e '
+const fs=require("fs");const p=".kton/cockpit.config.json";const c=JSON.parse(fs.readFileSync(p));
+c.repo={owner:"qa",name:"workbench-e2e-training"};c.persist=Object.assign(c.persist||{},{share:false});
+c.query={image:"oci://oxigraph/oxigraph@sha256:10677fb643f8c5a7bfb03dd8f7971c79a84b01e795c24201c8cfa12fd569f1c0"};
+c.trust=Object.assign(c.trust||{},{tiers:["self","agent","qm"]});
+const src=process.env.E2E+"/training-src";
+c.federation={sources:fs.readdirSync(src).sort().map((n)=>({name:n,kind:"dir",path:src+"/"+n}))};
+fs.writeFileSync(p,JSON.stringify(c,null,2));'
+  cockpit install "$E2E/vocab-package" --allow --json >/dev/null
+  for p in qm.rules qm.training; do cockpit install "$E2E/training-pkgs/$p" --allow --json >/dev/null; done
+fi
+
 cd "$E2E/repo"
 
 # The decision view (DM): a copy of verification's dryrun1 data registry (read only, /dm-data), with this run's test keys

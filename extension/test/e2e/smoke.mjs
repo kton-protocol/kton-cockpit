@@ -28,11 +28,13 @@ async function shot(name) {
   await page.screenshot({ path: `${OUT}/${file}` });
   current?.screenshots.push(file);
 }
+// ONLY=<flow>[,<flow>] (debugging, or a run on a loaded machine): only those flows' steps run, and a flow's own setup
+// (its folder, its registry asks) only when it is selected
+const selected = (flow) => !process.env.ONLY || process.env.ONLY.split(",").includes(flow);
 async function step(flow, n, title, fn) {
   // FAILFAST=1 (debugging): after the first failure the remaining steps do not run (and count as not run).
   if (process.env.FAILFAST === "1" && results.some((r) => !r.ok)) return;
-  // ONLY=<flow>[,<flow>] (debugging, or a run on a loaded machine): only those flows' steps run
-  if (process.env.ONLY && !process.env.ONLY.split(",").includes(flow)) return;
+  if (!selected(flow)) return;
   const t0 = Date.now();
   current = { flow, n, title, ok: false, ms: 0, screenshots: [], checks: [] };
   try {
@@ -1172,7 +1174,7 @@ await step("S6", "15b", "area-two's governing SOP QA-SOP-20 is shown as a draft"
 });
 
 // ---- DM: MH's decision view for the mapping decision (dry run 1), on verification's real data (repo-dm, a copy)
-if (seed.dm?.proposal) {
+if (seed.dm?.proposal && selected("DM")) {
   const DMP = seed.dm.proposal;
   async function sparqlDM(q) {
     // the federated copy is slow to ask right after a say (the window's view asks at the same time): up to 3 tries
@@ -1429,7 +1431,7 @@ if (seed.dm?.proposal) {
 // with ROLES_COVERAGE, verification's dryrun1-coverage federated read-only. Without ROLES_* the seed makes no
 // repo-roles and these steps do not run. Each figure is compared with the count of test-execution's (or the triage
 // package's) own named query, asked from outside the shell.
-if (seed.roles) {
+if (seed.roles && selected("R")) {
   const askR = async (name, bind = []) => {
     const r = await cockpit(["ask", "sparql", "--name", name, ...bind.flatMap((b) => ["--bind", b]), "--results-json", "--timeout", "120"], undefined, { repo: "repo-roles" });
     if (r.code !== 0) throw new Error(`${name} failed: ${(r.stderr || r.stdout).split("\n")[0]}`);
@@ -1864,7 +1866,122 @@ if (seed.roles) {
     await shot("r10-gregor");
     await closeEditors();
   });
+}
 
+// ---- T: the training area, the first real QM area (qm-packages qm.training + qm.rules over the real qm scopes), in
+// its own registry, repo-training (seed.sh). Only with TRAINING_QP (run.sh); the counts are checked in the window
+// against the registry (the sidecar asks the same named queries).
+if (process.env.TRAINING === "1" && selected("T")) {
+  const askT = async (name, bind = []) => {
+    const r = await cockpit(["ask", "sparql", "--name", name, ...bind.flatMap((b) => ["--bind", b]), "--json"], undefined, { repo: "repo-training" });
+    if (r.code !== 0) throw new Error(`registry check ${name} failed: ${r.stderr.split("\n")[0]}`);
+    return JSON.parse(r.stdout).sparql.rows;
+  };
+  const today = new Date().toISOString().slice(0, 10);
+  const RULES = ["SOP02-R-SOP-TRAINING", "SOP02-R-TRAINER-L3", "SOP02-R-TRAINING-FIELDS", "SOP02-R-L1-SIGNOFF", "SOP02-R-L3-PEER", "SOP02-R-REG-REFRESH", "SOP02-R-INITIAL-AREAS", "SOP02-R-GOAL-OVERDUE"];
+  // the registry's answers (warms the index of 23 federated sources before the window asks)
+  const reg = {};
+  const tAreaFrame = () => frameWithSel('[data-composition^="@workbench/area:qm.training/"]', 90000);
+  const tRecordFrame = () => frameWithSel('[data-composition^="@workbench/area-record:qm.training/"]', 60000);
+  async function openTraining() {
+    await views();
+    await closeEditors();
+    await page.locator(".monaco-list-row", { hasText: "Training" }).filter({ hasText: "qm.training" }).first().click();
+    try {
+      return await tAreaFrame();
+    } catch (e) {
+      // what the window said instead (a toast), so the failure names it
+      const said = await page.locator(".notification-toast, .notifications-toasts").allTextContents().catch(() => []);
+      throw new Error(`${e.message}; the window said: ${JSON.stringify(said).slice(0, 600)}`);
+    }
+  }
+  const ruleState = async (f, id) => {
+    const li = f.locator(`[data-rule-state="${id}"]`).first();
+    await li.waitFor({ timeout: 90000 });
+    return { state: await li.getAttribute("data-state"), n: Number(await li.getAttribute("data-n")), text: ((await li.textContent()) ?? "").trim() };
+  };
+
+  await step("T", 1, "the registry answers the training area's queries with the expected counts (as of today)", async () => {
+    for (const n of ["training-records", "training-obligations", "documents", "training-raci"]) reg[n] = await askT(n);
+    for (const r of RULES) reg[r] = await askT(r.toLowerCase(), [`asOf=${today}`]);
+    check(reg["training-obligations"].length === 320, "training-obligations: 320 rows", 320, reg["training-obligations"].length);
+    check(reg["documents"].length === 48, "documents: 48 rows", 48, reg["documents"].length);
+    check(reg["training-raci"].length === 8, "training-raci: 8 rows", 8, reg["training-raci"].length);
+    check(reg["SOP02-R-SOP-TRAINING"].length === 40, "SOP02-R-SOP-TRAINING: 40 findings", 40, reg["SOP02-R-SOP-TRAINING"].length);
+    const others = RULES.slice(1).map((r) => [r, reg[r].length]).filter(([, n]) => n !== 0);
+    check(others.length === 0, "the other 7 rules: 0 findings", [], others);
+  });
+
+  await page.goto(URL.replace(/folder=[^&]*/, `folder=${encodeURIComponent(`${WORK}/repo-training`)}`));
+  await page.locator(".monaco-workbench").waitFor({ timeout: 90000 });
+
+  await step("T", 2, "the Training area appears under QM areas with its package", async () => {
+    await views();
+    await row("QM areas").waitFor({ timeout: 60000 });
+    await page.locator(".monaco-list-row", { hasText: "Training" }).filter({ hasText: "qm.training" }).first().waitFor();
+  });
+
+  await step("T", 3, "the list: the training records; the obligations of every person (320), with the persons", async () => {
+    const f = await openTraining();
+    const records = await countIn(f, "records");
+    check(records === reg["training-records"].length, "records: the list query's rows", reg["training-records"].length, records);
+    const ob = await countIn(f, "training");
+    check(ob === 320, "obligations: 320 rows", 320, ob);
+    const names = new Set(await box(f, "training").locator('td[data-col="traineeName"]').allTextContents());
+    names.delete("");
+    const want = new Set(reg["training-obligations"].map((r) => r.traineeName).filter(Boolean));
+    check(names.size === want.size && [...want].every((n) => names.has(n)), "every person with obligations is shown by name", want.size, names.size);
+    await shot("t-area");
+  });
+
+  await step("T", 4, "RACI (8 rows) and the area's documents from the register (its keys of the 48), the governing SOP-02", async () => {
+    const f = await openTraining();
+    const raci = await countIn(f, "raci");
+    check(raci === 8, "RACI: 8 rows", 8, raci);
+    const keys = ["SOP-02", "FOR-04", "FOR-05", "LIS-04", "LIS-09"].filter((k) => reg["documents"].some((d) => d.key === k));
+    const docs = await countIn(f, "documents");
+    check(docs === keys.length, "documents: the area's keys found in the register", keys.length, docs);
+    const t = await boxText(f, "documents");
+    check(keys.every((k) => t.includes(k)), "each of the area's documents is listed", keys, t.slice(0, 300));
+    await box(f, "governing").locator('[data-col="state"]').first().waitFor({ timeout: 30000 });
+    const g = await boxText(f, "governing");
+    const sop02 = reg["documents"].find((d) => d.key === "SOP-02");
+    check(!!sop02 && g.includes(sop02.state), "the governing SOP-02's state from the register", sop02?.state, g.slice(0, 200));
+    await shot("t-raci-documents");
+  });
+
+  await step("T", 5, "findings per rule (qm.rules, as of today): SOP02-R-SOP-TRAINING findings (40), the other 7 passed", async () => {
+    const f = await openTraining();
+    const states = {};
+    for (const r of RULES) states[r] = await ruleState(f, r);
+    check(states["SOP02-R-SOP-TRAINING"].state === "findings" && states["SOP02-R-SOP-TRAINING"].n === 40, "SOP02-R-SOP-TRAINING: findings (40)", "findings (40)", states["SOP02-R-SOP-TRAINING"].text);
+    const notPassed = RULES.slice(1).filter((r) => states[r].state !== "passed").map((r) => states[r].text);
+    check(notPassed.length === 0, "the other 7 rules: passed", [], notPassed);
+    // the window's rows equal the registry's (the rule's own as-of default is today: no date bound by the shell)
+    const shown = await f.locator('[data-rule-state="SOP02-R-SOP-TRAINING"]').locator("xpath=ancestor::*[@data-use][1]").locator("tbody tr").count();
+    check(shown === reg["SOP02-R-SOP-TRAINING"].length, "the 40 findings are listed", reg["SOP02-R-SOP-TRAINING"].length, shown);
+    check((await f.locator('[data-state="not-run"]').count()) === 0, "no rule is not run");
+    await f.locator('[data-rule-state="SOP02-R-SOP-TRAINING"]').first().scrollIntoViewIfNeeded();
+    await shot("t-findings");
+  });
+
+  await step("T", 6, "a record: list → record, its fields (long form), with its history and the area's actions", async () => {
+    const f = await openTraining();
+    await countIn(f, "records");
+    const first = reg["training-records"][0];
+    await box(f, "records").locator(`tr[data-target="${first.record}"]`).first().click();
+    const r = await tRecordFrame();
+    await box(r, "record").locator("[data-area-card]").first().waitFor({ timeout: 60000 });
+    const t = await boxText(r, "record");
+    check(t.includes("trainee") && t.includes(first.trainee) && t.includes(String(first.date ?? "").slice(0, 10)), "the record's fields: trainee and date", { trainee: first.trainee, date: first.date }, t.slice(0, 300));
+    for (const a of ["training-attended", "training-delivered", "training-read-confirmed", "training-effectiveness-checked"]) {
+      check((await box(r, "record").locator(`[data-testid="act-${a}"]`).count()) === 1, `action ${a} offered`);
+    }
+    const h = await countIn(r, "history");
+    check(h >= 1, "its history has the record's claim", ">= 1", h);
+    await shot("t-record");
+    await closeEditors();
+  });
 }
 
 await browser.close();

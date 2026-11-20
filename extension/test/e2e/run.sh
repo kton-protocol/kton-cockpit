@@ -56,6 +56,16 @@ docker run --rm --network host -u "$UIDGID" -e HOME=/tmp -e GOPATH="$WORK/go" -e
   -v "$WORK:$WORK" "$GO_IMAGE" \
   sh -c "GOBIN=$WORK/bin go install github.com/gitmick/ktonpkg/cmd/scope@v0.9.11"
 
+# TRAINING_QP (optional): a qm-packages checkout (branch qm-on-kton/training-area or later), read only. The seed builds
+# its training area (qm.training) and rules (qm.rules) with ktonpkg v0.9.11's scope CLI, and federates its real scopes
+# into repo-training for flow T; without it the T steps do not run.
+TRAINING_MOUNT=""
+if [ -n "${TRAINING_QP:-}" ]; then
+  # the scope CLI above is already v0.9.11
+  cp "$WORK/bin/scope" "$WORK/bin/scope-0911"
+  TRAINING_MOUNT="-v $TRAINING_QP:/training-qp:ro"
+fi
+
 echo "== seed"
 # DM_DATA (optional): a registry with verification's dryrun1 mapping data (qm-dev-provenance/dryrun1-mapping), copied
 # read-only into repo-dm for the decision view's steps (DM); without it those steps do not run.
@@ -85,7 +95,7 @@ if [ -n "${ROLES_RUNS:-}" ] && [ -n "${ROLES_PKG:-}" ] && [ -n "${ROLES_TRIAGE_P
   # christof-ext-core (Gregor's review screen opens a commit's diff from it; never written)
   if [ -n "${CHRISTOF_CLONE:-}" ]; then mkdir -p "$WORK/mirrors/christof-ext-core"; EVIDENCE_MOUNTS="$EVIDENCE_MOUNTS -v $CHRISTOF_CLONE:$WORK/mirrors/christof-ext-core:ro"; fi
 fi
-docker run --rm -u "$UIDGID" -v "$WORK:$WORK" -v "$HERE/seed.sh:/seed.sh:ro" $DM_MOUNT $ROLES_MOUNT $ROLES_LIVE -e ROLES_COVERAGE="${ROLES_COVERAGE:-}" -e ROLES_MAPPING="${ROLES_MAPPING:-}" -e CHRISTOF_COMMIT="${CHRISTOF_COMMIT:-}" \
+docker run --rm -u "$UIDGID" -v "$WORK:$WORK" -v "$HERE/seed.sh:/seed.sh:ro" $TRAINING_MOUNT $DM_MOUNT $ROLES_MOUNT $ROLES_LIVE -e ROLES_COVERAGE="${ROLES_COVERAGE:-}" -e ROLES_MAPPING="${ROLES_MAPPING:-}" -e CHRISTOF_COMMIT="${CHRISTOF_COMMIT:-}" \
   -v "$COCKPIT:/usr/local/bin/cockpit:ro" -v "$VOCAB:/vocab:ro" -v "$HERE/vocabulary-package:/vocab-package:ro" -v "$HERE:/e2e:ro" \
   "$NODE_IMAGE" sh /seed.sh "$WORK" /vocab /vocab-package
 
@@ -174,7 +184,7 @@ i=0; until curl -sf "http://127.0.0.1:$PORT/healthz" >/dev/null; do i=$((i+1)); 
 echo "== playwright (npm ci from the committed lockfile)"
 cp "$HERE/package.json" "$HERE/package-lock.json" "$HERE/smoke.mjs" "$HERE/runrecord.mjs" "$WORK/pw/"
 RC=0
-docker run --rm --network host -u "$UIDGID" -e HOME=/tmp -e CS_URL="http://127.0.0.1:$PORT/?folder=$WORK/repo" -e OUT=/out -e FAILFAST="${FAILFAST:-0}" -e TRANSPORT="${TRANSPORT:-cli}" -e ONLY="${ONLY:-}" -e CHRISTOF_CLONE_MOUNTED="${CHRISTOF_CLONE:+1}" \
+docker run --rm --network host -u "$UIDGID" -e HOME=/tmp -e CS_URL="http://127.0.0.1:$PORT/?folder=$WORK/repo" -e OUT=/out -e FAILFAST="${FAILFAST:-0}" -e TRANSPORT="${TRANSPORT:-cli}" -e ONLY="${ONLY:-}" -e TRAINING="${TRAINING_QP:+1}" -e CHRISTOF_CLONE_MOUNTED="${CHRISTOF_CLONE:+1}" \
   -e WORK="$WORK" -v "$WORK:$WORK" -v "$OUTDIR:/out" -w "$WORK/pw" "$PW_IMAGE" \
   sh -c "npm ci --no-audit --no-fund >/dev/null && node smoke.mjs" || RC=$?
 
