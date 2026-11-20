@@ -101,3 +101,40 @@ SELECT ?n WHERE { ?g a nk:ClaimGraph ; nk:scope <`+seed(study)+`> ; nk:claims ?n
 		t.Errorf("after one more claim, one study graph of three: %v", a.Rows)
 	}
 }
+
+// A rebuilt view replaces its scope graphs: after an alias change (the same slot, another view), a
+// scope's graph holds the field under its new term only, not the old one beside it (kton-review T28 on
+// #205).
+func TestScopeGraphs_ARebuiltViewReplacesItsScopeGraphs(t *testing.T) {
+	t.Setenv("COCKPIT_INDEX_DIR", t.TempDir())
+	ctx := context.Background()
+	r := testrepo.New(t)
+	study := r.SeedScope(t, "study")
+	raw := testrepo.DefaultConfig()
+	raw.Claims.AllowedTemplates = append(raw.Claims.AllowedTemplates, "describes")
+	raw.Claims.Scopes = map[string]string{"study": study}
+	raw.Query.Image = oxigraphImage
+	raw.Index.Kind = "oxigraph"
+	r.WriteConfig(t, raw)
+	r.Use(t)
+	t.Cleanup(func() { oxigraph.Stop(context.Background(), r.Config(t)) })
+	step := publishOne(t, r).FotonID
+	if res, _, err := Say(ctx, nil, SayRequest{Subject: step, Template: "describes", Scope: "study",
+		Fields: map[string]string{"value": "one"}}); err != nil || res.IsError {
+		t.Fatalf("say: %v %s", err, errText(res))
+	}
+	terms := func() map[string]bool {
+		t.Helper()
+		return column(sparqlAsk(t, `PREFIX nk: <https://kton.dev/v/>
+SELECT ?p WHERE { ?g a nk:ClaimGraph ; nk:scope <https://kton.dev/o/`+hexOf(study)+`> .
+  GRAPH ?g { ?c nk:about ?s ; ?p "one" } }`), "p")
+	}
+	if got := terms(); !got["https://kton.dev/v/lab/value"] {
+		t.Fatalf("before the alias: want lab:value, got %v", got)
+	}
+	r.Write(t, ".kton/aliases.json", `{"prefixes":{"q":"https://example.org/q/"},"terms":{"value":"q:value"}}`)
+	got := terms()
+	if !got["https://example.org/q/value"] || got["https://kton.dev/v/lab/value"] {
+		t.Errorf("after the alias: want q:value alone in the scope's graph, got %v", got)
+	}
+}
