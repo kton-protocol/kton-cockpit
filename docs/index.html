@@ -456,12 +456,12 @@ execution:      not configured — cockpit_publish RECORDS the command, does not
       <p class="thesis">Two analyses of the same open data, one line apart, both honest, disagreeing by centuries. Nothing here is a lie detector — the script is an input, by hash, so “which did you run” is a lookup instead of a question.</p>
       <div class="meta"><span class="chip need">needs R</span><span class="chip need">needs network</span></div>
       <div class="calls">
-        <div class="call"><span class="dollar">$</span>cockpit publish '{"cmd":"Rscript R/oldest-districts.R", "inputs":["data/trees.csv","R/oldest-districts.R"], "outputs":["work/oldest.csv"]}'</div>
-        <div class="call"><span class="dollar">$</span>cockpit publish '{"cmd":"Rscript R/oldest-districts-cleaned.R", "inputs":["data/trees.csv","R/oldest-districts-cleaned.R"], "outputs":["work/oldest.csv"]}'</div>
+        <div class="call"><span class="dollar">$</span>cockpit publish '{"cmd":"Rscript R/oldest-districts.R", "inputs":["data/trees.csv.gz","R/oldest-districts.R"], "outputs":["work/oldest.csv"]}'</div>
+        <div class="call"><span class="dollar">$</span>cockpit publish '{"cmd":"Rscript R/oldest-districts-cleaned.R", "inputs":["data/trees.csv.gz","R/oldest-districts-cleaned.R"], "outputs":["work/oldest.csv"]}'</div>
         <div class="call"><span class="dollar">$</span>cockpit ask '{"query":"uses","ref":"$1"}'</div>
       </div>
       <ul class="out">
-        <li><i>▪</i><span><span class="p">ok:</span> <span class="t">the register downloaded</span></span></li>
+        <li><i>▪</i><span><span class="p">ok:</span> <span class="t">the register extract is here</span></span></li>
         <li><i>▪</i><span><span class="p">ok:</span> <span class="t">the two rankings are different bytes</span></span></li>
         <li><i>▪</i><span><span class="p">ok:</span> <span class="t">both runs consumed the same register</span></span></li>
         <li><i>▪</i><span><span class="p">ok:</span> <span class="t">the as-written script was used by exactly one</span></span></li>
