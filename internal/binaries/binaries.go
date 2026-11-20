@@ -15,6 +15,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -618,35 +619,101 @@ func errOr(primary, fallback error) error {
 // session can say is decided by files an operator put in `templates/`, not by this function.
 func (r *Runner) Annotate(ctx context.Context, subject, tmplName string, sets map[string]string, signKey string, chain *Chain) (string, error) {
 	defer r.wrote()
-	set, own, clashes, origins, err := r.templatesFull()
+	s, err := r.NewClaimSigner()
 	if err != nil {
 		return "", err
 	}
-	t, ok := set.Get(tmplName)
+	env, id, err := s.Sign(ctx, subject, tmplName, sets, signKey, chain,
+		Expect{Template: r.ExpectTemplate, Revision: r.ExpectRevision, Predicate: r.ExpectPredicate})
+	if err != nil {
+		return "", err
+	}
+	if _, err := r.AddClaims([]core.Envelope{env}); err != nil {
+		return "", err
+	}
+	return id, nil
+}
+
+// Expect binds a claim to the template a caller saw (SPEC §8.5): its hash, the revision it came from,
+// the predicate it signs. Empty fields expect nothing.
+type Expect struct{ Template, Revision, Predicate string }
+
+// ClaimSigner signs claims from this repository's template set, read once: a batch of claims reads
+// the templates, the packages and each signing key one time, not once per claim.
+type ClaimSigner struct {
+	r       *Runner
+	set     ntemplate.Set
+	own     map[string]packages.Aliases
+	clashes []string
+	origins map[string]TemplateOrigin
+	keys    map[string]signingKey
+}
+
+type signingKey struct {
+	keyid string
+	priv  ed25519.PrivateKey
+}
+
+// NewClaimSigner reads the template set as Annotate does.
+func (r *Runner) NewClaimSigner() (*ClaimSigner, error) {
+	set, own, clashes, origins, err := r.templatesFull()
+	if err != nil {
+		return nil, err
+	}
+	return &ClaimSigner{r: r, set: set, own: own, clashes: clashes, origins: origins, keys: map[string]signingKey{}}, nil
+}
+
+func (s *ClaimSigner) key(ctx context.Context, signKey string) (string, ed25519.PrivateKey, error) {
+	if k, ok := s.keys[signKey]; ok {
+		return k.keyid, k.priv, nil
+	}
+	keyid, err := s.r.KeyID(ctx, pubHalfOf(signKey))
+	if err != nil {
+		return "", nil, fmt.Errorf("reading the keyid to sign under: %w", err)
+	}
+	priv, err := loadSigningKey(signKey)
+	if err != nil {
+		return "", nil, err
+	}
+	s.keys[signKey] = signingKey{keyid, priv}
+	return keyid, priv, nil
+}
+
+// ReplacesPrevious reports whether a template asks say to fill replaces with the signer's previous
+// claim of it about the subject (replace: previous, ADR-013 A1).
+func (s *ClaimSigner) ReplacesPrevious(tmplName string) bool {
+	t, ok := s.set.Get(tmplName)
+	return ok && t.Replace == "previous"
+}
+
+// Sign builds a claim from a template and signs it, without storing it: the checks Annotate makes,
+// in the same order, with the same refusals.
+func (s *ClaimSigner) Sign(ctx context.Context, subject, tmplName string, sets map[string]string, signKey string, chain *Chain, x Expect) (core.Envelope, string, error) {
+	t, ok := s.set.Get(tmplName)
 	if !ok {
 		// A package template left out because an earlier source declares its predicate is named as
 		// such, not as missing (kton-review's nit on #175).
-		for _, c := range clashes {
+		for _, c := range s.clashes {
 			if strings.HasPrefix(c, "the template "+tmplName+" of the package ") {
-				return "", fmt.Errorf("the template %q is not offered: %s", tmplName, strings.TrimPrefix(c, "the template "+tmplName+" "))
+				return core.Envelope{}, "", fmt.Errorf("the template %q is not offered: %s", tmplName, strings.TrimPrefix(c, "the template "+tmplName+" "))
 			}
 		}
-		return "", fmt.Errorf("no template %q in %s or in an allowed package", tmplName, r.cfg.TemplatesDir)
+		return core.Envelope{}, "", fmt.Errorf("no template %q in %s or in an allowed package", tmplName, s.r.cfg.TemplatesDir)
 	}
-	if p := origins[t.Name].Problem; p != "" {
-		return "", fmt.Errorf("%s", p)
+	if p := s.origins[t.Name].Problem; p != "" {
+		return core.Envelope{}, "", fmt.Errorf("%s", p)
 	}
-	if pred := set.Resolve(t.Predicate); r.ExpectPredicate != "" && pred != r.ExpectPredicate {
-		return "", &TemplateChanged{fmt.Sprintf("the template %q signs the predicate %s, not the %s expected: read it again, then say again", t.Name, pred, r.ExpectPredicate)}
+	if pred := s.set.Resolve(t.Predicate); x.Predicate != "" && pred != x.Predicate {
+		return core.Envelope{}, "", &TemplateChanged{fmt.Sprintf("the template %q signs the predicate %s, not the %s expected: read it again, then say again", t.Name, pred, x.Predicate)}
 	}
-	if origin := origins[t.Name]; r.ExpectTemplate != "" && !strings.EqualFold(origin.Hash, r.ExpectTemplate) {
-		return "", &TemplateChanged{fmt.Sprintf("the template %q is %s, not the %s expected: read it again, then say again", t.Name, origin.Hash, r.ExpectTemplate)}
-	} else if r.ExpectRevision != "" && origin.Revision != r.ExpectRevision {
+	if origin := s.origins[t.Name]; x.Template != "" && !strings.EqualFold(origin.Hash, x.Template) {
+		return core.Envelope{}, "", &TemplateChanged{fmt.Sprintf("the template %q is %s, not the %s expected: read it again, then say again", t.Name, origin.Hash, x.Template)}
+	} else if x.Revision != "" && origin.Revision != x.Revision {
 		from := "the repository's own template directory"
 		if origin.Revision != "" {
 			from = "revision " + origin.Revision
 		}
-		return "", &TemplateChanged{fmt.Sprintf("the template %q comes from %s, not revision %s as expected: read it again, then say again", t.Name, from, r.ExpectRevision)}
+		return core.Envelope{}, "", &TemplateChanged{fmt.Sprintf("the template %q comes from %s, not revision %s as expected: read it again, then say again", t.Name, from, x.Revision)}
 	}
 
 	// A `file` field carries BYTES, not a path: the package never touches a filesystem, so that it
@@ -656,9 +723,9 @@ func (r *Runner) Annotate(ctx context.Context, subject, tmplName string, sets ma
 	values, files := map[string]string{}, map[string][]byte{}
 	for k, v := range sets {
 		if f, isField := t.Fields[k]; isField && f.Type == "file" {
-			b, rerr := r.readRepoFile(v)
+			b, rerr := s.r.readRepoFile(v)
 			if rerr != nil {
-				return "", fmt.Errorf("field %q of template %q: %w", k, tmplName, rerr)
+				return core.Envelope{}, "", fmt.Errorf("field %q of template %q: %w", k, tmplName, rerr)
 			}
 			files[k] = b
 			continue
@@ -666,16 +733,16 @@ func (r *Runner) Annotate(ctx context.Context, subject, tmplName string, sets ma
 		// An iri value written as a CURIE or term of the template's own package means what that
 		// package says; the kernel's set knows only the repository's aliases (SPEC §9.11).
 		if f, isField := t.Fields[k]; isField && f.Type == "iri" {
-			if r := own[t.Name].Resolve(v); r != v && strings.Contains(r, "://") {
+			if r := s.own[t.Name].Resolve(v); r != v && strings.Contains(r, "://") {
 				v = r
 			}
 		}
 		values[k] = v
 	}
 
-	spec, err := set.Spec(tmplName, subject, values, files)
+	spec, err := s.set.Spec(tmplName, subject, values, files)
 	if err != nil {
-		return "", err
+		return core.Envelope{}, "", err
 	}
 	// Spec fills neither `by` nor `when`, and should not: the first is the caller's identity and
 	// the second is the caller's clock, so a template package that supplied either would be
@@ -685,9 +752,9 @@ func (r *Runner) Annotate(ctx context.Context, subject, tmplName string, sets ma
 	// closed — SignWith refuses with "claim spec needs `by` and `when`" rather than signing a claim
 	// that says nobody asserted it at no particular time. Filling them is this function's job, and
 	// it is the only place that can do it.
-	keyid, err := r.KeyID(ctx, pubHalfOf(signKey))
+	keyid, priv, err := s.key(ctx, signKey)
 	if err != nil {
-		return "", fmt.Errorf("reading the keyid to sign under: %w", err)
+		return core.Envelope{}, "", err
 	}
 	spec.By = "key:" + keyid
 	spec.When = time.Now().UTC().Format(time.RFC3339)
@@ -697,22 +764,39 @@ func (r *Runner) Annotate(ctx context.Context, subject, tmplName string, sets ma
 		spec.Scope, spec.Prev = chain.Scope, chain.Prev
 	}
 
-	priv, err := loadSigningKey(signKey)
-	if err != nil {
-		return "", err
-	}
 	env, id, err := nclaim.SignWith(spec, priv)
 	if err != nil {
-		return "", fmt.Errorf("signing the claim: %w", err)
+		return core.Envelope{}, "", fmt.Errorf("signing the claim: %w", err)
 	}
-	reg, err := nregistry.Open(r.cfg.NektonDir)
+	return env, id, nil
+}
+
+// AddClaims stores signed claims in this repository's nekton store, in order, through one open of
+// it, and says how many it stored. The kernel's write registry loads only the scope files the claims
+// touch (kton #248); where only a whole open stores a claim identically (ErrNeedsFullOpen, raised before
+// that claim is stored), the rest go through one. A refusal leaves the claims before it stored: the
+// store is append-only, so a caller checks everything it can before signing.
+func (r *Runner) AddClaims(envs []core.Envelope) (int, error) {
+	defer r.wrote()
+	reg, err := nregistry.OpenForWrite(r.cfg.NektonDir)
 	if err != nil {
-		return "", fmt.Errorf("opening the nekton registry: %w", err)
+		return 0, fmt.Errorf("opening the nekton registry: %w", err)
 	}
-	if _, _, err := reg.Add(env); err != nil {
-		return "", fmt.Errorf("the claim was signed but the registry refused it: %w", err)
+	full := false
+	for i, env := range envs {
+		_, _, err := reg.Add(env)
+		if errors.Is(err, nregistry.ErrNeedsFullOpen) && !full {
+			if reg, err = nregistry.Open(r.cfg.NektonDir); err != nil {
+				return i, fmt.Errorf("opening the nekton registry: %w", err)
+			}
+			full = true
+			_, _, err = reg.Add(env)
+		}
+		if err != nil {
+			return i, fmt.Errorf("the claim was signed but the registry refused it: %w", err)
+		}
 	}
-	return id, nil
+	return len(envs), nil
 }
 
 // templates loads this repo's template set. An alias file is optional and this cockpit ships none:

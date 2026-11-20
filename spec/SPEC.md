@@ -762,6 +762,33 @@ refused.
 
 > **Checked by:** `TestSay_LocatedAtAndRunsOnAreClaims`, `TestInitTemplates_MatchTheSkeleton`.
 
+### 8.9 Many claims in one write
+
+`say --batch <file.jsonl>` (one say request as JSON per line, `-` for stdin) and the Go API's `SayBatch`
+say many claims in one write. Each claim takes the request and the checks of one `say`.
+
+- **Every claim MUST be checked before any is signed.** A claim that would be refused refuses the whole
+  batch, the refusal names its position (`claim N: …`, or `line N` for a line that is no request), and
+  nothing is written.
+- **Claims into one scope chain one after another, in the order given.** The scope's head is read once.
+  The first claim of a scope in the batch chains onto that head, and each later one onto the claim before
+  it. With `expectHead`, the first names a head the scope has, and each later one the claim of the batch
+  before it.
+- **`replace: previous` sees the earlier claims of the same batch.**
+- **The claims are stored through one open of the store, committed once, and confirmed once** (SPEC §8.3),
+  and answered in the order asked, each with its chain position.
+- **Each claim carries what one `say`'s claim carries:** the configured evidence (§11) and, where the
+  repository anchors, its own anchor, reported per claim. No form of `say` is laxer than another (SPEC §6).
+- `reproduces` runs a reproduction per claim and MUST NOT be in a batch.
+
+The store is append-only. A refusal by the substrate while storing leaves the claims before it stored,
+and says how many.
+
+> **Checked by:** `TestSayBatch_ManyClaimsInOneWriteChainInOrder`,
+> `TestSayBatch_OneBadClaimRefusesTheBatchAndWritesNothing`,
+> `TestSayBatch_ReplacePreviousAndExpectHeadWithinTheBatch`, `TestSayBatch_AnchorsEveryClaimWhereTheRepositoryAnchors`,
+> `TestShellSay_BatchFromAFile`.
+
 ### 8.3 Registration
 
 A cockpit MUST confirm, by querying the record back, that the claim registered — and MUST NOT report
