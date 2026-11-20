@@ -305,7 +305,7 @@ that names two packages, so a frontend never reads a package folder.
 > `TestUICat_ServesAMembersBytesAndNothingElse`, `TestUICat_OnlyUsablePackagesAndByNameDirOrID`,
 > `TestUICat_AReferenceNamingTwoPackagesIsRefused`, `TestUICat_SeveralMembersInOneCall`,
 > `TestUIList_MembersOnlyForUsablePackages`, `TestUIList_APackageWithAClimbingMemberNameIsRefused`,
-> `TestForeignControl_TheOwnerMustBeInstalledAsPinned`.
+> `TestForeignControl_TheOwnerMustBeInstalledAsPinned`, `TestForeignControl_ARefusedOwnerRefusesItsViewsToo`.
 
 ### 6.1 Which kernel
 

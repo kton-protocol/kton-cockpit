@@ -167,3 +167,57 @@ func TestForeignControl_TheOwnerMustBeInstalledAsPinned(t *testing.T) {
 		t.Errorf("with its owner gone, ui list refuses the view: %s", got)
 	}
 }
+
+// actsOn returns a source whose card block acts on control of the package pin, at v1 with head, and
+// declares its own record control mine-request.
+func actsOn(t *testing.T, pkg, head string) string {
+	return goodVerticle(t, func(dir string) {
+		os.WriteFile(filepath.Join(dir, "controls", "mine-request.json"), []byte(`{"kind":"record","say":{"template":"approves"}}`), 0o644)
+		p := filepath.Join(dir, "ui", "compositions", "list.json")
+		b, _ := os.ReadFile(p)
+		s := strings.Replace(string(b), `"empty": "show",`, `"empty": "show",
+     "acts": [{"intent": "record", "control": "mine-request", "from": {"package": "`+pkg+`", "at": "v1", "head": "`+head+`"}, "fields": {}}],`, 1)
+		os.WriteFile(p, []byte(s), 0o644)
+	})
+}
+
+// Refusing one view can take away the owner of another: with A acting on B's control and B on C's, and
+// C gone, both A and B are refused, not only B (kton-review T29 on #206).
+func TestForeignControl_ARefusedOwnerRefusesItsViewsToo(t *testing.T) {
+	r := testrepo.New(t)
+	r.Use(t)
+	install := func(dir string) {
+		t.Helper()
+		if _, err := cockpit.New(cockpit.Start{}).Install(context.Background(), cockpit.InstallRequest{Path: dir, Allow: true}); err != nil {
+			t.Fatalf("install %s: %v", dir, err)
+		}
+	}
+	c, headC := build(t, "pkgc", "v1", goodVerticle(t, func(dir string) {
+		os.WriteFile(filepath.Join(dir, "controls", "mine-request.json"), []byte(`{"kind":"record","say":{"template":"approves"}}`), 0o644)
+	}))
+	install(c)
+	b, headB := build(t, "pkgb", "v1", actsOn(t, "pkgc", headC))
+	install(b)
+	a, _ := build(t, "pkga", "v1", actsOn(t, "pkgb", headB))
+	install(a)
+	if err := os.RemoveAll(filepath.Join(r.Root, ".kton", "packages", "pkgc@v1")); err != nil {
+		t.Fatal(err)
+	}
+	stdout, stderr, code := r.CockpitSplit(t, "ui", "list", "--json")
+	var l struct {
+		Packages []struct {
+			Name    string      `json:"name"`
+			Refused []UIRefusal `json:"refused"`
+		} `json:"packages"`
+	}
+	if code != 0 || json.Unmarshal([]byte(stdout), &l) != nil {
+		t.Fatalf("ui list --json (exit %d):\n%s\n%s", code, stdout, stderr)
+	}
+	refused := map[string]bool{}
+	for _, p := range l.Packages {
+		refused[p.Name] = len(p.Refused) > 0
+	}
+	if !refused["pkgb"] || !refused["pkga"] {
+		t.Errorf("with C gone, B and A are both refused: %s", stdout)
+	}
+}
