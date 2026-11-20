@@ -16,6 +16,7 @@ import (
 	"github.com/kton-protocol/kton-cockpit/internal/binaries"
 	"github.com/kton-protocol/kton-cockpit/internal/config"
 	"github.com/kton-protocol/kton-cockpit/internal/index/oxigraph"
+	"github.com/kton-protocol/kton-cockpit/internal/jobs"
 )
 
 // Events a frontend gets over serve --stdio when it asks for them (SPEC §12.5): what changed in the
@@ -27,7 +28,21 @@ const (
 	EventSaid         = "events/said"
 	EventSourcePulled = "events/sourcePulled"
 	EventIndexMoved   = "events/indexMoved"
+	EventRunStarted   = "events/runStarted"
+	EventRunState     = "events/runState"
+	EventRunFinished  = "events/runFinished"
 )
+
+// RunEvent is a run of the checkout's jobs journal that started, changed state or ended, whoever runs
+// it (serve, the command line, the machine's jobs runner).
+type RunEvent struct {
+	ID     string          `json:"id"`
+	Kind   string          `json:"kind"`
+	Ray    *jobs.Ray       `json:"ray,omitempty"`
+	Origin json.RawMessage `json:"origin,omitempty"`
+	State  string          `json:"state"`
+	Error  string          `json:"error,omitempty"`
+}
 
 // PublishedEvent names the steps new in this repository's own registry.
 type PublishedEvent struct {
@@ -112,6 +127,7 @@ func (c *Cockpit) Watch(ctx context.Context, since string, interval time.Duratio
 		}
 	}
 	w := &watcher{cfg: cfg, emit: emit, labels: map[string]string{}, cursor: since}
+	w.runEvents() // the journal as it is now: nothing sent for it
 	t := time.NewTicker(interval)
 	defer t.Stop()
 	for {
@@ -141,6 +157,40 @@ type watcher struct {
 	scopes     map[string]bool
 	// update brings the index up to date and names the view; current, unless a test replaces it.
 	update func(context.Context) (string, error)
+	// runs are the jobs journal's runs by id, with the state last sent; nil until first read.
+	runs map[string]string
+}
+
+// runEvents sends what changed in the jobs journal since the last look. The first look takes the
+// journal as it is and sends nothing: events name what happens after a connection starts watching.
+func (w *watcher) runEvents() {
+	all, err := jobs.Runs(jobs.Dir(w.cfg.LocalDir))
+	if err != nil {
+		return
+	}
+	first := w.runs == nil
+	if first {
+		w.runs = map[string]string{}
+	}
+	// Oldest first, so a run's started comes before another's finished in the order they happened.
+	for i := len(all) - 1; i >= 0; i-- {
+		r := all[i]
+		was, seen := w.runs[r.ID]
+		w.runs[r.ID] = r.State
+		if first || was == r.State {
+			continue
+		}
+		ev := RunEvent{ID: r.ID, Kind: r.Kind, Ray: r.Ray, Origin: r.Origin, State: r.State, Error: r.Error}
+		if !seen {
+			w.emit(EventRunStarted, ev)
+		}
+		switch {
+		case jobs.Terminal(r.State):
+			w.emit(EventRunFinished, ev)
+		case seen:
+			w.emit(EventRunState, ev)
+		}
+	}
 }
 
 // CheckEventsCursor refuses a since that is no cursor this cockpit hands out: a connection would
@@ -167,6 +217,7 @@ func (w *watcher) page(ctx context.Context) (*FeedPage, error) {
 }
 
 func (w *watcher) tick(ctx context.Context) error {
+	w.runEvents()
 	page, err := w.page(ctx)
 	if err != nil {
 		return err

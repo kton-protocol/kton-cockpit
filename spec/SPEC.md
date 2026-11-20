@@ -1585,6 +1585,23 @@ and `1.0`); a string id is another id (`"1"` is not `1`), as JSON-RPC keeps them
 `{code, clause, reason}`; any other failure as error `-32000` with `data.code` `error`. An unknown method is
 error `-32601`, and params with a field the method does not take are error `-32602`.
 
+A workflow run is a job in the checkout's jobs journal (`.kton/local/jobs/<writer>.jsonl`, ADR-016: local,
+never shared): one JSON line per state change, `{id, kind, ray?, origin?, state, at, steps?, plan?, result?,
+error?}`, states `queued`, `running`, `succeeded`, `failed`, `cancelled`, folded per id by its readers; the
+cockpit writes under `cockpit`, the machine's jobs runner under its own name, a writer's file is moved aside
+past 16 MiB, and a line that does not parse is skipped. `workflow run` takes an `origin` (one JSON object, at
+most 4 KiB, opaque: where a frontend started it) and answers the run's `runId`; a run is recorded from its
+first step to its end, however it ends, and one refused before it ran records nothing (over `serve`: `failed`,
+since it was queued). `workflow/run` over `serve` answers the id at once and runs in the background, for
+as long as the connection lasts: when it ends, its runs are cancelled and waited for (at most 10 s), and one
+that has not ended is recorded `cancelled` before the process exits;
+`run/list {origin?, limit?}` and `run/status {id}` read the journal (CLI: `workflow runs`, `workflow status`).
+An origin filter of kind `act` MUST name a prefix of `package`, `composition`, `part`, `act`, so a subtree is
+one filter; another filter matches on every key it names. With events, `events/runStarted`, `events/runState`
+and `events/runFinished {id, kind, ray, origin, state, error?}` name what changed in the journal since the
+connection started watching, whoever runs it. The run record is the cockpit's account, not a signed claim;
+the step records it names are signed.
+
 A body that is not JSON, in intact framing, MUST be answered with error `-32700` under id `null`, and the
 connection goes on: the next message starts where the framing says. The answer cannot name the request the
 body was, so a frontend fails what it is waiting for; it never sends a `say` again, since the registry decides
@@ -1597,6 +1614,8 @@ starts is no longer known; every request accepted before it is answered first.
 > `TestServe_TheBinaryKeepsStdoutForTheProtocol`, `TestServe_ASayRunningAtShutdownIsAnswered`,
 > `TestServe_EventsNameWhatWasSaidAndResumeFromTheirCursor`, `TestServe_IndexMovedComesOnceTheIndexHoldsTheClaim`,
 > `TestEvents_AnIndexMovedOwedIsSentOnceTheIndexIsBack`, `TestEvents_ASinceThatIsNoCursorIsRefused`,
+> `TestServe_AWorkflowRunIsAJobWithItsOrigin`, `TestServe_ARunEndsWhenTheConnectionDoes` (`-tags docker`), `TestJournal_FoldsRunsAcrossWritersAndRotations`,
+> `TestJournal_AnActFilterIsAPrefix`,
 > `TestServer_AnswersRequestsAndErrorsAndGoesOn`, `TestServer_CancelsARunningRequest`,
 > `TestServer_AnswersWhatIsRunningWhenTheInputEnds`, `TestServer_ShutdownAnswersWhatItAcceptedFirst`,
 > `TestServer_ExitWaitsForWhatIsRunning`, `TestServer_CancelMatchesANumberIDByValue`, `TestReadMessage_Framing`,
