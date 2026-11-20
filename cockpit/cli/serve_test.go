@@ -446,16 +446,28 @@ func TestServe_EventsNameWhatWasSaidAndResumeFromTheirCursor(t *testing.T) {
 	}
 	must(t, json.Unmarshal(saidEv.Params, &ev))
 	seed := "https://kton.dev/o/" + strings.TrimPrefix(study, "sha256:")
-	if len(ev.IDs) != 1 || ev.IDs[0] != id || len(ev.Claims) != 1 || ev.Claims[0].Scope == nil ||
-		ev.Claims[0].Scope.Seed != seed || ev.Claims[0].Scope.Label != "study" || ev.Claims[0].Template != "describes" ||
-		len(ev.Claims[0].About) != 1 || ev.Claims[0].About[0] != "urn:example:x" || len(ev.Claims[0].Signers) != 1 || ev.Cursor == "" {
-		t.Errorf("events/said: %s", saidEv.Params)
+	// Other claims may share the event (the root scope's registration of the study can land late, as a
+	// second ask showed): the claim said here is found by its id (kton-review T32 on #213).
+	found := false
+	for _, cl := range ev.Claims {
+		if cl.ID != id {
+			continue
+		}
+		found = cl.Scope != nil && cl.Scope.Seed == seed && cl.Scope.Label == "study" && cl.Template == "describes" &&
+			len(cl.About) == 1 && cl.About[0] == "urn:example:x" && len(cl.Signers) == 1
+	}
+	if !found || ev.Cursor == "" || len(ev.IDs) != len(ev.Claims) {
+		t.Errorf("events/said names the claim with its scope, template, subject and signer: %s", saidEv.Params)
 	}
 	var moved struct {
 		Scopes []struct{ Seed, Label string } `json:"scopes"`
 	}
 	must(t, json.Unmarshal(got[len(got)-1].Params, &moved))
-	if len(moved.Scopes) != 1 || moved.Scopes[0].Seed != seed {
+	named := false
+	for _, sc := range moved.Scopes {
+		named = named || sc.Seed == seed
+	}
+	if !named {
 		t.Errorf("events/indexMoved names the scope that changed: %s", got[len(got)-1].Params)
 	}
 
@@ -470,7 +482,11 @@ func TestServe_EventsNameWhatWasSaidAndResumeFromTheirCursor(t *testing.T) {
 		IDs []string `json:"ids"`
 	}
 	must(t, json.Unmarshal(got[len(got)-1].Params, &ev2))
-	if len(ev2.IDs) != 1 || ev2.IDs[0] != later {
-		t.Errorf("resumed from the cursor: want the one claim said since, got %v", ev2.IDs)
+	has := map[string]bool{}
+	for _, x := range ev2.IDs {
+		has[x] = true
+	}
+	if !has[later] || has[id] {
+		t.Errorf("resumed from the cursor: want the claim said since and not the one before it, got %v", ev2.IDs)
 	}
 }
