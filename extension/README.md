@@ -130,6 +130,30 @@ The admitted packages' ui declarations (C2) come from `cockpit ui list --json`:
 - **Diagrams.** Mermaid runs only in a sandboxed frame, served from 127.0.0.1 on a random port (exactly its
   three pinned files) and named in the composition frame's `frame-src`; the diagram is shown as an `<img>`.
 
+## QM areas (C3)
+
+An `activity` entry with an `area` object (ktonpkg v0.9.3) is a QM area. Home lists the areas under **QM areas**,
+by `order`, then package name. The shell writes two compositions from the declaration, with its own blocks
+(`media/workbench/`: `rows` and `notice`, tree-checked like any viewer), and plans and renders them as above:
+
+- **The area** (subject: its records scope):
+  - the governing SOP and its state, from the document register;
+  - the records (the entry's list query; an empty scope reads "Planned, 0 records");
+  - the findings of the named package, kept to the area's rule ids, or "not installed" when it is not;
+  - the RACI; a row click picks the person the training query is filtered by (unfiltered until then: an optional
+    param, ktonpkg v0.9.10);
+  - training, documents (from the register, as links) and approvals.
+- **A record**, opened from a list row: its fields (the record query, bound to the record's IRI), the area's actions,
+  its approvals and its history. Its subject is the record's latest claim, as the record query answers it in the
+  shell, never a claim a frame names.
+- **Actions** are the area's controls. A decision goes through the sign dialog with the person key, a record is
+  written with the agent key and no dialog; both go into the area's records scope, and the re-check before `say`
+  applies. Fields the template requires and the act leaves open are asked by the shell (a pick for values).
+- **Approvals** get a column `counts`: an approval counts only as `approved` signed by the window's person key or
+  a key in a person tier; a rejected outcome or an agent key's approval does not.
+- The register is the area's own package, else the admitted package that brings the queries `documents` and
+  `document` (`$key`). There is no code for any one area: a test checks the source for the S6 packages' names.
+
 Everything about packages comes from the cockpit: `cockpit ui list --json` (v0.5.4) for packages, admission,
 refusals, ui entries, blocks, compositions (with their hash) and members (role, name, hash), and
 `cockpit ui cat <package> <hash>` for a member's bytes, checked against the hash again. The shell reads no
@@ -159,7 +183,9 @@ needs `COCKPIT_IT_BIN` and `COCKPIT_IT_REPO`, and fails without them: it is not 
 
 `test/e2e/run.sh` runs the PR gate flows in a real editor:
 
-- **Flows**: S1–S4, S7, S9 and S10, numbered as in the shell flows.
+- **Flows**: S1–S7, S9 and S10, numbered as in the shell flows. S6 (QM areas) runs in a second registry,
+  `repo-s6`, opened as a second folder: its packages' field aliases would rename the lanes vocabulary's fields,
+  since the view reads one alias file per registry.
 - **Setup**: it seeds a throwaway registry with test identities (`qa-decider`, its agent key
   `qa-decider-agent`, `qa-requestor`), starts code-server with the packaged VSIX, and drives it
   with Playwright.
@@ -167,7 +193,7 @@ needs `COCKPIT_IT_BIN` and `COCKPIT_IT_REPO`, and fails without them: it is not 
 
 ```console
 $ npm run package
-$ test/e2e/build-cockpit.sh /tmp/wb-cockpit/cockpit       # this checkout's cockpit (ktonpkg v0.9.1)
+$ test/e2e/build-cockpit.sh /tmp/wb-cockpit/cockpit       # this checkout's cockpit (ktonpkg v0.9.7)
 $ test/e2e/run.sh /tmp/wb-e2e-$$ /tmp/wb-cockpit/cockpit   # a fresh, absolute work dir
 ```
 

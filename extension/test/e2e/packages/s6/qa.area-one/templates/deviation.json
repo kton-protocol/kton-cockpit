@@ -1,0 +1,15 @@
+{
+ "name": "deviation",
+ "target": "either",
+ "predicate": "https://example.org/qa/deviationRecorded",
+ "replace": "previous",
+ "fields": {
+  "identifier": {"type": "string", "required": true},
+  "title": {"type": "string", "required": true},
+  "severity": {"type": "enum", "values": ["minor", "major", "critical"], "required": true},
+  "status": {"type": "enum", "values": ["open", "closed"], "required": true},
+  "raisedBy": {"type": "iri", "required": true},
+  "owner": {"type": "iri"},
+  "closedOn": {"type": "date"}
+ }
+}

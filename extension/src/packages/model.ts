@@ -33,6 +33,8 @@ export interface Control {
   /** ktonpkg Control.EffectiveKind(): decision when the control says none */
   readonly kind: "decision" | "record";
   readonly about?: string;
+  /** what the act means (C3.4), declared on the control (ktonpkg v0.9.2) */
+  readonly meaning?: string;
 }
 /** A viewer that runs as a page in its own frame (viewer.json frame: leaf), pinned by a viewers/<name>.json declaration. */
 export interface LeafViewer {
@@ -228,7 +230,7 @@ async function loadOne(p: UiPackage, read: ReadBlob, vendored: ReadonlyMap<strin
     const kind = d["kind"] === undefined || d["kind"] === "" ? "decision" : d["kind"];
     if (kind !== "decision" && kind !== "record") throw new Refuse("control.format", fileOf(m), `${fileOf(m)}: kind ${JSON.stringify(kind)} is neither decision nor record`);
     pkg.controls[m.name] = { decl: d };
-    controls.push({ package: p.name, name: m.name, template: say.template, kind, ...(typeof d["about"] === "string" ? { about: d["about"] } : {}) });
+    controls.push({ package: p.name, name: m.name, template: say.template, kind, ...(typeof d["about"] === "string" ? { about: d["about"] } : {}), ...(typeof d["meaning"] === "string" ? { meaning: d["meaning"] } : {}) });
   }
   // viewer declarations (viewers/<name>.json: {viewer, at, tree}) and the trees the package carries
   const declared = new Map(of("viewer").map((m) => [m.name, json(bytes.get(m) as Uint8Array, fileOf(m))]));

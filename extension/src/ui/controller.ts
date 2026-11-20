@@ -7,13 +7,13 @@ import { TransportError, TransportTimeout } from "../transport/port.js";
 import type { WindowIdentity, ShownSigner } from "../identity.js";
 import { hasKey, showSigner, signerKeyId, statusText, statusTooltip } from "../identity.js";
 import type { ControlInfo, SignPlan } from "../sign.js";
-import { DialogConsent, plan, sign, templateFingerprint, FOOTER } from "../sign.js";
+import { DialogConsent, plan, sign, templateFingerprint, templateFor, FOOTER } from "../sign.js";
 import type { UiEntry, SlotContext } from "../intents.js";
 import { checkIntent } from "../intents.js";
 import { Scheduler } from "../poll.js";
 import { PackagesArea, SLOT_CMD, type ExpectRevision } from "../composition/area.js";
 import type { Subject } from "../composition/slots.js";
-import type { Control, ViewerTree } from "../packages/model.js";
+import type { Control, MirrorPackage, ViewerTree } from "../packages/model.js";
 import type { TreeNode, UiHost } from "./host.js";
 import type { Queries, Row } from "./queries.js";
 import { idOf, kindOf, rowsOf } from "./queries.js";
@@ -62,6 +62,8 @@ export interface WorkbenchConfig {
   readonly recorder: { readonly extensionId: string; readonly command: string };
   /** The viewers the shell vendors from kton-web, with their tree ids (src/packages/vendored.ts). */
   readonly vendoredViewers?: ReadonlyMap<string, ViewerTree>;
+  /** the workbench's own blocks (media/workbench), for the generic QM area (PR 3) */
+  readonly builtinPackage?: MirrorPackage;
   /** A locked registry (S7.4): how often and how far apart a `say` is retried. */
   readonly lockRetry: { readonly attempts: number; readonly delayMs: number };
 }
@@ -135,10 +137,11 @@ export class Workbench {
   ) {
     this.scheduler = scheduler ?? new Scheduler();
     this.packages = new PackagesArea(t, host, {
-      act: (c, about, fields, title, expect) => this.signAct(c, about, fields, title, expect),
+      act: (c, about, fields, title, expect, into) => this.signAct(c, about, fields, title, expect, into),
+      person: () => ({ keyId: this.identity.person.keyId, personTiers: this.cfg.personTiers }),
       open: async (target) => this.openTarget(target),
       identityName: () => this.identity.hintName,
-    }, cfg.vendoredViewers);
+    }, cfg.vendoredViewers, cfg.builtinPackage);
     this.surface = cfg.surfaces.some((s) => s.name === cfg.initialSurface) ? (cfg.initialSurface as string) : ALL;
   }
 
@@ -409,6 +412,7 @@ export class Workbench {
         children: [...areas.entries()].sort().map(([a, n]) => ({ id: `a:${a}`, label: a, description: String(n) })),
       },
       { id: "recorder", label: "Recorded runs (recorder)", tooltip: "Opens the kton recorder extension", command: { id: CMD.openRecorder, args: [] } },
+      ...this.packages.areaNodes(),
       ...this.packages.homeNodes(),
     ];
     if (this.stale) nodes.unshift({ id: "stale", label: "Stale: the last poll failed", description: `data from ${time(this.goodAt)}`, tooltip: this.lastError ?? "" });
@@ -520,7 +524,7 @@ export class Workbench {
    * Plan, dialog (for the person key), sign. Never throws. A locked registry is retried and shown in the
    * status bar (S7.4); a timeout is reported as failed, and the registry decides whether a claim exists (S7.3).
    */
-  private async signThroughDialog(intent: { kind: "sign"; about: string; fields: Readonly<Record<string, string>> }, control: ControlInfo, title: string, expect?: ExpectRevision): Promise<SignResult> {
+  private async signThroughDialog(intent: { kind: "sign"; about: string; fields: Readonly<Record<string, string>>; scope?: string }, control: ControlInfo, title: string, expect?: ExpectRevision): Promise<SignResult> {
     const cannot = this.cannotSign(control.kind);
     if (cannot) {
       this.host.error(`Not signed: ${cannot}`);
@@ -592,9 +596,28 @@ export class Workbench {
    * control through the one sign dialog with the person key, a record control with the agent key and no
    * dialog. Same path as every other signature (signThroughDialog), so the dialog has one call site.
    */
-  async signAct(c: Control, about: string, fields: Readonly<Record<string, string>>, title: string, expect?: ExpectRevision): Promise<SignResult> {
-    const control: ControlInfo = { package: c.package, name: c.name, template: c.template, kind: c.kind };
-    return this.signThroughDialog({ kind: "sign", about, fields }, control, title, expect);
+  async signAct(c: Control, about: string, fields: Readonly<Record<string, string>>, title: string, expect?: ExpectRevision, into?: { readonly scope?: string }): Promise<SignResult> {
+    const control: ControlInfo = { package: c.package, name: c.name, template: c.template, kind: c.kind, ...(c.meaning !== undefined ? { meaning: c.meaning } : {}) };
+    const asked = await this.askOpenFields(control, fields);
+    if (!asked) return "cancelled";
+    return this.signThroughDialog({ kind: "sign", about, fields: asked, ...(into?.scope ? { scope: into.scope } : {}) }, control, title, expect);
+  }
+
+  /**
+   * The fields a template requires that the act leaves open are asked of the person here, by the shell (a pick for
+   * a field with values, else an input), never taken from a frame: a decision's open outcome is picked
+   * (approved or rejected, C3.4), a note its text. Before the dialog, which then shows them. Undefined: cancelled.
+   */
+  private async askOpenFields(control: ControlInfo, fields: Readonly<Record<string, string>>): Promise<Record<string, string> | undefined> {
+    const tpl = templateFor(control, this.templates);
+    const out: Record<string, string> = { ...fields };
+    for (const [k, f] of Object.entries(tpl?.fields ?? {})) {
+      if (!f.required || out[k] !== undefined || (k === "meaning" && control.meaning !== undefined)) continue;
+      const v = f.values ? await this.host.pick(`${control.name}: ${k}`, f.values) : await this.host.input(`${control.name}: ${k}`);
+      if (v === undefined || v === "") return undefined;
+      out[k] = v;
+    }
+    return out;
   }
 
   /**

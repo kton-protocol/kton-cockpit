@@ -1,0 +1,13 @@
+{
+ "name": "document-state",
+ "target": "either",
+ "predicate": "https://example.org/qa/documentState",
+ "replace": "previous",
+ "fields": {
+  "key": {"type": "string", "required": true},
+  "title": {"type": "string", "required": true},
+  "revision": {"type": "string", "required": true},
+  "state": {"type": "enum", "values": ["draft", "released"], "required": true},
+  "effectiveDate": {"type": "date"}
+ }
+}

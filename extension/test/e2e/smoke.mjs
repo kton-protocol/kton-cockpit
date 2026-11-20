@@ -1,4 +1,4 @@
-// e2e of the PR 1 gate in code-server, driven by Playwright: flows S1–S4, S7, S9, S10 (shell flows,
+// e2e of the PR gates in code-server, driven by Playwright: flows S1–S7, S9, S10 (shell flows,
 // test-flow-design §4 v3), each step numbered as in the flow. The registry is checked from outside
 // the shell after every signature, through the sidecar (sidecar.mjs). Writes out/smoke-results.json
 // (native) and out/run.json (kton-testrun/1). Only PNG and JSON go to out/.
@@ -917,6 +917,205 @@ await step("S7", 8, "say answers pending store.busy: shown as signed, not yet co
   const dec = (await decidesAbout(P5)).filter((x) => x.s === PERSON);
   check(dec.length === 1 && dec[0].choice === "a", "exactly one decides by the person key: the pending claim was not signed again", 1, dec.length);
   await clearToasts();
+});
+
+// ---- S6: the generic QM area (PR 3; SHELL-FLOWS §S6 and §6, steps 1-16), over the S6 packages and seed
+// The areas are in their own registry, repo-s6 (seed.sh says why): the window opens that folder now.
+faults("normal");
+async function sparqlS6(q) {
+  const r = await cockpit(["ask", "sparql", "-", "--results-json"], `PREFIX nk: <https://kton.dev/v/>\nPREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>\n${q}`, { repo: "repo-s6" });
+  if (r.code !== 0) throw new Error(`registry check failed: ${r.stderr.split("\n")[0]}`);
+  return JSON.parse(r.stdout).results.bindings.map((b) => Object.fromEntries(Object.entries(b).map(([k, v]) => [k, v.value])));
+}
+await page.goto(URL.replace(/folder=[^&]*/, `folder=${encodeURIComponent(`${WORK}/repo-s6`)}`));
+await page.locator(".monaco-workbench").waitFor({ timeout: 90000 });
+await views();
+const D = seed.s6.deviations;
+const QA = "https://example.org/qa";
+const areaFrame = (pkg) => frameWithSel(`[data-composition^="@workbench/area:${pkg}/"]`);
+const recordFrame = (pkg) => frameWithSel(`[data-composition^="@workbench/area-record:${pkg}/"]`);
+const box = (f, id) => f.locator(`[data-use$="#${id}"]`).first();
+const boxText = async (f, id) => ((await box(f, id).textContent()) ?? "").replace(/\s+/g, " ");
+/** The rows a block shows (its table's data-count), once it has drawn. */
+async function countIn(f, id) {
+  const t = box(f, id).locator("[data-area-table], [data-area-empty], [data-area-card], [data-area-notice], [data-area-error]").first();
+  await t.waitFor({ timeout: 30000 });
+  return Number((await box(f, id).locator("[data-area-table]").first().getAttribute("data-count").catch(() => null)) ?? 0);
+}
+async function openArea(pkg) {
+  await views();
+  await closeEditors();
+  await page.locator(".monaco-list-row", { hasText: pkg }).filter({ hasText: pkg === "qa.area-one" ? "Deviations" : "Supplier evaluations" }).first().click();
+  return areaFrame(pkg);
+}
+const usesOf = async (f) => (await f.locator("[data-use]").evaluateAll((els) => els.map((e) => e.getAttribute("data-use").split("#").pop()))).filter((x) => !/^findings/.test(x));
+const perScope = async () => Object.fromEntries((await sparqlS6(`SELECT ?scope (COUNT(?c) AS ?n) WHERE { ?seed nk:genesis true ; rdfs:label ?scope . FILTER(STRSTARTS(STR(?scope), "qa.")) OPTIONAL { ?c nk:scope ?seed . FILTER(?c != ?seed) } } GROUP BY ?scope`)).map((r) => [r.scope, Number(r.n)]));
+let scopesBefore = {};
+
+await step("S6", 1, "both QM areas appear on Home with their packages' labels", async () => {
+  await views();
+  await row("QM areas").waitFor({ timeout: 60000 });
+  await page.locator(".monaco-list-row", { hasText: "Deviations" }).filter({ hasText: "qa.area-one" }).first().waitFor();
+  await page.locator(".monaco-list-row", { hasText: "Supplier evaluations" }).filter({ hasText: "qa.area-two" }).first().waitFor();
+  await shot("s6-areas");
+});
+
+await step("S6", 16, "two areas with the same when are listed by order, then package name", async () => {
+  const texts = await page.locator(".monaco-list-row").allTextContents();
+  const two = texts.findIndex((t) => t.includes("Supplier evaluations"));
+  const one = texts.findIndex((t) => t.includes("Deviations") && t.includes("qa.area-one"));
+  check(two >= 0 && one > two, "area-two (order 10) before area-one (order 20)", "two < one", { two, one });
+});
+
+await step("S6", 2, "area-one: the list is the package's list query; a row opens the record with the record query's fields", async () => {
+  const f = await openArea("qa.area-one");
+  check((await countIn(f, "records")) === 4, "the list has the list query's 4 rows", 4, await countIn(f, "records"));
+  await box(f, "records").locator("tr", { hasText: "D-001" }).first().click();
+  const r = await recordFrame("qa.area-one");
+  await box(r, "record").locator('[data-area-card] [data-col="identifier"]', { hasText: "D-001" }).waitFor({ timeout: 30000 });
+  const t = await boxText(r, "record");
+  check(/Label printed with the wrong batch number/.test(t) && /closed/.test(t), "the record shows the record query's fields", "title, status", t.slice(0, 200));
+  await shot("s6-record");
+});
+
+await step("S6", 8, "a replaced record: only the latest version is listed and shown; both are in its history", async () => {
+  const f = await openArea("qa.area-one");
+  await countIn(f, "records");
+  const list = await boxText(f, "records");
+  const d3 = await box(f, "records").locator("tbody tr", { hasText: "D-003" }).count();
+  check(d3 === 1, "D-003 is listed once (one row)", 1, d3);
+  check(/store room 2/.test(list), "the listed D-003 is the latest version", "store room 2", list.slice(0, 300));
+  await box(f, "records").locator("tr", { hasText: "D-003" }).first().click();
+  const r = await recordFrame("qa.area-one");
+  await box(r, "record").locator('[data-col="title"]', { hasText: "store room 2" }).waitFor({ timeout: 30000 });
+  check((await countIn(r, "history")) === 2, "the history shows both versions", 2, await countIn(r, "history"));
+  check(/replacedBy/.test(await boxText(r, "history")), "with replaces / replacedBy");
+  await shot("s6-history");
+});
+
+await step("S6", 3, "findings: the seeded violation with its rule id; the compliant rule shows none", async () => {
+  const f = await openArea("qa.area-one");
+  check((await countIn(f, "findings-1")) === 1, "QA-R-MAJOR-OWNER fires once", 1, await countIn(f, "findings-1"));
+  const t = await boxText(f, "findings-1");
+  check(/QA-R-MAJOR-OWNER/.test(t) && /D-004 is critical and names no owner/.test(t), "rule id, focus and message", "QA-R-MAJOR-OWNER … D-004", t.slice(0, 300));
+  await countIn(f, "findings-2");
+  check(/no findings/.test(await boxText(f, "findings-2")), "QA-R-CLOSED-DATE: no findings");
+  await shot("s6-findings");
+});
+
+await step("S6", 4, "RACI equals the package's query; the area's documents come from the register, shown as links", async () => {
+  const f = await openArea("qa.area-one");
+  check((await countIn(f, "raci")) === 2, "RACI: 2 rows", 2, await countIn(f, "raci"));
+  check((await countIn(f, "documents")) === 2, "documents: the area's 2 keys", 2, await countIn(f, "documents"));
+  const d = await boxText(f, "documents");
+  check(/QA-SOP-10/.test(d) && /QA-FOR-10/.test(d) && !/QA-SOP-20/.test(d), "QA-SOP-10 and QA-FOR-10 only");
+  check((await box(f, "documents").locator("tr[data-target]").count()) === 2, "each document is a link", 2, await box(f, "documents").locator("tr[data-target]").count());
+});
+
+await step("S6", 9, "a read scope's data is shown (RACI from qa.deviations.raci)", async () => {
+  const f = await openArea("qa.area-one");
+  await countIn(f, "raci");
+  const t = await boxText(f, "raci");
+  check(/Deviation owner/.test(t) && /QA lead/.test(t), "the read scope's entries", "Deviation owner, QA lead", t.slice(0, 200));
+  scopesBefore = await perScope();
+});
+
+await step("S6", 7, "training: the package's training query result, computed nowhere else", async () => {
+  const f = await openArea("qa.area-one");
+  // unfiltered until a person is picked (ktonpkg v0.9.10 optional params): the package's query, all 4 obligations
+  check((await countIn(f, "training")) === 4, "the training query's 4 rows, unfiltered", 4, await countIn(f, "training"));
+  const t = await boxText(f, "training");
+  check(/person\/p1/.test(t) && /person\/p2/.test(t), "both RACI people's obligations");
+});
+
+await step("S6", 10, "a param: picking p2 in the RACI binds the training query to p2 only", async () => {
+  const f = await openArea("qa.area-one");
+  await countIn(f, "raci");
+  await box(f, "raci").locator("tr", { hasText: `${QA}/person/p2` }).first().click();
+  await box(f, "training").locator('[data-area-table][data-count="2"]').waitFor({ timeout: 30000 });
+  check((await countIn(f, "training")) === 2, "p2's 2 obligations", 2, await countIn(f, "training"));
+  const t = await boxText(f, "training");
+  check(!/person\/p1/.test(t), "no other person's rows");
+  await shot("s6-training-p2");
+});
+
+await step("S6", 11, "approvals: a rejected outcome is shown as rejected, never as approved", async () => {
+  const f = await openArea("qa.area-one");
+  check((await countIn(f, "approvals")) === 3, "3 approvals", 3, await countIn(f, "approvals"));
+  const rej = await box(f, "approvals").locator("tr", { hasText: "rejected" }).first().textContent();
+  check(/no: rejected/.test(rej ?? ""), "the rejected one does not count", "no: rejected", rej);
+});
+
+await step("S6", 12, "an approval signed by the agent key does not count; the person key's does", async () => {
+  const f = await openArea("qa.area-one");
+  await countIn(f, "approvals");
+  const t = await boxText(f, "approvals");
+  check((t.match(/yes: person key/g) ?? []).length === 1, "one approval counts (D-001, person key)", 1, (t.match(/yes: person key/g) ?? []).length);
+  check(/no: not signed by a person key/.test(t), "the agent key's approval is not counted");
+  await shot("s6-approvals");
+});
+
+await step("S6", 15, "the governing SOP's state is shown: released for area-one", async () => {
+  const f = await openArea("qa.area-one");
+  await box(f, "governing").locator('[data-col="state"]', { hasText: "released" }).waitFor({ timeout: 30000 });
+});
+
+await step("S6", 5, "actions: approves through the dialog with the person key; a note with the agent key and no dialog; both into the records scope", async () => {
+  const f = await openArea("qa.area-one");
+  await countIn(f, "records");
+  await box(f, "records").locator("tr", { hasText: "D-002" }).first().click();
+  const r = await recordFrame("qa.area-one");
+  await box(r, "record").locator('[data-col="identifier"]', { hasText: "D-002" }).waitFor({ timeout: 30000 });
+  // the note: a record control, its text asked by the shell, no dialog
+  await box(r, "record").locator('[data-testid="act-note"]').click();
+  await inputQuick("e2e note on D-002");
+  await box(r, "record").locator("[data-act-out]", { hasText: "Recorded with the agent key" }).waitFor({ timeout: 60000 });
+  // approves: a decision control, the outcome picked, then the one sign dialog with the meaning and the scope
+  await box(r, "record").locator('[data-testid="act-approves"]').click();
+  await pickQuick("approved");
+  const d = await dialog();
+  for (const s of ["Meaning: approved", "Into scope: qa.deviations", "outcome = approved", 'person key "qa-decider"']) await d.getByText(s, { exact: false }).first().waitFor({ timeout: 15000 });
+  await signInDialog(d);
+  await d.locator('[data-testid="sign-outcome"][data-state="signed"]').waitFor({ timeout: 60000 });
+  await shot("s6-approve-dialog");
+  const about = iriOf(D["D-002"]);
+  const notes = await sparqlS6(`SELECT ?c ?s ?sc WHERE { ?c nk:predicate <${QA}/note> ; nk:about <${about}> ; nk:signer ?s ; nk:scope ?scope . ?scope rdfs:label ?sc . ?c <${QA}/text> "e2e note on D-002" }`);
+  check(notes.length === 1 && notes[0].s === AGENT && notes[0].sc === "qa.deviations", "the note: agent key, in qa.deviations", { s: AGENT, sc: "qa.deviations" }, notes);
+  const appr = await sparqlS6(`SELECT ?c ?s ?sc ?o WHERE { ?c nk:predicate <${QA}/approves> ; nk:about <${about}> ; nk:signer ?s ; nk:scope ?scope ; <${QA}/outcome> ?o . ?scope rdfs:label ?sc . FILTER(STR(?o) = "approved") }`);
+  check(appr.length === 1 && appr[0].s === PERSON && appr[0].sc === "qa.deviations", "approves: person key, in qa.deviations", { s: PERSON, sc: "qa.deviations" }, appr);
+  const after = await perScope();
+  check(after["qa.deviations"] === scopesBefore["qa.deviations"] + 2, "two claims more in the records scope", scopesBefore["qa.deviations"] + 2, after["qa.deviations"]);
+  check(after["qa.deviations.raci"] === scopesBefore["qa.deviations.raci"] && after["qa.documents"] === scopesBefore["qa.documents"], "S6.9: nothing written into the read scopes", { raci: scopesBefore["qa.deviations.raci"], documents: scopesBefore["qa.documents"] }, { raci: after["qa.deviations.raci"], documents: after["qa.documents"] });
+});
+
+let areaOneUses = [];
+await step("S6", 6, "area-two renders with the same structure (the same built-in composition; no code per package)", async () => {
+  areaOneUses = await usesOf(await openArea("qa.area-one"));
+  const f = await openArea("qa.area-two");
+  await countIn(f, "raci");
+  const two = await usesOf(f);
+  check(JSON.stringify(two) === JSON.stringify(areaOneUses), "the same blocks in the same order (findings aside)", areaOneUses, two);
+  check((await countIn(f, "raci")) === 2, "its own RACI (2 rows)", 2, await countIn(f, "raci"));
+  await shot("s6-area-two");
+});
+
+await step("S6", 13, "area-two names a findings package that is not installed: the view says so, never 'no findings'", async () => {
+  const f = await areaFrame("qa.area-two");
+  const t = await boxText(f, "findings");
+  check(/qa\.rules-suppliers is not installed/.test(t) && !/no findings/.test(t), "not installed, not 'no findings'", "…is not installed…", t);
+});
+
+await step("S6", 14, "area-two's records scope is empty: planned, 0 records", async () => {
+  const f = await areaFrame("qa.area-two");
+  await countIn(f, "records");
+  check(/Planned, 0 records \(scope qa\.evaluations\)/.test(await boxText(f, "records")), "planned, 0 records", "Planned, 0 records (scope qa.evaluations).", await boxText(f, "records"));
+});
+
+await step("S6", "15b", "area-two's governing SOP QA-SOP-20 is shown as a draft", async () => {
+  const f = await areaFrame("qa.area-two");
+  await box(f, "governing").locator('[data-col="state"]', { hasText: "draft" }).waitFor({ timeout: 30000 });
+  await shot("s6-governing-draft");
+  await closeEditors();
 });
 
 await browser.close();

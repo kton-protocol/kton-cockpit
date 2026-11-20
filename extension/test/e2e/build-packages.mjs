@@ -8,6 +8,8 @@
 //       hostile-tampered  good, admitted, then tampered on disk by the seed (re-verify at load)
 //       hostile-network   good, carrying viewer-trees/table-network (fetches example.org: the CSP blocks it)
 //       hostile-pin       good, pinning a kton-web viewer at a commit with a tree no one has (refused at load)
+//   - s6/: the S6 packages (PR 3): qa.area-one and qa.area-two (two QM areas), qa.register (the document
+//     register), qa.rules (findings). qa.rules-suppliers, which qa.area-two names, is not built (S6.13).
 //
 //   node build-packages.mjs <scope CLI> <out dir>
 import { execFileSync } from "node:child_process";
@@ -75,6 +77,8 @@ try {
   hostile("hostile-tampered", "good");
   hostile("hostile-network", "network");
   hostile("hostile-pin", "pin");
+  // PR 3 (S6): the generic QM area's test packages (userinterface qm-workbench/s6-packages, ktonpkg v0.9.3 form)
+  for (const n of ["qa.register", "qa.area-one", "qa.area-two", "qa.rules"]) build(n, "1", join(SRC, "s6", n));
 } finally {
   rmSync(keys, { recursive: true, force: true });
 }

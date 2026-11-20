@@ -1,0 +1,15 @@
+{
+ "schema": "https://kton.dev/aliases/v0",
+ "prefixes": {"qa": "https://example.org/qa/"},
+ "terms": {
+  "identifier": "qa:identifier",
+  "title": "qa:title",
+  "severity": "qa:severity",
+  "status": "qa:status",
+  "raisedBy": "qa:raisedBy",
+  "owner": "qa:owner",
+  "closedOn": "qa:closedOn",
+  "outcome": "qa:outcome",
+  "text": "qa:text"
+ }
+}

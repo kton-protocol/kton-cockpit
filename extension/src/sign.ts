@@ -37,6 +37,8 @@ export interface SignPlan {
   readonly subject: string;
   readonly fields: Readonly<Record<string, string>>;
   readonly meaning?: string;
+  /** the scope the claim goes into (an area's records scope), shown in the dialog; none: the registry's default */
+  readonly scope?: string;
   readonly as: string;
   readonly keyRole: "person" | "agent";
   readonly needsDialog: boolean;
@@ -59,16 +61,20 @@ export function templateFingerprint(t: TemplateInfo): string {
   return createHash("sha256").update(JSON.stringify([t.name, t.predicate ?? null, t.target ?? null, t.package ?? null, fields])).digest("hex");
 }
 
-/** Build the plan from an intent. The intent supplies only `about` and field values. */
+/** The template a control signs: its own package's (named <package>/<name> on a clash, cockpit v0.5.3), else by name. */
+export function templateFor(control: Pick<ControlInfo, "package" | "template">, templates: readonly TemplateInfo[]): TemplateInfo | undefined {
+  const mine = (t: TemplateInfo) => t.package === undefined || t.package === control.package;
+  return templates.find((t) => t.name === `${control.package}/${control.template}` && mine(t)) ?? templates.find((t) => t.name === control.template && mine(t));
+}
+
+/** Build the plan from an intent. The intent supplies only `about` and field values (and the area's records scope). */
 export function plan(
-  intent: Extract<Intent, { kind: "sign" }>,
+  intent: Extract<Intent, { kind: "sign" }> & { readonly scope?: string },
   control: ControlInfo,
   templates: readonly TemplateInfo[],
   identity: WindowIdentity,
 ): Outcome<SignPlan> {
-  // a template name two sources bring is listed as <package>/<name> (cockpit v0.5.3): the control's own package's
-  const mine = (t: TemplateInfo) => t.package === undefined || t.package === control.package;
-  const tpl = templates.find((t) => t.name === `${control.package}/${control.template}` && mine(t)) ?? templates.find((t) => t.name === control.template && mine(t));
+  const tpl = templateFor(control, templates);
   if (!tpl) return refuse("template.not-allowed", `${control.package}/${control.name} signs ${control.template}, which is not installed here`);
 
   const fields: Record<string, string> = {};
@@ -81,10 +87,9 @@ export function plan(
     if (f.values && !f.values.includes(v)) return refuse("argument", `${k} must be one of ${f.values.join("|")}`);
     fields[k] = v;
   }
-  if (control.meaning !== undefined) {
-    if (!tpl.fields["meaning"]) return refuse("argument", `template ${tpl.name} has no meaning field`);
-    fields["meaning"] = control.meaning;
-  }
+  // a meaning declared on the control (C3.4, ktonpkg v0.9.2): into the template's meaning field when it has one;
+  // otherwise it is what the act means, shown in the dialog and covered by its digest, not a claim field
+  if (control.meaning !== undefined && tpl.fields["meaning"]) fields["meaning"] = control.meaning;
   for (const [k, f] of Object.entries(tpl.fields)) {
     if (f.required && fields[k] === undefined) return refuse("argument", `${k} is required by ${tpl.name}`);
   }
@@ -93,9 +98,9 @@ export function plan(
   // No fallback: a decision needs the person key, a record the agent key; a missing one is named.
   if (!key.keyName) return refuse("identity.key-missing", `this window has no ${key.role} key, so it cannot sign a ${control.kind}`);
   const templateSig = templateFingerprint(tpl);
-  const shown = { template: tpl.name, templateSig, subject: intent.about, fields, as: key.keyName, control: `${control.package}/${control.name}` };
+  const meaning = control.meaning ?? fields["meaning"];
+  const shown = { template: tpl.name, templateSig, subject: intent.about, fields, as: key.keyName, control: `${control.package}/${control.name}`, meaning: meaning ?? null, scope: intent.scope ?? null };
   const digest = createHash("sha256").update(JSON.stringify(shown, Object.keys(shown).sort())).update(JSON.stringify(Object.entries(fields).sort())).digest("hex");
-  const meaning = fields["meaning"];
   return {
     ok: true,
     value: {
@@ -106,6 +111,7 @@ export function plan(
       subject: intent.about,
       fields,
       ...(meaning !== undefined ? { meaning } : {}),
+      ...(intent.scope !== undefined ? { scope: intent.scope } : {}),
       as: key.keyName,
       keyRole: key.role,
       needsDialog: control.kind === "decision",
@@ -139,7 +145,7 @@ export async function sign(t: Transport, p: SignPlan, consent: DialogConsent | u
     if (!(consent instanceof DialogConsent)) return refuse("dialog.required", "a decision is signed through the sign dialog, never in one click");
     if (consent.digest !== p.digest) return refuse("dialog.mismatch", "the dialog showed something else than what would be signed");
   }
-  const out = await t.say({ template: p.template, subject: p.subject, fields: p.fields, as: p.as });
+  const out = await t.say({ template: p.template, subject: p.subject, fields: p.fields, as: p.as, ...(p.scope !== undefined ? { scope: p.scope } : {}) });
   if (!out.ok) return out;
   return { ok: true, value: { id: out.value.claimId, ...(out.value.pending ? { pending: out.value.pending } : {}) } };
 }

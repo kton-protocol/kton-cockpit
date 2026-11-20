@@ -1,0 +1,14 @@
+# deviations: the list of the area (C3.2 list). One row per deviation, latest version only
+# (view vocabulary 1: latest = no nk:replacedBy).
+PREFIX nk:   <https://kton.dev/v/>
+PREFIX qa:   <https://example.org/qa/>
+PREFIX dct:  <http://purl.org/dc/terms/>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+SELECT ?item ?claim ?identifier ?title ?severity ?status ?raisedBy ?owner ?signed WHERE {
+  ?claim a nk:Claim ; nk:predicate qa:deviationRecorded ; nk:about ?item ; dct:created ?signed ;
+         qa:identifier ?identifier ; qa:title ?title ; qa:severity ?severity ; qa:status ?status ;
+         qa:raisedBy ?raisedBy .
+  FILTER NOT EXISTS { ?claim nk:replacedBy ?newer }
+  OPTIONAL { ?claim qa:owner ?owner }
+}
+ORDER BY ?identifier

@@ -100,8 +100,67 @@ const b=process.argv[1]+"/.kton/packages/hostile-tampered@1/blobs/"+hex.slice(0,
 fs.chmodSync(b,0o644);fs.writeFileSync(b,"export function mount(el) { el.textContent = \"tampered\"; }\n");
 fs.writeFileSync(process.argv[2],JSON.stringify({member:"viewers/table/index.js",hash:"sha256:"+hex}));' "$E2E/repo" "$E2E/tampered.json"
 
+# PR 3 (S6): the QM areas live in a registry of their own, repo-s6, with the same keys. Their packages bring field
+# aliases (title, text, outcome → qa:…), and the view reads one alias file per registry (the repo root's; cockpit
+# ignores a package's): in the lanes registry they would rename the lanes vocabulary's fields.
+mkdir -p "$E2E/repo-s6"
+cd "$E2E/repo-s6"
+git init -q
+git config user.email qa@example.org
+git config user.name qa
+git commit -q --allow-empty -m "throwaway registry for the S6 areas"
+git remote add origin https://github.com/qa/workbench-e2e-s6.git
+cockpit init >/dev/null
+cp -R "$E2E/repo/.kton/keys/." .kton/keys/
+cp "$E2E/repo/.kton/local/identity.json" .kton/local/identity.json
+node -e '
+const fs=require("fs");const p=".kton/cockpit.config.json";const c=JSON.parse(fs.readFileSync(p));
+c.repo={owner:"qa",name:"workbench-e2e-s6"};c.persist=Object.assign(c.persist||{},{share:false});
+c.query={image:"oci://oxigraph/oxigraph@sha256:10677fb643f8c5a7bfb03dd8f7971c79a84b01e795c24201c8cfa12fd569f1c0"};
+c.trust=Object.assign(c.trust||{},{tiers:["self","agent"]});fs.writeFileSync(p,JSON.stringify(c,null,2));'
+rm -f .kton/keys/agent/qa-decider-claims.pub .kton/keys/agent/qa-decider.pub   # no look-alike here
+# the lanes vocabulary too (its named queries; no lanes claims): the window's views poll them in every registry
+cockpit install "$E2E/vocab-package" --allow --json >/dev/null
+# the S6 packages, their scopes and seeded claims (qm-workbench/s6-packages/seed.sh, README "Seeded data")
+for p in qa.register qa.area-one qa.area-two qa.rules; do cockpit install "$E2E/pkgs/$p" --allow --json >/dev/null; done
+# the view reads aliases from the repo root only (cockpit gap): the packages' alias files are merged into it
+node -e '
+const fs=require("fs");const m={schema:"https://kton.dev/aliases/v0",prefixes:{},terms:{}};
+for(const n of ["qa.register","qa.area-one","qa.area-two"]){const a=JSON.parse(fs.readFileSync("/e2e/packages/s6/"+n+"/templates/aliases.json"));
+ for(const k of ["prefixes","terms"])for(const[x,v]of Object.entries(a[k]||{})){m[k]=m[k]||{};if(m[k][x]!==undefined&&JSON.stringify(m[k][x])!==JSON.stringify(v))throw new Error("alias "+x+" differs");m[k][x]=v;}}
+fs.writeFileSync("aliases.json",JSON.stringify(m,null,1));'
+S6SCOPES="qa.deviations qa.deviations.raci qa.evaluations qa.evaluations.raci qa.documents"
+for s in $S6SCOPES; do
+  id=$(cockpit scope seed "$s" 2>&1 | sed -n "s/.*\"$s\": \"\(sha256:[0-9a-f]*\)\".*/\1/p")
+  [ -n "$id" ] || { echo "seed of $s failed" >&2; exit 1; }
+  node -e 'const fs=require("fs");const p=".kton/cockpit.config.json";const c=JSON.parse(fs.readFileSync(p));c.claims=c.claims||{};c.claims.scopes=Object.assign(c.claims.scopes||{},{[process.argv[1]]:process.argv[2]});fs.writeFileSync(p,JSON.stringify(c,null,2));' "$s" "$id"
+done
+# sayq TEMPLATE SUBJECT SCOPE AS FIELDS-JSON -> the claim id (the JSON form: it takes an IRI subject)
+sayq() { cockpit say "$(node -e 'console.log(JSON.stringify({template:process.argv[1],subject:process.argv[2],scope:process.argv[3],as:process.argv[4],fields:JSON.parse(process.argv[5])}))' "$@")" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s).claimId))'; }
+Q=https://example.org/qa; AG=qa-decider-agent; PE=qa-decider
+sayq document-state $Q/document/QA-SOP-10 qa.documents $AG '{"key":"QA-SOP-10","title":"Handling deviations","revision":"2","state":"released","effectiveDate":"2026-10-01"}' >/dev/null
+sayq document-state $Q/document/QA-FOR-10 qa.documents $AG '{"key":"QA-FOR-10","title":"Deviation report form","revision":"1","state":"released","effectiveDate":"2026-10-15"}' >/dev/null
+sayq document-state $Q/document/QA-SOP-20 qa.documents $AG '{"key":"QA-SOP-20","title":"Evaluating suppliers","revision":"1","state":"draft"}' >/dev/null
+sayq document-state $Q/document/QA-FOR-20 qa.documents $AG '{"key":"QA-FOR-20","title":"Supplier evaluation form","revision":"1","state":"released","effectiveDate":"2026-11-01"}' >/dev/null
+sayq raci-entry $Q/raci/deviations/1 qa.deviations.raci $AG "{\"activity\":\"Handle a deviation\",\"role\":\"Deviation owner\",\"person\":\"$Q/person/p1\",\"raci\":\"R\"}" >/dev/null
+sayq raci-entry $Q/raci/deviations/2 qa.deviations.raci $AG "{\"activity\":\"Handle a deviation\",\"role\":\"QA lead\",\"person\":\"$Q/person/p2\",\"raci\":\"A\"}" >/dev/null
+sayq raci-entry $Q/raci/evaluations/1 qa.evaluations.raci $AG "{\"activity\":\"Evaluate a supplier\",\"role\":\"Buyer\",\"person\":\"$Q/person/p3\",\"raci\":\"R\"}" >/dev/null
+sayq raci-entry $Q/raci/evaluations/2 qa.evaluations.raci $AG "{\"activity\":\"Evaluate a supplier\",\"role\":\"QA lead\",\"person\":\"$Q/person/p2\",\"raci\":\"A\"}" >/dev/null
+D1=$(sayq deviation $Q/deviation/D-001 qa.deviations $AG "{\"identifier\":\"D-001\",\"title\":\"Label printed with the wrong batch number\",\"severity\":\"minor\",\"status\":\"closed\",\"raisedBy\":\"$Q/person/p1\",\"owner\":\"$Q/person/p1\",\"closedOn\":\"2026-11-05\"}")
+D2=$(sayq deviation $Q/deviation/D-002 qa.deviations $AG "{\"identifier\":\"D-002\",\"title\":\"Cleaning log entry missing\",\"severity\":\"major\",\"status\":\"open\",\"raisedBy\":\"$Q/person/p2\",\"owner\":\"$Q/person/p1\"}")
+D3A=$(sayq deviation $Q/deviation/D-003 qa.deviations $AG "{\"identifier\":\"D-003\",\"title\":\"Temperature excursion in store\",\"severity\":\"major\",\"status\":\"open\",\"raisedBy\":\"$Q/person/p1\",\"owner\":\"$Q/person/p2\"}")
+D3=$(sayq deviation $Q/deviation/D-003 qa.deviations $AG "{\"identifier\":\"D-003\",\"title\":\"Temperature excursion in store room 2\",\"severity\":\"major\",\"status\":\"open\",\"raisedBy\":\"$Q/person/p1\",\"owner\":\"$Q/person/p2\",\"replaces\":\"$D3A\"}")
+D4=$(sayq deviation $Q/deviation/D-004 qa.deviations $AG "{\"identifier\":\"D-004\",\"title\":\"Calibration overdue on scale 4\",\"severity\":\"critical\",\"status\":\"open\",\"raisedBy\":\"$Q/person/p2\"}")
+sayq deviation-approves "$D1" qa.deviations $PE '{"outcome":"approved"}' >/dev/null
+sayq deviation-approves "$D2" qa.deviations $PE '{"outcome":"rejected"}' >/dev/null
+sayq deviation-approves "$D3" qa.deviations $AG '{"outcome":"approved"}' >/dev/null
+sayq deviation-note "$D2" qa.deviations $AG '{"text":"Waiting for the cleaning supervisor."}' >/dev/null
+
+cd "$E2E/repo"
+
 cat > "$E2E/seed.json" <<EOF
 {"scope": "$SEED", "requests": ["$R1", "$R2"], "announce": "$ANN", "proposals": {"P1": "$P1", "P2": "$P2", "P3": "$P3", "P4": "$P4"},
- "personKeyId": "$PKID", "agentKeyId": "$AKID", "lookalikeKeyId": "$LKID"}
+ "personKeyId": "$PKID", "agentKeyId": "$AKID", "lookalikeKeyId": "$LKID",
+ "s6": {"deviations": {"D-001": "$D1", "D-002": "$D2", "D-003-v1": "$D3A", "D-003": "$D3", "D-004": "$D4"}}}
 EOF
 echo "seeded: scope $SEED"

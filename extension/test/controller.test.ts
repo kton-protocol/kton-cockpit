@@ -881,3 +881,31 @@ test("R1/(c) on #177: a package upgrade between the dialog and say (a new revisi
   assert.equal(q.t.says.length, 1);
   assert.equal(q.t.says[0]?.template, "approves");
 });
+
+// PR 3 (S6.5): an area's actions through the one sign path
+const AREA_APPROVES: TemplateInfo = { name: "rec-approves", package: "area", predicate: "https://example.org/area/approves", fields: { outcome: { type: "enum", values: ["approved", "rejected"], required: true } } };
+const AREA_NOTE: TemplateInfo = { name: "rec-note", package: "area", predicate: "https://example.org/area/note", fields: { text: { type: "string", required: true } } };
+
+test("S6.5: a decision control's open outcome is picked by the person, its meaning and the records scope are in the dialog, and say gets the scope", async () => {
+  const t = new FakeTransport();
+  t.templateList = [...TEMPLATES, AREA_APPROVES, AREA_NOTE];
+  const { h, wb } = await setup({}, t);
+  h.confirmAnswer = true;
+  h.picks = ["rejected"];
+  const approves = { package: "area", name: "approves", template: "rec-approves", kind: "decision" as const, meaning: "approved" };
+  assert.equal(await wb.signAct(approves, sha("2"), {}, "Approve", undefined, { scope: "area.records" }), "signed");
+  assert.match(h.dialogs.at(-1)?.detail ?? "", /outcome = rejected[\s\S]*Meaning: approved[\s\S]*Into scope: area\.records[\s\S]*Signs with: person key/);
+  assert.deepEqual(t.says.at(-1), { template: "rec-approves", subject: sha("2"), fields: { outcome: "rejected" }, as: "qa-decider", scope: "area.records" });
+  // a record control: its text is asked, no dialog, the agent key, the same scope
+  const dialogs = h.dialogs.length;
+  h.inputs = ["Waiting for the supervisor."];
+  const note = { package: "area", name: "note", template: "rec-note", kind: "record" as const };
+  assert.equal(await wb.signAct(note, sha("2"), {}, "Add a note", undefined, { scope: "area.records" }), "signed");
+  assert.equal(h.dialogs.length, dialogs, "no dialog for a record");
+  assert.deepEqual(t.says.at(-1), { template: "rec-note", subject: sha("2"), fields: { text: "Waiting for the supervisor." }, as: "qa-decider-agent", scope: "area.records" });
+  // closing the pick signs nothing
+  const says = t.says.length;
+  h.picks = [];
+  assert.equal(await wb.signAct(approves, sha("2"), {}, "Approve", undefined, { scope: "area.records" }), "cancelled");
+  assert.equal(t.says.length, says);
+});

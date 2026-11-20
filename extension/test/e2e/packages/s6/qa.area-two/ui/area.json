@@ -1,0 +1,42 @@
+{
+ "slot": "activity",
+ "label": "Supplier evaluations",
+ "when": {
+  "kind": "scope"
+ },
+ "order": 10,
+ "query": "evaluations",
+ "area": {
+  "scopes": {
+   "records": "qa.evaluations",
+   "reads": [
+    "qa.evaluations.raci",
+    "qa.documents"
+   ]
+  },
+  "record": "evaluation",
+  "raci": "evaluation-raci",
+  "training": "evaluation-obligations",
+  "approvals": "evaluation-approvals",
+  "history": "evaluation-history",
+  "params": {
+   "record": "subject.iri",
+   "person": "subject.id"
+  },
+  "actions": [
+   "approves",
+   "note"
+  ],
+  "documents": [
+   "QA-SOP-20",
+   "QA-FOR-20"
+  ],
+  "governing": "QA-SOP-20",
+  "findings": {
+   "package": "qa.rules-suppliers",
+   "rules": [
+    "QA-R-RATING-REASON"
+   ]
+  }
+ }
+}

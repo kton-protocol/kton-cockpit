@@ -1,0 +1,12 @@
+# deviation-raci: the RACI of the area, read from its RACI scope (a read scope, C3.2 scopes.reads).
+PREFIX nk:   <https://kton.dev/v/>
+PREFIX qa:   <https://example.org/qa/>
+PREFIX dct:  <http://purl.org/dc/terms/>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+SELECT ?activity ?role ?person ?raci WHERE {
+  ?seed nk:genesis true ; rdfs:label "qa.deviations.raci" .
+  ?claim a nk:Claim ; nk:scope ?seed ; nk:predicate qa:raciAssigned ;
+         qa:activity ?activity ; qa:role ?role ; qa:person ?person ; qa:raci ?raci .
+  FILTER NOT EXISTS { ?claim nk:replacedBy ?newer }
+}
+ORDER BY ?activity ?raci

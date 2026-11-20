@@ -1,0 +1,15 @@
+{
+ "schema": "https://kton.dev/aliases/v0",
+ "prefixes": {"qa": "https://example.org/qa/"},
+ "terms": {
+  "key": "qa:key",
+  "title": "qa:title",
+  "state": "qa:state",
+  "revision": "qa:revision",
+  "effectiveDate": "qa:effectiveDate",
+  "activity": "qa:activity",
+  "role": "qa:role",
+  "person": "qa:person",
+  "raci": "qa:raci"
+ }
+}

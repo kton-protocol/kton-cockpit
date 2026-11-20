@@ -1,0 +1,6 @@
+{
+ "title": "Add a note",
+ "kind": "record",
+ "say": {"template": "deviation-note"},
+ "about": "subject.claim"
+}

@@ -12,9 +12,12 @@ const RPC = join(WORK, "rpc");
 const env = { ...process.env, HOME: join(WORK, "home"), TMPDIR: join(WORK, "tmp") };
 let stop = false;
 
-function run({ argv, stdin }) {
+// the registry to run in: the lanes one (repo), or the S6 one (repo-s6: the QM areas' packages bring field
+// aliases that would rename the lanes vocabulary's fields, since the view reads one alias file per registry)
+function run({ argv, stdin, repo }) {
+  const dir = repo === "repo-s6" ? "repo-s6" : "repo";
   return new Promise((resolve) => {
-    const child = execFile("cockpit", argv, { cwd: join(WORK, "repo"), env, shell: false, timeout: 120_000, maxBuffer: 32 * 1024 * 1024 }, (err, stdout, stderr) => {
+    const child = execFile("cockpit", argv, { cwd: join(WORK, dir), env, shell: false, timeout: 120_000, maxBuffer: 32 * 1024 * 1024 }, (err, stdout, stderr) => {
       resolve({ code: err ? (typeof err.code === "number" ? err.code : 1) : 0, stdout: String(stdout), stderr: String(stderr) });
     });
     if (stdin !== undefined) child.stdin.end(stdin);

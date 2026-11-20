@@ -1,0 +1,6 @@
+{
+ "title": "Add a note",
+ "kind": "record",
+ "say": {"template": "evaluation-note"},
+ "about": "subject.claim"
+}

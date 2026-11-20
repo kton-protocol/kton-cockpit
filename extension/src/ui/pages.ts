@@ -176,6 +176,7 @@ export function signDialogDetail(p: SignPlan, signer: ShownSigner): string {
     `About: ${p.subject}`,
     `Fields:\n${fields || "  (none)"}`,
     ...(p.meaning !== undefined ? [`Meaning: ${p.meaning}`] : []),
+    ...(p.scope !== undefined ? [`Into scope: ${p.scope}`] : []),
     `Signs with: ${p.keyRole} key "${p.as}" · ${who}`,
     "",
     p.rules,
