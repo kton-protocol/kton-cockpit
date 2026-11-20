@@ -72,7 +72,7 @@ export function mount(el, ctx) {
             const own = choicesOf(a);
             return own.length ? own.map(({ c, ci }) => ({ a, ai, c, ci })) : [{ a, ai, c: null, ci: -1 }];
           })
-          .map(({ a, ai, c, ci }) => `<button type="button" data-row-act="${i}" data-act-i="${ai}" data-choice="${ci}" data-testid="row-${i}-${esc(c ? c.value : a.control?.name ?? a.intent)}">${esc(c ? c.label : a.label ?? a.intent)}</button>`)
+          .map(({ a, ai, c, ci }) => `<button type="button" class="small" data-row-act="${i}" data-act-i="${ai}" data-choice="${ci}" data-testid="row-${i}-${esc(c ? c.value : a.control?.name ?? a.intent)}">${esc(c ? c.label : a.label ?? a.intent)}</button>`)
           .join(" ") + ` <span class="kton-muted" data-row-out="${i}"></span>`
       : "";
   const wireRowActs = (rows) => {
@@ -98,7 +98,7 @@ export function mount(el, ctx) {
   const actButtons = () =>
     acts.length && !perRow
       ? `<div class="kton-act" data-area-acts>${acts
-          .map((a, i) => `<button type="button" data-act="${i}" data-testid="act-${esc(a.control?.name ?? a.intent)}">${esc(a.label ?? a.intent)}</button>`)
+          .map((a, i) => `<button type="button" class="${actClasses(acts)[i]}" data-act="${i}" data-testid="act-${esc(a.control?.name ?? a.intent)}">${esc(a.label ?? a.intent)}</button>`)
           .join("")}<span class="kton-muted" data-act-out></span></div>`
       : "";
   const wireActs = () => {
@@ -137,7 +137,7 @@ export function mount(el, ctx) {
       .map(([k, spec]) => `<label class="kton-muted">${esc(k)} <select data-refine="${esc(k)}">${spec.values.map((v) => `<option${String(v) === cur[k] ? " selected" : ""}>${esc(String(v))}</option>`).join("")}</select></label>`)
       .join(" ");
     const page = paging
-      ? `<div class="kton-pager" data-pager data-page="${back.length + 1}"><span class="kton-muted">Page ${back.length + 1} · rows ${back.length * pageSize + (rows.length ? 1 : 0)}–${back.length * pageSize + rows.length}</span>${back.length ? ` <button type="button" data-page-prev>Previous</button>` : ""}${pageSize && rows.length >= pageSize ? ` <button type="button" data-page-next>Next</button>` : ""}</div>`
+      ? `<div class="kton-pager" data-pager data-page="${back.length + 1}"><span class="kton-muted">Page ${back.length + 1} · rows ${back.length * pageSize + (rows.length ? 1 : 0)}–${back.length * pageSize + rows.length}</span>${back.length ? ` <button type="button" class="small" data-page-prev>Previous</button>` : ""}${pageSize && rows.length >= pageSize ? ` <button type="button" class="small" data-page-next>Next</button>` : ""}</div>`
       : "";
     el.innerHTML = `${o.title ? `<h3 data-block-title>${esc(o.title)}</h3>` : ""}${choices ? `<div class="kton-refine" data-refines>${choices}</div>` : ""}${body}${page}${actButtons()}`;
     for (const mb of el.querySelectorAll(".mb[data-lo]")) for (const k of ["lo", "hi", "pt", "t"]) mb.style.setProperty(`--${k}`, mb.dataset[k]);
@@ -190,6 +190,12 @@ export function mount(el, ctx) {
   );
   load();
   return { set() {}, destroy() {} };
+}
+
+/** One primary per object (DESIGN.md §5 acts): the first sign act is primary, every other act secondary (record included). */
+export function actClasses(acts) {
+  const first = acts.findIndex((a) => a.intent === "sign");
+  return acts.map((_, i) => (i === first ? "primary" : "secondary"));
 }
 
 const NUM_RE = /^-?\d+(\.\d+)?%?$/;

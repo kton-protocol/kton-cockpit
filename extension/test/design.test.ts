@@ -173,3 +173,16 @@ test("design step 8: rule cases: effects per answer, the resolves line, a stacke
   await new Promise((r) => setTimeout(r, 10));
   assert.match(el.innerHTML, /<td>no relation<div class="stack" aria-hidden="true"><i class="s-ex" data-w="6\.9"><\/i><i class="s-gap" data-w="89\.7"><\/i><\/div><\/td><td>0<\/td><td>2<\/td><td>26<\/td>/);
 });
+
+test("design step 9: one primary per object: the first sign act; record acts and the rest secondary", async () => {
+  for (const v of ["figures", "rows", "requests"]) {
+    const m = await media(`viewers/${v}/${v}.js`);
+    assert.deepEqual(m.actClasses([{ intent: "sign" }, { intent: "record" }]), ["primary", "secondary"], v);
+    assert.deepEqual(m.actClasses([{ intent: "record" }, { intent: "sign" }, { intent: "sign" }]), ["secondary", "primary", "secondary"], v);
+    assert.deepEqual(m.actClasses([{ intent: "record" }]), ["secondary"], v);
+  }
+  const el: Any = { innerHTML: "", querySelectorAll: () => [], querySelector: () => null };
+  (await media("viewers/figures/figures.js")).mount(el, { use: { options: {}, blockActs: [{ intent: "sign", label: "Choose and sign…", control: { name: "decides" } }, { intent: "record", label: "Ask a question", control: { name: "question" } }] }, kit, request: async () => ({ results: { bindings: [{ value: { value: "0" }, label: { value: "questions asked" }, stamp: { value: "s" } }] } }), intent: async () => ({}), setState: () => {} });
+  await new Promise((r) => setTimeout(r, 10));
+  assert.match(el.innerHTML, /class="primary" data-act="0" data-testid="act-decides">Choose and sign…<\/button><button type="button" class="secondary" data-act="1" data-testid="act-question">Ask a question</);
+});

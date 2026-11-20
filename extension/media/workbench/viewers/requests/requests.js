@@ -53,10 +53,10 @@ export function mount(el, ctx) {
       const arts = rs
         .map((a, ai) => ({ a, ai, t: target(a) }))
         .filter(({ t }) => t)
-        .map(({ a, ai }) => `<div class="kton-field" data-artifact data-row="${ai}"><button type="button" data-open="${gi}:${ai}" data-testid="request-${gi}-open-${ai}">${esc(v(a.label) || `Open ${v(a.name)}`)}</button>${v(a.bytes) ? ` <span class="kton-muted">${esc(v(a.bytes))} bytes</span>` : ""}<span class="kton-muted" data-open-out="${gi}:${ai}"></span></div>`)
+        .map(({ a, ai }) => `<div class="kton-field" data-artifact data-row="${ai}"><button type="button" class="ghost small" data-open="${gi}:${ai}" data-testid="request-${gi}-open-${ai}">${esc(v(a.label) || `Open ${v(a.name)}`)}</button>${v(a.bytes) ? ` <span class="kton-muted">${esc(v(a.bytes))} bytes</span>` : ""}<span class="kton-muted" data-open-out="${gi}:${ai}"></span></div>`)
         .join("");
       const offered = !o.offer || v(x[o.offer]) === "true";
-      const buttons = offered ? acts.map((a, ai) => `<button type="button" data-act="${ai}" data-card="${gi}" data-testid="request-${gi}-${esc(a.control?.name ?? a.intent)}">${esc(a.label ?? a.intent)}</button>`).join("") : "";
+      const buttons = offered ? acts.map((a, ai) => `<button type="button" class="${actClasses(acts)[ai]}" data-act="${ai}" data-card="${gi}" data-testid="request-${gi}-${esc(a.control?.name ?? a.intent)}">${esc(a.label ?? a.intent)}</button>`).join("") : "";
       const waiting = o.waiting && v(x[o.waiting]) === "true";
       return `<article class="kton-card" data-request-card="${gi}" data-title="${esc(title)}"${waiting ? ' data-waiting="true"' : ""}>
   <h4>${esc(title || "(untitled)")} ${stamp ? `<span class="kton-stamp" ${stampAttrs(x, v, esc)}>${esc(stamp)}</span>` : `<span class="kton-stamp kton-error" data-stamp-missing>no source</span>`}</h4>
@@ -129,6 +129,12 @@ export function mount(el, ctx) {
       if (timer) clearTimeout(timer);
     },
   };
+}
+
+/** One primary per object (DESIGN.md §5 acts): the first sign act is primary, every other act secondary (record included). */
+export function actClasses(acts) {
+  const first = acts.findIndex((a) => a.intent === "sign");
+  return acts.map((_, i) => (i === first ? "primary" : "secondary"));
 }
 
 /** The stamp's data attributes: the stamp and, when the query gives them, its source label, full hash and scope (the part's source chip). */

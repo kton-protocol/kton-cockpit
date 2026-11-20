@@ -51,7 +51,7 @@ export function mount(el, ctx) {
         if (field && col && all.length) proposals[field] = all.join(" ");
       }
       const buttons = acts.length
-        ? `<div class="kton-act">${acts.map((a, i) => `<button type="button" data-act="${i}" data-testid="act-${esc(a.control?.name ?? a.intent)}">${esc(a.label ?? a.intent)}</button>`).join("")}<span class="kton-muted" data-act-out></span></div>`
+        ? `<div class="kton-act actions">${acts.map((a, i) => `<button type="button" class="${actClasses(acts)[i]}" data-act="${i}" data-testid="act-${esc(a.control?.name ?? a.intent)}">${esc(a.label ?? a.intent)}</button>`).join("")}<span class="kton-muted" data-act-out></span></div>`
         : "";
       const body = rows.length ? (tiles ? `<div class="tiles" data-count="${rows.length}">${figs}</div>` : figs) : `<p class="kton-muted" data-area-empty>${esc(o.emptyText || "No figures.")}</p>`;
       el.innerHTML = `${body}${guard}${buttons}`;
@@ -70,6 +70,12 @@ export function mount(el, ctx) {
     },
   );
   return { set() {}, destroy() {} };
+}
+
+/** One primary per object (DESIGN.md §5 acts): the first sign act is primary, every other act secondary (record included). */
+export function actClasses(acts) {
+  const first = acts.findIndex((a) => a.intent === "sign");
+  return acts.map((_, i) => (i === first ? "primary" : "secondary"));
 }
 
 /** "value|label" pairs → Map. */
