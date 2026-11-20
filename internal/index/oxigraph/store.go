@@ -121,7 +121,11 @@ func (d *Daemon) prepare(ctx context.Context, cfg *config.Config, keys []ed25519
 	if err != nil {
 		return nil, fmt.Errorf("building the query projection of the claims: %w", err)
 	}
-	graphs, meta := scopeGraphs(slot, view)
+	sources, err := binaries.ClaimSources(inputs)
+	if err != nil {
+		return nil, err
+	}
+	graphs, meta := scopeGraphs(slot, view, sources)
 	if err := d.makeView(ctx, slot, key, def, append(view, meta...), graphs); err != nil {
 		return nil, fmt.Errorf("writing the index's view of the trusted records: %w", err)
 	}

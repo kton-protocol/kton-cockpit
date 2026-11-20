@@ -80,7 +80,15 @@ func projectRegistries(rctx context.Context, cfg *config.Config, keys []ed25519.
 		if err != nil {
 			return err
 		}
-		claims, scopes, err := oxigraph.ClaimDataset(u, keys, vc)
+		inputs, err := binaries.Inputs(rctx, cfg)
+		if err != nil {
+			return err
+		}
+		sources, err := binaries.ClaimSources(inputs)
+		if err != nil {
+			return err
+		}
+		claims, scopes, err := oxigraph.ClaimDataset(u, keys, vc, sources)
 		if err != nil {
 			return err
 		}

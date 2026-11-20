@@ -52,7 +52,7 @@ func ViewConfigFor(cfg *config.Config) (ViewConfig, error) {
 
 // ClaimDataset is the query projection of the claims for a container started for one query: the
 // same ClaimView the daemon builds, from the same kernel projection, as N-Triples.
-func ClaimDataset(u *binaries.Union, keys []ed25519.PublicKey, vc ViewConfig) (claims, scopes []byte, err error) {
+func ClaimDataset(u *binaries.Union, keys []ed25519.PublicKey, vc ViewConfig, sources map[string][]string) (claims, scopes []byte, err error) {
 	var trusted, structure []Quad
 	for _, p := range projectNekton(u.Nekton.Records(0), keys) {
 		own, err := ParseNQuads(p.own)
@@ -79,7 +79,7 @@ func ClaimDataset(u *binaries.Union, keys []ed25519.PublicKey, vc ViewConfig) (c
 	// The scope graphs as a container loads them (ADR-018): named graphs beside the default graph,
 	// under a slot of their own; a query finds them by their metadata, not by their names.
 	view := ClaimView(trusted, structure, vc)
-	graphs, meta := scopeGraphs("query", view)
+	graphs, meta := scopeGraphs("query", view, sources)
 	return NTriples(append(view, meta...)), NQuads(graphs), nil
 }
 

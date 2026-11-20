@@ -16,8 +16,9 @@ func unscopedIRI(slot string) string        { return kNS + "view:" + slot + ":un
 // scopeGraphs splits a claim projection by the graph each quad was tagged with: one graph per scope,
 // one for the unscoped claims. meta describes each graph for the default graph (ADR-018, section 3):
 // a nk:ClaimGraph, its seed, the seed's name and parent, and how many claims it holds besides the seed. Quads tagged
-// with no graph (signer labels) are in none of them.
-func scopeGraphs(slot string, view []Quad) (graphs map[string][]Quad, meta []Quad) {
+// with no graph (signer labels) are in none of them. sources names, by a seed's hex, the inputs that
+// hold it: each is the graph's nk:source.
+func scopeGraphs(slot string, view []Quad, sources map[string][]string) (graphs map[string][]Quad, meta []Quad) {
 	graphs = map[string][]Quad{}
 	count := map[string]int{}
 	label, parent := map[string]Term{}, map[string]Term{}
@@ -63,6 +64,9 @@ func scopeGraphs(slot string, view []Quad) (graphs map[string][]Quad, meta []Qua
 		}
 		if p, ok := parent[k]; ok {
 			meta = append(meta, triple(g, nkNS+"parent", p))
+		}
+		for _, src := range sources[k] {
+			meta = append(meta, triple(g, nkNS+"source", lit(src)))
 		}
 	}
 	return graphs, meta
