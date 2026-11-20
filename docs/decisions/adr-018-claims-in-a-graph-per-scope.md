@@ -3,7 +3,7 @@ title: "Claims in a named graph per scope, beside the view's union of them"
 type: "decision"
 project: "kton-cockpit"
 date: 2026-11-20
-status: "proposed"
+status: "accepted"
 tags: [architecture, index, query, oxigraph, sparql, scopes, visibility]
 ---
 
@@ -11,6 +11,7 @@ tags: [architecture, index, query, oxigraph, sparql, scopes, visibility]
 
 ## Status
 
+Accepted by MH (2026-11-20), after the reviews of kton-review, qm-dev-provenance, userinterface and kton-web.
 Proposed 2026-11-20. MH chose option B of the evaluation (2026-11-20): a graph per (view, scope), with the
 view's union kept as the default graph. This ADR writes that choice down for review by kton-review and the lanes
 that query the index. Revised the same day after the reviews of qm-dev-provenance, userinterface and kton-web:
