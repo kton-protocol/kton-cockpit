@@ -1,5 +1,49 @@
 # Changelog
 
+## v0.5.6 — 2026-11-20
+
+The frontend protocol's first part, many claims in one write, and the fixes the dry runs found, each reviewed by
+kton-review. Tracks kton v0.4.1 and ktonpkg v0.9.9. Nothing to migrate from v0.5.5.
+
+### Added
+
+- **`cockpit serve --stdio`** (SPEC §12.5, ADR-011 section 6): the frontend protocol, JSON-RPC 2.0 over stdio with
+  language-server framing, for an editor extension. `initialize` names the workspace folder (refused when the
+  configuration does not bind it, or `COCKPIT_REPO_DIR` would redirect it) and optionally the identity every `say`
+  signs as. Methods: `publish`, `say`, `ask`, `say/templates`, `ask/questions`, `ui/list`, `ui/cat`,
+  `show/snapshot`, `doctor`, `version`, each answering what the command line's `--json` answers. Refusals are
+  error `-32001` carrying `{code, clause, reason}`; `$/cancelRequest`; `shutdown` answers every request it accepted
+  first. Events and operator commands follow in later parts.
+- **`say --batch <file.jsonl | ->`** and the Go API's `SayBatch` (SPEC §8.9): many claims in one write. Every claim
+  is checked before any is signed (a refusal names the claim and nothing is written); claims into one scope chain
+  in order; `replace: previous` and `expectHead` work within the batch; one store open (kton's `Registry.AddAll`),
+  one commit, one confirmation; each claim anchored where the repository anchors. 16,600 claims in one scope in
+  about 16 s (one `say` per claim: about 23 h).
+
+### Changed
+
+- **The template ceiling is by origin** (SPEC §8.1): a repository template is allowed only when
+  `claims.allowedTemplates` names it, a package's template when its package is admitted; a package template of a
+  repository template's name no longer opens the ceiling for it. The listings (`say --json`, `ask --json`, the
+  overview, run status) show exactly the templates `say` signs with, by the name it takes.
+- **`bind` and `bindTerms` reach sub-selects** (SPEC §9.9): the `VALUES` clause goes first into every sub-select's
+  group too; a brace inside a `SELECT`'s expressions (`EXISTS { }`) is not taken for its group.
+- **kton v0.4.1**: nekton, plankton and kton pinned to the tags (`Registry.AddAll`, the Windows `.seq` retry).
+
+### Fixed
+
+- **Concurrent writes no longer fork a scope** (SPEC §8.5): `say`, `install` and `scope seal` hold a claims lock
+  in `.kton/local/` from reading the head until the claim is stored, across processes.
+- **`scope seed` opens a name once**: a second seed of a name this repository opened is refused (`scope.exists`),
+  and a seed whose commit fails names its id.
+- **`doctor`** no longer reports an admitted package's templates as missing, and says once when the vocabulary
+  cannot be read.
+- `say --batch` takes `--json`.
+
+### Extension
+
+- The generic QM area (userinterface's PR 3, #187), named-query rows and the aliases member (#184).
+
 ## v0.5.5 — 2026-11-19
 
 Package aliases scoped to their own package, several members per `ui cat`, and `say` held to the
