@@ -1541,7 +1541,7 @@ if (seed.roles) {
   const sha = (iri) => `sha256:${iri.replace(/^https:\/\/kton\.dev\/o\//, "")}`;
 
   await step("R", 6, "row acts: Request rerun (capture mode) on a failure row records test-execution's rerun-requested (dryrun1.runs@v7, pinned) about that row into dryrun1.triage, prints the nudge; the request shows open, then with its (stand-in) rerun-compared answer", async () => {
-    const f = await christof();
+    let f = await christof();
     const failures = await askR("failures");
     const pick = failures.find((r) => /ics1829\.spec\.ts#STP-002/.test(r.test)) ?? failures.find((r) => /e2e/.test(r.suite)) ?? failures[0];
     await rowsIn(f, "failures");
@@ -1569,7 +1569,10 @@ if (seed.roles) {
     check(reqs.length === 1 && reqs[0].about === pick.claim && reqs[0].reason === "capture mode", "one rerun-requested in dryrun1.triage, about the picked run-unit claim, reason capture mode", pick.claim, reqs);
     const line = await outputHas(new RegExp(`nudge \\(send it; the shell sends no lane message\\): \\./send userinterface requests area=test-execution title="rerun: (?:[^"\\\\]|\\\\.)*" text="rerun request claim ${sha(reqs[0]?.r ?? "x")}; test (?:[^"\\\\]|\\\\.)*" why="Christof's view \\(dryrun1\\)"`));
     check(!!line, "the exact ./send nudge line is in the output channel", "./send userinterface requests area=test-execution title=\"rerun: …\" …", line || outputLog().split("\n").filter((l) => /nudge/.test(l)).slice(-2));
-    // the request with its state: open, then test-execution's answer (a STAND-IN here)
+    // the request with its state: open, then test-execution's answer (a STAND-IN here). The requests block asked before
+    // the act (in another block): the view is opened again, as a reader would, and then asks again while it is open
+    await closeEditors();
+    f = await christof();
     const card = box(f, "rerunrequests").locator(".kton-card, [data-card-row], article").first();
     await box(f, "rerunrequests").getByText(/open: test-execution is asked/).first().waitFor({ timeout: 90000 });
     await standinAnswer("rerun-compared", reqs[0].r, { outcome: "compared", baseline: pick.run, rerun: "standin-rerun-e2e", tests: "1", same: "1", fixed: "0", broken: "0" });
@@ -1582,7 +1585,12 @@ if (seed.roles) {
   });
 
   await step("R", 11, "row acts: Capture now on a history row signs capture-requested (dryrun1.triage's control, pinned) through the dialog into dryrun1.triage, prints the nudge; the capture shows waiting, then the (stand-in) capture-result with outcome, robert1 version and artifacts", async () => {
-    const f = await christof();
+    let f = await christof();
+    // pick the failure again (a reopened view starts without a pick)
+    const fails = await askR("failures");
+    const pickF = fails.find((r) => /ics1829\.spec\.ts#STP-002/.test(r.test)) ?? fails[0];
+    await rowsIn(f, "failures");
+    await box(f, "failures").locator("tbody tr", { hasText: pickF.test.slice(0, 60) }).first().locator('td[data-col="test"]').click();
     await box(f, "history").locator("[data-area-table]").first().waitFor({ timeout: 120000 });
     const hist = await rowsIn(f, "history");
     const arts = await askR("artifacts-of-test", [`test=${(await askR("failures")).find((r) => /ics1829\.spec\.ts#STP-002/.test(r.test))?.test ?? hist[0].test}`]);
@@ -1603,6 +1611,8 @@ if (seed.roles) {
     check(caps.length === 1, "one capture-requested in dryrun1.triage, about the history row's claim", 1, caps);
     const line = await outputHas(new RegExp(`\\./send userinterface requests area=test-execution title="capture now: (?:[^"\\\\]|\\\\.)*" text="request claim ${sha(caps[0]?.r ?? "x")}; test (?:[^"\\\\]|\\\\.)*" why="Christof's view \\(dryrun1\\)"`));
     check(!!line, "the exact ./send nudge line for the capture is in the output channel", "./send … capture now …", line);
+    await closeEditors();
+    f = await christof();
     await box(f, "captures").getByText(/Waiting for its answer/).first().waitFor({ timeout: 90000 });
     await standinAnswer("capture-result", caps[0].r, { test, outcome: "captured", run: withArt.run, result: "failed", artifacts: "1", seconds: "93" });
     await box(f, "captures").getByText(new RegExp(`Captured in run ${withArt.run.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`)).first().waitFor({ timeout: 120000 });
