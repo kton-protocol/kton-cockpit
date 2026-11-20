@@ -490,6 +490,34 @@ type Index struct {
 	// Memory limits the Oxigraph container the cockpit starts, in the engine's notation. Empty
 	// means "2g".
 	Memory string `json:"memory,omitempty"`
+	// Derived lets `cockpit load` put a file's RDF into the index as a graph named by its hash
+	// (ADR-017). Off unless enabled.
+	Derived Derived `json:"derived,omitempty"`
+}
+
+// Derived is what `cockpit load` may put into the index (ADR-017, section 6).
+type Derived struct {
+	Enabled bool `json:"enabled,omitempty"`
+	// MaxBytes bounds one file; 0 means 64 MiB.
+	MaxBytes int64 `json:"maxBytes,omitempty"`
+	// MaxTriples bounds what one repository has loaded, all graphs together; 0 means 50 million.
+	MaxTriples int64 `json:"maxTriples,omitempty"`
+}
+
+// MaxBytesOrDefault is the largest file `cockpit load` takes.
+func (d Derived) MaxBytesOrDefault() int64 {
+	if d.MaxBytes > 0 {
+		return d.MaxBytes
+	}
+	return 64 << 20
+}
+
+// MaxTriplesOrDefault is how many triples one repository may have loaded.
+func (d Derived) MaxTriplesOrDefault() int64 {
+	if d.MaxTriples > 0 {
+		return d.MaxTriples
+	}
+	return 50_000_000
 }
 
 // IndexKinds are the index kinds this build has.
