@@ -1,5 +1,5 @@
 // The transport port (contract C1.2). The shell reaches the cockpit only through this interface:
-// the CLI today (CliTransport), `cockpit serve --stdio` from cockpit v0.6.0 (StdioTransport, same
+// the CLI (CliTransport, the default), `cockpit serve --stdio` from cockpit v0.5.6 (StdioTransport, same
 // objects). No registry reads, no trust decisions, no git calls happen in the shell (ADR-011 §6).
 
 /** The cockpit declining to act (cockpit/refusal.go). Programs branch on `code`, never on `reason`. */
@@ -34,6 +34,18 @@ export class TransportTimeout extends TransportError {
   constructor(message: string, stderr: string) {
     super(message, null, stderr);
     this.name = "TransportTimeout";
+  }
+}
+
+/**
+ * The request never reached the cockpit (it could not be started, the connection was not running, the write
+ * failed at once): nothing can have been signed. Only this, a refusal or a local check says "Not signed"; any
+ * other failure of a say after it was sent is "unknown whether signed" (kton-review N2 on #196).
+ */
+export class TransportNotSent extends TransportError {
+  constructor(message: string, stderr: string) {
+    super(message, null, stderr);
+    this.name = "TransportNotSent";
   }
 }
 
