@@ -45,16 +45,15 @@ test("stdio: a refusal (-32001 {code, clause, reason}) is the same refusal the c
   }
 });
 
-test("stdio: one connection per signing identity; a say goes over the connection initialized as its key", async () => {
+test("stdio: one connection per window; each say names its own identity (initialize names none)", async () => {
   const { t, sent } = transport();
   try {
     const a = await t.say({ template: "note", subject: `sha256:${"a".repeat(64)}`, fields: { text: "x" }, as: "qa-decider-agent" });
     const p = await t.say({ template: "note", subject: `sha256:${"a".repeat(64)}`, fields: { text: "x" }, as: "qa-decider" });
     assert.ok(a.ok && p.ok);
-    assert.match(a.ok ? a.value.confirmation ?? "" : "", /signed as qa-decider-agent/);
-    assert.match(p.ok ? p.value.confirmation ?? "" : "", /signed as qa-decider/);
-    const inits = sent().filter((m) => m.method === "initialize").map((m) => m.params?.["as"]);
-    assert.deepEqual(inits.sort(), ["qa-decider", "qa-decider-agent"]);
+    const m = sent();
+    assert.deepEqual(m.filter((x) => x.method === "initialize").map((x) => x.params?.["as"]), [undefined], "one initialize, no identity");
+    assert.deepEqual(m.filter((x) => x.method === "say").map((x) => x.params?.["as"]), ["qa-decider-agent", "qa-decider"]);
   } finally {
     t.dispose();
   }

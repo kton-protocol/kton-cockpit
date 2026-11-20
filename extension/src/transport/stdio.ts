@@ -2,9 +2,8 @@
 // stdin and stdout, framed as a language server frames it. Behind the same Transport interface as the command line;
 // a setting chooses it (kton.cockpit.transport: stdio), the command line stays the default.
 //
-// - One connection per signing identity: `initialize` names the folder and the identity every `say` signs as, and
-//   a `say` naming another identity is refused (identity.as). The window signs with two keys (person, agent), so
-//   there are up to three connections: none named, the person key's, the agent key's. Each starts on first use.
+// - One connection per window (kton-cockpit on §12.5): `initialize` names the folder and no identity; each say names
+//   its own `as` (any identity of the checkout's keyring), so the person key and the agent key share it.
 // - Refusals (error -32001, data {code, clause, reason}) become the same {ok: false, refusal} the command line's
 //   exit 2 gives; any other error is a TransportError, as a failed command line run is.
 // - A request that runs past the timeout is cancelled ($/cancelRequest) and reported as TransportTimeout; its
@@ -231,7 +230,7 @@ export class StdioTransport extends CliTransport {
   }
 
   override say(req: SayRequest): Promise<Outcome<SayResult>> {
-    return this.outcomeOf("say", req, assertSayResult, req.as);
+    return this.outcomeOf("say", req, assertSayResult);
   }
 
   override publish(req: PublishRequest): Promise<Outcome<PublishResult>> {

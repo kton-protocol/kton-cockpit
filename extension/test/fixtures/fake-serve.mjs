@@ -36,8 +36,8 @@ function handle(m) {
       if (params.name === "nope") return refuse(id, "query.unknown", "no allowed package brings the query nope");
       return send({ id, result: { query: "sparql", ref: "", raw: "", sparql: { results: { head: { vars: ["n"] }, results: { bindings: [{ n: { type: "literal", value: "7" } }] } } } } });
     case "say":
-      if (params.as && params.as !== as) return refuse(id, "identity.as", `this connection signs as ${as}`);
-      return send({ id, result: { claimId: `sha256:${"c".repeat(64)}`, confirmation: `signed as ${as}` } });
+      if (as && params.as && params.as !== as) return refuse(id, "identity.as", `this connection signs as ${as}`);
+      return send({ id, result: { claimId: `sha256:${"c".repeat(64)}`, confirmation: `signed as ${params.as ?? as}` } });
     case "say/templates":
       return send({ id, result: [{ name: "note", about: "either", fields: { text: { type: "string", required: true } }, hash: `sha256:${"1".repeat(64)}` }] });
     case "ui/cat":
