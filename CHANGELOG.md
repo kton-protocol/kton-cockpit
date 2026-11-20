@@ -3,7 +3,7 @@
 ## v0.5.8 — 2026-11-20
 
 Claims in a graph per scope (ADR-018), serve events, and federation that cannot look whole while missing a
-record; each reviewed by kton-review (#195, #203, #205-#214). Tracks kton v0.4.2 and ktonpkg v0.9.13.
+record; each reviewed by kton-review (#195, #203, #205-#215). Tracks kton v0.4.2 and ktonpkg v0.9.13.
 
 ### Migrating from v0.5.7
 
@@ -17,6 +17,9 @@ record; each reviewed by kton-review (#195, #203, #205-#214). Tracks kton v0.4.2
   repository takes the build time.
 - **A view that acts on another package's control** installs only after that package, at the revision it pins
   (#206).
+- **A load into the machine's shared index is bounded** (#215): its files together at most
+  `index.derived.maxBytesShared`, 16 MiB by default. A repository loading more uses an index of its own
+  (`COCKPIT_INDEX_DIR` and `index.memory`), or raises the limit.
 
 ### Added
 
@@ -32,6 +35,8 @@ record; each reviewed by kton-review (#195, #203, #205-#214). Tracks kton v0.4.2
   file, `cockpit load --label` as `nk:loadedAs`, and `nk:loadedAt`.
 - **A kton id bound as an IRI** (`--bind-iri X=sha256:<hex>`) is the node `https://kton.dev/o/<hex>`.
 - **Acts on another package's control** (ktonpkg v0.9.13, #206): checked against the owner revision in use.
+- **The shared index's memory floor** (#215): a `memory` file in the machine's index directory (e.g. `4g`) is
+  the least every start of the shared daemon takes; `doctor` says what it runs with and where that came from.
 - **serve events** (SPEC §12.5, #213): with `initialize` `events: true` or `{since, intervalMs}`, a frontend
   gets `events/published`, `events/said` (each claim with its scope, template, predicate, subject and
   signers), `events/sourcePulled` and `events/indexMoved` (after the index holds them; the view and the
