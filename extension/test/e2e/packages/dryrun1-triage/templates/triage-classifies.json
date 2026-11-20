@@ -45,8 +45,10 @@
       "required": true
     },
     "sourceBuilt": {
-      "type": "date",
-      "required": true
+      "type": "date"
+    },
+    "sourceSeenSince": {
+      "type": "date"
     }
   }
 }

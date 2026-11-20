@@ -145,6 +145,18 @@ export function nudgeLine(template: unknown, s: Signed): string | undefined {
   return missing ? undefined : line;
 }
 
+/**
+ * The nudge template for an act through a control: the use's `nudges` entry "<control>|<line>" for that control, else
+ * its `nudge` (one line for every act of the use).
+ */
+export function nudgeFor(options: Readonly<Record<string, unknown>> | undefined, control: string): string | undefined {
+  const many = options?.["nudges"];
+  if (Array.isArray(many)) {
+    for (const x of many) if (typeof x === "string" && x.startsWith(`${control}|`)) return x.slice(control.length + 1);
+  }
+  return typeof options?.["nudge"] === "string" ? options["nudge"] : undefined;
+}
+
 /** A frame's state without acts: frames must not report them (host-held, H8). */
 export function withoutActs(state: unknown): Record<string, unknown> {
   if (!state || typeof state !== "object" || Array.isArray(state)) return {};
@@ -559,8 +571,9 @@ export class CompositionHost {
         result = r === "signed" ? { signed: true, key: c.kind === "decision" ? "person" : "agent", message: c.kind === "decision" ? "Signed with the person key (test-only)." : "Recorded with the agent key.", ...(made ? { claim: made.id } : {}) } : { signed: false, message: "Not signed: the dialog was cancelled." };
         // the use's nudge (option): the shell sends no lane message; it prints the exact line in its output channel
         const use = this.plan.uses.find((x) => x.key === i.from) as { options?: Record<string, unknown> } | undefined;
-        if (r === "signed" && made && use?.options?.["nudge"] !== undefined) {
-          const line = nudgeLine(use.options["nudge"], made);
+        const nudge = nudgeFor(use?.options, c.name);
+        if (r === "signed" && made && nudge !== undefined) {
+          const line = nudgeLine(nudge, made);
           this.ui.log(line ? `nudge (send it; the shell sends no lane message): ${line}` : `nudge: a placeholder of ${i.from}'s nudge has no value; nothing to print`);
           if (line) result = { ...result, nudge: line };
         }

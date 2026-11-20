@@ -34,7 +34,10 @@
   "propose": {
    "set": "literal"
   },
-  "nudge": "literal"
+  "nudge": "literal",
+  "nudges": {
+   "set": "literal"
+  }
  },
  "emits": {
   "select": {

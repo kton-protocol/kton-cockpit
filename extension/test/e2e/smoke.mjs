@@ -76,8 +76,8 @@ PREFIX t: <https://example.org/workbench-e2e/>
 PREFIX lab: <https://kton.dev/v/lab/>
 PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
 `;
-async function sparql(q) {
-  const r = await cockpit(["ask", "sparql", "-", "--results-json"], PREFIXES + q);
+async function sparql(q, repo) {
+  const r = await cockpit(["ask", "sparql", "-", "--results-json"], PREFIXES + q, repo ? { repo } : {});
   if (r.code !== 0) throw new Error(`registry check failed: ${r.stderr.split("\n")[0]}`);
   return JSON.parse(r.stdout).results.bindings.map((b) => Object.fromEntries(Object.entries(b).map(([k, v]) => [k, v.value])));
 }
@@ -1509,21 +1509,122 @@ if (seed.roles) {
     await shot("r5-history-artifacts");
   });
 
-  await step("R", 6, "the rerun request is a planned act with a notice (no act offered); comparisons equal rerun-compare", async () => {
+  /** The workbench's output channel as code-server logs it (the nudge lines are printed there). */
+  const outputLog = () => {
+    const files = [];
+    const walk = (d) => { for (const f of (existsSync(d) ? readdirSync(d, { withFileTypes: true }) : [])) f.isDirectory() ? walk(`${d}/${f.name}`) : /kton cockpit workbench\.log$/.test(f.name) && files.push(`${d}/${f.name}`); };
+    walk(`${WORK}/cs/data/logs`);
+    return files.map((f) => readFileSync(f, "utf8")).join("\n");
+  };
+  async function outputHas(re, timeout = 30000) {
+    const end = Date.now() + timeout;
+    for (;;) {
+      const m = outputLog().match(re);
+      if (m || Date.now() > end) return m?.[0] ?? "";
+      await page.waitForTimeout(1000);
+    }
+  }
+  /** Sign a stand-in answer of test-execution into dryrun1.runs with this run's throwaway key (never theirs). */
+  async function standinAnswer(template, about, fields) {
+    const r = await cockpit(["say", JSON.stringify({ template, subject: about, scope: "dryrun1.runs", as: "standin-test-execution", fields })], undefined, { repo: "repo-roles" });
+    if (r.code !== 0) throw new Error(`stand-in ${template} failed: ${(r.stderr || r.stdout).split("\n")[0]}`);
+    current.checks.push({ ok: true, message: `STAND-IN for test-execution: ${template} about ${about.slice(0, 19)}… signed by standin-test-execution (throwaway key of this run)` });
+  }
+  const sha = (iri) => `sha256:${iri.replace(/^https:\/\/kton\.dev\/o\//, "")}`;
+
+  await step("R", 6, "row acts: Request rerun (capture mode) on a failure row records test-execution's rerun-requested (dryrun1.runs@v7, pinned) about that row into dryrun1.triage, prints the nudge; the request shows open, then with its (stand-in) rerun-compared answer", async () => {
     const f = await christof();
-    const t = await boxText(f, "rerun-act");
-    check(/Planned act: request a rerun/.test(t) && /ktonpkg v0\.11\.0/.test(t), "the notice says why it is not offered", "Planned act: …", t);
-    check((await f.locator("[data-act]").count()) === 0, "no act anywhere in Christof's view", 0, await f.locator("[data-act]").count());
-    const want = (await askR("rerun-compare")).length;
-    check((await countIn(f, "reruns")) === want, "comparisons = rows of rerun-compare", want, await countIn(f, "reruns"));
+    const failures = await askR("failures");
+    const pick = failures.find((r) => /ics1829\.spec\.ts#STP-002/.test(r.test)) ?? failures.find((r) => /e2e/.test(r.suite)) ?? failures[0];
+    await rowsIn(f, "failures");
+    const tr = box(f, "failures").locator("tbody tr", { hasText: pick.test.slice(0, 60) }).filter({ hasText: pick.run }).first();
+    check((await tr.locator("button").count()) === 3, "each failure row: Request rerun, Request rerun (capture mode), Capture now", 3, await tr.locator("button").allTextContents());
+    await tr.locator("button", { hasText: "Request rerun (capture mode)" }).click();
+    // the shell asks the template's open fields: the test (the row's, as the default) and the reason (capture mode)
+    const testBox = page.locator(".quick-input-box input").first();
+    await testBox.waitFor({ timeout: 20000 });
+    check((await testBox.inputValue()) === pick.test, "the test is the row's (proposed, never signed unseen)", pick.test, await testBox.inputValue());
+    await page.keyboard.press("Enter");
+    await page.waitForTimeout(300);
+    const reasonBox = page.locator(".quick-input-box input").first();
+    check((await reasonBox.inputValue()) === "capture mode", "the reason is the choice's (capture mode)", "capture mode", await reasonBox.inputValue());
+    await page.keyboard.press("Enter");
+    const out = tr.locator("[data-row-out]");
+    await out.filter({ hasText: /Recorded|Not done/ }).first().waitFor({ timeout: 60000 }).catch(() => {});
+    const said = (await out.textContent()) ?? "";
+    check(/Recorded with the agent key/.test(said), "recorded (agent key, no dialog)", "Recorded with the agent key.", said);
+    const reqs = (await sparql(`SELECT ?r ?about ?reason WHERE { ?sc rdfs:label "dryrun1.triage" . ?r nk:scope ?sc ; nk:predicate <https://scinteco.com/ns/qm/dryrun1/runs/rerunRequested> ; nk:about ?about . OPTIONAL { ?r ?pr ?reason . FILTER(STRENDS(STR(?pr), "reason")) } }`, "repo-roles"));
+    check(reqs.length === 1 && reqs[0].about === pick.claim && reqs[0].reason === "capture mode", "one rerun-requested in dryrun1.triage, about the picked run-unit claim, reason capture mode", pick.claim, reqs);
+    const line = await outputHas(new RegExp(`nudge \\(send it; the shell sends no lane message\\): \\./send userinterface requests area=test-execution title="rerun: [^"]*" text="rerun request claim ${sha(reqs[0]?.r ?? "x")}; test [^"]*" why="Christof's view \\(dryrun1\\)"`));
+    check(!!line, "the exact ./send nudge line is in the output channel", "./send userinterface requests area=test-execution title=\"rerun: …\" …", line || outputLog().split("\n").filter((l) => /nudge/.test(l)).slice(-2));
+    // the request with its state: open, then test-execution's answer (a STAND-IN here)
+    const card = box(f, "rerunrequests").locator(".kton-card, [data-card-row], article").first();
+    await box(f, "rerunrequests").getByText(/open: test-execution is asked/).first().waitFor({ timeout: 90000 });
+    await standinAnswer("rerun-compared", reqs[0].r, { outcome: "compared", baseline: pick.run, rerun: "standin-rerun-e2e", tests: "1", same: "1", fixed: "0", broken: "0" });
+    await box(f, "rerunrequests").getByText(/compared: rerun standin-rerun-e2e · same 1 · fixed 0 · broken 0/).first().waitFor({ timeout: 120000 });
+    check(true, "the request shows test-execution's (stand-in) answer: compared, same 1");
+    const want = (await askR("rerun-requests")).filter((r) => r.request === reqs[0].r && r.answer);
+    check(want.length === 1, "test-execution's own rerun-requests query gives the same answer", 1, want.length);
+    void card;
+    await shot("r6-rerun-request");
   });
 
-  await step("R", 8, "the guard: the three rules' findings equal the triage package's own rule queries, read-only", async () => {
+  await step("R", 11, "row acts: Capture now on a history row signs capture-requested (dryrun1.triage's control, pinned) through the dialog into dryrun1.triage, prints the nudge; the capture shows waiting, then the (stand-in) capture-result with outcome, robert1 version and artifacts", async () => {
+    const f = await christof();
+    await box(f, "history").locator("[data-area-table]").first().waitFor({ timeout: 120000 });
+    const hist = await rowsIn(f, "history");
+    const arts = await askR("artifacts-of-test", [`test=${(await askR("failures")).find((r) => /ics1829\.spec\.ts#STP-002/.test(r.test))?.test ?? hist[0].test}`]);
+    const withArt = arts.find((a) => a.sha256) ?? arts[0];
+    const tr = box(f, "history").locator("tbody tr").first();
+    const test = hist[0].test;
+    await tr.locator("button", { hasText: "Capture now" }).click();
+    const testBox = page.locator(".quick-input-box input").first();
+    await testBox.waitFor({ timeout: 20000 });
+    check((await testBox.inputValue()) === test, "the test is the row's", test, await testBox.inputValue());
+    await page.keyboard.press("Enter");
+    const d = await dialog();
+    const text = (await d.locator("body").textContent()) ?? "";
+    check(/Capture now: test-execution runs this test on robert1/.test(text) && /dryrun1\.triage/.test(text), "the dialog shows the control's title and the records scope", "Capture now: … · dryrun1.triage", text.slice(0, 300));
+    await signInDialog(d);
+    await tr.locator("[data-row-out]").filter({ hasText: /Signed|Not done/ }).first().waitFor({ timeout: 90000 }).catch(() => {});
+    const caps = await sparql(`SELECT ?r ?about WHERE { ?sc rdfs:label "dryrun1.triage" . ?r nk:scope ?sc ; nk:predicate <https://scinteco.com/ns/triage#captureRequested> ; nk:about ?about }`, "repo-roles");
+    check(caps.length === 1, "one capture-requested in dryrun1.triage, about the history row's claim", 1, caps);
+    const line = await outputHas(new RegExp(`\\./send userinterface requests area=test-execution title="capture now: [^"]*" text="request claim ${sha(caps[0]?.r ?? "x")}; test [^"]*" why="Christof's view \\(dryrun1\\)"`));
+    check(!!line, "the exact ./send nudge line for the capture is in the output channel", "./send … capture now …", line);
+    await box(f, "captures").getByText(/Waiting for its answer/).first().waitFor({ timeout: 90000 });
+    await standinAnswer("capture-result", caps[0].r, { test, outcome: "captured", run: withArt.run, result: "failed", artifacts: "1", seconds: "93" });
+    await box(f, "captures").getByText(new RegExp(`Captured in run ${withArt.run.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`)).first().waitFor({ timeout: 120000 });
+    const t = await boxText(f, "captures");
+    check(/Outcome captured/.test(t) || /captured/.test(t), "outcome shown", "captured", t.slice(0, 300));
+    check(/robert1 \d/.test(t), "the robert1 version of the run's summary", "robert1 <version>", t.slice(0, 400));
+    const openButtons = await box(f, "captures").locator("button").count();
+    check(withArt.sha256 ? openButtons > 0 : true, "the run's artifacts of that test, to open", ">0", openButtons);
+    // test-execution's own capture-results query gives the same outcome
+    const own = (await askR("capture-results")).filter((r) => r.request === caps[0].r);
+    check(own.length === 1 && own[0].outcome === "captured", "capture-results (test-execution's query) agrees", "captured", own);
+    await shot("r11-capture-now");
+  });
+
+  await step("R", 12, "Christof's classifications in dryrun1.triage: class, certainty, source; the one the guard rule source-stamped lists is marked blocked: no source date", async () => {
+    const f = await christof();
+    const rows = await rowsIn(f, "classifications");
+    const blocked = rows.filter((r) => r.state === "blocked: no source date");
+    const own = await askR("triage-source-stamped");
+    const short = (x) => (/^https:\/\/kton\.dev\/o\/[0-9a-f]{64}$/.test(x) ? `sha256:${x.slice(19, 31)}…` : x);
+    check(JSON.stringify(blocked.map((r) => r.element).sort()) === JSON.stringify(own.map((r) => short(r.focus)).sort()), "blocked = the rule's findings", own.map((r) => r.focus), blocked.map((r) => r.element));
+    check(blocked.length === 1 && /e6$/.test(blocked[0].element), "the stand-in e6 (neither date)", "…/e6", blocked);
+    const seen = rows.find((r) => /e7$/.test(r.element));
+    check(seen?.source === "seen since 2026-11-20" && seen.state === "ok", "sourceSeenSince alone is a source", "seen since 2026-11-20", seen);
+    check(rows.every((r) => r.class && r.certainty && /^dryrun1\.triage/.test(r.stamp)), "each: class, certainty, stamped");
+    await shot("r12-classifications");
+  });
+
+  await step("R", 8, "the guard: the four rules' findings (source-stamped since fa4908f) equal the triage package's own rule queries, read-only", async () => {
     await closeEditors();
     await views();
     await page.locator(".monaco-list-row", { hasText: "Guard · dryrun1.triage" }).first().click();
     const f = await guard();
-    const own = { 1: "triage-reviewer-not-author", 2: "triage-evidence-vs-reach", 3: "triage-ranked-before-assigned" };
+    const own = { 1: "triage-reviewer-not-author", 2: "triage-evidence-vs-reach", 3: "triage-ranked-before-assigned", 4: "triage-source-stamped" };
     const counts = {};
     for (const [i, q] of Object.entries(own)) {
       const want = (await askR(q)).map((r) => r.focus).sort();
@@ -1533,11 +1634,15 @@ if (seed.roles) {
       check(JSON.stringify(got.sort()) === JSON.stringify(want.map(short).sort()), `${q}: the same findings`, want.map(short), got);
       counts[q] = got.length;
     }
-    check(counts["triage-reviewer-not-author"] === 1 && counts["triage-evidence-vs-reach"] === 2 && counts["triage-ranked-before-assigned"] === 2, "the stand-in's cases: 1, 2, 2", { a: 1, b: 2, c: 2 }, counts);
+    check(counts["triage-reviewer-not-author"] === 1 && counts["triage-evidence-vs-reach"] === 2 && counts["triage-ranked-before-assigned"] === 2 && counts["triage-source-stamped"] === 1, "the stand-in's cases: 1, 2, 2, 1", { a: 1, b: 2, c: 2, d: 1 }, counts);
     const t = await boxText(f, "findings-2");
     check(/· dryrun1\.triage, /.test(t), "each finding is stamped with its scope and date", "· dryrun1.triage, …", t.slice(0, 200));
     const summary = await rowsIn(f, "records");
-    check(summary.length === 3 && summary.every((r) => /dryrun1\.triage · newest /.test(r.stamp)), "what each rule reads, stamped", 3, summary);
+    check(summary.length === 4 && summary.every((r) => /dryrun1\.triage · newest /.test(r.stamp)), "what each rule reads, stamped", 4, summary);
+    // Home: the new rule with its state (findings)
+    await views();
+    const home = (await page.locator(".monaco-list-row").allTextContents()).join("\n");
+    check(/Classification without a source date \(dryrun1\.triage\)\s*findings \(1\)/.test(home) || /Classification without a source date \(dryrun1\.triage\)[^\n]*1 finding/.test(home), "Home: rule source-stamped with its state", "… findings (1)", home.split("\n").filter((l) => /source date/.test(l)));
     check((await f.locator("[data-act]").count()) === 0, "read-only: no act", 0, await f.locator("[data-act]").count());
     await shot("r8-guard");
     await closeEditors();
@@ -1574,7 +1679,7 @@ if (seed.roles) {
       await closeEditors();
     });
 
-    await step("R", 9, "Wolfgang's view: counts with query, scope and stamp (first vs any code match as two rows), per part × area, per spec paged, one spec's gaps, spec/code differs, spec decisions", async () => {
+    await step("R", 9, "Wolfgang's view: counts with query, scope and stamp (first vs any code match as two rows), per part × area, per spec paged, one spec's gaps, spec/code differs, spec decisions, open spec questions by owner (stand-in row) opening the spec at its commit", async () => {
       await views();
       await page.locator(".monaco-list-row", { hasText: "Wolfgang (spec) · dryrun1" }).first().click({ timeout: 60000 });
       const wolfgang = () => frameWithSel('[data-composition="dryrun1.roles/wolfgang"]', 90000);
@@ -1613,19 +1718,45 @@ if (seed.roles) {
       check(gaps.every((r) => { const m = r.version?.match(/^read at (.+) · robert1 now ([^ ]+) · (differs|same release|not comparable \(version of commit not known\))$/); return m && runVersions.has(m[2]) && (m[3] !== "differs" || !m[2].startsWith(m[1].split(" ")[0])); }), "each gap: read at <version> · robert1 now <a run's version> · differs / same release", "read at … · robert1 now … · …", gaps.slice(0, 3).map((r) => r.version));
       check(gaps.length === Number(pick.gap) + Number(pick.exercisedOnly), "its gaps = gap + exercised-only of its coverage row", Number(pick.gap) + Number(pick.exercisedOnly), gaps.length);
       const dec = await boxText(f, "decisions");
-      check(/No spec decisions for dryrun1 yet/.test(dec), "spec decisions: none yet in dryrun1.spec-review", "No spec decisions for dryrun1 yet.", dec.slice(0, 120));
-      check((await f.locator("[data-act]").count()) === 0, "read-only: no act", 0, await f.locator("[data-act]").count());
+      if (seed.roles.specReview) check(/ics2133#\*/.test(dec) && /open/.test(dec), "spec decisions: the stand-in's open row in dryrun1.spec-review", "ics2133#* open", dec.slice(0, 200));
+      else check(/No spec decisions for dryrun1 yet/.test(dec), "spec decisions: none yet in dryrun1.spec-review", "No spec decisions for dryrun1 yet.", dec.slice(0, 120));
+      // open spec questions: the latest spec-decision per element is open, grouped by owner, opening the spec at its commit
+      await box(f, "questions").locator("[data-evidence], [data-area-empty], [data-area-error]").first().waitFor({ timeout: 150000 });
+      const q = await boxText(f, "questions");
+      if (seed.roles.specReview) {
+        check(/product-development \(1\)/.test(q) && /STAND-IN \(e2e\): are Actor and IP Address meant to be hidden by default\?/.test(q) && /ics2133#\* \(the whole spec\)/.test(q), "one open question, under its owner, the whole spec named", "product-development (1) · ics2133#* (the whole spec): STAND-IN …", q.slice(0, 300));
+        check(/dryrun1\.spec-review · spec 49966c2/.test(q), "stamped with its scope and spec commit", "dryrun1.spec-review · spec 49966c2", q.slice(0, 300));
+        await box(f, "questions").locator("button[data-open]").first().click();
+        await box(f, "questions").locator("[data-open-out]").filter({ hasText: /Opened|Not opened|not available/ }).first().waitFor({ timeout: 30000 });
+        const opened = await boxText(f, "questions");
+        check(/Opened improve-specs:specifications\/vscode-extension\/Explorer\/ics2133 improve Audit Trail Webview\.md#L12 at 49966c23eceb \(read-only\)/.test(opened), "it opens the spec at specCommit:specPath#specLine, read-only (kton-src)", "Opened improve-specs:…ics2133…#L12 at 49966c23eceb (read-only)", opened.slice(-300));
+        current.checks.push({ ok: true, message: "STAND-IN for Wolfgang's spec-review clone: a throwaway copy of verification's dryrun1-triage c2f6ae3 with one open row signed by standin-wolfgang (throwaway key of this run)" });
+      } else check(/No open spec questions for dryrun1/.test(q), "no data: it says so", "No open spec questions for dryrun1.", q);
+      check((await f.locator("[data-act], [data-row-act]").count()) === 0, "read-only: no act", 0, await f.locator("[data-act], [data-row-act]").count());
       await shot("r9-wolfgang");
       await closeEditors();
     });
   }
 
-  await step("R", 10, "Gregor's view: the review queue says its query is pending (cockpit lane); product-side failures equal test-execution's failures whose class or cause names a product cause", async () => {
+  await step("R", 10, "Gregor's view: a review item opens the reviewed commit's diff read-only from the persona lane's clone; product-side failures equal test-execution's failures whose class or cause names a product cause", async () => {
     await views();
     await page.locator(".monaco-list-row", { hasText: "Gregor (dev + review) · dryrun1" }).first().click({ timeout: 60000 });
     const f = await frameWithSel('[data-composition="dryrun1.roles/gregor"]', 90000);
     const t = await boxText(f, "queue");
-    check(/review queue: query pending \(cockpit lane\)/i.test(t), "the queue notice", "Review queue: query pending (cockpit lane)", t.slice(0, 120));
+    check(/Review screen, first cut/.test(t) && /conditions field \(asked of the cockpit lane\)/.test(t), "the notice says what the first cut leaves out", "Review screen, first cut: … conditions field (asked of the cockpit lane) …", t.slice(0, 200));
+    // the review item names its commit; it opens the commit's diff read-only from the persona lane's clone (christof-ext-core)
+    await box(f, "reviews").locator("[data-evidence], [data-area-empty], [data-area-error]").first().waitFor({ timeout: 120000 });
+    const items = await boxText(f, "reviews");
+    const cc = seed.roles.christofCommit;
+    check(new RegExp(`Awaiting review \\(1\\)`).test(items) && items.includes(`Diff of christof-ext-core@${cc} (read-only)`) && /G2\.1 · https:\/\/scinteco\.com\/ns\/dryrun1\/element\/e8/.test(items), "the stand-in review item, awaiting review, naming its commit", `Awaiting review (1) · Diff of christof-ext-core@${cc}`, items.slice(0, 300));
+    await box(f, "reviews").locator("button[data-open]").first().click();
+    await box(f, "reviews").locator("[data-open-out]").filter({ hasText: /Opened|Not opened|not available/ }).first().waitFor({ timeout: 30000 });
+    const said = await boxText(f, "reviews");
+    if (process.env.CHRISTOF_CLONE_MOUNTED === "1" || existsSync(`${WORK}/mirrors/christof-ext-core/.git`) || existsSync(`${WORK}/mirrors/christof-ext-core/HEAD`)) {
+      check(new RegExp(`Opened the change of christof-ext-core ${cc} \\(read-only\\)`).test(said), "the commit's diff opened read-only (kton-src, git show)", `Opened the change of christof-ext-core ${cc} (read-only)`, said.slice(-200));
+      const tab = await page.locator(".tab", { hasText: `${cc}.diff` }).count();
+      check(tab > 0, "a read-only editor with the diff", `${cc}.diff`, tab);
+    } else check(/source not available on this host/.test(said), "without the clone mounted: says the source is not available", "source not available on this host", said.slice(-200));
     const want = (await askR("failures")).filter((r) => /product\?|product defect/i.test(`${r.failureClass ?? ""} ${r.failureCause ?? ""}`)).map((r) => `${r.run}|${r.test}`).sort();
     await waitDrawn(f, "productfailures");
     const shown = await box(f, "productfailures").locator("[data-area-table]").count() ? await rowsIn(f, "productfailures") : [];

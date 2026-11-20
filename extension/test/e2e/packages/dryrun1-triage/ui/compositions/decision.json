@@ -233,6 +233,58 @@
    ]
   },
   {
+   "id": "capture",
+   "heading": "Capture now: test-execution runs a test of the picked element on robert1, with a screenshot at its end (its answer shows here)",
+   "blocks": [
+    {
+     "id": "captures",
+     "use": {
+      "package": "@workbench",
+      "block": "requests"
+     },
+     "query": "dm-captures",
+     "empty": "show",
+     "params": {
+      "element": "var.element"
+     },
+     "refine": {
+      "poll": {
+       "type": "integer",
+       "default": "0"
+      }
+     },
+     "options": {
+      "title": "test",
+      "fields": [
+       "status|Status",
+       "version|Version",
+       "trace|Trace"
+      ],
+      "offer": "offer",
+      "waiting": "waiting",
+      "poll": "10",
+      "propose": [
+       "test=test",
+       "reason="
+      ],
+      "done": "Requested; test-execution is asked by the userinterface lane",
+      "nudge": "./send userinterface requests area=test-execution title=\"capture now: {test}\" text=\"request claim {claim}; test {test}\" why=\"MH's decision view\"",
+      "emptyText": "No data for dryrun1 on this element: none of its tests was run in dryrun1.runs (pick one with “Evidence” on a card)."
+     },
+     "acts": [
+      {
+       "intent": "sign",
+       "label": "Capture now",
+       "control": "capture",
+       "fields": {
+        "proposal": "subject.iri"
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
    "id": "rules",
    "heading": "Where the disagreement comes from: rule cases still open",
    "blocks": [

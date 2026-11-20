@@ -1,0 +1,6 @@
+{
+  "slot": "finding-source",
+  "label": "Classification without a source date",
+  "query": "triage-source-stamped",
+  "order": 4
+}

@@ -102,3 +102,12 @@ test("nudge: after the act signed, the use's nudge line is printed with the clai
   assert.equal(data.result.claim, made.id);
   assert.equal(data.result.nudge, want);
 });
+
+test("nudge: a use with acts through several controls names a line per control (nudges), else its one nudge", async () => {
+  const { nudgeFor } = await import("../src/composition/host.js");
+  const o = { nudges: ["rerun-request|./send a rerun {claim}", "capture|./send a capture {claim}"], nudge: "./send any {claim}" };
+  assert.equal(nudgeFor(o, "capture"), "./send a capture {claim}");
+  assert.equal(nudgeFor(o, "rerun-request"), "./send a rerun {claim}");
+  assert.equal(nudgeFor(o, "other"), "./send any {claim}");
+  assert.equal(nudgeFor({}, "capture"), undefined);
+});

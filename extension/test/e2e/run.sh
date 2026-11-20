@@ -78,8 +78,14 @@ if [ -n "${ROLES_RUNS:-}" ] && [ -n "${ROLES_PKG:-}" ] && [ -n "${ROLES_TRIAGE_P
   ROLES_MOUNT="-v $ROLES_RUNS:/roles-runs:ro -v $ROLES_PKG:/roles-pkg:ro -v $ROLES_TRIAGE_PKG:/roles-triage-pkg:ro"
   [ -z "${ROLES_COVERAGE:-}" ] || ROLES_LIVE="$ROLES_LIVE -v $ROLES_COVERAGE:$ROLES_COVERAGE:ro"
   [ -z "${ROLES_MAPPING:-}" ] || ROLES_LIVE="$ROLES_LIVE -v $ROLES_MAPPING:$ROLES_MAPPING:ro"
+  # ROLES_SPEC_REVIEW (optional): verification's dryrun1-triage (scope dryrun1.spec-review), COPIED by the seed as a
+  # stand-in for Wolfgang's clone, with one open row signed by a throwaway key
+  [ -z "${ROLES_SPEC_REVIEW:-}" ] || ROLES_MOUNT="$ROLES_MOUNT -v $ROLES_SPEC_REVIEW:/roles-spec-review:ro"
+  # CHRISTOF_CLONE (optional): the persona lane's clone where the reviewed commits live, read-only as the mirror
+  # christof-ext-core (Gregor's review screen opens a commit's diff from it; never written)
+  if [ -n "${CHRISTOF_CLONE:-}" ]; then mkdir -p "$WORK/mirrors/christof-ext-core"; EVIDENCE_MOUNTS="$EVIDENCE_MOUNTS -v $CHRISTOF_CLONE:$WORK/mirrors/christof-ext-core:ro"; fi
 fi
-docker run --rm -u "$UIDGID" -v "$WORK:$WORK" -v "$HERE/seed.sh:/seed.sh:ro" $DM_MOUNT $ROLES_MOUNT $ROLES_LIVE -e ROLES_COVERAGE="${ROLES_COVERAGE:-}" -e ROLES_MAPPING="${ROLES_MAPPING:-}" \
+docker run --rm -u "$UIDGID" -v "$WORK:$WORK" -v "$HERE/seed.sh:/seed.sh:ro" $DM_MOUNT $ROLES_MOUNT $ROLES_LIVE -e ROLES_COVERAGE="${ROLES_COVERAGE:-}" -e ROLES_MAPPING="${ROLES_MAPPING:-}" -e CHRISTOF_COMMIT="${CHRISTOF_COMMIT:-}" \
   -v "$COCKPIT:/usr/local/bin/cockpit:ro" -v "$VOCAB:/vocab:ro" -v "$HERE/vocabulary-package:/vocab-package:ro" -v "$HERE:/e2e:ro" \
   "$NODE_IMAGE" sh /seed.sh "$WORK" /vocab /vocab-package
 
@@ -168,7 +174,7 @@ i=0; until curl -sf "http://127.0.0.1:$PORT/healthz" >/dev/null; do i=$((i+1)); 
 echo "== playwright (npm ci from the committed lockfile)"
 cp "$HERE/package.json" "$HERE/package-lock.json" "$HERE/smoke.mjs" "$HERE/runrecord.mjs" "$WORK/pw/"
 RC=0
-docker run --rm --network host -u "$UIDGID" -e HOME=/tmp -e CS_URL="http://127.0.0.1:$PORT/?folder=$WORK/repo" -e OUT=/out -e FAILFAST="${FAILFAST:-0}" -e TRANSPORT="${TRANSPORT:-cli}" -e ONLY="${ONLY:-}" \
+docker run --rm --network host -u "$UIDGID" -e HOME=/tmp -e CS_URL="http://127.0.0.1:$PORT/?folder=$WORK/repo" -e OUT=/out -e FAILFAST="${FAILFAST:-0}" -e TRANSPORT="${TRANSPORT:-cli}" -e ONLY="${ONLY:-}" -e CHRISTOF_CLONE_MOUNTED="${CHRISTOF_CLONE:+1}" \
   -e WORK="$WORK" -v "$WORK:$WORK" -v "$OUTDIR:/out" -w "$WORK/pw" "$PW_IMAGE" \
   sh -c "npm ci --no-audit --no-fund >/dev/null && node smoke.mjs" || RC=$?
 

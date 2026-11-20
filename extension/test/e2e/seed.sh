@@ -256,7 +256,35 @@ c.persist=Object.assign(c.persist||{},{share:false});c.index={kind:"oxigraph"};f
   sayq triage-assigns ${RD}r3/G5 $T $PE "{\"round\":\"${RD}r3\",\"assignedTo\":\"${PP}wolfgang-schwarzenbrunner\",\"assignedRole\":\"dev\"}" >/dev/null
   sleep 2
   sayq triage-ranks ${RD}r3/G5 $T $PE "{\"round\":\"${RD}r3\",$RANK}" >/dev/null
-  ROLES_COV=false; ROLES_MAP=false
+  # fa4908f: sourceBuilt is optional beside sourceSeenSince; one classification with neither (guard rule source-stamped,
+  # "blocked: no source date" in Christof's view), one with only sourceSeenSince
+  NODATE='"sourceProduct":"sha256:0000000000000000000000000000000000000000000000000000000000000001","certainty":"medium"'
+  E6=$(sayq triage-classifies ${E}e6 $T $AG "{$NODATE,\"class\":\"G2.1\",\"evidence\":\"run\"}")
+  sayq triage-classifies ${E}e7 $T $AG "{$NODATE,\"sourceSeenSince\":\"2026-11-20\",\"class\":\"G2.4\",\"evidence\":\"run\"}" >/dev/null
+  # a review item naming the commit it reviews, in the persona lane's clone (mounted read-only as christof-ext-core)
+  CC="${CHRISTOF_COMMIT:-b2b4f50}"
+  E8=$(sayq triage-classifies ${E}e8 $T $AG "{$SRC,\"class\":\"G2.1\",\"evidence\":\"run\",\"examples\":\"fix in christof-ext-core@$CC (stand-in review item, e2e)\"}")
+  # STAND-IN for test-execution's answers (rerun-compared, capture-result): a throwaway key of this run, never theirs;
+  # the steps sign the answers with it into dryrun1.runs and say so
+  cockpit keygen standin-test-execution >/dev/null
+  ROLES_COV=false; ROLES_MAP=false; ROLES_SR=false
+  # STAND-IN for Wolfgang's spec-review clone (path not known yet): a throwaway COPY of verification's dryrun1-triage
+  # (scope dryrun1.spec-review, template spec-decision c2f6ae3) with one open row signed by a throwaway key of this run
+  if [ -d /roles-spec-review/.kton ]; then
+    SR="$E2E/standin-spec-review"; mkdir -p "$SR" && cp -R /roles-spec-review/. "$SR/" && cd "$SR"
+    rm -rf .kton/local && mkdir -p .kton/local && cp "$E2E/repo-roles/.kton/local/identity.json" .kton/local/identity.json
+    git config user.email qa@example.org; git config user.name qa
+    cockpit keygen standin-wolfgang >/dev/null
+    SPEC=ics2133; SPATH="specifications/vscode-extension/Explorer/ics2133 improve Audit Trail Webview.md"
+    cockpit say "$(node -e 'console.log(JSON.stringify({template:"spec-decision",subject:"https://scinteco.com/ns/improve/spec/ics2133",scope:"dryrun1.spec-review",as:"standin-wolfgang",fields:{spec:"ics2133",element:"ics2133#*",decision:"open",owner:"product-development",question:"STAND-IN (e2e): are Actor and IP Address meant to be hidden by default?",evidence:"stand-in",specCommit:"49966c23eceb754264ea6c36296a6ca2ff6214b8",specPath:process.argv[1],specLine:"12"}}))' "$SPATH")" >/dev/null
+    cd "$E2E/repo-roles"
+    cp "$SR/.kton/keys/self/"standin-wolfgang*.pub .kton/keys/self/
+    # verification's own key (the scope's seed) in tier lane, as for its other repos
+    mkdir -p .kton/keys/lane && for k in "$SR/.kton/keys/self/"*.pub; do case "$k" in *standin-wolfgang*) ;; *) cp "$k" .kton/keys/lane/;; esac; done
+    node -e 'const fs=require("fs");const p=".kton/cockpit.config.json";const c=JSON.parse(fs.readFileSync(p));c.trust.tiers=[...new Set([...c.trust.tiers,"lane"])];fs.writeFileSync(p,JSON.stringify(c,null,2));'
+    cockpit federation add standin-spec-review "$SR" >/dev/null
+    ROLES_SR=true
+  fi
   # verification's dryrun1-coverage (~11.5k claims) and dryrun1-mapping (dryrun1.classes: the run-class map), LIVE:
   # federated read-only from their own paths (mounted :ro; federation only reads, the union and the index live under
   # this run's home), after the says (cockpit main 99fe43e or later: #198 fixed the federation add of a large source)
@@ -268,7 +296,7 @@ c.persist=Object.assign(c.persist||{},{share:false});c.index={kind:"oxigraph"};f
     cockpit federation add "$n" "$src" >/dev/null
     case "$n" in verification-coverage) ROLES_COV=true;; verification-mapping) ROLES_MAP=true;; esac
   done
-  ROLES="{\"e1\": \"$E1\", \"e2static\": \"$E2S\", \"coverage\": $ROLES_COV, \"mapping\": $ROLES_MAP}"
+  ROLES="{\"e1\": \"$E1\", \"e2static\": \"$E2S\", \"e6\": \"$E6\", \"e8\": \"$E8\", \"christofCommit\": \"$CC\", \"coverage\": $ROLES_COV, \"mapping\": $ROLES_MAP, \"specReview\": $ROLES_SR}"
   cd "$E2E/repo"
 fi
 

@@ -18,7 +18,9 @@
 // The use's acts (sign / record through a control) are buttons; the host decides everything about them. With
 //   target    the column naming what a row is about: each row gets the act buttons, about that row (the host checks it
 //             is a row it served this block); without it the acts are one row of buttons below the table
-//   choices   "field=value|Button label": one button per choice and act; the value is proposed for the field
+//   choices   "field=value|Button label": one button per choice and act; the value is proposed for the field.
+//             "<control>:field=value|Button label" is a choice of that control's act only (an act without a choice of
+//             its own is one plain button)
 //   propose   "field=column": each row's act proposes that row's column for the field (never signed unseen: the shell
 //             asks it, with the value as the default)
 export function mount(el, ctx) {
@@ -43,16 +45,22 @@ export function mount(el, ctx) {
     return i < 0 ? [x, x] : [x.slice(0, i), x.slice(i + 1)];
   };
   const choices = (o.choices ?? []).map((c) => {
-    const [fv, label] = split(c);
-    const k = fv.indexOf("=");
-    return { field: fv.slice(0, k), value: fv.slice(k + 1), label };
+    const [cfv, label] = split(c);
+    const k = cfv.indexOf("=");
+    const left = cfv.slice(0, k);
+    const colon = left.indexOf(":");
+    return { control: colon < 0 ? undefined : left.slice(0, colon), field: colon < 0 ? left : left.slice(colon + 1), value: cfv.slice(k + 1), label };
   });
+  const choicesOf = (a) => choices.map((c, ci) => ({ c, ci })).filter(({ c }) => c.control === undefined || c.control === a.control?.name);
   const proposes = (o.propose ?? []).map((p) => [p.slice(0, p.indexOf("=")), p.slice(p.indexOf("=") + 1)]).filter(([f]) => f);
   const perRow = !!o.target && acts.length > 0;
   const rowButtons = (r, i) =>
     value(r[o.target])
       ? acts
-          .flatMap((a, ai) => (choices.length ? choices.map((c, ci) => ({ a, ai, c, ci })) : [{ a, ai, c: null, ci: -1 }]))
+          .flatMap((a, ai) => {
+            const own = choicesOf(a);
+            return own.length ? own.map(({ c, ci }) => ({ a, ai, c, ci })) : [{ a, ai, c: null, ci: -1 }];
+          })
           .map(({ a, ai, c, ci }) => `<button type="button" data-row-act="${i}" data-act-i="${ai}" data-choice="${ci}" data-testid="row-${i}-${esc(c ? c.value : a.control?.name ?? a.intent)}">${esc(c ? c.label : a.label ?? a.intent)}</button>`)
           .join(" ") + ` <span class="kton-muted" data-row-out="${i}"></span>`
       : "";

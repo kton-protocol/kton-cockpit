@@ -1,0 +1,15 @@
+# source-stamped: every classification carries the source of its count (G5.4). sourceBuilt (the build date) and
+# sourceSeenSince (the date the product was first seen running where the count was taken, when no build date is
+# known) are each optional, so that no required field forces an invented date; a finding when the latest
+# classification of an element has neither.
+PREFIX nk:     <https://kton.dev/v/>
+PREFIX triage: <https://scinteco.com/ns/triage#>
+PREFIX lab:    <https://kton.dev/v/lab/>
+SELECT ?rule ?focus ?claim ?message WHERE {
+  BIND("source-stamped" AS ?rule)
+  ?claim nk:predicate triage:classifies ; nk:about ?focus .
+  FILTER NOT EXISTS { ?claim nk:replacedBy ?newer }
+  FILTER NOT EXISTS { ?claim triage:sourceBuilt|lab:sourceBuilt|triage:sourceSeenSince|lab:sourceSeenSince ?when }
+  BIND("classification without a source date: neither sourceBuilt nor sourceSeenSince (source-stamped)" AS ?message)
+}
+ORDER BY ?focus

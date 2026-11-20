@@ -1,0 +1,9 @@
+{
+ "title": "Capture now: test-execution runs this test on robert1 with a screenshot at its end. It takes about 93 s, longer for a test in a serial block, because the whole file runs.",
+ "kind": "decision",
+ "meaning": "created",
+ "say": {
+  "template": "capture-requested"
+ },
+ "about": "subject.claim"
+}

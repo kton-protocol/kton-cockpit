@@ -1,0 +1,92 @@
+# "Capture now" for one element ($element): each test the element's round-9 pairs name that test-execution runs (it has a
+# run-unit in dryrun1.runs), with its latest capture request (a capture-requested claim in dryrun1.triage) and
+# test-execution's answer to it (a capture-result claim about the request in dryrun1.runs: their query capture-results,
+# same terms). A captured answer gives one row per artifact of that run and test (their artifacts-of-run join, by run
+# and test), in the evidence block's shape (?run ?name ?sha256 ?mediaType ?bytes ?label): opened from the artifacts root,
+# checked against ?sha256. Next to every capture: the robert1 version of its run summary (a test-execution correction
+# about the run's foton wins, said so) and whether it differs from the version the numbers were stamped on (the current
+# runs that are not capture runs); "trace removed by the token scan" when the run's run-capture (or the correction) says
+# the trace was removed or deleted. ?waiting "true": asked, no answer yet (the view asks again); ?offer "true": no
+# request open. $poll filters nothing (a tautology): each ask binds a new value, so the view's re-asks are never a cached answer.
+# Run: pairs in "dryrun1.mapping", requests in "dryrun1.triage", runs and answers in "dryrun1.runs". Fields under
+# triage:/tr: and lab: (a registry whose aliases the cockpit does not apply gives lab:).
+PREFIX nk:     <https://kton.dev/v/>
+PREFIX lab:    <https://kton.dev/v/lab/>
+PREFIX rdfs:   <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX dct:    <http://purl.org/dc/terms/>
+PREFIX rdf:    <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+PREFIX covx:   <https://w3id.org/improve/coverage-extra#>
+PREFIX tr:     <https://scinteco.com/ns/qm/dryrun1/runs/>
+PREFIX triage: <https://scinteco.com/ns/triage#>
+SELECT DISTINCT ?test ?for ?status ?version ?trace ?offer ?waiting ?request ?outcome ?run ?label ?name ?sha256 ?mediaType ?bytes ?stamp WHERE {
+  FILTER(!BOUND($poll) || STR($poll) != "")
+  ?sc rdfs:label "dryrun1.mapping" .
+  ?p nk:scope ?sc ; nk:predicate covx:evidencePair ; lab:element ?pe ; lab:test ?test . FILTER(STR(?pe) = STR($element))
+  ?sr rdfs:label "dryrun1.runs" .
+  FILTER EXISTS { ?u nk:scope ?sr ; nk:predicate tr:runUnit ; (tr:test|lab:test) ?ut . FILTER(STR(?ut) = STR(?test)) }
+  OPTIONAL {
+    ?st rdfs:label "dryrun1.triage" .
+    ?request nk:scope ?st ; nk:predicate triage:captureRequested ; (triage:test|lab:test) ?rt ; dct:created ?requested .
+    FILTER(STR(?rt) = STR(?test))
+    FILTER NOT EXISTS {
+      ?r2 nk:scope ?st ; nk:predicate triage:captureRequested ; (triage:test|lab:test) ?rt2 ; dct:created ?w2 .
+      FILTER(STR(?rt2) = STR(?test) && ?w2 > ?requested)
+    }
+  }
+  OPTIONAL {
+    ?res nk:scope ?sr ; nk:predicate tr:captureResult ; nk:about ?request ; (tr:outcome|lab:outcome) ?outcome .
+    FILTER NOT EXISTS { ?res nk:replacedBy ?n3 }
+    OPTIONAL { ?res (tr:reason|lab:reason) ?reason } OPTIONAL { ?res (tr:run|lab:run) ?run }
+    OPTIONAL { ?res (tr:result|lab:result) ?result } OPTIONAL { ?res (tr:seconds|lab:seconds) ?seconds }
+    OPTIONAL { ?res (tr:artifacts|lab:artifacts) ?count }
+  }
+  OPTIONAL {
+    ?sum nk:scope ?sr ; nk:predicate tr:runSummary ; nk:about ?foton ; (tr:run|lab:run) ?srun ; (tr:version|lab:version) ?summaryVersion .
+    FILTER(STR(?srun) = STR(?run))
+    FILTER NOT EXISTS { ?sum nk:replacedBy ?n4 }
+    OPTIONAL {
+      ?corr nk:about ?foton ; (dct:description|lab:value|lab:description|rdf:value) ?corrText .
+      FILTER(CONTAINS(STR(?corrText), "Correction"))
+    }
+  }
+  OPTIONAL {
+    ?cap nk:scope ?sr ; nk:predicate tr:runCapture ; (tr:run|lab:run) ?crun ; (tr:trace|lab:trace) ?traceSetting .
+    FILTER(STR(?crun) = STR(?run))
+  }
+  OPTIONAL {
+    { SELECT (GROUP_CONCAT(DISTINCT STR(?bv); separator=", ") AS ?stampedOn) WHERE {
+        ?bsc rdfs:label "dryrun1.runs" .
+        ?bs nk:scope ?bsc ; nk:predicate tr:runSummary ; (tr:version|lab:version) ?bv ; (tr:status|lab:status) "current" ; (tr:importedBy|lab:importedBy) ?by .
+        FILTER(!CONTAINS(STR(?by), "capture"))
+      } }
+  }
+  OPTIONAL {
+    FILTER(STR(?outcome) = "captured")
+    ?a nk:scope ?sr ; nk:predicate tr:runArtifact ; (tr:run|lab:run) ?arun ; (tr:test|lab:test) ?atest ; (tr:kind|lab:kind) ?akind ; (tr:sha256|lab:sha256) ?sh ; (tr:name|lab:name) ?name .
+    FILTER(STR(?arun) = STR(?run) && STR(?atest) = STR(?test))
+    FILTER NOT EXISTS { ?a nk:replacedBy ?n5 }
+    OPTIONAL { ?a (tr:mediaType|lab:mediaType) ?mediaType } OPTIONAL { ?a (tr:bytes|lab:bytes) ?bytes }
+  }
+  BIND(STR($element) AS ?for)
+  BIND(IF(BOUND(?sh), CONCAT("sha256:", STRAFTER(STR(?sh), "https://kton.dev/o/")), ?unbound1) AS ?sha256)
+  BIND(IF(BOUND(?sh), CONCAT("Open ", STR(?akind), ": run ", STR(?run)), ?unbound2) AS ?label)
+  BIND(IF(BOUND(?corrText) && REGEX(STR(?corrText), "answered version [^ ]+"), REPLACE(STR(?corrText), "^.*answered version ([^ ]+).*$", "$1"), ?unbound3) AS ?corrected)
+  BIND(COALESCE(?corrected, STR(?summaryVersion)) AS ?v)
+  BIND(IF(BOUND(?v),
+          CONCAT("robert1 ", ?v,
+                 IF(BOUND(?corrected) && ?corrected != STR(?summaryVersion), CONCAT(" (the run summary says ", STR(?summaryVersion), "; corrected by test-execution)"), ""),
+                 IF(BOUND(?stampedOn) && ?stampedOn != "" && ?v != ?stampedOn, CONCAT(" · differs from ", ?stampedOn, ", the version the numbers were stamped on"), "")),
+          ?unbound4) AS ?version)
+  BIND(IF((BOUND(?traceSetting) && REGEX(STR(?traceSetting), "removed|deleted", "i")) || (BOUND(?corrText) && REGEX(STR(?corrText), "trace was (removed|deleted)", "i")),
+          "trace removed by the token scan", ?unbound5) AS ?trace)
+  BIND(IF(!BOUND(?request), "",
+       IF(!BOUND(?outcome), CONCAT("Requested ", STR(?requested), "; test-execution is asked by the userinterface lane. Waiting for its answer (about 93 s once it runs)."),
+       IF(STR(?outcome) = "captured",
+          CONCAT("Captured in run ", STR(?run), COALESCE(CONCAT(" (", STR(?result), ")"), ""), COALESCE(CONCAT(", ", STR(?seconds), " s"), ""), COALESCE(CONCAT(", ", STR(?count), " artifacts"), ""), "."),
+          CONCAT("Declined: ", COALESCE(STR(?reason), "no reason given"))))) AS ?status)
+  BIND(IF(BOUND(?request) && !BOUND(?outcome), "true", "false") AS ?waiting)
+  BIND(IF(BOUND(?request) && !BOUND(?outcome), "false", "true") AS ?offer)
+  BIND(IF(BOUND(?run), CONCAT("dryrun1.runs · ", STR(?run)), IF(BOUND(?request), "dryrun1.triage · request", "dryrun1.runs")) AS ?stamp)
+}
+ORDER BY ?test ?name
+LIMIT 300

@@ -28,6 +28,9 @@
     "answer": "triage:answer",
     "text": "triage:text",
     "choice": "triage:choice",
-    "lookedAt": "triage:lookedAt"
+    "lookedAt": "triage:lookedAt",
+    "sourceSeenSince": "triage:sourceSeenSince",
+    "test": "triage:test",
+    "reason": "triage:reason"
   }
 }
