@@ -1570,7 +1570,9 @@ notifications (no id), of what changed in the registries this repository reads, 
   an empty list means everything).
 The cursor is the feed's (§9.10): a connection that starts from `since` gets everything after it, so a
 frontend that restarts `serve` loses nothing; without `since` it starts at the present, fixed before
-`initialize` answers. `truncated` says more arrived than one event carries: query again. Only records a
+`initialize` answers; a `since` that is no cursor the events handed out is refused (`events.cursor`).
+`truncated` says more arrived than one event carries: query again. An `indexMoved` that is owed (the
+index could not be brought up to date) is sent at the next tick that can, whatever that tick brings. Only records a
 key of the trust tiers signed are named, and nothing withheld is counted. Events look every `intervalMs`
 (2000 by default, at least 500).
 
@@ -1586,6 +1588,7 @@ error `-32601`, and params with a field the method does not take are error `-326
 > `TestServe_VerbsAnswerAndRefuseAsTheCommandLine`, `TestServe_RefusesAWorkspaceTheEnvironmentWouldRedirect`,
 > `TestServe_TheBinaryKeepsStdoutForTheProtocol`, `TestServe_ASayRunningAtShutdownIsAnswered`,
 > `TestServe_EventsNameWhatWasSaidAndResumeFromTheirCursor`, `TestServe_IndexMovedComesOnceTheIndexHoldsTheClaim`,
+> `TestEvents_AnIndexMovedOwedIsSentOnceTheIndexIsBack`, `TestEvents_ASinceThatIsNoCursorIsRefused`,
 > `TestServer_AnswersRequestsAndErrorsAndGoesOn`, `TestServer_CancelsARunningRequest`,
 > `TestServer_AnswersWhatIsRunningWhenTheInputEnds`, `TestServer_ShutdownAnswersWhatItAcceptedFirst`,
 > `TestServer_ExitWaitsForWhatIsRunning`, `TestServer_CancelMatchesANumberIDByValue`, `TestReadMessage_Framing`.

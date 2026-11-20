@@ -245,6 +245,12 @@ func serveMethods(sess *serveSession) map[string]frontrpc.Handler {
 		if ev := in.Events; ev != nil && !ev.off && sess.notify != nil {
 			// The start is fixed before initialize answers: a say sent right after it is an event.
 			since := ev.Since
+			if since != "" {
+				if err := c(root).CheckEventsCursor(ctx, since); err != nil {
+					sess.init = nil
+					return nil, err
+				}
+			}
 			if since == "" {
 				if since, err = c(root).EventsCursor(ctx); err != nil {
 					sess.init = nil

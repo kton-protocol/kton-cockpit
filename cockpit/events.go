@@ -3,8 +3,10 @@ package cockpit
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -131,6 +133,29 @@ type watcher struct {
 	emit   func(string, any)
 	cursor string
 	labels map[string]string // seed -> its name
+	// owed says events went out whose indexMoved has not: the index was not brought up to date yet
+	// (a backlog still being read, or the index failed). It stays owed, with the scopes that changed,
+	// until an update succeeds, whatever the ticks in between bring (kton-review E1 on #213).
+	owed       bool
+	everything bool
+	scopes     map[string]bool
+	// update brings the index up to date and names the view; current, unless a test replaces it.
+	update func(context.Context) (string, error)
+}
+
+// CheckEventsCursor refuses a since that is no cursor this cockpit hands out: a connection would
+// otherwise never get an event (kton-review E2 on #213).
+func (c *Cockpit) CheckEventsCursor(ctx context.Context, since string) error {
+	cfg, err := config.Load(ctx, c.dir())
+	if err != nil {
+		return err
+	}
+	_, err = askFeed(ctx, cfg, AskRequest{Query: "feed", Cursor: since, Limit: 1})
+	var ref *Refusal
+	if errors.As(err, &ref) && ref.Code == "argument" {
+		return refuse("events.cursor", "SPEC §12.5", "since is not a cursor this cockpit's events handed out")
+	}
+	return err
 }
 
 func (w *watcher) page(ctx context.Context) (*FeedPage, error) {
@@ -146,10 +171,13 @@ func (w *watcher) tick(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	moved := page.Cursor != w.cursor
+	if page.Cursor != w.cursor {
+		// Untrusted records move the cursor too: no event names them, but the view may have changed.
+		w.owed = true
+	}
 	if len(page.Records) == 0 {
-		w.cursor = page.Cursor // untrusted records only, or nothing: no event
-		return nil
+		w.cursor = page.Cursor
+		return w.indexMoved(ctx, page.More)
 	}
 	run := binaries.New(w.cfg)
 	byPred := map[string]string{}
@@ -164,8 +192,9 @@ func (w *watcher) tick(ctx context.Context) error {
 	said := SaidEvent{Claims: []SaidClaim{}}
 	sources := map[string]int{}
 	var order []string
-	everything := false
-	scopes := map[string]bool{}
+	if w.scopes == nil {
+		w.scopes = map[string]bool{}
+	}
 	for _, r := range page.Records {
 		switch {
 		case r.Registry != "own":
@@ -173,18 +202,18 @@ func (w *watcher) tick(ctx context.Context) error {
 				order = append(order, r.Registry)
 			}
 			sources[r.Registry]++
-			everything = true
+			w.everything = true
 		case r.Kind == "foton":
 			published.IDs = append(published.IDs, r.ID)
-			everything = true // steps are in no scope graph
+			w.everything = true // steps are in no scope graph
 		default:
 			sc := w.claim(ctx, run, r, byPred)
 			said.IDs = append(said.IDs, r.ID)
 			said.Claims = append(said.Claims, sc)
 			if sc.Scope != nil {
-				scopes[sc.Scope.Seed] = true
+				w.scopes[sc.Scope.Seed] = true
 			} else {
-				everything = true
+				w.everything = true
 			}
 		}
 	}
@@ -200,21 +229,33 @@ func (w *watcher) tick(ctx context.Context) error {
 		w.emit(EventSourcePulled, SourcePulledEvent{Source: name, NewIDs: sources[name], Head: w.head(name), Cursor: page.Cursor})
 	}
 	w.cursor = page.Cursor
-	if !moved {
+	w.owed = true
+	return w.indexMoved(ctx, page.More)
+}
+
+// indexMoved sends what is owed once a query sees it: the index is brought up to date first, once,
+// after a backlog is read to its end rather than per page.
+func (w *watcher) indexMoved(ctx context.Context, more bool) error {
+	if !w.owed || more {
 		return nil
 	}
-	// indexMoved only once a query sees what the events named: the index is brought up to date first.
-	slot, err := w.current(ctx)
+	update := w.update
+	if update == nil {
+		update = w.current
+	}
+	slot, err := update(ctx)
 	if err != nil {
-		return err
+		return err // still owed: the next tick tries again
 	}
 	ev := IndexMovedEvent{Slot: slot, Scopes: []EventScope{}}
-	if !everything {
-		for seed := range scopes {
+	if !w.everything {
+		for seed := range w.scopes {
 			ev.Scopes = append(ev.Scopes, EventScope{Seed: seed, Label: w.labels[seed]})
 		}
+		sort.Slice(ev.Scopes, func(i, j int) bool { return ev.Scopes[i].Seed < ev.Scopes[j].Seed })
 	}
 	w.emit(EventIndexMoved, ev)
+	w.owed, w.everything, w.scopes = false, false, map[string]bool{}
 	return nil
 }
 
