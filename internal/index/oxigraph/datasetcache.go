@@ -144,17 +144,28 @@ func (d *Daemon) makeView(ctx context.Context, slot, key string, def []string, c
 		}
 		u.WriteString(" } GRAPH ?g { ?s ?p ?o } } ;\n")
 	}
-	// N-Triples lines are triples SPARQL's INSERT DATA takes as they are. The union of the claims, then
-	// each scope's graph (ADR-018): one update, so a reader sees the old view or the new one whole.
-	if len(claims) > 0 {
-		u.WriteString("INSERT DATA { GRAPH " + c + " {\n")
-		u.Write(NTriples(claims))
-		u.WriteString("\n} } ;\n")
-	}
+	// N-Triples lines are triples SPARQL's INSERT DATA takes as they are. Each scope's graph (ADR-018),
+	// then the union: what belongs to no scope (signer labels, the graphs' metadata) as data, and each
+	// scope graph added to it by the engine, so a claim's triples are sent and parsed once, not twice.
+	// One update, so a reader sees the old view or the new one whole.
 	for _, g := range sortedKeys(scopes) {
 		u.WriteString("INSERT DATA { GRAPH <" + g + "> {\n")
 		u.Write(NTriples(scopes[g]))
 		u.WriteString("\n} } ;\n")
+	}
+	var rest []Quad
+	for _, q := range claims {
+		if q.G == "" {
+			rest = append(rest, q)
+		}
+	}
+	if len(rest) > 0 {
+		u.WriteString("INSERT DATA { GRAPH " + c + " {\n")
+		u.Write(NTriples(rest))
+		u.WriteString("\n} } ;\n")
+	}
+	for _, g := range sortedKeys(scopes) {
+		u.WriteString("ADD <" + g + "> TO " + c + " ;\n")
 	}
 	u.WriteString("INSERT DATA { GRAPH " + m + " { " + v + " <" + kNS + "key> " + strconv.Quote(key) + " } }")
 	return d.update(ctx, u.Bytes())
