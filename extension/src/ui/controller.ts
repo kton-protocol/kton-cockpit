@@ -447,6 +447,7 @@ export class Workbench {
       },
       { id: "recorder", label: "Recorder", tooltip: "Recorded runs: opens the kton recorder extension (it stays its own extension)", command: { id: CMD.openRecorder, args: [] } },
       ...this.packages.areaNodes(),
+      ...this.packages.viewNodes(),
       ...this.packages.homeNodes(),
     ];
     if (this.stale) nodes.unshift({ id: "stale", label: "Stale: the last poll failed", description: `data from ${time(this.goodAt)}`, tooltip: this.lastError ?? "" });

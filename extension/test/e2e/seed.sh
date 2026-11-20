@@ -210,10 +210,82 @@ if [ -d /dm-data/.kton ]; then
   DM2_PROPOSAL=$(seed_dm repo-dm2 dryrun2 | tail -1)
 fi
 
+# R (role views, dry run 1; userinterface imvprototypes workbench/dryrun1-role-views): only with ROLES_RUNS, ROLES_PKG
+# and ROLES_TRIAGE_PKG (run.sh mounts them read only). repo-roles is a COPY of test-execution's dryrun1.runs registry
+# (its claims and its dev key's public halves, as they are) with this run's test keys added, the triage package and
+# the role views' package installed, and a stand-in dryrun1.triage: the guard rules' good and bad cases (qm-packages
+# areas/dryrun1-triage testdata/scenario.py), signed with this run's throwaway keys. ROLES_COVERAGE (optional): a
+# copy of verification's dryrun1-coverage as a registry of its own (repo-roles-cov). Both with an Oxigraph index (the
+# first ask after the seed builds it, about a minute for the coverage copy; then asks take well under a second).
+ROLES=""
+if [ -d /roles-runs/.kton ] && [ -d /roles-pkg ] && [ -d /roles-triage-pkg ]; then
+  mkdir -p "$E2E/repo-roles" && cp -R /roles-runs/. "$E2E/repo-roles/" && cd "$E2E/repo-roles"
+  # cockpit v0.5.5 reads the alias file only at .kton/aliases.json
+  [ ! -f aliases.json ] || [ -f .kton/aliases.json ] || mv aliases.json .kton/aliases.json
+  rm -rf .kton/local && mkdir -p .kton/local && cp "$E2E/repo/.kton/local/identity.json" .kton/local/identity.json
+  mkdir -p .kton/keys/self .kton/keys/agent
+  cp "$E2E/repo/.kton/keys/self/"qa-decider*.pub .kton/keys/self/
+  cp "$E2E/repo/.kton/keys/agent/qa-decider-agent"*.pub .kton/keys/agent/
+  node -e '
+const fs=require("fs");const p=".kton/cockpit.config.json";const c=JSON.parse(fs.readFileSync(p));
+c.trust=Object.assign(c.trust||{},{tiers:[...new Set([...((c.trust||{}).tiers||[]),"self","agent"])]});
+c.query={image:"oci://oxigraph/oxigraph@sha256:10677fb643f8c5a7bfb03dd8f7971c79a84b01e795c24201c8cfa12fd569f1c0"};
+c.persist=Object.assign(c.persist||{},{share:false});c.index={kind:"oxigraph"};fs.writeFileSync(p,JSON.stringify(c,null,2));'
+  git config user.email qa@example.org; git config user.name qa
+  cockpit install "$E2E/vocab-package" --allow --json >/dev/null
+  cp -R /roles-triage-pkg "$E2E/pkg-roles-triage" && cockpit install "$E2E/pkg-roles-triage" --allow --json >/dev/null
+  cp -R /roles-pkg "$E2E/pkg-roles" && cockpit install "$E2E/pkg-roles" --allow --json >/dev/null
+  TS=$(cockpit scope seed dryrun1.triage 2>&1 | sed -n 's/.*"dryrun1.triage": "\(sha256:[0-9a-f]*\)".*/\1/p')
+  [ -n "$TS" ] || { echo "seed of dryrun1.triage failed" >&2; exit 1; }
+  node -e 'const fs=require("fs");const p=".kton/cockpit.config.json";const c=JSON.parse(fs.readFileSync(p));c.claims.scopes["dryrun1.triage"]=process.argv[1];fs.writeFileSync(p,JSON.stringify(c,null,2));' "$TS"
+  E=https://scinteco.com/ns/dryrun1/element/; RD=https://scinteco.com/ns/dryrun1/round/; PP=https://scinteco.com/ns/agents#
+  SRC='"sourceProduct":"sha256:0000000000000000000000000000000000000000000000000000000000000001","sourceBuilt":"2026-11-16","certainty":"medium"'
+  T=dryrun1.triage; node_of() { echo "https://kton.dev/o/${1#sha256:}"; }
+  RANK='"class":"G5","position":"1","gxpImpact":"data-integrity","likelihood":"high","detectability":"low"'
+  E1=$(sayq triage-classifies ${E}e1 $T $AG "{$SRC,\"class\":\"G5\",\"evidence\":\"static\",\"reach\":\"customer\"}")
+  E2S=$(sayq triage-classifies ${E}e2 $T $AG "{$SRC,\"class\":\"G5\",\"evidence\":\"static\"}")
+  sayq triage-classifies ${E}e2 $T $AG "{$SRC,\"class\":\"G5\",\"evidence\":\"run\",\"examples\":\"S6 unit-12\"}" >/dev/null
+  E3=$(sayq triage-classifies ${E}e3 $T $AG "{$SRC,\"class\":\"G3\",\"evidence\":\"run\"}")
+  sayq triage-classifies ${E}e4 $T $AG "{$SRC,\"class\":\"G1.1\",\"evidence\":\"static\"}" >/dev/null
+  sayq triage-classifies ${E}e5 $T $AG "{$SRC,\"class\":\"G2\",\"evidence\":\"mapping\",\"reach\":\"customer\"}" >/dev/null
+  sayq triage-reviews "$(node_of "$E1")" $T $AG '{"outcome":"changes"}' >/dev/null
+  sayq triage-reviews "$(node_of "$E3")" $T $PE '{"outcome":"approved"}' >/dev/null
+  sayq triage-ranks ${RD}r1/G5 $T $PE "{\"round\":\"${RD}r1\",$RANK}" >/dev/null
+  sayq triage-assigns ${RD}r1/G5 $T $PE "{\"round\":\"${RD}r1\",\"assignedTo\":\"${PP}christof-winkler\",\"assignedRole\":\"test\",\"due\":\"2026-12-01\"}" >/dev/null
+  sayq triage-assigns ${RD}r2/G3 $T $PE "{\"round\":\"${RD}r2\",\"assignedTo\":\"${PP}gregor-metzenbauer\",\"assignedRole\":\"spec\"}" >/dev/null
+  sayq triage-assigns ${RD}r3/G5 $T $PE "{\"round\":\"${RD}r3\",\"assignedTo\":\"${PP}wolfgang-schwarzenbrunner\",\"assignedRole\":\"dev\"}" >/dev/null
+  sleep 2
+  sayq triage-ranks ${RD}r3/G5 $T $PE "{\"round\":\"${RD}r3\",$RANK}" >/dev/null
+  ROLES_COV=false
+  if [ -d /roles-coverage/.kton ]; then
+    # coverage is NOT federated: a union with its ~11.5k claims did not finish in 13 min CPU (cockpit v0.5.5 and main
+    # a320e83, 20.11.). repo-roles-cov is a COPY of verification's dryrun1-coverage with an Oxigraph index, this run's
+    # keys and the role views' package: the test-side gaps parts are checked there (R.7).
+    mkdir -p "$E2E/repo-roles-cov" && cp -R /roles-coverage/. "$E2E/repo-roles-cov/" && cd "$E2E/repo-roles-cov"
+    rm -rf .kton/local && mkdir -p .kton/local && cp "$E2E/repo/.kton/local/identity.json" .kton/local/identity.json
+    mkdir -p .kton/keys/self .kton/keys/agent
+    cp "$E2E/repo/.kton/keys/self/"qa-decider*.pub .kton/keys/self/
+    cp "$E2E/repo/.kton/keys/agent/qa-decider-agent"*.pub .kton/keys/agent/
+    node -e '
+const fs=require("fs");const p=".kton/cockpit.config.json";const c=JSON.parse(fs.readFileSync(p));
+c.trust=Object.assign(c.trust||{},{tiers:[...new Set([...((c.trust||{}).tiers||[]),"self","agent"])]});
+c.query={image:"oci://oxigraph/oxigraph@sha256:10677fb643f8c5a7bfb03dd8f7971c79a84b01e795c24201c8cfa12fd569f1c0"};
+c.persist=Object.assign(c.persist||{},{share:false});c.index={kind:"oxigraph"};fs.writeFileSync(p,JSON.stringify(c,null,2));'
+    git config user.email qa@example.org; git config user.name qa
+    cockpit install "$E2E/vocab-package" --allow --json >/dev/null
+    cockpit install "$E2E/pkg-roles" --allow --json >/dev/null
+    ROLES_COV=true
+    cd "$E2E/repo-roles"
+  fi
+  ROLES="{\"e1\": \"$E1\", \"e2static\": \"$E2S\", \"coverage\": $ROLES_COV}"
+  cd "$E2E/repo"
+fi
+
 cat > "$E2E/seed.json" <<EOF
 {"scope": "$SEED", "requests": ["$R1", "$R2"], "announce": "$ANN", "proposals": {"P1": "$P1", "P2": "$P2", "P3": "$P3", "P4": "$P4"},
  "personKeyId": "$PKID", "agentKeyId": "$AKID", "lookalikeKeyId": "$LKID",
  "dm": {"proposal": "$DM_PROPOSAL", "proposal2": "$DM2_PROPOSAL"},
+ "roles": ${ROLES:-null},
  "s6": {"deviations": {"D-001": "$D1", "D-002": "$D2", "D-003-v1": "$D3A", "D-003": "$D3", "D-004": "$D4"}}}
 EOF
 echo "seeded: scope $SEED"

@@ -11,6 +11,10 @@
 //   emptyText what to say when no row is left (default: "No rows.")
 //   atLeast   "column:n": keep only the rows whose column is at least n (e.g. agreement after 10 verdicts)
 // A column `stamp` is shown as each row's source chip, and the row's numbers are marked as numbers.
+//   page      "<param>=<column>": keyset paging over a refine param the use declares; "Next" asks again with the
+//             param set to the last row's column (the query keeps the rows after it), "Previous" goes back
+//   pageSize  the query's page size (its LIMIT): a full page offers "Next"
+// A refine param the use declares with values (a reader's choice, ktonpkg refine) is a select above the table.
 // The use's acts (sign / record through a control) are buttons; the host decides everything about them.
 export function mount(el, ctx) {
   const esc = ctx.kit.esc;
@@ -19,6 +23,14 @@ export function mount(el, ctx) {
   const subjectClaim = ctx.subject?.claim ? `https://kton.dev/o/${String(ctx.subject.claim).replace(/^sha256:/, "")}` : null;
   const value = (b) => (b && typeof b.value === "string" ? b.value : "");
   const shortly = (v) => (/^https:\/\/kton\.dev\/o\/[0-9a-f]{64}$/.test(v) ? `sha256:${v.slice(19, 31)}…` : v);
+  const refine = ctx.use.refine ?? {};
+  const [pageParam, pageCol] = typeof o.page === "string" && o.page.includes("=") ? o.page.split("=", 2) : [undefined, undefined];
+  const pageSize = Number(o.pageSize ?? 0) || 0;
+  const paging = !!pageParam && !!refine[pageParam] && !!pageCol;
+  // the reader's current refine values: a choice per declared values param, the page key; the plan's defaults first
+  const cur = {};
+  for (const [k, spec] of Object.entries(refine)) if (Array.isArray(spec.values)) cur[k] = value(ctx.use.params?.[k]) || String(spec.values[0] ?? "");
+  const back = [];
   el.innerHTML = `<div class="kton-muted" data-area-loading>Loading…</div>`;
 
   const actButtons = () =>
@@ -62,8 +74,34 @@ export function mount(el, ctx) {
         )
         .join("")}</tbody></table>`;
     }
-    el.innerHTML = `${body}${actButtons()}`;
+    const choices = Object.entries(refine)
+      .filter(([, spec]) => Array.isArray(spec.values))
+      .map(([k, spec]) => `<label class="kton-muted">${esc(k)} <select data-refine="${esc(k)}">${spec.values.map((v) => `<option${String(v) === cur[k] ? " selected" : ""}>${esc(String(v))}</option>`).join("")}</select></label>`)
+      .join(" ");
+    const page = paging
+      ? `<div class="kton-pager" data-pager data-page="${back.length + 1}"><span class="kton-muted">Page ${back.length + 1} · rows ${back.length * pageSize + (rows.length ? 1 : 0)}–${back.length * pageSize + rows.length}</span>${back.length ? ` <button type="button" data-page-prev>Previous</button>` : ""}${pageSize && rows.length >= pageSize ? ` <button type="button" data-page-next>Next</button>` : ""}</div>`
+      : "";
+    el.innerHTML = `${choices ? `<div class="kton-refine" data-refines>${choices}</div>` : ""}${body}${page}${actButtons()}`;
     wireActs();
+    for (const sel of el.querySelectorAll("select[data-refine]")) {
+      sel.addEventListener("change", () => {
+        cur[sel.dataset.refine] = sel.value;
+        if (paging) delete cur[pageParam];
+        back.length = 0;
+        load();
+      });
+    }
+    el.querySelector("[data-page-next]")?.addEventListener("click", () => {
+      back.push(cur[pageParam] ?? "");
+      cur[pageParam] = value(rows[rows.length - 1]?.[pageCol]);
+      load();
+    });
+    el.querySelector("[data-page-prev]")?.addEventListener("click", () => {
+      const prev = back.pop();
+      if (prev) cur[pageParam] = prev;
+      else delete cur[pageParam];
+      load();
+    });
     for (const tr of el.querySelectorAll("tr[data-target]")) {
       tr.addEventListener("click", () => {
         const row = rows[Number(tr.dataset.row)];
@@ -73,7 +111,7 @@ export function mount(el, ctx) {
     }
   };
 
-  ctx.request("query@1", {}).then(
+  const load = () => ctx.request("query@1", Object.keys(cur).length ? { refine: { ...cur } } : {}).then(
     (r) => {
       const vars = r?.head?.vars ?? [];
       let rows = r?.results?.bindings ?? [];
@@ -90,5 +128,6 @@ export function mount(el, ctx) {
       el.innerHTML = `<p class="kton-error" data-area-error>${esc(e?.message ?? String(e))}</p>`;
     },
   );
+  load();
   return { set() {}, destroy() {} };
 }

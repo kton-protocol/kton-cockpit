@@ -8,7 +8,7 @@ import type { TreeNode } from "../ui/host.js";
 import { sparqlResultsOf } from "../ui/queries.js";
 import { CompositionHost, LeafHost, type Backend, type Plan } from "./host.js";
 import type { BoundTerm } from "../transport/port.js";
-import { applies, oneNumber, partition, planComposition, planEntry, type Subject } from "./slots.js";
+import { applies, isView, oneNumber, partition, planComposition, planEntry, type Subject } from "./slots.js";
 import { approvalCounts, areaComposition, BUILTIN, recordComposition, recordTerms, signerKeyId, withBuiltin } from "./qm-area.js";
 import { SIGNER_QUERY } from "../identity.js";
 import type { AreaDecl } from "../packages/listing.js";
@@ -458,6 +458,16 @@ export class PackagesArea {
     return [{ id: "qm-areas", label: "QM areas", description: `${areas.length}`, children: areas.map((e) => ({ id: `area:${entryKey(e)}`, label: e.label, description: e.package, tooltip: `${e.package} (${e.file})${e.area?.scopes?.records ? ` · records ${e.area.scopes.records}` : ""}`, command: { id: SLOT_CMD, args: [entryKey(e), areaSubject(e)] } })) }];
   }
 
+  /**
+   * The views: `activity` entries that name a composition and no area (isView), in their order (order, then package
+   * name, as the areas). A click opens the composition with the view's own place as its subject (viewSubject).
+   */
+  viewNodes(): TreeNode[] {
+    const views = (this.loaded?.entries ?? []).filter(isView);
+    if (!views.length) return [];
+    return [{ id: "views", label: "Views", description: `${views.length}`, children: views.map((e) => ({ id: `view:${entryKey(e)}`, label: e.label, description: e.package, tooltip: `${e.package} (${e.file})`, command: { id: SLOT_CMD, args: [entryKey(e), viewSubject(e)] } })) }];
+  }
+
   /** A panel opened (or opened again over an older one, which is replaced: its acts are refused from now on). */
   private open(key: string, p: OpenPanel): void {
     const old = this.hosts.get(key);
@@ -523,6 +533,15 @@ export function openedOf(area: PackagesArea, key: string): readonly string[] {
 export function areaSubject(e: SlotEntry): Subject {
   const scope = e.area?.scopes?.records ?? `${e.package}/${e.file}`;
   return { kind: "scope", iri: `https://kton.dev/scope/${encodeURIComponent(scope)}`, id: scope, scope };
+}
+
+/**
+ * A view's subject: the view's own place (<package>/<file>), {kind: scope}. Its IRI is the shell's own name for the
+ * panel's subject, as an area's: never signed, asked or shown as a kton IRI.
+ */
+export function viewSubject(e: SlotEntry): Subject {
+  const id = `${e.package}/${e.file}`;
+  return { kind: "scope", iri: `https://kton.dev/scope/${encodeURIComponent(id)}`, id };
 }
 
 /**

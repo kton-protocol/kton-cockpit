@@ -31,6 +31,12 @@ export function applies(e: SlotEntry, s: Subject): boolean {
   return !!e.when && e.when.kind === s.kind && (e.when.type === undefined || e.when.type === s.type);
 }
 
+/**
+ * An `activity` entry that names a composition and no area (C2.1: a place of its own, a view not hung on a proposal
+ * or a record). Its subject is the place itself ({kind: scope}), so it needs `when: {kind: "scope"}`.
+ */
+export const isView = (e: SlotEntry): boolean => e.slot === "activity" && !!e.composition && !e.area && e.when?.kind === "scope";
+
 /** Entries the shell renders, and the ones it only lists (unknown or not yet rendered slot names). */
 export function partition(entries: readonly SlotEntry[]): { rendered: SlotEntry[]; listed: Array<SlotEntry & { why: string }> } {
   const rendered: SlotEntry[] = [];

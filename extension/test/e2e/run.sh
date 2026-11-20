@@ -68,7 +68,16 @@ DM_MOUNT=""; [ -n "${DM_DATA:-}" ] && DM_MOUNT="-v $DM_DATA:/dm-data:ro"
 EVIDENCE_MOUNTS=""
 for m in ${DM_MIRRORS:-}; do mkdir -p "$WORK/mirrors/$(basename "$m")"; EVIDENCE_MOUNTS="$EVIDENCE_MOUNTS -v $m:$WORK/mirrors/$(basename "$m"):ro"; done
 [ -n "${DM_ARTIFACTS:-}" ] && { mkdir -p "$WORK/artifacts"; EVIDENCE_MOUNTS="$EVIDENCE_MOUNTS -v $DM_ARTIFACTS:$WORK/artifacts:ro"; }
-docker run --rm -u "$UIDGID" -v "$WORK:$WORK" -v "$HERE/seed.sh:/seed.sh:ro" $DM_MOUNT \
+# R (optional): the role views on copies of real dry-run data. ROLES_RUNS = test-execution's dryrun1.runs registry,
+# ROLES_PKG = the built dryrun1.roles, ROLES_TRIAGE_PKG = the built dryrun1.triage, ROLES_COVERAGE (optional) =
+# verification's dryrun1-coverage registry. All mounted read only and copied by the seed; without the first three the
+# R steps do not run.
+ROLES_MOUNT=""
+if [ -n "${ROLES_RUNS:-}" ] && [ -n "${ROLES_PKG:-}" ] && [ -n "${ROLES_TRIAGE_PKG:-}" ]; then
+  ROLES_MOUNT="-v $ROLES_RUNS:/roles-runs:ro -v $ROLES_PKG:/roles-pkg:ro -v $ROLES_TRIAGE_PKG:/roles-triage-pkg:ro"
+  [ -z "${ROLES_COVERAGE:-}" ] || ROLES_MOUNT="$ROLES_MOUNT -v $ROLES_COVERAGE:/roles-coverage:ro"
+fi
+docker run --rm -u "$UIDGID" -v "$WORK:$WORK" -v "$HERE/seed.sh:/seed.sh:ro" $DM_MOUNT $ROLES_MOUNT \
   -v "$COCKPIT:/usr/local/bin/cockpit:ro" -v "$VOCAB:/vocab:ro" -v "$HERE/vocabulary-package:/vocab-package:ro" -v "$HERE:/e2e:ro" \
   "$NODE_IMAGE" sh /seed.sh "$WORK" /vocab /vocab-package
 
@@ -157,7 +166,7 @@ i=0; until curl -sf "http://127.0.0.1:$PORT/healthz" >/dev/null; do i=$((i+1)); 
 echo "== playwright (npm ci from the committed lockfile)"
 cp "$HERE/package.json" "$HERE/package-lock.json" "$HERE/smoke.mjs" "$HERE/runrecord.mjs" "$WORK/pw/"
 RC=0
-docker run --rm --network host -u "$UIDGID" -e HOME=/tmp -e CS_URL="http://127.0.0.1:$PORT/?folder=$WORK/repo" -e OUT=/out -e FAILFAST="${FAILFAST:-0}" -e TRANSPORT="${TRANSPORT:-cli}" \
+docker run --rm --network host -u "$UIDGID" -e HOME=/tmp -e CS_URL="http://127.0.0.1:$PORT/?folder=$WORK/repo" -e OUT=/out -e FAILFAST="${FAILFAST:-0}" -e TRANSPORT="${TRANSPORT:-cli}" -e ONLY="${ONLY:-}" \
   -e WORK="$WORK" -v "$WORK:$WORK" -v "$OUTDIR:/out" -w "$WORK/pw" "$PW_IMAGE" \
   sh -c "npm ci --no-audit --no-fund >/dev/null && node smoke.mjs" || RC=$?
 

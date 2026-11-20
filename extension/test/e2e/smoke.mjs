@@ -31,6 +31,8 @@ async function shot(name) {
 async function step(flow, n, title, fn) {
   // FAILFAST=1 (debugging): after the first failure the remaining steps do not run (and count as not run).
   if (process.env.FAILFAST === "1" && results.some((r) => !r.ok)) return;
+  // ONLY=<flow>[,<flow>] (debugging, or a run on a loaded machine): only those flows' steps run
+  if (process.env.ONLY && !process.env.ONLY.split(",").includes(flow)) return;
   const t0 = Date.now();
   current = { flow, n, title, ok: false, ms: 0, screenshots: [], checks: [] };
   try {
@@ -1387,6 +1389,162 @@ if (seed.dm?.proposal) {
     await shot("dm-dryrun2-empty");
     await closeEditors();
   });
+}
+
+// ---- R: the role views of dry run 1 (userinterface imvprototypes workbench/dryrun1-role-views), on COPIES of real
+// data: test-execution's dryrun1.runs (repo-roles), a stand-in dryrun1.triage signed with this run's test keys, and,
+// with ROLES_COVERAGE, verification's dryrun1-coverage federated read-only. Without ROLES_* the seed makes no
+// repo-roles and these steps do not run. Each figure is compared with the count of test-execution's (or the triage
+// package's) own named query, asked from outside the shell.
+if (seed.roles) {
+  const askR = async (name, bind = []) => {
+    const r = await cockpit(["ask", "sparql", "--name", name, ...bind.flatMap((b) => ["--bind", b]), "--results-json", "--timeout", "120"], undefined, { repo: "repo-roles" });
+    if (r.code !== 0) throw new Error(`${name} failed: ${(r.stderr || r.stdout).split("\n")[0]}`);
+    return JSON.parse(r.stdout).results.bindings.map((b) => Object.fromEntries(Object.entries(b).map(([k, v]) => [k, v.value])));
+  };
+  // the window's queries may take longer than 20 s on real data under load: this folder's timeout is 90 s
+  mkdirSync(`${WORK}/repo-roles/.vscode`, { recursive: true });
+  writeFileSync(`${WORK}/repo-roles/.vscode/settings.json`, JSON.stringify({ "kton.cockpit.timeoutSeconds": 90 }, null, 2));
+  await closeEditors();
+  await page.goto(URL.replace(/folder=[^&]*/, `folder=${encodeURIComponent(`${WORK}/repo-roles`)}`));
+  await page.locator(".monaco-workbench").waitFor({ timeout: 90000 });
+  await views();
+  const christof = () => frameWithSel('[data-composition="dryrun1.roles/christof"]', 90000);
+  const guard = () => frameWithSel('[data-composition^="@workbench/area:dryrun1.roles/"]', 90000);
+  /** The rows of a block as {column: text}, once it has drawn. */
+  async function rowsIn(f, id) {
+    await waitDrawn(f, id);
+    await countIn(f, id);
+    return box(f, id).locator("tbody tr").evaluateAll((trs) => trs.map((tr) => Object.fromEntries([...tr.querySelectorAll("td[data-col]")].map((td) => [td.dataset.col, td.textContent]))));
+  }
+  const waitDrawn = async (f, id, timeout = 120000) => box(f, id).locator("[data-area-table], [data-area-empty], [data-area-error]").first().waitFor({ timeout });
+
+  await step("R", 1, "Christof's view is listed under Views, the guard under QM areas; both from dryrun1.roles", async () => {
+    // Home draws after the window's first poll; on a fresh copy that waits for the index build (the first ask)
+    await row("Views").waitFor({ timeout: 240000 });
+    await page.locator(".monaco-list-row", { hasText: "Christof (test) · dryrun1" }).filter({ hasText: "dryrun1.roles" }).first().waitFor();
+    await page.locator(".monaco-list-row", { hasText: "Guard · dryrun1.triage" }).filter({ hasText: "dryrun1.roles" }).first().waitFor();
+    await shot("r1-home");
+  });
+
+  let runs = [];
+  await step("R", 2, "Christof's figures equal test-execution's own queries (runs, failures, failures-by-class), each stamped", async () => {
+    await page.locator(".monaco-list-row", { hasText: "Christof (test) · dryrun1" }).first().click();
+    const f = await christof();
+    runs = await askR("runs");
+    const failures = await askR("failures");
+    const byClass = await askR("failures-by-class");
+    const fig = await rowsIn(f, "figures");
+    const v = (re) => Number(fig.find((r) => re.test(r.label))?.value);
+    const want = { recorded: runs.length, current: runs.filter((r) => r.status === "current").length, failures: failures.length, byClassSum: byClass.reduce((n, r) => n + Number(r.tests), 0) };
+    check(v(/^runs recorded/) === want.recorded, "runs recorded = rows of runs", want.recorded, v(/^runs recorded/));
+    check(v(/^current runs/) === want.current, "current runs = current rows of runs", want.current, v(/^current runs/));
+    check(v(/^failed, error or soft-failed/) === want.failures && want.failures === want.byClassSum, "failures = rows of failures = sum of failures-by-class", want.failures, v(/^failed, error or soft-failed/));
+    check(fig.every((r) => /dryrun1\.runs/.test(r.stamp ?? "")), "every figure carries its stamp", "dryrun1.runs …", fig.map((r) => r.stamp));
+    await shot("r2-christof-figures");
+  });
+
+  await step("R", 3, "runs overview: one row per run with the robert1 version of its summary, the correction where robert1 answered another", async () => {
+    const f = await christof();
+    const shown = await rowsIn(f, "runs");
+    check(shown.length === runs.length, "one row per run", runs.length, shown.length);
+    for (const r of runs) {
+      const s = shown.find((x) => x.run === r.run);
+      check(!!s && s.version === (r.version ?? "") && /run\.json sha256:/.test(s.stamp), `${r.run}: version ${r.version}, stamped`, r.version, s);
+    }
+    const first = shown.find((x) => x.run === "capture-e2e-robert1-20261120-105114");
+    if (first) check(first.version === "5.0.0-39" && /5\.0\.1-6/.test(first.robert1Answered), "the first capture: summary 5.0.0-39, robert1 answered 5.0.1-6", "5.0.0-39 / 5.0.1-6", first);
+    await shot("r3-runs");
+  });
+
+  await step("R", 4, "failures by class equal test-execution's failures-by-class, row by row", async () => {
+    const f = await christof();
+    const want = (await askR("failures-by-class")).map((r) => `${r.suite}|${r.failureClass}|${r.tests}`).sort();
+    const got = (await rowsIn(f, "byclass")).map((r) => `${r.suite}|${r.failureClass}|${r.tests}`).sort();
+    check(JSON.stringify(got) === JSON.stringify(want), "the same classes and counts", want, got);
+  });
+
+  await step("R", 5, "a failure's history and artifacts equal history-of-test and artifacts-of-test; artifacts show hash and name", async () => {
+    const f = await christof();
+    const failures = await askR("failures");
+    const shown = await rowsIn(f, "failures");
+    check(shown.length === failures.length, "failures = rows of failures", failures.length, shown.length);
+    const pick = failures.find((r) => /ics1829\.spec\.ts#STP-002/.test(r.test)) ?? failures.find((r) => /e2e/.test(r.suite)) ?? failures[0];
+    await box(f, "failures").locator("tbody tr", { hasText: pick.test.slice(0, 60) }).first().click();
+    await box(f, "history").locator("[data-area-table]").first().waitFor({ timeout: 120000 });
+    const hist = await askR("history-of-test", [`test=${pick.test}`]);
+    const h = await rowsIn(f, "history");
+    check(JSON.stringify(h.map((r) => `${r.run}|${r.result}`)) === JSON.stringify(hist.map((r) => `${r.run}|${r.result}`)), "history = history-of-test (run, result, oldest first)", hist.map((r) => `${r.run}|${r.result}`), h.map((r) => `${r.run}|${r.result}`));
+    const arts = await askR("artifacts-of-test", [`test=${pick.test}`]);
+    await waitDrawn(f, "artifacts");
+    const a = await rowsIn(f, "artifacts");
+    check(a.length === arts.length, "artifacts = rows of artifacts-of-test", arts.length, a.length);
+    const withHash = a.filter((r) => /^sha256:[0-9a-f]{12}…$/.test(r.sha256 ?? ""));
+    check(withHash.length === arts.filter((r) => r.sha256).length && withHash.every((r) => r.name && /open comes with the decision-view branch/.test(r.open)), "each artifact: its hash, its name, open comes with the decision-view branch", arts.filter((r) => r.sha256).length, withHash.length);
+    await shot("r5-history-artifacts");
+  });
+
+  await step("R", 6, "the rerun request is a planned act with a notice (no act offered); comparisons equal rerun-compare", async () => {
+    const f = await christof();
+    const t = await boxText(f, "rerun-act");
+    check(/Planned act: request a rerun/.test(t) && /ktonpkg v0\.11\.0/.test(t), "the notice says why it is not offered", "Planned act: …", t);
+    check((await f.locator("[data-act]").count()) === 0, "no act anywhere in Christof's view", 0, await f.locator("[data-act]").count());
+    const want = (await askR("rerun-compare")).length;
+    check((await countIn(f, "reruns")) === want, "comparisons = rows of rerun-compare", want, await countIn(f, "reruns"));
+  });
+
+  await step("R", 8, "the guard: the three rules' findings equal the triage package's own rule queries, read-only", async () => {
+    await closeEditors();
+    await views();
+    await page.locator(".monaco-list-row", { hasText: "Guard · dryrun1.triage" }).first().click();
+    const f = await guard();
+    const own = { 1: "triage-reviewer-not-author", 2: "triage-evidence-vs-reach", 3: "triage-ranked-before-assigned" };
+    const counts = {};
+    for (const [i, q] of Object.entries(own)) {
+      const want = (await askR(q)).map((r) => r.focus).sort();
+      const got = (await rowsIn(f, `findings-${i}`)).map((r) => r.focus);
+      // the rows block shortens a claim's node IRI (sha256:<12>…): compare the same way
+      const short = (x) => (/^https:\/\/kton\.dev\/o\/[0-9a-f]{64}$/.test(x) ? `sha256:${x.slice(19, 31)}…` : x);
+      check(JSON.stringify(got.sort()) === JSON.stringify(want.map(short).sort()), `${q}: the same findings`, want.map(short), got);
+      counts[q] = got.length;
+    }
+    check(counts["triage-reviewer-not-author"] === 1 && counts["triage-evidence-vs-reach"] === 2 && counts["triage-ranked-before-assigned"] === 2, "the stand-in's cases: 1, 2, 2", { a: 1, b: 2, c: 2 }, counts);
+    const t = await boxText(f, "findings-2");
+    check(/· dryrun1\.triage, /.test(t), "each finding is stamped with its scope and date", "· dryrun1.triage, …", t.slice(0, 200));
+    const summary = await rowsIn(f, "records");
+    check(summary.length === 3 && summary.every((r) => /dryrun1\.triage · newest /.test(r.stamp)), "what each rule reads, stamped", 3, summary);
+    check((await f.locator("[data-act]").count()) === 0, "read-only: no act", 0, await f.locator("[data-act]").count());
+    await shot("r8-guard");
+    await closeEditors();
+  });
+
+  if (seed.roles.coverage) {
+    // coverage is a registry of its own (repo-roles-cov, seed.sh says why): the window opens that folder now
+    mkdirSync(`${WORK}/repo-roles-cov/.vscode`, { recursive: true });
+    writeFileSync(`${WORK}/repo-roles-cov/.vscode/settings.json`, JSON.stringify({ "kton.cockpit.timeoutSeconds": 90 }, null, 2));
+    await page.goto(URL.replace(/folder=[^&]*/, `folder=${encodeURIComponent(`${WORK}/repo-roles-cov`)}`));
+    await page.locator(".monaco-workbench").waitFor({ timeout: 90000 });
+    await views();
+    await step("R", 7, "test-side gaps by part (a copy of verification's dryrun1.coverage): REST API pages by 200 from its count", async () => {
+      await page.locator(".monaco-list-row", { hasText: "Christof (test) · dryrun1" }).first().click({ timeout: 60000 });
+      const f = await christof();
+      await waitDrawn(f, "gapsbypart", 150000);
+      const parts = await rowsIn(f, "gapsbypart");
+      const rest = parts.find((r) => r.part === "REST API");
+      check(!!rest && /dryrun1\.coverage · /.test(rest.stamp), "REST API counted, stamped", "REST API …", rest);
+      await waitDrawn(f, "gaps", 150000);
+      const p1 = await rowsIn(f, "gaps");
+      check(p1.length === Math.min(200, Number(rest.total)), "page 1: 200 rows", Math.min(200, Number(rest.total)), p1.length);
+      check(p1.every((r) => /^(test runs it, no check|code exists, no test)$/.test(r.cause ?? "")), "each with its cause");
+      await box(f, "gaps").locator("[data-page-next]").click();
+      await box(f, "gaps").locator('[data-pager][data-page="2"]').waitFor({ timeout: 150000 });
+      const p2 = await rowsIn(f, "gaps");
+      check(p2.length > 0 && p2[0].element > p1[p1.length - 1].element, "page 2 starts after page 1's last element", p1[p1.length - 1].element, p2[0]?.element);
+      await shot("r7-test-gaps");
+      await closeEditors();
+    });
+  }
+
 }
 
 await browser.close();

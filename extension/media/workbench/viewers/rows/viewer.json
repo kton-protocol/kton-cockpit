@@ -24,7 +24,9 @@
   "match": "literal",
   "card": "literal",
   "emptyText": "literal",
-  "atLeast": "literal"
+  "atLeast": "literal",
+  "page": "literal",
+  "pageSize": "literal"
  },
  "emits": {
   "select": {

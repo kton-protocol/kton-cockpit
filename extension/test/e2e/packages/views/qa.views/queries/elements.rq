@@ -1,0 +1,3 @@
+# One page of elements of a part ($part), after the element $after, two per page.
+PREFIX qa: <https://example.org/qa/>
+SELECT ?element ?stamp WHERE { ?c qa:part ?p ; qa:element ?element ; qa:stamp ?stamp . FILTER(STR(?p) = STR($part)) FILTER(STR(?element) > STR($after)) } ORDER BY ?element LIMIT 2
