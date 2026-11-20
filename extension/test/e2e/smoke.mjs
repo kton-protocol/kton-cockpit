@@ -1432,10 +1432,19 @@ if (seed.roles) {
   await page.goto(URL.replace(/folder=[^&]*/, `folder=${encodeURIComponent(`${WORK}/repo-roles`)}`));
   await page.locator(".monaco-workbench").waitFor({ timeout: 90000 });
   await views();
+  // kton-cockpit (20.11.): every say and federation pull invalidates the kept view; the first asks after it wait for one
+  // cold build (12–17 s here, longer under load). One ask from the sidecar builds it before a window opens a view, so
+  // the window's parallel first asks do not each wait into their timeouts (not a slow query: warm asks take ~0.65 s).
+  const warmIndex = async () => {
+    const t0 = Date.now();
+    await cockpit(["ask", "sparql", "--name", "runs", "--results-json", "--timeout", "120"], undefined, { repo: "repo-roles" });
+    current?.checks?.push({ ok: true, message: `index warmed by one sidecar ask (${((Date.now() - t0) / 1000).toFixed(1)} s)` });
+  };
   const christof = async () => {
     try {
       return await frameWithSel('[data-composition="dryrun1.roles/christof"]', 15000);
     } catch {
+      await warmIndex();
       await views();
       await page.locator(".monaco-list-row", { hasText: "Christof (test) · dryrun1" }).first().click({ timeout: 60000 });
       return frameWithSel('[data-composition="dryrun1.roles/christof"]', 90000);
@@ -1570,6 +1579,7 @@ if (seed.roles) {
   async function standinAnswer(template, about, fields) {
     const r = await cockpit(["say", JSON.stringify({ template, subject: about, scope: "dryrun1.runs", as: "standin-test-execution", fields })], undefined, { repo: "repo-roles" });
     if (r.code !== 0) throw new Error(`stand-in ${template} failed: ${(r.stderr || r.stdout).split("\n")[0]}`);
+    await warmIndex();
     current.checks.push({ ok: true, message: `STAND-IN for test-execution: ${template} about ${about.slice(0, 19)}… signed by standin-test-execution (throwaway key of this run)` });
   }
   const sha = (iri) => `sha256:${iri.replace(/^https:\/\/kton\.dev\/o\//, "")}`;
@@ -1739,6 +1749,7 @@ if (seed.roles) {
 
     await step("R", 9, "Wolfgang's view: counts with query, scope and stamp (first vs any code match as two rows), per part × area, per spec paged, one spec's gaps, spec/code differs, spec decisions, open spec questions by owner (stand-in row) opening the spec at its commit", async () => {
       await views();
+      await warmIndex();
       await page.locator(".monaco-list-row", { hasText: "Wolfgang (spec) · dryrun1" }).first().click({ timeout: 60000 });
       const wolfgang = () => frameWithSel('[data-composition="dryrun1.roles/wolfgang"]', 90000);
       let f = await wolfgang();
@@ -1798,6 +1809,7 @@ if (seed.roles) {
 
   await step("R", 10, "Gregor's view: a review item opens the reviewed commit's diff read-only from the persona lane's clone, its verdict's approved commit flagged stale when the approved files changed; product-side failures equal test-execution's failures whose class or cause names a product cause", async () => {
     await views();
+    await warmIndex();
     await page.locator(".monaco-list-row", { hasText: "Gregor (dev + review) · dryrun1" }).first().click({ timeout: 60000 });
     const f = await frameWithSel('[data-composition="dryrun1.roles/gregor"]', 90000);
     const t = await boxText(f, "queue");
