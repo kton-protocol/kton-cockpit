@@ -132,7 +132,7 @@ export class CliTransport implements Transport {
     if (why) return bad(why);
     if (!SHA.test(req.subject)) {
       // an IRI subject (an element, a rule case): the JSON form, which takes one (the word form does not, cockpit v0.5.x)
-      return this.outcome(["say", JSON.stringify({ template: req.template, subject: req.subject, fields: req.fields ?? {}, ...(req.as !== undefined ? { as: req.as } : {}), ...(req.scope !== undefined ? { scope: req.scope } : {}) })], assertSayResult);
+      return this.outcome(["say", JSON.stringify({ template: req.template, subject: req.subject, fields: req.fields ?? {}, ...(req.as !== undefined ? { as: req.as } : {}), ...(req.scope !== undefined ? { scope: req.scope } : {}), ...(req.expectTemplate ? { expectTemplate: req.expectTemplate } : {}), ...(req.expectRevision ? { expectRevision: req.expectRevision } : {}), ...(req.expectPredicate ? { expectPredicate: req.expectPredicate } : {}) })], assertSayResult);
     }
     const args = ["say", req.template, req.subject];
     for (const k of Object.keys(req.fields ?? {}).sort()) args.push(`${k}=${(req.fields ?? {})[k] ?? ""}`);

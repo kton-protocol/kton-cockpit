@@ -1216,7 +1216,7 @@ if (seed.dm?.proposal) {
     const item = await card.getAttribute("data-target");
     await card.locator('[data-testid="card-0-second-model-right"]').click();
     const d = await dialog();
-    for (const s of ["verdict = second-model-right", "Meaning: reviewed", 'person key "qa-decider"']) await d.getByText(s, { exact: false }).first().waitFor({ timeout: 15000 });
+    for (const s of ["verdict = second-model-right", "Act: reviewed (the control's meaning, not a field of the claim)", 'person key "qa-decider"']) await d.getByText(s, { exact: false }).first().waitFor({ timeout: 15000 });
     await signInDialog(d);
     await d.locator('[data-testid="sign-outcome"][data-state="signed"]').waitFor({ timeout: 60000 });
     await shot("dm-spotcheck-dialog");
