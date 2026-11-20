@@ -63,8 +63,12 @@ docker run --rm -u "$UIDGID" -v "$WORK:$WORK" -v "$HERE/seed.sh:/seed.sh:ro" \
 
 # S7: one stand-in that answers through the real cockpit unless $WORK/faults/mode says otherwise.
 # Listings (say --json) always pass through: the shell keeps reading its templates.
+# TRANSPORT=stdio: the window runs "cockpit-faults serve --stdio", which hands the connection to stdio-faults.mjs, a
+# proxy in front of the real "cockpit serve --stdio" that injects the same faults per method (code-server's node runs it).
+cp "$HERE/stdio-faults.mjs" "$WORK/bin/stdio-faults.mjs"
 cat > "$WORK/bin/cockpit-faults" <<EOF
 #!/bin/sh
+if [ "\$1" = serve ]; then exec /usr/lib/code-server/lib/node "$WORK/bin/stdio-faults.mjs" "$WORK" "\$@"; fi
 MODE=\$(cat "$WORK/faults/mode" 2>/dev/null || echo normal)
 if [ "\$1" = say ] && [ "\${2:-}" != --json ]; then
   case "\$MODE" in
@@ -72,6 +76,7 @@ if [ "\$1" = say ] && [ "\${2:-}" != --json ]; then
     say-garbage) echo "this is not json"; exit 0;;
     say-slow) sleep 120; exec /usr/local/bin/cockpit "\$@";;
     say-locked) if [ -e "$WORK/faults/registry.lock" ]; then echo '{"code":"store.busy","clause":"store","reason":"the registry is busy (git lock held); nothing was signed"}'; exit 2; fi;;
+    say-gone) kill -9 \$\$;;
     say-pending) /usr/local/bin/cockpit "\$@" | sed '0,/{/s//{"pending":{"code":"store.busy","reason":"the registry was busy; the next write commits it"},/'; exit 0;;
   esac
 fi
@@ -134,7 +139,7 @@ i=0; until curl -sf "http://127.0.0.1:$PORT/healthz" >/dev/null; do i=$((i+1)); 
 echo "== playwright (npm ci from the committed lockfile)"
 cp "$HERE/package.json" "$HERE/package-lock.json" "$HERE/smoke.mjs" "$HERE/runrecord.mjs" "$WORK/pw/"
 RC=0
-docker run --rm --network host -u "$UIDGID" -e HOME=/tmp -e CS_URL="http://127.0.0.1:$PORT/?folder=$WORK/repo" -e OUT=/out -e FAILFAST="${FAILFAST:-0}" \
+docker run --rm --network host -u "$UIDGID" -e HOME=/tmp -e CS_URL="http://127.0.0.1:$PORT/?folder=$WORK/repo" -e OUT=/out -e FAILFAST="${FAILFAST:-0}" -e TRANSPORT="${TRANSPORT:-cli}" \
   -e WORK="$WORK" -v "$WORK:$WORK" -v "$OUTDIR:/out" -w "$WORK/pw" "$PW_IMAGE" \
   sh -c "npm ci --no-audit --no-fund >/dev/null && node smoke.mjs" || RC=$?
 

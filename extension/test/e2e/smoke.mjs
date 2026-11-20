@@ -880,6 +880,11 @@ await step("S7", 3, "say times out: the dialog says signing failed; the registry
   const text = await d.locator('[data-testid="sign-outcome"]').textContent();
   check(/registry/.test(text), "the dialog sends the reader to the registry", "…the registry…", text);
   check((await p4Person()).length === 0, "the registry has no claim from the timed-out say", 0, (await p4Person()).length);
+  if (process.env.TRANSPORT === "stdio") {
+    // over cockpit serve --stdio the window cancels the request (SPEC §12.5): stdio-faults.mjs saw the $/cancelRequest
+    const seen = existsSync(`${WORK}/faults/stdio.log`) ? readFileSync(`${WORK}/faults/stdio.log`, "utf8") : "";
+    check(/"fault":"say-slow","cancelled":/.test(seen), "the timed-out say was cancelled with $/cancelRequest", "cancelled", seen.split("\n").filter((l) => l.includes("say-slow")));
+  }
   await shot("s7-timeout");
   await clearToasts();
 });
@@ -916,6 +921,26 @@ await step("S7", 8, "say answers pending store.busy: shown as signed, not yet co
   faults("normal");
   const dec = (await decidesAbout(P5)).filter((x) => x.s === PERSON);
   check(dec.length === 1 && dec[0].choice === "a", "exactly one decides by the person key: the pending claim was not signed again", 1, dec.length);
+  await clearToasts();
+});
+
+await step("S7", 9, "the cockpit process is gone during a say: Not signed; no claim; the next poll recovers", async () => {
+  const opts = JSON.stringify([{ id: "a", label: "Yes" }, { id: "b", label: "No" }]);
+  const made = await cockpit(["say", "proposes", seed.scope, "area=qa", "title=Signed while the cockpit died", "text=t", "why=e2e S7.9", `options=${opts}`, "--as", "qa-requestor", "--scope", "lanes", "--json"]);
+  check(made.code === 0, "the proposal is made", 0, made.code);
+  const P6 = JSON.parse(made.stdout).claimId;
+  await row("Signed while the cockpit died").waitFor({ timeout: 30000 });
+  faults("say-gone");
+  const d = await chooseOnPanel("Signed while the cockpit died", "a");
+  await signInDialog(d);
+  await toast(/Not signed: .*Whether a claim was made is for the registry to say/).waitFor({ timeout: 15000 });
+  await d.locator('[data-testid="sign-outcome"][data-state="failed"]').waitFor();
+  await shot("s7-gone");
+  faults("normal");
+  check((await decidesAbout(P6)).filter((x) => x.s === PERSON).length === 0, "no claim", 0, (await decidesAbout(P6)).length);
+  // the next poll starts the cockpit again (over stdio: a new serve process) and the window is fresh
+  await page.waitForTimeout(4500);
+  await status().getByText(/polling: inbox every 2s .* cockpit-faults$/).waitFor({ timeout: 30000 });
   await clearToasts();
 });
 
