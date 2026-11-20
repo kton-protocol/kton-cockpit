@@ -37,6 +37,8 @@ export interface UiHost {
   showPanel(key: string, title: string, html: string, onMessage?: (msg: unknown) => void, reveal?: boolean): void;
   /** The keys of the panels shown with showPanel that are still open. */
   openPanels(): string[];
+  /** Open a file as it was at a commit, read-only (kton-src), at its line; says what was opened or why not. */
+  openSource?(t: import("./sources.js").SourceTarget): Promise<string>;
   /**
    * The sign dialog for a person-key signature (C1.4, O1): resolves true only after the person ticked
    * "I know I sign this now as <person>" and pressed Sign with a deliberate act. Enter, Escape and

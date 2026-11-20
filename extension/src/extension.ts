@@ -7,6 +7,7 @@ import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { inside, writeTree } from "./packages/store.js";
+import { readAtCommit, sourceUri, SRC_SCHEME, targetOf, type SourceTarget } from "./ui/sources.js";
 
 const STALE_TITLE = " (stale: the last poll failed)";
 import { compositionPage, leafPage } from "./composition/page.js";
@@ -59,6 +60,15 @@ class Tree implements vscode.TreeDataProvider<TreeNode> {
 }
 
 class VsHost implements UiHost {
+  async openSource(t: SourceTarget): Promise<string> {
+    const r = await readAtCommit(vscode.workspace.getConfiguration("kton").get<string>("sources.dir") ?? "", t);
+    if (!("bytes" in r)) return r.why;
+    const u = sourceUri(t);
+    const doc = await vscode.workspace.openTextDocument(vscode.Uri.from({ scheme: SRC_SCHEME, path: u.path, query: u.query, fragment: u.fragment }));
+    const line = Math.max(0, (t.line ?? 1) - 1);
+    await vscode.window.showTextDocument(doc, { preview: true, selection: new vscode.Range(line, 0, line, 0) });
+    return `Opened ${t.repo}:${t.path}${t.line ? `#L${t.line}` : ""} at ${t.commit.slice(0, 12)} (read-only)`;
+  }
   private readonly status = new Map<StatusId, vscode.StatusBarItem>();
   private readonly panels = new Map<string, vscode.WebviewPanel>();
   /** The latest handler per panel: a rebuilt workbench (changed setting) takes over open panels. */
@@ -339,6 +349,15 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
   }
   ctx.subscriptions.push(
     vscode.window.registerTreeDataProvider("ktonWorkbench.home", host.trees.home),
+    // evidence on demand: files as they were at a commit, from the local mirrors, read-only (no worktree)
+    vscode.workspace.registerTextDocumentContentProvider(SRC_SCHEME, {
+      provideTextDocumentContent: async (uri) => {
+        const t = targetOf({ path: uri.path, query: uri.query, fragment: uri.fragment });
+        if (typeof t === "string") return `not shown: ${t}`;
+        const r = await readAtCommit(vscode.workspace.getConfiguration("kton").get<string>("sources.dir") ?? "", t);
+        return "bytes" in r ? r.bytes.toString("utf8") : r.why;
+      },
+    }),
     vscode.window.registerTreeDataProvider("ktonWorkbench.inbox", host.trees.inbox),
     vscode.window.registerTreeDataProvider("ktonWorkbench.lanes", host.trees.lanes),
     ...workbenchCommands(() => wb).map(([id, run]) => vscode.commands.registerCommand(id, run as (...args: unknown[]) => unknown)),

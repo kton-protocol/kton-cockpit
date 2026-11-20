@@ -11,6 +11,7 @@ import { DialogConsent, meaningField, plan, sign, templateFor, FOOTER } from "..
 import type { UiEntry, SlotContext } from "../intents.js";
 import { checkIntent } from "../intents.js";
 import { Scheduler } from "../poll.js";
+import { sourceTarget } from "./sources.js";
 import { PackagesArea, SLOT_CMD, type ExpectRevision } from "../composition/area.js";
 import type { Subject } from "../composition/slots.js";
 import type { Control, MirrorPackage, ViewerTree } from "../packages/model.js";
@@ -139,7 +140,16 @@ export class Workbench {
     this.packages = new PackagesArea(t, host, {
       act: (c, about, fields, title, expect, into) => this.signAct(c, about, fields, title, expect, into),
       person: () => ({ keyId: this.identity.person.keyId, personTiers: this.cfg.personTiers }),
-      open: async (target) => this.openTarget(target),
+      // open@1: a source at a commit (read-only, kton-src), a run artifact, or a claim this window knows
+      open: async (target) => {
+        if (target["source"] !== undefined) {
+          const t = sourceTarget(target["source"]);
+          if (typeof t === "string") return `not opened: ${t}`;
+          return this.host.openSource ? this.host.openSource(t) : "source not available on this host";
+        }
+        if (target["artifact"] !== undefined) return "no artifact for this run (run artifacts are not joined yet)";
+        return this.openTarget(target);
+      },
       identityName: () => this.identity.hintName,
     }, cfg.vendoredViewers, cfg.builtinPackage);
     this.surface = cfg.surfaces.some((s) => s.name === cfg.initialSurface) ? (cfg.initialSurface as string) : ALL;
