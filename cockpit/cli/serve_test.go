@@ -25,6 +25,50 @@ type serveClient struct {
 	w  io.Writer
 	r  *bufio.Reader
 	id atomic.Int64
+	// events are the notifications read while waiting for an answer, in order.
+	events []serveEvent
+}
+
+type serveEvent struct {
+	Method string          `json:"method"`
+	Params json.RawMessage `json:"params"`
+}
+
+// readOne reads the next message; a notification is kept in events and reported as such.
+func (c *serveClient) readOne() (body []byte, notification bool) {
+	c.t.Helper()
+	body, err := frontrpc.ReadMessage(c.r)
+	if err != nil {
+		c.t.Fatal(err)
+	}
+	var probe struct {
+		ID     json.RawMessage `json:"id"`
+		Method string          `json:"method"`
+	}
+	if json.Unmarshal(body, &probe) == nil && len(probe.ID) == 0 && probe.Method != "" {
+		var e serveEvent
+		_ = json.Unmarshal(body, &e)
+		c.events = append(c.events, e)
+		return body, true
+	}
+	return body, false
+}
+
+// waitEvent reads until a notification of method arrives and returns the events read up to it.
+func (c *serveClient) waitEvent(method string) []serveEvent {
+	c.t.Helper()
+	for i := 0; ; i++ {
+		for j, e := range c.events {
+			if e.Method == method {
+				got := c.events[:j+1]
+				c.events = append([]serveEvent(nil), c.events[j+1:]...)
+				return got
+			}
+		}
+		if _, n := c.readOne(); !n {
+			c.t.Fatalf("an answer arrived while waiting for %s", method)
+		}
+	}
 }
 
 type serveReply struct {
@@ -78,9 +122,13 @@ func (c *serveClient) call(method string, params any) serveReply {
 	if err := frontrpc.WriteMessage(c.w, b); err != nil {
 		c.t.Fatal(err)
 	}
-	body, err := frontrpc.ReadMessage(c.r)
-	if err != nil {
-		c.t.Fatal(err)
+	var body []byte
+	for {
+		b, notification := c.readOne()
+		if !notification {
+			body = b
+			break
+		}
 	}
 	var r serveReply
 	if err := json.Unmarshal(body, &r); err != nil {
@@ -348,5 +396,97 @@ func TestServe_ASayRunningAtShutdownIsAnswered(t *testing.T) {
 	}
 	if strings.Join(order, ",") != "1,2,3" || !strings.HasPrefix(said, "sha256:") {
 		t.Errorf("want initialize, the say (with its claim id) and shutdown answered in that order, got %v, claim %q\n%s", order, said, out)
+	}
+}
+
+// With events asked for, a say on the connection is an events/said with what the claim is, then an
+// events/indexMoved once a query sees it; a second connection resuming from the cursor the first one
+// handed out gets what was said in between, and nothing twice (SPEC §12.5).
+func TestServe_EventsNameWhatWasSaidAndResumeFromTheirCursor(t *testing.T) {
+	r := testrepo.New(t)
+	study := r.SeedScope(t, "study")
+	raw := testrepo.DefaultConfig()
+	raw.Claims.AllowedTemplates = append(raw.Claims.AllowedTemplates, "describes")
+	raw.Claims.Scopes = map[string]string{"study": study}
+	r.WriteConfig(t, raw)
+	r.Use(t)
+	c := startServe(t)
+	c.ok("initialize", map[string]any{"root": r.Root, "events": map[string]any{"intervalMs": 500}})
+	said := func(c *serveClient, value string) string {
+		t.Helper()
+		var res struct {
+			ClaimID string `json:"claimId"`
+		}
+		must(t, json.Unmarshal(c.ok("say", map[string]any{"subject": "urn:example:x", "template": "describes", "scope": "study",
+			"fields": map[string]string{"value": value}}), &res))
+		return res.ClaimID
+	}
+	id := said(c, "one")
+
+	got := c.waitEvent("events/indexMoved")
+	var ev struct {
+		IDs    []string `json:"ids"`
+		Claims []struct {
+			ID       string `json:"id"`
+			Scope    *struct{ Seed, Label string }
+			Template string   `json:"template"`
+			About    []string `json:"about"`
+			Signers  []string `json:"signers"`
+		} `json:"claims"`
+		Cursor string `json:"cursor"`
+	}
+	var saidEv *serveEvent
+	for i := range got {
+		if got[i].Method == "events/said" {
+			saidEv = &got[i]
+		}
+	}
+	if saidEv == nil {
+		t.Fatalf("no events/said before events/indexMoved: %+v", got)
+	}
+	must(t, json.Unmarshal(saidEv.Params, &ev))
+	seed := "https://kton.dev/o/" + strings.TrimPrefix(study, "sha256:")
+	// Other claims may share the event (the root scope's registration of the study can land late, as a
+	// second ask showed): the claim said here is found by its id (kton-review T32 on #213).
+	found := false
+	for _, cl := range ev.Claims {
+		if cl.ID != id {
+			continue
+		}
+		found = cl.Scope != nil && cl.Scope.Seed == seed && cl.Scope.Label == "study" && cl.Template == "describes" &&
+			len(cl.About) == 1 && cl.About[0] == "urn:example:x" && len(cl.Signers) == 1
+	}
+	if !found || ev.Cursor == "" || len(ev.IDs) != len(ev.Claims) {
+		t.Errorf("events/said names the claim with its scope, template, subject and signer: %s", saidEv.Params)
+	}
+	var moved struct {
+		Scopes []struct{ Seed, Label string } `json:"scopes"`
+	}
+	must(t, json.Unmarshal(got[len(got)-1].Params, &moved))
+	named := false
+	for _, sc := range moved.Scopes {
+		named = named || sc.Seed == seed
+	}
+	if !named {
+		t.Errorf("events/indexMoved names the scope that changed: %s", got[len(got)-1].Params)
+	}
+
+	// A second connection from the cursor: a claim said while no connection listened is its event.
+	c2 := startServe(t)
+	c2.ok("initialize", map[string]any{"root": r.Root})
+	later := said(c2, "two") // said on a connection without events
+	c3 := startServe(t)
+	c3.ok("initialize", map[string]any{"root": r.Root, "events": map[string]any{"since": ev.Cursor, "intervalMs": 500}})
+	got = c3.waitEvent("events/said")
+	var ev2 struct {
+		IDs []string `json:"ids"`
+	}
+	must(t, json.Unmarshal(got[len(got)-1].Params, &ev2))
+	has := map[string]bool{}
+	for _, x := range ev2.IDs {
+		has[x] = true
+	}
+	if !has[later] || has[id] {
+		t.Errorf("resumed from the cursor: want the claim said since and not the one before it, got %v", ev2.IDs)
 	}
 }
