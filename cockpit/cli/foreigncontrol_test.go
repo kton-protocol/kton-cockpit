@@ -1,0 +1,223 @@
+package cli
+
+import (
+	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/json"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/gitmick/ktonpkg/scope"
+
+	"github.com/kton-protocol/kton-cockpit/cockpit"
+	"github.com/kton-protocol/kton-cockpit/internal/testrepo"
+)
+
+// goodVerticle copies ktonpkg's good verticle to a directory of its own and applies edit to it.
+func goodVerticle(t *testing.T, edit func(dir string)) string {
+	t.Helper()
+	out, err := exec.Command("go", "list", "-m", "-f", "{{.Dir}}", "github.com/gitmick/ktonpkg").Output()
+	if err != nil {
+		t.Fatalf("locating ktonpkg: %v", err)
+	}
+	dst := filepath.Join(t.TempDir(), "src")
+	if err := os.CopyFS(dst, os.DirFS(filepath.Join(strings.TrimSpace(string(out)), "scope", "testdata", "hostile", "good"))); err != nil {
+		t.Fatal(err)
+	}
+	filepath.WalkDir(dst, func(p string, d os.DirEntry, err error) error { // CopyFS keeps the module cache's read-only modes
+		if err == nil {
+			os.Chmod(p, map[bool]os.FileMode{true: 0o755, false: 0o644}[d.IsDir()])
+		}
+		return nil
+	})
+	edit(dst)
+	return dst
+}
+
+func build(t *testing.T, name, label, src string) (dir, head string) {
+	t.Helper()
+	_, key, _ := ed25519.GenerateKey(rand.Reader)
+	return buildInto(t, filepath.Join(t.TempDir(), name), name, label, src, key)
+}
+
+// buildInto builds a revision into dir: into an existing package, the next revision of it.
+func buildInto(t *testing.T, dir, name, label, src string, key ed25519.PrivateKey) (string, string) {
+	t.Helper()
+	if _, _, err := scope.BuildVerticle(dir, name, label, src, key, scope.Options{}); err != nil {
+		t.Fatalf("building %s: %v", name, err)
+	}
+	p, err := scope.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, seal, err := p.Sealed()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return dir, fmt.Sprint(seal.Object["hash"])
+}
+
+func ownerSource(t *testing.T, kind string) string {
+	return goodVerticle(t, func(dir string) {
+		os.WriteFile(filepath.Join(dir, "controls", "rerun-request.json"), []byte(`{"kind":"`+kind+`","say":{"template":"approves"}}`), 0o644)
+	})
+}
+
+// A view that acts on another package's control (ktonpkg v0.9.13) is checked against the owner as
+// installed here: install refuses it until the owner is installed at the revision it pins, refuses a
+// pin to another head, and ui list refuses it once the owner is gone.
+func TestForeignControl_TheOwnerMustBeInstalledAsPinned(t *testing.T) {
+	r := testrepo.New(t)
+	r.Use(t)
+	ctx := context.Background()
+	_, ownerKey, _ := ed25519.GenerateKey(rand.Reader)
+	owner, head := buildInto(t, filepath.Join(t.TempDir(), "runs"), "runs", "v7", ownerSource(t, "record"), ownerKey)
+	view := func(pin string) string {
+		dir, _ := build(t, "review", "v1", goodVerticle(t, func(dir string) {
+			p := filepath.Join(dir, "ui", "compositions", "list.json")
+			b, _ := os.ReadFile(p)
+			s := strings.Replace(string(b), `"empty": "show",`, `"empty": "show",
+     "acts": [{"intent": "record", "control": "rerun-request", "from": {"package": "runs", "at": "v7", "head": "`+pin+`"}, "fields": {}}],`, 1)
+			if s == string(b) {
+				t.Fatal("the composition has no card block to act on")
+			}
+			os.WriteFile(p, []byte(s), 0o644)
+		}))
+		return dir
+	}
+	install := func(dir string) error {
+		_, err := cockpit.New(cockpit.Start{}).Install(ctx, cockpit.InstallRequest{Path: dir, Allow: true})
+		return err
+	}
+
+	if err := install(view(head)); err == nil || !strings.Contains(err.Error(), `the package "runs" is not installed`) {
+		t.Fatalf("the view before its owner: want a refusal naming the owner, got %v", err)
+	}
+	if _, err := cockpit.New(cockpit.Start{}).Install(ctx, cockpit.InstallRequest{Path: owner}); err != nil {
+		t.Fatalf("the owner, installed but not yet admitted: %v", err)
+	}
+	other := "sha256:" + strings.Repeat("e", 64)
+	if err := install(view(other)); err == nil || !strings.Contains(err.Error(), "from pins the head "+other) {
+		t.Fatalf("a pin to another head: want a refusal naming it, got %v", err)
+	}
+	if err := install(view(head)); err != nil {
+		t.Fatalf("the view after its owner: %v", err)
+	}
+	refusals := func() string {
+		t.Helper()
+		stdout, stderr, code := r.CockpitSplit(t, "ui", "list", "--json")
+		var l struct {
+			Packages []struct {
+				Name    string      `json:"name"`
+				Refused []UIRefusal `json:"refused"`
+			} `json:"packages"`
+		}
+		if code != 0 || json.Unmarshal([]byte(stdout), &l) != nil {
+			t.Fatalf("ui list --json (exit %d):\n%s\n%s", code, stdout, stderr)
+		}
+		for _, p := range l.Packages {
+			if p.Name == "review" {
+				b, _ := json.Marshal(p.Refused)
+				return string(b)
+			}
+		}
+		t.Fatalf("no review package listed: %s", stdout)
+		return ""
+	}
+	// The act signs with the owner's template, which say takes only from an admitted package.
+	if got := refusals(); !strings.Contains(got, "runs is installed but not in use") {
+		t.Errorf("with its owner installed but not admitted, ui list refuses the view: %s", got)
+	}
+	if err := install(owner); err != nil {
+		t.Fatalf("admitting the owner: %v", err)
+	}
+	if got := refusals(); got != "[]" {
+		t.Errorf("with its owner installed and admitted, the view is usable: %s", got)
+	}
+	// A later revision of the owner, installed and admitted beside the pinned one, is the one in use:
+	// its control is no longer the record control the view pinned, so the view is refused, and a view
+	// pinned to v7 no longer installs (kton-review F1 on #206).
+	if _, head8 := buildInto(t, owner, "runs", "v8", ownerSource(t, "decision"), ownerKey); head8 == head {
+		t.Fatal("v8 must seal another head")
+	}
+	if err := install(owner); err != nil {
+		t.Fatalf("the owner's v8: %v", err)
+	}
+	if got := refusals(); !strings.Contains(got, "from pins runs@v7; the sealed revision is v8") {
+		t.Errorf("with a later owner revision in use, ui list refuses the view: %s", got)
+	}
+	if err := install(view(head)); err == nil || !strings.Contains(err.Error(), "from pins runs@v7; the sealed revision is v8") {
+		t.Errorf("a view pinned to v7 beside v8: want a refusal at install, got %v", err)
+	}
+	if err := os.RemoveAll(filepath.Join(r.Root, ".kton", "packages", "runs@v8")); err != nil {
+		t.Fatal(err)
+	}
+	if got := refusals(); got != "[]" {
+		t.Errorf("with v8 gone, the view is usable again: %s", got)
+	}
+	if err := os.RemoveAll(filepath.Join(r.Root, ".kton", "packages", "runs@v7")); err != nil {
+		t.Fatal(err)
+	}
+	if got := refusals(); !strings.Contains(got, `the package \"runs\" is not installed`) {
+		t.Errorf("with its owner gone, ui list refuses the view: %s", got)
+	}
+}
+
+// actsOn returns a source whose card block acts on control of the package pin, at v1 with head, and
+// declares its own record control mine-request.
+func actsOn(t *testing.T, pkg, head string) string {
+	return goodVerticle(t, func(dir string) {
+		os.WriteFile(filepath.Join(dir, "controls", "mine-request.json"), []byte(`{"kind":"record","say":{"template":"approves"}}`), 0o644)
+		p := filepath.Join(dir, "ui", "compositions", "list.json")
+		b, _ := os.ReadFile(p)
+		s := strings.Replace(string(b), `"empty": "show",`, `"empty": "show",
+     "acts": [{"intent": "record", "control": "mine-request", "from": {"package": "`+pkg+`", "at": "v1", "head": "`+head+`"}, "fields": {}}],`, 1)
+		os.WriteFile(p, []byte(s), 0o644)
+	})
+}
+
+// Refusing one view can take away the owner of another: with A acting on B's control and B on C's, and
+// C gone, both A and B are refused, not only B (kton-review T29 on #206).
+func TestForeignControl_ARefusedOwnerRefusesItsViewsToo(t *testing.T) {
+	r := testrepo.New(t)
+	r.Use(t)
+	install := func(dir string) {
+		t.Helper()
+		if _, err := cockpit.New(cockpit.Start{}).Install(context.Background(), cockpit.InstallRequest{Path: dir, Allow: true}); err != nil {
+			t.Fatalf("install %s: %v", dir, err)
+		}
+	}
+	c, headC := build(t, "pkgc", "v1", goodVerticle(t, func(dir string) {
+		os.WriteFile(filepath.Join(dir, "controls", "mine-request.json"), []byte(`{"kind":"record","say":{"template":"approves"}}`), 0o644)
+	}))
+	install(c)
+	b, headB := build(t, "pkgb", "v1", actsOn(t, "pkgc", headC))
+	install(b)
+	a, _ := build(t, "pkga", "v1", actsOn(t, "pkgb", headB))
+	install(a)
+	if err := os.RemoveAll(filepath.Join(r.Root, ".kton", "packages", "pkgc@v1")); err != nil {
+		t.Fatal(err)
+	}
+	stdout, stderr, code := r.CockpitSplit(t, "ui", "list", "--json")
+	var l struct {
+		Packages []struct {
+			Name    string      `json:"name"`
+			Refused []UIRefusal `json:"refused"`
+		} `json:"packages"`
+	}
+	if code != 0 || json.Unmarshal([]byte(stdout), &l) != nil {
+		t.Fatalf("ui list --json (exit %d):\n%s\n%s", code, stdout, stderr)
+	}
+	refused := map[string]bool{}
+	for _, p := range l.Packages {
+		refused[p.Name] = len(p.Refused) > 0
+	}
+	if !refused["pkgb"] || !refused["pkga"] {
+		t.Errorf("with C gone, B and A are both refused: %s", stdout)
+	}
+}

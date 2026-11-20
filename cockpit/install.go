@@ -96,6 +96,15 @@ func (c *Cockpit) Install(ctx context.Context, in InstallRequest) (*InstallResul
 	if err != nil {
 		return nil, refuse("package.unsealed", "", "%v — only a sealed revision can be installed, since nothing else fixes what was installed", err)
 	}
+	// An act on another package's control is checked against the owner installed here (ktonpkg v0.9.13):
+	// the owner is installed first, at the revision the act pins, and no later revision of it beside
+	// (that one would be the one in use). Admission is not required here: it is the frontend's ceiling.
+	if installed, err := packages.Installations(cfg.RepoRoot); err != nil {
+		return nil, refuse("io", "", "reading the installed packages: %v", err)
+	} else if probs := packages.ForeignControlProblems(rev, packages.Latest(installed), installed); len(probs) > 0 {
+		return nil, refuse("package.foreign", "", "%s acts on another package's control that is not installed as it pins (%d finding(s)), first: %s",
+			p.Name, len(probs), probs[0])
+	}
 	profile, _ := rev.Profile()
 	if m, ok := module.ForProfile(profile); ok && in.Via != m.Name {
 		return nil, refuse("package.module", "", "%s is a %s package, which the %s module installs: cockpit %s install %s",

@@ -226,6 +226,12 @@ func Usable(repoRoot string, allowed []string) (usable []Installed, refused []Re
 		}
 	}
 	sort.Slice(usable, func(i, j int) bool { return usable[i].Dir < usable[j].Dir })
+	var readable []Installed
+	for _, e := range entries {
+		if e.Err == nil {
+			readable = append(readable, e.Installed)
+		}
+	}
 	var checked []Installed
 	for _, in := range usable {
 		if probs := in.Package.Verify(); len(probs) > 0 {
@@ -233,6 +239,23 @@ func Usable(repoRoot string, allowed []string) (usable []Installed, refused []Re
 			continue
 		}
 		checked = append(checked, in)
+	}
+	// An act on another package's control needs that package in use at the revision it pins (ktonpkg
+	// v0.9.13): its owner is resolved among the packages served here, so a view is refused, not shown
+	// with an act that would sign with another revision's control. Refusing a view can take away the
+	// owner of another, so this runs until nothing more is refused.
+	for changed := true; changed; {
+		changed = false
+		var kept []Installed
+		for _, in := range checked {
+			if probs := ForeignControlProblems(in.Revision, checked, readable); len(probs) > 0 {
+				refused = append(refused, Refused{Source: source(in), Reason: "acts on another package's control: " + probs[0]})
+				changed = true
+				continue
+			}
+			kept = append(kept, in)
+		}
+		checked = kept
 	}
 	if len(broken) > 0 {
 		for _, id := range allowed {

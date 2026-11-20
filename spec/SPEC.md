@@ -280,6 +280,18 @@ is listed with `refused` `package.unusable` and why. A package whose member name
 its folder (a `..` segment, an absolute or drive path, a backslash) fails its check, whatever signed it,
 and install refuses it.
 
+A composition's act MAY say another package's control, pinned to that package's sealed revision
+(`from: {package, at, head}`, ktonpkg v0.9.13). Only the form is checked when the package is built; the
+rest is checked here, against the owner revision that would be used, and fails closed: the pinned
+revision must be that one, its seal must name the pinned head, the control must be in it and of the kind
+the act's intent needs, and every field the act fills must be one of the control's templates' fields.
+Install MUST refuse the package (`package.foreign`) unless this holds for the latest installed revision of
+the owner; so the owner is installed first, and a later revision installed beside the pinned one fails it.
+A frontend MAY use such a package only while it holds for the owner among the packages a frontend may use
+(admitted, the latest revision, one per name, passing its check): the act signs with that revision's
+template. Otherwise `ui list` refuses it as `package.unusable`, naming the act and what is missing; refusing
+one view can take away another's owner, so this is decided until nothing more is refused.
+
 For a package a frontend may use, `ui list` also lists its `members` (the sealed revision's parts, each
 `{role, name, hash}`), gives each composition its `hash`, and names a `ui` entry by its path
 (`ui/<name>.json`). `ui cat <package> <hash>` writes a member's bytes to stdout; `ui cat <package>
@@ -292,7 +304,8 @@ that names two packages, so a frontend never reads a package folder.
 > `TestUIList_ListsAVerticlesUIBlocksAndCompositions`, `TestAllowed_ABrokenUnadmittedPackageTakesNothingAway`,
 > `TestUICat_ServesAMembersBytesAndNothingElse`, `TestUICat_OnlyUsablePackagesAndByNameDirOrID`,
 > `TestUICat_AReferenceNamingTwoPackagesIsRefused`, `TestUICat_SeveralMembersInOneCall`,
-> `TestUIList_MembersOnlyForUsablePackages`, `TestUIList_APackageWithAClimbingMemberNameIsRefused`.
+> `TestUIList_MembersOnlyForUsablePackages`, `TestUIList_APackageWithAClimbingMemberNameIsRefused`,
+> `TestForeignControl_TheOwnerMustBeInstalledAsPinned`, `TestForeignControl_ARefusedOwnerRefusesItsViewsToo`.
 
 ### 6.1 Which kernel
 
