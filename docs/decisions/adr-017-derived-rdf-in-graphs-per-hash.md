@@ -68,9 +68,11 @@ cockpit signs no statement of its own (SPEC §13).
 - **The media type chooses the parser.** `--as` names it; without it, the file extension does (`.ttl`,
   `.nt`, `.rdf` / `.owl`, `.jsonld`), and a file with none of them is refused. A wrong media type fails to parse
   and loads nothing.
-- **Nothing is signed.** A load is not a record and not a claim. It is index state, like the index itself:
-  derived, local to this machine, and gone with a rebuild until loaded again (section 9). Who loaded what is
-  not attested; where the content came from is what its hash says (section 3).
+- **Nothing is signed.** A load is not a record and not a claim. The checkout keeps a local list of what it
+  loaded (section 9), never shared and never signed, from which the index loads it again after a rebuild. Who
+  loaded what is not attested; where the content came from is what its hash says (section 3).
+- **RDF/XML with entity declarations is refused.** A DTD's nested entities expand without bound while the
+  engine parses; a file with `<!ENTITY` is not read.
 - **Marking a file is a claim.** Anyone who wants to say that a file is to be read as RDF, or that a graph is
   the one that counts, says a claim about its hash. A load does not need one, and a claim does not load.
 - **Under the limits** (section 6).
@@ -92,7 +94,8 @@ cockpit signs no statement of its own (SPEC §13).
 - **What ties a graph to a foton is already in the index:** a foton's record that produced the file says
   `https://kton.dev/o/<hex> prov:wasGeneratedBy <foton>`. The index keeps a catalogue per repository,
   `urn:kton:loaded:<repository>`, listing the graphs loaded for it, each with the path or hash it was loaded
-  from, its media type and when. That catalogue is index metadata, like the registry graphs of ADR-012. It is
+  from, its media type, its triple count and when. `<repository>` is a digest of the repository's resolved
+  root on this machine: the index is per machine, and so is the catalogue. That catalogue is index metadata, like the registry graphs of ADR-012. It is
   not added to the derived data.
 
 ### 3 Evidence levels, checked rather than assumed
@@ -104,7 +107,9 @@ cockpit signs no statement of its own (SPEC §13).
 - **Claim:** a signed statement, in the claim view (section 4).
 
 A reader or a guard checks for the producing foton (`?g prov:wasGeneratedBy ?f` with `?f` in the view); it
-never infers one from the graph being loaded.
+never infers one from the graph being loaded. A file that asserts its own producer (`<its own IRI>
+prov:wasGeneratedBy …` among its triples) stays hash only: those triples are in its own graph, never in the
+view the check reads.
 
 ### 4 Claims stay apart
 
@@ -122,24 +127,22 @@ never infers one from the graph being loaded.
 - **Dataset:** the view as the default graph, as today. The **graphs loaded for the repository are the named
   graphs**.
   A query with no `GRAPH` pattern answers exactly as it does today.
-- **How the view's set is enforced, and what it costs:** ADR-013 found that *listing* thousands of graphs per
-  request is slow, because the engine evaluates one listed graph at a time. Derived graphs are one per *file*,
-  not one per row, but there can still be thousands: 4,013 in the store measured above, where queries over all
-  of them with `GRAPH ?g` and no list took 7–170 ms. So the loaded graphs are not listed per request.
-  The query is rewritten to join each `GRAPH ?g` with the repository's catalogue (`?g` listed in
-  `urn:kton:loaded:<repository>`). Measured on the same 4,013 graphs (ai1, Oxigraph 0.5.13, median of 5 runs):
-  - with a view of 10% of the graphs, the catalogue join is *faster* than the unrestricted query: 2.5–4.5 ms
-    against 7.6–16.4 ms, because it filters early;
-  - at the full view it costs at most 1.7x: 14.7–22.6 ms against 10.5–13.5 ms;
-  - listing the graphs per request (`VALUES ?g` or `FROM NAMED`) is 2.5–4x slower at large views, and the
-    query text grows by about 80 bytes per graph (about 330 KB for 4,013).
-
-  Result counts matched in every case. The catalogue graph itself is never in the catalogue. At a much larger
-  scale this is measured again. If it is then slow, the fallback is a per-view union graph of derived triples,
-  with the hash kept as `nk:inGraph` on each subject, as an amendment to this ADR.
+- **How the repository's set is enforced, and what it costs:** the loaded graphs are **listed per request**
+  as the dataset's named graphs (`named-graph-uri`). A rewrite that joins `GRAPH ?g` with the catalogue
+  instead would need the request to leave the named graphs open, and on Oxigraph 0.5.13 a request that names no
+  dataset sees every graph of the store, every other view's included (kton-review D1): confinement would then
+  rest on the rewrite alone. Listing costs more at large counts. Measured on 4,013 graphs (ai1, Oxigraph
+  0.5.13, median of 5 runs), listing is 2.5–4x slower than the unrestricted query at large views (35.5–43.8 ms
+  against 10.5–13.5 ms), and the request grows by about 80 bytes per graph (about 330 KB for 4,013). That is
+  milliseconds, and the dry runs load tens of files. If it is ever slow, the fallback is a per-repository union
+  graph of loaded triples with the hash kept as `nk:inGraph` on each subject, as an amendment to this ADR.
 - **Ask and poll stay cheap.** A hash is loaded once, when someone loads it, and never again: the content cannot
-  change under a hash. A query does no derived work beyond reading the catalogue.
-- **Answers say what they covered:** `ask sparql` reports how many loaded graphs the dataset held (SPEC §9.9).
+  change under a hash. A query does no derived work beyond reading the catalogue, and the load list when the
+  index was rebuilt (section 9).
+- **Answers say what they covered:** `ask sparql` reports how many loaded graphs the dataset held, and how many
+  on the load list could not be loaded again (SPEC §9.9).
+- **Only the caller's catalogue counts,** also when another repository on this machine is the caller's
+  federation source: a source's loads are its own.
 
 ### 6 Limits, and opt-in
 
@@ -166,22 +169,32 @@ each was loaded and from which path, and a foton, where there is one, says which
 person decides which version holds, that decision is a claim about the hash. `cockpit load --drop <sha256>`
 removes a graph from the repository's catalogue.
 
-### 9 Loading and rebuilding
+### 9 Loading, and the load list
 
-- **In bulk:** `cockpit load` takes several files in one call; they go to the store as one N-Quads request.
-- **A rebuild drops what was loaded.** The index stays derived: rebuilding it from the registries does not
-  bring loaded graphs back, because nothing records them outside the index. Whoever loaded them loads them
-  again, by hand or by the script that loaded them first. `cockpit load --list` says what is loaded, so a
-  script can see what is missing.
+- **One request per file:** each file is a graph store `PUT` of its own. Several files in one N-Quads request
+  would merge their blank nodes, which are labelled per file (kton-review D2).
+- **The checkout keeps a load list** (`.kton/local/loaded.json`: each hash, the path or hash it was loaded from,
+  and its media type), local and never shared, like the identity beside it. It is not a record and is not
+  signed. *(This replaces "a rebuild drops what was loaded", kton-review D3: rebuilds also happen without anyone
+  choosing them, on an image or schema change or a cleared cache, and an index whose deletion changes an answer
+  breaks SPEC §13.)*
+- **After a rebuild the index loads again from the list:** when a query finds a hash of the list missing from
+  the catalogue, it reads the file again, checks it against the hash and loads it. A file that is gone or
+  changed is not loaded and is counted in the answer (section 5); `cockpit load --list` names it.
+- `--drop` takes a hash off the list and out of the catalogue.
 
 ### 10 What stays
 
 - **ADR-012, section 1** changes in one point: the index now also holds **content a person loaded**, verified
   against its hash. Everything else holds:
-  - the index is derived (what it holds from the registries is rebuildable from them; what was loaded is loaded
-    again), never authoritative, and never consulted by the binding guard;
+  - the index is derived (rebuildable from the registries and, for what was loaded, from the checkout's load list
+    and the files it names), never authoritative, and never consulted by the binding guard;
   - it stores no trust tier;
   - it says where an answer came from.
+- **SPEC §13** holds: deleting the index changes no answer, as long as the files on the load list are where it
+  says; a file that is not is reported, not silently missing.
+- **`index.kind` none and memory** have no store to load into: `cockpit load` is refused there, and a query
+  there has no named graphs.
 - **The kernel does not change.** The triples live in the index, not in plankton or nekton. Vocabularies such
   as a domain ontology remain a perspective layer, never part of the substrate.
 - **Batch claims** remain a separate track, for what really is a claim.
@@ -193,8 +206,8 @@ removes a graph from the repository's catalogue.
   source visible.
 - Content is now part of what the index holds: the cache grows with the derived data, and a rebuild re-reads the
   bytes.
-- Loading is a step someone takes: a script that wants its result queryable runs `cockpit load` on it, and loads
-  it again after an index rebuild.
+- Loading is a step someone takes: a script that wants its result queryable runs `cockpit load` on it once; the
+  checkout remembers it, and the index loads it again after a rebuild as long as the file is where it was.
 - SPEC: §9.9 (the dataset), §12.4 (what the index holds), the `load` command, and the configuration schema
   (`index.derived`).
 
@@ -206,4 +219,5 @@ removes a graph from the repository's catalogue.
   graphs as an inline query is.
 - **Limits:** 64 MiB per file, 50 million triples per repository, off by default (`index.derived.enabled`).
 - **Loading is a cockpit action, nothing is signed** (amended the same day): `cockpit load`, automated however
-  one likes; a rebuild needs it again; marking a file, if wanted, is a claim.
+  one likes; marking a file, if wanted, is a claim. After kton-review's reading, the checkout keeps an unsigned
+  local load list the index reloads from after a rebuild, rather than losing the loads (section 9, D3).
