@@ -11,9 +11,10 @@ import { inside, writeTree } from "./packages/store.js";
 const STALE_TITLE = " (stale: the last poll failed)";
 import { compositionPage, leafPage } from "./composition/page.js";
 import { loadVendored } from "./packages/vendored.js";
+import { loadBuiltin } from "./composition/qm-area.js";
 import { startMermaidServer } from "./composition/mermaid-server.js";
 import type { Subject } from "./composition/slots.js";
-import type { LeafViewer, LoadedViewer, ViewerTree } from "./packages/model.js";
+import type { LeafViewer, LoadedViewer, MirrorPackage, ViewerTree } from "./packages/model.js";
 import { CliTransport } from "./transport/cli.js";
 import { claimKeyId, readIdentityHint, type WindowIdentity } from "./identity.js";
 import type { DoctorReport } from "./transport/port.js";
@@ -242,6 +243,7 @@ class VsHost implements UiHost {
 let wb: Workbench | undefined;
 /** The viewers vendored from kton-web, read and tree-hashed once (src/packages/vendored.ts). */
 let vendored: ReadonlyMap<string, ViewerTree> = new Map();
+let builtin: MirrorPackage | undefined;
 /** Builds are numbered: a setting changed twice in a row starts two, and only the last may run. */
 let generation = 0;
 
@@ -292,6 +294,7 @@ async function build(host: VsHost): Promise<void> {
     ...DEFAULT_CONFIG,
     personTiers: cfg.get<string[]>("identity.personTiers") ?? [],
     vendoredViewers: vendored,
+    ...(builtin ? { builtinPackage: builtin } : {}),
     pollSeconds: Math.max(1, cfg.get<number>("poll.seconds") ?? 30),
     cockpitLabel: executable.split(/[\\/]/).pop() ?? executable,
     surfaces,
@@ -303,6 +306,7 @@ async function build(host: VsHost): Promise<void> {
 
 export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
   vendored = loadVendored(join(ctx.extensionUri.fsPath, "media", "kton-web"));
+  builtin = loadBuiltin(join(ctx.extensionUri.fsPath, "media", "workbench"));
   const host = new VsHost(ctx);
   // H13: the sandboxed Mermaid frame from 127.0.0.1, reached through asExternalUri; without it diagrams say why
   try {

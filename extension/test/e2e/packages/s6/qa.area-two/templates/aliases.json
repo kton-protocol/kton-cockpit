@@ -1,0 +1,15 @@
+{
+ "schema": "https://kton.dev/aliases/v0",
+ "prefixes": {"qa": "https://example.org/qa/"},
+ "terms": {
+  "identifier": "qa:identifier",
+  "supplier": "qa:supplier",
+  "rating": "qa:rating",
+  "status": "qa:status",
+  "evaluatedBy": "qa:evaluatedBy",
+  "owner": "qa:owner",
+  "evaluatedOn": "qa:evaluatedOn",
+  "outcome": "qa:outcome",
+  "text": "qa:text"
+ }
+}

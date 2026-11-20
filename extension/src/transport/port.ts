@@ -46,6 +46,10 @@ export interface SayRequest {
   readonly fields?: Readonly<Record<string, string>>;
   readonly scope?: string;
   readonly expectHead?: string;
+  /** SPEC §8.5 (v0.5.5): the template's hash, package revision and predicate as say --json listed them */
+  readonly expectTemplate?: string;
+  readonly expectRevision?: string;
+  readonly expectPredicate?: string;
   /** Key name of identity.keyring. The shell sets it from the window's key choice, never from an intent. */
   readonly as?: string;
 }
@@ -157,6 +161,9 @@ export interface TemplateInfo {
   readonly package?: string;
   /** What a claim from it says (`say --json`'s predicate): the dialog shows it, and say must still mean it. */
   readonly predicate?: string;
+  /** `say --json`'s hash of the template as say signs with it, and a package template's sealed revision (v0.5.5) */
+  readonly hash?: string;
+  readonly revision?: string;
 }
 
 export interface QueryInfo {

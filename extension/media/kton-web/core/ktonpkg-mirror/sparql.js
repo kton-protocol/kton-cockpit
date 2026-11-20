@@ -28,10 +28,12 @@ export function termToSparql(t) {
 /**
  * Bind params into a query the way zusammensetzen does: every `$name` is replaced by the term
  * (`$document` → `<…#SOP-02>`, `$chapter` → `<…#SOP-02/roles-and-responsibilities>`).
- * Every variable the query uses must be bound.
+ * Every variable the query uses must be bound, except those named in optional (ktonpkg v0.9.10): an
+ * unbound optional `$name` is left as it is, a free SPARQL variable, so the query decides what "no
+ * filter" means.
  */
-export function bindQuery(text, params) {
-  const missing = varsOf(text).filter((v) => !(v in params));
+export function bindQuery(text, params, optional = []) {
+  const missing = varsOf(text).filter((v) => !(v in params) && !optional.includes(v));
   if (missing.length) throw new Error(`unbound $${missing.join(", $")}`);
   return text.replace(/\$([A-Za-z_]\w*)/g, (m, v) => (v in params ? termToSparql(params[v]) : m));
 }

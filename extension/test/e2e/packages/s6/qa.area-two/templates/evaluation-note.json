@@ -1,0 +1,8 @@
+{
+ "name": "evaluation-note",
+ "target": "either",
+ "predicate": "https://example.org/qa/note",
+ "fields": {
+  "text": {"type": "string", "required": true}
+ }
+}

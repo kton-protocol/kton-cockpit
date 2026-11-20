@@ -14,8 +14,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const REPO = "https://github.com/gitmick/kton-web";
-export const BRANCH = "compose-v3";
-export const COMMIT = "9909597";
+export const BRANCH = "master";
+export const COMMIT = "6111545";
 export const FILES = [
   // kton-web's licence (Apache-2.0 since f59275b, MH 19.11.)
   "LICENSE",

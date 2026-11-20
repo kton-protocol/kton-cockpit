@@ -1,0 +1,12 @@
+{
+ "name": "raci-entry",
+ "target": "either",
+ "predicate": "https://example.org/qa/raciAssigned",
+ "replace": "previous",
+ "fields": {
+  "activity": {"type": "string", "required": true},
+  "role": {"type": "string", "required": true},
+  "person": {"type": "iri", "required": true},
+  "raci": {"type": "enum", "values": ["R", "A", "C", "I"], "required": true}
+ }
+}

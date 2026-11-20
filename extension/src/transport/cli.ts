@@ -144,6 +144,19 @@ export class CliTransport implements Transport {
       if (!SHA.test(req.expectHead)) return bad("expectHead is not a sha256 id");
       args.push("--expect-head", req.expectHead);
     }
+    // SPEC §8.5 (cockpit v0.5.5): the template, its revision and its predicate the dialog showed
+    if (req.expectTemplate !== undefined) {
+      if (!SHA.test(req.expectTemplate)) return bad("expectTemplate is not a sha256 hash");
+      args.push("--expect-template", req.expectTemplate);
+    }
+    if (req.expectRevision !== undefined) {
+      if (!SHA.test(req.expectRevision)) return bad("expectRevision is not a sha256 id");
+      args.push("--expect-revision", req.expectRevision);
+    }
+    if (req.expectPredicate !== undefined) {
+      if (!/^https?:\/\/[^\s"'<>\\]+$/.test(req.expectPredicate)) return bad("expectPredicate is not an IRI");
+      args.push("--expect-predicate", req.expectPredicate);
+    }
     args.push("--json");
     return this.outcome(args, assertSayResult);
   }
@@ -322,7 +335,7 @@ function parseTemplates(v: unknown): TemplateInfo[] {
     for (const [k, f] of Object.entries(o.fields)) {
       if (typeof f !== "object" || f === null || typeof (f as { type?: unknown }).type !== "string") throw new TransportError(`template listing: ${o.name}.${k} has no type`, 0, "");
     }
-    return { name: o.name, fields: o.fields, ...(typeof o.about === "string" ? { target: o.about } : {}), ...(typeof o.package === "string" ? { package: o.package } : {}), ...(typeof o.predicate === "string" ? { predicate: o.predicate } : {}) };
+    return { name: o.name, fields: o.fields, ...(typeof o.about === "string" ? { target: o.about } : {}), ...(typeof o.package === "string" ? { package: o.package } : {}), ...(typeof o.predicate === "string" ? { predicate: o.predicate } : {}), ...(typeof (o as { hash?: unknown }).hash === "string" && SHA.test((o as { hash: string }).hash) ? { hash: (o as { hash: string }).hash } : {}), ...(typeof (o as { revision?: unknown }).revision === "string" && SHA.test((o as { revision: string }).revision) ? { revision: (o as { revision: string }).revision } : {}) };
   });
 }
 

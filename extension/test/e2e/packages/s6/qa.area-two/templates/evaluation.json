@@ -1,0 +1,15 @@
+{
+ "name": "evaluation",
+ "target": "either",
+ "predicate": "https://example.org/qa/evaluationRecorded",
+ "replace": "previous",
+ "fields": {
+  "identifier": {"type": "string", "required": true},
+  "supplier": {"type": "string", "required": true},
+  "rating": {"type": "enum", "values": ["A", "B", "C"], "required": true},
+  "status": {"type": "enum", "values": ["open", "closed"], "required": true},
+  "evaluatedBy": {"type": "iri", "required": true},
+  "owner": {"type": "iri"},
+  "evaluatedOn": {"type": "date"}
+ }
+}

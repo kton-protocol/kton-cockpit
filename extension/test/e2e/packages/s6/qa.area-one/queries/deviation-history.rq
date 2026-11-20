@@ -1,0 +1,12 @@
+# deviation-history: every version of one deviation, replaced ones included, newest first (area.history,
+# ktonpkg scope.HistoryShape: ?claim ?replaces ?replacedBy ?when). $record = the deviation's IRI.
+PREFIX nk:   <https://kton.dev/v/>
+PREFIX qa:   <https://example.org/qa/>
+PREFIX dct:  <http://purl.org/dc/terms/>
+SELECT ?claim ?replaces ?replacedBy ?when WHERE {
+  BIND(IRI($record) AS ?item)
+  ?claim a nk:Claim ; nk:predicate qa:deviationRecorded ; nk:about ?item ; dct:created ?when .
+  OPTIONAL { ?claim nk:replacedBy ?replacedBy }
+  OPTIONAL { ?claim nk:replaces ?replaces }
+}
+ORDER BY DESC(?when)

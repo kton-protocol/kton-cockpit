@@ -7,13 +7,13 @@ import { TransportError, TransportTimeout } from "../transport/port.js";
 import type { WindowIdentity, ShownSigner } from "../identity.js";
 import { hasKey, showSigner, signerKeyId, statusText, statusTooltip } from "../identity.js";
 import type { ControlInfo, SignPlan } from "../sign.js";
-import { DialogConsent, plan, sign, templateFingerprint, FOOTER } from "../sign.js";
+import { DialogConsent, meaningField, plan, sign, templateFor, FOOTER } from "../sign.js";
 import type { UiEntry, SlotContext } from "../intents.js";
 import { checkIntent } from "../intents.js";
 import { Scheduler } from "../poll.js";
 import { PackagesArea, SLOT_CMD, type ExpectRevision } from "../composition/area.js";
 import type { Subject } from "../composition/slots.js";
-import type { Control, ViewerTree } from "../packages/model.js";
+import type { Control, MirrorPackage, ViewerTree } from "../packages/model.js";
 import type { TreeNode, UiHost } from "./host.js";
 import type { Queries, Row } from "./queries.js";
 import { idOf, kindOf, rowsOf } from "./queries.js";
@@ -62,6 +62,8 @@ export interface WorkbenchConfig {
   readonly recorder: { readonly extensionId: string; readonly command: string };
   /** The viewers the shell vendors from kton-web, with their tree ids (src/packages/vendored.ts). */
   readonly vendoredViewers?: ReadonlyMap<string, ViewerTree>;
+  /** the workbench's own blocks (media/workbench), for the generic QM area (PR 3) */
+  readonly builtinPackage?: MirrorPackage;
   /** A locked registry (S7.4): how often and how far apart a `say` is retried. */
   readonly lockRetry: { readonly attempts: number; readonly delayMs: number };
 }
@@ -135,10 +137,11 @@ export class Workbench {
   ) {
     this.scheduler = scheduler ?? new Scheduler();
     this.packages = new PackagesArea(t, host, {
-      act: (c, about, fields, title, expect) => this.signAct(c, about, fields, title, expect),
+      act: (c, about, fields, title, expect, into) => this.signAct(c, about, fields, title, expect, into),
+      person: () => ({ keyId: this.identity.person.keyId, personTiers: this.cfg.personTiers }),
       open: async (target) => this.openTarget(target),
       identityName: () => this.identity.hintName,
-    }, cfg.vendoredViewers);
+    }, cfg.vendoredViewers, cfg.builtinPackage);
     this.surface = cfg.surfaces.some((s) => s.name === cfg.initialSurface) ? (cfg.initialSurface as string) : ALL;
   }
 
@@ -409,6 +412,7 @@ export class Workbench {
         children: [...areas.entries()].sort().map(([a, n]) => ({ id: `a:${a}`, label: a, description: String(n) })),
       },
       { id: "recorder", label: "Recorded runs (recorder)", tooltip: "Opens the kton recorder extension", command: { id: CMD.openRecorder, args: [] } },
+      ...this.packages.areaNodes(),
       ...this.packages.homeNodes(),
     ];
     if (this.stale) nodes.unshift({ id: "stale", label: "Stale: the last poll failed", description: `data from ${time(this.goodAt)}`, tooltip: this.lastError ?? "" });
@@ -520,7 +524,7 @@ export class Workbench {
    * Plan, dialog (for the person key), sign. Never throws. A locked registry is retried and shown in the
    * status bar (S7.4); a timeout is reported as failed, and the registry decides whether a claim exists (S7.3).
    */
-  private async signThroughDialog(intent: { kind: "sign"; about: string; fields: Readonly<Record<string, string>> }, control: ControlInfo, title: string, expect?: ExpectRevision): Promise<SignResult> {
+  private async signThroughDialog(intent: { kind: "sign"; about: string; fields: Readonly<Record<string, string>>; scope?: string }, control: ControlInfo, title: string, expect?: ExpectRevision): Promise<SignResult> {
     const cannot = this.cannotSign(control.kind);
     if (cannot) {
       this.host.error(`Not signed: ${cannot}`);
@@ -529,6 +533,11 @@ export class Workbench {
     const p = plan(intent, control, this.templates, this.identity);
     if (!p.ok) {
       this.host.error(`Not signed: ${p.refusal.reason}`);
+      return "failed";
+    }
+    // a panel's act: the template must come from the package revision the panel showed (else the panel is stale)
+    if (expect && p.value.expect.revision !== undefined && p.value.expect.revision !== expect.revision) {
+      this.host.error(`Not signed: package ${expect.package} changed since the panel was opened${AGAIN}.`);
       return "failed";
     }
     let consent: DialogConsent | undefined;
@@ -548,9 +557,8 @@ export class Workbench {
       this.host.error(text);
       return "failed";
     };
-    // after the yes, just before say: still what the person saw (one seam; see changedSinceDialog)
-    const changed = await this.changedSinceDialog(p.value, expect);
-    if (changed) return fail(`Not signed: ${changed}`);
+    // what the person saw is what say signs: the expectations (template hash, revision, predicate) go with the say
+    // request, and say refuses template.changed when the template it would sign with is another (SPEC §8.5)
     for (let attempt = 1; ; attempt++) {
       try {
         const out = await sign(this.t, p.value, consent);
@@ -562,6 +570,7 @@ export class Workbench {
             await sleep(this.cfg.lockRetry.delayMs);
             continue;
           }
+          if (out.refusal.code === "template.changed") return fail(`Not signed: the template changed since the dialog showed it (${out.refusal.reason})${AGAIN}.`);
           return fail(`Not signed: the cockpit refused: ${out.refusal.reason}`);
         }
         if (out.value.pending) {
@@ -592,37 +601,29 @@ export class Workbench {
    * control through the one sign dialog with the person key, a record control with the agent key and no
    * dialog. Same path as every other signature (signThroughDialog), so the dialog has one call site.
    */
-  async signAct(c: Control, about: string, fields: Readonly<Record<string, string>>, title: string, expect?: ExpectRevision): Promise<SignResult> {
-    const control: ControlInfo = { package: c.package, name: c.name, template: c.template, kind: c.kind };
-    return this.signThroughDialog({ kind: "sign", about, fields }, control, title, expect);
+  async signAct(c: Control, about: string, fields: Readonly<Record<string, string>>, title: string, expect?: ExpectRevision, into?: { readonly scope?: string }): Promise<SignResult> {
+    const control: ControlInfo = { package: c.package, name: c.name, template: c.template, kind: c.kind, ...(c.meaning !== undefined ? { meaning: c.meaning } : {}) };
+    const asked = await this.askOpenFields(control, fields);
+    if (!asked) return "cancelled";
+    return this.signThroughDialog({ kind: "sign", about, fields: asked, ...(into?.scope ? { scope: into.scope } : {}) }, control, title, expect);
   }
 
   /**
-   * The one seam between the dialog's yes and say (kton-review R1 on #177): say resolves the template NAME when it
-   * signs, so the plan the person saw must still be what the cockpit would sign. Read fresh, never from the poll:
-   * - the template the name resolves to now (`say --json`): its definition must be the plan's (templateSig, which
-   *   the dialog's digest covers: predicate, target, package, fields);
-   * - for a package's act, the package's installed revision (`ui list`) must be the one the panel was opened at.
-   * Returns why not, or undefined. When say takes these expectations itself (asked of kton-cockpit:
-   * an expected template and package revision, like expectHead), put them in the say request and drop this read.
+   * The fields a template requires that the act leaves open are asked of the person here, by the shell (a pick for
+   * a field with values, else an input), never taken from a frame: a decision's open outcome is picked
+   * (approved or rejected, C3.4), a note its text. Before the dialog, which then shows them. Undefined: cancelled.
    */
-  private async changedSinceDialog(p: SignPlan, expect: ExpectRevision | undefined): Promise<string | undefined> {
-    try {
-      const [tpl, list] = await Promise.all([this.t.templates(), expect ? this.t.uiList() : Promise.resolve(undefined)]);
-      if (!tpl.ok) return `the template ${p.template} cannot be confirmed: ${tpl.refusal.reason}`;
-      const now = tpl.value.find((t) => t.name === p.template);
-      if (!now) return `the template ${p.template} is no longer installed${AGAIN}`;
-      if (templateFingerprint(now) !== p.templateSig) return `the template ${p.template} changed since the dialog showed it${now.predicate !== p.predicate ? ` (it now says ${now.predicate ?? "nothing"})` : ""}${AGAIN}`;
-      if (expect && list) {
-        if (!list.ok) return `the installed revision of ${expect.package} cannot be confirmed: ${list.refusal.reason}`;
-        const pkg = list.value.packages.find((x) => x.name === expect.package);
-        if (!pkg || pkg.refused.length || !pkg.allowed) return `package ${expect.package} is no longer installed and admitted${AGAIN}`;
-        if (pkg.revision !== expect.revision) return `package ${expect.package} changed (revision ${pkg.revision.slice(0, 19)}…) since it was shown${AGAIN}`;
-      }
-      return undefined;
-    } catch (e) {
-      return describe(e);
+  private async askOpenFields(control: ControlInfo, fields: Readonly<Record<string, string>>): Promise<Record<string, string> | undefined> {
+    const tpl = templateFor(control, this.templates);
+    const out: Record<string, string> = { ...fields };
+    for (const [k, f] of Object.entries(tpl?.fields ?? {})) {
+      // a field the control's meaning fixes is never asked: the meaning shown is the meaning signed
+      if (!f.required || out[k] !== undefined || (tpl && k === meaningField(control, tpl)) || (control.meaning !== undefined && f.values?.includes(control.meaning))) continue;
+      const v = f.values ? await this.host.pick(`${control.name}: ${k}`, f.values) : await this.host.input(`${control.name}: ${k}`);
+      if (v === undefined || v === "") return undefined;
+      out[k] = v;
     }
+    return out;
   }
 
   /** open@1: a claim this window knows opens its thread or decision; anything else is named, not fetched. */

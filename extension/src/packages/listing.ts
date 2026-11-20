@@ -23,6 +23,21 @@ export interface UiEntry {
   readonly composition?: string;
   readonly inputs?: Readonly<Record<string, string>>;
   readonly order?: number;
+  /** an `activity` entry's QM area (C3.2, ktonpkg v0.9.3): every name in it is the package's (or the named one's) */
+  readonly area?: AreaDecl;
+}
+export interface AreaDecl {
+  readonly scopes?: { readonly records?: string; readonly reads?: readonly string[] };
+  readonly record?: string;
+  readonly raci?: string;
+  readonly training?: string;
+  readonly approvals?: string;
+  readonly history?: string;
+  readonly params?: Readonly<Record<string, string>>;
+  readonly actions?: readonly string[];
+  readonly documents?: readonly string[];
+  readonly governing?: string;
+  readonly findings?: { readonly package: string; readonly rules: readonly string[] };
 }
 export interface Member {
   readonly role: string;
@@ -66,6 +81,26 @@ const str = (o: Record<string, unknown>, k: string, what: string, optional = fal
 const list = (v: unknown, what: string): unknown[] => (v === undefined || v === null ? [] : Array.isArray(v) ? v : bad(`${what} must be a list`));
 const obj = (v: unknown, what: string): Record<string, unknown> => (typeof v === "object" && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>) : bad(`${what} must be an object`));
 
+const strings = (v: unknown, what: string): string[] => list(v, what).map((x, i) => (typeof x === "string" ? x : bad(`${what}[${i}] must be a string`)));
+/** An area object (C3.2): every field the shell reads, shape-checked; unknown fields are not read. */
+function areaOf(v: unknown, w: string): AreaDecl {
+  const a = obj(v, w);
+  const s = a["scopes"] === undefined ? undefined : obj(a["scopes"], `${w}.scopes`);
+  const params = a["params"] === undefined ? undefined : obj(a["params"], `${w}.params`);
+  if (params) for (const [k, x] of Object.entries(params)) if (typeof x !== "string" || !/^[A-Za-z_]\w*$/.test(k)) bad(`${w}.params.${k} must name a $VAR and a string source`);
+  const f = a["findings"] === undefined ? undefined : obj(a["findings"], `${w}.findings`);
+  const one = (k: string) => str(a, k, w, true);
+  const out: AreaDecl = {
+    ...(s ? { scopes: { ...(s["records"] !== undefined ? { records: str(s, "records", `${w}.scopes`) as string } : {}), ...(s["reads"] !== undefined ? { reads: strings(s["reads"], `${w}.scopes.reads`) } : {}) } } : {}),
+    ...Object.fromEntries((["record", "raci", "training", "approvals", "history", "governing"] as const).filter((k) => a[k] !== undefined).map((k) => [k, one(k)])),
+    ...(params ? { params: params as Record<string, string> } : {}),
+    ...(a["actions"] !== undefined ? { actions: strings(a["actions"], `${w}.actions`) } : {}),
+    ...(a["documents"] !== undefined ? { documents: strings(a["documents"], `${w}.documents`) } : {}),
+    ...(f ? { findings: { package: str(f, "package", `${w}.findings`) as string, rules: strings(f["rules"], `${w}.findings.rules`) } } : {}),
+  };
+  return out;
+}
+
 /** The shape check for every field the shell reads (review check 5). Unknown fields are kept, not read. */
 export function assertUiListing(v: unknown): UiListing {
   const top = obj(v, "the answer");
@@ -93,6 +128,7 @@ export function assertUiListing(v: unknown): UiListing {
         ...Object.fromEntries((["query", "viewer", "control", "ray", "composition"] as const).filter((k) => o[k] !== undefined).map((k) => [k, str(o, k, w)])),
         ...(inputs ? { inputs: inputs as Record<string, string> } : {}),
         ...(typeof o["order"] === "number" ? { order: o["order"] } : {}),
+        ...(o["area"] !== undefined ? { area: areaOf(o["area"], `${w}.area`) } : {}),
       };
       return e;
     });

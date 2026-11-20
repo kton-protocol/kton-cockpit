@@ -1,0 +1,9 @@
+{
+ "title": "Approve",
+ "kind": "decision",
+ "meaning": "approved",
+ "say": {
+  "template": "deviation-approves"
+ },
+ "about": "subject.claim"
+}

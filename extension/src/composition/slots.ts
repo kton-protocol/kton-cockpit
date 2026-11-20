@@ -64,6 +64,15 @@ export function compositionOf(e: SlotEntry, loaded: Loaded): { ref: { package: s
   return { ref: { package: e.package, composition: name }, packages: { ...loaded.packages, [e.package]: written } };
 }
 
+/** Plan a composition of the given packages for a subject, with the root's params (terms). */
+export async function planComposition(ref: { package: string; composition: string }, packages: Readonly<Record<string, MirrorPackage>>, subject: Subject, params: Readonly<Record<string, Term>>, identityName: string, query: (pkg: string, name: string, terms: Record<string, BoundTerm>) => Promise<unknown>): Promise<Plan> {
+  const mirrorSubject = { iri: subject.iri, id: subject.id, ...(subject.claim ? { claim: subject.claim } : {}), kind: subject.kind, ...(subject.scope ? { scope: subject.scope } : {}) };
+  return (await planRounds(ref, mirrorSubject, {}, packages, { identity: { name: identityName }, params }, async (n: { query: { package: string; name: string }; params: Record<string, Term> }) => {
+    const r = (await query(n.query.package, n.query.name, termsOf(n.params))) as { results?: { bindings?: unknown[] } };
+    return r.results?.bindings ?? [];
+  })) as unknown as Plan;
+}
+
 /** Plan an entry for a subject: compose rounds answered with named queries through the transport. */
 export async function planEntry(e: SlotEntry, subject: Subject, loaded: Loaded, identityName: string, query: (pkg: string, name: string, terms: Record<string, BoundTerm>) => Promise<unknown>): Promise<Plan> {
   const { ref, packages } = compositionOf(e, loaded);
