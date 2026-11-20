@@ -417,6 +417,19 @@ SELECT ?path WHERE { ?g a nk:LoadedGraph ; nk:path ?path }`)
 	}
 }
 
+// An index of the repository's own (COCKPIT_INDEX_DIR) is not bound by the shared index's limit.
+func TestLoad_AnOwnIndexIsNotBoundByTheSharedLimit(t *testing.T) {
+	r := loadingRepo(t)
+	raw := r.Config(t).Raw
+	limit := int64(8)
+	raw.Index.Derived.MaxBytesShared = &limit
+	r.WriteConfig(t, raw)
+	r.Write(t, "rdf/a.ttl", turtle)
+	if _, err := New(Start{}).Load(context.Background(), LoadRequest{Files: []string{"rdf/a.ttl"}}); err != nil {
+		t.Errorf("an own index: want the load, got %v", err)
+	}
+}
+
 // A file on the load list whose bytes no longer hash to what was loaded is marked, and while it keeps
 // that size and modification time it is not read and hashed again before every query; once it changes
 // again it is read, and loaded if it is the loaded bytes once more (kton-review N1 on #192).

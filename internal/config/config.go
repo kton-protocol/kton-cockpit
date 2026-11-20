@@ -502,6 +502,18 @@ type Derived struct {
 	MaxBytes int64 `json:"maxBytes,omitempty"`
 	// MaxTriples bounds what one repository has loaded, all graphs together; 0 means 50 million.
 	MaxTriples int64 `json:"maxTriples,omitempty"`
+	// MaxBytesShared bounds one load, all its files together, into the machine's shared index (no
+	// COCKPIT_INDEX_DIR, no index.url): several lanes read that daemon, and one large load can restart
+	// it under them. Absent means 16 MiB, 0 no limit. An index of the repository's own is not bound by it.
+	MaxBytesShared *int64 `json:"maxBytesShared,omitempty"`
+}
+
+// MaxBytesSharedOrDefault is the most one load puts into the machine's shared index; 0 is no limit.
+func (d Derived) MaxBytesSharedOrDefault() int64 {
+	if d.MaxBytesShared != nil {
+		return *d.MaxBytesShared
+	}
+	return 16 << 20
 }
 
 // MaxBytesOrDefault is the largest file `cockpit load` takes.
