@@ -1227,6 +1227,12 @@ if (seed.dm?.proposal) {
     const rowsWithNumbers = await f.locator("tr:has(td[data-number])").count();
     const rowsStamped = await f.locator("tr:has(td[data-number]):has([data-stamp])").count();
     check(rowsWithNumbers > 0 && rowsWithNumbers === rowsStamped, "every table row with a number carries a stamp", rowsWithNumbers, rowsStamped);
+    // the source once per part (DESIGN.md §4, MH 20.11.): the mapping round's label from verification's covx:sourceStamp
+    const chips = {};
+    for (const p of ["top/summary", "top/spot", "where", "rules"]) chips[p] = await f.locator(`section[data-part="${p}"] > .wb-sec-head > .wb-source`).allTextContents();
+    check(Object.values(chips).every((c) => c.length === 1 && c[0] === "source: mapping round 9 · b610b5c6"), "each data part names its source once: mapping round 9 · b610b5c6", "source: mapping round 9 · b610b5c6 (once per part)", chips);
+    const tip = (await f.locator('section[data-part="where"] > .wb-sec-head > .wb-source').getAttribute("data-tip")) ?? "";
+    check(/scope dryrun1\.mapping/.test(tip) && /sha256:b610b5c6[0-9a-f]{56}/.test(tip), "the chip's tooltip has the scope and the full hash", "scope dryrun1.mapping, sha256:b610b5c6…(64)", tip);
     await shot("dm-view");
   });
 
@@ -1343,6 +1349,7 @@ if (seed.dm?.proposal) {
     const natural = await img.locator('[data-testid="artifact-image"]').evaluate((e) => e.naturalWidth);
     check(natural > 0, "the screenshot renders", "> 0 px", natural);
     await shot("dm-artifact-screenshot");
+    check((await a.locator(".wb-block-source").textContent()) === "source: dryrun1.runs", "the runs name their own source (not a mapping round)", "source: dryrun1.runs", await a.locator(".wb-block-source").allTextContents());
     const none = ((await a.textContent()) ?? "").replace(/\s+/g, " ");
     check(/No artifact for passing runs: /.test(none), "a passing run: no artifact, and why (run-capture's passingArtifacts)", "No artifact for passing runs: …", none.slice(0, 200));
   });

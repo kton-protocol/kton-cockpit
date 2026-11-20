@@ -114,3 +114,26 @@ test("design step 5: rows draws group headers, too few muted, a total, no stamp 
   assert.match(h, /<th class="r" data-total>74<\/th>/);
   assert.match(h, /Rate <span class="muted">\(scale 0–20 %, dashed = target 5 %\)<\/span>/);
 });
+
+test("design step 6: source chips: once per part, the round's label (MH 20.11.), the scope where no round stamps it", async () => {
+  const s = await media("design/stamps.js");
+  const round = { stamp: "sha256:b610b5c6", label: "mapping round 9 · b610b5c6", full: `https://kton.dev/o/b610b5c6${"f".repeat(56)}`, scope: "dryrun1.mapping" };
+  const c = s.chipFor(round);
+  assert.equal(c.text, "source: mapping round 9 · b610b5c6");
+  assert.match(c.tip, /mapping round 9 · b610b5c6 \(scope dryrun1\.mapping\)\nsha256:b610b5c6f{56}$/, "scope and full hash in the tooltip");
+  const runs = { stamp: "dryrun1.runs · p2-rest-1", scope: "dryrun1.runs" };
+  assert.equal(s.chipFor(runs).text, "source: dryrun1.runs", "no round: the scope");
+  assert.equal(s.fullHash("https://kton.dev/o/" + "a".repeat(64)), `sha256:${"a".repeat(64)}`);
+  const r = s.sectionStamps([
+    { id: "spec", stamps: [round, round] },
+    { id: "runs", stamps: [runs, { ...runs, stamp: "dryrun1.runs · p2-rest-2" }, runs, runs, runs] },
+    { id: "none", stamps: [] },
+    { id: "mixed", stamps: [round, { stamp: "sha256:00000000" }] },
+  ]);
+  assert.equal(r.section, round, "the section's source: one vote per block, the first block's on a tie (many runs do not outvote the evidence)");
+  assert.equal(r.blocks.spec, null, "equal to the section: no block chip");
+  assert.equal(r.blocks.runs?.scope, "dryrun1.runs", "another source: the block's own chip (one for all its runs)");
+  assert.equal(r.blocks.none, null);
+  assert.equal(r.blocks.mixed, "mixed", "a block that mixes sources keeps its row stamps");
+  assert.deepEqual(s.sectionStamps([]), { section: null, blocks: {} });
+});

@@ -38,7 +38,7 @@ export function mount(el, ctx) {
       };
       const item = (x, i) => {
         const stamp = v(x.stamp);
-        const chip = stamp ? `<span class="kton-stamp" data-stamp>${esc(stamp)}</span>` : `<span class="kton-stamp kton-error" data-stamp-missing>no source</span>`;
+        const chip = stamp ? `<span class="kton-stamp" ${stampAttrs(x, v, esc)}>${esc(stamp)}</span>` : `<span class="kton-stamp kton-error" data-stamp-missing>no source</span>`;
         const t = target(x);
         const head = t
           ? `<button type="button" data-open="${i}" data-testid="evidence-${esc(v(x.kind))}-${i}">${esc(v(x.label))}</button>`
@@ -74,6 +74,11 @@ export function mount(el, ctx) {
     },
   );
   return { set() {}, destroy() {} };
+}
+
+/** The stamp's data attributes: the stamp and, when the query gives them, its source label, full hash and scope (the part's source chip). */
+export function stampAttrs(x, v, esc) {
+  return `data-stamp="${esc(v(x.stamp))}"${v(x.stampLabel) ? ` data-stamp-label="${esc(v(x.stampLabel))}"` : ""}${v(x.stampFull) ? ` data-stamp-full="${esc(v(x.stampFull))}"` : ""}${v(x.stampScope) ? ` data-stamp-scope="${esc(v(x.stampScope))}"` : ""}`;
 }
 
 // An answer the host ran with a declared optional param unbound says so (`unfiltered`: the params): its FILTER did not

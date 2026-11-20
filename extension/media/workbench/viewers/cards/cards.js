@@ -40,7 +40,7 @@ export function mount(el, ctx) {
           .join("");
         const pick = pickCol && v(x[pickCol]) ? `<button type="button" data-pick="${i}" data-testid="pick-${i}">${esc(pickLabel)}</button>` : "";
         return `<article class="kton-card" data-card-row="${i}" data-target="${esc(o.target ? v(x[o.target]) : "")}">
-  <h4>${esc(v(x[o.title]) || "(untitled)")} ${stamp ? `<span class="kton-stamp" data-stamp>${esc(stamp)}</span>` : `<span class="kton-stamp kton-error" data-stamp-missing>no source</span>`}${v(x.fixture) === "true" ? ` <span class="kton-stamp" data-fixture>fixture</span>` : ""}</h4>
+  <h4>${esc(v(x[o.title]) || "(untitled)")} ${stamp ? `<span class="kton-stamp" ${stampAttrs(x, v, esc)}>${esc(stamp)}</span>` : `<span class="kton-stamp kton-error" data-stamp-missing>no source</span>`}${v(x.fixture) === "true" ? ` <span class="kton-stamp" data-fixture>fixture</span>` : ""}</h4>
   ${fields}
   ${buttons || pick ? `<div class="kton-act">${buttons}${pick}<span class="kton-muted" data-act-out="${i}"></span></div>` : ""}
 </article>`;
@@ -80,6 +80,11 @@ export function mount(el, ctx) {
     },
   );
   return { set() {}, destroy() {} };
+}
+
+/** The stamp's data attributes: the stamp and, when the query gives them, its source label, full hash and scope (the part's source chip). */
+export function stampAttrs(x, v, esc) {
+  return `data-stamp="${esc(v(x.stamp))}"${v(x.stampLabel) ? ` data-stamp-label="${esc(v(x.stampLabel))}"` : ""}${v(x.stampFull) ? ` data-stamp-full="${esc(v(x.stampFull))}"` : ""}${v(x.stampScope) ? ` data-stamp-scope="${esc(v(x.stampScope))}"` : ""}`;
 }
 
 // An answer the host ran with a declared optional param unbound says so (`unfiltered`: the params): its FILTER did not

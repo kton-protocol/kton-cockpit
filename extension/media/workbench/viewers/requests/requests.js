@@ -59,7 +59,7 @@ export function mount(el, ctx) {
       const buttons = offered ? acts.map((a, ai) => `<button type="button" data-act="${ai}" data-card="${gi}" data-testid="request-${gi}-${esc(a.control?.name ?? a.intent)}">${esc(a.label ?? a.intent)}</button>`).join("") : "";
       const waiting = o.waiting && v(x[o.waiting]) === "true";
       return `<article class="kton-card" data-request-card="${gi}" data-title="${esc(title)}"${waiting ? ' data-waiting="true"' : ""}>
-  <h4>${esc(title || "(untitled)")} ${stamp ? `<span class="kton-stamp" data-stamp>${esc(stamp)}</span>` : `<span class="kton-stamp kton-error" data-stamp-missing>no source</span>`}</h4>
+  <h4>${esc(title || "(untitled)")} ${stamp ? `<span class="kton-stamp" ${stampAttrs(x, v, esc)}>${esc(stamp)}</span>` : `<span class="kton-stamp kton-error" data-stamp-missing>no source</span>`}</h4>
   ${fields}${arts}
   <div class="kton-act">${buttons}<span class="kton-muted" data-act-out="${gi}">${esc(outs.get(title) ?? "")}</span></div>
 </article>`;
@@ -129,6 +129,11 @@ export function mount(el, ctx) {
       if (timer) clearTimeout(timer);
     },
   };
+}
+
+/** The stamp's data attributes: the stamp and, when the query gives them, its source label, full hash and scope (the part's source chip). */
+export function stampAttrs(x, v, esc) {
+  return `data-stamp="${esc(v(x.stamp))}"${v(x.stampLabel) ? ` data-stamp-label="${esc(v(x.stampLabel))}"` : ""}${v(x.stampFull) ? ` data-stamp-full="${esc(v(x.stampFull))}"` : ""}${v(x.stampScope) ? ` data-stamp-scope="${esc(v(x.stampScope))}"` : ""}`;
 }
 
 // An answer the host ran with a declared optional param unbound says so (`unfiltered`: the params): its FILTER did not
