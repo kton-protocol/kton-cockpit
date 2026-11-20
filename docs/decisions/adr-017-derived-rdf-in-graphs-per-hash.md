@@ -83,7 +83,9 @@ cockpit signs no statement of its own (SPEC §13).
   kton v0.4), one graph per distinct content hash. It is the hash of the **exact bytes loaded**, the output
   file, never of a source it was derived from. A step's sources are its foton's inputs; naming by a source would
   put two files derived from one source into one graph. Two fotons that produced the same bytes share one
-  graph, and it is loaded once; loading it again changes nothing.
+  graph, and it is loaded once; loading it again changes nothing. Whether it is loaded already is decided
+  from the catalogues, never from a graph of that name existing: a foton's record graph is in the same
+  namespace (kton-review D4.3).
 - **Why this name:** it is the IRI the foton's record already uses for the file. `GRAPH ?g { … } ?g
   prov:wasGeneratedBy ?foton` joins with no mapping. A foton's *record* graph is in the same namespace
   (`https://kton.dev/o/<foton id>`, kernel `rdf.RecordGraph`), but a query never sees both as named graphs: in
@@ -167,7 +169,8 @@ as a foton, its Turtle output is a graph that has a producer, and the conversion
 comparison and for "changed since I last looked". "The current version" is a query: the catalogue says when
 each was loaded and from which path, and a foton, where there is one, says which run produced which. When a
 person decides which version holds, that decision is a claim about the hash. `cockpit load --drop <sha256>`
-removes a graph from the repository's catalogue.
+removes a graph from the repository's catalogue, and from the store only when no other repository's catalogue
+lists it (kton-review D4.3).
 
 ### 9 Loading, and the load list
 
