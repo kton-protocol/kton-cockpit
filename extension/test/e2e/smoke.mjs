@@ -214,7 +214,7 @@ await step("S5", 6, "a home tile shows its named query's number as the real cock
   }
   check(/^\d+$/.test(shown) && Number(shown) > 0, "the tile shows a number above 0, not an error", "a number > 0", shown);
   check(shown === want, "the tile's number is the registry's", want, shown);
-  const admitted = await page.locator(".monaco-list-row", { hasText: "workbench-graph" }).filter({ hasText: /\badmitted\b/ }).count();
+  const admitted = await page.locator(".monaco-list-row", { hasText: "workbench-graph" }).filter({ hasText: "admitted" }).count(); // the row reads "workbench-graph" + "admitted"
   check(admitted >= 1, "the package with an alias file is admitted, not refused", ">= 1", admitted);
   await shot("s5-tile");
 });
