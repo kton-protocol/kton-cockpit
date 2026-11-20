@@ -9,7 +9,7 @@ require (
 	kton.dev/plankton v0.4.1
 )
 
-require github.com/gitmick/ktonpkg v0.9.9
+require github.com/gitmick/ktonpkg v0.9.11
 
 require (
 	github.com/segmentio/asm v1.1.3 // indirect
