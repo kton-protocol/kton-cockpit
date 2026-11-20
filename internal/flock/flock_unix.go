@@ -3,14 +3,13 @@
 package flock
 
 import (
-	"os"
 	"syscall"
 )
 
 // Lock holds an exclusive lock on path until the returned function is called. Two cockpits
 // starting the daemon, or reading one registry into it, take turns.
 func Lock(path string) (func(), error) {
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o644)
+	f, err := open(path)
 	if err != nil {
 		return nil, err
 	}
