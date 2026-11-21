@@ -20,8 +20,10 @@ let stop = false;
 function run({ argv, stdin, repo }) {
   const dir = ["repo-s6", "repo-dm", "repo-dm2", "repo-roles", "repo-training"].includes(repo) ? repo : "repo";
   // repo-dm federates test-execution's runs: the first ask after a say rebuilds the view with the federation, which
-  // took over 2 minutes on ai1 (the old 120 s timeout killed it: exit 1, empty stderr)
-  const timeout = dir.startsWith("repo-dm") ? 600_000 : 120_000;
+  // took over 2 minutes on ai1 (the old 120 s timeout killed it: exit 1, empty stderr). The other registries' first ask
+  // after a say waits for one cold build too (repo-roles: 12–40 s, longer while the window asks at the same time), so
+  // the sidecar's own asks get 300 s; the window's timeouts stay as they are
+  const timeout = dir.startsWith("repo-dm") ? 600_000 : 300_000;
   return new Promise((resolve) => {
     const child = execFile("cockpit", argv, { cwd: join(WORK, dir), env, shell: false, timeout, maxBuffer: 32 * 1024 * 1024 }, (err, stdout, stderr) => {
       resolve({ code: err ? (typeof err.code === "number" ? err.code : 1) : 0, stdout: String(stdout), stderr: err && err.killed ? `killed after ${timeout / 1000} s (${err.signal})` : String(stderr) });

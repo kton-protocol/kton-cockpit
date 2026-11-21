@@ -226,7 +226,7 @@ seed_dm() {
 const fs=require("fs");const p=".kton/cockpit.config.json";const c=JSON.parse(fs.readFileSync(p));
 c.trust=Object.assign(c.trust||{},{tiers:[...new Set([...(c.trust&&c.trust.tiers||[]),"self","agent"])]});
 c.query={image:"oci://oxigraph/oxigraph@sha256:10677fb643f8c5a7bfb03dd8f7971c79a84b01e795c24201c8cfa12fd569f1c0"};
-c.index={kind:"oxigraph"};c.persist=Object.assign(c.persist||{},{share:false});fs.writeFileSync(p,JSON.stringify(c,null,2));'
+c.index={kind:"oxigraph",memory:"6g"};c.persist=Object.assign(c.persist||{},{share:false});fs.writeFileSync(p,JSON.stringify(c,null,2));'
     git config user.email qa@example.org; git config user.name qa
     cp "$VOCAB"/templates/*.json .kton/templates/
     VOCAB="$VOCAB" node -e '
@@ -267,8 +267,11 @@ fi
 # (its claims and its dev key's public halves, as they are) with this run's test keys added, the triage package and
 # the role views' package installed, and a stand-in dryrun1.triage: the guard rules' good and bad cases (qm-packages
 # areas/dryrun1-triage testdata/scenario.py), signed with this run's throwaway keys. ROLES_COVERAGE and ROLES_MAPPING
-# (optional): verification's registries, federated LIVE and read-only (below). An Oxigraph index (the first ask after
-# the seed builds it; then asks take about a second).
+# (optional): snapshots of verification's registries (run.sh, taken once per run), federated read-only (below). An
+# Oxigraph index (the first ask after the seed builds it; then asks take about a second). repo-dm and repo-roles ask
+# the run's one daemon for 6g (index.memory; the default is 2g): every view built after a say stays in its store, which
+# grew to 3.7 GB in one run, and at 2g the daemon could no longer reopen it (it crashed under the window's asks, then
+# did not answer within the cockpit's 30 s at each restart: a restart every ~36 s, every ask timed out).
 ROLES=""
 if [ -d /roles-runs/.kton ] && [ -d /roles-pkg ] && [ -d /roles-triage-pkg ]; then
   mkdir -p "$E2E/repo-roles" && cp -R /roles-runs/. "$E2E/repo-roles/" && cd "$E2E/repo-roles"
@@ -282,7 +285,7 @@ if [ -d /roles-runs/.kton ] && [ -d /roles-pkg ] && [ -d /roles-triage-pkg ]; th
 const fs=require("fs");const p=".kton/cockpit.config.json";const c=JSON.parse(fs.readFileSync(p));
 c.trust=Object.assign(c.trust||{},{tiers:[...new Set([...((c.trust||{}).tiers||[]),"self","agent"])]});
 c.query={image:"oci://oxigraph/oxigraph@sha256:10677fb643f8c5a7bfb03dd8f7971c79a84b01e795c24201c8cfa12fd569f1c0"};
-c.persist=Object.assign(c.persist||{},{share:false});c.index={kind:"oxigraph"};fs.writeFileSync(p,JSON.stringify(c,null,2));'
+c.persist=Object.assign(c.persist||{},{share:false});c.index={kind:"oxigraph",memory:"6g"};fs.writeFileSync(p,JSON.stringify(c,null,2));'
   git config user.email qa@example.org; git config user.name qa
   cockpit install "$E2E/vocab-package" --allow --json >/dev/null
   cp -R /roles-triage-pkg "$E2E/pkg-roles-triage" && cockpit install "$E2E/pkg-roles-triage" --allow --json >/dev/null
@@ -341,9 +344,10 @@ c.persist=Object.assign(c.persist||{},{share:false});c.index={kind:"oxigraph"};f
     cockpit federation add standin-spec-review "$SR" >/dev/null
     ROLES_SR=true
   fi
-  # verification's dryrun1-coverage (~11.5k claims) and dryrun1-mapping (dryrun1.classes: the run-class map), LIVE:
-  # federated read-only from their own paths (mounted :ro; federation only reads, the union and the index live under
-  # this run's home), after the says (cockpit main 99fe43e or later: #198 fixed the federation add of a large source)
+  # verification's dryrun1-coverage (~11.5k claims) and dryrun1-mapping (dryrun1.classes: the run-class map), as the
+  # run's snapshots: federated read-only from their paths under $WORK/snap (mounted :ro; federation only reads, the
+  # union and the index live under this run's home), after the says (cockpit main 99fe43e or later: #198 fixed the
+  # federation add of a large source). Nothing changes them during the run, so the index moves only with our own says
   for pair in "verification-coverage=${ROLES_COVERAGE:-}" "verification-mapping=${ROLES_MAPPING:-}"; do
     n=${pair%%=*}; src=${pair#*=}
     [ -n "$src" ] && [ -d "$src/.kton" ] || continue

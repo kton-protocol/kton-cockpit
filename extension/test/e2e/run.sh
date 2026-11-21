@@ -35,6 +35,18 @@ case "$WORK" in /*) ;; *) echo "the work dir must be absolute" >&2; exit 1;; esa
 [ ! -e "$WORK" ] || { echo "$WORK exists; pass a fresh work dir" >&2; exit 1; }
 mkdir -p "$WORK/tmp" "$WORK/cs/data/User" "$WORK/cs/ext" "$WORK/pw" "$WORK/bin" "$WORK/rpc" "$WORK/faults" "$OUTDIR"
 find "$OUTDIR" -maxdepth 1 -type f \( -name '*.png' -o -name '*.json' \) -delete
+# from here on the run cleans up after itself, also when the seed or a build fails
+cleanup() {
+  docker stop kton-wb-e2e-$RUN_ID >/dev/null 2>&1 || true
+  docker stop kton-wb-e2e-sidecar-$RUN_ID >/dev/null 2>&1 || true
+  # the cockpit's index containers for this run's registries (persistent index, mounts under the work dir)
+  for c in $(docker ps -aq --filter name=kton-cockpit-index); do
+    docker inspect "$c" --format '{{range .Mounts}}{{.Source}} {{end}}' 2>/dev/null | grep -q "$WORK/" && docker rm -f "$c" >/dev/null 2>&1 || true
+  done
+  # Discard the throwaway registry and its test keys unless KEEP=1.
+  [ "${KEEP:-0}" = 1 ] || rm -r -f -- "$WORK"
+}
+trap cleanup EXIT
 
 echo "== docker CLI from $DOCKER_CLI_IMAGE"
 docker run --rm --entrypoint cat "$DOCKER_CLI_IMAGE" /usr/local/bin/docker > "$WORK/bin/docker"
@@ -67,6 +79,25 @@ if [ -n "${TRAINING_QP:-}" ]; then
 fi
 
 echo "== seed"
+# Every lane registry this run reads (DM_DATA, DM_RUNS, ROLES_RUNS, ROLES_COVERAGE, ROLES_MAPPING, ROLES_SPEC_REVIEW) is a
+# SNAPSHOT taken once here: a local clone at the source's current HEAD (hardlinked objects; only what the lane
+# committed, never its work in progress) under $WORK/snap, mounted read-only. The lanes keep signing into their live
+# repositories while a run goes on; a federated live source changes the union's stamp, so every pull invalidated the
+# index (a cold build of 12-40 s, with the window's asks queued behind it) and the counts moved under the steps. The
+# steps take their expectations from these snapshots (asked through the sidecar), never from counts written down.
+SNAP="$WORK/snap"; mkdir -p "$SNAP"
+snapshot() { # snapshot <name> <git repository>: prints the snapshot's path
+  git -C "$2" rev-parse --verify -q HEAD >/dev/null || { echo "$2 is no git repository with a HEAD" >&2; exit 1; }
+  # the clone keeps the source's own remote (the cockpit reads the registry's owner/repo from origin; never pushed to)
+  git clone -q --local "$2" "$SNAP/$1" && git -C "$SNAP/$1" remote set-url origin "$(git -C "$2" remote get-url origin)" && echo "  snapshot $1: $2 at $(git -C "$SNAP/$1" rev-parse --short HEAD)" >&2
+  echo "$SNAP/$1"
+}
+[ -z "${DM_DATA:-}" ] || DM_DATA=$(snapshot dm-data "$DM_DATA")
+[ -z "${DM_RUNS:-}" ] || DM_RUNS=$(snapshot dm-runs "$DM_RUNS")
+[ -z "${ROLES_RUNS:-}" ] || ROLES_RUNS=$(snapshot roles-runs "$ROLES_RUNS")
+[ -z "${ROLES_COVERAGE:-}" ] || ROLES_COVERAGE=$(snapshot coverage "$ROLES_COVERAGE")
+[ -z "${ROLES_MAPPING:-}" ] || ROLES_MAPPING=$(snapshot mapping "$ROLES_MAPPING")
+[ -z "${ROLES_SPEC_REVIEW:-}" ] || ROLES_SPEC_REVIEW=$(snapshot spec-review "$ROLES_SPEC_REVIEW")
 # DM_DATA (optional): a registry with verification's dryrun1 mapping data (qm-dev-provenance/dryrun1-mapping), copied
 # read-only into repo-dm for the decision view's steps (DM); without it those steps do not run.
 DM_MOUNT=""; [ -n "${DM_DATA:-}" ] && DM_MOUNT="-v $DM_DATA:/dm-data:ro"
@@ -78,16 +109,15 @@ DM_MOUNT=""; [ -n "${DM_DATA:-}" ] && DM_MOUNT="-v $DM_DATA:/dm-data:ro"
 EVIDENCE_MOUNTS=""
 for m in ${DM_MIRRORS:-}; do mkdir -p "$WORK/mirrors/$(basename "$m")"; EVIDENCE_MOUNTS="$EVIDENCE_MOUNTS -v $m:$WORK/mirrors/$(basename "$m"):ro"; done
 [ -n "${DM_ARTIFACTS:-}" ] && { mkdir -p "$WORK/artifacts"; EVIDENCE_MOUNTS="$EVIDENCE_MOUNTS -v $DM_ARTIFACTS:$WORK/artifacts:ro"; }
-# R (optional): the role views on real dry-run data. ROLES_RUNS = test-execution's dryrun1.runs registry (COPIED by the
-# seed: a stable snapshot the steps compare the window with), ROLES_PKG = the built dryrun1.roles, ROLES_TRIAGE_PKG =
-# the built dryrun1.triage; without these three the R steps do not run. ROLES_COVERAGE and ROLES_MAPPING (optional) =
-# verification's dryrun1-coverage and dryrun1-mapping registries (dryrun1.coverage; dryrun1.classes): LIVE, federated
-# read-only from their own paths, mounted :ro at the same path in the seed, sidecar and code-server containers.
-ROLES_MOUNT=""; ROLES_LIVE=""
+# R (optional): the role views on real dry-run data. ROLES_RUNS = test-execution's dryrun1.runs registry (its snapshot,
+# COPIED again by the seed into repo-roles), ROLES_PKG = the built dryrun1.roles, ROLES_TRIAGE_PKG = the built
+# dryrun1.triage; without these three the R steps do not run. ROLES_COVERAGE and ROLES_MAPPING (optional) =
+# verification's dryrun1-coverage and dryrun1-mapping registries (dryrun1.coverage; dryrun1.classes): their snapshots,
+# federated read-only from $WORK/snap (mounted :ro at the same path in the seed, sidecar and code-server containers).
+ROLES_MOUNT=""; SNAP_MOUNT=""
 if [ -n "${ROLES_RUNS:-}" ] && [ -n "${ROLES_PKG:-}" ] && [ -n "${ROLES_TRIAGE_PKG:-}" ]; then
   ROLES_MOUNT="-v $ROLES_RUNS:/roles-runs:ro -v $ROLES_PKG:/roles-pkg:ro -v $ROLES_TRIAGE_PKG:/roles-triage-pkg:ro"
-  [ -z "${ROLES_COVERAGE:-}" ] || ROLES_LIVE="$ROLES_LIVE -v $ROLES_COVERAGE:$ROLES_COVERAGE:ro"
-  [ -z "${ROLES_MAPPING:-}" ] || ROLES_LIVE="$ROLES_LIVE -v $ROLES_MAPPING:$ROLES_MAPPING:ro"
+  SNAP_MOUNT="-v $SNAP:$SNAP:ro"
   # ROLES_SPEC_REVIEW (optional): verification's dryrun1-triage (scope dryrun1.spec-review), COPIED by the seed as a
   # stand-in for Wolfgang's clone, with one open row signed by a throwaway key
   [ -z "${ROLES_SPEC_REVIEW:-}" ] || ROLES_MOUNT="$ROLES_MOUNT -v $ROLES_SPEC_REVIEW:/roles-spec-review:ro"
@@ -95,7 +125,12 @@ if [ -n "${ROLES_RUNS:-}" ] && [ -n "${ROLES_PKG:-}" ] && [ -n "${ROLES_TRIAGE_P
   # christof-ext-core (Gregor's review screen opens a commit's diff from it; never written)
   if [ -n "${CHRISTOF_CLONE:-}" ]; then mkdir -p "$WORK/mirrors/christof-ext-core"; EVIDENCE_MOUNTS="$EVIDENCE_MOUNTS -v $CHRISTOF_CLONE:$WORK/mirrors/christof-ext-core:ro"; fi
 fi
-docker run --rm -u "$UIDGID" -v "$WORK:$WORK" -v "$HERE/seed.sh:/seed.sh:ro" $TRAINING_MOUNT $DM_MOUNT $ROLES_MOUNT $ROLES_LIVE -e ROLES_COVERAGE="${ROLES_COVERAGE:-}" -e ROLES_MAPPING="${ROLES_MAPPING:-}" -e CHRISTOF_COMMIT="${CHRISTOF_COMMIT:-}" \
+# The seed, the sidecar and code-server share one index daemon (HOME=$WORK/home: the cockpit's index directory and
+# daemon.json), published on the host's loopback only. All three run on the host network: a cockpit on a bridge network
+# cannot reach that address, takes the daemon for dead and starts it again (docker rm -f, then run), which killed every
+# load the window's asks were waiting for (the index restarted every ~35 s while the sidecar asked; the seed's warm-up
+# never reached the window's index). The seed gets the docker socket too, so its warm-up asks build that same index.
+docker run --rm --network host -u "$UIDGID" --group-add "$DOCKER_GID" -v /var/run/docker.sock:/var/run/docker.sock $DOCKER_MOUNT -v "$WORK:$WORK" -v "$HERE/seed.sh:/seed.sh:ro" $TRAINING_MOUNT $DM_MOUNT $ROLES_MOUNT $SNAP_MOUNT -e ROLES_COVERAGE="${ROLES_COVERAGE:-}" -e ROLES_MAPPING="${ROLES_MAPPING:-}" -e CHRISTOF_COMMIT="${CHRISTOF_COMMIT:-}" \
   -v "$COCKPIT:/usr/local/bin/cockpit:ro" -v "$VOCAB:/vocab:ro" -v "$HERE/vocabulary-package:/vocab-package:ro" -v "$HERE:/e2e:ro" \
   "$NODE_IMAGE" sh /seed.sh "$WORK" /vocab /vocab-package
 
@@ -156,29 +191,18 @@ cat > "$WORK/cs/data/User/settings.json" <<EOF
 EOF
 
 echo "== sidecar (registry side)"
-SIDE=$(docker run -d --rm --name kton-wb-e2e-sidecar-$RUN_ID -u "$UIDGID" --group-add "$DOCKER_GID" -e HOME="$WORK/home" -e TMPDIR="$WORK/tmp" \
-  -v "$WORK:$WORK" $ROLES_LIVE -v /var/run/docker.sock:/var/run/docker.sock $DOCKER_MOUNT -v "$COCKPIT:/usr/local/bin/cockpit:ro" \
+SIDE=$(docker run -d --rm --network host --name kton-wb-e2e-sidecar-$RUN_ID -u "$UIDGID" --group-add "$DOCKER_GID" -e HOME="$WORK/home" -e TMPDIR="$WORK/tmp" \
+  -v "$WORK:$WORK" $SNAP_MOUNT -v /var/run/docker.sock:/var/run/docker.sock $DOCKER_MOUNT -v "$COCKPIT:/usr/local/bin/cockpit:ro" \
   -v "$HERE/sidecar.mjs:/sidecar.mjs:ro" "$NODE_IMAGE" node /sidecar.mjs "$WORK")
 
 echo "== code-server"
 CS_COMMON="-u $UIDGID --group-add $DOCKER_GID --network host -e HOME=$WORK/home -e TMPDIR=$WORK/tmp \
-  -v $WORK:$WORK $ROLES_LIVE -v /var/run/docker.sock:/var/run/docker.sock $DOCKER_MOUNT \
+  -v $WORK:$WORK $SNAP_MOUNT -v /var/run/docker.sock:/var/run/docker.sock $DOCKER_MOUNT \
   -v $COCKPIT:/usr/local/bin/cockpit:ro -v $EXT/out:/vsix:ro -v $HERE:$HERE:ro $EVIDENCE_MOUNTS --entrypoint code-server"
 docker run --rm $CS_COMMON "$CS_IMAGE" --user-data-dir "$WORK/cs/data" --extensions-dir "$WORK/cs/ext" \
   --install-extension /vsix/kton-workbench.vsix
 CID=$(docker run -d --rm --name kton-wb-e2e-$RUN_ID $CS_COMMON "$CS_IMAGE" --user-data-dir "$WORK/cs/data" --extensions-dir "$WORK/cs/ext" \
   --auth none --bind-addr "127.0.0.1:$PORT" --disable-telemetry --disable-update-check --disable-workspace-trust "$WORK/repo")
-cleanup() {
-  docker stop kton-wb-e2e-$RUN_ID >/dev/null 2>&1 || true
-  docker stop kton-wb-e2e-sidecar-$RUN_ID >/dev/null 2>&1 || true
-  # the cockpit's index containers for this run's registries (persistent index, mounts under the work dir)
-  for c in $(docker ps -aq --filter name=kton-cockpit-index); do
-    docker inspect "$c" --format '{{range .Mounts}}{{.Source}} {{end}}' 2>/dev/null | grep -q "$WORK/" && docker rm -f "$c" >/dev/null 2>&1 || true
-  done
-  # Discard the throwaway registry and its test keys unless KEEP=1.
-  [ "${KEEP:-0}" = 1 ] || rm -r -f -- "$WORK"
-}
-trap cleanup EXIT
 i=0; until curl -sf "http://127.0.0.1:$PORT/healthz" >/dev/null; do i=$((i+1)); [ $i -lt 60 ] || { docker logs "$CID" | tail -20; exit 1; }; sleep 1; done
 
 echo "== playwright (npm ci from the committed lockfile)"
