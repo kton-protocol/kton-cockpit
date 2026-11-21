@@ -210,8 +210,10 @@ func (d *Daemon) makeView(ctx context.Context, slot, key string, def []string, c
 		}
 		u.WriteString("DROP SILENT GRAPH <" + restIRI(slot) + "> ;\nDROP SILENT GRAPH " + c + " ;\n")
 	} else {
-		// What a changed or removed graph held leaves the union before the graph goes: the graphs hold
-		// disjoint triples (a claim's are in its scope's graph only; signer labels and metadata in the rest).
+		// What a changed or removed graph held leaves the union before the graph goes. The graphs hold
+		// disjoint triples: a scope graph only its own claims' triples (a claim is in one scope), and what
+		// claims assert about something else, which several may assert alike, is in the rest with the
+		// signer labels and the metadata (kton-review N1 on #226).
 		for _, g := range append(append([]string{}, removed...), changed...) {
 			if _, had := oldHashes[g]; !had {
 				continue

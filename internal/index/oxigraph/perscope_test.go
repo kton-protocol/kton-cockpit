@@ -62,6 +62,13 @@ func TestOxigraph_ARebuildReplacesOnlyTheGraphsThatChanged(t *testing.T) {
 	if n := count(claims); n != "6" {
 		t.Fatalf("the first view: want 6 claims, got %s", n)
 	}
+	// A scope graph holds only its own claims' triples (a claim node, or a claim's nested node): what a
+	// claim asserts about something else (a seed's name for its scope) is in no scope graph, so no two
+	// scope graphs share a triple (kton-review N1 on #226).
+	if n := count(`SELECT (COUNT(*) AS ?n) WHERE { ?g a <https://kton.dev/v/ClaimGraph> . GRAPH ?g { ?s ?p ?o }
+  FILTER(!STRSTARTS(STR(?s), "https://kton.dev/o/") && !STRSTARTS(STR(?s), "https://kton.dev/np/")) }`); n != "0" {
+		t.Errorf("triples about something other than a claim in the scope graphs: %s", n)
+	}
 	before := oxigraph.Staged()
 	say("b", "new")
 	if n := count(claims); n != "7" {
