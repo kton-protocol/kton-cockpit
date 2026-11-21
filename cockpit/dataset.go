@@ -22,7 +22,15 @@ import (
 // inContainer evaluates q in a container started for it alone, over the dataset projected for keys,
 // and returns the engine's answer in format. A timeout above zero bounds the evaluation.
 func inContainer(ctx context.Context, cfg *config.Config, keys []ed25519.PublicKey, q []byte, format, dataset string, timeout time.Duration) (string, []oxigraph.ClaimGraph, error) {
-	dir, err := os.MkdirTemp("", "cockpit-query-")
+	// Under the checkout's own local directory, not the system's temporary one: the engine mounts it by
+	// its path, and where the cockpit reaches the engine through a socket passed in from the host (the
+	// persona windows), only a path on the host's side exists for it (userinterface, 21.11.). It is
+	// never shared (ADR-016) and removed after the query.
+	tmp := filepath.Join(cfg.LocalDir, "tmp")
+	if err := os.MkdirAll(tmp, 0o700); err != nil {
+		return "", nil, refuse("io", "", "%v", err)
+	}
+	dir, err := os.MkdirTemp(tmp, "query-")
 	if err != nil {
 		return "", nil, refuse("io", "", "%v", err)
 	}

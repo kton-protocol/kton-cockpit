@@ -23,6 +23,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -54,6 +55,9 @@ type lock struct {
 	// repository's index.memory, or the default.
 	MemoryFrom string `json:"memoryFrom,omitempty"`
 }
+
+// startWait is how long a started daemon has to answer.
+const startWait = 3 * time.Minute
 
 // MemoryFile is the floor every start of the daemon in an index directory takes: one line, a limit in
 // the engine's notation (4g, 512m). A repository's index.memory above it still raises it.
@@ -288,12 +292,14 @@ func start(ctx context.Context, cfg *config.Config, dir, image string) (*Daemon,
 	}
 	addr := strings.TrimSpace(strings.SplitN(string(out), "\n", 2)[0])
 	d := &Daemon{URL: "http://" + addr, Dir: dir}
-	deadline := time.Now().Add(30 * time.Second)
+	// A daemon opening a large store takes a while before it answers (userinterface, 21.11.: past 30 s for
+	// a window federating twelve registries); a query waits for it rather than fail.
+	deadline := time.Now().Add(startWait)
 	for {
 		if err := d.ping(ctx); err == nil {
 			break
 		} else if time.Now().After(deadline) {
-			return nil, fmt.Errorf("the index daemon did not answer within 30s: %w", err)
+			return nil, fmt.Errorf("the index daemon did not answer within %s: %w", startWait, err)
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
@@ -443,4 +449,30 @@ func (d *Daemon) ping(ctx context.Context) error {
 		return fmt.Errorf("%s answers %s", d.URL, resp.Status)
 	}
 	return nil
+}
+
+// MemoryInUse is how much of its memory limit the daemon of cfg's index directory uses now, in percent,
+// and the limit it was started with; ok is false where there is no daemon of ours to ask (index.url, or
+// none started).
+func MemoryInUse(ctx context.Context, cfg *config.Config) (percent float64, limit string, ok bool) {
+	if cfg.Raw.Index.URL != "" {
+		return 0, "", false
+	}
+	dir, err := Dir()
+	if err != nil {
+		return 0, "", false
+	}
+	l, found := readLock(dir)
+	if !found || l.Container == "" {
+		return 0, "", false
+	}
+	out, err := exec.CommandContext(ctx, cfg.Raw.Execution.EngineOrDefault(), "stats", "--no-stream", "--format", "{{.MemPerc}}", l.Container).Output()
+	if err != nil {
+		return 0, "", false
+	}
+	p, err := strconv.ParseFloat(strings.TrimSuffix(strings.TrimSpace(string(out)), "%"), 64)
+	if err != nil {
+		return 0, "", false
+	}
+	return p, l.MemoryOrDefault(), true
 }
