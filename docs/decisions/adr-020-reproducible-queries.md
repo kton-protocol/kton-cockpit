@@ -42,9 +42,12 @@ from the query text** (kton-review 5): an unbound `GRAPH ?g` reads every listed 
 
 Each input is pinned by what names it and cannot change:
 
-- **a scope** by its signed head: the id of the last claim of its chain the run read (kton-review 2), so a
-  later claim in the scope is not in the reproduction;
-- **the unscoped claims and the records** (steps, files) by the sorted list of their ids, as a file;
+- **a scope** by its signed heads: the id of every tip of its chain the run read (kton-review 2; a scope can
+  fork, so there may be more than one), so a later claim in the scope is not in the reproduction. The first
+  run's dataset is built by the same rule as the reproduction's: the scope's claims are those on chains ending
+  at the pinned tips, so a claim deferred or on another branch is out of both alike (kton-review A2);
+- **the unscoped claims and the records** (steps, files) by the sorted list of their ids, as a file, with
+  the hash of each registry's list beside it for quick comparison;
 - **a federation source** in the same way, its records and its scopes' heads;
 - **a loaded file** by its hash, its bytes in the content store (`.kton/blobs`); its local description
   (ADR-018 4a) is not an input, since it is unsigned (kton-review 6);
@@ -70,16 +73,26 @@ path, so the index's state cannot make them differ. A query run is refused:
 - when it uses `NOW`, `RAND`, `UUID`, `STRUUID` or `BNODE`, unless the value is bound as a parameter (an
   as-of date);
 - when its result is truncated (no partial result passes for a whole one);
-- when its answer contains blank nodes (no canonical labelling for them here) (kton-review 4).
+- when its answer contains blank nodes (no canonical labelling for them here) (kton-review 4);
+- when its answer depends on the order of evaluation: `LIMIT` or `OFFSET` without an `ORDER BY` that orders
+  every projected variable totally (ties included), `SAMPLE`, and `GROUP_CONCAT` (kton-review A1). Otherwise
+  a reproduction would differ and read as tampering.
 
-`ORDER BY` and `LIMIT` stay the query's business; the comparison is of the multiset.
+The refusals are decided on the parsed query, not its text: `NOW()` in a sub-select is refused, the string
+`"NOW()"` is not (kton-review A4). Otherwise the comparison is of the multiset of rows.
+
+Loaded files' descriptions (ADR-018 4a) are local and unsigned, so they are not in the reproducible dataset: a
+query that finds a loaded graph by its path or label answers empty there, and finds it by hash instead.
 
 ### 4 Reproduction re-verifies
 
 `cockpit reproduce <query-run>` reads the manifest and builds the dataset again **from the registries**, not
 from stored rows (kton-review 1):
 
-1. reads every pinned record and claim, and checks its signature under the pinned trust keys;
+1. reads every pinned record and claim, and checks its signature under the pinned trust keys. That answers
+   whether the run is reproducible. Whether its result is still accepted is a separate answer, under the
+   reproducer's current trust tiers: a key revoked since the run does not make the reproduction fail, and the
+   reproduction says the run rests on a key the reproducer no longer trusts (kton-review A3);
 2. truncates each scope at its pinned head;
 3. rebuilds the view with the pinned vocabulary, row templates and projection version, in the pinned engine;
 4. runs the query and compares the canonical result's hash with the run's output.
@@ -107,12 +120,16 @@ this cockpit does not have, is refused, named.
 
 ## Tests (before the code lands)
 
-The same query run twice gives one record; a claim added to a scope after the run is not in the reproduction;
-a changed template or a revoked trust key makes reproduction refuse, naming it; `NOW()` refused, a bound as-of
+The same query run twice gives one record; a claim added to a scope after the run is not in the reproduction,
+nor a claim on another branch of a forked scope; a changed template makes reproduction refuse, naming it; a key
+revoked since the run leaves the reproduction matching and says it rests on that key; `LIMIT` without a total
+order, `SAMPLE` and `GROUP_CONCAT` refused; `NOW()` refused, a bound as-of
 accepted; a truncated result refused; a loaded file's bytes from the content store; a reproduction by another
 key counts in `↻N`, one by a declared step does not.
 
-## Open
+## Open and decided in review
 
-- Whether `--graph` takes scope names (resolved to seeds at run time, recorded as seeds) or only seeds.
+- `--graph` takes a scope's name or seed; a name is resolved to its seed when the run starts and recorded as
+  the seed (as ADR-018). The engine is pinned by digest and never pulled: absent, a reproduction is refused,
+  named.
 - Whether a reproduction should also be possible over the nanopub dataset's signed form alone.
