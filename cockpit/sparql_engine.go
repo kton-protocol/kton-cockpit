@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/kton-protocol/kton-cockpit/internal/config"
@@ -60,6 +61,12 @@ func runSparql(ctx context.Context, cfg *config.Config, q, dataset string, timeo
 	}
 	body, graphs, err := inContainer(ctx, cfg, keys, []byte(q), "json", dataset, timeout)
 	if err != nil {
+		// Both ways failed: say why the index was not used too, or only the second failure is seen
+		// (userinterface, 21.11.: a container error hid that the index could not be started).
+		var ref *Refusal
+		if strings.Contains(via, "not the index") && errors.As(err, &ref) {
+			ref.Reason += " (" + strings.TrimPrefix(via, "a container for this query; ") + ")"
+		}
 		return nil, err
 	}
 	res, err := oxigraph.ParseResults([]byte(body))

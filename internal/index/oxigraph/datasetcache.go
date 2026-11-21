@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"crypto/ed25519"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/url"
 	"os"
@@ -112,7 +114,7 @@ func (d *Daemon) viewIs(ctx context.Context, slot, key string) bool {
 // (claimsNT) beside it, and marks both with key, all in one update: the store applies an update
 // whole, so a reader sees the old view or the new one, never a view without its claims. Building
 // takes turns per slot, and a builder that waited finds the view already made under its key.
-func (d *Daemon) makeView(ctx context.Context, slot, key string, def []string, claims []Quad, scopes map[string][]Quad) error {
+func (d *Daemon) makeView(ctx context.Context, slot, key string, def []string, claims []Quad, scopes map[string][]Quad) (err error) {
 	if d.Dir != "" {
 		if err := os.MkdirAll(d.datasetDir(), 0o755); err != nil {
 			return err
@@ -125,12 +127,48 @@ func (d *Daemon) makeView(ctx context.Context, slot, key string, def []string, c
 		if d.viewIs(ctx, slot, key) {
 			return nil
 		}
+		// What a build killed before its last update staged is swept first, only under the slot lock:
+		// without it two builders could sweep each other's staging (kton-review S1 and its note on #221).
+		if err := d.sweepStaging(ctx, slot); err != nil {
+			return err
+		}
 	}
 	v, c, m := "<"+viewIRI(slot)+">", "<"+claimsIRI(slot)+">", "<"+markIRI(slot)+">"
 	// The scope graphs of the view being replaced are named in its metadata; they go with it.
 	old, err := d.claimGraphs(ctx, slot)
 	if err != nil {
 		return err
+	}
+	// The data goes up first, through the graph store, in chunks, into staging graphs no query lists:
+	// one SPARQL update with every claim in it outgrew the engine's 128 MiB body limit in large federated
+	// views (kton-coordination and userinterface, 21.11.). Then one small update puts the staging graphs
+	// in place, so a reader still sees the old view or the new one whole.
+	nonce := make([]byte, 8)
+	_, _ = rand.Read(nonce)
+	staging := func(g string) string { return g + ":staging:" + hex.EncodeToString(nonce) }
+	var staged []string
+	defer func() {
+		if err != nil {
+			for _, g := range staged {
+				_, _ = d.request(context.Background(), "/update", "", "update", "DROP SILENT GRAPH <"+g+">")
+			}
+		}
+	}()
+	var rest []Quad
+	for _, q := range claims {
+		if q.G == "" {
+			rest = append(rest, q)
+		}
+	}
+	upload := map[string][]Quad{claimsIRI(slot): rest}
+	for g, qs := range scopes {
+		upload[g] = qs
+	}
+	for _, g := range sortedKeys(upload) {
+		staged = append(staged, staging(g))
+		if err = d.stage(ctx, staging(g), upload[g]); err != nil {
+			return fmt.Errorf("staging %s: %w", g, err)
+		}
 	}
 	var u bytes.Buffer
 	for _, g := range old {
@@ -144,33 +182,56 @@ func (d *Daemon) makeView(ctx context.Context, slot, key string, def []string, c
 		}
 		u.WriteString(" } GRAPH ?g { ?s ?p ?o } } ;\n")
 	}
-	// N-Triples lines are triples SPARQL's INSERT DATA takes as they are. Each scope's graph (ADR-018),
-	// then the union: what belongs to no scope (signer labels, the graphs' metadata) as data, and each
-	// scope graph added to it by the engine, so a claim's triples are sent and parsed once, not twice.
-	// Once also matters for blank nodes: the engine refuses an update in which one blank-node label
-	// appears in two INSERT DATA blocks (kton-review on #210), so every quad goes into exactly one.
-	// One update, so a reader sees the old view or the new one whole.
-	for _, g := range sortedKeys(scopes) {
-		u.WriteString("INSERT DATA { GRAPH <" + g + "> {\n")
-		u.Write(NTriples(scopes[g]))
-		u.WriteString("\n} } ;\n")
-	}
-	var rest []Quad
-	for _, q := range claims {
-		if q.G == "" {
-			rest = append(rest, q)
-		}
-	}
-	if len(rest) > 0 {
-		u.WriteString("INSERT DATA { GRAPH " + c + " {\n")
-		u.Write(NTriples(rest))
-		u.WriteString("\n} } ;\n")
+	// MOVE SILENT from a graph that was never staged (an empty upload) leaves its target empty, which it
+	// is anyway: the old graphs were dropped above. Each scope's graph (ADR-018) moved into place; the
+	// union is what belongs to no scope (signer
+	// labels, the graphs' metadata) and each scope graph added to it by the engine, so a claim's triples
+	// are sent once.
+	for _, g := range sortedKeys(upload) {
+		u.WriteString("MOVE SILENT <" + staging(g) + "> TO <" + g + "> ;\n")
 	}
 	for _, g := range sortedKeys(scopes) {
 		u.WriteString("ADD <" + g + "> TO " + c + " ;\n")
 	}
 	u.WriteString("INSERT DATA { GRAPH " + m + " { " + v + " <" + kNS + "key> " + strconv.Quote(key) + " } }")
-	return d.update(ctx, u.Bytes())
+	err = d.update(ctx, u.Bytes())
+	return err
+}
+
+// stageChunk is how much of a graph one graph-store request carries: well under the engine's body limit.
+var stageChunk = 32 << 20
+
+// stage appends qs to graph g through the graph store, in chunks of about stageChunk bytes cut only
+// where the subject changes, so a node's triples (and any blank node among them) stay in one request.
+func (d *Daemon) stage(ctx context.Context, g string, qs []Quad) error {
+	var b bytes.Buffer
+	send := func() error {
+		if b.Len() == 0 {
+			return nil
+		}
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, d.URL+"/store?graph="+url.QueryEscape(g), bytes.NewReader(b.Bytes()))
+		if err != nil {
+			return err
+		}
+		req.Header.Set("Content-Type", "application/n-triples")
+		_, err = do(req)
+		b.Reset()
+		return err
+	}
+	for i, q := range qs {
+		// Each graph-store request gets fresh blank nodes, so a blank node's link could be lost at a
+		// chunk cut. The view holds none today; one that appears fails here, loudly (kton-review B1).
+		if q.S.Type == "bnode" || q.O.Type == "bnode" {
+			return fmt.Errorf("a blank node in the view (%s): the view is written in chunks, and a blank node cannot cross them", ntTerm(q.S))
+		}
+		if b.Len() >= stageChunk && i > 0 && q.S != qs[i-1].S {
+			if err := send(); err != nil {
+				return err
+			}
+		}
+		b.WriteString(ntTerm(q.S) + " " + ntTerm(q.P) + " " + ntTerm(q.O) + " .\n")
+	}
+	return send()
 }
 
 // update sends one SPARQL update as the request body, which a large one needs: a form would
@@ -231,4 +292,23 @@ func sortedKeys[V any](m map[string]V) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// sweepStaging drops slot's staging graphs: what a build staged and never put in place.
+func (d *Daemon) sweepStaging(ctx context.Context, slot string) error {
+	q := `SELECT DISTINCT ?g WHERE { GRAPH ?g { } FILTER(STRSTARTS(STR(?g), "` + kNS + "view:" + slot + `:") && CONTAINS(STR(?g), ":staging:")) }`
+	body, err := d.post(ctx, "/query", "application/sparql-results+json", url.Values{"query": {q}})
+	if err != nil {
+		return err
+	}
+	r, err := ParseResults(body)
+	if err != nil {
+		return err
+	}
+	for _, row := range r.Rows {
+		if _, err := d.request(ctx, "/update", "", "update", "DROP SILENT GRAPH <"+row["g"]+">"); err != nil {
+			return err
+		}
+	}
+	return nil
 }
