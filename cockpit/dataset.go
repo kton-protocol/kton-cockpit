@@ -22,11 +22,44 @@ import (
 // inContainer evaluates q in a container started for it alone, over the dataset projected for keys,
 // and returns the engine's answer in format. A timeout above zero bounds the evaluation.
 func inContainer(ctx context.Context, cfg *config.Config, keys []ed25519.PublicKey, q []byte, format, dataset string, timeout time.Duration) (string, []oxigraph.ClaimGraph, error) {
-	dir, err := os.MkdirTemp("", "cockpit-query-")
+	// Under the checkout's own local directory, not the system's temporary one: the engine mounts it by
+	// its path, and where the cockpit reaches the engine through a socket passed in from the host (the
+	// persona windows), only a path on the host's side exists for it (userinterface, 21.11.). It is
+	// never shared (ADR-016) and removed after the query.
+	tmp := filepath.Join(cfg.LocalDir, "tmp")
+	if err := os.MkdirAll(tmp, 0o700); err != nil {
+		return "", nil, refuse("io", "", "%v", err)
+	}
+	// What a killed query left (its projected dataset, large in a big union) is swept once it is an hour
+	// old: the checkout is not cleared on reboot as the system's temporary directory is (kton-review N1).
+	if old, err := filepath.Glob(filepath.Join(tmp, "query-*")); err == nil {
+		for _, p := range old {
+			if st, err := os.Stat(p); err == nil && time.Since(st.ModTime()) > time.Hour {
+				_ = os.RemoveAll(p)
+			}
+		}
+	}
+	dir, err := os.MkdirTemp(tmp, "query-")
 	if err != nil {
 		return "", nil, refuse("io", "", "%v", err)
 	}
 	defer os.RemoveAll(dir)
+	// Kept fresh while the query runs, so a long one is never taken for what a killed query left
+	// (kton-review's note on #223's sweep).
+	running := make(chan struct{})
+	defer close(running)
+	go func() {
+		t := time.NewTicker(10 * time.Minute)
+		defer t.Stop()
+		for {
+			select {
+			case <-running:
+				return
+			case now := <-t.C:
+				_ = os.Chtimes(dir, now, now)
+			}
+		}
+	}()
 	graphs, err := projectRegistries(ctx, cfg, keys, dataset, dir)
 	if err != nil {
 		return "", nil, refuse("kernel", "", "projecting the registries: %v", err)

@@ -74,3 +74,19 @@ func TestOxigraph_AViewGoesUpInChunks(t *testing.T) {
 		t.Errorf("the stale staging graph is swept: %d triples left", left)
 	}
 }
+
+// doctor's warning reads how much of its limit a running daemon uses (userinterface, 21.11.).
+func TestOxigraph_MemoryInUseOfARunningDaemon(t *testing.T) {
+	ctx := context.Background()
+	t.Setenv("COCKPIT_INDEX_DIR", t.TempDir())
+	r := testrepo.New(t)
+	cfg := indexed(t, r)
+	if _, err := oxigraph.Ensure(ctx, cfg); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { oxigraph.Stop(context.Background(), cfg) })
+	p, limit, ok := oxigraph.MemoryInUse(ctx, cfg)
+	if !ok || p <= 0 || p > 100 || limit != "2g" {
+		t.Errorf("a running daemon's memory: %v %q %v", p, limit, ok)
+	}
+}
