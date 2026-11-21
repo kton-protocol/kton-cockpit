@@ -51,6 +51,7 @@ async function step(flow, n, title, fn) {
   current.ms = Date.now() - t0;
   if (current.ok && current.checks.length === 0) current.checks.push({ ok: true, message: "passed" });
   results.push(current);
+  current = null; // between steps (a flow's setup) nothing is recorded into the last step
 }
 /** A named check inside a step: recorded, and a failure fails the step. */
 function check(ok, message, expected, received) {
@@ -65,13 +66,23 @@ async function cockpit(argv, stdin, extra = {}) {
   const req = `${WORK}/rpc/${id}.req.json`;
   writeFileSync(`${req}.tmp`, JSON.stringify({ argv, ...(stdin !== undefined ? { stdin } : {}), ...extra }));
   renameSync(`${req}.tmp`, req);
-  const end = Date.now() + (extra.repo?.startsWith("repo-dm") ? 660_000 : 180_000);
+  // the sidecar's own limit (sidecar.mjs: 600 s in repo-dm, 300 s elsewhere) and a minute for its queue
+  const end = Date.now() + (extra.repo?.startsWith("repo-dm") ? 660_000 : 360_000);
   while (Date.now() < end) {
     const res = `${WORK}/rpc/${id}.res.json`;
     if (existsSync(res)) return JSON.parse(readFileSync(res, "utf8"));
     await page.waitForTimeout(200);
   }
   throw new Error(`the sidecar did not answer ${argv.join(" ")}`);
+}
+/** One ask from the sidecar that builds the registry's view (index) after a federation change or a signing step, so a
+ *  window that asks next answers from a warm index; the time it took is recorded in the step. */
+async function warm(repo, argv = ["ask", "sparql", "-", "--results-json"], stdin = "SELECT * WHERE { ?s ?p ?o } LIMIT 1") {
+  const t0 = Date.now();
+  const r = await cockpit(argv, argv.includes("-") ? stdin : undefined, { repo });
+  const message = `${repo}: index warmed by one sidecar ask (${((Date.now() - t0) / 1000).toFixed(1)} s${r.code ? `, exit ${r.code}: ${(r.stderr || r.stdout).split("\n")[0]}` : ""})`;
+  current?.checks?.push({ ok: true, message });
+  return r;
 }
 const PREFIXES = `PREFIX nk: <https://kton.dev/v/>
 PREFIX t: <https://example.org/workbench-e2e/>
@@ -1186,6 +1197,8 @@ if (seed.dm?.proposal && selected("DM")) {
     if (r.code !== 0) throw new Error(`registry check failed (exit ${r.code}): ${r.stderr.split("\n")[0]} ${r.stdout.slice(0, 300)}`);
     return JSON.parse(r.stdout).results.bindings.map((b) => Object.fromEntries(Object.entries(b).map(([k, v]) => [k, v.value])));
   }
+  // the federated copy's first ask builds its view: one sidecar ask builds it before the window asks (warm())
+  await warm("repo-dm");
   await page.goto(URL.replace(/folder=[^&]*/, `folder=${encodeURIComponent(`${WORK}/repo-dm`)}`));
   await page.locator(".monaco-workbench").waitFor({ timeout: 90000 });
   await views();
@@ -1401,6 +1414,7 @@ if (seed.dm?.proposal && selected("DM")) {
     await closeEditors();
     // repo-dm2: verification's dryrun1 data and test-execution's dryrun1.runs, with only the view built for dryrun2
     check(!!seed.dm.proposal2, "the dryrun2 registry is seeded");
+    await warm("repo-dm2");
     await page.goto(URL.replace(/folder=[^&]*/, `folder=${encodeURIComponent(`${WORK}/repo-dm2`)}`));
     await page.locator(".monaco-workbench").waitFor({ timeout: 90000 });
     await views();
@@ -1437,21 +1451,19 @@ if (seed.roles && selected("R")) {
     if (r.code !== 0) throw new Error(`${name} failed: ${(r.stderr || r.stdout).split("\n")[0]}`);
     return JSON.parse(r.stdout).results.bindings.map((b) => Object.fromEntries(Object.entries(b).map(([k, v]) => [k, v.value])));
   };
-  // the window's queries may take longer than 20 s on real data under load: this folder's timeout is 90 s
+  // the window's queries may take longer than 20 s on real data under load: this folder's timeout is 120 s
   mkdirSync(`${WORK}/repo-roles/.vscode`, { recursive: true });
   writeFileSync(`${WORK}/repo-roles/.vscode/settings.json`, JSON.stringify({ "kton.cockpit.timeoutSeconds": 120 }, null, 2));
+  // kton-cockpit (20.11.): every say and federation pull invalidates the kept view; the first asks after it wait for one
+  // cold build (12–40 s here, longer under load). One ask from the sidecar builds it (the sources are snapshots taken
+  // once per run, run.sh, so nothing else moves it) before a window opens a view or waits on a block after a signing
+  // step, so the window's parallel first asks do not each wait into their timeouts (warm asks take ~0.65 s).
+  const warmIndex = () => warm("repo-roles", ["ask", "sparql", "--name", "runs", "--results-json", "--timeout", "120"]);
+  await warmIndex();
   await closeEditors();
   await page.goto(URL.replace(/folder=[^&]*/, `folder=${encodeURIComponent(`${WORK}/repo-roles`)}`));
   await page.locator(".monaco-workbench").waitFor({ timeout: 90000 });
   await views();
-  // kton-cockpit (20.11.): every say and federation pull invalidates the kept view; the first asks after it wait for one
-  // cold build (12–17 s here, longer under load). One ask from the sidecar builds it before a window opens a view, so
-  // the window's parallel first asks do not each wait into their timeouts (not a slow query: warm asks take ~0.65 s).
-  const warmIndex = async () => {
-    const t0 = Date.now();
-    await cockpit(["ask", "sparql", "--name", "runs", "--results-json", "--timeout", "120"], undefined, { repo: "repo-roles" });
-    current?.checks?.push({ ok: true, message: `index warmed by one sidecar ask (${((Date.now() - t0) / 1000).toFixed(1)} s)` });
-  };
   const christof = async () => {
     try {
       return await frameWithSel('[data-composition="dryrun1.roles/christof"]', 15000);
@@ -1466,6 +1478,8 @@ if (seed.roles && selected("R")) {
   /** The rows of a block as {column: text}, once it has drawn. */
   async function rowsIn(f, id) {
     await waitDrawn(f, id);
+    const err = box(f, id).locator("[data-area-error]");
+    if (await err.count()) throw new Error(`${id}: the block drew an error: ${((await err.first().textContent()) ?? "").trim().slice(0, 200)}`);
     await countIn(f, id);
     // data rows only: a grouped table has a header row per group (DESIGN.md §5 rows)
     return box(f, id).locator("tbody tr[data-row]").evaluateAll((trs) => trs.map((tr) => Object.fromEntries([...tr.querySelectorAll("td[data-col]")].map((td) => [td.dataset.col, td.textContent]))));
@@ -1556,9 +1570,11 @@ if (seed.roles && selected("R")) {
     check(overflow <= 0, "the view does not scroll sideways", 0, overflow);
     const pick = failures.find((r) => /ics1829\.spec\.ts#STP-002/.test(r.test)) ?? failures.find((r) => /e2e/.test(r.suite)) ?? failures[0];
     const withArtifacts = (await askR("artifacts-of-test", [`test=${pick.test}`])).some((r) => r.sha256 && r.run === pick.run);
-    const evCell = box(f, "failures").locator("tbody tr[data-row]", { hasText: pick.test.slice(0, 60) }).first().locator('td[data-col="evidence"]');
+    // a failure row by its run-unit claim (the row's data-target): the test is shown short and the run is its group's header
+    const failureRow = (claim) => box(f, "failures").locator(`tbody tr[data-row][data-target="${claim}"]`).first();
+    const evCell = failureRow(pick.claim).locator('td[data-col="evidence"]');
     if (withArtifacts) check((await evCell.locator("button[data-art]").count()) > 0, "a failure with artifacts shows them (thumbnail or link, each opening the hash-checked artifact)", "> 0", await evCell.locator("button[data-art]").count());
-    await box(f, "failures").locator("tbody tr[data-row]", { hasText: pick.test.slice(0, 60) }).first().locator('td[data-col="test"] > span').first().click();
+    await failureRow(pick.claim).locator('td[data-col="test"] > span').first().click();
     await box(f, "history").locator("[data-area-table]").first().waitFor({ timeout: 120000 });
     const hist = await askR("history-of-test", [`test=${pick.test}`]);
     const h = await rowsIn(f, "history");
@@ -1596,12 +1612,13 @@ if (seed.roles && selected("R")) {
   }
   const sha = (iri) => `sha256:${iri.replace(/^https:\/\/kton\.dev\/o\//, "")}`;
 
-  await step("R", 6, "row acts: Request rerun (capture mode) on a failure row records test-execution's rerun-requested (dryrun1.runs@v7, pinned) about that row into dryrun1.triage, prints the nudge; the request shows open, then with its (stand-in) rerun-compared answer", async () => {
-    let f = await christof();
+  await step("R", 6, "row acts: Request rerun (capture mode) on a failure row records test-execution's rerun-requested (dryrun1.runs, pinned) about that row into dryrun1.triage, prints the nudge; the request shows open, then with its (stand-in) rerun-compared answer", async () => {
+    const f = await christof();
     const failures = await askR("failures");
     const pick = failures.find((r) => /ics1829\.spec\.ts#STP-002/.test(r.test)) ?? failures.find((r) => /e2e/.test(r.suite)) ?? failures[0];
     await rowsIn(f, "failures");
-    const tr = box(f, "failures").locator("tbody tr[data-row]", { hasText: pick.test.slice(0, 60) }).filter({ hasText: pick.run }).first();
+    // the row by its run-unit claim (data-target): the test is shown short, the run is its group's header
+    const tr = box(f, "failures").locator(`tbody tr[data-row][data-target="${pick.claim}"]`).first();
     // the row's acts are in its details (MH 20.11., qm 51c22b74: fewer, narrower columns)
     await tr.locator("details.rowmore > summary").click();
     check((await tr.locator("details.rowmore button[data-row-act]").count()) === 3, "each failure row: Request rerun, Request rerun (capture mode), Capture now", 3, await tr.locator("details.rowmore button[data-row-act]").allTextContents());
@@ -1628,17 +1645,17 @@ if (seed.roles && selected("R")) {
     const line = await outputHas(new RegExp(`nudge \\(send it; the shell sends no lane message\\): \\./send userinterface requests area=test-execution title="rerun: (?:[^"\\\\]|\\\\.)*" text="rerun request claim ${sha(reqs[0]?.r ?? "x")}; test (?:[^"\\\\]|\\\\.)*" why="Christof's view \\(dryrun1\\)"`));
     check(!!line, "the exact ./send nudge line is in the output channel", "./send userinterface requests area=test-execution title=\"rerun: …\" …", line || outputLog().split("\n").filter((l) => /nudge/.test(l)).slice(-2));
     // the request with its state: open, then test-execution's answer (a STAND-IN here). The requests block asked before
-    // the act (in another block): the view is opened again, as a reader would, and then asks again while it is open
-    await closeEditors();
-    f = await christof();
-    const card = box(f, "rerunrequests").locator(".kton-card, [data-card-row], article").first();
-    await box(f, "rerunrequests").getByText(/open: test-execution is asked/).first().waitFor({ timeout: 90000 });
-    await standinAnswer("rerun-compared", reqs[0].r, { outcome: "compared", baseline: pick.run, rerun: "standin-rerun-e2e", tests: "1", same: "1", fixed: "0", broken: "0" });
+    // the act (in another block of the same view): it asks again by itself after any act of the view (no reopen); the
+    // say invalidated the index, so one sidecar ask builds it first
+    await warmIndex();
+    await box(f, "rerunrequests").getByText(/open: test-execution is asked/).first().waitFor({ timeout: 120000 });
+    // dryrun1.runs v8 (test-execution, 21.11.): outcome ran | declined (v7 had compared); the view reads any outcome
+    // other than declined as compared
+    await standinAnswer("rerun-compared", reqs[0].r, { outcome: "ran", baseline: pick.run, rerun: "standin-rerun-e2e", tests: "1", same: "1", fixed: "0", broken: "0" });
     await box(f, "rerunrequests").getByText(/compared: rerun standin-rerun-e2e · same 1 · fixed 0 · broken 0/).first().waitFor({ timeout: 120000 });
     check(true, "the request shows test-execution's (stand-in) answer: compared, same 1");
     const want = (await askR("rerun-requests")).filter((r) => r.request === reqs[0].r && r.answer);
     check(want.length === 1, "test-execution's own rerun-requests query gives the same answer", 1, want.length);
-    void card;
     await shot("r6-rerun-request");
   });
 
@@ -1648,7 +1665,7 @@ if (seed.roles && selected("R")) {
     const fails = await askR("failures");
     const pickF = fails.find((r) => /ics1829\.spec\.ts#STP-002/.test(r.test)) ?? fails[0];
     await rowsIn(f, "failures");
-    await box(f, "failures").locator("tbody tr[data-row]", { hasText: pickF.test.slice(0, 60) }).first().locator('td[data-col="test"] > span').first().click();
+    await box(f, "failures").locator(`tbody tr[data-row][data-target="${pickF.claim}"]`).first().locator('td[data-col="test"] > span').first().click();
     await box(f, "history").locator("[data-area-table]").first().waitFor({ timeout: 120000 });
     const hist = await rowsIn(f, "history");
     const arts = await askR("artifacts-of-test", [`test=${(await askR("failures")).find((r) => /ics1829\.spec\.ts#STP-002/.test(r.test))?.test ?? hist[0].test}`]);
@@ -1664,14 +1681,18 @@ if (seed.roles && selected("R")) {
     const text = (await d.locator("body").textContent()) ?? "";
     check(/Capture now: test-execution runs this test on robert1/.test(text) && /dryrun1\.triage/.test(text), "the dialog shows the control's title and the records scope", "Capture now: … · dryrun1.triage", text.slice(0, 300));
     await signInDialog(d);
-    await tr.locator("[data-row-out]").filter({ hasText: /Signed|Not done/ }).first().waitFor({ timeout: 90000 }).catch(() => {});
+    // the dialog says when the say is done (it signs into a registry with federated sources: tens of seconds); the
+    // frame that asked may have been reloaded meanwhile, so the dialog's outcome is what is waited for
+    await d.locator('[data-testid="sign-outcome"][data-state="signed"]').waitFor({ timeout: 180000 });
     const caps = await sparql(`SELECT ?r ?about WHERE { ?sc rdfs:label "dryrun1.triage" . ?r nk:scope ?sc ; nk:predicate <https://scinteco.com/ns/triage#captureRequested> ; nk:about ?about }`, "repo-roles");
     check(caps.length === 1, "one capture-requested in dryrun1.triage, about the history row's claim", 1, caps);
     const line = await outputHas(new RegExp(`\\./send userinterface requests area=test-execution title="capture now: (?:[^"\\\\]|\\\\.)*" text="request claim ${sha(caps[0]?.r ?? "x")}; test (?:[^"\\\\]|\\\\.)*" why="Christof's view \\(dryrun1\\)"`));
     check(!!line, "the exact ./send nudge line for the capture is in the output channel", "./send … capture now …", line);
-    await closeEditors();
+    // the captures block asks again by itself after the act (no reopen); the say invalidated the index: warm it first.
+    // After the sign dialog the view may have been reloaded: find it again (the same view, not reopened)
+    await warmIndex();
     f = await christof();
-    await box(f, "captures").getByText(/Waiting for its answer/).first().waitFor({ timeout: 90000 });
+    await box(f, "captures").getByText(/Waiting for its answer/).first().waitFor({ timeout: 120000 });
     await standinAnswer("capture-result", caps[0].r, { test, outcome: "captured", run: withArt.run, result: "failed", artifacts: "1", seconds: "93" });
     await box(f, "captures").getByText(new RegExp(`Captured in run ${withArt.run.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`)).first().waitFor({ timeout: 120000 });
     const t = await boxText(f, "captures");
