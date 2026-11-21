@@ -96,3 +96,29 @@ test("every viewer that offers acts announces a signed act the same way", async 
     assert.equal(typeof m.announceAct, "function", name);
   }
 });
+
+test("the evidence block keeps an element typed while its first answer was on its way", async () => {
+  const { mount } = await viewer("evidence");
+  // a stand-in element whose form input is made anew on every innerHTML, with the value the markup says
+  let input: { value: string } | null = null;
+  let html = "";
+  const el = {
+    get innerHTML() {
+      return html;
+    },
+    set innerHTML(h: string) {
+      html = h;
+      const m = /data-testid="evidence-ask"[^>]*value="([^"]*)"/.exec(h);
+      input = m ? { value: m[1] ?? "" } : null;
+    },
+    insertAdjacentHTML() {},
+    querySelector: (sel: string) => (sel === "form[data-ask] input" ? input : sel === "form[data-ask]" && input ? { addEventListener() {}, querySelector: () => input } : null),
+    querySelectorAll: () => [],
+  };
+  let answer!: (r: unknown) => void;
+  mount(el, { kit: { esc }, use: { key: "v#evidence", options: { ask: "element|e.g. ics1000#e2" } }, state: {}, request: () => new Promise((r) => (answer = r)), intent: async () => ({}), setState() {} });
+  (input as unknown as { value: string }).value = "ics1742#e23"; // typed while the block still loads
+  answer({ head: { vars: [] }, results: { bindings: [] } });
+  await flush();
+  assert.equal((input as unknown as { value: string } | null)?.value, "ics1742#e23", "the redraw kept the typed element");
+});

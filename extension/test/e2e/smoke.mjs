@@ -1309,6 +1309,8 @@ if (seed.dm?.proposal && selected("DM")) {
   // open from here to DM.9: its view session's opens are what the decision lists.
   const evidence = async (f, element) => {
     const b = f.locator('[data-use$="#evidence"]');
+    // the block's first answer first (a reopened view's evidence block may still be loading)
+    await b.locator("[data-area-loading]").waitFor({ state: "detached", timeout: 120000 });
     await b.locator('[data-testid="evidence-ask"]').fill(element);
     await b.locator('[data-testid="evidence-show"]').click();
     await b.locator("[data-evidence-for]", { hasText: element }).waitFor({ timeout: 60000 });

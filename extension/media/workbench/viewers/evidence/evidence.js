@@ -18,6 +18,13 @@ export function mount(el, ctx) {
     ? `<form class="picker" data-ask><label for="${id}-el">Element</label><input id="${id}-el" type="text" class="mono" data-testid="evidence-ask" placeholder="${esc(placeholder)}" value="${esc(String(ctx.state?.element ?? ""))}"${o.askHint ? ` aria-describedby="${id}-hint"` : ""}><button type="submit" class="small" data-testid="evidence-show">Show</button>${o.askHint ? `<span id="${id}-hint" class="muted hint">${esc(o.askHint)}</span>` : ""}</form>`
     : "";
   const title = o.title ? `<h3 data-block-title>${esc(o.title)}</h3>` : "";
+  // a redraw (the block's answer arrives) keeps what the reader typed into the element field meanwhile
+  const draw = (html) => {
+    const typed = el.querySelector("form[data-ask] input")?.value;
+    el.innerHTML = html;
+    const input = typed ? el.querySelector("form[data-ask] input") : null;
+    if (input && !input.value) input.value = typed;
+  };
   el.innerHTML = `${ask}${title}${skeleton("lines")}`;
   const wireAsk = () => {
     const f = el.querySelector("form[data-ask]");
@@ -67,7 +74,7 @@ export function mount(el, ctx) {
           .join("");
         body = `<ul class="ev">${items}</ul>`.replace(/<ul class="ev"><\/ul>/g, "");
       }
-      el.innerHTML = `${ask}${title}${rows.length ? forWhat + body : emptyBox(esc, o.emptyText || "Nothing to open.", o.emptyHow)}`;
+      draw(`${ask}${title}${rows.length ? forWhat + body : emptyBox(esc, o.emptyText || "Nothing to open.", o.emptyHow)}`);
       wireAsk();
       for (const b of el.querySelectorAll("button[data-open]")) {
         b.addEventListener("click", () => {
@@ -85,7 +92,7 @@ export function mount(el, ctx) {
       }
     },
     (e) => {
-      el.innerHTML = `${ask}${title}<div class="callout error" data-area-error role="alert"><p>${esc(e?.message ?? String(e))}</p></div>`;
+      draw(`${ask}${title}<div class="callout error" data-area-error role="alert"><p>${esc(e?.message ?? String(e))}</p></div>`);
       wireAsk();
     },
   );
