@@ -366,7 +366,14 @@ Repo-relative input paths, repo-relative output paths, the command, and optional
 reference and a corpus. **Nothing else.** The caller MUST NOT supply a signing key, a commit, a
 permalink, or a foton id; the cockpit owns all of them.
 
-> **Checked by:** `examples/01-publish`, `TestPublish_RecordsASignedFotonAndPushesIt`.
+A step that was not recorded as it ran but declared afterwards says so: `declared` is `hand` (written by a
+person) or `heuristic:<name>` (inferred by the named heuristic), and absent means observed. It is part of the
+signed descriptor, so a declared step is another record than the same step observed. A declared step MUST
+NOT be run, also where the cockpit runs commands (§10), and takes no outputs only a run finds (`outputDir`,
+`outputsIn`); any other value is refused.
+
+> **Checked by:** `examples/01-publish`, `TestPublish_RecordsASignedFotonAndPushesIt`,
+> `TestPublish_ADeclaredStepSaysSoInItsRecord`, `TestContainer_ADeclaredStepIsNotRun` (`-tags docker`).
 
 ### 7.2 What is proven and what is attested
 

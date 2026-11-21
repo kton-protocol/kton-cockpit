@@ -147,6 +147,9 @@ type AuthorInput struct {
 	// go into it by the same rules. Empty Kind is a script.
 	Kind       string
 	Descriptor map[string]any
+	// Declared, for a script, says it was declared afterwards rather than recorded as it ran (hand, or
+	// heuristic:<name>): in the descriptor, so signed and part of the record's identity.
+	Declared string
 	// Dir, when set, is the absolute directory Inputs and Outputs are read under instead of the
 	// repository: a tool call's staging directory.
 	Dir string
@@ -218,6 +221,9 @@ func (r *Runner) spec(in AuthorInput) (ffoton.Spec, []ffoton.FileSpec, []ffoton.
 	}
 	if in.Environment != "" {
 		desc["environment"] = in.Environment
+	}
+	if in.Declared != "" {
+		desc["declared"] = in.Declared
 	}
 	if in.EnvRef != "" && !envCarried(in) {
 		desc["envRef"] = in.EnvRef
