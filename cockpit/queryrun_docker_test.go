@@ -48,6 +48,15 @@ SELECT ?c ?v WHERE { ?c nk:about ?s ; <https://kton.dev/v/lab/value> ?v }`
 		}
 		return a.Sparql
 	}
+	// A claim signed after the run pinned what it reads is in neither its rows nor its manifest
+	// (kton-review Q1 on #225).
+	afterPin = func() {
+		afterPin = nil
+		if res, _, err := Say(ctx, nil, SayRequest{Subject: "urn:example:x", Template: "describes", Scope: "study",
+			Fields: map[string]string{"value": "two"}}); err != nil || res.IsError {
+			t.Errorf("say during the run: %v %s", err, errText(res))
+		}
+	}
 	a := ask()
 	if a.Run == nil || a.Run.FotonID == "" || len(a.Rows) != 2 {
 		t.Fatalf("a query run: want a record and two rows, got %+v", a)
@@ -85,12 +94,13 @@ SELECT ?c ?v WHERE { ?c nk:about ?s ; <https://kton.dev/v/lab/value> ?v }`
 			t.Errorf("%s is not in the content store", h)
 		}
 	}
-	// Run again: the first run is now a record of the repository, so the second reads a dataset that holds
-	// it and is another record, with the same result (the query reads claims, not runs).
+	// Run again: the claim signed during the first run is in this one, and so is the first run's record:
+	// another record, three rows.
 	again := ask()
-	if again.Run.Result != a.Run.Result || again.Run.Manifest == a.Run.Manifest || again.Run.FotonID == a.Run.FotonID {
-		t.Errorf("a second run: want the same result over a dataset that holds the first run: %+v, %+v", a.Run, again.Run)
+	if len(again.Rows) != 3 || again.Run.FotonID == a.Run.FotonID {
+		t.Errorf("a second run: want three rows in another record: %d rows, %+v", len(again.Rows), again.Run)
 	}
+
 	_, err = New(Start{}).Ask(ctx, AskRequest{Query: "sparql", Reproducible: true,
 		Sparql: `SELECT ?t WHERE { BIND(NOW() AS ?t) }`})
 	var ref *Refusal

@@ -27,6 +27,9 @@ import (
 // whose inputs are the query and the manifest of everything it read and whose output is its canonical
 // result. The bytes go into the repository's content store, so anyone can reproduce it from the records.
 
+// afterPin runs between pinning and evaluating, for a test: whatever it signs must not be in the run.
+var afterPin func()
+
 // QueryRun is what a query run recorded.
 type QueryRun struct {
 	FotonID  string `json:"fotonId"`
@@ -81,7 +84,29 @@ func queryRun(ctx context.Context, cfg *config.Config, q, dataset string, bindin
 	if err != nil {
 		return nil, nil, err
 	}
-	body, _, err := inContainer(ctx, cfg, keys, []byte(q), "json", dataset, timeout)
+	// Pinned first, then evaluated over exactly the pins: a claim signed meanwhile, or a source that moves,
+	// is in neither the rows nor the manifest (kton-review Q1 on #225; ADR-020 A2).
+	manifest, blobs, pinned, err := pinDataset(ctx, cfg, dataset, bindings)
+	if err != nil {
+		return nil, nil, refuse("io", "ADR-020", "pinning what the query reads: %v", err)
+	}
+	if afterPin != nil {
+		afterPin()
+	}
+	tmp := filepath.Join(cfg.LocalDir, "tmp")
+	if err := os.MkdirAll(tmp, 0o700); err != nil {
+		return nil, nil, refuse("io", "", "%v", err)
+	}
+	built, err := os.MkdirTemp(tmp, "pinned-")
+	if err != nil {
+		return nil, nil, refuse("io", "", "%v", err)
+	}
+	defer os.RemoveAll(built)
+	u, err := binaries.PinnedUnion(built, pinned.inputs, func(id string) bool { return pinned.ids[id] })
+	if err != nil {
+		return nil, nil, refuse("kernel", "ADR-020", "building the pinned dataset: %v", err)
+	}
+	body, _, err := inContainerOver(ctx, cfg, keys, u, []byte(q), "json", dataset, timeout)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -92,10 +117,6 @@ func queryRun(ctx context.Context, cfg *config.Config, q, dataset string, bindin
 	result, err := canonicalResult(res)
 	if err != nil {
 		return nil, nil, refuse("query.not-reproducible", "ADR-020", "%v", err)
-	}
-	manifest, blobs, err := pinDataset(ctx, cfg, dataset, bindings)
-	if err != nil {
-		return nil, nil, refuse("io", "ADR-020", "pinning what the query read: %v", err)
 	}
 	mb, _ := json.MarshalIndent(manifest, "", "  ")
 
@@ -173,8 +194,16 @@ func canonicalResult(r *oxigraph.Results) ([]byte, error) {
 	return json.MarshalIndent(map[string]any{"vars": r.Vars, "rows": rows}, "", " ")
 }
 
-// pinDataset is the manifest of what a query over cfg's union reads now, and the blobs it names.
-func pinDataset(ctx context.Context, cfg *config.Config, dataset string, bindings map[string]string) (*QueryManifest, [][]byte, error) {
+// pinnedSet is what pinDataset pinned: the inputs it read, and the ids of every record and claim.
+type pinnedSet struct {
+	inputs []binaries.Input
+	ids    map[string]bool
+}
+
+// pinDataset is the manifest of what a query over cfg's union reads now, the blobs it names, and the
+// ids it pinned. A scope's tips are taken over every claim on disk, which can only widen the pin, never
+// narrow it (kton-review N4 on #225).
+func pinDataset(ctx context.Context, cfg *config.Config, dataset string, bindings map[string]string) (*QueryManifest, [][]byte, *pinnedSet, error) {
 	m := &QueryManifest{Version: 1, Dataset: dataset, Bindings: bindings, Scopes: map[string][]string{},
 		ViewVersion: oxigraph.ViewVersion(), Engine: cfg.Raw.Query.Image}
 	var blobs [][]byte
@@ -184,8 +213,9 @@ func pinDataset(ctx context.Context, cfg *config.Config, dataset string, binding
 	}
 	inputs, err := binaries.Inputs(ctx, cfg)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
+	pinned := &pinnedSet{inputs: inputs, ids: map[string]bool{}}
 	prev := map[string]bool{}
 	scopeOf := map[string]string{}
 	for _, in := range inputs {
@@ -216,6 +246,12 @@ func pinDataset(ctx context.Context, cfg *config.Config, dataset string, binding
 				}
 			}
 		}
+		for _, id := range recs {
+			pinned.ids[id] = true
+		}
+		for _, id := range claims {
+			pinned.ids[id] = true
+		}
 		sort.Strings(recs)
 		sort.Strings(claims)
 		m.Registries = append(m.Registries, PinnedRegistry{Name: name,
@@ -233,18 +269,18 @@ func pinDataset(ctx context.Context, cfg *config.Config, dataset string, binding
 	for path, tier := range cfg.TierPubkeys() {
 		b, err := os.ReadFile(path)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		pub, err := core.ParsePublicKeyHex(strings.TrimSpace(string(b)))
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		m.Trust = append(m.Trust, PinnedKey{Key: hex.EncodeToString(pub), Tier: tier})
 	}
 	sort.Slice(m.Trust, func(i, j int) bool { return m.Trust[i].Key < m.Trust[j].Key })
 	set, err := binaries.New(cfg).Templates()
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	tpl := map[string]any{}
 	for _, n := range set.Names() {
@@ -262,5 +298,5 @@ func pinDataset(ctx context.Context, cfg *config.Config, dataset string, binding
 		}
 		sort.Strings(m.Packages)
 	}
-	return m, blobs, nil
+	return m, blobs, pinned, nil
 }

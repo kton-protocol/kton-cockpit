@@ -20,6 +20,9 @@ func TestCheckReproducible(t *testing.T) {
 		`SELECT ?s WHERE { { SELECT ?s WHERE { ?s ?p ?o } LIMIT 1 } }`:                       false,
 		`SELECT ?s (COUNT(?o) AS ?n) WHERE { ?s ?p ?o } GROUP BY ?s ORDER BY ?s ?n OFFSET 2`: true,
 		`SELECT ?s ?var_limit WHERE { ?s ?p ?var_limit }`:                                    true,
+		`SELECT ?x WHERE { ?x ?p ?o } ORDER BY STRLEN(STR(?x)) LIMIT 1`:                      false,
+		`SELECT ?x WHERE { ?x ?p ?o } ORDER BY (?x = ?x) LIMIT 1`:                            false,
+		`SELECT ?x WHERE { ?x ?p ?o } ORDER BY STRLEN(STR(?x))`:                              true,
 	} {
 		if err := checkReproducible(q); (err == nil) != ok {
 			t.Errorf("%s: want ok=%v, got %v", q, ok, err)

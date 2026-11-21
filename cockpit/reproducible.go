@@ -48,6 +48,8 @@ func checkReproducible(q string) error {
 	if star {
 		return fmt.Errorf("LIMIT or OFFSET with SELECT *: name the variables, and ORDER BY all of them, so the rows cut are the same every time")
 	}
+	// With a cut, the ORDER BY may only name variables, bare or in ASC()/DESC(): an expression could tie
+	// where its variables do not (kton-review N1 on #225).
 	ordered := map[string]bool{}
 	inOrder := false
 	for _, w := range words {
@@ -59,8 +61,12 @@ func checkReproducible(q string) error {
 			inOrder = true
 		case w.text == "limit" || w.text == "offset":
 			inOrder = false
-		case inOrder && strings.HasPrefix(w.text, "?"):
+		case !inOrder || w.text == "by":
+		case strings.HasPrefix(w.text, "?"):
 			ordered[w.text] = true
+		case w.text == "asc" || w.text == "desc" || w.text == "(" || w.text == ")":
+		default:
+			return fmt.Errorf("with LIMIT or OFFSET the ORDER BY names variables only (bare, ASC or DESC), not %q: an expression can tie where the variables do not", w.text)
 		}
 	}
 	for _, v := range projected {
