@@ -100,7 +100,8 @@ from stored rows (kton-review 1):
 A match is published as a reproduction, a foton with the same output hash, signed by whoever reproduced it: the
 query run's `↻N` counts independent signers, declared steps excluded (#220). A mismatch is refused with the
 first input that differs. A pinned record the registries no longer hold, a pinned projection version or engine
-this cockpit does not have, is refused, named.
+this cockpit does not have, is refused, named. Whatever differs from the reproducer's own present (its
+vocabulary, its trust tiers) is said beside a match, not counted against it.
 
 ### 5 Relation to the rest
 
@@ -121,8 +122,10 @@ this cockpit does not have, is refused, named.
 ## Tests (before the code lands)
 
 The same query run twice gives one record; a claim added to a scope after the run is not in the reproduction,
-nor a claim on another branch of a forked scope; a changed template makes reproduction refuse, naming it; a key
-revoked since the run leaves the reproduction matching and says it rests on that key; `LIMIT` without a total
+nor a claim on another branch of a forked scope; a template changed in the repository since the run leaves
+the reproduction matching (it uses the pinned bytes) and says the current vocabulary differs; a key revoked
+since the run leaves it matching and says it rests on that key; a pinned byte that cannot be found refuses it,
+named; `LIMIT` without a total
 order, `SAMPLE` and `GROUP_CONCAT` refused; `NOW()` refused, a bound as-of
 accepted; a truncated result refused; a loaded file's bytes from the content store; a reproduction by another
 key counts in `↻N`, one by a declared step does not.
