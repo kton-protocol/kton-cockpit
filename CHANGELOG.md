@@ -1,5 +1,27 @@
 # Changelog
 
+## v0.5.9 — 2026-11-21
+
+A patch release: large federated views fit into the index again, and steps declared afterwards say so; each
+reviewed by kton-review.
+
+### Fixed
+
+- **The view of a large federated union goes into the index in chunks** (#221): it was written as one SPARQL
+  update, past Oxigraph's 128 MiB body limit, and every query of such a repository failed ("SPARQL body
+  payloads are limited…"). The data now goes up through the graph store into staging graphs, and one small
+  update puts them in place, so a reader still sees the old view or the new one whole. A build sweeps what a
+  killed build left staged; a blank node in the view is refused rather than split.
+- **When the index cannot be started and the query container fails too**, the refusal says why the index
+  was not used.
+
+### Added
+
+- **Declared steps** (#220, MH 21.11.): `publish --declared hand|heuristic:<name>` for a step written or
+  inferred afterwards rather than recorded as it ran. It is signed into the record (and is another record
+  than the same step observed), never run, records no image it did not run in, and is no reproduction.
+  Absent, its signer did not declare it. kton projects it as `nk:declared` from its next release.
+
 ## v0.5.8 — 2026-11-20
 
 Claims in a graph per scope (ADR-018), serve events, and federation that cannot look whole while missing a
