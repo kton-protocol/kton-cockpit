@@ -127,12 +127,13 @@ func (d *Daemon) makeView(ctx context.Context, slot, key string, def []string, c
 		if d.viewIs(ctx, slot, key) {
 			return nil
 		}
+		// What a build killed before its last update staged is swept first, only under the slot lock:
+		// without it two builders could sweep each other's staging (kton-review S1 and its note on #221).
+		if err := d.sweepStaging(ctx, slot); err != nil {
+			return err
+		}
 	}
 	v, c, m := "<"+viewIRI(slot)+">", "<"+claimsIRI(slot)+">", "<"+markIRI(slot)+">"
-	// What a build killed before its last update staged is swept first (kton-review S1 on #221).
-	if err := d.sweepStaging(ctx, slot); err != nil {
-		return err
-	}
 	// The scope graphs of the view being replaced are named in its metadata; they go with it.
 	old, err := d.claimGraphs(ctx, slot)
 	if err != nil {
