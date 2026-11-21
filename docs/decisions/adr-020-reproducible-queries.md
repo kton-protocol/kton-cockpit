@@ -121,7 +121,7 @@ vocabulary, its trust tiers) is said beside a match, not counted against it.
 
 ## Tests (before the code lands)
 
-The same query run twice gives one record; a claim added to a scope after the run is not in the reproduction,
+A second run of the same query is another record, since the first run is now a record its dataset holds, with the same result where nothing it reads changed; a claim added to a scope after the run is not in the reproduction,
 nor a claim on another branch of a forked scope; a template changed in the repository since the run leaves
 the reproduction matching (it uses the pinned bytes) and says the current vocabulary differs; a key revoked
 since the run leaves it matching and says it rests on that key; a pinned byte that cannot be found refuses it,
