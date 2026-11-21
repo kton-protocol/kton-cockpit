@@ -129,6 +129,10 @@ func (d *Daemon) makeView(ctx context.Context, slot, key string, def []string, c
 		}
 	}
 	v, c, m := "<"+viewIRI(slot)+">", "<"+claimsIRI(slot)+">", "<"+markIRI(slot)+">"
+	// What a build killed before its last update staged is swept first (kton-review S1 on #221).
+	if err := d.sweepStaging(ctx, slot); err != nil {
+		return err
+	}
 	// The scope graphs of the view being replaced are named in its metadata; they go with it.
 	old, err := d.claimGraphs(ctx, slot)
 	if err != nil {
@@ -177,7 +181,9 @@ func (d *Daemon) makeView(ctx context.Context, slot, key string, def []string, c
 		}
 		u.WriteString(" } GRAPH ?g { ?s ?p ?o } } ;\n")
 	}
-	// Each scope's graph (ADR-018) moved into place; the union is what belongs to no scope (signer
+	// MOVE SILENT from a graph that was never staged (an empty upload) leaves its target empty, which it
+	// is anyway: the old graphs were dropped above. Each scope's graph (ADR-018) moved into place; the
+	// union is what belongs to no scope (signer
 	// labels, the graphs' metadata) and each scope graph added to it by the engine, so a claim's triples
 	// are sent once.
 	for _, g := range sortedKeys(upload) {
@@ -212,6 +218,11 @@ func (d *Daemon) stage(ctx context.Context, g string, qs []Quad) error {
 		return err
 	}
 	for i, q := range qs {
+		// Each graph-store request gets fresh blank nodes, so a blank node's link could be lost at a
+		// chunk cut. The view holds none today; one that appears fails here, loudly (kton-review B1).
+		if q.S.Type == "bnode" || q.O.Type == "bnode" {
+			return fmt.Errorf("a blank node in the view (%s): the view is written in chunks, and a blank node cannot cross them", ntTerm(q.S))
+		}
 		if b.Len() >= stageChunk && i > 0 && q.S != qs[i-1].S {
 			if err := send(); err != nil {
 				return err
@@ -280,4 +291,23 @@ func sortedKeys[V any](m map[string]V) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// sweepStaging drops slot's staging graphs: what a build staged and never put in place.
+func (d *Daemon) sweepStaging(ctx context.Context, slot string) error {
+	q := `SELECT DISTINCT ?g WHERE { GRAPH ?g { } FILTER(STRSTARTS(STR(?g), "` + kNS + "view:" + slot + `:") && CONTAINS(STR(?g), ":staging:")) }`
+	body, err := d.post(ctx, "/query", "application/sparql-results+json", url.Values{"query": {q}})
+	if err != nil {
+		return err
+	}
+	r, err := ParseResults(body)
+	if err != nil {
+		return err
+	}
+	for _, row := range r.Rows {
+		if _, err := d.request(ctx, "/update", "", "update", "DROP SILENT GRAPH <"+row["g"]+">"); err != nil {
+			return err
+		}
+	}
+	return nil
 }

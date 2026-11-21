@@ -52,4 +52,25 @@ func TestOxigraph_AViewGoesUpInChunks(t *testing.T) {
 	if left != 0 {
 		t.Errorf("no staging graph left: %d triples", left)
 	}
+
+	// A staging graph a killed build left behind is swept by the next build of the view (kton-review S1).
+	a, err := oxigraph.Free(ctx, d, cfg, keys(t, cfg), "ASK { }", oxigraph.DatasetClaims, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stale := oxigraph.ViewIRI(a.Slot) + ":claims:staging:dead"
+	if err := d.Stage(ctx, stale, []oxigraph.Quad{{S: oxigraph.Term{Type: "uri", Value: "urn:x"},
+		P: oxigraph.Term{Type: "uri", Value: "urn:y"}, O: oxigraph.Term{Type: "literal", Value: "z"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := binaries.New(cfg).Annotate(ctx, "urn:example:more", "working-on",
+		map[string]string{"step": "more", "by-session": testrepo.SessionID}, cfg.NektonKey, nil); err != nil {
+		t.Fatal(err)
+	}
+	if n := count(`SELECT (COUNT(DISTINCT ?c) AS ?n) WHERE { ?c <https://kton.dev/v/predicate> ?p ; <https://kton.dev/v/about> ?s }`); n != "41" {
+		t.Errorf("the rebuilt view: want 41 claims, got %s", n)
+	}
+	if left, _ := d.Count(ctx, `SELECT (COUNT(*) AS ?n) WHERE { GRAPH ?g { ?s ?p ?o } FILTER(CONTAINS(STR(?g), ":staging:")) }`); left != 0 {
+		t.Errorf("the stale staging graph is swept: %d triples left", left)
+	}
 }
