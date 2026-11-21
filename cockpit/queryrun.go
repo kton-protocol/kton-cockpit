@@ -102,9 +102,21 @@ func queryRun(ctx context.Context, cfg *config.Config, q, dataset string, bindin
 		return nil, nil, refuse("io", "", "%v", err)
 	}
 	defer os.RemoveAll(built)
-	u, err := binaries.PinnedUnion(built, pinned.inputs, func(id string) bool { return pinned.ids[id] })
+	found := map[string]bool{}
+	u, err := binaries.PinnedUnion(built, pinned.inputs, func(id string) bool {
+		if pinned.ids[id] {
+			found[id] = true
+			return true
+		}
+		return false
+	})
 	if err != nil {
 		return nil, nil, refuse("kernel", "ADR-020", "building the pinned dataset: %v", err)
+	}
+	// Every pinned id must be in what is evaluated: a source whose history was rewritten between pinning
+	// and building would otherwise give a run over less than its manifest names (kton-review on #225).
+	if len(found) != len(pinned.ids) {
+		return nil, nil, refuse("query.not-reproducible", "ADR-020", "%d of the %d records and claims pinned were not found when the dataset was built: a source changed under the run", len(pinned.ids)-len(found), len(pinned.ids))
 	}
 	body, _, err := inContainerOver(ctx, cfg, keys, u, []byte(q), "json", dataset, timeout)
 	if err != nil {
