@@ -15,6 +15,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
+	"strings"
+	"sync/atomic"
 
 	"kton.dev/plankton/core"
 
@@ -71,7 +73,10 @@ func digest(parts []string) string {
 
 func viewIRI(slot string) string   { return kNS + "view:" + slot }
 func claimsIRI(slot string) string { return kNS + "view:" + slot + ":claims" }
-func markIRI(slot string) string   { return kNS + "view-of:" + slot }
+
+// restIRI is a view's claims that belong to no scope: signer labels and the claim graphs' metadata.
+func restIRI(slot string) string { return kNS + "view:" + slot + ":rest" }
+func markIRI(slot string) string { return kNS + "view-of:" + slot }
 
 func (d *Daemon) datasetDir() string { return filepath.Join(d.Dir, "datasets") }
 
@@ -134,11 +139,44 @@ func (d *Daemon) makeView(ctx context.Context, slot, key string, def []string, c
 		}
 	}
 	v, c, m := "<"+viewIRI(slot)+">", "<"+claimsIRI(slot)+">", "<"+markIRI(slot)+">"
-	// The scope graphs of the view being replaced are named in its metadata; they go with it.
-	old, err := d.claimGraphs(ctx, slot)
+	// The view is replaced graph by graph: a graph whose content did not change since the view it
+	// replaces (by its hash, kept in the mark graph) is left in place, and the union of the claims is
+	// changed by what left and what came. A say into one scope then rewrites that scope's graph and the
+	// small rest, not the whole view (MH, 21.11.: a minute of blank after signing). A view kept from
+	// before the hashes is replaced whole.
+	var rest []Quad
+	for _, q := range claims {
+		if q.G == "" {
+			rest = append(rest, q)
+		}
+	}
+	upload := map[string][]Quad{restIRI(slot): rest}
+	for g, qs := range scopes {
+		upload[g] = qs
+	}
+	hashes := map[string]string{}
+	for g, qs := range upload {
+		hashes[g] = core.HashBytes(NTriples(qs))
+	}
+	defHash := core.HashBytes([]byte(strings.Join(def, "\n")))
+	oldHashes, oldDef, incremental, err := d.viewHashes(ctx, slot)
 	if err != nil {
 		return err
 	}
+	var changed, removed []string
+	for _, g := range sortedKeys(upload) {
+		if !incremental || oldHashes[g] != hashes[g] {
+			changed = append(changed, g)
+		}
+	}
+	if incremental {
+		for _, g := range sortedKeys(oldHashes) {
+			if _, still := upload[g]; !still {
+				removed = append(removed, g)
+			}
+		}
+	}
+
 	// The data goes up first, through the graph store, in chunks, into staging graphs no query lists:
 	// one SPARQL update with every claim in it outgrew the engine's 128 MiB body limit in large federated
 	// views (kton-coordination and userinterface, 21.11.). Then one small update puts the staging graphs
@@ -154,48 +192,86 @@ func (d *Daemon) makeView(ctx context.Context, slot, key string, def []string, c
 			}
 		}
 	}()
-	var rest []Quad
-	for _, q := range claims {
-		if q.G == "" {
-			rest = append(rest, q)
-		}
-	}
-	upload := map[string][]Quad{claimsIRI(slot): rest}
-	for g, qs := range scopes {
-		upload[g] = qs
-	}
-	for _, g := range sortedKeys(upload) {
+	for _, g := range changed {
 		staged = append(staged, staging(g))
 		if err = d.stage(ctx, staging(g), upload[g]); err != nil {
 			return fmt.Errorf("staging %s: %w", g, err)
 		}
 	}
 	var u bytes.Buffer
-	for _, g := range old {
-		u.WriteString("DROP SILENT GRAPH <" + g + "> ;\n")
-	}
-	u.WriteString("DROP SILENT GRAPH " + m + " ;\nDROP SILENT GRAPH " + v + " ;\nDROP SILENT GRAPH " + c + " ;\n")
-	if len(def) > 0 {
-		u.WriteString("INSERT { GRAPH " + v + " { ?s ?p ?o } } WHERE { VALUES ?g {")
-		for _, g := range def {
-			u.WriteString(" <" + g + ">")
+	if !incremental {
+		// The scope graphs of the view being replaced are named in its metadata; they go with it.
+		old, err := d.claimGraphs(ctx, slot)
+		if err != nil {
+			return err
 		}
-		u.WriteString(" } GRAPH ?g { ?s ?p ?o } } ;\n")
+		for _, g := range old {
+			u.WriteString("DROP SILENT GRAPH <" + g + "> ;\n")
+		}
+		u.WriteString("DROP SILENT GRAPH <" + restIRI(slot) + "> ;\nDROP SILENT GRAPH " + c + " ;\n")
+	} else {
+		// What a changed or removed graph held leaves the union before the graph goes: the graphs hold
+		// disjoint triples (a claim's are in its scope's graph only; signer labels and metadata in the rest).
+		for _, g := range append(append([]string{}, removed...), changed...) {
+			if _, had := oldHashes[g]; !had {
+				continue
+			}
+			u.WriteString("DELETE { GRAPH " + c + " { ?s ?p ?o } } WHERE { GRAPH <" + g + "> { ?s ?p ?o } } ;\nDROP SILENT GRAPH <" + g + "> ;\n")
+		}
+	}
+	if !incremental || defHash != oldDef {
+		u.WriteString("DROP SILENT GRAPH " + v + " ;\n")
+		if len(def) > 0 {
+			u.WriteString("INSERT { GRAPH " + v + " { ?s ?p ?o } } WHERE { VALUES ?g {")
+			for _, g := range def {
+				u.WriteString(" <" + g + ">")
+			}
+			u.WriteString(" } GRAPH ?g { ?s ?p ?o } } ;\n")
+		}
 	}
 	// MOVE SILENT from a graph that was never staged (an empty upload) leaves its target empty, which it
-	// is anyway: the old graphs were dropped above. Each scope's graph (ADR-018) moved into place; the
-	// union is what belongs to no scope (signer
-	// labels, the graphs' metadata) and each scope graph added to it by the engine, so a claim's triples
-	// are sent once.
-	for _, g := range sortedKeys(upload) {
-		u.WriteString("MOVE SILENT <" + staging(g) + "> TO <" + g + "> ;\n")
+	// is anyway: it was dropped above. Each graph moved into place is added to the union by the engine,
+	// so a claim's triples are sent once.
+	for _, g := range changed {
+		u.WriteString("MOVE SILENT <" + staging(g) + "> TO <" + g + "> ;\nADD <" + g + "> TO " + c + " ;\n")
 	}
-	for _, g := range sortedKeys(scopes) {
-		u.WriteString("ADD <" + g + "> TO " + c + " ;\n")
+	u.WriteString("DROP SILENT GRAPH " + m + " ;\nINSERT DATA { GRAPH " + m + " { " + v + " <" + kNS + "key> " + strconv.Quote(key) +
+		" ; <" + kNS + "defHash> " + strconv.Quote(defHash) + " .\n")
+	for _, g := range sortedKeys(hashes) {
+		u.WriteString("<" + g + "> <" + kNS + "hash> " + strconv.Quote(hashes[g]) + " .\n")
 	}
-	u.WriteString("INSERT DATA { GRAPH " + m + " { " + v + " <" + kNS + "key> " + strconv.Quote(key) + " } }")
+	u.WriteString("} }")
 	err = d.update(ctx, u.Bytes())
 	return err
+}
+
+// viewHashes are the hashes of slot's view's graphs and of its record list, as the mark graph keeps
+// them; ok is false for a view built before they were kept (or none), which is then replaced whole.
+func (d *Daemon) viewHashes(ctx context.Context, slot string) (graphs map[string]string, def string, ok bool, err error) {
+	q := "SELECT ?g ?h WHERE { GRAPH <" + markIRI(slot) + "> { ?g <" + kNS + "hash> ?h } }"
+	body, err := d.post(ctx, "/query", "application/sparql-results+json", url.Values{"query": {q}})
+	if err != nil {
+		return nil, "", false, err
+	}
+	r, err := ParseResults(body)
+	if err != nil {
+		return nil, "", false, err
+	}
+	graphs = map[string]string{}
+	for _, row := range r.Rows {
+		graphs[row["g"]] = row["h"]
+	}
+	q = "SELECT ?h WHERE { GRAPH <" + markIRI(slot) + "> { <" + viewIRI(slot) + "> <" + kNS + "defHash> ?h } }"
+	if body, err = d.post(ctx, "/query", "application/sparql-results+json", url.Values{"query": {q}}); err != nil {
+		return nil, "", false, err
+	}
+	if r, err = ParseResults(body); err != nil {
+		return nil, "", false, err
+	}
+	if len(r.Rows) == 0 {
+		return nil, "", false, nil
+	}
+	return graphs, r.Rows[0]["h"], true, nil
 }
 
 // stageChunk is how much of a graph one graph-store request carries: well under the engine's body limit.
@@ -203,7 +279,11 @@ var stageChunk = 32 << 20
 
 // stage appends qs to graph g through the graph store, in chunks of about stageChunk bytes cut only
 // where the subject changes, so a node's triples (and any blank node among them) stay in one request.
+// staged counts the graphs uploaded, for a test that a rebuild uploads only what changed.
+var staged atomic.Int64
+
 func (d *Daemon) stage(ctx context.Context, g string, qs []Quad) error {
+	staged.Add(1)
 	var b bytes.Buffer
 	send := func() error {
 		if b.Len() == 0 {
