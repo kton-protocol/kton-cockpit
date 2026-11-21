@@ -513,8 +513,21 @@ func (r *Runner) Reproductions(ctx context.Context, outputHash, tier string) (*R
 		ProducerFotons: got.ProducerFotons, ExcludedUntrusted: got.ExcludedUntrusted,
 		Trust: "verified",
 	}
+	// A step declared afterwards (hand, heuristic:<name>) ran nowhere: it is no reproduction, so the
+	// count is taken again without it.
+	signers := map[string]bool{}
 	for _, p := range got.Producers {
+		if f, ok := reg.Foton(p.FotonID); ok && f.Protocol.Descriptor["declared"] != nil {
+			res.ExcludedDeclared++
+			continue
+		}
 		res.Producers = append(res.Producers, ReproductionProducer{ID: p.FotonID, KeyID: p.KeyID, Verified: p.Verified})
+		if p.Verified {
+			signers[p.KeyID] = true
+		}
+	}
+	if res.ExcludedDeclared > 0 {
+		res.DistinctSigners, res.ProducerFotons = len(signers), len(res.Producers)
 	}
 	return res, nil
 }

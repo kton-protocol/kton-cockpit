@@ -74,9 +74,10 @@ type PublishRequest struct {
 	Environment string `json:"environment,omitempty" jsonschema:"optional: the environment class (env-spectrum id, sha256:<64 hex>) the work ran under; the repo's environment.spectrum when omitted"`
 	// Declared says the step was not recorded as it ran but declared afterwards: "hand" (written by a
 	// person, as in the recorder's story editor) or "heuristic:<name>" (inferred by the named heuristic).
-	// It is signed into the record and part of its identity; absent, the step was observed (MH, 21.11.).
+	// It is signed into the record and part of its identity; absent, its signer did not declare it, which
+	// alone does not say it was observed (MH, 21.11.; kton-review K1 on kton #292).
 	// A declared step is recorded, never run.
-	Declared string `json:"declared,omitempty" jsonschema:"optional: hand, or heuristic:<name>, for a step declared afterwards rather than recorded as it ran; absent means observed"`
+	Declared string `json:"declared,omitempty" jsonschema:"optional: hand, or heuristic:<name>, for a step declared afterwards rather than recorded as it ran"`
 }
 
 // declaredForm is what Declared may say.
@@ -194,6 +195,16 @@ func (c *Cockpit) Publish(ctx context.Context, in PublishRequest) (*PublishResul
 	}
 
 	envRef, envErr := resolveEnvRef(cfg, in.EnvRef)
+	if in.Declared != "" {
+		// A declared step did not run: no environment the cockpit or the configuration would vouch for
+		// it ran in. Only what the caller asserts is recorded (kton-review D1 on #220).
+		envRef, envErr = in.EnvRef, ""
+		if in.EnvRef != "" {
+			if err := config.ValidateEnvRef(in.EnvRef); err != nil {
+				envErr = err.Error()
+			}
+		}
+	}
 	if envErr != "" {
 		return nil, refuse("env-ref", "SPEC §7.5", "%s", envErr)
 	}
