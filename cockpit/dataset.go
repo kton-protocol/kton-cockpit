@@ -44,6 +44,22 @@ func inContainer(ctx context.Context, cfg *config.Config, keys []ed25519.PublicK
 		return "", nil, refuse("io", "", "%v", err)
 	}
 	defer os.RemoveAll(dir)
+	// Kept fresh while the query runs, so a long one is never taken for what a killed query left
+	// (kton-review's note on #223's sweep).
+	running := make(chan struct{})
+	defer close(running)
+	go func() {
+		t := time.NewTicker(10 * time.Minute)
+		defer t.Stop()
+		for {
+			select {
+			case <-running:
+				return
+			case now := <-t.C:
+				_ = os.Chtimes(dir, now, now)
+			}
+		}
+	}()
 	graphs, err := projectRegistries(ctx, cfg, keys, dataset, dir)
 	if err != nil {
 		return "", nil, refuse("kernel", "", "projecting the registries: %v", err)
