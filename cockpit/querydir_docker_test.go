@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/kton-protocol/kton-cockpit/internal/testrepo"
 )
@@ -19,6 +20,15 @@ func TestSparql_AQueryContainerReadsFromTheCheckout(t *testing.T) {
 	raw.Query.Image = oxigraphImage
 	r.WriteConfig(t, raw)
 	r.Use(t)
+	t.Setenv("TMPDIR", filepath.Join(t.TempDir(), "no-such-dir")) // the system's would fail (kton-review T35)
+	stale := filepath.Join(r.Root, ".kton", "local", "tmp", "query-stale")
+	if err := os.MkdirAll(stale, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-2 * time.Hour)
+	if err := os.Chtimes(stale, old, old); err != nil {
+		t.Fatal(err)
+	}
 	a := sparqlAsk(t, `ASK { ?s ?p ?o }`)
 	if a.Boolean == nil {
 		t.Fatalf("the container answered nothing: %+v", a)
@@ -28,6 +38,6 @@ func TestSparql_AQueryContainerReadsFromTheCheckout(t *testing.T) {
 		t.Fatalf("the query's directory is under .kton/local/tmp: %v", err)
 	}
 	if len(entries) != 0 {
-		t.Errorf("nothing left after the query: %v", entries)
+		t.Errorf("nothing left after the query, and a killed query's hour-old directory swept: %v", entries)
 	}
 }

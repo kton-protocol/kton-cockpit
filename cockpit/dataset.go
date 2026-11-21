@@ -30,6 +30,15 @@ func inContainer(ctx context.Context, cfg *config.Config, keys []ed25519.PublicK
 	if err := os.MkdirAll(tmp, 0o700); err != nil {
 		return "", nil, refuse("io", "", "%v", err)
 	}
+	// What a killed query left (its projected dataset, large in a big union) is swept once it is an hour
+	// old: the checkout is not cleared on reboot as the system's temporary directory is (kton-review N1).
+	if old, err := filepath.Glob(filepath.Join(tmp, "query-*")); err == nil {
+		for _, p := range old {
+			if st, err := os.Stat(p); err == nil && time.Since(st.ModTime()) > time.Hour {
+				_ = os.RemoveAll(p)
+			}
+		}
+	}
 	dir, err := os.MkdirTemp(tmp, "query-")
 	if err != nil {
 		return "", nil, refuse("io", "", "%v", err)

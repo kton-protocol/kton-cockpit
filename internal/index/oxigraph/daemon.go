@@ -299,7 +299,7 @@ func start(ctx context.Context, cfg *config.Config, dir, image string) (*Daemon,
 		if err := d.ping(ctx); err == nil {
 			break
 		} else if time.Now().After(deadline) {
-			return nil, fmt.Errorf("the index daemon did not answer within %s: %w", startWait, err)
+			return nil, fmt.Errorf("the index daemon did not answer within %s (it may still be opening a large store: it keeps starting, and the next query finds it): %w", startWait, err)
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
