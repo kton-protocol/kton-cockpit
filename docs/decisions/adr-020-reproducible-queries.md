@@ -3,7 +3,7 @@ title: "Reproducible queries: a query run pins its graphs, is a record, and is r
 type: "decision"
 project: "kton-cockpit"
 date: 2026-11-21
-status: "proposed"
+status: "accepted"
 tags: [architecture, query, sparql, provenance, reproducibility, index]
 ---
 
@@ -11,7 +11,7 @@ tags: [architecture, query, sparql, provenance, reproducibility, index]
 
 ## Status
 
-Proposed 2026-11-21. Requested by MH through kton-coordination (`d3c9ee44`), with kton-review's input
+Accepted by MH (2026-11-21), after kton-review's go. Proposed 2026-11-21. Requested by MH through kton-coordination (`d3c9ee44`), with kton-review's input
 (`be4a9a82`, `reviews/2026-11-21-reproducible-queries-input.md`). Builds on ADR-012 and ADR-013 (the index and
 its query projection), ADR-017 (loaded files as graphs) and ADR-018 (claims in a graph per scope).
 
