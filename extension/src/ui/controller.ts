@@ -5,13 +5,15 @@ import { randomBytes } from "node:crypto";
 import type { TemplateInfo, Transport } from "../transport/port.js";
 import { TransportError, TransportNotSent } from "../transport/port.js";
 import type { WindowIdentity, ShownSigner } from "../identity.js";
-import { hasKey, showSigner, signerKeyId, statusText, statusTooltip } from "../identity.js";
+import { hasKey, showSigner, signerKeyId, statusText, statusTooltip, unverifiedWhy } from "../identity.js";
 import type { ControlInfo, SignPlan } from "../sign.js";
 import { DialogConsent, meaningField, plan, sign, templateFor, FOOTER } from "../sign.js";
 import type { UiEntry, SlotContext } from "../intents.js";
 import { checkIntent } from "../intents.js";
 import { Scheduler } from "../poll.js";
-import { PackagesArea, SLOT_CMD, type ExpectRevision } from "../composition/area.js";
+import { sourceRef, sourceTarget } from "./sources.js";
+import { artifactRef, artifactTarget } from "./artifacts.js";
+import { PackagesArea, SLOT_CMD, type ActInto, type ExpectRevision } from "../composition/area.js";
 import type { Subject } from "../composition/slots.js";
 import type { Control, MirrorPackage, ViewerTree } from "../packages/model.js";
 import type { TreeNode, UiHost } from "./host.js";
@@ -66,6 +68,13 @@ export interface WorkbenchConfig {
   readonly builtinPackage?: MirrorPackage;
   /** A locked registry (S7.4): how often and how far apart a `say` is retried. */
   readonly lockRetry: { readonly attempts: number; readonly delayMs: number };
+  /** kton.home.openOnStart: after the first good poll, open the review view of the one waiting decision that has one */
+  readonly openOnStart?: boolean;
+  /**
+   * kton.inbox.areas: when not empty, the window shows only messages and proposals of these areas (a persona's own
+   * area, dry run 1); it replaces the surface's area filter for the inbox, Home and the decisions waiting.
+   */
+  readonly inboxAreas?: readonly string[];
 }
 
 export const DEFAULT_CONFIG: WorkbenchConfig = {
@@ -101,6 +110,8 @@ export const CMD = {
   say: "ktonWorkbench.say",
   compose: "ktonWorkbench.compose",
   openSlot: SLOT_CMD,
+  openEntry: "ktonWorkbench.openEntry",
+  focusHome: "ktonWorkbench.home.focus",
 } as const;
 
 const SHA = /^sha256:[0-9a-f]{64}$/;
@@ -139,7 +150,29 @@ export class Workbench {
     this.packages = new PackagesArea(t, host, {
       act: (c, about, fields, title, expect, into) => this.signAct(c, about, fields, title, expect, into),
       person: () => ({ keyId: this.identity.person.keyId, personTiers: this.cfg.personTiers }),
-      open: async (target) => this.openTarget(target),
+      ...(this.host.approvalStaleness ? { staleness: (repo: string, approved: string, head: string, paths: readonly string[]) => (this.host.approvalStaleness as NonNullable<UiHost["approvalStaleness"]>)(repo, approved, head, paths) } : {}),
+      ...(this.host.artifactThumb ? { thumb: (t: import("./artifacts.js").ArtifactTarget) => (this.host.artifactThumb as NonNullable<UiHost["artifactThumb"]>)(t) } : {}),
+      // open@1: a source at a commit (read-only, kton-src), a run artifact (read-only, kton-art), or a claim this
+      // window knows. What was shown goes into the panel's looked-at list (opened); a refusal does not.
+      open: async (target, opened) => {
+        if (target["source"] !== undefined) {
+          const t = sourceTarget(target["source"]);
+          if (typeof t === "string") return `not opened: ${t}`;
+          if (!this.host.openSource) return "source not available on this host";
+          const r = await this.host.openSource(t);
+          if (r.startsWith("Opened ")) opened?.(sourceRef(t));
+          return r;
+        }
+        if (target["artifact"] !== undefined) {
+          const t = artifactTarget(target["artifact"]);
+          if (typeof t === "string") return `not opened: ${t}`;
+          if (!this.host.openArtifact) return "run artifacts not available on this host";
+          const r = await this.host.openArtifact(t);
+          if (r.startsWith("Opened ") || r.startsWith("Shown ")) opened?.(artifactRef(t));
+          return r;
+        }
+        return this.openTarget(target);
+      },
       identityName: () => this.identity.hintName,
     }, cfg.vendoredViewers, cfg.builtinPackage);
     this.surface = cfg.surfaces.some((s) => s.name === cfg.initialSurface) ? (cfg.initialSurface as string) : ALL;
@@ -174,10 +207,12 @@ export class Workbench {
     }
     const p = hasKey(this.identity.person) ? await this.signer("person") : "missing";
     const a = hasKey(this.identity.agent) ? await this.signer("agent") : "missing";
+    // the window always runs in test mode (status "TEST MODE"): its keys are test keys
+    const why = unverifiedWhy(p, a, true);
     this.host.setStatus(
       "identity",
-      statusText(p, a, { person: this.identity.person.keyName, agent: this.identity.agent.keyName }),
-      `${statusTooltip(p, a)}\nOne person per window; another identity means another window. Person key: decisions, always through the sign dialog. Agent key: records, no dialog. A missing key is never replaced by the other.`,
+      statusText(p, a, { person: this.identity.person.keyName, agent: this.identity.agent.keyName }, true),
+      `${why ? `${why}\n` : ""}${statusTooltip(p, a)}\nOne person per window; another identity means another window. Person key: decisions, always through the sign dialog. Agent key: records, no dialog. A missing key is never replaced by the other.`,
     );
   }
 
@@ -239,7 +274,8 @@ export class Workbench {
         this.queries.has(this.cfg.queries.lanes) ? this.rows(this.cfg.queries.lanes) : Promise.resolve([]),
       ]);
       if (!tpl.ok) throw new Error(`the cockpit refused its template listing: ${tpl.refusal.reason}`);
-      Object.assign(this, { templates: tpl.value, proposals, decides, messages, answers, lanes });
+      // a relayed copy (a read-only mirror of the lane messages) names its sender in its text: shown as the sender
+      Object.assign(this, { templates: tpl.value, proposals: proposals.map(relayed), decides, messages: messages.map(relayed), answers, lanes });
       await packages;
       const st = this.packages.statusText();
       if (st) this.host.setStatus("slots", st, "status-item entries of the admitted packages");
@@ -261,6 +297,10 @@ export class Workbench {
     this.stale = false;
     this.goodAt = new Date();
     this.render();
+    if (this.cfg.openOnStart && !this.startOpened) {
+      this.startOpened = true;
+      await this.openOnStart();
+    }
     if (this.reopen.length) {
       const keys = this.reopen;
       this.reopen = [];
@@ -328,13 +368,17 @@ export class Workbench {
     if (!this.stale) {
       this.host.setStatus(
         "poll",
-        `polling: inbox every ${this.cfg.pollSeconds}s · ${open.length} open · ${decisions.length} decisions${this.cfg.cockpitLabel ? ` · ${this.cfg.cockpitLabel}` : ""}`,
+        `polling: inbox every ${this.cfg.pollSeconds}s · ${open.length} open${this.cfg.cockpitLabel ? ` · ${this.cfg.cockpitLabel}` : ""}`,
         "Polled by code, never by an LLM. One scheduler.",
       );
     }
+    // proposals are not inbox messages: the decisions waiting have their own item, which shows them on Home
+    this.host.setStatus("decisions", decisionsText(decisions.length), "Proposals waiting for your decision: Home → Decisions waiting", CMD.focusHome);
   }
 
   private areaFilter(): (area: string | undefined) => boolean {
+    const only = this.cfg.inboxAreas?.filter((a) => a !== "");
+    if (only?.length) return (a) => a !== undefined && only.includes(a);
     const s = this.cfg.surfaces.find((x) => x.name === this.surface);
     const areas = surfaceAreas(s, areasByLane(this.lanes));
     return (a) => areas === undefined || (a !== undefined && areas.has(a));
@@ -411,8 +455,9 @@ export class Workbench {
         description: String(areas.size),
         children: [...areas.entries()].sort().map(([a, n]) => ({ id: `a:${a}`, label: a, description: String(n) })),
       },
-      { id: "recorder", label: "Recorded runs (recorder)", tooltip: "Opens the kton recorder extension", command: { id: CMD.openRecorder, args: [] } },
+      { id: "recorder", label: "Recorder", tooltip: "Recorded runs: opens the kton recorder extension (it stays its own extension)", command: { id: CMD.openRecorder, args: [] } },
       ...this.packages.areaNodes(),
+      ...this.packages.viewNodes(),
       ...this.packages.homeNodes(),
     ];
     if (this.stale) nodes.unshift({ id: "stale", label: "Stale: the last poll failed", description: `data from ${time(this.goodAt)}`, tooltip: this.lastError ?? "" });
@@ -525,7 +570,7 @@ export class Workbench {
    * status bar (S7.4); a timeout or any failure after the say was sent is "unknown whether signed", and the
    * registry decides whether a claim exists (S7.3); "Not signed" only when it never reached the cockpit.
    */
-  private async signThroughDialog(intent: { kind: "sign"; about: string; fields: Readonly<Record<string, string>>; scope?: string }, control: ControlInfo, title: string, expect?: ExpectRevision): Promise<SignResult> {
+  private async signThroughDialog(intent: { kind: "sign"; about: string; fields: Readonly<Record<string, string>>; scope?: string; opened?: readonly string[] }, control: ControlInfo, title: string, expect?: ExpectRevision, onSigned?: (s: { id: string; fields: Readonly<Record<string, string>> }) => void): Promise<SignResult> {
     const cannot = this.cannotSign(control.kind);
     if (cannot) {
       this.host.error(`Not signed: ${cannot}`);
@@ -545,7 +590,7 @@ export class Workbench {
     const viaDialog = p.value.keyRole === "person" || p.value.needsDialog;
     if (viaDialog) {
       const who = await this.signer(p.value.keyRole);
-      const yes = await this.host.signDialog(title, signDialogDetail(p.value, who), `${this.identity.hintName} (${this.identity.person.keyName})`);
+      const yes = await this.host.signDialog(title, signDialogDetail(p.value, who), `${this.identity.hintName} (${this.identity.person.keyName})`, { plan: p.value, signer: who });
       if (!yes) {
         this.host.log(`not signed: the dialog was closed (${p.value.template} about ${p.value.subject})`);
         this.host.info("Not signed.");
@@ -580,10 +625,12 @@ export class Workbench {
           if (viaDialog) this.host.signOutcome(true, text);
           this.host.info(text);
           this.host.log(`signed, pending ${out.value.pending.code}: ${out.value.id}`);
+          onSigned?.({ id: out.value.id, fields: p.value.fields });
           break;
         }
         if (viaDialog) this.host.signOutcome(true, `Signed ${out.value.id}`);
         this.host.info(`Signed ${out.value.id}`);
+        onSigned?.({ id: out.value.id, fields: p.value.fields });
         break;
       } catch (e) {
         // "Not signed" only when the say never reached the cockpit (kton-review N2 on #196). After it was sent, a
@@ -602,11 +649,17 @@ export class Workbench {
    * control through the one sign dialog with the person key, a record control with the agent key and no
    * dialog. Same path as every other signature (signThroughDialog), so the dialog has one call site.
    */
-  async signAct(c: Control, about: string, fields: Readonly<Record<string, string>>, title: string, expect?: ExpectRevision, into?: { readonly scope?: string }): Promise<SignResult> {
-    const control: ControlInfo = { package: c.package, name: c.name, template: c.template, kind: c.kind, ...(c.meaning !== undefined ? { meaning: c.meaning } : {}) };
-    const asked = await this.askOpenFields(control, fields);
+  async signAct(c: Control, about: string, fields: Readonly<Record<string, string>>, title: string, expect?: ExpectRevision, into?: ActInto): Promise<SignResult> {
+    const control: ControlInfo = { package: c.package, name: c.name, template: c.template, kind: c.kind, ...(c.meaning !== undefined ? { meaning: c.meaning } : {}), ...(c.title ? { title: c.title } : {}) };
+    // the evidence this view session opened is offered for a template's lookedAt (after what the frame proposed), and
+    // listed in the dialog; it is kept nowhere else and counted nowhere
+    const tpl = templateFor(control, this.templates);
+    const opened = tpl?.fields["lookedAt"] && into?.opened?.length ? into.opened : undefined;
+    const proposed = { ...(into?.proposed ?? {}) };
+    if (opened) proposed["lookedAt"] = [...new Set([...(proposed["lookedAt"] ?? "").split(/\s+/).filter(Boolean), ...opened])].join(" ");
+    const asked = await this.askOpenFields(control, fields, proposed);
     if (!asked) return "cancelled";
-    return this.signThroughDialog({ kind: "sign", about, fields: asked, ...(into?.scope ? { scope: into.scope } : {}) }, control, title, expect);
+    return this.signThroughDialog({ kind: "sign", about, fields: asked, ...(into?.scope ? { scope: into.scope } : {}), ...(opened ? { opened } : {}) }, control, title, expect, into?.signed);
   }
 
   /**
@@ -614,15 +667,24 @@ export class Workbench {
    * a field with values, else an input), never taken from a frame: a decision's open outcome is picked
    * (approved or rejected, C3.4), a note its text. Before the dialog, which then shows them. Undefined: cancelled.
    */
-  private async askOpenFields(control: ControlInfo, fields: Readonly<Record<string, string>>): Promise<Record<string, string> | undefined> {
+  private async askOpenFields(control: ControlInfo, fields: Readonly<Record<string, string>>, proposed: Readonly<Record<string, string>> = {}): Promise<Record<string, string> | undefined> {
     const tpl = templateFor(control, this.templates);
     const out: Record<string, string> = { ...fields };
     for (const [k, f] of Object.entries(tpl?.fields ?? {})) {
-      // a field the control's meaning fixes is never asked: the meaning shown is the meaning signed
-      if (!f.required || out[k] !== undefined || (tpl && k === meaningField(control, tpl)) || (control.meaning !== undefined && f.values?.includes(control.meaning))) continue;
-      const v = f.values ? await this.host.pick(`${control.name}: ${k}`, f.values) : await this.host.input(`${control.name}: ${k}`);
-      if (v === undefined || v === "") return undefined;
-      out[k] = v;
+      // a field the control's meaning fixes is never asked, nor taken from a proposal: the meaning shown is the meaning
+      // signed (F2/O1 on #187); the plan refuses any other value for it
+      if (out[k] !== undefined || (tpl && k === meaningField(control, tpl)) || (control.meaning !== undefined && f.values?.includes(control.meaning))) continue;
+      const p = proposed[k];
+      // a proposed value of a field with fixed values is taken as one of them (the dialog shows it); a proposed
+      // free value is only the input box's default; an optional field nobody proposed is left out
+      if (f.values && p !== undefined && f.values.includes(p)) {
+        out[k] = p;
+        continue;
+      }
+      if (!f.required && p === undefined) continue;
+      const v = f.values ? await this.host.pick(`${control.name}: ${k}`, f.values) : await this.host.input(`${control.name}: ${k}`, p);
+      if (v === undefined || (v === "" && f.required)) return undefined;
+      if (v !== "") out[k] = v;
     }
     return out;
   }
@@ -641,6 +703,48 @@ export class Workbench {
     }
     this.host.info(`Open: ${ref} (not a claim in this window; nothing was fetched)`);
     return `Named ${ref}; this window does not open it`;
+  }
+
+  /** whether the start's review view was looked for already (once per workbench) */
+  private startOpened = false;
+
+  /** The waiting decisions (in the current surface) a review-view entry applies to. */
+  private decisionsFor(key: string): Row[] {
+    const inSurface = this.areaFilter();
+    return this.openDecisions().filter((d) => inSurface(d["area"]) && this.packages.reviewEntriesFor(claimSubject(d["msg"] ?? "", d["type"])).includes(key));
+  }
+
+  /**
+   * A review-view entry clicked under Home → Packages: it needs its proposal. One waiting proposal it applies to: that
+   * one opens; several: a pick; none: where it opens from.
+   */
+  async openEntry(key: string): Promise<void> {
+    const ds = this.decisionsFor(key);
+    let d: Row | undefined = ds[0];
+    if (ds.length === 0) {
+      this.host.info("This review view opens from its proposal under Decisions waiting; no waiting decision is one it applies to.");
+      return;
+    }
+    if (ds.length > 1) {
+      const labels = ds.map((x, i) => `${i + 1}. ${x["title"] ?? x["msg"]}`);
+      const pick = await this.host.pick("Open the review view for which proposal?", labels);
+      if (!pick) return;
+      d = ds[labels.indexOf(pick)];
+    }
+    if (d) await this.packages.openSlot(key, claimSubject(d["msg"] ?? "", d["type"]));
+  }
+
+  /** kton.home.openOnStart: exactly one waiting decision with a review view: its (first) review view opens. */
+  private async openOnStart(): Promise<void> {
+    const inSurface = this.areaFilter();
+    const withView = this.openDecisions()
+      .filter((d) => inSurface(d["area"]))
+      .map((d) => ({ d, keys: this.packages.reviewEntriesFor(claimSubject(d["msg"] ?? "", d["type"])) }))
+      .filter((x) => x.keys.length > 0);
+    const one = withView.length === 1 ? withView[0] : undefined;
+    if (!one) return;
+    this.host.log(`open on start: ${one.keys[0]} for ${one.d["msg"]} (kton.home.openOnStart)`);
+    await this.packages.openSlot(one.keys[0] as string, claimSubject(one.d["msg"] ?? "", one.d["type"]));
   }
 
   /** A slot entry for a subject, from the Home tree or a command (C2.1). */
@@ -793,4 +897,22 @@ function nonce(): string {
 export function claimSubject(iri: string, type?: string): Subject {
   const id = idOf(iri);
   return { kind: "claim", iri, id, claim: id, ...(type ? { type } : {}) };
+}
+
+/** The status bar's decisions item: "1 decision waiting", "2 decisions waiting". */
+export function decisionsText(n: number): string {
+  return `${n} decision${n === 1 ? "" : "s"} waiting`;
+}
+
+/**
+ * A message relayed by a mirror (coordination's dryrun1-mirror): its text starts with "[from <lane> · <original time>]".
+ * The lane is shown as the sender, relayed by the signer (whose tier stays shown), the time is the original's, and the
+ * prefix is not part of the text. Any other row is returned as it is. The claim is still the mirror's: the signer
+ * is never replaced, only named beside the lane.
+ */
+export function relayed(row: Row): Row {
+  const m = /^\[from ([^\]·]+?) · ([^\]]+)\]\s*/.exec(row["text"] ?? "");
+  if (!m) return row;
+  const via = signerLabel(row["from"], row["fromTier"]);
+  return { ...row, text: (row["text"] ?? "").slice(m[0].length), from: (m[1] ?? "").trim(), fromTier: `via ${via}`, when: (m[2] ?? "").trim(), relayedWhen: row["when"] ?? "" };
 }

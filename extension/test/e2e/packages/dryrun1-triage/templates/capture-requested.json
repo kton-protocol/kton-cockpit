@@ -1,0 +1,17 @@
+{
+  "name": "capture-requested",
+  "target": "either",
+  "predicate": "https://scinteco.com/ns/triage#captureRequested",
+  "fields": {
+    "test": {
+      "type": "string",
+      "required": true
+    },
+    "proposal": {
+      "type": "iri"
+    },
+    "reason": {
+      "type": "string"
+    }
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "title": "Assign",
+  "kind": "decision",
+  "meaning": "approved",
+  "about": "subject.iri",
+  "say": {
+    "template": "triage-assigns"
+  }
+}

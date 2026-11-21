@@ -1,0 +1,53 @@
+# Evidence on demand for one element ($element, e.g. "ics1000#e2"; the cards' pick or typed): one row per thing to open,
+# in the shape of the workbench's evidence block: ?kind (spec, test, code, trace), ?label, and either a source at a
+# commit (?repo ?commit ?path ?line ?sha256: opened read-only, the bytes checked against ?sha256) or a ?note (shown,
+# not opened). Shapes from verification's mapping-rounds queries/dryrun1 @f518429 (evidence-element, evidence-pairs).
+#   spec  the spec document at its line;
+#   test  each round-9 pair: "Open test at line N"; a workbook test (testLine "sheet X, row N") is shown as that locator;
+#   code  each code match (static reading, not a run): resolved ones open at their line, unresolved say why. Never a trace.
+#   trace the test → product trace: no data (nothing records it yet).
+# Run: only claims in "dryrun1.mapping". Empty fields are left out of the claims, so they are OPTIONAL here.
+# ?stampLabel ?stampFull ?stampScope: the source label of the stamp (verification's covx:sourceStamp for the element's data set).
+PREFIX nk: <https://kton.dev/v/>
+PREFIX lab: <https://kton.dev/v/lab/>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX covx: <https://w3id.org/improve/coverage-extra#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT ?kind ?label ?note ?repo ?commit ?path ?line ?sha256 ?stamp ?stampLabel ?stampFull ?stampScope (STR(?element) AS ?for) WHERE {
+  ?sc rdfs:label "dryrun1.mapping" .
+  ?el nk:scope ?sc ; nk:predicate covx:evidenceElement ; lab:element ?element ; lab:stamp ?stamp .
+  FILTER(STR(?element) = STR($element))
+  {
+    ?el lab:specRepo ?repo ; lab:specCommit ?commit ; lab:specPath ?path .
+    OPTIONAL { ?el lab:specLine ?line } OPTIONAL { ?el lab:specFileSha256 ?sf } OPTIONAL { ?el lab:specQuote ?quote }
+    BIND("spec" AS ?kind) BIND(1 AS ?o) BIND(0 AS ?n) BIND("" AS ?t)
+    BIND(CONCAT("Open spec: ", REPLACE(STR(?path), "^.*/", ""), IF(BOUND(?line), CONCAT(" at line ", STR(?line)), "")) AS ?label)
+    BIND(COALESCE(CONCAT("“", STR(?quote), "”"), "") AS ?note)
+  } UNION {
+    ?p nk:scope ?sc ; nk:predicate covx:evidencePair ; lab:element ?element ; lab:test ?t ; lab:testRepo ?trepo ; lab:testCommit ?tcommit ; lab:testPath ?tpath .
+    OPTIONAL { ?p lab:testLine ?tl } OPTIONAL { ?p lab:testFileSha256 ?tsf } OPTIONAL { ?p lab:relation ?rel }
+    BIND("test" AS ?kind) BIND(2 AS ?o) BIND(0 AS ?n)
+    BIND(BOUND(?tl) && REGEX(STR(?tl), "^[0-9]+$") AS ?atLine)
+    BIND(IF(?atLine, ?trepo, ?unbound) AS ?repo) BIND(IF(?atLine, ?tcommit, ?unbound) AS ?commit) BIND(IF(?atLine, ?tpath, ?unbound) AS ?path)
+    BIND(IF(?atLine, ?tl, ?unbound) AS ?line) BIND(IF(?atLine, ?tsf, ?unbound) AS ?sf)
+    BIND(IF(?atLine, CONCAT("Open test at line ", STR(?tl), ": ", STR(?t)), CONCAT("Workbook test ", REPLACE(STR(?tpath), "^.*/", ""), ", ", COALESCE(STR(?tl), "no locator"), ": ", STR(?t))) AS ?label)
+    BIND(IF(?atLine, COALESCE(STR(?rel), ""), CONCAT("a workbook: ", COALESCE(STR(?tl), ""), " in ", STR(?trepo), ":", STR(?tpath), " at ", SUBSTR(STR(?tcommit), 1, 12), " (", COALESCE(STR(?rel), ""), ")")) AS ?note)
+  } UNION {
+    ?k nk:scope ?sc ; nk:predicate covx:evidenceCode ; lab:element ?element ; lab:n ?n ; lab:codeResolved ?resolved .
+    OPTIONAL { ?k lab:codeRepo ?crepo ; lab:codeCommit ?ccommit ; lab:codePath ?cpath } OPTIONAL { ?k lab:codeLine ?cl } OPTIONAL { ?k lab:codeFileSha256 ?csf }
+    OPTIONAL { ?k lab:codeId ?codeId } OPTIONAL { ?k lab:basis ?basis }
+    BIND("code" AS ?kind) BIND(3 AS ?o) BIND("" AS ?t)
+    BIND(?crepo AS ?repo) BIND(?ccommit AS ?commit) BIND(?cpath AS ?path) BIND(?cl AS ?line) BIND(?csf AS ?sf)
+    BIND(IF(BOUND(?cpath), CONCAT("Where it is implemented (static reading): ", REPLACE(STR(?cpath), "^.*/", ""), IF(BOUND(?cl), CONCAT(":", STR(?cl)), "")), CONCAT("Where it is implemented (static reading): not resolved: ", STR(?resolved))) AS ?label)
+    BIND(CONCAT(COALESCE(STR(?basis), "static reading, not a run"), IF(BOUND(?codeId), CONCAT(" · code id ", STR(?codeId)), "")) AS ?note)
+  } UNION {
+    BIND("trace" AS ?kind) BIND(4 AS ?o) BIND(0 AS ?n) BIND("" AS ?t)
+    BIND("Test → product trace: no data" AS ?label) BIND("nothing records which product code a test run executed yet" AS ?note)
+  }
+  BIND(IF(BOUND(?sf), CONCAT("sha256:", STRAFTER(STR(?sf), "https://kton.dev/o/")), ?unbound) AS ?sha256)
+  OPTIONAL { ?el nk:template ?tmpl . ?ss nk:scope ?sc ; nk:predicate covx:sourceStamp ; lab:dataSet ?ds ; lab:stamp ?ssStamp ; lab:label ?stampLabel .
+    FILTER(STR(?ds) = STR(?tmpl) && STR(?ssStamp) = STR(?stamp)) FILTER NOT EXISTS { ?ss nk:replacedBy ?ssNew } OPTIONAL { ?ss lab:viewSha256 ?stampFull } }
+  BIND("dryrun1.mapping" AS ?stampScope)
+}
+ORDER BY ?o xsd:integer(?n) ?t
+LIMIT 200

@@ -1,0 +1,1 @@
+{"name": "rerun-requested", "target": "either", "predicate": "https://example.org/qa/rerunRequested", "fields": {"test": {"type": "string", "required": true}, "reason": {"type": "string"}}}

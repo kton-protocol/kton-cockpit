@@ -1,0 +1,20 @@
+{
+  "name": "triage-rule-case",
+  "target": "either",
+  "predicate": "https://scinteco.com/ns/triage#ruleCase",
+  "replace": "previous",
+  "fields": {
+    "answer": {
+      "type": "enum",
+      "values": [
+        "asserted",
+        "exercised",
+        "no-relation"
+      ],
+      "required": true
+    },
+    "note": {
+      "type": "string"
+    }
+  }
+}

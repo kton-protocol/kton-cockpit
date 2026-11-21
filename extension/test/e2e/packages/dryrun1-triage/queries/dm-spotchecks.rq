@@ -1,0 +1,45 @@
+# Four spot checks; ?target is the element's canonical IRI (verification's element-key claims), what a verdict is about;
+# ?element the element id (the evidence pick), ?gxp its GxP group. Run: only claims in "dryrun1.mapping". $draw (optional) is
+# "<kind>:<n>": gxp (GxP groups only), any (all in scope), covered (the covered-element draw pool, to look for the hidden
+# errors). Same draw, same cards. Unbound: the first GxP draw.
+# The judges come apart (DESIGN §5 cards): ?judge1Who (model and round), ?judge1Verdict, ?judge1Why, the same for judge 2;
+# the test as ?testName and ?testLoc (file:line). A value the item does not have stays unbound (never "?" or " · :").
+# ?stampLabel ?stampFull ?stampScope: where the numbers come from (MH 20.11.): verification's covx:sourceStamp claim for
+# the data set (the number's template) and stamp, e.g. "mapping round 9 · b610b5c6" with the full view hash; the scope
+# names it when no round stamps it.
+PREFIX nk: <https://kton.dev/v/>
+PREFIX lab: <https://kton.dev/v/lab/>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX covx: <https://w3id.org/improve/coverage-extra#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT ?item ?target ?element ?gxp ?title ?statement ?where ?testName ?testLoc ?judge1Who ?judge1Verdict ?judge1Why ?judge2Who ?judge2Verdict ?judge2Why ?earlier ?stamp ?stampLabel ?stampFull ?stampScope WHERE {
+  {
+    ?sc rdfs:label "dryrun1.mapping" .
+    ?item nk:scope ?sc ; nk:predicate covx:worklistItem ; lab:element ?e ; lab:inScope "true" ; lab:gxp ?gxp ; lab:stamp ?stamp .
+    OPTIONAL { ?item lab:statement ?statement } OPTIONAL { ?item lab:area ?where } OPTIONAL { ?item lab:test ?testName } OPTIONAL { ?item lab:testFile ?tf } OPTIONAL { ?item lab:testLine ?tl }
+    OPTIONAL { ?item lab:judge1 ?judge1Verdict } OPTIONAL { ?item lab:judge1Why ?judge1Why } OPTIONAL { ?item lab:judge1Source ?judge1Who }
+    OPTIONAL { ?item lab:judge2 ?judge2Verdict } OPTIONAL { ?item lab:judge2Why ?judge2Why } OPTIONAL { ?item lab:judge2Source ?judge2Who } OPTIONAL { ?item lab:earlier ?earlier }
+    BIND(COALESCE(STR($draw), "gxp:0") AS ?d)
+    FILTER(STRBEFORE(?d, ":") != "covered" && (STRBEFORE(?d, ":") != "gxp" || ?gxp != "none"))
+    BIND(CONCAT(?gxp, " · ", STR(?e)) AS ?title)
+    OPTIONAL { ?k nk:scope ?sc ; nk:predicate covx:elementKey ; lab:element ?e ; lab:elementIri ?eiri }
+    BIND(COALESCE(?eiri, ?item) AS ?target) BIND(STR(?e) AS ?element)
+    BIND(SHA256(CONCAT(?d, STR(?e))) AS ?order)
+  } UNION {
+    ?sc rdfs:label "dryrun1.mapping" .
+    ?item nk:scope ?sc ; nk:predicate covx:coveredDraw ; lab:element ?e ; lab:part ?where ; lab:gxp ?g0 ; lab:stamp ?stamp .
+    OPTIONAL { ?item lab:statement ?statement } OPTIONAL { ?item lab:test ?testName } OPTIONAL { ?item lab:testFile ?tf } OPTIONAL { ?item lab:testLine ?tl } OPTIONAL { ?item lab:why ?judge1Why }
+    BIND(COALESCE(STR($draw), "gxp:0") AS ?d)
+    FILTER(STRBEFORE(?d, ":") = "covered")
+    BIND(CONCAT("covered · ", ?g0) AS ?gxp) BIND(CONCAT("covered · ", ?g0, " · ", STR(?e)) AS ?title)
+    BIND("mapping" AS ?judge1Who) BIND("covered" AS ?judge1Verdict) BIND("covered" AS ?earlier)
+    OPTIONAL { ?k nk:scope ?sc ; nk:predicate covx:elementKey ; lab:element ?e ; lab:elementIri ?eiri }
+    BIND(COALESCE(?eiri, ?item) AS ?target) BIND(STR(?e) AS ?element)
+    BIND(SHA256(CONCAT(?d, STR(?e))) AS ?order)
+  }
+  BIND(IF(BOUND(?tf), CONCAT(STR(?tf), IF(BOUND(?tl), CONCAT(":", STR(?tl)), "")), ?u1) AS ?testLoc)
+  OPTIONAL { ?item nk:template ?tmpl . ?ss nk:scope ?sc ; nk:predicate covx:sourceStamp ; lab:dataSet ?ds ; lab:stamp ?ssStamp ; lab:label ?stampLabel .
+    FILTER(STR(?ds) = STR(?tmpl) && STR(?ssStamp) = STR(?stamp)) FILTER NOT EXISTS { ?ss nk:replacedBy ?ssNew } OPTIONAL { ?ss lab:viewSha256 ?stampFull } }
+  BIND("dryrun1.mapping" AS ?stampScope)
+}
+ORDER BY ?order LIMIT 4

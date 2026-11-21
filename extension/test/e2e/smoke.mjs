@@ -28,9 +28,13 @@ async function shot(name) {
   await page.screenshot({ path: `${OUT}/${file}` });
   current?.screenshots.push(file);
 }
+// ONLY=<flow>[,<flow>] (debugging, or a run on a loaded machine): only those flows' steps run, and a flow's own setup
+// (its folder, its registry asks) only when it is selected
+const selected = (flow) => !process.env.ONLY || process.env.ONLY.split(",").includes(flow);
 async function step(flow, n, title, fn) {
   // FAILFAST=1 (debugging): after the first failure the remaining steps do not run (and count as not run).
   if (process.env.FAILFAST === "1" && results.some((r) => !r.ok)) return;
+  if (!selected(flow)) return;
   const t0 = Date.now();
   current = { flow, n, title, ok: false, ms: 0, screenshots: [], checks: [] };
   try {
@@ -47,6 +51,7 @@ async function step(flow, n, title, fn) {
   current.ms = Date.now() - t0;
   if (current.ok && current.checks.length === 0) current.checks.push({ ok: true, message: "passed" });
   results.push(current);
+  current = null; // between steps (a flow's setup) nothing is recorded into the last step
 }
 /** A named check inside a step: recorded, and a failure fails the step. */
 function check(ok, message, expected, received) {
@@ -61,7 +66,8 @@ async function cockpit(argv, stdin, extra = {}) {
   const req = `${WORK}/rpc/${id}.req.json`;
   writeFileSync(`${req}.tmp`, JSON.stringify({ argv, ...(stdin !== undefined ? { stdin } : {}), ...extra }));
   renameSync(`${req}.tmp`, req);
-  const end = Date.now() + 180_000;
+  // the sidecar's own limit (sidecar.mjs: 600 s in repo-dm, 300 s elsewhere) and a minute for its queue
+  const end = Date.now() + (extra.repo?.startsWith("repo-dm") ? 660_000 : 360_000);
   while (Date.now() < end) {
     const res = `${WORK}/rpc/${id}.res.json`;
     if (existsSync(res)) return JSON.parse(readFileSync(res, "utf8"));
@@ -69,13 +75,22 @@ async function cockpit(argv, stdin, extra = {}) {
   }
   throw new Error(`the sidecar did not answer ${argv.join(" ")}`);
 }
+/** One ask from the sidecar that builds the registry's view (index) after a federation change or a signing step, so a
+ *  window that asks next answers from a warm index; the time it took is recorded in the step. */
+async function warm(repo, argv = ["ask", "sparql", "-", "--results-json"], stdin = "SELECT * WHERE { ?s ?p ?o } LIMIT 1") {
+  const t0 = Date.now();
+  const r = await cockpit(argv, argv.includes("-") ? stdin : undefined, { repo });
+  const message = `${repo}: index warmed by one sidecar ask (${((Date.now() - t0) / 1000).toFixed(1)} s${r.code ? `, exit ${r.code}: ${(r.stderr || r.stdout).split("\n")[0]}` : ""})`;
+  current?.checks?.push({ ok: true, message });
+  return r;
+}
 const PREFIXES = `PREFIX nk: <https://kton.dev/v/>
 PREFIX t: <https://example.org/workbench-e2e/>
 PREFIX lab: <https://kton.dev/v/lab/>
 PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
 `;
-async function sparql(q) {
-  const r = await cockpit(["ask", "sparql", "-", "--results-json"], PREFIXES + q);
+async function sparql(q, repo) {
+  const r = await cockpit(["ask", "sparql", "-", "--results-json"], PREFIXES + q, repo ? { repo } : {});
   if (r.code !== 0) throw new Error(`registry check failed: ${r.stderr.split("\n")[0]}`);
   return JSON.parse(r.stdout).results.bindings.map((b) => Object.fromEntries(Object.entries(b).map(([k, v]) => [k, v.value])));
 }
@@ -188,10 +203,11 @@ await page.goto(URL);
 await page.locator(".monaco-workbench").waitFor({ timeout: 90000 });
 await views();
 
-await step("S1", 1, "status bar: both keys, unverified, no name from a claim; test mode; one poller", async () => {
-  await status().getByText("person key qa-decider · agent key qa-decider-agent · unverified", { exact: true }).waitFor({ timeout: 60000 });
+await step("S1", 1, "status bar: both keys, test (not verified: test keys), no name from a claim; test mode; one poller; decisions waiting apart from the inbox", async () => {
+  await status().getByText("person key qa-decider · agent key qa-decider-agent · test", { exact: true }).waitFor({ timeout: 60000 });
   await status().getByText("TEST MODE").waitFor();
-  await status().getByText(/polling: inbox every 2s · 2 open · 4 decisions/).waitFor({ timeout: 60000 });
+  await status().getByText(/polling: inbox every 2s · 2 open · cockpit-faults$/).waitFor({ timeout: 60000 });
+  await status().getByText("4 decisions waiting", { exact: true }).waitFor({ timeout: 60000 });
   const id = await status().getByText(/person key /).first().textContent();
   check(!/qa-requestor/.test(id), "the identity shows no name from a claim's signer", false, /qa-requestor/.test(id));
   await shot("s1-status-bar");
@@ -795,7 +811,7 @@ await step("S1", 5, "no identity file: reading works, signing is disabled", asyn
   await shot("s1-no-identity");
   renameSync(`${WORK}/repo/.kton/local/identity.json.away`, `${WORK}/repo/.kton/local/identity.json`);
   rebuild();
-  await status().getByText(/person key qa-decider · agent key qa-decider-agent · unverified/).waitFor({ timeout: 30000 });
+  await status().getByText(/person key qa-decider · agent key qa-decider-agent · test/).waitFor({ timeout: 30000 });
 });
 
 await step("S1", 7, "a missing person or agent key is named; neither stands in for the other", async () => {
@@ -811,7 +827,7 @@ await step("S1", 7, "a missing person or agent key is named; neither stands in f
   await shot("s1-no-agent-key");
   await clearToasts();
   setWorkspace({ "kton.identity.agentKey": "qa-decider-agent" });
-  await status().getByText(/agent key qa-decider-agent · unverified/).waitFor({ timeout: 30000 });
+  await status().getByText(/agent key qa-decider-agent · test/).waitFor({ timeout: 30000 });
 });
 
 await step("S7", 1, "cockpit missing: one clear error with the setting to check; the views say no data", async () => {
@@ -1067,12 +1083,15 @@ await step("S6", 9, "a read scope's data is shown (RACI from qa.deviations.raci)
   scopesBefore = await perScope();
 });
 
-await step("S6", 7, "training: the package's training query result, computed nowhere else", async () => {
+await step("S6", 7, "training: the package's training query result, computed nowhere else; unfiltered until a person is set, and stamped so", async () => {
   const f = await openArea("qa.area-one");
   // unfiltered until a person is picked (ktonpkg v0.9.10 optional params): the package's query, all 4 obligations
   check((await countIn(f, "training")) === 4, "the training query's 4 rows, unfiltered", 4, await countIn(f, "training"));
   const t = await boxText(f, "training");
   check(/person\/p1/.test(t) && /person\/p2/.test(t), "both RACI people's obligations");
+  // the unbound-parameter guard: a block that feeds no act runs unfiltered, and says so (the stamp above its rows)
+  const stampText = ((await box(f, "training").locator("[data-unfiltered]").first().textContent({ timeout: 10000 }).catch(() => "")) ?? "").trim();
+  check(stampText === "unfiltered: person not set", "the training block is stamped unfiltered", "unfiltered: person not set", stampText);
 });
 
 await step("S6", 10, "a param: the record query is bound to the record (subject.iri), not to all records", async () => {
@@ -1164,6 +1183,854 @@ await step("S6", "15b", "area-two's governing SOP QA-SOP-20 is shown as a draft"
   await shot("s6-governing-draft");
   await closeEditors();
 });
+
+// ---- DM: MH's decision view for the mapping decision (dry run 1), on verification's real data (repo-dm, a copy)
+if (seed.dm?.proposal && selected("DM")) {
+  const DMP = seed.dm.proposal;
+  async function sparqlDM(q) {
+    // the federated copy is slow to ask right after a say (the window's view asks at the same time): up to 3 tries
+    let r;
+    for (let i = 0; i < 3; i++) {
+      r = await cockpit(["ask", "sparql", "-", "--results-json"], `PREFIX nk: <https://kton.dev/v/>\nPREFIX lab: <https://kton.dev/v/lab/>\nPREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>\n${q}`, { repo: "repo-dm" });
+      if (r.code === 0) break;
+    }
+    if (r.code !== 0) throw new Error(`registry check failed (exit ${r.code}): ${r.stderr.split("\n")[0]} ${r.stdout.slice(0, 300)}`);
+    return JSON.parse(r.stdout).results.bindings.map((b) => Object.fromEntries(Object.entries(b).map(([k, v]) => [k, v.value])));
+  }
+  // the federated copy's first ask builds its view: one sidecar ask builds it before the window asks (warm())
+  await warm("repo-dm");
+  await page.goto(URL.replace(/folder=[^&]*/, `folder=${encodeURIComponent(`${WORK}/repo-dm`)}`));
+  await page.locator(".monaco-workbench").waitFor({ timeout: 90000 });
+  await views();
+  const dmFrame = () => frameWithSel('[data-composition="dryrun1.triage/decision"]', 60000);
+  async function openDecisionView() {
+    await closeEditors();
+    await views();
+    await openReview("Can the 5.0.0 mapping be the basis for G1 triage?", "Decision view: mapping (dryrun1)", "dryrun1.triage");
+    const f = await dmFrame();
+    await f.locator('[data-use$="#summary"] [data-figure]').first().waitFor({ timeout: 60000 });
+    return f;
+  }
+
+  await step("DM", 0, "first screen (MH 20.11.): the one waiting decision's review view opens on start; 1 decision waiting; Home → Packages → the review-view entry opens it too; guard rules show their state", async () => {
+    await row("Can the 5.0.0 mapping be the basis for G1 triage?").waitFor({ timeout: 60000 });
+    await status().getByText("1 decision waiting", { exact: true }).waitFor({ timeout: 60000 });
+    // kton.home.openOnStart (default true): exactly one decision waiting, with a review view
+    await (await dmFrame()).locator('[data-use$="#summary"] [data-figure], [data-use$="#summary"] [data-area-empty]').first().waitFor({ timeout: 90000 });
+    await closeEditors();
+    const rows = page.locator(".monaco-list-row");
+    const texts = await rows.allTextContents();
+    const at = texts.findIndex((t) => /^Packages/.test(t.trim()));
+    const i = texts.findIndex((t, j) => j > at && t.includes("Decision view: mapping (dryrun1)") && t.includes("review-view"));
+    check(at >= 0 && i > at, "the review-view entry is listed under Packages", "Packages → Decision view: mapping (dryrun1) · review-view", texts.slice(at, at + 12));
+    await rows.nth(i).click();
+    await (await dmFrame()).locator('[data-use$="#summary"]').first().waitFor({ timeout: 60000 });
+    const home = (await page.locator(".monaco-list-row").allTextContents()).join("\n");
+    check(/Guard rules/.test(home) && /Reviewer is the author\s*(passed \(0 findings\)|findings \(\d+\)|not run)/.test(home) && !/Reviewer is the author\s*not rendered/.test(home), "the guard rules show a state (passed / findings / not run), never a cut-off 'not rendered'", "Reviewer is the author · passed (0 findings) | findings (n) | not run", home.match(/Guard rules[\s\S]{0,300}/)?.[0]);
+    await shot("dm-first-screen");
+  });
+
+  await step("DM", 1, "the decision view opens from the proposal; every number shows its stamp", async () => {
+    await row("Can the 5.0.0 mapping be the basis for G1 triage?").waitFor({ timeout: 60000 });
+    const f = await openDecisionView();
+    // by area | by product part are tabs (DESIGN.md §3): a tab's blocks are built when it is first shown
+    const tabTo = async (fr, name) => fr.locator('[role="tab"]', { hasText: name }).first().click();
+    for (const id of ["counts", "estimate", "areas", "parts", "cards", "rulecases"]) {
+      if (id === "parts") await tabTo(f, "By product part");
+      // attached: a stamp equal to its part's source chip is hidden in the row, never removed (DESIGN.md §4)
+      await f.locator(`[data-use$="#${id}"] [data-stamp], [data-use$="#${id}"] [data-area-empty]`).first().waitFor({ state: "attached", timeout: 60000 });
+    }
+    await tabTo(f, "By area");
+    const missing = await f.locator("[data-stamp-missing]").count();
+    check(missing === 0, "no number without a source", 0, missing);
+    const figures = await f.locator("[data-figure]").count();
+    const stamped = await f.locator("[data-figure] [data-stamp]").count();
+    check(figures > 0 && figures === stamped, "every figure carries a stamp", figures, stamped);
+    const rowsWithNumbers = await f.locator("tr:has(td[data-number])").count();
+    const rowsStamped = await f.locator("tr:has(td[data-number]):has([data-stamp])").count();
+    check(rowsWithNumbers > 0 && rowsWithNumbers === rowsStamped, "every table row with a number carries a stamp", rowsWithNumbers, rowsStamped);
+    // the source once per part (DESIGN.md §4, MH 20.11.): the mapping round's label from verification's covx:sourceStamp
+    const chips = {};
+    for (const p of ["top/summary", "top/spot", "where", "rules"]) chips[p] = await f.locator(`section[data-part="${p}"] > .wb-sec-head > .wb-source`).allTextContents();
+    check(Object.values(chips).every((c) => c.length === 1 && c[0] === "source: mapping round 9 · b610b5c6"), "each data part names its source once: mapping round 9 · b610b5c6", "source: mapping round 9 · b610b5c6 (once per part)", chips);
+    const tip = (await f.locator('section[data-part="where"] > .wb-sec-head > .wb-source').getAttribute("data-tip")) ?? "";
+    check(/scope dryrun1\.mapping/.test(tip) && /sha256:b610b5c6[0-9a-f]{56}/.test(tip), "the chip's tooltip has the scope and the full hash", "scope dryrun1.mapping, sha256:b610b5c6…(64)", tip);
+    await shot("dm-view");
+  });
+
+  await step("DM", 2, "the guard flag shows the two scopes: 215 in scope vs 254 all judged", async () => {
+    const f = await dmFrame();
+    const g = (await f.locator('[data-use$="#counts"] [data-guard]').textContent()) ?? "";
+    check(/Mixed scopes\./.test(g) && /215 in scope \(MH 10\.11\.\)/.test(g) && /254 all judged/.test(g) && /39 outside your scope/.test(g), "the guard callout names the counts with their scopes: 215 in scope + 39 outside = 254 all judged", "Mixed scopes. … 215 in scope (MH 10.11.) + 39 outside your scope = 254 all judged", g);
+    const est = (await f.locator('[data-use$="#estimate"]').textContent()) ?? "";
+    check(/4\.5 %/.test(est) && /3\.2–6\.1 %/.test(est) && /reported 4\.4 % \(3\.2–6\.0\), 09\.11\./.test(est), "the recomputed rate and band with the reported one beside it", "4.5 % (3.2–6.1) … reported 4.4 % (3.2–6.0), 09.11.", est.slice(0, 400));
+    // drawn to scale (DESIGN.md §5): 4.5 on the stated 0–8 % scale is 56.25 %, the target 5 % at 62.5 %
+    const rb = f.locator('[data-use$="#estimate"] .rb');
+    check((await rb.getAttribute("data-pt")) === "56.25" && (await rb.getAttribute("data-t")) === "62.5", "the range bar places the point and the target on its scale", "pt 56.25, t 62.5", [await rb.getAttribute("data-pt"), await rb.getAttribute("data-t")]);
+    check(/≈ 362/.test(est) && /8,045/.test(est), "as elements on the covered base: ≈ 362 of 8,045", "≈ 362 … 8,045", est.slice(0, 300));
+  });
+
+  await step("DM", 3, "a spot-check verdict signs with the person key through the dialog, about the card's element", async () => {
+    const f = await dmFrame();
+    const card = f.locator('[data-use$="#cards"] [data-card-row="0"]');
+    const item = await card.getAttribute("data-target");
+    // the verdict is a segmented control; its one primary act stays disabled until a verdict is chosen (DESIGN.md §5)
+    const sign = card.locator('[data-testid="card-0-spotcheck"]');
+    check(await sign.isDisabled(), "Sign verdict… is disabled before a verdict is chosen", "disabled", "enabled");
+    check((await f.locator('[data-use$="#cards"] button[data-act]').count()) === (await f.locator('[data-use$="#cards"] [data-card-row]').count()), "one act button per card (the choices are the segmented control)");
+    await card.locator('[data-testid="card-0-second-model-right"]').click();
+    check(!(await sign.isDisabled()), "a chosen verdict enables it", "enabled", "disabled");
+    await sign.click();
+    const d = await dialog();
+    for (const s of ["verdict = second-model-right", "Act: reviewed (the control's meaning, not a field of the claim)", "Into scope: dryrun1.triage", 'person key "qa-decider"']) await d.getByText(s, { exact: false }).first().waitFor({ timeout: 15000 });
+    await signInDialog(d);
+    await d.locator('[data-testid="sign-outcome"][data-state="signed"]').waitFor({ timeout: 60000 });
+    await shot("dm-spotcheck-dialog");
+    // dryrun1.triage 7579351: predicate triage:spotchecks; fields under lab: while the view ignores the package's aliases
+    const rows = await sparqlDM(`SELECT ?c ?s ?v ?p ?scope WHERE { ?c nk:predicate <https://scinteco.com/ns/triage#spotchecks> ; nk:about <${item}> ; nk:signer ?s ; (lab:verdict|<https://scinteco.com/ns/triage#verdict>) ?v ; (lab:proposal|<https://scinteco.com/ns/triage#proposal>) ?p ; nk:scope ?sc . ?sc rdfs:label ?scope }`);
+    check(/^https:\/\/scinteco\.com\/ns\/improve\/spec\/[^/]+\/[0-9a-f]+$/.test(item ?? ""), "the verdict is about the element's canonical IRI", "https://scinteco.com/ns/improve/spec/<spec>/<hash>", item);
+    check(rows.length === 1 && rows[0].s === PERSON && rows[0].v === "second-model-right" && rows[0].p === iriOf(DMP), "one spot check about the card's item, by the person key, naming the proposal", { s: PERSON, v: "second-model-right", p: iriOf(DMP) }, rows);
+    check(rows[0]?.scope === "dryrun1.triage", "it lands in the view's records scope dryrun1.triage (the entry's scopes.records), not in verification's", "dryrun1.triage", rows[0]?.scope);
+  });
+
+  await step("DM", 4, "the sign summary counts what was looked at", async () => {
+    // the window's view takes the new claim in on its next index read: open the view again until it counts it
+    let t = "";
+    for (let i = 0; i < 6 && !/1 spot checks judged/.test(t); i++) {
+      if (i) await page.waitForTimeout(3000);
+      const f = await openDecisionView();
+      t = ((await f.locator('[data-use$="#summary"]').textContent()) ?? "").replace(/\s+/g, " ");
+    }
+    check(/1 spot checks judged/.test(t), "1 spot check judged", "1 spot checks judged", t.slice(0, 300));
+    check(/0 of 3 rule cases settled/.test(t) && /0 questions asked/.test(t), "no rule case settled (of the 3), no question asked", "0 of 3 rule cases settled · 0 questions asked", t.slice(0, 300));
+  });
+
+  // Evidence on demand, on verification's tested examples (mapping-rounds queries/dryrun1 @f518429). The panel stays
+  // open from here to DM.9: its view session's opens are what the decision lists.
+  const evidence = async (f, element) => {
+    const b = f.locator('[data-use$="#evidence"]');
+    // the block's first answer first (a reopened view's evidence block may still be loading)
+    await b.locator("[data-area-loading]").waitFor({ state: "detached", timeout: 120000 });
+    await b.locator('[data-testid="evidence-ask"]').fill(element);
+    await b.locator('[data-testid="evidence-show"]').click();
+    await b.locator("[data-evidence-for]", { hasText: element }).waitFor({ timeout: 60000 });
+    return b;
+  };
+  const openedOut = async (row) => {
+    await row.locator('[data-open-out]').filter({ hasText: /\S/ }).filter({ hasNotText: "Opening…" }).waitFor({ timeout: 60000 });
+    return ((await row.locator("[data-open-out]").textContent()) ?? "").trim();
+  };
+  await step("DM", 5, "a workbook test shows its locator, not an editor line: ics1742#e23 → UAT14.xlsx, sheet Test, row 2", async () => {
+    const f = await dmFrame();
+    const b = await evidence(f, "ics1742#e23");
+    const test = b.locator('[data-evidence="test"]', { hasText: "UAT14.xlsx" }).first();
+    const t = ((await test.textContent()) ?? "").replace(/\s+/g, " ");
+    check(/sheet Test, row 2/.test(t), "the workbook locator is shown", "UAT14.xlsx · sheet Test, row 2", t.slice(0, 200));
+    check((await test.locator("button").count()) === 0, "no 'Open test at line' for a workbook (nothing to open at a line)", 0, await test.locator("button").count());
+    check((await b.locator('[data-evidence="trace"]', { hasText: "Test → product trace: no data" }).count()) === 1, "the trace says no data, never a trace");
+  });
+
+  await step("DM", 6, "ics1000#e2: the spec and AccessControlListService.java:127 open read-only at the stamped commit, the hash checked", async () => {
+    const f = await dmFrame();
+    const b = await evidence(f, "ics1000#e2");
+    const spec = b.locator('[data-evidence="spec"]').first();
+    await spec.locator("button").click();
+    const specOut = await openedOut(spec);
+    check(/^Opened improve-specs:.*ics1000 Publish rights\.md#L31 at 49966c23eceb \(read-only\)$/.test(specOut), "the spec opens at its line and commit", "Opened improve-specs:…ics1000 Publish rights.md#L31 at 49966c23eceb (read-only)", specOut);
+    // the row shows the decoded file name and line; the query's label (what it is) is the row's data-label and the Open button's name
+    const code = b.locator('[data-evidence="code"][data-label*="AccessControlListService.java:127"]').first();
+    check(/Where it is implemented \(static reading\)/.test((await code.getAttribute("data-label")) ?? "") && /AccessControlListService\.java\s*· line 127/.test((await code.locator(".t").textContent()) ?? ""), "named as a static reading, not a trace; shown as the file and its line", "AccessControlListService.java · line 127", await code.locator(".t").textContent());
+    await code.locator("button").click();
+    const codeOut = await openedOut(code);
+    check(/^Opened improve:.*AccessControlListService\.java#L127 at fa218aa892af \(read-only\)$/.test(codeOut), "the code opens at line 127 of the stamped commit", "Opened improve:…AccessControlListService.java#L127 at fa218aa892af (read-only)", codeOut);
+    // shown only after git show's bytes hashed to the claim's specFileSha256 / codeFileSha256 (sources.ts)
+    await page.locator(".tab", { hasText: "AccessControlListService.java" }).first().waitFor({ timeout: 20000 });
+    await shot("dm-evidence-code");
+    const test = b.locator('[data-evidence="test"][data-label*="Open test at line 749"]').first();
+    check((await test.count()) === 1 && (await test.locator("button").count()) === 1, "the REST test pair offers 'Open test at line 749'");
+    // bug 5 (DESIGN.md §7): the open goes to the shared helper, not the test the label names; the row says so
+    check(/Opens BasicTest\.kt line 749, not the test in ResourceAclTest\.kt/.test((await test.locator(".flag").textContent()) ?? ""), "the mismatch between the named test and what opens is flagged", "Opens BasicTest.kt line 749, not the test in ResourceAclTest.kt", await test.locator(".flag").allTextContents());
+  });
+
+  await step("DM", 7, "ics1128#e6: an unresolved code match says why, with nothing to open", async () => {
+    const f = await dmFrame();
+    const b = await evidence(f, "ics1128#e6");
+    const code = b.locator('[data-evidence="code"]').first();
+    const t = ((await code.textContent()) ?? "").replace(/\s+/g, " ");
+    check(/not resolved: no file in reference/.test(t), "not resolved: <why>", "not resolved: no file in reference", t.slice(0, 200));
+    check((await code.locator("button").count()) === 0, "no button for an unresolved match", 0, await code.locator("button").count());
+  });
+
+  await step("DM", 8, "a failing test's screenshot from test-execution's dryrun1.runs opens with its hash checked; a passing run says why it has none", async () => {
+    const f = await dmFrame();
+    await evidence(f, "ics2146#e14");
+    const a = f.locator('[data-use$="#artifacts"]');
+    await a.locator('[data-evidence="artifact"]').first().waitFor({ timeout: 60000 });
+    // a FAILING run's screenshot (test-execution's capture runs since 20.11. also give passing tests an end screenshot)
+    const shotRow = a.locator('[data-evidence="artifact"]', { has: f.locator('button[data-label^="Open screenshot: "][data-label$="(failed)"]') }).first();
+    const label = ((await shotRow.locator("button").getAttribute("data-label")) ?? "").trim();
+    const run = /run (\S+) \(/.exec(label)?.[1];
+    const testId = (await shotRow.getAttribute("data-test")) ?? "";
+    const claims = await sparqlDM(`SELECT ?sha WHERE { ?a nk:predicate <https://scinteco.com/ns/qm/dryrun1/runs/runArtifact> ; lab:run ${JSON.stringify(run)} ; lab:kind "screenshot" ; lab:test ?t ; lab:sha256 ?sha . FILTER(STR(?t) = ${JSON.stringify(testId)}) }`);
+    const sha = `sha256:${String(claims[0]?.sha ?? "").split("/").pop()}`;
+    await shotRow.locator("button").click();
+    const out = await openedOut(shotRow);
+    check(/^Opened .*test-failed-1\.png \(sha256:[0-9a-f]{12}…, \d+ bytes, hash checked\)$/.test(out), "opened after the hash check", "Opened <run>/…/test-failed-1.png (sha256:…, n bytes, hash checked)", out);
+    const img = await frameWithSel('[data-testid="artifact-image"]', 30000);
+    const info = (await img.locator('[data-testid="artifact-info"]').textContent()) ?? "";
+    check(claims.length === 1 && info.includes(sha.slice(0, 19)), "the image panel names the claim's sha256", sha.slice(0, 19), info);
+    const natural = await img.locator('[data-testid="artifact-image"]').evaluate((e) => e.naturalWidth);
+    check(natural > 0, "the screenshot renders", "> 0 px", natural);
+    await shot("dm-artifact-screenshot");
+    check((await a.locator(".wb-block-source").textContent()) === "source: dryrun1.runs", "the runs name their own source (not a mapping round)", "source: dryrun1.runs", await a.locator(".wb-block-source").allTextContents());
+    const none = ((await a.textContent()) ?? "").replace(/\s+/g, " ");
+    // passing runs without an artifact are counted once, with run-capture's passingArtifacts as the why (DESIGN.md §5, bug 13)
+    check(/\d+ passing runs? without an artifact: \S/.test(none) && (await a.locator("[data-passing]").count()) === 1, "passing runs: no artifact, counted once, and why (run-capture's passingArtifacts)", "<n> passing runs without an artifact: …", none.match(/.{0,20}passing run.{0,120}/)?.[0]);
+  });
+
+  await step("DM", 9, "the decision lists what this view session opened and signs it as lookedAt (nothing unsigned is counted)", async () => {
+    // back to the panel (the image took the column), the same view session
+    const f = await dmFrame();
+    const before = ((await f.locator('[data-use$="#summary"]').textContent()) ?? "").replace(/\s+/g, " ");
+    check(/1 spot checks judged/.test(before), "the opens are counted nowhere (the summary still counts signed claims only)", "1 spot checks judged", before.slice(0, 120));
+    await f.locator('[data-use$="#summary"] [data-testid="act-decides"]').click();
+    await inputQuick("b");
+    const box = page.locator(".quick-input-box input").first();
+    await box.waitFor({ timeout: 10000 });
+    const proposed = await box.inputValue();
+    check(/kton-src:\/improve\/.*AccessControlListService\.java\?fa218aa8[0-9a-f]*#L127/.test(proposed) && /run-artifact:/.test(proposed), "lookedAt is proposed with the opened evidence", "… kton-src:/improve/…#L127 … run-artifact:…", proposed.slice(0, 300));
+    await page.keyboard.press("Enter");
+    const d = await dialog();
+    await d.getByText("Evidence you opened in this view (3)", { exact: false }).first().waitFor({ timeout: 15000 });
+    const detail = (await d.locator('[data-testid="sign-detail"]').textContent()) ?? "";
+    check((detail.match(/\(in lookedAt\)/g) ?? []).length === 3, "each open is listed before signing, in lookedAt", 3, detail.slice(0, 600));
+    await signInDialog(d);
+    await d.locator('[data-testid="sign-outcome"][data-state="signed"]').waitFor({ timeout: 60000 });
+    await shot("dm-decides-lookedat");
+    const rows = await sparqlDM(`SELECT ?l ?scope WHERE { ?c nk:predicate <https://scinteco.com/ns/triage#decides> ; nk:about <${iriOf(DMP)}> ; (lab:lookedAt|<https://scinteco.com/ns/triage#lookedAt>) ?l ; nk:scope ?sc . ?sc rdfs:label ?scope }`);
+    check(rows.length === 1 && /kton-src:\/improve\//.test(rows[0].l) && /run-artifact:/.test(rows[0].l) && rows[0].scope === "dryrun1.triage", "the signed decision's lookedAt names the opens, in dryrun1.triage", "kton-src:… run-artifact:… (dryrun1.triage)", rows);
+    await closeEditors();
+  });
+
+  await step("DM", 10, "the same view built for dryrun2, against a registry with dryrun1's data and no dryrun2.* scope: every part says no data for dryrun2, never dryrun1's", async () => {
+    await closeEditors();
+    // repo-dm2: verification's dryrun1 data and test-execution's dryrun1.runs, with only the view built for dryrun2
+    check(!!seed.dm.proposal2, "the dryrun2 registry is seeded");
+    await warm("repo-dm2");
+    await page.goto(URL.replace(/folder=[^&]*/, `folder=${encodeURIComponent(`${WORK}/repo-dm2`)}`));
+    await page.locator(".monaco-workbench").waitFor({ timeout: 90000 });
+    await views();
+    await row("Can the 5.0.0 mapping be the basis for G1 triage?").waitFor({ timeout: 60000 });
+    // kton.home.openOnStart opens it (the one waiting decision); opening it again over it would detach the frame
+    await frameWithSel('[data-composition="dryrun2.triage/decision"]', 90000).catch(() => openReview("Can the 5.0.0 mapping be the basis for G1 triage?", "Decision view: mapping (dryrun2)", "dryrun2.triage"));
+    const f = await frameWithSel('[data-composition="dryrun2.triage/decision"]', 60000);
+    const data = ["counts", "estimate", "areas", "parts", "cards", "agreement", "evidence", "artifacts", "rulecases", "examples", "summary"];
+    // the parts table is a tab's (built when first shown)
+    await f.locator('[role="tab"]', { hasText: "By product part" }).first().click();
+    // attached: the areas table is in the tab not shown now
+    for (const id of data) await f.locator(`[data-use$="#${id}"] [data-area-empty], [data-use$="#${id}"] [data-area-error]`).first().waitFor({ state: "attached", timeout: 90000 });
+    const empties = [];
+    for (const id of data) empties.push([id, ((await f.locator(`[data-use$="#${id}"]`).textContent()) ?? "").replace(/\s+/g, " ").trim()]);
+    const bad = empties.filter(([, t]) => !/No data for dryrun2/.test(t));
+    check(bad.length === 0, "every data part says no data for dryrun2", "No data for dryrun2 …", bad);
+    const all = (await f.locator("body").textContent()) ?? "";
+    check(!/dryrun1/.test(all) && !/\b(215|254|8,045)\b/.test(all), "nothing of dryrun1 shows (no fallback)", "no dryrun1, no 215/254/8,045", all.match(/.{0,40}(dryrun1|215|254|8,045).{0,40}/)?.[0]);
+    check((await f.locator("[data-figure]").count()) === 0 && (await f.locator("[data-number]").count()) === 0, "no number at all", 0, await f.locator("[data-number]").count());
+    check(/Dry run: dryrun2/.test(all) && /test keys · does not settle 2c50ddd6/.test(all), "the header names the run, stamped", "Dry run: dryrun2 · test keys · does not settle 2c50ddd6", all.slice(0, 160));
+    await shot("dm-dryrun2-empty");
+    await closeEditors();
+  });
+}
+
+// ---- R: the role views of dry run 1 (userinterface imvprototypes workbench/dryrun1-role-views), on COPIES of real
+// data: test-execution's dryrun1.runs (repo-roles), a stand-in dryrun1.triage signed with this run's test keys, and,
+// with ROLES_COVERAGE, verification's dryrun1-coverage federated read-only. Without ROLES_* the seed makes no
+// repo-roles and these steps do not run. Each figure is compared with the count of test-execution's (or the triage
+// package's) own named query, asked from outside the shell.
+if (seed.roles && selected("R")) {
+  const askR = async (name, bind = []) => {
+    const r = await cockpit(["ask", "sparql", "--name", name, ...bind.flatMap((b) => ["--bind", b]), "--results-json", "--timeout", "120"], undefined, { repo: "repo-roles" });
+    if (r.code !== 0) throw new Error(`${name} failed: ${(r.stderr || r.stdout).split("\n")[0]}`);
+    return JSON.parse(r.stdout).results.bindings.map((b) => Object.fromEntries(Object.entries(b).map(([k, v]) => [k, v.value])));
+  };
+  // the window's queries may take longer than 20 s on real data under load: this folder's timeout is 120 s
+  mkdirSync(`${WORK}/repo-roles/.vscode`, { recursive: true });
+  writeFileSync(`${WORK}/repo-roles/.vscode/settings.json`, JSON.stringify({ "kton.cockpit.timeoutSeconds": 120 }, null, 2));
+  // kton-cockpit (20.11.): every say and federation pull invalidates the kept view; the first asks after it wait for one
+  // cold build (12–40 s here, longer under load). One ask from the sidecar builds it (the sources are snapshots taken
+  // once per run, run.sh, so nothing else moves it) before a window opens a view or waits on a block after a signing
+  // step, so the window's parallel first asks do not each wait into their timeouts (warm asks take ~0.65 s).
+  const warmIndex = () => warm("repo-roles", ["ask", "sparql", "--name", "runs", "--results-json", "--timeout", "120"]);
+  await warmIndex();
+  await closeEditors();
+  await page.goto(URL.replace(/folder=[^&]*/, `folder=${encodeURIComponent(`${WORK}/repo-roles`)}`));
+  await page.locator(".monaco-workbench").waitFor({ timeout: 90000 });
+  await views();
+  const christof = async () => {
+    try {
+      return await frameWithSel('[data-composition="dryrun1.roles/christof"]', 15000);
+    } catch {
+      await warmIndex();
+      await views();
+      await page.locator(".monaco-list-row", { hasText: "Christof (test) · dryrun1" }).first().click({ timeout: 60000 });
+      return frameWithSel('[data-composition="dryrun1.roles/christof"]', 90000);
+    }
+  };
+  const guard = () => frameWithSel('[data-composition^="@workbench/area:dryrun1.roles/"]', 90000);
+  /** The rows of a block as {column: text}, once it has drawn. */
+  async function rowsIn(f, id) {
+    await waitDrawn(f, id);
+    const err = box(f, id).locator("[data-area-error]");
+    if (await err.count()) throw new Error(`${id}: the block drew an error: ${((await err.first().textContent()) ?? "").trim().slice(0, 200)}`);
+    await countIn(f, id);
+    // data rows only: a grouped table has a header row per group (DESIGN.md §5 rows)
+    return box(f, id).locator("tbody tr[data-row]").evaluateAll((trs) => trs.map((tr) => Object.fromEntries([...tr.querySelectorAll("td[data-col]")].map((td) => [td.dataset.col, td.textContent]))));
+  }
+  const waitDrawn = async (f, id, timeout = 120000) => box(f, id).locator("[data-area-table], [data-area-empty], [data-area-error]").first().waitFor({ timeout });
+
+  await step("R", 1, "Christof's, Gregor's and Wolfgang's views are listed under Views, the guard under QM areas; all from dryrun1.roles", async () => {
+    // Home draws after the window's first poll; on a fresh copy that waits for the index build (the first ask)
+    await row("Views").waitFor({ timeout: 240000 });
+    await page.locator(".monaco-list-row", { hasText: "Christof (test) · dryrun1" }).filter({ hasText: "dryrun1.roles" }).first().waitFor();
+    await page.locator(".monaco-list-row", { hasText: "Guard · dryrun1.triage" }).filter({ hasText: "dryrun1.roles" }).first().waitFor();
+    await page.locator(".monaco-list-row", { hasText: "Gregor (dev + review) · dryrun1" }).filter({ hasText: "dryrun1.roles" }).first().waitFor();
+    await page.locator(".monaco-list-row", { hasText: "Wolfgang (spec) · dryrun1" }).filter({ hasText: "dryrun1.roles" }).first().waitFor();
+    await shot("r1-home");
+  });
+
+  let runs = [];
+  /** failures of test-execution's own query, counted per key */
+  const tally = (rows, key) => rows.reduce((m, r) => ((m[key(r)] = (m[key(r)] ?? 0) + 1), m), {});
+  await step("R", 2, "Christof's figures: runs over all suites; tests and failures per suite and run, never summed across suites, each with its query, scope and run stamp", async () => {
+    await page.locator(".monaco-list-row", { hasText: "Christof (test) · dryrun1" }).first().click();
+    const f = await christof();
+    runs = await askR("runs");
+    const failures = await askR("failures");
+    const fig = await rowsIn(f, "figures");
+    const v = (re) => Number(fig.find((r) => re.test(r.label))?.value);
+    const want = { recorded: runs.length, current: runs.filter((r) => r.status === "current").length };
+    check(v(/^runs recorded/) === want.recorded, "runs recorded = rows of runs", want.recorded, v(/^runs recorded/));
+    check(v(/^current runs/) === want.current, "current runs = current rows of runs", want.current, v(/^current runs/));
+    check(fig.length === 2 && !fig.some((r) => /fail/i.test(r.label) && !/per run/.test(r.label)), "no failure figure summed across suites", 2, fig.map((r) => r.label));
+    check(fig.every((r) => r.query === "ch-figures" && r.scope === "dryrun1.runs" && /last recorded/.test(r.stamp ?? "")), "each figure: query, scope, stamp", "ch-figures · dryrun1.runs", fig);
+    const per = await rowsIn(f, "perrun");
+    check(per.length === want.current, "one row per current run", want.current, per.length);
+    const byRun = tally(failures, (r) => `${r.suite}|${r.run}`);
+    const bad = per.filter((r) => Number(r.failures) !== (byRun[`${r.suite}|${r.run}`] ?? 0) || Number(r.failures) !== Number(r.failed) + Number(r.error) + Number(r.softFailed));
+    check(bad.length === 0, "failures per run = test-execution's failures rows of that run (= failed + error + soft-failed)", 0, bad);
+    const bySuite = tally(failures, (r) => r.suite);
+    for (const [suite, n] of Object.entries(bySuite)) {
+      const got = per.filter((r) => r.suite === suite).reduce((m, r) => m + Number(r.failures), 0);
+      check(got === n, `${suite}: its runs' failures = its failures rows`, n, got);
+    }
+    check(per.every((r) => r.query === "ch-figures-per-run" && r.scope === "dryrun1.runs" && r.stamp.startsWith(`${r.run} · run.json sha256:`)), "each run row: query, scope and the run it comes from", "<run> · run.json sha256:…", per.map((r) => r.stamp));
+    await shot("r2-christof-figures");
+  });
+
+  await step("R", 3, "runs overview: one row per run with the robert1 version of its summary, the correction where robert1 answered another", async () => {
+    const f = await christof();
+    const shown = await rowsIn(f, "runs");
+    check(shown.length === runs.length, "one row per run", runs.length, shown.length);
+    for (const r of runs) {
+      const s = shown.find((x) => x.run === r.run);
+      check(!!s && s.version === (r.version ?? "") && /run\.json sha256:/.test(s.stamp), `${r.run}: version ${r.version}, stamped`, r.version, s);
+    }
+    const first = shown.find((x) => x.run === "capture-e2e-robert1-20261120-105114");
+    if (first) check(first.version === "5.0.0-39" && /5\.0\.1-6/.test(first.robert1Answered), "the first capture: summary 5.0.0-39, robert1 answered 5.0.1-6", "5.0.0-39 / 5.0.1-6", first);
+    await shot("r3-runs");
+  });
+
+  await step("R", 4, "failures by class per suite and run equal test-execution's failures; the G class is verification's proposal (dryrun1.classes), labelled, never invented", async () => {
+    const f = await christof();
+    const failures = await askR("failures");
+    const want = Object.entries(tally(failures, (r) => `${r.suite}|${r.run}|${r.failureClass ?? "unclassified"}`)).map(([k, n]) => `${k}|${n}`).sort();
+    const shown = await rowsIn(f, "byclass");
+    const got = shown.map((r) => `${r.suite}|${r.run}|${r.failureClass}|${r.tests}`).sort();
+    check(JSON.stringify(got) === JSON.stringify(want), "the same suites, runs, classes and counts", want, got);
+    const byClass = (await askR("failures-by-class")).reduce((n, r) => n + Number(r.tests), 0);
+    check(byClass === failures.length, "test-execution's failures-by-class sums to its failures", failures.length, byClass);
+    const mapped = shown.filter((r) => /^G\d/.test(r.gClass));
+    check(shown.every((r) => (/^G\d/.test(r.gClass) && /^(high|medium|low)$/.test(r.certainty) && r.gStatus === "proposed by verification; MH settles") || (r.gClass === "not mapped by verification" && !r.certainty)), "each G class: verification's, with certainty and 'proposed by verification; MH settles', or 'not mapped by verification'", "G… / not mapped", shown.map((r) => `${r.failureClass} → ${r.gClass} ${r.certainty}`));
+    if (seed.roles.mapping) check(mapped.length > 0 && mapped.every((r) => /dryrun1\.classes/.test(r.scope)), "with dryrun1.classes federated: mapped rows name both scopes", ">0", mapped.length);
+    await shot("r4-byclass");
+  });
+
+  await step("R", 5, "a failure's history and artifacts equal history-of-test and artifacts-of-test; artifacts show hash and name", async () => {
+    const f = await christof();
+    const failures = await askR("failures");
+    const shown = await rowsIn(f, "failures");
+    check(shown.length === failures.length, "failures = rows of failures", failures.length, shown.length);
+    // MH 20.11. (qm 51c22b74): the class is what is signed in the workbench, never "unclassified"; the harness changes
+    // once per run; the evidence itself per row (thumbnails, links) or "none"; five columns, no stamp column
+    check(shown.every((r) => r.wbClass === "not classified in the workbench yet" || /\S/.test(r.wbClass ?? "")) && !shown.some((r) => /unclassified/.test(r.wbClass ?? "")), "the class: the signed triage-classifies, else 'not classified in the workbench yet'", "never 'unclassified'", [...new Set(shown.map((r) => r.wbClass))]);
+    check(Object.keys(shown[0] ?? {}).join(",") === "test,result,wbClass,gClass,evidence", "five columns: test, result, class, G proposal, evidence", "test,result,wbClass,gClass,evidence", Object.keys(shown[0] ?? {}));
+    const groups = await box(f, "failures").locator("tr.grp").count();
+    const runsShown = new Set(failures.map((r) => r.run)).size;
+    check(groups === runsShown, "one header per run", runsShown, groups);
+    check(shown.every((r) => /\S/.test(r.evidence ?? "")), "every row says its evidence (or none)");
+    const overflow = await f.locator("body").evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    check(overflow <= 0, "the view does not scroll sideways", 0, overflow);
+    const pick = failures.find((r) => /ics1829\.spec\.ts#STP-002/.test(r.test)) ?? failures.find((r) => /e2e/.test(r.suite)) ?? failures[0];
+    const withArtifacts = (await askR("artifacts-of-test", [`test=${pick.test}`])).some((r) => r.sha256 && r.run === pick.run);
+    // a failure row by its run-unit claim (the row's data-target): the test is shown short and the run is its group's header
+    const failureRow = (claim) => box(f, "failures").locator(`tbody tr[data-row][data-target="${claim}"]`).first();
+    const evCell = failureRow(pick.claim).locator('td[data-col="evidence"]');
+    if (withArtifacts) check((await evCell.locator("button[data-art]").count()) > 0, "a failure with artifacts shows them (thumbnail or link, each opening the hash-checked artifact)", "> 0", await evCell.locator("button[data-art]").count());
+    await failureRow(pick.claim).locator('td[data-col="test"] > span').first().click();
+    await box(f, "history").locator("[data-area-table]").first().waitFor({ timeout: 120000 });
+    const hist = await askR("history-of-test", [`test=${pick.test}`]);
+    const h = await rowsIn(f, "history");
+    check(JSON.stringify(h.map((r) => `${r.run}|${r.result}`)) === JSON.stringify(hist.map((r) => `${r.run}|${r.result}`)), "history = history-of-test (run, result, oldest first)", hist.map((r) => `${r.run}|${r.result}`), h.map((r) => `${r.run}|${r.result}`));
+    const arts = await askR("artifacts-of-test", [`test=${pick.test}`]);
+    await waitDrawn(f, "artifacts");
+    const a = await rowsIn(f, "artifacts");
+    check(a.length === arts.length, "artifacts = rows of artifacts-of-test", arts.length, a.length);
+    const withHash = a.filter((r) => /^sha256:[0-9a-f]{12}…$/.test(r.sha256 ?? ""));
+    check(withHash.length === arts.filter((r) => r.sha256).length && withHash.every((r) => r.name && /open comes with the decision-view branch/.test(r.open)), "each artifact: its hash, its name, open comes with the decision-view branch", arts.filter((r) => r.sha256).length, withHash.length);
+    await shot("r5-history-artifacts");
+  });
+
+  /** The workbench's output channel as code-server logs it (the nudge lines are printed there). */
+  const outputLog = () => {
+    const files = [];
+    const walk = (d) => { for (const f of (existsSync(d) ? readdirSync(d, { withFileTypes: true }) : [])) f.isDirectory() ? walk(`${d}/${f.name}`) : /kton cockpit workbench\.log$/.test(f.name) && files.push(`${d}/${f.name}`); };
+    walk(`${WORK}/cs/data/logs`);
+    return files.map((f) => readFileSync(f, "utf8")).join("\n");
+  };
+  async function outputHas(re, timeout = 30000) {
+    const end = Date.now() + timeout;
+    for (;;) {
+      const m = outputLog().match(re);
+      if (m || Date.now() > end) return m?.[0] ?? "";
+      await page.waitForTimeout(1000);
+    }
+  }
+  /** Sign a stand-in answer of test-execution into dryrun1.runs with this run's throwaway key (never theirs). */
+  async function standinAnswer(template, about, fields) {
+    const r = await cockpit(["say", JSON.stringify({ template, subject: about, scope: "dryrun1.runs", as: "standin-test-execution", fields })], undefined, { repo: "repo-roles" });
+    if (r.code !== 0) throw new Error(`stand-in ${template} failed: ${(r.stderr || r.stdout).split("\n")[0]}`);
+    await warmIndex();
+    current.checks.push({ ok: true, message: `STAND-IN for test-execution: ${template} about ${about.slice(0, 19)}… signed by standin-test-execution (throwaway key of this run)` });
+  }
+  const sha = (iri) => `sha256:${iri.replace(/^https:\/\/kton\.dev\/o\//, "")}`;
+
+  await step("R", 6, "row acts: Request rerun (capture mode) on a failure row records test-execution's rerun-requested (dryrun1.runs, pinned) about that row into dryrun1.triage, prints the nudge; the request shows open, then with its (stand-in) rerun-compared answer", async () => {
+    const f = await christof();
+    const failures = await askR("failures");
+    const pick = failures.find((r) => /ics1829\.spec\.ts#STP-002/.test(r.test)) ?? failures.find((r) => /e2e/.test(r.suite)) ?? failures[0];
+    await rowsIn(f, "failures");
+    // the row by its run-unit claim (data-target): the test is shown short, the run is its group's header
+    const tr = box(f, "failures").locator(`tbody tr[data-row][data-target="${pick.claim}"]`).first();
+    // the row's acts are in its details (MH 20.11., qm 51c22b74: fewer, narrower columns)
+    await tr.locator("details.rowmore > summary").click();
+    check((await tr.locator("details.rowmore button[data-row-act]").count()) === 3, "each failure row: Request rerun, Request rerun (capture mode), Capture now", 3, await tr.locator("details.rowmore button[data-row-act]").allTextContents());
+    await tr.locator("details.rowmore button", { hasText: "Request rerun (capture mode)" }).click();
+    // the shell asks the template's open fields, in the template's order: the test (the row's, as the default) and
+    // the reason (capture mode); both are only defaults, never signed unseen
+    const asked = [];
+    for (let i = 0; i < 2; i++) {
+      const input = page.locator(".quick-input-box input").first();
+      await input.waitFor({ timeout: 20000 });
+      await page.waitForTimeout(300);
+      asked.push(await input.inputValue());
+      await page.keyboard.press("Enter");
+      await page.waitForTimeout(500);
+    }
+    check(asked.includes(pick.test), "the test is the row's (proposed, never signed unseen)", pick.test, asked);
+    check(asked.includes("capture mode"), "the reason is the choice's (capture mode)", "capture mode", asked);
+    const out = tr.locator("[data-row-out]");
+    await out.filter({ hasText: /Recorded|Not done/ }).first().waitFor({ timeout: 60000 }).catch(() => {});
+    const said = (await out.textContent()) ?? "";
+    check(/Recorded with the agent key/.test(said), "recorded (agent key, no dialog)", "Recorded with the agent key.", said);
+    const reqs = (await sparql(`SELECT ?r ?about ?reason WHERE { ?sc rdfs:label "dryrun1.triage" . ?r nk:scope ?sc ; nk:predicate <https://scinteco.com/ns/qm/dryrun1/runs/rerunRequested> ; nk:about ?about . OPTIONAL { ?r ?pr ?reason . FILTER(STRENDS(STR(?pr), "reason")) } }`, "repo-roles"));
+    check(reqs.length === 1 && reqs[0].about === pick.claim && reqs[0].reason === "capture mode", "one rerun-requested in dryrun1.triage, about the picked run-unit claim, reason capture mode", pick.claim, reqs);
+    const line = await outputHas(new RegExp(`nudge \\(send it; the shell sends no lane message\\): \\./send userinterface requests area=test-execution title="rerun: (?:[^"\\\\]|\\\\.)*" text="rerun request claim ${sha(reqs[0]?.r ?? "x")}; test (?:[^"\\\\]|\\\\.)*" why="Christof's view \\(dryrun1\\)"`));
+    check(!!line, "the exact ./send nudge line is in the output channel", "./send userinterface requests area=test-execution title=\"rerun: …\" …", line || outputLog().split("\n").filter((l) => /nudge/.test(l)).slice(-2));
+    // the request with its state: open, then test-execution's answer (a STAND-IN here). The requests block asked before
+    // the act (in another block of the same view): it asks again by itself after any act of the view (no reopen); the
+    // say invalidated the index, so one sidecar ask builds it first
+    await warmIndex();
+    await box(f, "rerunrequests").getByText(/open: test-execution is asked/).first().waitFor({ timeout: 120000 });
+    // dryrun1.runs v8 (test-execution, 21.11.): outcome ran | declined (v7 had compared); the view reads any outcome
+    // other than declined as compared
+    await standinAnswer("rerun-compared", reqs[0].r, { outcome: "ran", baseline: pick.run, rerun: "standin-rerun-e2e", tests: "1", same: "1", fixed: "0", broken: "0" });
+    await box(f, "rerunrequests").getByText(/compared: rerun standin-rerun-e2e · same 1 · fixed 0 · broken 0/).first().waitFor({ timeout: 120000 });
+    check(true, "the request shows test-execution's (stand-in) answer: compared, same 1");
+    const want = (await askR("rerun-requests")).filter((r) => r.request === reqs[0].r && r.answer);
+    check(want.length === 1, "test-execution's own rerun-requests query gives the same answer", 1, want.length);
+    await shot("r6-rerun-request");
+  });
+
+  await step("R", 11, "row acts: Capture now on a history row signs capture-requested (dryrun1.triage's control, pinned) through the dialog into dryrun1.triage, prints the nudge; the capture shows waiting, then the (stand-in) capture-result with outcome, robert1 version and artifacts", async () => {
+    let f = await christof();
+    // pick the failure again (a reopened view starts without a pick)
+    const fails = await askR("failures");
+    const pickF = fails.find((r) => /ics1829\.spec\.ts#STP-002/.test(r.test)) ?? fails[0];
+    await rowsIn(f, "failures");
+    await box(f, "failures").locator(`tbody tr[data-row][data-target="${pickF.claim}"]`).first().locator('td[data-col="test"] > span').first().click();
+    await box(f, "history").locator("[data-area-table]").first().waitFor({ timeout: 120000 });
+    const hist = await rowsIn(f, "history");
+    const arts = await askR("artifacts-of-test", [`test=${(await askR("failures")).find((r) => /ics1829\.spec\.ts#STP-002/.test(r.test))?.test ?? hist[0].test}`]);
+    const withArt = arts.find((a) => a.sha256) ?? arts[0];
+    const tr = box(f, "history").locator("tbody tr").first();
+    const test = hist[0].test;
+    await tr.locator("button", { hasText: "Capture now" }).click();
+    const testBox = page.locator(".quick-input-box input").first();
+    await testBox.waitFor({ timeout: 20000 });
+    check((await testBox.inputValue()) === test, "the test is the row's", test, await testBox.inputValue());
+    await page.keyboard.press("Enter");
+    const d = await dialog();
+    const text = (await d.locator("body").textContent()) ?? "";
+    check(/Capture now: test-execution runs this test on robert1/.test(text) && /dryrun1\.triage/.test(text), "the dialog shows the control's title and the records scope", "Capture now: … · dryrun1.triage", text.slice(0, 300));
+    await signInDialog(d);
+    // the dialog says when the say is done (it signs into a registry with federated sources: tens of seconds); the
+    // frame that asked may have been reloaded meanwhile, so the dialog's outcome is what is waited for
+    await d.locator('[data-testid="sign-outcome"][data-state="signed"]').waitFor({ timeout: 180000 });
+    const caps = await sparql(`SELECT ?r ?about WHERE { ?sc rdfs:label "dryrun1.triage" . ?r nk:scope ?sc ; nk:predicate <https://scinteco.com/ns/triage#captureRequested> ; nk:about ?about }`, "repo-roles");
+    check(caps.length === 1, "one capture-requested in dryrun1.triage, about the history row's claim", 1, caps);
+    const line = await outputHas(new RegExp(`\\./send userinterface requests area=test-execution title="capture now: (?:[^"\\\\]|\\\\.)*" text="request claim ${sha(caps[0]?.r ?? "x")}; test (?:[^"\\\\]|\\\\.)*" why="Christof's view \\(dryrun1\\)"`));
+    check(!!line, "the exact ./send nudge line for the capture is in the output channel", "./send … capture now …", line);
+    // the captures block asks again by itself after the act (no reopen); the say invalidated the index: warm it first.
+    // After the sign dialog the view may have been reloaded: find it again (the same view, not reopened)
+    await warmIndex();
+    f = await christof();
+    await box(f, "captures").getByText(/Waiting for its answer/).first().waitFor({ timeout: 120000 });
+    await standinAnswer("capture-result", caps[0].r, { test, outcome: "captured", run: withArt.run, result: "failed", artifacts: "1", seconds: "93" });
+    await box(f, "captures").getByText(new RegExp(`Captured in run ${withArt.run.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`)).first().waitFor({ timeout: 120000 });
+    const t = await boxText(f, "captures");
+    check(/Outcome captured/.test(t) || /captured/.test(t), "outcome shown", "captured", t.slice(0, 300));
+    check(/robert1 \d/.test(t), "the robert1 version of the run's summary", "robert1 <version>", t.slice(0, 400));
+    const openButtons = await box(f, "captures").locator("button").count();
+    check(withArt.sha256 ? openButtons > 0 : true, "the run's artifacts of that test, to open", ">0", openButtons);
+    // test-execution's own capture-results query gives the same outcome
+    const own = (await askR("capture-results")).filter((r) => r.request === caps[0].r);
+    check(own.length === 1 && own[0].outcome === "captured", "capture-results (test-execution's query) agrees", "captured", own);
+    await shot("r11-capture-now");
+  });
+
+  await step("R", 12, "Christof's classifications in dryrun1.triage: class, certainty, source; the one the guard rule source-stamped lists is marked blocked: no source date", async () => {
+    const f = await christof();
+    const rows = await rowsIn(f, "classifications");
+    const blocked = rows.filter((r) => r.state === "blocked: no source date");
+    const own = await askR("triage-source-stamped");
+    const short = (x) => (/^https:\/\/kton\.dev\/o\/[0-9a-f]{64}$/.test(x) ? `sha256:${x.slice(19, 31)}…` : x);
+    check(JSON.stringify(blocked.map((r) => r.element).sort()) === JSON.stringify(own.map((r) => short(r.focus)).sort()), "blocked = the rule's findings", own.map((r) => r.focus), blocked.map((r) => r.element));
+    check(blocked.length === 1 && /e6$/.test(blocked[0].element), "the stand-in e6 (neither date)", "…/e6", blocked);
+    const seen = rows.find((r) => /e7$/.test(r.element));
+    check(seen?.source === "seen since 2026-11-20" && seen.state === "ok", "sourceSeenSince alone is a source", "seen since 2026-11-20", seen);
+    check(rows.every((r) => r.class && r.certainty && /^dryrun1\.triage/.test(r.stamp)), "each: class, certainty, stamped");
+    await shot("r12-classifications");
+  });
+
+  await step("R", 8, "the guard: the four rules' findings (source-stamped since fa4908f) equal the triage package's own rule queries, read-only", async () => {
+    await closeEditors();
+    await views();
+    await page.locator(".monaco-list-row", { hasText: "Guard · dryrun1.triage" }).first().click();
+    const f = await guard();
+    const own = { 1: "triage-reviewer-not-author", 2: "triage-evidence-vs-reach", 3: "triage-ranked-before-assigned", 4: "triage-source-stamped" };
+    const counts = {};
+    for (const [i, q] of Object.entries(own)) {
+      const want = (await askR(q)).map((r) => r.focus).sort();
+      const got = (await rowsIn(f, `findings-${i}`)).map((r) => r.focus);
+      // the rows block shortens a claim's node IRI (sha256:<12>…): compare the same way
+      const short = (x) => (/^https:\/\/kton\.dev\/o\/[0-9a-f]{64}$/.test(x) ? `sha256:${x.slice(19, 31)}…` : x);
+      check(JSON.stringify(got.sort()) === JSON.stringify(want.map(short).sort()), `${q}: the same findings`, want.map(short), got);
+      counts[q] = got.length;
+    }
+    check(counts["triage-reviewer-not-author"] === 1 && counts["triage-evidence-vs-reach"] === 2 && counts["triage-ranked-before-assigned"] === 2 && counts["triage-source-stamped"] === 1, "the stand-in's cases: 1, 2, 2, 1", { a: 1, b: 2, c: 2, d: 1 }, counts);
+    const t = await boxText(f, "findings-2");
+    check(/· dryrun1\.triage, /.test(t), "each finding is stamped with its scope and date", "· dryrun1.triage, …", t.slice(0, 200));
+    const summary = await rowsIn(f, "records");
+    check(summary.length === 4 && summary.every((r) => /dryrun1\.triage · newest /.test(r.stamp)), "what each rule reads, stamped", 4, summary);
+    // Home: the new rule with its state (findings)
+    await views();
+    const home = (await page.locator(".monaco-list-row").allTextContents()).join("\n");
+    check(/Classification without a source date \(dryrun1\.triage\)\s*findings \(1\)/.test(home) || /Classification without a source date \(dryrun1\.triage\)[^\n]*1 finding/.test(home), "Home: rule source-stamped with its state", "… findings (1)", home.split("\n").filter((l) => /source date/.test(l)));
+    check((await f.locator("[data-act]").count()) === 0, "read-only: no act", 0, await f.locator("[data-act]").count());
+    await shot("r8-guard");
+    await closeEditors();
+  });
+
+  if (seed.roles.coverage) {
+    await step("R", 7, "test-side gaps by part (verification's dryrun1.coverage, federated): REST API pages by 200 from its count", async () => {
+      await views();
+      await page.locator(".monaco-list-row", { hasText: "Christof (test) · dryrun1" }).first().click({ timeout: 60000 });
+      let f = await christof();
+      await waitDrawn(f, "gapsbypart", 150000);
+      // the first asks over the federated coverage copy build its index; one that ran into the cockpit's 30 s query
+      // limit meanwhile shows an error: open the view once more, then it answers from the index
+      if (await box(f, "gapsbypart").locator("[data-area-error]").count()) {
+        current.checks.push({ ok: true, message: `first open: ${(await boxText(f, "gapsbypart")).slice(0, 120)}; opened again` });
+        await closeEditors();
+        await views();
+        await page.locator(".monaco-list-row", { hasText: "Christof (test) · dryrun1" }).first().click({ timeout: 60000 });
+        f = await christof();
+        await waitDrawn(f, "gapsbypart", 150000);
+      }
+      const parts = await rowsIn(f, "gapsbypart");
+      const rest = parts.find((r) => r.part === "REST API");
+      check(!!rest && /dryrun1\.coverage · /.test(rest.stamp), "REST API counted, stamped", "REST API …", rest);
+      await waitDrawn(f, "gaps", 150000);
+      const p1 = await rowsIn(f, "gaps");
+      check(p1.length === Math.min(200, Number(rest.total)), "page 1: 200 rows", Math.min(200, Number(rest.total)), p1.length);
+      check(p1.every((r) => /^(test runs it, no check|code exists, no test)$/.test(r.cause ?? "")), "each with its cause");
+      await box(f, "gaps").locator("[data-page-next]").click();
+      await box(f, "gaps").locator('[data-pager][data-page="2"]').waitFor({ timeout: 150000 });
+      const p2 = await rowsIn(f, "gaps");
+      check(p2.length > 0 && p2[0].element > p1[p1.length - 1].element, "page 2 starts after page 1's last element", p1[p1.length - 1].element, p2[0]?.element);
+      await shot("r7-test-gaps");
+      await closeEditors();
+    });
+
+    await step("R", 9, "Wolfgang's view: counts with query, scope and stamp (first vs any code match as two rows), per part × area, per spec paged, one spec's gaps, spec/code differs, spec decisions, open spec questions by owner (stand-in row) opening the spec at its commit", async () => {
+      await views();
+      await warmIndex();
+      await page.locator(".monaco-list-row", { hasText: "Wolfgang (spec) · dryrun1" }).first().click({ timeout: 60000 });
+      const wolfgang = () => frameWithSel('[data-composition="dryrun1.roles/wolfgang"]', 90000);
+      let f = await wolfgang();
+      await waitDrawn(f, "figures", 150000);
+      if (await box(f, "figures").locator("[data-area-error]").count()) {
+        current.checks.push({ ok: true, message: `first open: ${(await boxText(f, "figures")).slice(0, 120)}; opened again` });
+        await closeEditors(); await views();
+        await page.locator(".monaco-list-row", { hasText: "Wolfgang (spec) · dryrun1" }).first().click({ timeout: 60000 });
+        f = await wolfgang(); await waitDrawn(f, "figures", 150000);
+      }
+      const fig = await rowsIn(f, "figures");
+      check(fig.length === 4 && fig.every((r) => r.query && r.scope && r.stamp), "four counts, each with query, scope, stamp", 4, fig);
+      const first = fig.find((r) => /first code match/.test(r.rule)); const any = fig.find((r) => /any code match/.test(r.rule));
+      check(!!first && !!any && first.label === any.label && /static note/.test(any.rule) && any.value === "698" && /DRYRUN1-GAP-CLASSES\.md sha256:a03aa22a/.test(any.stamp), "spec/code differs: first code match counted here, any code match a stamped static note (698)", "two rows", [first, any]);
+      const differs = await rowsIn(f, "differs");
+      const sum = differs.reduce((n, r) => n + Number(r.elements), 0);
+      check(sum === Number(first.value) && differs.every((r) => r.rule === "first code match" && /^coverage view sha256:/.test(r.stamp)), "spec/code differs rows sum to the first-match count", first.value, sum);
+      const areas = await rowsIn(f, "perarea");
+      const specs = Number(fig.find((r) => r.label === "specs").value);
+      check(areas.reduce((n, r) => n + Number(r.specs), 0) === specs, "per part × area: specs sum to the spec count", specs, areas.reduce((n, r) => n + Number(r.specs), 0));
+      const p1 = await rowsIn(f, "perspec");
+      check(p1.length === Math.min(200, specs), "per spec, page 1: 200", Math.min(200, specs), p1.length);
+      await box(f, "perspec").locator("[data-page-next]").click();
+      await box(f, "perspec").locator('[data-pager][data-page="2"]').waitFor({ timeout: 150000 });
+      const p2 = await rowsIn(f, "perspec");
+      check(p2.length > 0 && p2[0].spec > p1[p1.length - 1].spec, "page 2 starts after page 1's last spec", p1[p1.length - 1].spec, p2[0]?.spec);
+      const pick = p2.find((r) => Number(r.gap) + Number(r.exercisedOnly) > 0 && Number(r.gap) + Number(r.exercisedOnly) < 50) ?? p2[0];
+      await box(f, "perspec").locator("tbody tr", { hasText: pick.title.slice(0, 50) }).first().click();
+      await box(f, "specgaps").locator("[data-area-table], [data-area-empty]").first().waitFor({ timeout: 150000 });
+      const file = await rowsIn(f, "specfile");
+      check(file.length === 1 && file[0].spec === pick.spec && /\.md$/.test(file[0].file) && /open comes with the decision-view branch/.test(file[0].open), "the picked spec: its path, hash and stamp; open comes with the decision-view branch", pick.spec, file[0]);
+      check(/^(improve-specs [0-9a-f]{40}|not known \(no evidence revision for this stamp\))$/.test(file[0].specCommit ?? ""), "the improve-specs commit it was read at (evidence revision of the stamp), or 'not known'", "improve-specs <commit>", file[0].specCommit);
+      const gaps = await rowsIn(f, "specgaps");
+      const runVersions = new Set((await askR("runs")).map((r) => r.version));
+      check(gaps.every((r) => { const m = r.version?.match(/^read at (.+) · robert1 now ([^ ]+) · (differs|same release|not comparable \(version of commit not known\))$/); return m && runVersions.has(m[2]) && (m[3] !== "differs" || !m[2].startsWith(m[1].split(" ")[0])); }), "each gap: read at <version> · robert1 now <a run's version> · differs / same release", "read at … · robert1 now … · …", gaps.slice(0, 3).map((r) => r.version));
+      check(gaps.length === Number(pick.gap) + Number(pick.exercisedOnly), "its gaps = gap + exercised-only of its coverage row", Number(pick.gap) + Number(pick.exercisedOnly), gaps.length);
+      const dec = await boxText(f, "decisions");
+      if (seed.roles.specReview) check(/ics2133#\*/.test(dec) && /open/.test(dec), "spec decisions: the stand-in's open row in dryrun1.spec-review", "ics2133#* open", dec.slice(0, 200));
+      else check(/No spec decisions for dryrun1 yet/.test(dec), "spec decisions: none yet in dryrun1.spec-review", "No spec decisions for dryrun1 yet.", dec.slice(0, 120));
+      // open spec questions: the latest spec-decision per element is open, grouped by owner, opening the spec at its commit
+      await box(f, "questions").locator("[data-evidence], [data-area-empty], [data-area-error]").first().waitFor({ timeout: 150000 });
+      const q = await boxText(f, "questions");
+      if (seed.roles.specReview) {
+        check(/product-development \(1\)/.test(q) && /STAND-IN \(e2e\): are Actor and IP Address meant to be hidden by default\?/.test(q) && /ics2133#\* \(the whole spec\)/.test(q), "one open question, under its owner, the whole spec named", "product-development (1) · ics2133#* (the whole spec): STAND-IN …", q.slice(0, 300));
+        check(/dryrun1\.spec-review · spec 49966c2/.test(q), "stamped with its scope and spec commit", "dryrun1.spec-review · spec 49966c2", q.slice(0, 300));
+        await box(f, "questions").locator("button[data-open]").first().click();
+        await box(f, "questions").locator("[data-open-out]").filter({ hasText: /Opened|Not opened|not available/ }).first().waitFor({ timeout: 30000 });
+        const opened = await boxText(f, "questions");
+        check(/Opened improve-specs:specifications\/vscode-extension\/Explorer\/ics2133 improve Audit Trail Webview\.md#L12 at 49966c23eceb \(read-only\)/.test(opened), "it opens the spec at specCommit:specPath#specLine, read-only (kton-src)", "Opened improve-specs:…ics2133…#L12 at 49966c23eceb (read-only)", opened.slice(-300));
+        current.checks.push({ ok: true, message: "STAND-IN for Wolfgang's spec-review clone: a throwaway copy of verification's dryrun1-triage c2f6ae3 with one open row signed by standin-wolfgang (throwaway key of this run)" });
+      } else check(/No open spec questions for dryrun1/.test(q), "no data: it says so", "No open spec questions for dryrun1.", q);
+      check((await f.locator("[data-act], [data-row-act]").count()) === 0, "read-only: no act", 0, await f.locator("[data-act], [data-row-act]").count());
+      await shot("r9-wolfgang");
+      await closeEditors();
+    });
+  }
+
+  await step("R", 10, "Gregor's view: a review item opens the reviewed commit's diff read-only from the persona lane's clone, its verdict's approved commit flagged stale when the approved files changed; product-side failures equal test-execution's failures whose class or cause names a product cause", async () => {
+    await views();
+    await warmIndex();
+    await page.locator(".monaco-list-row", { hasText: "Gregor (dev + review) · dryrun1" }).first().click({ timeout: 60000 });
+    const f = await frameWithSel('[data-composition="dryrun1.roles/gregor"]', 90000);
+    const t = await boxText(f, "queue");
+    check(/Review screen, first cut/.test(t) && /conditions field \(asked of the cockpit lane\)/.test(t), "the notice says what the first cut leaves out", "Review screen, first cut: … conditions field (asked of the cockpit lane) …", t.slice(0, 200));
+    // the review item names its commit; it opens the commit's diff read-only from the persona lane's clone (christof-ext-core)
+    await box(f, "reviews").locator("[data-evidence], [data-area-empty], [data-area-error]").first().waitFor({ timeout: 120000 });
+    const items = await boxText(f, "reviews");
+    const cc = seed.roles.christofCommit;
+    check(/Reviewed: approved \(1\)/.test(items) && items.includes(`Diff of christof-ext-core@${cc} (read-only)`) && /G2\.1 · https:\/\/scinteco\.com\/ns\/dryrun1\/element\/e8/.test(items), "the stand-in review item, reviewed (approved), naming its commit", `Reviewed: approved (1) · Diff of christof-ext-core@${cc}`, items.slice(0, 300));
+    // the verdict's approved commit, read out of its why, and whether it holds for the reviewed commit (persona finding a5f326ae)
+    const approval = ((await box(f, "reviews").locator("[data-approval]").first().textContent({ timeout: 30000 }).catch(() => "")) ?? "").trim();
+    const ac = seed.roles.approvedCommit;
+    check(approval.startsWith(`approves ${ac} (commit from text)`), "the approved commit, marked as read from text", `approves ${ac} (commit from text) · …`, approval);
+    if (process.env.CHRISTOF_CLONE_MOUNTED === "1") {
+      check(new RegExp(`STALE for ${cc}: approved files changed since: .*packages/improve-core/test/e2e/lib/scenario\\.ts`).test(approval) && (await box(f, "reviews").locator("[data-approval][data-stale]").count()) === 1, "stale: b2b4f50 changes files 453f574 approved, named", `STALE for ${cc}: … scenario.ts …`, approval);
+    }
+    await box(f, "reviews").locator("button[data-open]").first().click();
+    await box(f, "reviews").locator("[data-open-out]").filter({ hasText: /Opened|Not opened|not available/ }).first().waitFor({ timeout: 30000 });
+    const said = await boxText(f, "reviews");
+    if (process.env.CHRISTOF_CLONE_MOUNTED === "1" || existsSync(`${WORK}/mirrors/christof-ext-core/.git`) || existsSync(`${WORK}/mirrors/christof-ext-core/HEAD`)) {
+      check(new RegExp(`Opened the change of christof-ext-core ${cc} \\(read-only\\)`).test(said), "the commit's diff opened read-only (kton-src, git show)", `Opened the change of christof-ext-core ${cc} (read-only)`, said.slice(-200));
+      const tab = await page.locator(".tab", { hasText: `${cc}.diff` }).count();
+      check(tab > 0, "a read-only editor with the diff", `${cc}.diff`, tab);
+    } else check(/source not available on this host/.test(said), "without the clone mounted: says the source is not available", "source not available on this host", said.slice(-200));
+    const want = (await askR("failures")).filter((r) => /product\?|product defect/i.test(`${r.failureClass ?? ""} ${r.failureCause ?? ""}`)).map((r) => `${r.run}|${r.test}`).sort();
+    await waitDrawn(f, "productfailures");
+    const shown = await box(f, "productfailures").locator("[data-area-table]").count() ? await rowsIn(f, "productfailures") : [];
+    check(JSON.stringify(shown.map((r) => `${r.run}|${r.test}`).sort()) === JSON.stringify(want), "the same failures", want, shown.map((r) => `${r.run}|${r.test}`));
+    if (!want.length) check(/marked product-side/.test(await boxText(f, "productfailures")), "none: it says so");
+    check(shown.every((r) => r.query === "gr-product-failures" && r.scope === "dryrun1.runs" && r.stamp.startsWith(r.run)), "each with query, scope, run");
+    if (seed.roles.mapping) {
+      await waitDrawn(f, "staticevidence", 150000);
+      const ev = await rowsIn(f, "staticevidence");
+      const runVersions = new Set((await askR("runs")).map((r) => r.version));
+      check(ev.length === 200, "static evidence, page 1: 200 rows", 200, ev.length);
+      const resolved = ev.filter((r) => r.codeRepo);
+      check(ev.every((r) => { const m = r.version?.match(/^read at (.+) · robert1 now ([^ ]+) · (differs|same release|not comparable \(version of commit not known\))$/); return m && runVersions.has(m[2]); }), "each evidence row: read at … · robert1 now <a run's version> · …", "read at … · robert1 now …", ev.slice(0, 2).map((r) => r.version));
+      check(resolved.length > 0 && resolved.every((r) => /^read at (\d[\d.]*\d|version of commit not known) \([0-9a-f]{7}\) · /.test(r.version)), "a resolved match: the version and commit it was read at", "read at 5.0.0 (fa218aa) · …", resolved.slice(0, 2).map((r) => r.version));
+      check(ev.filter((r) => !r.codeRepo).every((r) => /^read at no commit/.test(r.version)), "an unresolved match says it has no commit");
+      check(/27 as a lane message \(b5676502\)/.test(await boxText(f, "candidates")), "the G3.2 candidates notice");
+    }
+    await shot("r10-gregor");
+    await closeEditors();
+  });
+}
+
+// ---- T: the training area, the first real QM area (qm-packages qm.training + qm.rules over the real qm scopes), in
+// its own registry, repo-training (seed.sh). Only with TRAINING_QP (run.sh); the counts are checked in the window
+// against the registry (the sidecar asks the same named queries).
+if (process.env.TRAINING === "1" && selected("T")) {
+  const askT = async (name, bind = []) => {
+    const r = await cockpit(["ask", "sparql", "--name", name, ...bind.flatMap((b) => ["--bind", b]), "--json"], undefined, { repo: "repo-training" });
+    if (r.code !== 0) throw new Error(`registry check ${name} failed: ${r.stderr.split("\n")[0]}`);
+    return JSON.parse(r.stdout).sparql.rows;
+  };
+  const today = new Date().toISOString().slice(0, 10);
+  const RULES = ["SOP02-R-SOP-TRAINING", "SOP02-R-TRAINER-L3", "SOP02-R-TRAINING-FIELDS", "SOP02-R-L1-SIGNOFF", "SOP02-R-L3-PEER", "SOP02-R-REG-REFRESH", "SOP02-R-INITIAL-AREAS", "SOP02-R-GOAL-OVERDUE"];
+  // the registry's answers (warms the index of 23 federated sources before the window asks)
+  const reg = {};
+  const tAreaFrame = () => frameWithSel('[data-composition^="@workbench/area:qm.training/"]', 90000);
+  const tRecordFrame = () => frameWithSel('[data-composition^="@workbench/area-record:qm.training/"]', 60000);
+  async function openTraining() {
+    await views();
+    await closeEditors();
+    await page.locator(".monaco-list-row", { hasText: "Training" }).filter({ hasText: "qm.training" }).first().click();
+    try {
+      return await tAreaFrame();
+    } catch (e) {
+      // what the window said instead (a toast), so the failure names it
+      const said = await page.locator(".notification-toast, .notifications-toasts").allTextContents().catch(() => []);
+      throw new Error(`${e.message}; the window said: ${JSON.stringify(said).slice(0, 600)}`);
+    }
+  }
+  const ruleState = async (f, id) => {
+    const li = f.locator(`[data-rule-state="${id}"]`).first();
+    await li.waitFor({ timeout: 90000 });
+    return { state: await li.getAttribute("data-state"), n: Number(await li.getAttribute("data-n")), text: ((await li.textContent()) ?? "").trim() };
+  };
+
+  await step("T", 1, "the registry answers the training area's queries with the expected counts (as of today)", async () => {
+    for (const n of ["training-records", "training-obligations", "documents", "training-raci"]) reg[n] = await askT(n);
+    for (const r of RULES) reg[r] = await askT(r.toLowerCase(), [`asOf=${today}`]);
+    check(reg["training-obligations"].length === 320, "training-obligations: 320 rows", 320, reg["training-obligations"].length);
+    check(reg["documents"].length === 48, "documents: 48 rows", 48, reg["documents"].length);
+    check(reg["training-raci"].length === 8, "training-raci: 8 rows", 8, reg["training-raci"].length);
+    check(reg["SOP02-R-SOP-TRAINING"].length === 40, "SOP02-R-SOP-TRAINING: 40 findings", 40, reg["SOP02-R-SOP-TRAINING"].length);
+    const others = RULES.slice(1).map((r) => [r, reg[r].length]).filter(([, n]) => n !== 0);
+    check(others.length === 0, "the other 7 rules: 0 findings", [], others);
+  });
+
+  await page.goto(URL.replace(/folder=[^&]*/, `folder=${encodeURIComponent(`${WORK}/repo-training`)}`));
+  await page.locator(".monaco-workbench").waitFor({ timeout: 90000 });
+
+  await step("T", 2, "the Training area appears under QM areas with its package", async () => {
+    await views();
+    await row("QM areas").waitFor({ timeout: 60000 });
+    await page.locator(".monaco-list-row", { hasText: "Training" }).filter({ hasText: "qm.training" }).first().waitFor();
+  });
+
+  await step("T", 3, "the list: the training records; the obligations of every person (320), with the persons", async () => {
+    const f = await openTraining();
+    const records = await countIn(f, "records");
+    check(records === reg["training-records"].length, "records: the list query's rows", reg["training-records"].length, records);
+    const ob = await countIn(f, "training");
+    check(ob === 320, "obligations: 320 rows", 320, ob);
+    const names = new Set(await box(f, "training").locator('td[data-col="traineeName"]').allTextContents());
+    names.delete("");
+    const want = new Set(reg["training-obligations"].map((r) => r.traineeName).filter(Boolean));
+    check(names.size === want.size && [...want].every((n) => names.has(n)), "every person with obligations is shown by name", want.size, names.size);
+    await shot("t-area");
+  });
+
+  await step("T", 4, "RACI (8 rows) and the area's documents from the register (its keys of the 48), the governing SOP-02", async () => {
+    const f = await openTraining();
+    const raci = await countIn(f, "raci");
+    check(raci === 8, "RACI: 8 rows", 8, raci);
+    const keys = ["SOP-02", "FOR-04", "FOR-05", "LIS-04", "LIS-09"].filter((k) => reg["documents"].some((d) => d.key === k));
+    const docs = await countIn(f, "documents");
+    check(docs === keys.length, "documents: the area's keys found in the register", keys.length, docs);
+    const t = await boxText(f, "documents");
+    check(keys.every((k) => t.includes(k)), "each of the area's documents is listed", keys, t.slice(0, 300));
+    await box(f, "governing").locator('[data-col="state"]').first().waitFor({ timeout: 30000 });
+    const g = await boxText(f, "governing");
+    const sop02 = reg["documents"].find((d) => d.key === "SOP-02");
+    check(!!sop02 && g.includes(sop02.state), "the governing SOP-02's state from the register", sop02?.state, g.slice(0, 200));
+    await shot("t-raci-documents");
+  });
+
+  await step("T", 5, "findings per rule (qm.rules, as of today): SOP02-R-SOP-TRAINING findings (40), the other 7 passed", async () => {
+    const f = await openTraining();
+    const states = {};
+    for (const r of RULES) states[r] = await ruleState(f, r);
+    check(states["SOP02-R-SOP-TRAINING"].state === "findings" && states["SOP02-R-SOP-TRAINING"].n === 40, "SOP02-R-SOP-TRAINING: findings (40)", "findings (40)", states["SOP02-R-SOP-TRAINING"].text);
+    const notPassed = RULES.slice(1).filter((r) => states[r].state !== "passed").map((r) => states[r].text);
+    check(notPassed.length === 0, "the other 7 rules: passed", [], notPassed);
+    // the window's rows equal the registry's (the rule's own as-of default is today: no date bound by the shell)
+    const shown = await f.locator('[data-rule-state="SOP02-R-SOP-TRAINING"]').locator("xpath=ancestor::*[@data-use][1]").locator("tbody tr").count();
+    check(shown === reg["SOP02-R-SOP-TRAINING"].length, "the 40 findings are listed", reg["SOP02-R-SOP-TRAINING"].length, shown);
+    check((await f.locator('[data-state="not-run"]').count()) === 0, "no rule is not run");
+    await f.locator('[data-rule-state="SOP02-R-SOP-TRAINING"]').first().scrollIntoViewIfNeeded();
+    await shot("t-findings");
+  });
+
+  await step("T", 6, "a record: list → record, its fields (long form), with its history and the area's actions", async () => {
+    const f = await openTraining();
+    await countIn(f, "records");
+    const first = reg["training-records"][0];
+    await box(f, "records").locator(`tr[data-target="${first.record}"]`).first().click();
+    const r = await tRecordFrame();
+    await box(r, "record").locator("[data-area-card]").first().waitFor({ timeout: 60000 });
+    const t = await boxText(r, "record");
+    check(t.includes("trainee") && t.includes(first.trainee) && t.includes(String(first.date ?? "").slice(0, 10)), "the record's fields: trainee and date", { trainee: first.trainee, date: first.date }, t.slice(0, 300));
+    for (const a of ["training-attended", "training-delivered", "training-read-confirmed", "training-effectiveness-checked"]) {
+      check((await box(r, "record").locator(`[data-testid="act-${a}"]`).count()) === 1, `action ${a} offered`);
+    }
+    const h = await countIn(r, "history");
+    check(h >= 1, "its history has the record's claim", ">= 1", h);
+    await shot("t-record");
+    await closeEditors();
+  });
+
+  await step("T", 7, "the valid date (effectiveDate) in documents and governing; a record's confirmations as its approvals", async () => {
+    const f = await openTraining();
+    await countIn(f, "documents");
+    const sop02 = reg["documents"].find((d) => d.key === "SOP-02");
+    check(!!sop02?.effectiveDate, "the register gives SOP-02 a valid date", "a date", sop02?.effectiveDate);
+    const dates = await box(f, "documents").locator('td[data-col="effectiveDate"]').allTextContents();
+    const want = reg["documents"].filter((d) => ["SOP-02", "FOR-04", "FOR-05", "LIS-04", "LIS-09"].includes(d.key) && d.effectiveDate).length;
+    check(dates.filter(Boolean).length === want && want > 0, "documents: each valid date the register has is shown", want, dates);
+    const g = box(f, "governing").locator('[data-col="effectiveDate"]').first();
+    await g.waitFor({ timeout: 30000 });
+    check(((await g.textContent()) ?? "").includes(sop02.effectiveDate.slice(0, 10)), "governing: SOP-02's valid date", sop02.effectiveDate, await g.textContent());
+    const rec = "https://scinteco.com/ns/qms#RT-gxp-CP2-refresh-day3-christof-winkler";
+    const ap = await askT("training-approvals", [`recordId=${rec}`]);
+    check(ap.length === 2, "the registry: the 2 seeded confirmations of the record", 2, ap.length);
+    await box(f, "records").locator(`tr[data-target="${rec}"]`).first().click();
+    const r = await tRecordFrame();
+    await box(r, "record").locator("[data-area-card]").first().waitFor({ timeout: 60000 });
+    const n = await countIn(r, "approvals");
+    check(n === 2, "the record's approvals: 2 rows", 2, n);
+    const t = await boxText(r, "approvals");
+    check(/attended/.test(t) && /read-confirmed/.test(t), "both confirmations, by their outcome", "attended, read-confirmed", t.slice(0, 300));
+    await shot("t-record-approvals");
+    await closeEditors();
+  });
+}
 
 await browser.close();
 const native = { file: "smoke-results.json", results };

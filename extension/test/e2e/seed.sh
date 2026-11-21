@@ -157,11 +157,217 @@ sayq deviation-approves "$D2" qa.deviations $PE '{"outcome":"rejected"}' >/dev/n
 sayq deviation-approves "$D3" qa.deviations $AG '{"outcome":"approved"}' >/dev/null
 sayq deviation-note "$D2" qa.deviations $AG '{"text":"Waiting for the cleaning supervisor."}' >/dev/null
 
+# T (optional; run.sh mounts TRAINING_QP read-only at /training-qp): the training area, the first real QM area, in a
+# registry of its own, repo-training. qm-packages' areas/training, areas/rules and areas/vocabulary are built here as
+# qm.training, qm.rules and qm.vocabulary (the imported scopes' templates) with ktonpkg v0.9.11's scope CLI, each
+# sealed with a throwaway key deleted afterwards. The real scopes
+# (scopes/*: schulungen, qualifications, roles, dokumente, …) are COPIED as read-only dir sources; they are signed with
+# qm-packages' development key, whose PUBLIC key alone is put in a trust tier "qm" (nothing is signed with it here).
+if [ -d /training-qp ]; then
+  T="$E2E/repo-training"; mkdir -p "$T" "$E2E/training-src" "$E2E/training-pkgs"
+  K=$(mktemp -d)
+  for p in rules:qm.rules training:qm.training vocabulary:qm.vocabulary; do
+    "$E2E/bin/scope-0911" verticle "$E2E/training-pkgs/${p#*:}" "${p#*:}" 1 --src "/training-qp/areas/${p%%:*}" --key "$K/${p#*:}.key" >/dev/null
+  done
+  rm -rf "$K"
+  for d in /training-qp/scopes/*/; do
+    [ -d "$d/nekton" ] || continue   # aenderungen holds no registry
+    n=$(basename "$d"); mkdir -p "$E2E/training-src/$n"; cp -R "$d" "$E2E/training-src/$n/.kton"
+  done
+  cd "$T"
+  git init -q
+  git config user.email qa@example.org
+  git config user.name qa
+  git commit -q --allow-empty -m "throwaway registry for the training area"
+  git remote add origin https://github.com/qa/workbench-e2e-training.git
+  cockpit init >/dev/null
+  cp -R "$E2E/repo/.kton/keys/." .kton/keys/
+  cp "$E2E/repo/.kton/local/identity.json" .kton/local/identity.json
+  rm -f .kton/keys/agent/qa-decider-claims.pub .kton/keys/agent/qa-decider.pub   # no look-alike here
+  mkdir -p .kton/keys/qm
+  for k in /training-qp/scopes/*/keys/*.pub; do cp "$k" .kton/keys/qm/; done
+  # the imported scopes' claims are read through qm.vocabulary (installed below): a template per imported predicate,
+  # with the qm-core aliases, so their fields are qmso:/org: terms (kton-cockpit #203: a claim of a template this
+  # repository does not hold keeps lab:<field>)
+  E2E="$E2E" node -e '
+const fs=require("fs");const p=".kton/cockpit.config.json";const c=JSON.parse(fs.readFileSync(p));
+c.repo={owner:"qa",name:"workbench-e2e-training"};c.persist=Object.assign(c.persist||{},{share:false});
+c.query={image:"oci://oxigraph/oxigraph@sha256:10677fb643f8c5a7bfb03dd8f7971c79a84b01e795c24201c8cfa12fd569f1c0"};
+c.trust=Object.assign(c.trust||{},{tiers:["self","agent","qm"]});
+const src=process.env.E2E+"/training-src";
+c.federation={sources:fs.readdirSync(src).sort().map((n)=>({name:n,kind:"dir",path:src+"/"+n}))};
+fs.writeFileSync(p,JSON.stringify(c,null,2));'
+  cockpit install "$E2E/vocab-package" --allow --json >/dev/null
+  for p in qm.vocabulary qm.rules qm.training; do cockpit install "$E2E/training-pkgs/$p" --allow --json >/dev/null; done
+  # two confirmations of one imported record (the real scopes hold none), through the package's templates, in a local
+  # scope labelled as the area's records scope: attended by the person key, read-confirmed by the agent key
+  id=$(cockpit scope seed qm.schulungen 2>&1 | sed -n 's/.*"qm.schulungen": "\(sha256:[0-9a-f]*\)".*/\1/p')
+  [ -n "$id" ] || { echo "seed of qm.schulungen failed" >&2; exit 1; }
+  node -e 'const fs=require("fs");const p=".kton/cockpit.config.json";const c=JSON.parse(fs.readFileSync(p));c.claims=c.claims||{};c.claims.scopes=Object.assign(c.claims.scopes||{},{"qm.schulungen":process.argv[1]});fs.writeFileSync(p,JSON.stringify(c,null,2));' "$id"
+  RT=https://scinteco.com/ns/qms#RT-gxp-CP2-refresh-day3-christof-winkler
+  sayq training-attended "$RT" qm.schulungen qa-decider '{"outcome":"attended","trainingDate":"2026-08-19"}' >/dev/null
+  sayq training-read-confirmed "$RT" qm.schulungen qa-decider-agent '{"document":"https://scinteco.com/ns/qms#SOP-02","revision":"7","trainingDate":"2026-08-19"}' >/dev/null
+fi
+
 cd "$E2E/repo"
+
+# The decision view (DM): a copy of verification's dryrun1 data registry (read only, /dm-data), with this run's test keys
+# added, the lanes vocabulary (a stand-in proposal for 2c50ddd6), and the view package dryrun1.triage.
+# seed_dm <dir> <run>: a copy of verification's dryrun1 data with the view built for <run> (dryrun1: its records scope
+# seeded; dryrun2: only the package, so the registry has dryrun1's data and no dryrun2.* scope). Prints the proposal id.
+seed_dm() {
+    mkdir -p "$E2E/$1" && cp -R /dm-data/. "$E2E/$1/" && cd "$E2E/$1"
+    rm -rf .kton/local && mkdir -p .kton/local && cp "$E2E/repo/.kton/local/identity.json" .kton/local/identity.json
+    mkdir -p .kton/keys/self .kton/keys/agent
+    cp "$E2E/repo/.kton/keys/self/"qa-*.pub .kton/keys/self/ 2>/dev/null || true
+    cp "$E2E/repo/.kton/keys/agent/qa-decider-agent"*.pub .kton/keys/agent/
+    rm -f .kton/keys/self/qa-lookalike*
+    node -e '
+const fs=require("fs");const p=".kton/cockpit.config.json";const c=JSON.parse(fs.readFileSync(p));
+c.trust=Object.assign(c.trust||{},{tiers:[...new Set([...(c.trust&&c.trust.tiers||[]),"self","agent"])]});
+c.query={image:"oci://oxigraph/oxigraph@sha256:10677fb643f8c5a7bfb03dd8f7971c79a84b01e795c24201c8cfa12fd569f1c0"};
+c.index={kind:"oxigraph",memory:"6g"};c.persist=Object.assign(c.persist||{},{share:false});fs.writeFileSync(p,JSON.stringify(c,null,2));'
+    git config user.email qa@example.org; git config user.name qa
+    cp "$VOCAB"/templates/*.json .kton/templates/
+    VOCAB="$VOCAB" node -e '
+const fs=require("fs");const p=".kton/cockpit.config.json";const c=JSON.parse(fs.readFileSync(p));c.claims=c.claims||{};
+const names=fs.readdirSync(process.env.VOCAB+"/templates").filter(f=>f.endsWith(".json")).map(f=>f.slice(0,-5));
+c.claims.allowedTemplates=[...new Set([...(c.claims.allowedTemplates||[]),...names])];fs.writeFileSync(p,JSON.stringify(c,null,2));'
+    cockpit install "$E2E/vocab-package" --allow --json >/dev/null
+    cockpit install "$E2E/pkgs/$2.triage" --allow --json >/dev/null
+    seedScope() {
+      id=$(cockpit scope seed "$1" 2>&1 | sed -n "s/.*\"$1\": \"\(sha256:[0-9a-f]*\)\".*/\1/p")
+      node -e 'const fs=require("fs");const p=".kton/cockpit.config.json";const c=JSON.parse(fs.readFileSync(p));c.claims.scopes[process.argv[1]]=process.argv[2];fs.writeFileSync(p,JSON.stringify(c,null,2));' "$1" "$id"
+      echo "$id"
+    }
+    LS=$(seedScope lanes)
+    # the view's records scope (its entry's scopes.records): the triage claims land here, never in verification's scope
+    [ "$2" = dryrun1 ] && seedScope dryrun1.triage >/dev/null
+    # test-execution's dryrun1.runs (a copy, /runs-data), federated read-only; its dev key's public halves in a tier
+    cockpit say proposes "$LS" area=qm title="Can the 5.0.0 mapping be the basis for G1 triage?" text="Stand-in for verification's 2c50ddd6 (dry run 1). Option b names 237 elements." why="e2e seed" \
+      options='[{"id":"a","label":"Take round 9"},{"id":"b","label":"Wolfgang reviews the 237"},{"id":"c","label":"Settle rules 6, 9, 10"}]' --scope lanes --as qa-requestor --json | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s).claimId))'
+    # federation after the seed's own says: a say with a federation source was slow before kton-cockpit #198 (main 99fe43e)
+    if [ -d /runs-data/.kton ]; then
+      [ -d "$E2E/runs-dm" ] || { mkdir -p "$E2E/runs-dm" && cp -R /runs-data/. "$E2E/runs-dm/"; }
+      mkdir -p .kton/keys/lane && cp /runs-data/.kton/keys/self/lane-test-execution-dryrun1-dev*.pub .kton/keys/lane/
+      node -e 'const fs=require("fs");const p=".kton/cockpit.config.json";const c=JSON.parse(fs.readFileSync(p));c.trust.tiers=[...new Set([...c.trust.tiers,"lane"])];fs.writeFileSync(p,JSON.stringify(c,null,2));'
+      cockpit federation add test-execution-runs "$E2E/runs-dm" >/dev/null 2>&1
+    fi
+    cd "$E2E/repo"
+}
+DM_PROPOSAL=""; DM2_PROPOSAL=""
+if [ -d /dm-data/.kton ]; then
+  DM_PROPOSAL=$(seed_dm repo-dm dryrun1 | tail -1)
+  # the same view built for dryrun2 (build.sh RUN=dryrun2), in its own registry copy (one package per name set)
+  DM2_PROPOSAL=$(seed_dm repo-dm2 dryrun2 | tail -1)
+fi
+
+# R (role views, dry run 1; userinterface imvprototypes workbench/dryrun1-role-views): only with ROLES_RUNS, ROLES_PKG
+# and ROLES_TRIAGE_PKG (run.sh mounts them read only). repo-roles is a COPY of test-execution's dryrun1.runs registry
+# (its claims and its dev key's public halves, as they are) with this run's test keys added, the triage package and
+# the role views' package installed, and a stand-in dryrun1.triage: the guard rules' good and bad cases (qm-packages
+# areas/dryrun1-triage testdata/scenario.py), signed with this run's throwaway keys. ROLES_COVERAGE and ROLES_MAPPING
+# (optional): snapshots of verification's registries (run.sh, taken once per run), federated read-only (below). An
+# Oxigraph index (the first ask after the seed builds it; then asks take about a second). repo-dm and repo-roles ask
+# the run's one daemon for 6g (index.memory; the default is 2g): every view built after a say stays in its store, which
+# grew to 3.7 GB in one run, and at 2g the daemon could no longer reopen it (it crashed under the window's asks, then
+# did not answer within the cockpit's 30 s at each restart: a restart every ~36 s, every ask timed out).
+ROLES=""
+if [ -d /roles-runs/.kton ] && [ -d /roles-pkg ] && [ -d /roles-triage-pkg ]; then
+  mkdir -p "$E2E/repo-roles" && cp -R /roles-runs/. "$E2E/repo-roles/" && cd "$E2E/repo-roles"
+  # cockpit v0.5.5 reads the alias file only at .kton/aliases.json
+  [ ! -f aliases.json ] || [ -f .kton/aliases.json ] || mv aliases.json .kton/aliases.json
+  rm -rf .kton/local && mkdir -p .kton/local && cp "$E2E/repo/.kton/local/identity.json" .kton/local/identity.json
+  mkdir -p .kton/keys/self .kton/keys/agent
+  cp "$E2E/repo/.kton/keys/self/"qa-decider*.pub .kton/keys/self/
+  cp "$E2E/repo/.kton/keys/agent/qa-decider-agent"*.pub .kton/keys/agent/
+  node -e '
+const fs=require("fs");const p=".kton/cockpit.config.json";const c=JSON.parse(fs.readFileSync(p));
+c.trust=Object.assign(c.trust||{},{tiers:[...new Set([...((c.trust||{}).tiers||[]),"self","agent"])]});
+c.query={image:"oci://oxigraph/oxigraph@sha256:10677fb643f8c5a7bfb03dd8f7971c79a84b01e795c24201c8cfa12fd569f1c0"};
+c.persist=Object.assign(c.persist||{},{share:false});c.index={kind:"oxigraph",memory:"6g"};fs.writeFileSync(p,JSON.stringify(c,null,2));'
+  git config user.email qa@example.org; git config user.name qa
+  cockpit install "$E2E/vocab-package" --allow --json >/dev/null
+  cp -R /roles-triage-pkg "$E2E/pkg-roles-triage" && cockpit install "$E2E/pkg-roles-triage" --allow --json >/dev/null
+  cp -R /roles-pkg "$E2E/pkg-roles" && cockpit install "$E2E/pkg-roles" --allow --json >/dev/null
+  TS=$(cockpit scope seed dryrun1.triage 2>&1 | sed -n 's/.*"dryrun1.triage": "\(sha256:[0-9a-f]*\)".*/\1/p')
+  [ -n "$TS" ] || { echo "seed of dryrun1.triage failed" >&2; exit 1; }
+  node -e 'const fs=require("fs");const p=".kton/cockpit.config.json";const c=JSON.parse(fs.readFileSync(p));c.claims.scopes["dryrun1.triage"]=process.argv[1];fs.writeFileSync(p,JSON.stringify(c,null,2));' "$TS"
+  E=https://scinteco.com/ns/dryrun1/element/; RD=https://scinteco.com/ns/dryrun1/round/; PP=https://scinteco.com/ns/agents#
+  SRC='"sourceProduct":"sha256:0000000000000000000000000000000000000000000000000000000000000001","sourceBuilt":"2026-11-16","certainty":"medium"'
+  T=dryrun1.triage; node_of() { echo "https://kton.dev/o/${1#sha256:}"; }
+  RANK='"class":"G5","position":"1","gxpImpact":"data-integrity","likelihood":"high","detectability":"low"'
+  E1=$(sayq triage-classifies ${E}e1 $T $AG "{$SRC,\"class\":\"G5\",\"evidence\":\"static\",\"reach\":\"customer\"}")
+  E2S=$(sayq triage-classifies ${E}e2 $T $AG "{$SRC,\"class\":\"G5\",\"evidence\":\"static\"}")
+  sayq triage-classifies ${E}e2 $T $AG "{$SRC,\"class\":\"G5\",\"evidence\":\"run\",\"examples\":\"S6 unit-12\"}" >/dev/null
+  E3=$(sayq triage-classifies ${E}e3 $T $AG "{$SRC,\"class\":\"G3\",\"evidence\":\"run\"}")
+  sayq triage-classifies ${E}e4 $T $AG "{$SRC,\"class\":\"G1.1\",\"evidence\":\"static\"}" >/dev/null
+  sayq triage-classifies ${E}e5 $T $AG "{$SRC,\"class\":\"G2\",\"evidence\":\"mapping\",\"reach\":\"customer\"}" >/dev/null
+  sayq triage-reviews "$(node_of "$E1")" $T $AG '{"outcome":"changes"}' >/dev/null
+  sayq triage-reviews "$(node_of "$E3")" $T $PE '{"outcome":"approved"}' >/dev/null
+  sayq triage-ranks ${RD}r1/G5 $T $PE "{\"round\":\"${RD}r1\",$RANK}" >/dev/null
+  sayq triage-assigns ${RD}r1/G5 $T $PE "{\"round\":\"${RD}r1\",\"assignedTo\":\"${PP}christof-winkler\",\"assignedRole\":\"test\",\"due\":\"2026-12-01\"}" >/dev/null
+  sayq triage-assigns ${RD}r2/G3 $T $PE "{\"round\":\"${RD}r2\",\"assignedTo\":\"${PP}gregor-metzenbauer\",\"assignedRole\":\"spec\"}" >/dev/null
+  sayq triage-assigns ${RD}r3/G5 $T $PE "{\"round\":\"${RD}r3\",\"assignedTo\":\"${PP}wolfgang-schwarzenbrunner\",\"assignedRole\":\"dev\"}" >/dev/null
+  sleep 2
+  sayq triage-ranks ${RD}r3/G5 $T $PE "{\"round\":\"${RD}r3\",$RANK}" >/dev/null
+  # fa4908f: sourceBuilt is optional beside sourceSeenSince; one classification with neither (guard rule source-stamped,
+  # "blocked: no source date" in Christof's view), one with only sourceSeenSince
+  NODATE='"sourceProduct":"sha256:0000000000000000000000000000000000000000000000000000000000000001","certainty":"medium"'
+  E6=$(sayq triage-classifies ${E}e6 $T $AG "{$NODATE,\"class\":\"G2.1\",\"evidence\":\"run\"}")
+  sayq triage-classifies ${E}e7 $T $AG "{$NODATE,\"sourceSeenSince\":\"2026-11-20\",\"class\":\"G2.4\",\"evidence\":\"run\"}" >/dev/null
+  # a review item naming the commit it reviews, in the persona lane's clone (mounted read-only as christof-ext-core)
+  CC="${CHRISTOF_COMMIT:-b2b4f50}"
+  E8=$(sayq triage-classifies ${E}e8 $T $AG "{$SRC,\"class\":\"G2.1\",\"evidence\":\"run\",\"examples\":\"fix in christof-ext-core@$CC (stand-in review item, e2e)\"}")
+  # its verdict names the approved commit only in its free text (persona finding a5f326ae: an approval of 453f574
+  # claimed to hold for b2b4f50); the review screen reads it out and checks it against the clone
+  AC="${APPROVED_COMMIT:-453f574}"
+  sayq triage-reviews "$(node_of "$E8")" $T $PE "{\"outcome\":\"approved\",\"why\":\"approved on $AC (group 1); holds for $CC (stand-in, e2e)\"}" >/dev/null
+  # STAND-IN for test-execution's answers (rerun-compared, capture-result): a throwaway key of this run, never theirs;
+  # the steps sign the answers with it into dryrun1.runs and say so
+  cockpit keygen standin-test-execution >/dev/null
+  ROLES_COV=false; ROLES_MAP=false; ROLES_SR=false
+  # STAND-IN for Wolfgang's spec-review clone (path not known yet): a throwaway COPY of verification's dryrun1-triage
+  # (scope dryrun1.spec-review, template spec-decision c2f6ae3) with one open row signed by a throwaway key of this run
+  if [ -d /roles-spec-review/.kton ]; then
+    SR="$E2E/standin-spec-review"; mkdir -p "$SR" && cp -R /roles-spec-review/. "$SR/" && cd "$SR"
+    rm -rf .kton/local && mkdir -p .kton/local && cp "$E2E/repo-roles/.kton/local/identity.json" .kton/local/identity.json
+    git config user.email qa@example.org; git config user.name qa
+    cockpit keygen standin-wolfgang >/dev/null
+    SPEC=ics2133; SPATH="specifications/vscode-extension/Explorer/ics2133 improve Audit Trail Webview.md"
+    cockpit say "$(node -e 'console.log(JSON.stringify({template:"spec-decision",subject:"https://scinteco.com/ns/improve/spec/ics2133",scope:"dryrun1.spec-review",as:"standin-wolfgang",fields:{spec:"ics2133",element:"ics2133#*",decision:"open",owner:"product-development",question:"STAND-IN (e2e): are Actor and IP Address meant to be hidden by default?",evidence:"stand-in",specCommit:"49966c23eceb754264ea6c36296a6ca2ff6214b8",specPath:process.argv[1],specLine:"12"}}))' "$SPATH")" >/dev/null
+    cd "$E2E/repo-roles"
+    cp "$SR/.kton/keys/self/"standin-wolfgang*.pub .kton/keys/self/
+    # verification's own key (the scope's seed) in tier lane, as for its other repos
+    mkdir -p .kton/keys/lane && for k in "$SR/.kton/keys/self/"*.pub; do case "$k" in *standin-wolfgang*) ;; *) cp "$k" .kton/keys/lane/;; esac; done
+    node -e 'const fs=require("fs");const p=".kton/cockpit.config.json";const c=JSON.parse(fs.readFileSync(p));c.trust.tiers=[...new Set([...c.trust.tiers,"lane"])];fs.writeFileSync(p,JSON.stringify(c,null,2));'
+    cockpit federation add standin-spec-review "$SR" >/dev/null
+    ROLES_SR=true
+  fi
+  # verification's dryrun1-coverage (~11.5k claims) and dryrun1-mapping (dryrun1.classes: the run-class map), as the
+  # run's snapshots: federated read-only from their paths under $WORK/snap (mounted :ro; federation only reads, the
+  # union and the index live under this run's home), after the says (cockpit main 99fe43e or later: #198 fixed the
+  # federation add of a large source). Nothing changes them during the run, so the index moves only with our own says
+  for pair in "verification-coverage=${ROLES_COVERAGE:-}" "verification-mapping=${ROLES_MAPPING:-}"; do
+    n=${pair%%=*}; src=${pair#*=}
+    [ -n "$src" ] && [ -d "$src/.kton" ] || continue
+    mkdir -p .kton/keys/lane && cp "$src/.kton/keys/self/"*.pub .kton/keys/lane/
+    node -e 'const fs=require("fs");const p=".kton/cockpit.config.json";const c=JSON.parse(fs.readFileSync(p));c.trust.tiers=[...new Set([...c.trust.tiers,"lane"])];fs.writeFileSync(p,JSON.stringify(c,null,2));'
+    cockpit federation add "$n" "$src" >/dev/null
+    case "$n" in verification-coverage) ROLES_COV=true;; verification-mapping) ROLES_MAP=true;; esac
+  done
+  # warm the index once (the first ask after the seed builds the view with the federated sources, ADR-018 scope graphs:
+  # ~40 s alone on ai1); the window's first asks then answer from it instead of running into their timeout together
+  for q in ch-figures ch-test-gaps-by-part wf-figures gr-review-items; do cockpit ask sparql --name "$q" --results-json --timeout 120 >/dev/null 2>&1 || true; done
+  ROLES="{\"e1\": \"$E1\", \"e2static\": \"$E2S\", \"e6\": \"$E6\", \"e8\": \"$E8\", \"christofCommit\": \"$CC\", \"approvedCommit\": \"$AC\", \"coverage\": $ROLES_COV, \"mapping\": $ROLES_MAP, \"specReview\": $ROLES_SR}"
+  cd "$E2E/repo"
+fi
 
 cat > "$E2E/seed.json" <<EOF
 {"scope": "$SEED", "requests": ["$R1", "$R2"], "announce": "$ANN", "proposals": {"P1": "$P1", "P2": "$P2", "P3": "$P3", "P4": "$P4"},
  "personKeyId": "$PKID", "agentKeyId": "$AKID", "lookalikeKeyId": "$LKID",
+ "dm": {"proposal": "$DM_PROPOSAL", "proposal2": "$DM2_PROPOSAL"},
+ "roles": ${ROLES:-null},
  "s6": {"deviations": {"D-001": "$D1", "D-002": "$D2", "D-003-v1": "$D3A", "D-003": "$D3", "D-004": "$D4"}}}
 EOF
 echo "seeded: scope $SEED"

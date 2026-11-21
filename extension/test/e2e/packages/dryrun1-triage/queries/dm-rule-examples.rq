@@ -1,0 +1,24 @@
+# Examples of a rule case ($ruleCase, the number; the rule-case card's pick): unsettled elements whose judges split on
+# that rule (worklist items naming it), the first eight by element. Run: "dryrun1.mapping". ?element: the evidence pick.
+# The judges as in dm-spotchecks (?judge1Verdict ?judge1Why, …); unbound where the item does not say.
+# ?stampLabel ?stampFull ?stampScope: where the numbers come from (MH 20.11.): verification's covx:sourceStamp claim for
+# the data set (the number's template) and stamp, e.g. "mapping round 9 · b610b5c6" with the full view hash; the scope
+# names it when no round stamps it.
+PREFIX nk: <https://kton.dev/v/>
+PREFIX lab: <https://kton.dev/v/lab/>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX covx: <https://w3id.org/improve/coverage-extra#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT ?item ?element ?gxp ?title ?where ?statement ?judge1Who ?judge1Verdict ?judge1Why ?judge2Who ?judge2Verdict ?judge2Why ?stamp ?stampLabel ?stampFull ?stampScope WHERE {
+  ?sc rdfs:label "dryrun1.mapping" .
+  ?item nk:scope ?sc ; nk:predicate covx:worklistItem ; lab:element ?element ; lab:ruleCase ?rc ; lab:gxp ?gxp ; lab:stamp ?stamp .
+  FILTER(CONTAINS(CONCAT(",", REPLACE(STR(?rc), " ", ""), ","), CONCAT(",", STR($ruleCase), ",")))
+  OPTIONAL { ?item lab:statement ?statement } OPTIONAL { ?item lab:area ?where }
+  OPTIONAL { ?item lab:judge1 ?judge1Verdict } OPTIONAL { ?item lab:judge1Why ?judge1Why } OPTIONAL { ?item lab:judge1Source ?judge1Who }
+  OPTIONAL { ?item lab:judge2 ?judge2Verdict } OPTIONAL { ?item lab:judge2Why ?judge2Why } OPTIONAL { ?item lab:judge2Source ?judge2Who }
+  BIND(CONCAT(?gxp, " · ", STR(?element)) AS ?title)
+  OPTIONAL { ?item nk:template ?tmpl . ?ss nk:scope ?sc ; nk:predicate covx:sourceStamp ; lab:dataSet ?ds ; lab:stamp ?ssStamp ; lab:label ?stampLabel .
+    FILTER(STR(?ds) = STR(?tmpl) && STR(?ssStamp) = STR(?stamp)) FILTER NOT EXISTS { ?ss nk:replacedBy ?ssNew } OPTIONAL { ?ss lab:viewSha256 ?stampFull } }
+  BIND("dryrun1.mapping" AS ?stampScope)
+}
+ORDER BY ?element LIMIT 8

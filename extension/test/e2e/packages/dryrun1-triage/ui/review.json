@@ -1,0 +1,1 @@
+{"slot": "review-view", "label": "Decision view: mapping (dryrun1)", "when": {"kind": "claim"}, "composition": "decision", "order": 5, "scopes": {"records": "dryrun1.triage"}}

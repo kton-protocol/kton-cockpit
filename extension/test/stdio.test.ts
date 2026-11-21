@@ -228,7 +228,7 @@ test("stdio: the command line's local checks run before any request; COCKPIT_REP
   process.env["COCKPIT_REPO_DIR"] = "/somewhere/else";
   try {
     const bad = await t.say({ template: "note", subject: "./a/path", fields: { text: "x" }, as: "qa-decider" });
-    assert.deepEqual(bad, { ok: false, refusal: { code: "argument", reason: "say takes a sha256 id as its subject, never a path" } });
+    assert.deepEqual(bad, { ok: false, refusal: { code: "argument", reason: "say takes a sha256 id or an http(s) IRI as its subject, never a path" } });
     const lineage = await t.ask({ query: "lineage", ref: "../x" });
     assert.equal(lineage.ok, false);
     assert.equal(sent().length, 0, "nothing was sent: no process started");

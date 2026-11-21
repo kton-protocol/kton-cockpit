@@ -1,0 +1,9 @@
+{
+  "title": "Review a work claim",
+  "kind": "decision",
+  "meaning": "reviewed",
+  "about": "subject.iri",
+  "say": {
+    "template": "triage-reviews"
+  }
+}

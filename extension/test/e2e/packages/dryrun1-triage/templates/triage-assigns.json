@@ -1,0 +1,31 @@
+{
+  "name": "triage-assigns",
+  "target": "either",
+  "predicate": "https://scinteco.com/ns/triage#assigns",
+  "replace": "previous",
+  "fields": {
+    "round": {
+      "type": "iri",
+      "required": true
+    },
+    "assignedTo": {
+      "type": "iri",
+      "required": true
+    },
+    "assignedRole": {
+      "type": "enum",
+      "values": [
+        "spec",
+        "dev",
+        "test"
+      ],
+      "required": true
+    },
+    "due": {
+      "type": "date"
+    },
+    "why": {
+      "type": "string"
+    }
+  }
+}

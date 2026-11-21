@@ -1,1 +1,20 @@
-{"viewer": "notice", "module": "notice.js", "requires": [], "optional": [], "accepts": {"text": "literal"}, "emits": {}}
+{
+ "viewer": "notice",
+ "module": "notice.js",
+ "requires": [],
+ "optional": [],
+ "accepts": {
+  "text": "literal",
+  "stamp": "literal",
+  "tone": "literal",
+  "eyebrow": "literal",
+  "lede": "literal",
+  "how": "literal",
+  "chips": {
+   "set": "literal"
+  },
+  "after": "literal",
+  "nav": "literal"
+ },
+ "emits": {}
+}

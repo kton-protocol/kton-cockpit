@@ -1,0 +1,36 @@
+{
+  "schema": "https://kton.dev/aliases/v0",
+  "note": "dryrun1.triage: field names of the triage claims -> terms in https://scinteco.com/ns/triage#. Resolves this package's templates only.",
+  "prefixes": {
+    "triage": "https://scinteco.com/ns/triage#"
+  },
+  "terms": {
+    "class": "triage:class",
+    "evidence": "triage:evidence",
+    "certainty": "triage:certainty",
+    "examples": "triage:examples",
+    "sourceProduct": "triage:sourceProduct",
+    "sourceBuilt": "triage:sourceBuilt",
+    "round": "triage:round",
+    "reach": "triage:reach",
+    "position": "triage:position",
+    "gxpImpact": "triage:gxpImpact",
+    "likelihood": "triage:likelihood",
+    "detectability": "triage:detectability",
+    "assignedTo": "triage:assignedTo",
+    "assignedRole": "triage:assignedRole",
+    "due": "triage:due",
+    "outcome": "triage:outcome",
+    "why": "triage:why",
+    "verdict": "triage:verdict",
+    "proposal": "triage:proposal",
+    "note": "triage:note",
+    "answer": "triage:answer",
+    "text": "triage:text",
+    "choice": "triage:choice",
+    "lookedAt": "triage:lookedAt",
+    "sourceSeenSince": "triage:sourceSeenSince",
+    "test": "triage:test",
+    "reason": "triage:reason"
+  }
+}

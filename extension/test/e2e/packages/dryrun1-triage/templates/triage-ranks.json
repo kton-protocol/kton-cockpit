@@ -1,0 +1,52 @@
+{
+  "name": "triage-ranks",
+  "target": "either",
+  "predicate": "https://scinteco.com/ns/triage#ranks",
+  "replace": "previous",
+  "fields": {
+    "round": {
+      "type": "iri",
+      "required": true
+    },
+    "class": {
+      "type": "string",
+      "required": true
+    },
+    "position": {
+      "type": "integer",
+      "required": true
+    },
+    "gxpImpact": {
+      "type": "enum",
+      "values": [
+        "audit-trail",
+        "e-signature",
+        "access-control",
+        "data-integrity",
+        "none"
+      ],
+      "required": true
+    },
+    "likelihood": {
+      "type": "enum",
+      "values": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "required": true
+    },
+    "detectability": {
+      "type": "enum",
+      "values": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "required": true
+    },
+    "why": {
+      "type": "string"
+    }
+  }
+}

@@ -1,0 +1,35 @@
+# Run artifacts for one element ($element): for each test the element's round-9 pairs name, every recorded run of it
+# (test-execution's dryrun1.runs, federated read-only) and each artifact, or one row saying why there is none.
+# Shape and join from test-execution's artifacts-of-test (they join artifacts to runs by claim: tr:unitClaim; the
+# pair → run-unit join is on the test id string, over the few tests of one element). In the evidence block's shape:
+# ?kind "artifact", ?label, the bytes as ?run ?name ?sha256 ?mediaType ?bytes (opened from the artifacts root, checked
+# against ?sha256), or ?note. Run: pairs in "dryrun1.mapping", runs in "dryrun1.runs". Fields are read under tr: and
+# lab: (a registry whose aliases the cockpit does not apply gives lab:).
+# ?testName ?outcome ?artifact (its kind) ?passingWhy (run-capture's passingArtifacts): the runs table's columns; ?stampScope: the
+# runs' own source (no mapping round stamps them).
+PREFIX nk:   <https://kton.dev/v/>
+PREFIX lab:  <https://kton.dev/v/lab/>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX covx: <https://w3id.org/improve/coverage-extra#>
+PREFIX tr:   <https://scinteco.com/ns/qm/dryrun1/runs/>
+SELECT DISTINCT ?kind ?label ?note ?run ?name ?sha256 ?mediaType ?bytes ?stamp ?stampScope (STR(?test) AS ?testName) (STR(?result) AS ?outcome) (STR(?akind) AS ?artifact) (STR(?pa) AS ?passingWhy) (STR(?pe) AS ?for) WHERE {
+  ?sc rdfs:label "dryrun1.mapping" .
+  ?p nk:scope ?sc ; nk:predicate covx:evidencePair ; lab:element ?pe ; lab:test ?test . FILTER(STR(?pe) = STR($element))
+  ?sr rdfs:label "dryrun1.runs" .
+  ?unitClaim nk:scope ?sr ; nk:predicate tr:runUnit ; nk:about ?foton ; (tr:run|lab:run) ?run ; (tr:test|lab:test) ?ut ; (tr:result|lab:result) ?result .
+  FILTER(STR(?ut) = STR(?test))
+  FILTER NOT EXISTS { ?unitClaim nk:replacedBy ?newer }
+  OPTIONAL {
+    ?a (tr:unitClaim|lab:unitClaim) ?unitClaim ; nk:predicate tr:runArtifact ; (tr:kind|lab:kind) ?akind ; (tr:sha256|lab:sha256) ?sh ; (tr:name|lab:name) ?name .
+    FILTER NOT EXISTS { ?a nk:replacedBy ?newer2 }
+    OPTIONAL { ?a (tr:mediaType|lab:mediaType) ?mediaType } OPTIONAL { ?a (tr:bytes|lab:bytes) ?bytes }
+  }
+  OPTIONAL { ?cap nk:predicate tr:runCapture ; nk:about ?foton ; (tr:passingArtifacts|lab:passingArtifacts) ?pa }
+  BIND("artifact" AS ?kind)
+  BIND(IF(BOUND(?sh), CONCAT("sha256:", STRAFTER(STR(?sh), "https://kton.dev/o/")), ?unbound) AS ?sha256)
+  BIND(IF(BOUND(?sh), CONCAT("Open ", STR(?akind), ": run ", STR(?run), " (", STR(?result), ")"), CONCAT("Run ", STR(?run), " (", STR(?result), "): ", STR(?test))) AS ?label)
+  BIND(IF(BOUND(?sh), STR(?test), IF(STR(?result) = "passed", CONCAT("No artifact for passing runs: ", COALESCE(STR(?pa), "no artifact")), CONCAT("no artifact for this ", STR(?result), " result"))) AS ?note)
+  BIND(CONCAT("dryrun1.runs · ", STR(?run)) AS ?stamp) BIND("dryrun1.runs" AS ?stampScope)
+}
+ORDER BY ?test ?run ?name
+LIMIT 200

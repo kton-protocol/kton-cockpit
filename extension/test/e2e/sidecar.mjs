@@ -12,13 +12,21 @@ const RPC = join(WORK, "rpc");
 const env = { ...process.env, HOME: join(WORK, "home"), TMPDIR: join(WORK, "tmp") };
 let stop = false;
 
-// the registry to run in: the lanes one (repo), or the S6 one (repo-s6: the QM areas' packages bring field
-// aliases that would rename the lanes vocabulary's fields, since the view reads one alias file per registry)
+// the registry to run in: the lanes one (repo), the S6 one (repo-s6: the QM areas' packages bring field
+// aliases that would rename the lanes vocabulary's fields, since the view reads one alias file per registry), or
+// the role views' one (repo-roles: a copy of test-execution's dryrun1.runs with a stand-in dryrun1.triage and a
+// copy of verification's dryrun1-coverage federated), or the training area's (repo-training, flow T: the real qm
+// scopes as dir sources)
 function run({ argv, stdin, repo }) {
-  const dir = repo === "repo-s6" ? "repo-s6" : "repo";
+  const dir = ["repo-s6", "repo-dm", "repo-dm2", "repo-roles", "repo-training"].includes(repo) ? repo : "repo";
+  // repo-dm federates test-execution's runs: the first ask after a say rebuilds the view with the federation, which
+  // took over 2 minutes on ai1 (the old 120 s timeout killed it: exit 1, empty stderr). The other registries' first ask
+  // after a say waits for one cold build too (repo-roles: 12–40 s, longer while the window asks at the same time), so
+  // the sidecar's own asks get 300 s; the window's timeouts stay as they are
+  const timeout = dir.startsWith("repo-dm") ? 600_000 : 300_000;
   return new Promise((resolve) => {
-    const child = execFile("cockpit", argv, { cwd: join(WORK, dir), env, shell: false, timeout: 120_000, maxBuffer: 32 * 1024 * 1024 }, (err, stdout, stderr) => {
-      resolve({ code: err ? (typeof err.code === "number" ? err.code : 1) : 0, stdout: String(stdout), stderr: String(stderr) });
+    const child = execFile("cockpit", argv, { cwd: join(WORK, dir), env, shell: false, timeout, maxBuffer: 32 * 1024 * 1024 }, (err, stdout, stderr) => {
+      resolve({ code: err ? (typeof err.code === "number" ? err.code : 1) : 0, stdout: String(stdout), stderr: err && err.killed ? `killed after ${timeout / 1000} s (${err.signal})` : String(stderr) });
     });
     if (stdin !== undefined) child.stdin.end(stdin);
   });

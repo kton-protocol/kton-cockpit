@@ -1,0 +1,12 @@
+{
+  "name": "triage-question",
+  "target": "either",
+  "predicate": "https://scinteco.com/ns/triage#asks",
+  "replace": "previous",
+  "fields": {
+    "text": {
+      "type": "string",
+      "required": true
+    }
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "title": "Rank a class (risk)",
+  "kind": "decision",
+  "meaning": "approved",
+  "about": "subject.iri",
+  "say": {
+    "template": "triage-ranks"
+  }
+}

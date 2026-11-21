@@ -1,0 +1,24 @@
+{
+  "name": "triage-spotcheck",
+  "target": "either",
+  "predicate": "https://scinteco.com/ns/triage#spotchecks",
+  "replace": "previous",
+  "fields": {
+    "verdict": {
+      "type": "enum",
+      "values": [
+        "rule-judge-right",
+        "second-model-right",
+        "spec-unclear"
+      ],
+      "required": true
+    },
+    "proposal": {
+      "type": "iri",
+      "required": true
+    },
+    "note": {
+      "type": "string"
+    }
+  }
+}

@@ -13,7 +13,7 @@ export interface TreeNode {
   readonly disabled?: boolean;
 }
 
-export type StatusId = "identity" | "mode" | "poll" | "surface" | "slots";
+export type StatusId = "identity" | "mode" | "poll" | "decisions" | "surface" | "slots";
 export type ViewId = "home" | "inbox" | "lanes";
 
 import type { LeafViewer, LoadedViewer } from "../packages/model.js";
@@ -37,12 +37,21 @@ export interface UiHost {
   showPanel(key: string, title: string, html: string, onMessage?: (msg: unknown) => void, reveal?: boolean): void;
   /** The keys of the panels shown with showPanel that are still open. */
   openPanels(): string[];
+  /** Open a file as it was at a commit, read-only (kton-src), at its line; says what was opened or why not. */
+  openSource?(t: import("./sources.js").SourceTarget): Promise<string>;
+  /** Whether an approval on one commit holds at another (read-only git over the mirrors, kton.sources.dir). */
+  approvalStaleness?(repo: string, approved: string, head: string, paths: readonly string[]): Promise<import("./sources.js").Staleness>;
+  /** A run artifact's bytes as a data URL for a thumbnail, only after its sha256 checks (undefined: not shown). */
+  artifactThumb?(t: import("./artifacts.js").ArtifactTarget): Promise<string | undefined>;
+  /** A run artifact, read-only, checked against its sha256: "Opened …" / "Shown …" when shown, else why not. */
+  openArtifact?(t: import("./artifacts.js").ArtifactTarget): Promise<string>;
   /**
    * The sign dialog for a person-key signature (C1.4, O1): resolves true only after the person ticked
    * "I know I sign this now as <person>" and pressed Sign with a deliberate act. Enter, Escape and
    * closing the dialog never sign.
    */
-  signDialog(title: string, detail: string, person: string): Promise<boolean>;
+  /** `view`: the plan and the shown signer, for the structured dialog (DESIGN.md §6); the detail is the same plan as text. */
+  signDialog(title: string, detail: string, person: string, view?: { readonly plan: import("../sign.js").SignPlan; readonly signer: import("../identity.js").ShownSigner }): Promise<boolean>;
   /**
    * What became of the signature the last sign dialog asked for, shown in that dialog (S7.3: a timeout
    * shows as failed there, and the registry decides whether a claim exists).

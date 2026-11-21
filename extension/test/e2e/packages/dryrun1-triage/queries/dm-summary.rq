@@ -1,0 +1,29 @@
+# What was looked at for this decision ($proposal): spot-check verdicts (naming the proposal), rule cases settled,
+# questions asked about it (each logged as a UI requirement); ?total where the count has one (the 3 rule cases); per row the claim ids (?lookedAt, space-separated). No sub-select reads $proposal: the
+# cockpit binds it in the WHERE clause's outermost group, which a sub-select does not see.
+# Run: the claims in "dryrun1.triage"; no rows at all when the registry has no scope "dryrun1.triage" (never another run's).
+# Terms under triage: (this package's aliases) and lab: (a cockpit that does not apply them).
+PREFIX nk: <https://kton.dev/v/>
+PREFIX triage: <https://scinteco.com/ns/triage#>
+PREFIX lab: <https://kton.dev/v/lab/>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+SELECT ?label (COUNT(DISTINCT ?x) AS ?value) (SAMPLE(?of) AS ?total) (GROUP_CONCAT(DISTINCT STR(?x); separator=" ") AS ?lookedAt) (SAMPLE(?s) AS ?stamp) WHERE {
+  VALUES (?o ?label ?pred ?of) {
+    (1 "spot checks judged" triage:spotchecks UNDEF)
+    (2 "rule cases settled" triage:ruleCase 3)
+    (3 "questions asked" triage:asks UNDEF)
+  }
+  FILTER EXISTS { ?run rdfs:label "dryrun1.triage" }
+  # a second guard (kton-review on ktonpkg v0.9.11 #199): an unbound optional $proposal is a free variable, and the
+  # filter below would then count every proposal's claims; with no proposal there is no row
+  FILTER(BOUND($proposal))
+  BIND("this dry run (dryrun1.triage)" AS ?s)
+  OPTIONAL {
+    ?x nk:predicate ?pred ; nk:scope ?ts . ?ts rdfs:label "dryrun1.triage" .
+    OPTIONAL { ?x triage:proposal|lab:proposal ?pp } OPTIONAL { ?x nk:about ?ab }
+    FILTER NOT EXISTS { ?x nk:replacedBy ?n }
+    FILTER(?pred = triage:ruleCase || STR(?pp) = STR($proposal) || STR(?ab) = STR($proposal))
+  }
+}
+GROUP BY ?o ?label
+ORDER BY ?o

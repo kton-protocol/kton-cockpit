@@ -1,0 +1,19 @@
+{
+  "name": "triage-reviews",
+  "target": "either",
+  "predicate": "https://scinteco.com/ns/triage#reviews",
+  "replace": "previous",
+  "fields": {
+    "outcome": {
+      "type": "enum",
+      "values": [
+        "approved",
+        "changes"
+      ],
+      "required": true
+    },
+    "why": {
+      "type": "string"
+    }
+  }
+}
