@@ -53,6 +53,8 @@ func Main() {
 		err = runServe(ctx, os.Args[2:])
 	case "load":
 		err = runLoad(ctx, os.Args[2:])
+	case "reproduce":
+		err = runReproduce(ctx, os.Args[2:])
 	case "init":
 		err = runInit(ctx)
 	case "show":
@@ -201,6 +203,10 @@ usage:
   cockpit serve    --stdio: the frontend protocol for an editor extension, JSON-RPC 2.0 (SPEC §12.5)
   cockpit load     <file|sha256>... [--as TYPE]: a file's RDF into the index as a graph named by its
                    hash (ADR-017); --list, --drop <sha256>; signs nothing
+  cockpit reproduce <query run id> [--timeout SECONDS] [--sign-anyway] [--json]: a query run
+                   (ask sparql --reproducible) evaluated again over its pinned dataset, built from the
+                   registries; a match signs the run's record when every key it rests on is trusted
+                   here, or with --sign-anyway (ADR-020)
   cockpit init     scaffold .kton/ (configuration, templates) in the current repo
   cockpit doctor   validate .kton/cockpit.config.json + the repo binding; --json for a program,
                    exit 3 while a step marked ! is left

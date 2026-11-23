@@ -1127,13 +1127,32 @@ dataset built fresh in a container of its own (`query.image`), never the index, 
 projected variable (`SELECT *` cannot), answers with a blank node, or has more rows than the limit; these are
 decided on the query's words, not inside its strings, IRIs or comments. It is recorded as a foton of kind
 `query/sparql` (descriptor: dataset, projection version, engine): inputs the query and a manifest of what it
-read (each registry's sorted record and claim ids, each scope's tips, the trust keys and tiers, the template
-set and alias file, the admitted package revisions, the projection version, the engine), output its result
-as a sorted multiset of terms in N-Triples form; every byte named is put in the content store, and the
-registry and the content store are persisted. The answer carries the run (`run`). A second run of the same
-query is another record: the first is now in what it reads.
+read (version 2: each registry's sorted record and claim ids, each scope's tips, the trust keys and tiers,
+the view it was evaluated with — the signers' names, the templates, the alias files and the row templates —,
+the admitted package revisions, the projection version, the engine), output its result as a sorted multiset
+of terms in N-Triples form; it MUST be evaluated with the pinned trust and view, not the repository's
+present. Every byte named is put in the content store, and the registry and the content store are persisted.
+The answer carries the run (`run`). A second run of the same query is another record: the first is now in
+what it reads.
 
-> **Checked by:** `TestCheckReproducible`, `TestQueryRun_IsARecordWithItsManifest` (`-tags docker`).
+`cockpit reproduce <run>` MUST read the run's manifest from the content store (the repository's own, else a
+source's), build the dataset again from the registries over exactly the pinned ids, evaluate it with the
+pinned trust, view and engine, and compare the canonical result's hash with the run's output. A match is
+`reproducible`. It MUST be signed (recorded as the run's own foton, signed by the reproducer, so the run's
+`reproductions` count it) only when a key of the reproducer's tiers signed the run and every key the run's
+trust pinned is in them, or the reproducer asks for it (`--sign-anyway`); otherwise it MUST be answered
+reproducible and not signed, saying why (`notSigned`: the run's signer, or the keys not trusted here): a co-signature counts as an independent reproduction by a
+key others may trust. What differs from the reproducer's present (a pinned key not trusted here, a run
+signed by no key trusted here, another vocabulary, other packages) MUST be said beside the match (`notes`),
+not counted against it. It MUST be refused: `reproduce.missing`
+when the record or a pinned byte cannot be found, naming it; `reproduce.unsupported` for another manifest
+version or projection version, or an engine not on the machine (never pulled); `reproduce.mismatch` when the
+result differs, with the row counts and the first row that differs; `query.not-reproducible` when a pinned id
+is in no registry read.
+
+> **Checked by:** `TestCheckReproducible`, `TestQueryRun_IsARecordWithItsManifest`, `TestReproduce_QueryRun`,
+> `TestReproduce_ARunOnKeysNotTrustedHereIsNotSigned`,
+> `TestReproduce_ARunByAnUntrustedSignerIsNotSigned` (`-tags docker`).
 
 The vocabulary of the projection, with examples, is in [docs/sparql.md](../docs/sparql.md). Every
 example there is run by a test.

@@ -22,11 +22,25 @@ import (
 // inContainer evaluates q in a container started for it alone, over the dataset projected for keys,
 // and returns the engine's answer in format. A timeout above zero bounds the evaluation.
 func inContainer(ctx context.Context, cfg *config.Config, keys []ed25519.PublicKey, q []byte, format, dataset string, timeout time.Duration) (string, []oxigraph.ClaimGraph, error) {
-	return inContainerOver(ctx, cfg, keys, nil, q, format, dataset, timeout)
+	return inContainerOver(ctx, cfg, keys, nil, nil, q, format, dataset, timeout)
 }
 
-// inContainerOver is inContainer over union u, or over cfg's union as it is when u is nil.
-func inContainerOver(ctx context.Context, cfg *config.Config, keys []ed25519.PublicKey, u *binaries.Union, q []byte, format, dataset string, timeout time.Duration) (string, []oxigraph.ClaimGraph, error) {
+// evalPin is what a query run evaluates with in place of the repository's present (ADR-020): the
+// engine, the view's signers and vocabulary, and the registries each claim came from. The first run
+// and every reproduction evaluate with the same pin, so the repository's state cannot make them differ.
+type evalPin struct {
+	image   string
+	vc      oxigraph.ViewConfig
+	sources map[string][]string
+}
+
+// inContainerOver is inContainer over union u, or over cfg's union as it is when u is nil, evaluated
+// with pin, or with cfg's present when pin is nil.
+func inContainerOver(ctx context.Context, cfg *config.Config, keys []ed25519.PublicKey, u *binaries.Union, pin *evalPin, q []byte, format, dataset string, timeout time.Duration) (string, []oxigraph.ClaimGraph, error) {
+	image := cfg.Raw.Query.Image
+	if pin != nil {
+		image = pin.image
+	}
 	// Under the checkout's own local directory, not the system's temporary one: the engine mounts it by
 	// its path, and where the cockpit reaches the engine through a socket passed in from the host (the
 	// persona windows), only a path on the host's side exists for it (userinterface, 21.11.). It is
@@ -65,7 +79,7 @@ func inContainerOver(ctx context.Context, cfg *config.Config, keys []ed25519.Pub
 			}
 		}
 	}()
-	graphs, err := projectUnion(ctx, cfg, keys, u, dataset, dir)
+	graphs, err := projectUnion(ctx, cfg, keys, u, pin, dataset, dir)
 	if err != nil {
 		return "", nil, refuse("kernel", "", "projecting the registries: %v", err)
 	}
@@ -79,7 +93,7 @@ func inContainerOver(ctx context.Context, cfg *config.Config, keys []ed25519.Pub
 	if dataset == oxigraph.DatasetClaims {
 		files = []string{"--file", "/q/default.nt", "--file", "/q/claims.nt", "--file", "/q/scopes.nq"}
 	}
-	if _, err := container.RunTool(ctx, cfg, cfg.Raw.Query.Image, dir, append([]string{"load", "--location", "/q/store"}, files...)...); err != nil {
+	if _, err := container.RunTool(ctx, cfg, image, dir, append([]string{"load", "--location", "/q/store"}, files...)...); err != nil {
 		return "", nil, refuse("query.failed", "", "%v", err)
 	}
 	qctx := ctx
@@ -88,7 +102,7 @@ func inContainerOver(ctx context.Context, cfg *config.Config, keys []ed25519.Pub
 		qctx, cancel = context.WithTimeout(ctx, timeout)
 		defer cancel()
 	}
-	res, err := container.RunTool(qctx, cfg, cfg.Raw.Query.Image, dir, "query", "--location", "/q/store",
+	res, err := container.RunTool(qctx, cfg, image, dir, "query", "--location", "/q/store",
 		"--query-file", "/q/query.rq", "--results-format", format)
 	if qctx.Err() == context.DeadlineExceeded {
 		return "", nil, refuse("query.timeout", "", "the query ran longer than %s", timeout)
@@ -103,11 +117,11 @@ func inContainerOver(ctx context.Context, cfg *config.Config, keys []ed25519.Pub
 // graph, and named.nq, the claims a trusted key signed; or for the query projection claims.nt, the
 // claims as nodes (oxigraph.ClaimDataset). The daemon selects and builds the same.
 func projectRegistries(rctx context.Context, cfg *config.Config, keys []ed25519.PublicKey, dataset, dir string) ([]oxigraph.ClaimGraph, error) {
-	return projectUnion(rctx, cfg, keys, nil, dataset, dir)
+	return projectUnion(rctx, cfg, keys, nil, nil, dataset, dir)
 }
 
 // projectUnion is projectRegistries over u, or over cfg's union as it is when u is nil.
-func projectUnion(rctx context.Context, cfg *config.Config, keys []ed25519.PublicKey, u *binaries.Union, dataset, dir string) ([]oxigraph.ClaimGraph, error) {
+func projectUnion(rctx context.Context, cfg *config.Config, keys []ed25519.PublicKey, u *binaries.Union, pin *evalPin, dataset, dir string) ([]oxigraph.ClaimGraph, error) {
 	if u == nil {
 		var err error
 		if u, err = binaries.OpenUnion(rctx, cfg); err != nil {
@@ -122,17 +136,22 @@ func projectUnion(rctx context.Context, cfg *config.Config, keys []ed25519.Publi
 		return nil, err
 	}
 	if dataset == oxigraph.DatasetClaims {
-		vc, err := oxigraph.ViewConfigFor(cfg)
-		if err != nil {
-			return nil, err
-		}
-		inputs, err := binaries.Inputs(rctx, cfg)
-		if err != nil {
-			return nil, err
-		}
-		sources, err := binaries.ClaimSources(inputs)
-		if err != nil {
-			return nil, err
+		var vc oxigraph.ViewConfig
+		var sources map[string][]string
+		if pin != nil {
+			vc, sources = pin.vc, pin.sources
+		} else {
+			var err error
+			if vc, err = oxigraph.ViewConfigFor(cfg); err != nil {
+				return nil, err
+			}
+			inputs, err := binaries.Inputs(rctx, cfg)
+			if err != nil {
+				return nil, err
+			}
+			if sources, err = binaries.ClaimSources(inputs); err != nil {
+				return nil, err
+			}
 		}
 		claims, scopes, graphs, err := oxigraph.ClaimDataset(u, keys, vc, sources)
 		if err != nil {
