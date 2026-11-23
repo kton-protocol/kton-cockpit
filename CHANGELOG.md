@@ -1,5 +1,35 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **`cockpit index status --json` lists the builds running** for the repository (`building`: slot, since,
+  phase), so a frontend waiting on an ask shows "building the index since …" instead of guessing from
+  timeouts (userinterface, T12). A build whose process was killed is not listed.
+- **`COCKPIT_TRACE=1`** prints a say's phases with their durations on stderr (prepare, the claims lock, the
+  scope's head, sign and store, persist, confirm), to find where a slow say spends its time in a given
+  registry.
+- **`query.memory`** (default 4g): the SPARQL engine's containers run bounded in memory and processes.
+- **Loaded files in query runs** (ADR-020 section 2): a query run in the claims dataset with `index.derived`
+  on reads the files loaded for the repository (`cockpit load`) as the graphs their hashes name, as a query of
+  the index does; each is pinned by its hash and media type, its bytes put in the content store, and
+  `reproduce` reads them from there. A loaded file whose bytes changed on disk since its load refuses the
+  run, named. Every loaded file is checked as a load checks it (type, no XML entities, size, triples), at
+  the run and at each reproduction under the reproducer's limits; a run with loaded files or `--graph` is
+  manifest version 3.
+- **`ask sparql --reproducible --graph SCOPE|sha256`** (MCP and serve: `graphs`; ADR-020 section 1): narrows a
+  query run to the scopes named (by name or seed) and the loaded files named (by hash); the other scopes'
+  claims and other loaded files are in neither its rows nor its manifest, unscoped claims and the steps stay
+  in. The manifest names the graphs.
+
+### Fixed
+
+- **`cockpit shim serve --listen` and `cockpit show` refuse other web pages** (kton-review on #236): a
+  request whose Host is not the loopback (DNS rebinding) or whose `Origin` is another page's gets 403
+  before anything runs. Without it, a page in any browser on the machine could post a tool call the
+  person's cockpit ran, or read the records `show` serves. The guard is shared (`internal/httpguard`).
+
 ## v0.5.11 — 2026-11-23
 
 Query runs reproducible by anyone, workflow runs as jobs, kton v0.4.3, and sessions decided (ADR-019).

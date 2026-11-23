@@ -52,8 +52,11 @@ for it. A request reads or writes the classes of the scopes it touches; a scope 
 ### 3 The key at the door
 
 `cockpit mcp` and `cockpit serve` (Q7: these first; the recorder's MCP later) take the session: `initialize`
-names its key (`session: {keyid}`), the server hands out a nonce, and the session signs it, so the connection
-holds the key rather than names it. Every request on the connection then acts as that session. A connection
+names its key (`session: {keyid}`), the server hands out a nonce, and the session signs a tagged
+structure, `{purpose: "kton-session/initialize", server: <the server key's id>, nonce, at}`, never the
+bare nonce, so the connection holds the key rather than names it, and the signature cannot be relayed to
+another server or used as a signing oracle (kton-review). A session key's signature is never taken for a
+claim's signature. Every request on the connection then acts as that session. A connection
 without a session acts as today.
 
 ### 4 The guard: a module
@@ -67,7 +70,13 @@ Guard func(ctx context.Context, r Request) Decision   // nil: the module guards 
 `Request` is the session (its key and its verified claims), the action (`read`, `write`, `sign`), the
 resources (scope seeds, tool names) and their data classes. `Decision` is allowed, or refused with the rule and
 the missing attribute. The core calls every registered guard before it answers a request at the door, and
-answers nothing a guard refuses. Without a guard module in the build, nothing changes.
+answers nothing a guard refuses. Without a guard module in the build, nothing changes. From kton-review's
+review: a guard that errors, panics or times out refuses, and every guard must allow (G1, fail closed); the
+core derives the resources from the dataset it actually sends, never from the request, since a `GRAPH ?g`
+query names no scope: the guard decides over the dataset, and the core sends exactly the graphs allowed, so
+the refusal of `SERVICE` and of other datasets stays load-bearing (G2); the guard covers the door only.
+Anyone with file access reads the registries directly (SPEC §13 keeps them deletable and open); that access
+is set up outside kton, and it is a precondition of this decision, not part of it (G3).
 
 The `session` module is that guard. It asks the rules (`qm.rules`, a package's named query
 `access-allowed($sessionKey, $dataClass, $action) -> ?allowed ?rule ?why`) and decides. A denied read is
@@ -78,8 +87,11 @@ refused with its reason, `access.denied` naming the rule and the missing attribu
 Every decision, allowed or refused, is a line in the module's access log under `.kton/local/access/`: `{at,
 session, dataClass, action, resource, decision, rule, environmentClaim, behalfClaim, prev}`, where `prev` is
 the hash of the line before (Q5). Once a day the module signs the day's last hash as a claim (the server's
-key), so a changed or dropped line shows. No claim per access. The log is the module's state, not the core's
-(SPEC §13).
+key), so a changed or dropped line shows. No claim per access. The log and the nonce memory are the module's
+state, not the core's. They are authoritative, not a rebuildable cache, which SPEC §13 as written does not
+allow; how SPEC §13 takes them is open for MH (kton-review's proposal: a module may keep state under
+`.kton/local/<module>/`, never consulted for the binding verdict or a trust tier, its loss a finding the
+module names, never a silent reset).
 
 ### 6 Lanes are sessions under the same rule
 
@@ -119,7 +131,8 @@ session uses. One window holds one session and both keys.
 **The CLI form.** The command line has no `initialize`, so each call carries its session: `--session
 <keyid>` (or `KTON_SESSION`) with `KTON_SESSION_SIG`, the session key's signature over the call (its
 arguments, working directory, time and a random nonce, canonical JSON). The module refuses a signature older
-than 60 seconds and a nonce it has seen (its local state). No token is held between calls.
+than 60 seconds and a nonce it has seen (its local state). The signed structure carries its own purpose
+tag, `kton-session/cli`, as the initialize one does. No token is held between calls.
 
 **Required sessions.** With the module in the build, `session.required: true` in the configuration refuses
 every request without a session, at the door and on the command line; otherwise a request without one acts
@@ -164,7 +177,8 @@ last line is not sealed is a finding at the next start and in `doctor`.
 
 ## Consequences
 
-- One door change (the `Guard` field) and one module; SPEC §13 stays as it is.
+- One door change (the `Guard` field) and one module; SPEC §13 needs one sentence for module state (section
+  5, open for MH).
 - A session's attributes are signed facts, by the machine and by the person, so a rule never reads a model's
   name for its hosting.
 - Every access is accountable by session key, and the log cannot be edited silently after its daily seal.
@@ -175,7 +189,9 @@ last line is not sealed is a finding at the next start and in `doctor`.
 A session without its environment claim; with `network: open`; with an environment claim from an untrusted
 machine key; with an expired or ended behalf claim; a replayed nonce; a scope without a class (no rule
 applies); the pilot rule end to end (allowed and refused, both in the log); a line removed from the log
-after its day was sealed (the seal no longer matches); `session check --lane` refusing a lane that reaches
+after its day was sealed (the seal no longer matches); a guard that errors or times out refusing (G1); a `GRAPH ?g` query sending
+only the allowed graphs (G2); an initialize signature relayed to another server, and a bare nonce signed,
+refused; `session check --lane` refusing a lane that reaches
 customer information with an external model; a machine key refusing to sign `internal`/`none` without its
 evidence; a `say` in a session signing with a key the rules do not allow it; a CLI call with a stale or
 replayed signature; `session.required` refusing a call without a session; a union query leaving out a class

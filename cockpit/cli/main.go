@@ -25,6 +25,7 @@ import (
 	"github.com/kton-protocol/kton-cockpit/internal/binaries"
 	"github.com/kton-protocol/kton-cockpit/internal/config"
 	"github.com/kton-protocol/kton-cockpit/internal/container"
+	"github.com/kton-protocol/kton-cockpit/internal/httpguard"
 	"github.com/kton-protocol/kton-cockpit/internal/material"
 	"github.com/kton-protocol/kton-cockpit/internal/mcpsurface"
 	"github.com/kton-protocol/kton-cockpit/internal/show"
@@ -201,8 +202,9 @@ usage:
                    [--bind VAR=VALUE]... fixes a query parameter $VAR;
                    [--runs] a tool per installed workflow (run_<name>), its holes as arguments
   cockpit serve    --stdio: the frontend protocol for an editor extension, JSON-RPC 2.0 (SPEC §12.5)
-  cockpit load     <file|sha256>... [--as TYPE]: a file's RDF into the index as a graph named by its
-                   hash (ADR-017); --list, --drop <sha256>; signs nothing
+  cockpit load     <file|sha256>... [--as TYPE] [--label NAME]: a file's RDF into the index as a graph
+                   named by its hash (ADR-017), --label naming it for a query (nk:loadedAs); --list,
+                   --drop <sha256>; signs nothing
   cockpit reproduce <query run id> [--timeout SECONDS] [--sign-anyway] [--json]: a query run
                    (ask sparql --reproducible) evaluated again over its pinned dataset, built from the
                    registries; a match signs the run's record when every key it rests on is trusted
@@ -441,9 +443,10 @@ func runShow(ctx context.Context, args []string) error {
 		return err
 	}
 
-	if strings.HasPrefix(addr, ":") {
-		fmt.Printf("note: %s binds every interface, not just loopback — this repo's records will be\n", addr)
-		fmt.Printf("      reachable from the network by anyone who can reach this host.\n\n")
+	// Every address but the loopback is said, not only ":PORT" (kton-review on #239).
+	if !httpguard.ListensOnLoopback(addr) {
+		fmt.Printf("note: %s is not the loopback — this repo's records will be reachable from the\n", addr)
+		fmt.Printf("      network by anyone who can reach this host at that address.\n\n")
 	}
 	base := "http://" + displayAddr(addr)
 	fmt.Printf("cockpit show on %s/  (registry %s)\n", base, cfg.RepoRoot)
@@ -456,6 +459,16 @@ func runShow(ctx context.Context, args []string) error {
 	}
 	fmt.Printf("\nkeys.json holds this repo's CONFIGURED trust tiers, so the viewer re-verifies against\n")
 	fmt.Printf("exactly what cockpit_ask does — not every pubkey that happens to sit in the registry.\n")
+	if httpguard.ListensOnLoopback(addr) {
+		// Served on the loopback, the records are not for a web page that rebinds a name to it or
+		// posts from another origin (kton-review on #236); bound to every interface, the note above
+		// says what that opens.
+		handler = httpguard.LoopbackOnly("cockpit show", handler)
+	} else if !httpguard.Wildcard(addr) {
+		// One address of this machine: only that address as Host, so a rebinding name is refused there
+		// too; bound to every interface, the note above is all that applies.
+		handler = httpguard.AddressOnly("cockpit show", addr, handler)
+	}
 	return http.ListenAndServe(addr, handler)
 }
 

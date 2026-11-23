@@ -178,6 +178,17 @@ type Claims struct {
 type Query struct {
 	// Image is the SPARQL engine, pinned by digest like execution.image.
 	Image string `json:"image,omitempty"`
+	// Memory bounds a container the engine runs in (docker's --memory, e.g. "4g"); empty: 4g. A query
+	// run reads files someone else's run listed, so the engine is never unbounded (kton-review L1 on #235).
+	Memory string `json:"memory,omitempty"`
+}
+
+// MemoryOrDefault is the memory a query container may use.
+func (q Query) MemoryOrDefault() string {
+	if q.Memory != "" {
+		return q.Memory
+	}
+	return "4g"
 }
 
 // Runs is where runs happen in this checkout: `cockpit run`, a workflow run and a reproduction, one
@@ -877,6 +888,9 @@ func validate(raw *Raw) error {
 	if err := validateShims(raw.Shims); err != nil {
 		return err
 	}
+	if m := raw.Query.Memory; m != "" && !queryMemory.MatchString(m) {
+		return fmt.Errorf("query.memory %q is not a size docker takes, e.g. 4g, 512m", m)
+	}
 	if err := validateQueryImage(raw.Query.Image); err != nil {
 		return err
 	}
@@ -1330,6 +1344,9 @@ func repoOf(dir string, raw Raw) backend.Repo {
 
 // validateQueryImage holds the SPARQL image to the rule execution.image follows: a tag names
 // whatever it points at today, and a daemon started from it could not be told from another.
+// queryMemory is a size docker's --memory takes.
+var queryMemory = regexp.MustCompile(`^[1-9][0-9]*[kmg]$`)
+
 func validateQueryImage(img string) error {
 	if img != "" && (!strings.HasPrefix(img, "oci://") || !strings.Contains(img, "@sha256:")) {
 		return fmt.Errorf("query.image %q is not pinned by digest. Use oci://<image>@sha256:<digest>", img)

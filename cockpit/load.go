@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	"kton.dev/plankton/core"
 
@@ -45,6 +46,35 @@ var loadTypes = map[string]string{
 	".rdf":    "application/rdf+xml",
 	".owl":    "application/rdf+xml",
 	".jsonld": "application/ld+json",
+}
+
+// checkLoadedBytes is what a load checks of a file's bytes before the engine reads them: a type a load
+// reads, no XML entities, within index.derived.maxBytes. A query run checks every loaded file it reads
+// again, at the run and at each reproduction, under the reader's own limits: a run made elsewhere may
+// list bytes no load of this cockpit would take (kton-review L1 on #235).
+func checkLoadedBytes(cfg *config.Config, b []byte, mt, name string) error {
+	known := false
+	for _, t := range loadTypes {
+		known = known || t == mt
+	}
+	if !known {
+		return refuse("derived.type", "SPEC §12.6", "%s: %q is not a type a load reads", name, mt)
+	}
+	// The entity check reads bytes as UTF-8: a file in another encoding (UTF-16 with its BOM) would pass it
+	// unread, so it is refused here rather than left to the engine (kton-review on #235).
+	// UTF-16 without a BOM, or UTF-32, of ASCII characters is valid UTF-8 with NULs between; XML never allows
+	// U+0000, so a NUL byte refuses it (kton-review's nit on #235).
+	if mt == "application/rdf+xml" && (!utf8.Valid(b) || bytes.IndexByte(b, 0) >= 0) {
+		return refuse("derived.refused", "SPEC §12.6", "%s is not UTF-8 without NUL bytes; a load reads RDF/XML in UTF-8 only", name)
+	}
+	// A DTD's nested entities expand without bound while the engine parses (kton-review on ADR-017).
+	if mt == "application/rdf+xml" && bytes.Contains(bytes.ToUpper(b), []byte("<!ENTITY")) {
+		return refuse("derived.refused", "SPEC §12.6", "%s declares XML entities; a load does not read RDF/XML with a DTD", name)
+	}
+	if limit := cfg.Raw.Index.Derived.MaxBytesOrDefault(); int64(len(b)) > limit {
+		return refuse("derived.refused", "SPEC §12.6", "%s is %d bytes, more than index.derived.maxBytes (%d)", name, len(b), limit)
+	}
+	return nil
 }
 
 // quadTypes carry graph names of their own, which would compete with the hash as the graph's name.
@@ -115,9 +145,8 @@ func (c *Cockpit) Load(ctx context.Context, in LoadRequest) (*LoadResult, error)
 		if _, err := run.EnvelopeFor(ctx, "sha256:"+hex); err == nil {
 			return nil, refuse("derived.clash", "SPEC §12.6", "%s hashes to sha256:%s, the id of a record of this repository: a record's graph has that name", ref, hex)
 		}
-		// A DTD's nested entities expand without bound while the engine parses (kton-review on ADR-017).
-		if mt == "application/rdf+xml" && bytes.Contains(b, []byte("<!ENTITY")) {
-			return nil, refuse("derived.refused", "SPEC §12.6", "%s declares XML entities; a load does not read RDF/XML with a DTD", ref)
+		if err := checkLoadedBytes(cfg, b, mt, ref); err != nil {
+			return nil, err
 		}
 		files = append(files, file{ref, hex, mt, b})
 	}

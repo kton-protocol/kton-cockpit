@@ -1129,15 +1129,26 @@ decided on the query's words, not inside its strings, IRIs or comments. It is re
 `query/sparql` (descriptor: dataset, projection version, engine): inputs the query and a manifest of what it
 read (version 2: each registry's sorted record and claim ids, each scope's tips, the trust keys and tiers,
 the view it was evaluated with — the signers' names, the templates, the alias files and the row templates —,
-the admitted package revisions, the projection version, the engine), output its result as a sorted multiset
+the admitted package revisions, the projection version, the engine, and in the claims dataset with
+`index.derived` on each file loaded for the repository, by its hash and media type), output its result as a sorted multiset
 of terms in N-Triples form; it MUST be evaluated with the pinned trust and view, not the repository's
 present. Every byte named is put in the content store, and the registry and the content store are persisted.
 The answer carries the run (`run`). A second run of the same query is another record: the first is now in
-what it reads.
+what it reads. A loaded file whose bytes are no longer those it was loaded as MUST refuse the run, named. Every loaded file
+a run reads MUST pass a load's checks, at the run and at each reproduction under the reader's own
+configuration (a type a load reads, no XML entities, `index.derived.maxBytes`, and all of them together
+within `index.derived.maxTriples`), and the engine MUST run bounded in memory (`query.memory`, 4g by
+default), processes and time: a run made elsewhere may list bytes no load here would take. A run that read
+loaded files or was narrowed is manifest version 3. A run MAY be narrowed
+(`graphs`, `--graph`) to scopes, by configured name or seed, and loaded files, by hash: the claims of
+other scopes and the other loaded files MUST then be in neither its rows nor its manifest, which names the
+graphs (`graphs`); unscoped claims and the steps stay in. A graph that is no scope or loaded file of the
+repository, or graphs without a query run, MUST be refused (`argument`).
 
 `cockpit reproduce <run>` MUST read the run's manifest from the content store (the repository's own, else a
 source's), build the dataset again from the registries over exactly the pinned ids, evaluate it with the
-pinned trust, view and engine, and compare the canonical result's hash with the run's output. A match is
+pinned trust, view and engine, each pinned loaded file read from the content store into the graph its
+hash names, and compare the canonical result's hash with the run's output. A match is
 `reproducible`. It MUST be signed (recorded as the run's own foton, signed by the reproducer, so the run's
 `reproductions` count it) only when a key of the reproducer's tiers signed the run and every key the run's
 trust pinned is in them, or the reproducer asks for it (`--sign-anyway`); otherwise it MUST be answered
@@ -1152,7 +1163,9 @@ is in no registry read.
 
 > **Checked by:** `TestCheckReproducible`, `TestQueryRun_IsARecordWithItsManifest`, `TestReproduce_QueryRun`,
 > `TestReproduce_ARunOnKeysNotTrustedHereIsNotSigned`,
-> `TestReproduce_ARunByAnUntrustedSignerIsNotSigned` (`-tags docker`).
+> `TestReproduce_ARunByAnUntrustedSignerIsNotSigned`, `TestQueryRun_ALoadedFileIsAnInput`,
+> `TestQueryRun_GraphNarrowsTheRun`, `TestQueryRun_ALoadedFileALoadWouldRefuseIsRefused`,
+> `TestQueryRun_RelativeIRIsResolveAsInTheIndex` (`-tags docker`), `TestToolArgs_TheEngineIsBounded`.
 
 The vocabulary of the projection, with examples, is in [docs/sparql.md](../docs/sparql.md). Every
 example there is run by a test.
@@ -1294,6 +1307,11 @@ A repository MAY configure `shims`: tools a shim in a calling environment hands 
 that is absolute or contains `..`, `.`, an empty segment or NUL, MUST hash the bytes it is sent
 itself, and MUST run the tool on exactly what it staged, in the configured digest-pinned image.
 
+A dispatcher served on a TCP port of the loopback (`shim serve --listen`) MUST refuse, before it reads a
+call, a request whose Host is not the loopback (DNS rebinding) or whose `Origin` is another page's: every
+browser on the machine reaches the port, and a cross-site `text/plain` POST needs no preflight. So MUST
+`cockpit show` when it listens on the loopback (its default).
+
 A run that leaves anything but regular files and directories MUST NOT be read or recorded. A run
 MUST NOT be recorded when its exit code is not a result, when it did not write what a result always
 has, or when an output contains a configured secret. A call is answered from a record only when this
@@ -1315,6 +1333,7 @@ cockpit builds for (on Windows, which has no `O_NOFOLLOW`, a link found before t
 > `TestShim_AnOutputAboveTheCallsDirectoryIsWritten`, `TestShim_FilesUnderTheStreamsDirectoryNeverComeBack`,
 > `TestShim_ARunThatLeavesTooMuchIsNotRead`, `TestCollect_ARepeatedIncludeIsReadOnce`,
 > `TestCollect_NonmemTakesTheControlStreamAndWhatItReads`.
+> `TestLoopbackOnly`, `TestLoopbackDoors_RefuseOtherPages`.
 
 ## 11 Carried evidence *(optional)*
 
@@ -1579,10 +1598,15 @@ dataset of the request is the only wall between repositories, so a query that ca
 MUST be pinned by digest; a running daemon from another image or store schema is not used, and a store
 written under another schema is emptied first.
 
+A build of a view SHOULD say so while it runs: `index status --json` lists this repository's builds
+(`building`: slot, since, phase), and a build whose process ended is not listed, so a frontend waiting on
+an answer shows the build instead of guessing from timeouts.
+
 > **Checked by:** `TestOxigraph_RecordsAreStoredOnceAndTrustIsChosenPerQuery`,
 > `TestOxigraph_AttributionIsTheRegistrysOwn`, `TestOxigraph_AReaderNeverSeesARegistryHalfRead`,
 > `TestCheckQuery_RefusesServiceAndOnlyService`, `TestConfig_QueryImageIsPinnedByDigest`,
-> `TestQuery_TheIndexAnswersAsAContainerForTheQueryDoes` (both `-tags docker`).
+> `TestQuery_TheIndexAnswersAsAContainerForTheQueryDoes` (both `-tags docker`), `TestBuilding_AMarkerWhileABuildRuns`,
+> `TestOxigraph_ABuildIsListedWhileItRuns` (`-tags docker`).
 
 ### 12.5 The frontend protocol *(optional)*
 

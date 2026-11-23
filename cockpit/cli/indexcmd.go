@@ -11,6 +11,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"time"
 
 	"github.com/kton-protocol/kton-cockpit/internal/config"
 	"github.com/kton-protocol/kton-cockpit/internal/index/oxigraph"
@@ -23,6 +24,9 @@ type IndexStatus struct {
 	Daemon   *IndexDaemon `json:"daemon,omitempty"`
 	Store    string       `json:"store,omitempty"`
 	Warnings []string     `json:"warnings,omitempty"`
+	// Building are this repository's views being built now, with since and phase (userinterface, T12):
+	// a frontend waiting on an ask shows them rather than guessing from timeouts.
+	Building []oxigraph.Building `json:"building,omitempty"`
 }
 
 // IndexDaemon is the daemon this machine runs. Answering is false when it was started but does
@@ -64,6 +68,9 @@ func indexStatus(ctx context.Context, cfg *config.Config) (IndexStatus, error) {
 		}
 	}
 	st.Store, _ = oxigraph.Dir()
+	if st.Store != "" {
+		st.Building = oxigraph.BuildsRunning(st.Store, cfg.RepoRoot)
+	}
 	return st, nil
 }
 
@@ -106,6 +113,9 @@ func runIndex(ctx context.Context, args []string) error {
 			}
 		}
 		fmt.Printf("store: %s\n", st.Store)
+		for _, b := range st.Building {
+			fmt.Printf("building: view %s since %s (%s), %s\n", b.Slot, b.Since.Local().Format("15:04:05"), time.Since(b.Since).Round(time.Second), b.Phase)
+		}
 		return nil
 	case "start":
 		d, err := oxigraph.Ensure(ctx, cfg)
