@@ -10,6 +10,7 @@ import { compositionCsp, compositionPage } from "../src/composition/page.js";
 import { applies, oneNumber, partition, planEntry } from "../src/composition/slots.js";
 import { loadPackages, type Loaded, type SlotEntry } from "../src/packages/model.js";
 import { listed, PKGS, reader } from "./pkg-helpers.js";
+import { Superseded } from "../src/transport/gate.js";
 
 const SUBJECT = { kind: "claim" as const, iri: `https://kton.dev/o/${"1".repeat(64)}`, id: `sha256:${"1".repeat(64)}`, claim: `sha256:${"1".repeat(64)}` };
 
@@ -75,6 +76,23 @@ test("query@1 runs the package's named query (never query text) with its params 
   assert.equal(calls.length, 1, "nothing refused reached the cockpit");
   // the host saw requests only (the e2e checks it sees no sibling messages)
   assert.deepEqual([...new Set(h.seen.map((s) => s.type))], ["kton:request"]);
+});
+
+test("a query@1 ask dropped from the window's queue as Superseded is no block error: logged, nothing posted", async () => {
+  const l = await goodPackage();
+  const plan = await planEntry(l.entries[0] as SlotEntry, SUBJECT, l, "qa-decider", async () => ({ results: { bindings: [] } }));
+  const { backend } = backendLog();
+  const posted: unknown[] = [];
+  const logs: string[] = [];
+  const h = new CompositionHost(plan, l, { ...backend, query: async () => Promise.reject(new Superseded("panel#main")) }, { post: (m) => posted.push(m), log: (x) => logs.push(x) });
+  const key = plan.uses[0]?.key as string;
+  await h.onMessage({ type: "kton:request", id: `${key}#t.1`, cap: "query@1", args: { use: key } });
+  assert.equal(posted.length, 0, "no kton:refused for a superseded ask");
+  assert.match(logs.join("\n"), /superseded by a newer ask/);
+  // any other failure is still refused to the frame
+  const h2 = new CompositionHost(plan, l, { ...backend, query: async () => Promise.reject(new Error("timed out")) }, { post: (m) => posted.push(m), log: () => undefined });
+  await h2.onMessage({ type: "kton:request", id: `${key}#t.2`, cap: "query@1", args: { use: key } });
+  assert.match(JSON.stringify(posted.at(-1)), /kton:refused.*timed out/);
 });
 
 test("an open intent is performed by the shell; a sign act through its control; the act's kind comes from the control", async () => {

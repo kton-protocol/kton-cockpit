@@ -563,6 +563,9 @@ export class CompositionHost {
       this.ui.post({ type: "kton:data", id, result });
     } catch (e) {
       const why = e instanceof Error ? e.message : String(e);
+      // a newer ask of the same block replaced this one in the window's queue (transport/gate.ts): the newer one
+      // answers the block, so this is no error to show (matched by name: the error may cross module copies)
+      if (e instanceof Error && e.name === "Superseded") return this.ui.log(`composition: ${cap} for ${JSON.stringify(args["use"])} superseded by a newer ask`);
       this.ui.log(`composition: ${cap} refused for ${JSON.stringify(args["use"])}: ${why}`);
       this.ui.post({ type: "kton:refused", what: id, why });
     }
