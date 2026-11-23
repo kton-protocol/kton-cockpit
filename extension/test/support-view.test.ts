@@ -1,7 +1,10 @@
 // The support file: what the active view shows, small and without key material; nothing without a path.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { MAX_ROWS, SupportWriter, picked, supportView } from "../src/support/view-now.js";
+import { MAX_ROWS, SupportWriter, atomicWrite, picked, supportView } from "../src/support/view-now.js";
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 const rows = (n: number) => Array.from({ length: n }, (_, i) => ({ key: { value: `item-1#e${i}` }, total: { value: String(n) }, stamp: { value: "sha256:0a1b2c3d" }, stampLabel: { value: "mapping round 3 · 0a1b2c3d" }, keyFile: { value: "/home/x/.kton-keys/a.key" }, note: { value: "-----BEGIN PRIVATE KEY-----" } }));
 
@@ -42,4 +45,19 @@ test("support view: written debounced, the last change wins; an empty setting wr
   w.changed(() => ({ n: 3 }));
   await new Promise((r) => setTimeout(r, 50));
   assert.equal(writes.length, 1);
+});
+
+test("the support file is written with mode 0600, also over a temp file left from before", () => {
+  const dir = mkdtempSync(join(tmpdir(), "support-view-"));
+  try {
+    const path = join(dir, "sub", "view.json");
+    atomicWrite(path, "{}\n");
+    assert.equal(statSync(path).mode & 0o777, 0o600);
+    writeFileSync(`${path}.tmp-${process.pid}`, "", { mode: 0o644 });
+    atomicWrite(path, "{\"a\":1}\n");
+    assert.equal(statSync(path).mode & 0o777, 0o600);
+    assert.equal(readFileSync(path, "utf8"), "{\"a\":1}\n");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

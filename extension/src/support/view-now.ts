@@ -2,8 +2,9 @@
 // terminal reads to see what the active panel shows. The shell writes it on every view change (debounced, ~500 ms) to the
 // path set in kton.support.viewFile; an empty setting writes nothing. Values as the view got them, at most MAX_ROWS rows
 // per block (the rest counted), and never key material: a column or value that names a key, secret or password is left
-// out, and nothing from the identity but its shown name.
-import { mkdirSync, renameSync, writeFileSync } from "node:fs";
+// out, and nothing from the identity but its shown name. The file is the window user's only (mode 0600): what the
+// view shows may be more than others on the machine may read.
+import { chmodSync, mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
 export const MAX_ROWS = 200;
@@ -104,9 +105,12 @@ export class SupportWriter {
   }
 }
 
-function atomicWrite(path: string, text: string): void {
+/** Write `text` to `path` through a temp file renamed over it, readable and writable by the owner only (0600). */
+export function atomicWrite(path: string, text: string): void {
   mkdirSync(dirname(path), { recursive: true });
   const tmp = `${path}.tmp-${process.pid}`;
-  writeFileSync(tmp, text, { mode: 0o644 });
+  writeFileSync(tmp, text, { mode: 0o600 });
+  // a temp file left from before keeps its mode on writeFileSync: set it either way
+  chmodSync(tmp, 0o600);
   renameSync(tmp, path);
 }
