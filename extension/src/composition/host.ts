@@ -442,6 +442,8 @@ export class CompositionHost {
    */
   private readonly answers = new Map<string, { result: unknown; epoch: number }>();
   private readonly refreshes = new Map<string, number>();
+  /** the queries running now, by answer key: a second ask of the same shares the first */
+  private readonly pending = new Map<string, Promise<unknown>>();
   private refreshSeq = 0;
   /** how many signatures this view made (an answer asked before the last one is old), when the last was (ms), and what */
   private epoch = 0;
@@ -512,7 +514,15 @@ export class CompositionHost {
           result = { ...(last.result as object), refreshing: { since: this.signedAt, token } };
         } else {
           const epoch = this.epoch;
-          result = await this.backend.query(q.package, q.name, termsOf(params));
+          // the same query (use, params, refine) asked again while it runs: the one ask is shared, never a second
+          let p = this.pending.get(k);
+          if (!p) {
+            p = this.backend.query(q.package, q.name, termsOf(params));
+            this.pending.set(k, p);
+            const done = () => this.pending.get(k) === p && this.pending.delete(k);
+            p.then(done, done);
+          }
+          result = await p;
           this.remember(u, result);
           this.answers.set(k, { result, epoch });
           if (unbound.length) result = stampUnfiltered(result, unbound);

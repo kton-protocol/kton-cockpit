@@ -2,6 +2,7 @@
 // src/ui/controller.ts and tested without VS Code. Ids live under `ktonWorkbench.` so the recorder
 // extension (its own `kton.` commands and `kton` view container) can run beside it.
 
+import { AskGate, gated } from "./transport/gate.js";
 import * as vscode from "vscode";
 import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
@@ -366,7 +367,8 @@ async function build(host: VsHost): Promise<void> {
   const timeout = Math.max(1, cfg.get<number>("cockpit.timeoutSeconds") ?? 120);
   // the command line (default), or the frontend protocol: cockpit serve --stdio (SPEC §12.5, cockpit v0.5.6)
   const opts = { executable, cwd: folder, timeoutMs: timeout * 1000 };
-  const transport = cfg.get<string>("cockpit.transport") === "stdio" ? (stdio = new StdioTransport(opts)) : new CliTransport(opts);
+  // one ask queue per window: at most 2 reads of the cockpit at a time, a cold index awaited by one (transport/gate.ts)
+  const transport = gated(cfg.get<string>("cockpit.transport") === "stdio" ? (stdio = new StdioTransport(opts)) : new CliTransport(opts), new AskGate());
   if (stdio) {
     // kton-review W1 on #196: an answer to a request already failed came after all. A say among them may have
     // signed: name the claim and refresh, so the claim shows (it is never signed again).

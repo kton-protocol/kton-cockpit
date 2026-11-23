@@ -168,3 +168,21 @@ test("the workbench's page modules all parse as ES modules (frame-design.js is o
     assert.equal(r.status, 0, `${f}: ${String(r.stderr).split("\n").slice(0, 5).join("\n")}`);
   }
 });
+
+test("host: the same query asked twice while it runs is one ask (a poll never stacks on a pending ask of its block)", async () => {
+  const { CompositionHost } = await import("../src/composition/host.js");
+  let calls = 0;
+  let release!: () => void;
+  const wait = new Promise<void>((r) => (release = r));
+  const plan = { root: { package: "p", composition: "c" }, subject: { iri: "s" }, uses: [{ key: "c#b", block: "rows", requires: ["query@1"], optional: [], query: { package: "p", name: "q", hash: "h" } }] };
+  const posted: Array<Record<string, unknown>> = [];
+  const backend = { query: async () => { calls++; await wait; return { results: { bindings: [] } }; }, bytes: async () => new Uint8Array(), open: async () => "", act: async () => "cancelled" as const, run: async () => "" };
+  const h = new CompositionHost(plan as never, { packages: {}, controls: new Map() } as never, backend as never, { post: (m) => posted.push(m as Record<string, unknown>), log: () => {} });
+  const a = h.onMessage({ type: "kton:request", id: "1", cap: "query@1", args: { use: "c#b" } });
+  const b = h.onMessage({ type: "kton:request", id: "2", cap: "query@1", args: { use: "c#b" } });
+  await new Promise((r) => setTimeout(r, 5));
+  release();
+  await Promise.all([a, b]);
+  assert.equal(calls, 1, "one ask for both");
+  assert.equal(posted.filter((m) => m["type"] === "kton:data").length, 2, "both requests answered");
+});

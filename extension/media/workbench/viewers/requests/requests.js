@@ -106,10 +106,25 @@ export function mount(el, ctx) {
     if (el.querySelector('[data-waiting="true"]') || Date.now() < pollUntil) schedule(every);
   };
 
-  const ask = () =>
-    stamped(el, esc, ctx.request("query@1", canPoll ? { refine: { poll: String(n) } } : {}), ctx.use.key).then(draw, (e) => {
-      el.innerHTML = `<div class="callout error" data-area-error role="alert"><p>${esc(e?.message ?? String(e))}</p></div>`;
-    });
+  // one ask of this block at a time; a poll waits while the block is hidden (a closed tab, a collapsed part, a hidden
+  // view) and backs off (x2, up to 5 min) while its last ask took longer than the interval
+  let asking = false;
+  let backoff = 0;
+  const ask = () => {
+    asking = true;
+    const t0 = Date.now();
+    return stamped(el, esc, ctx.request("query@1", canPoll ? { refine: { poll: String(n) } } : {}), ctx.use.key).then(
+      (r) => {
+        asking = false;
+        backoff = pollDelay(every, backoff, Date.now() - t0);
+        return draw(r);
+      },
+      (e) => {
+        asking = false;
+        el.innerHTML = `<div class="callout error" data-area-error role="alert"><p>${esc(e?.message ?? String(e))}</p></div>`;
+      },
+    );
+  };
   // an act of this view (any block) signed or recorded: ask again soon, then for a while (the index may still be building)
   function acted() {
     if (gone) return;
@@ -127,9 +142,10 @@ export function mount(el, ctx) {
     timer = setTimeout(() => {
       timer = null;
       if (gone) return;
+      if (asking || hidden(el)) return schedule(Math.max(ms, 1000));
       n += 1;
       ask();
-    }, ms);
+    }, backoff > every ? Math.max(ms, backoff) : ms);
   }
   el.innerHTML = `${skeleton("lines")}`;
   ask();
@@ -141,6 +157,17 @@ export function mount(el, ctx) {
       if (doc && typeof doc.removeEventListener === "function") doc.removeEventListener(ACTED, acted);
     },
   };
+}
+
+/** Is the block off screen: not connected, in a hidden tab or collapsed part (no layout box), or the page hidden. */
+export function hidden(el) {
+  if (!el || el.isConnected === false) return true;
+  if (globalThis.document?.hidden) return true;
+  return typeof el.getClientRects === "function" && el.getClientRects().length === 0;
+}
+/** The next poll delay: the interval while asks are quicker than it, else twice the last delay, up to 5 min. */
+export function pollDelay(every, last, took) {
+  return took > every ? Math.min(Math.max(last || every, every) * 2, 300_000) : every;
 }
 
 /** One primary per object: the first sign act is primary, every other act secondary (record included). */
