@@ -16,6 +16,8 @@ export interface PageUris {
   readonly frame: string;
   /** the vendored core/compose.css */
   readonly css: string;
+  /** the workbench's look (media/workbench/design): its stylesheet, loaded after compose.css, and the frame decorator */
+  readonly design?: { readonly css: string; readonly js?: string };
   /** where the sandboxed Mermaid frame is served (H13: 127.0.0.1 through asExternalUri); none: no diagrams */
   readonly mermaidFrame?: string;
 }
@@ -42,9 +44,9 @@ export function compositionPage(title: string, nonce: string, uris: PageUris): s
 <meta http-equiv="Content-Security-Policy" content="${compositionCsp(nonce, uris.cspSource, uris.mermaidFrame ? new URL(uris.mermaidFrame).origin : undefined)}">${uris.mermaidFrame ? `\n<meta name="kton-mermaid-frame" content="${esc(uris.mermaidFrame)}">` : ""}
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(title)}</title>
-<link rel="stylesheet" href="${esc(uris.css)}">
+<link rel="stylesheet" href="${esc(uris.css)}">${uris.design ? `\n<link rel="stylesheet" href="${esc(uris.design.css)}">` : ""}
 </head><body><div id="kton-root" data-settled="false">Waiting for the host…</div>
-<script type="module" nonce="${nonce}" src="${esc(uris.frame)}"></script></body></html>`;
+<script type="module" nonce="${nonce}" src="${esc(uris.frame)}"></script>${uris.design?.js ? `\n<script type="module" nonce="${nonce}" src="${esc(uris.design.js)}"></script>` : ""}</body></html>`;
 }
 
 /**

@@ -1,0 +1,30 @@
+{
+ "viewer": "requests",
+ "module": "requests.js",
+ "requires": [
+  "query@1"
+ ],
+ "optional": [
+  "sign@1",
+  "record@1",
+  "open@1"
+ ],
+ "accepts": {
+  "title": "literal",
+  "fields": {
+   "set": "literal"
+  },
+  "offer": "literal",
+  "waiting": "literal",
+  "poll": "literal",
+  "propose": {
+   "set": "literal"
+  },
+  "done": "literal",
+  "nudge": "literal",
+  "emptyText": "literal",
+  "emptyHow": "literal",
+  "stamp": "literal"
+ },
+ "rendersActs": true
+}
