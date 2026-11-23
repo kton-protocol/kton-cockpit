@@ -3,7 +3,7 @@ title: "Sessions as actors: a session's claims, its key at the MCP door, a guard
 type: "decision"
 project: "kton-cockpit"
 date: 2026-11-21
-status: "proposed"
+status: "accepted"
 tags: [architecture, module, session, access, mcp, serve, qm]
 ---
 
@@ -11,7 +11,7 @@ tags: [architecture, module, session, access, mcp, serve, qm]
 
 ## Status
 
-Proposed 2026-11-21. Requested by qm (`a80d6c84`) on MH's concept of 20./21.11.; MH answered the seven open
+Accepted by MH (2026-11-23), with §8 answering userinterface's review. Proposed 2026-11-21. Requested by qm (`a80d6c84`) on MH's concept of 20./21.11.; MH answered the seven open
 questions on 21.11. (relayed by qm, `966fc6ad`), and those answers are the decisions below. The claim names
 were agreed with the cockpit lane (area qms) and fixed by qm's tie-break (`08aec228`). The concept document is
 on ai1; this ADR follows qm's summary of it.
