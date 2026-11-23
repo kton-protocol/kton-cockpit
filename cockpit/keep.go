@@ -27,6 +27,9 @@ import (
 // a private key is never kept; one above
 // claims.keepMaxBytes is not kept; claims.keep "off" keeps none. The answer says which.
 
+// beforeKeep runs between the signature and the keeping, for a test.
+var beforeKeep func()
+
 // KeptFile is one file a say signed about, and where its bytes were kept.
 type KeptFile struct {
 	Path  string `json:"path"`
@@ -111,7 +114,9 @@ func trackedByGit(ctx context.Context, cfg *config.Config, rel string) bool {
 	if cfg.Raw.Repo.Mode == config.ModeLocal {
 		return true
 	}
-	return exec.CommandContext(ctx, "git", "-C", cfg.RepoRoot, "ls-files", "--error-unmatch", "--", rel).Run() == nil
+	// Literal: ls-files reads a path as a glob otherwise, and an untracked data/a[1].txt would match a
+	// tracked data/a1.txt (kton-review K2 on #248).
+	return exec.CommandContext(ctx, "git", "--literal-pathspecs", "-C", cfg.RepoRoot, "ls-files", "--error-unmatch", "--", rel).Run() == nil
 }
 
 // looksLikePrivateKey: a PEM or OpenSSH private key, or a bare 32-byte seed in hex as keygen writes it.

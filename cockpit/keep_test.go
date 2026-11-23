@@ -125,6 +125,27 @@ func TestSay_KeepsTheSignedFiles(t *testing.T) {
 		}
 	}
 
+	// A path is read literally: with data/a1.txt tracked, an untracked data/a[1].txt is not taken for it
+	// (kton-review K2 on #248, P4).
+	r.Write(t, "data/a1.txt", "tracked one")
+	track("data/a1.txt")
+	r.Write(t, "data/a[1].txt", "untracked twin")
+	hg := core.HashBytes([]byte("untracked twin"))
+	res = say("data/a[1].txt", map[string]string{"value": "v"}, "describes")
+	if len(res.Kept) != 1 || res.Kept[0].Where != "local" || shared.Has(hg) {
+		t.Errorf("an untracked file whose name is a glob of a tracked one: kept local only: %+v", res.Kept)
+	}
+	// A file field changed between the signature and the keeping: its new bytes are not the signed ones,
+	// so nothing is kept (T1).
+	r.Write(t, "data/moving.txt", "as signed")
+	track("data/moving.txt")
+	beforeKeep = func() { r.Write(t, "data/moving.txt", "changed after") }
+	res = say("urn:example:y", map[string]string{"report": "data/moving.txt"}, "evidence")
+	beforeKeep = nil
+	if len(res.Kept) != 1 || res.Kept[0].Where != "no" || !strings.Contains(res.Kept[0].Why, "changed after it was signed") || shared.Has(core.HashBytes([]byte("changed after"))) {
+		t.Errorf("a file field changed after signing: not kept: %+v", res.Kept)
+	}
+
 	// Over the limit, and with keep off: not kept, and said.
 	raw.Claims.KeepMaxBytes = 4
 	r.WriteConfig(t, raw)
