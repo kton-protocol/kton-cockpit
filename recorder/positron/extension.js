@@ -845,15 +845,20 @@ function improveTakesParent() {
 }
 
 // parentStepLines: per model file a step wrote through pharmpy, the parent-step claim about the step just published,
-// naming the published step that made the file the model was read from (by the bytes the session read)
-async function parentStepLines(repo, origins) {
-  const out = [];
+// naming the published step that made the file the model was read from (by the bytes the session read). skip: the
+// parent cockpit-improve already got in the publish request (it signs that claim itself); each other parent gets
+// its claim once (kton-review N1 on #236: a step with models from several parents keeps all of them).
+async function parentStepLines(repo, origins, skip) {
+  const out = [], seen = new Set(skip ? [skip] : []);
   for (const o of origins || []) {
     const sum = o.from_sha256 || (await sha256File(path.join(repo, o.from)));
     const ids = sum ? await producersOf(repo, sum) : [];
     const why = `developed in pharmpy from ${o.from}${(o.via || []).length ? ': ' + o.via.join(', ') : ''}`;
     if (!ids.length) { out.push(`#   parent step: ${o.from} is not published yet; publish its step first, then this one (${why})`); continue; }
-    out.push('cockpit claim parent-step ' + sq(JSON.stringify({ 'parent-step': ids[ids.length - 1], why })));
+    const id = ids[ids.length - 1];
+    if (seen.has(id)) continue;
+    seen.add(id);
+    out.push('cockpit claim parent-step ' + sq(JSON.stringify({ 'parent-step': id, why })));
   }
   return out;
 }
@@ -1002,7 +1007,8 @@ async function publishText(story, file, steps) {
     }
     // improve mode with a cockpit-improve that takes the parent in the request (cockpit-improve-backend 0e4e17e): it
     // places the improve step under its parent's step while publishing, and signs the parent-step claim itself;
-    // otherwise the claim follows the publish (and the improve step is placed by the other rules)
+    // otherwise the claim follows the publish (and the improve step is placed by the other rules); a further parent
+    // (models from several) gets its claim after the publish either way
     const parentAllowed = allowsTemplate(story.repo, 'parent-step') && (d.derived_from || []).length > 0;
     const ps = parentAllowed && repoMode(story.repo) === 'improve' && (await improveTakesParent()) ? await parentStepOf(story.repo, d.derived_from) : null;
     if (ps) { req.parentStep = ps.id; req.parentWhy = ps.why; }
@@ -1032,7 +1038,7 @@ async function publishText(story, file, steps) {
     // base/final and \$PROBLEM for NONMEM; nothing twice), as the nmfe75 wrapper does
     // developed in pharmpy (ktonpharmpy, MH 21.11.): the model file this step wrote came from another model file by
     // modeling calls; the step is a child step of the step that made that file (pmx/parent-step), its latest published foton
-    if (parentAllowed && !ps) lines.push(...(await parentStepLines(story.repo, d.derived_from)));
+    if (parentAllowed) lines.push(...(await parentStepLines(story.repo, d.derived_from, ps && ps.id)));
     if (repoMode(story.repo) !== 'improve') lines.push('cockpit model-claims');
   }
   return lines.join('\n');
