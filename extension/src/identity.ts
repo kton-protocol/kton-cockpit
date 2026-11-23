@@ -112,10 +112,17 @@ export function keyFor(identity: WindowIdentity, kind: "decision" | "record"): W
  * unverified"); a verified key shows its verified name and tier; a missing key is named as missing. The hint
  * from identity.json and the reason a key is unverified go in the tooltip (statusTooltip), not in the bar.
  */
-export function statusText(person: ShownSigner | "missing", agent: ShownSigner | "missing", names: { readonly person: string; readonly agent: string }): string {
+export function statusText(person: ShownSigner | "missing", agent: ShownSigner | "missing", names: { readonly person: string; readonly agent: string }, test = false): string {
   const one = (label: string, s: ShownSigner | "missing", name: string) => (s === "missing" ? `${label} missing` : s.verified ? `${label} ${s.name} (${s.tier})` : `${label} ${name}`);
   const unverified = [person, agent].some((s) => s !== "missing" && !s.verified);
-  return `${one("person key", person, names.person)} · ${one("agent key", agent, names.agent)}${unverified ? " · unverified" : ""}`;
+  // in test mode the keys are test keys: "test" says that; why the name is not verified is in the tooltip
+  return `${one("person key", person, names.person)} · ${one("agent key", agent, names.agent)}${unverified ? (test ? " · test" : " · unverified") : ""}`;
+}
+
+/** Why the bar says "test" / "unverified": the first line of the identity tooltip (none when both keys are verified). */
+export function unverifiedWhy(person: ShownSigner | "missing", agent: ShownSigner | "missing", test = false): string | undefined {
+  if (![person, agent].some((s) => s !== "missing" && !s.verified)) return undefined;
+  return `${test ? "Test keys; this" : "This"} cockpit has no identity verb, so the name isn't verified.`;
 }
 
 /** The status bar item's tooltip: per key, the hint from identity.json and why it is unverified (or its tier). */

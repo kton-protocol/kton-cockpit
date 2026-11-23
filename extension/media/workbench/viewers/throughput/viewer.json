@@ -1,0 +1,20 @@
+{
+ "viewer": "throughput",
+ "module": "throughput.js",
+ "requires": [
+  "query@1"
+ ],
+ "optional": [],
+ "accepts": {
+  "when": "literal",
+  "kind": "literal",
+  "count": "literal",
+  "byRule": "literal",
+  "oneByOne": "literal",
+  "emptyText": "literal",
+  "emptyHow": "literal",
+  "heading": "literal",
+  "scope": "literal"
+ },
+ "emits": {}
+}

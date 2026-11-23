@@ -1,0 +1,50 @@
+{
+ "viewer": "rules",
+ "module": "rules.js",
+ "requires": [
+  "query@1"
+ ],
+ "optional": [
+  "sign@1",
+  "record@1"
+ ],
+ "accepts": {
+  "id": "literal",
+  "title": "literal",
+  "target": "literal",
+  "size": "literal",
+  "settles": "literal",
+  "collapses": "literal",
+  "answer": "literal",
+  "reason": "literal",
+  "risk": "literal",
+  "owner": "literal",
+  "caveat": "literal",
+  "examples": "literal",
+  "members": "literal",
+  "sep": "literal",
+  "excludeField": "literal",
+  "decidedBy": "literal",
+  "decidedAt": "literal",
+  "decidedVerdict": "literal",
+  "decidedClaim": "literal",
+  "excluded": "literal",
+  "emptyText": "literal",
+  "emptyHow": "literal",
+  "heading": "literal",
+  "fields": {
+   "set": "literal"
+  },
+  "choices": {
+   "set": "literal"
+  }
+ },
+ "emits": {
+  "pick": {
+   "from": "state.pick",
+   "type": "literal"
+  }
+ },
+ "rendersActs": true,
+ "keepsState": true
+}

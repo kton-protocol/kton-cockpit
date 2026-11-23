@@ -1,0 +1,37 @@
+{
+ "name": "w-evidence",
+ "target": "either",
+ "predicate": "https://example.org/qa/decide/evidence",
+ "fields": {
+  "element": {
+   "type": "string"
+  },
+  "kind": {
+   "type": "string"
+  },
+  "repo": {
+   "type": "string"
+  },
+  "commit": {
+   "type": "string"
+  },
+  "path": {
+   "type": "string"
+  },
+  "line": {
+   "type": "string"
+  },
+  "sha256": {
+   "type": "string"
+  },
+  "resolved": {
+   "type": "string"
+  },
+  "note": {
+   "type": "string"
+  },
+  "stamp": {
+   "type": "string"
+  }
+ }
+}

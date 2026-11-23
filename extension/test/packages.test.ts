@@ -171,7 +171,7 @@ test("F1 on #174: a package carrying a climbing viewer file is refused at load, 
   assert.match(l.refusals[0]?.reason ?? "", /ZZ-escape\.txt.*has a \.\. segment/);
   assert.ok(!reads.includes(h), "the climbing member was never read");
   for (const n of ["/etc/x", "viewers/t/a\\b", "viewers/t/c:x", "viewers/t//x", "viewers/./x", "content/../x"]) assert.ok(nameProblem(n), n);
-  for (const n of ["viewers/table/index.js", "content/SOP-02.md"]) assert.equal(nameProblem(n), undefined, n);
+  for (const n of ["viewers/table/index.js", "content/DOC-02.md"]) assert.equal(nameProblem(n), undefined, n);
   // the store write (defence in depth): one escaping path, and nothing at all is written
   const root = mkdtempSync(join(tmpdir(), "wb-store-"));
   try {
@@ -190,7 +190,7 @@ test("member names: the one rule of ktonpkg v0.9.9 (memberNameProblem), case by 
   const cases: Array<[string, string | undefined]> = [
     ["viewers/table/index.html", undefined],
     ["viewers/table/index.js", undefined],
-    ["content/SOP-02.md", undefined],
+    ["content/DOC-02.md", undefined],
     ["a", undefined],
     ["review 10.30.md", undefined],
     ["a/", "has an empty segment or a leading or trailing /"],
@@ -254,4 +254,13 @@ test("member names on #184: only the aliases member listed as \"\" is exempt; a 
   assert.deepEqual(Object.keys(ok.packages), ["hostile-good"]);
   // and an empty name in any other role is still refused
   assert.equal((await load("query", "")).refusals[0]?.code, "member.name");
+});
+
+test("ui list: a review-view entry's scopes (ktonpkg v0.9.11, the area's shape) are read; a wrong shape is refused", () => {
+  const pkg = kwt().pkg as unknown as { ui: Array<Record<string, unknown>> };
+  const withScopes = { ...pkg, ui: pkg.ui.map((e) => ({ ...e, scopes: { records: "qa.review", reads: ["qa.mapping"] } })) };
+  const ok = assertUiListing({ packages: [withScopes] });
+  assert.deepEqual(ok.packages[0]?.ui[0]?.scopes, { records: "qa.review", reads: ["qa.mapping"] });
+  assert.throws(() => assertUiListing({ packages: [{ ...pkg, ui: pkg.ui.map((e) => ({ ...e, scopes: { records: 7 } })) }] }), TransportError);
+  assert.throws(() => assertUiListing({ packages: [{ ...pkg, ui: pkg.ui.map((e) => ({ ...e, scopes: "qa.review" })) }] }), TransportError);
 });

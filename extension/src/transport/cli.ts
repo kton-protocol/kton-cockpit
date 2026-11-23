@@ -64,6 +64,9 @@ interface RunResult {
 /** What one cockpit call may write to stdout (a member through `ui cat`, a listing). */
 export const MAX_BUFFER = 64 * 1024 * 1024;
 
+/** An http(s) IRI subject for say: no whitespace, quotes or angle brackets, and not a flag. */
+const IRI_SUBJECT = /^https?:\/\/[^\s"'<>\\]+$/;
+
 export class CliTransport implements Transport {
   /** Every argv the transport ran, newest last. For the local output channel (O7) and tests. */
   readonly calls: string[][] = [];
@@ -127,6 +130,10 @@ export class CliTransport implements Transport {
   say(req: SayRequest): Promise<Outcome<SayResult>> {
     const why = checkSay(req);
     if (why) return bad(why);
+    if (!SHA.test(req.subject)) {
+      // an IRI subject (an element, a rule case): the JSON form, which takes one (the word form does not, cockpit v0.5.x)
+      return this.outcome(["say", JSON.stringify({ template: req.template, subject: req.subject, fields: req.fields ?? {}, ...(req.as !== undefined ? { as: req.as } : {}), ...(req.scope !== undefined ? { scope: req.scope } : {}), ...(req.expectTemplate ? { expectTemplate: req.expectTemplate } : {}), ...(req.expectRevision ? { expectRevision: req.expectRevision } : {}), ...(req.expectPredicate ? { expectPredicate: req.expectPredicate } : {}) })], assertSayResult);
+    }
     const args = ["say", req.template, req.subject];
     for (const k of Object.keys(req.fields ?? {}).sort()) args.push(`${k}=${(req.fields ?? {})[k] ?? ""}`);
     if (req.as !== undefined) args.push("--as", req.as);
@@ -278,7 +285,8 @@ const LINEAGE: ReadonlySet<string> = new Set(["record", "producer", "uses", "lin
  */
 export function checkSay(req: SayRequest): string | undefined {
   if (!QNAME.test(req.template)) return `template ${JSON.stringify(req.template)} is not a name`;
-  if (!SHA.test(req.subject)) return "say takes a sha256 id as its subject, never a path";
+  if (!SHA.test(req.subject) && !IRI_SUBJECT.test(req.subject)) return "say takes a sha256 id or an http(s) IRI as its subject, never a path";
+  if (!SHA.test(req.subject) && req.expectHead !== undefined) return "expectHead is not taken with an IRI subject";
   for (const k of Object.keys(req.fields ?? {})) if (!NAME.test(k)) return `field ${JSON.stringify(k)} is not a name`;
   if (req.as !== undefined && !NAME.test(req.as)) return "as is not a key name";
   if (req.scope !== undefined && !NAME.test(req.scope)) return `scope ${JSON.stringify(req.scope)} is not a name`;

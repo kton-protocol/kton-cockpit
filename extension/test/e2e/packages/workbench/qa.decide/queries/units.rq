@@ -1,0 +1,13 @@
+# Every recorded unit with its test and result; ?claim is the row an act is about.
+PREFIX nk:   <https://kton.dev/v/>
+PREFIX lab:  <https://kton.dev/v/lab/>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX dct:  <http://purl.org/dc/terms/>
+PREFIX xsd:  <http://www.w3.org/2001/XMLSchema#>
+PREFIX w:    <https://example.org/qa/decide/>
+SELECT ?test ?result ?run ?stamp ?claim WHERE {
+  ?sr rdfs:label "w.runs" .
+  ?claim nk:scope ?sr ; nk:predicate w:unit ; lab:test ?test ; lab:result ?result ; lab:run ?run .
+  BIND(CONCAT("w.runs · ", STR(?run)) AS ?stamp)
+}
+ORDER BY ?test ?run

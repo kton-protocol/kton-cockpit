@@ -1,0 +1,15 @@
+# Guard rule failed-has-artifact: every failed unit keeps an artifact. A finding per failed unit without one.
+PREFIX nk:   <https://kton.dev/v/>
+PREFIX lab:  <https://kton.dev/v/lab/>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX dct:  <http://purl.org/dc/terms/>
+PREFIX xsd:  <http://www.w3.org/2001/XMLSchema#>
+PREFIX w:    <https://example.org/qa/decide/>
+SELECT ?rule ?focus ?claim ?message WHERE {
+  BIND("failed-has-artifact" AS ?rule)
+  BIND("a failed unit without an artifact (failed-has-artifact)" AS ?message)
+  ?claim nk:predicate w:unit ; lab:test ?test ; lab:run ?run ; lab:result "failed" .
+  FILTER NOT EXISTS { ?a nk:predicate w:artifact ; lab:run ?run2 ; lab:test ?test2 . FILTER(STR(?run2) = STR(?run) && STR(?test2) = STR(?test)) }
+  BIND(?claim AS ?focus)
+}
+ORDER BY ?focus

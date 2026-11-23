@@ -157,11 +157,21 @@ sayq deviation-approves "$D2" qa.deviations $PE '{"outcome":"rejected"}' >/dev/n
 sayq deviation-approves "$D3" qa.deviations $AG '{"outcome":"approved"}' >/dev/null
 sayq deviation-note "$D2" qa.deviations $AG '{"text":"Waiting for the cleaning supervisor."}' >/dev/null
 
+# W: the workbench's own views over invented data (seed-workbench.sh): a decision view with figures, an estimate,
+# rows, cards, evidence, requests and a foreign control, guard rules, and relayed inbox messages, in repo-w
+. /e2e/seed-workbench.sh
 cd "$E2E/repo"
+
+# More flows from outside this repository (run.sh EXTRA_FLOWS): their seed runs here, in this shell (it may use say,
+# sayq and the keys above) and sets EXTRA_SEED_JSON, which goes into seed.json as "extra"
+EXTRA_SEED_JSON=null
+if [ -f /extra/seed.sh ]; then . /extra/seed.sh; cd "$E2E/repo"; fi
 
 cat > "$E2E/seed.json" <<EOF
 {"scope": "$SEED", "requests": ["$R1", "$R2"], "announce": "$ANN", "proposals": {"P1": "$P1", "P2": "$P2", "P3": "$P3", "P4": "$P4"},
  "personKeyId": "$PKID", "agentKeyId": "$AKID", "lookalikeKeyId": "$LKID",
+ "w": $W_JSON,
+ "extra": $EXTRA_SEED_JSON,
  "s6": {"deviations": {"D-001": "$D1", "D-002": "$D2", "D-003-v1": "$D3A", "D-003": "$D3", "D-004": "$D4"}}}
 EOF
 echo "seeded: scope $SEED"

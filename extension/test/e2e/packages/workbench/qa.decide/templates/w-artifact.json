@@ -1,0 +1,28 @@
+{
+ "name": "w-artifact",
+ "target": "either",
+ "predicate": "https://example.org/qa/decide/artifact",
+ "fields": {
+  "run": {
+   "type": "string"
+  },
+  "test": {
+   "type": "string"
+  },
+  "kind": {
+   "type": "string"
+  },
+  "name": {
+   "type": "string"
+  },
+  "sha256": {
+   "type": "string"
+  },
+  "mediaType": {
+   "type": "string"
+  },
+  "bytes": {
+   "type": "string"
+  }
+ }
+}

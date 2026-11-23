@@ -1,0 +1,6 @@
+{
+ "slot": "finding-source",
+ "label": "Item stamp names a source",
+ "query": "rule-source-stamped",
+ "order": 2
+}

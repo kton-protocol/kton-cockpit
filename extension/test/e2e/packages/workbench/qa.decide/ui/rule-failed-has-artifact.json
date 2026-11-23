@@ -1,0 +1,6 @@
+{
+ "slot": "finding-source",
+ "label": "Failed unit has an artifact",
+ "query": "rule-failed-has-artifact",
+ "order": 1
+}

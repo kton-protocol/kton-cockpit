@@ -1,0 +1,19 @@
+# The counts of the decision, each with its scope and stamp: in scope, outside it, all judged (two scopes in one
+# view: the figures block's guard says so). A count of nothing gives no row.
+PREFIX nk:   <https://kton.dev/v/>
+PREFIX lab:  <https://kton.dev/v/lab/>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX dct:  <http://purl.org/dc/terms/>
+PREFIX xsd:  <http://www.w3.org/2001/XMLSchema#>
+PREFIX w:    <https://example.org/qa/decide/>
+SELECT ?value ?label ?scope ?stamp ?note ?stampLabel ?stampFull ?stampScope WHERE {
+  { { SELECT ?sc (COUNT(DISTINCT ?e) AS ?value) (SAMPLE(?s) AS ?stamp) WHERE { ?sc rdfs:label "w.data" . ?c nk:scope ?sc ; nk:predicate w:item ; lab:element ?e ; lab:stamp ?s ; lab:inScope "true" } GROUP BY ?sc HAVING (COUNT(DISTINCT ?e) > 0) }
+    BIND("unsettled in your scope" AS ?label) BIND("in scope (as agreed)" AS ?scope) BIND("disputed or unclear" AS ?note) BIND(1 AS ?o) }
+  UNION { { SELECT ?sc (COUNT(DISTINCT ?e) AS ?value) (SAMPLE(?s) AS ?stamp) WHERE { ?sc rdfs:label "w.data" . ?c nk:scope ?sc ; nk:predicate w:item ; lab:element ?e ; lab:stamp ?s } GROUP BY ?sc HAVING (COUNT(DISTINCT ?e) > 0) }
+    BIND("unsettled, all judged" AS ?label) BIND("all judged" AS ?scope) BIND("" AS ?note) BIND(2 AS ?o) }
+  UNION { { SELECT ?sc (COUNT(DISTINCT ?e) AS ?value) (SAMPLE(?s) AS ?stamp) WHERE { ?sc rdfs:label "w.data" . ?c nk:scope ?sc ; nk:predicate w:item ; lab:element ?e ; lab:stamp ?s ; lab:inScope "false" } GROUP BY ?sc HAVING (COUNT(DISTINCT ?e) > 0) }
+    BIND("outside your scope" AS ?label) BIND("outside your scope" AS ?scope) BIND("" AS ?note) BIND(3 AS ?o) }
+  OPTIONAL { ?ss nk:predicate w:source ; lab:stamp ?ssStamp ; lab:label ?stampLabel ; lab:full ?stampFull . FILTER(STR(?ssStamp) = STR(?stamp)) }
+  BIND("w.data" AS ?stampScope)
+}
+ORDER BY ?o

@@ -207,3 +207,14 @@ test("an answer larger than the transport reads is reported as too large, not as
   const t = new CliTransport({ executable: exe, cwd: dir, maxBufferBytes: 1000 });
   await assert.rejects(t.uiList(), (e: Error) => /cockpit ui list: the answer is larger than 1000 bytes/.test(e.message) && !/cannot run/.test(e.message));
 });
+
+test("say with an IRI subject goes in the JSON form; a sha256 id in the word form; anything else is refused", async () => {
+  const { transport, argvLog } = fakeCockpit([{ argv0: "say", stdout: JSON.stringify({ claimId: `sha256:${"e".repeat(64)}` }) }]);
+  const out = await transport.say({ template: "review-rule-case", subject: "https://example.org/qa/cases#rule-case-9", fields: { answer: "asserted" }, as: "qa-decider", scope: "qa.review" });
+  assert.ok(out.ok);
+  assert.deepEqual(argvLog()[0], ["say", JSON.stringify({ template: "review-rule-case", subject: "https://example.org/qa/cases#rule-case-9", fields: { answer: "asserted" }, as: "qa-decider", scope: "qa.review" })]);
+  for (const subject of ["/etc/passwd", "--as=x", "https://x/ y", "file:///x"]) {
+    const r = await transport.say({ template: "t", subject });
+    assert.ok(!r.ok, subject);
+  }
+});

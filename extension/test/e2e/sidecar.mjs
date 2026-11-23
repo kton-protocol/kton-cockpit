@@ -4,7 +4,7 @@
 // writing $WORK/rpc/<id>.req.json = {argv: [...], stdin?: "..."} and reads <id>.res.json =
 // {code, stdout, stderr}. argv goes to execFile: never through a shell. {stop: true} ends it.
 import { execFile } from "node:child_process";
-import { readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 const WORK = process.argv[2];
@@ -12,13 +12,17 @@ const RPC = join(WORK, "rpc");
 const env = { ...process.env, HOME: join(WORK, "home"), TMPDIR: join(WORK, "tmp") };
 let stop = false;
 
-// the registry to run in: the lanes one (repo), or the S6 one (repo-s6: the QM areas' packages bring field
-// aliases that would rename the lanes vocabulary's fields, since the view reads one alias file per registry)
+// the registry to run in: the lanes one (repo), or another of this run's registries by its folder name (repo-s6: the
+// QM areas' packages bring field aliases that would rename the lanes vocabulary's fields, since the view reads one
+// alias file per registry; repo-w: flow W's views; and any repo-* a seed of EXTRA_FLOWS made)
 function run({ argv, stdin, repo }) {
-  const dir = repo === "repo-s6" ? "repo-s6" : "repo";
+  const dir = typeof repo === "string" && /^repo-[a-z0-9-]+$/.test(repo) && existsSync(join(WORK, repo)) ? repo : "repo";
+  // the first ask after a say waits for one cold build of the registry's view (with federated sources, longer while
+  // the window asks at the same time): the sidecar's own asks get 600 s; the window's timeouts stay as they are
+  const timeout = 600_000;
   return new Promise((resolve) => {
-    const child = execFile("cockpit", argv, { cwd: join(WORK, dir), env, shell: false, timeout: 120_000, maxBuffer: 32 * 1024 * 1024 }, (err, stdout, stderr) => {
-      resolve({ code: err ? (typeof err.code === "number" ? err.code : 1) : 0, stdout: String(stdout), stderr: String(stderr) });
+    const child = execFile("cockpit", argv, { cwd: join(WORK, dir), env, shell: false, timeout, maxBuffer: 32 * 1024 * 1024 }, (err, stdout, stderr) => {
+      resolve({ code: err ? (typeof err.code === "number" ? err.code : 1) : 0, stdout: String(stdout), stderr: err && err.killed ? `killed after ${timeout / 1000} s (${err.signal})` : String(stderr) });
     });
     if (stdin !== undefined) child.stdin.end(stdin);
   });

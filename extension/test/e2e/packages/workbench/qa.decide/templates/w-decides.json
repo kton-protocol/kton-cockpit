@@ -1,0 +1,15 @@
+{
+ "name": "w-decides",
+ "target": "either",
+ "predicate": "https://example.org/qa/decide/decides",
+ "replace": "previous",
+ "fields": {
+  "choice": {
+   "type": "string",
+   "required": true
+  },
+  "lookedAt": {
+   "type": "string"
+  }
+ }
+}

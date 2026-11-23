@@ -13,7 +13,7 @@
 // arrives as {intent: {id, kind, …}}; (c) a page viewer asks query@1 {input}: the host maps it to the installed
 // package's named query through the slot entry and binds it from the closed set; (d) product@1 {hash} is
 // answered like content@1; (e) graph@1 is {records, keys, names, attested?} (not provided yet: refused).
-import { bindVars, typedTerm } from "../../media/kton-web/core/ktonpkg-mirror/plan.js";
+import { bindVars, typedTerm, varValuesOf } from "../../media/kton-web/core/ktonpkg-mirror/plan.js";
 import type { Control, Loaded } from "../packages/model.js";
 import type { BoundTerm } from "../transport/port.js";
 
@@ -56,13 +56,16 @@ export interface Backend {
    * query@1: a named query of an admitted package (`cockpit ask {query: sparql, name, bindTerms}`), SPARQL JSON;
    * the package says whose query it is when two packages bring the name.
    */
-  query(pkg: string, name: string, terms: Readonly<Record<string, BoundTerm>>): Promise<unknown>;
+  query(pkg: string, name: string, terms: Readonly<Record<string, BoundTerm>>, use?: string): Promise<unknown>;
   /** content@1 / product@1 bytes of a package member, by package id and hash (`ui cat`; checked again here). */
   bytes(pkg: string, hash: string): Promise<Uint8Array>;
   /** open@1: show a file, a claim or a screen in the window; resolves with what was opened. */
   open(target: Readonly<Record<string, unknown>>): Promise<string>;
-  /** sign@1 / record@1 through the shell's one sign path (C1.4): the dialog for a decision, none for a record. */
-  act(control: Control, about: string, fields: Readonly<Record<string, string>>, title: string): Promise<"signed" | "cancelled" | "failed">;
+  /**
+   * sign@1 / record@1 through the shell's one sign path (C1.4): the dialog for a decision, none for a record. `signed`
+   * is called with the claim id and the fields as signed (what the person may have edited), once it is signed.
+   */
+  act(control: Control, about: string, fields: Readonly<Record<string, string>>, title: string, proposed?: Readonly<Record<string, string>>, signed?: (s: Signed) => void): Promise<"signed" | "cancelled" | "failed">;
   /** run@1: a ray (workflow run) with its holes. */
   run(ray: string, holes: Readonly<Record<string, string>>): Promise<string>;
   /** graph@1 (e): the registry's records with the ring to verify them: {records, keys, names}. */
@@ -70,9 +73,18 @@ export interface Backend {
   /** a URL the frame may fetch for bytes above the content cap (or undefined: then above the cap is refused). */
   urlFor?(pkg: string, hash: string): string | undefined;
 }
+/** A signature as made: its claim id and the fields signed. */
+export interface Signed {
+  readonly id: string;
+  readonly fields: Readonly<Record<string, string>>;
+}
 export interface HostUi {
   post(msg: unknown): void;
   log(line: string): void;
+  /** the frame's state after each change, for a view that keeps it in the window (CompositionUi.memo); never acts */
+  keep?(state: Record<string, unknown>): void;
+  /** the view changed (an answer, a state): the support file follows the active panel (kton.support.viewFile) */
+  changed?(): void;
 }
 
 /** content@1 / product@1 send base64 up to this many bytes (before encoding, H17); above it a url + hash. */
@@ -86,13 +98,126 @@ export const VSCODE_PROVIDES = ["query@1", "content@1", "product@1", "open@1", "
  * a common window width is wider, a side-by-side half on a laptop or a narrow window is not. A layout without
  * `narrow` never changes with width.
  */
-export const NARROW_PX = 640;
+export const NARROW_PX = 820;
 /** A leaf (a page viewer in its own frame) is also given graph@1. */
 export const LEAF_PROVIDES = ["graph@1", "query@1", "product@1", "open@1", "sign@1"] as const;
 /** Acts and the control kind each one must have (O1). open and run have no control. */
 const KIND_FOR: Readonly<Record<string, "decision" | "record">> = { sign: "decision", record: "record" };
 
 export class Refused extends Error {}
+
+/** The claim an act of a claimless subject (a view's own place) is planned about: never signed; such an act is only
+ * about a row its block was shown (option target). */
+export const ROW_ONLY = `sha256:${"0".repeat(64)}`;
+
+/**
+ * The unbound-parameter guard (kton-review on ktonpkg v0.9.11): an optional $VAR left unbound is a free SPARQL variable,
+ * so a FILTER that uses it vanishes and the query answers unfiltered. These are the use's declared optional params
+ * (queryOptional) that the params given lack.
+ */
+export function unboundParams(u: PlanUse, params: Readonly<Record<string, unknown>>): string[] {
+  return ((u as { queryOptional?: readonly string[] }).queryOptional ?? []).filter((k) => params[k] === undefined);
+}
+/** Does a use feed a signature or a record: an act with intent sign or record, or a field it proposes (option propose)? */
+export function feedsAct(u: PlanUse): boolean {
+  const propose = (u as { options?: Record<string, unknown> }).options?.["propose"];
+  const proposes = Array.isArray(propose) ? propose.length > 0 : typeof propose === "string" && propose !== "";
+  return proposes || (u.acts ?? []).some((a) => a.intent === "sign" || a.intent === "record");
+}
+const notSet = (names: readonly string[]) => `${names.join(", ")} ${names.length > 1 ? "are" : "is"} not set`;
+/** What a guarded use shows instead of its answer: it neither runs its query nor offers an act. */
+export const cannotShow = (names: readonly string[]) => `cannot show: ${notSet(names)}`;
+/** An answer run with unbound optional params, stamped so: `unfiltered` names them (blocks show "unfiltered: <p> not set"). */
+/** The key of a use's answer in the host's memory: the use, its params and its refine values. */
+export function answerKey(use: string, params: Readonly<Record<string, Term>>, refine?: unknown): string {
+  return JSON.stringify([use, params, refine ?? null]);
+}
+
+/** "sha256:1234abcd…" → "1234abcd" (the claim's short id; the full one is in the notification and the tooltip). */
+export function shortClaim(id: string): string {
+  return String(id).replace(/^sha256:/, "").slice(0, 8);
+}
+
+/**
+ * What a signature was, in a few words: the act (or the control's title), what it is about (the row's target, its last
+ * segment decoded) and the fields the person chose, e.g. "Sign verdict… · item-12#e4 · verdict right".
+ */
+/**
+ * The choices a use declares for an act (options.choices "[control:]field=value|Label"): only a non-empty value, and only
+ * a choice for this act's control or for every act.
+ */
+export function declaredChoices(u: PlanUse | undefined, act: PlanAct): Array<{ field: string; value: string }> {
+  const raw = (u as { options?: Record<string, unknown> } | undefined)?.options?.["choices"];
+  const list = Array.isArray(raw) ? raw.filter((x): x is string => typeof x === "string") : [];
+  const name = act.control?.name;
+  return list.flatMap((c) => {
+    const cfv = c.includes("|") ? c.slice(0, c.indexOf("|")) : c;
+    const eq = cfv.indexOf("=");
+    if (eq < 1) return [];
+    const left = cfv.slice(0, eq);
+    const value = cfv.slice(eq + 1);
+    const colon = left.indexOf(":");
+    const control = colon < 0 ? undefined : left.slice(0, colon);
+    const field = colon < 0 ? left : left.slice(colon + 1);
+    return value !== "" && field !== "" && (control === undefined || control === name) ? [{ field, value }] : [];
+  });
+}
+
+export function signedWhat(c: { name: string; title?: string }, act: { label?: string }, i: Readonly<Record<string, unknown>>, made?: { fields: Readonly<Record<string, string>> }): string {
+  const name = (act.label ?? c.title ?? c.name).replace(/…$/, "");
+  const target = typeof i["target"] === "string" && i["target"] ? lastSegment(i["target"]) : "";
+  const fields = (i["fields"] ?? {}) as Record<string, unknown>;
+  const chosen = Object.keys(fields)
+    // what was signed when the signature is known (a proposal the person changed or that was not taken is not named)
+    .map((k) => [k, made ? (made.fields[k] ?? "") : String(fields[k])] as const)
+    .filter(([, v]) => v && v.length <= 60)
+    .map(([k, v]) => `${k} ${v}`);
+  return [name, target, ...chosen].filter(Boolean).join(" · ");
+}
+
+function lastSegment(iri: string): string {
+  // the last path segment, then its fragment if it has one (…/cases#case-3), decoded (…/item-12%23e4)
+  const seg = iri.replace(/\/+$/, "").split("/").pop() ?? iri;
+  const s = seg.includes("#") ? seg.slice(seg.lastIndexOf("#") + 1) : seg;
+  try {
+    return decodeURIComponent(s);
+  } catch {
+    return s;
+  }
+}
+
+export function stampUnfiltered(answer: unknown, names: readonly string[]): unknown {
+  return answer && typeof answer === "object" && !Array.isArray(answer) ? { ...(answer as Record<string, unknown>), unfiltered: [...names] } : answer;
+}
+
+/**
+ * A use's `nudge` option filled in after its act signed: {claim} is the claim id, {<field>} a signed field. The values go
+ * into a shell double-quoted string (", \\, $ and ` escaped; line breaks as spaces). Undefined when a placeholder has no
+ * value. The shell sends no lane message; it prints the line for the person (or a lane) to send.
+ */
+export function nudgeLine(template: unknown, s: Signed): string | undefined {
+  if (typeof template !== "string" || !template) return undefined;
+  const esc = (v: string) => v.replace(/[\\"$`]/g, (c) => `\\${c}`).replace(/[\r\n]+/g, " ");
+  let missing = false;
+  const line = template.replace(/\{([A-Za-z][A-Za-z0-9_]*)\}/g, (_m, k: string) => {
+    const v = k === "claim" ? s.id : s.fields[k];
+    if (v === undefined) missing = true;
+    return esc(v ?? "");
+  });
+  return missing ? undefined : line;
+}
+
+/**
+ * The nudge template for an act through a control: the use's `nudges` entry "<control>|<line>" for that control, else
+ * its `nudge` (one line for every act of the use).
+ */
+export function nudgeFor(options: Readonly<Record<string, unknown>> | undefined, control: string): string | undefined {
+  const many = options?.["nudges"];
+  if (Array.isArray(many)) {
+    for (const x of many) if (typeof x === "string" && x.startsWith(`${control}|`)) return x.slice(control.length + 1);
+  }
+  return typeof options?.["nudge"] === "string" ? options["nudge"] : undefined;
+}
 
 /** A frame's state without acts: frames must not report them (host-held, H8). */
 export function withoutActs(state: unknown): Record<string, unknown> {
@@ -313,6 +438,35 @@ export class CompositionHost {
   private setPending = false;
   /** how many times the frame said ready: an act that ends after a reload must reach the new frame (H8) */
   private loads = 0;
+  /**
+   * The last answer of each use (key: use + params) and when its query started; never a skeleton after a signature:
+   * after a signature here the cockpit may rebuild a federated index cold, and every ask waits for
+   * it. A re-ask (the frame reloads when the sign dialog took its column) is answered at once with the last answer,
+   * marked `refreshing`; the fresh one follows as a kton-workbench:answer message (or the error that kept it stale).
+   */
+  private readonly answers = new Map<string, { result: unknown; epoch: number }>();
+  private readonly refreshes = new Map<string, number>();
+  /** the queries running now, by answer key: a second ask of the same shares the first */
+  private readonly pending = new Map<string, Promise<unknown>>();
+  /** the last answer each use got, with its params: what the view shows now (the support file) */
+  private readonly lastByUse = new Map<string, { result: unknown; params: Readonly<Record<string, Term>> }>();
+  /** The view's blocks as answered now (for the support file): each use's last answer and its params as text. */
+  shown(): Array<{ use: string; block: string; query?: string; params?: Record<string, string>; answer?: unknown }> {
+    return this.plan.uses.map((u) => {
+      const l = this.lastByUse.get(u.key);
+      return {
+        use: u.key,
+        block: u.block,
+        ...(u.query ? { query: `${u.query.package}/${u.query.name}` } : {}),
+        ...(l ? { params: Object.fromEntries(Object.entries(l.params).map(([k, t]) => [k, t.value])), answer: l.result } : {}),
+      };
+    });
+  }
+  private refreshSeq = 0;
+  /** how many signatures this view made (an answer asked before the last one is old), when the last was (ms), and what */
+  private epoch = 0;
+  private signedAt = 0;
+  private lastSigned: { what: string; claim: string; at: number } | undefined;
 
   constructor(
     readonly plan: Plan,
@@ -320,6 +474,11 @@ export class CompositionHost {
     private readonly backend: Backend,
     private readonly ui: HostUi,
     initialState: unknown = {},
+    /**
+     * The uses whose block draws its own act buttons (viewer.json `rendersActs`): the frame gets their acts as
+     * `blockActs` and `acts` empty, so the composition renderer adds no second, target-less act bar.
+     */
+    private readonly rendersActs: ReadonlySet<string> = new Set(),
   ) {
     this.state = withoutActs(initialState);
   }
@@ -338,8 +497,12 @@ export class CompositionHost {
         return;
       case "kton:state":
         this.state = withoutActs(m["state"]);
+        this.ui.keep?.(this.state);
+        this.ui.changed?.();
         if (this.setPending) this.acts.received();
         this.setPending = false;
+        // a var change that guards a use (or frees it) changes which acts the frame may offer: a new set
+        if (this.loads > 0 && JSON.stringify([...this.guarded()]) !== this.sentGuard) this.sendSet();
         return;
       case "kton:request":
         // (a) vars beside args
@@ -358,7 +521,34 @@ export class CompositionHost {
       let result: unknown;
       if (cap === "query@1") {
         const q = u.query as { package: string; name: string };
-        result = await this.backend.query(q.package, q.name, termsOf(params));
+        // the unbound-parameter guard: a use that feeds a sign act or proposes a field never runs unfiltered; any
+        // other use runs, and its answer says it is unfiltered
+        const unbound = unboundParams(u, params);
+        if (unbound.length && feedsAct(u)) throw new Refused(cannotShow(unbound));
+        const k = answerKey(u.key, params, args["refine"]);
+        const last = this.answers.get(k);
+        if (last && last.epoch < this.epoch) {
+          // asked again after a signature: the last answer now, marked; the fresh one follows (never a blank view)
+          const token = this.refresh(k, u, q, params, unbound);
+          this.ui.post({ type: "kton-workbench:refreshing", use: u.key, since: this.signedAt, token });
+          result = { ...(last.result as object), refreshing: { since: this.signedAt, token } };
+        } else {
+          const epoch = this.epoch;
+          // the same query (use, params, refine) asked again while it runs: the one ask is shared, never a second
+          let p = this.pending.get(k);
+          if (!p) {
+            p = this.backend.query(q.package, q.name, termsOf(params), u.key);
+            this.pending.set(k, p);
+            const done = () => this.pending.get(k) === p && this.pending.delete(k);
+            p.then(done, done);
+          }
+          result = await p;
+          this.remember(u, result);
+          this.answers.set(k, { result, epoch });
+          this.lastByUse.set(u.key, { result, params });
+          this.ui.changed?.();
+          if (unbound.length) result = stampUnfiltered(result, unbound);
+        }
       }
       else if (cap === "content@1") {
         if (!u.content?.binary || args["hash"] !== u.content.hash) throw new Refused(`${u.key}: the content differs from the plan's`);
@@ -378,10 +568,72 @@ export class CompositionHost {
     }
   }
 
+  /**
+   * Ask a use's query again in the background (once per key at a time): the fresh answer replaces the last one and goes
+   * to the frame as {type: "kton-workbench:answer", use, token, result}; a failure as {…, error, since}: the frame keeps
+   * the last answer, marked stale with the reason. Returns the token the frame matches the answer by.
+   */
+  private refresh(k: string, u: PlanUse, q: { package: string; name: string }, params: Readonly<Record<string, Term>>, unbound: readonly string[]): number {
+    const running = this.refreshes.get(k);
+    if (running !== undefined) return running;
+    const token = ++this.refreshSeq;
+    this.refreshes.set(k, token);
+    const epoch = this.epoch;
+    const since = this.signedAt;
+    void this.backend.query(q.package, q.name, termsOf(params)).then(
+      (fresh) => {
+        this.refreshes.delete(k);
+        this.remember(u, fresh);
+        this.answers.set(k, { result: fresh, epoch });
+        this.lastByUse.set(u.key, { result: fresh, params });
+        this.ui.changed?.();
+        this.ui.post({ type: "kton-workbench:answer", use: u.key, token, result: unbound.length ? stampUnfiltered(fresh, unbound) : fresh });
+      },
+      (e: unknown) => {
+        this.refreshes.delete(k);
+        const why = e instanceof Error ? e.message : String(e);
+        this.ui.log(`composition: refresh of ${u.key} after a signature failed: ${why}`);
+        this.ui.post({ type: "kton-workbench:answer", use: u.key, token, error: why, since });
+      },
+    );
+    return token;
+  }
+
   private sendSet(): void {
     this.setPending = true;
-    // the state is host-held as the frame reported it: vars and layout ({tab, ratio}), never acts (H8: held apart)
-    this.ui.post({ type: "kton:set", state: { ...this.state, acts: this.acts.forSet() }, plan: this.plan, host: { name: "vscode", provides: VSCODE_PROVIDES, narrow: NARROW_PX } });
+    // the state is host-held as the frame reported it: vars and layout ({tab, ratio}), never acts (H8: held apart);
+    // the last signature of this view rides along, so a frame reloaded after the dialog still confirms it
+    this.ui.post({ type: "kton:set", state: { ...this.state, acts: this.acts.forSet() }, plan: this.framePlan(), host: { name: "vscode", provides: VSCODE_PROVIDES, narrow: NARROW_PX }, ...(this.lastSigned ? { signed: this.lastSigned } : {}) });
+  }
+
+  /** the guarded uses as last sent to the frame (JSON of [key, params] pairs) */
+  private sentGuard = "[]";
+  /**
+   * The uses that feed an act (sign or record, or a proposed field) while a declared optional param is unbound under the
+   * vars the frame last reported: key → the unbound params. Their query is refused and their acts are not offered.
+   */
+  guarded(): Map<string, string[]> {
+    const p = this.plan as unknown as { compositions?: unknown[]; vars?: unknown; uses: readonly PlanUse[] };
+    const uses = p.compositions && p.vars ? ((bindVars(p, varValuesOf(p, this.state)) as Plan).uses) : p.uses;
+    const out = new Map<string, string[]>();
+    for (const u of uses) {
+      const unbound = unboundParams(u, u.params ?? {});
+      if (unbound.length && feedsAct(u)) out.set(u.key, unbound);
+    }
+    return out;
+  }
+  /** The plan as the frame gets it: a guarded use without its acts (it offers none) and its options say why. */
+  framePlan(): Plan {
+    const g = this.guarded();
+    this.sentGuard = JSON.stringify([...g]);
+    if (!g.size && !this.rendersActs.size) return this.plan;
+    return {
+      ...this.plan,
+      uses: this.plan.uses.map((u0) => {
+        const u = g.has(u0.key) ? ({ ...u0, acts: [], options: { ...((u0 as { options?: object }).options ?? {}), unset: g.get(u0.key) } } as PlanUse) : u0;
+        return this.rendersActs.has(u.key) ? ({ ...u, acts: [], blockActs: u.acts ?? [] } as PlanUse) : u;
+      }),
+    } as Plan;
   }
 
   /**
@@ -391,6 +643,37 @@ export class CompositionHost {
   private hold(i: Intent, loadsAtStart: number, entry: Record<string, unknown>): void {
     this.acts.record(i.id, entry);
     if (this.loads !== loadsAtStart) this.sendSet();
+  }
+
+  /**
+   * The values a use's `target` column took in the answers this host gave that use: the only rows an act may
+   * be about instead of the plan's subject (a spot check signs about the element the card showed).
+   */
+  private readonly served = new Map<string, Set<string>>();
+  private remember(u: PlanUse, result: unknown): void {
+    const col = (u as { options?: Record<string, unknown> }).options?.["target"];
+    if (typeof col !== "string") return;
+    const b = (result as { results?: { bindings?: Array<Record<string, { value?: string }>> } }).results?.bindings ?? [];
+    const set = this.served.get(u.key) ?? new Set<string>();
+    for (const row of b) if (typeof row[col]?.value === "string") set.add(row[col]?.value as string);
+    this.served.set(u.key, set);
+  }
+
+  /**
+   * What the act is about: the plan's subject, or a row this host served to the use (option `target`, the act's
+   * intent names it as `target`). Anything else is refused.
+   */
+  private aboutOf(i: Intent, act: PlanAct): string {
+    if (i["target"] === undefined) {
+      if (act.about === ROW_ONLY) throw new Refused(`${i.from}: this view has no record of its own; its acts are about a row (pick one)`);
+      return act.about as string;
+    }
+    const u = this.plan.uses.find((x) => x.key === i.from);
+    const t = i["target"];
+    if (typeof t !== "string" || !this.served.get(u?.key ?? "")?.has(t)) throw new Refused(`${i.from}: the act's target is not a row this block was shown`);
+    // a claim's node IRI is said as its id
+    const claim = /^https:\/\/kton\.dev\/o\/([0-9a-f]{64})$/.exec(t);
+    return claim ? `sha256:${claim[1]}` : t;
   }
 
   /** The plan's act this intent claims to be, with its control, or why it is refused. */
@@ -403,9 +686,15 @@ export class CompositionHost {
     const act = (u.acts ?? []).find((a) => a.intent === i.kind && (i.kind === "run" ? a.ray === i.ray : a.control?.package === ctl?.package && a.control?.name === ctl?.name));
     if (!act) throw new Refused(`${u.key} declares no ${i.kind} act${i.kind === "run" ? ` for ray ${String(i.ray)}` : ` through ${String(ctl?.package)}/${String(ctl?.name)}`}: the intent cannot change the kind`);
     if (i.kind === "run") return { act };
+    const g = this.guarded().get(u.key);
+    if (g) throw new Refused(`${u.key}: ${cannotShow(g)}; it offers no act`);
     if (!act.about || i.about !== act.about) throw new Refused(`${u.key}: the intent is about another subject than the plan's act`);
     const control = this.loaded.controls.get(`${act.control?.package}/${act.control?.name}`);
-    if (!control) throw new Refused(`${act.control?.package} has no control ${act.control?.name}`);
+    if (!control) {
+      // another package's control (ktonpkg v0.9.13): the cockpit serves the view only while its owner is in use at the pin
+      const pin = (act.control as { pin?: { at?: string } } | undefined)?.pin;
+      throw new Refused(pin ? `${act.control?.package}@${String(pin.at)} is not in use here: its control ${act.control?.name} cannot sign` : `${act.control?.package} has no control ${act.control?.name}`);
+    }
     if (control.kind !== KIND_FOR[i.kind]) throw new Refused(`control ${control.name} is a ${control.kind} control, not ${KIND_FOR[i.kind]}`);
     return { act, control };
   }
@@ -430,9 +719,37 @@ export class CompositionHost {
       else if (i.kind === "run") result = { message: await this.backend.run(checked.act.ray as string, checked.act.fields) };
       else {
         const c = checked.control as Control;
-        const r = await this.backend.act(c, checked.act.about as string, checked.act.fields, `${checked.act.label}: ${this.plan.root.package}/${this.plan.root.composition}`);
+        // a choice the use declares for this act (options.choices "field=value|Label", the button the person pressed) is
+        // the package's value, checked against the plan here; any other field a frame proposes is offered to the
+        // person, never signed unseen: a value of a field with fixed values shows in the dialog, any other is the
+        // default of the shell's input box (Workbench.askOpenFields); a record, which has no dialog, takes none
+        const given = Object.entries((i["fields"] ?? {}) as Record<string, unknown>).filter((e): e is [string, string] => typeof e[1] === "string" && !(e[0] in checked.act.fields));
+        const declared = declaredChoices(this.plan.uses.find((x) => x.key === i.from), checked.act);
+        const chosen = Object.fromEntries(given.filter(([k, v]) => declared.some((d) => d.field === k && d.value === v)));
+        const proposed = Object.fromEntries(given.filter(([k]) => !(k in chosen)));
+        const actFields = { ...checked.act.fields, ...chosen };
+        let made: Signed | undefined;
+        const r = await this.backend.act(c, this.aboutOf(i, checked.act), actFields, `${checked.act.label}: ${this.plan.root.package}/${this.plan.root.composition}`, proposed, (s) => (made = s));
         if (r === "failed") return refuse(c.kind === "decision" ? "not signed (see the sign dialog)" : "not recorded");
-        result = r === "signed" ? { signed: true, key: c.kind === "decision" ? "person" : "agent", message: c.kind === "decision" ? "Signed with the person key (test-only)." : "Recorded with the agent key." } : { signed: false, message: "Not signed: the dialog was cancelled." };
+        const keyLine = c.kind === "decision" ? "Signed with the person key (test-only)." : "Recorded with the agent key.";
+        if (r === "signed") {
+          // confirmed at once, before any refresh: in the view (the act's own line, and the frame's banner,
+          // also after a reload) and as the notification the sign path shows with the full claim id
+          this.epoch += 1;
+          this.signedAt = Date.now();
+          const what = signedWhat(c, checked.act, i, made);
+          this.lastSigned = { what, claim: made?.id ?? "", at: this.signedAt };
+          this.ui.post({ type: "kton-workbench:signed", ...this.lastSigned });
+        }
+        result = r === "signed" ? { signed: true, key: c.kind === "decision" ? "person" : "agent", message: made ? `${c.kind === "decision" ? "Signed" : "Recorded"}: ${signedWhat(c, checked.act, i, made)} (claim ${shortClaim(made.id)}). ${keyLine}` : keyLine, ...(made ? { claim: made.id } : {}) } : { signed: false, message: "Not signed: the dialog was cancelled." };
+        // the use's nudge (option): the shell sends no lane message; it prints the exact line in its output channel
+        const use = this.plan.uses.find((x) => x.key === i.from) as { options?: Record<string, unknown> } | undefined;
+        const nudge = nudgeFor(use?.options, c.name);
+        if (r === "signed" && made && nudge !== undefined) {
+          const line = nudgeLine(nudge, made);
+          this.ui.log(line ? `nudge (send it; the shell sends no lane message): ${line}` : `nudge: a placeholder of ${i.from}'s nudge has no value; nothing to print`);
+          if (line) result = { ...result, nudge: line };
+        }
       }
       this.ui.post({ type: "kton:data", id: i.id, result });
       if (held) this.hold(i, loadsAtStart, { use: i.from, intent: i.kind, status: "done", result });

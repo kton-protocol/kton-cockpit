@@ -1,0 +1,18 @@
+{
+ "composition": "items",
+ "kind": "view",
+ "subject": {"kind": "scope"},
+ "vars": {"item": {"type": "iri"}},
+ "parts": [
+  {"id": "list", "heading": "Items", "blocks": [
+   {"id": "items", "use": {"package": "@workbench", "block": "rows"}, "query": "items", "empty": "show", "options": {"columns": ["title", "stamp"], "pick": "claim"}, "emits": {"select": "item"}}
+  ]},
+  {"id": "history", "heading": "History of the picked item", "blocks": [
+   {"id": "history", "use": {"package": "@workbench", "block": "rows"}, "query": "item-history", "empty": "show", "params": {"item": "var.item"}}
+  ]},
+  {"id": "elements", "heading": "Elements by part, paged", "blocks": [
+   {"id": "elements", "use": {"package": "@workbench", "block": "rows"}, "query": "elements", "empty": "show", "options": {"page": "after=element", "pageSize": "2"},
+    "refine": {"part": {"values": ["A", "B"], "default": "A"}, "after": {"type": "literal", "default": ""}}}
+  ]}
+ ]
+}

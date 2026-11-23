@@ -1,0 +1,24 @@
+# What there is to open for one element ($element): the spec and the code at their commits (read-only, hash
+# checked), or why there is nothing to open.
+PREFIX nk:   <https://kton.dev/v/>
+PREFIX lab:  <https://kton.dev/v/lab/>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX dct:  <http://purl.org/dc/terms/>
+PREFIX xsd:  <http://www.w3.org/2001/XMLSchema#>
+PREFIX w:    <https://example.org/qa/decide/>
+SELECT ?kind ?label ?note ?repo ?commit ?path ?line ?sha256 ?stamp ?stampLabel ?stampFull ?stampScope ?for WHERE {
+  ?sc rdfs:label "w.data" .
+  ?ev nk:scope ?sc ; nk:predicate w:evidence ; lab:element ?element ; lab:kind ?kind ; lab:stamp ?stamp .
+  FILTER(STR(?element) = STR($element))
+  OPTIONAL { ?ev lab:repo ?repo ; lab:commit ?commit ; lab:path ?path } OPTIONAL { ?ev lab:line ?line } OPTIONAL { ?ev lab:sha256 ?h }
+  OPTIONAL { ?ev lab:resolved ?resolved } OPTIONAL { ?ev lab:note ?n0 }
+  BIND(IF(?kind = "spec", 1, 2) AS ?o)
+  BIND(IF(BOUND(?path), CONCAT(IF(?kind = "spec", "Open spec: ", "Where it is implemented (static reading): "), REPLACE(STR(?path), "^.*/", ""), IF(BOUND(?line), CONCAT(" at line ", STR(?line)), "")),
+          CONCAT("Where it is implemented (static reading): not resolved: ", COALESCE(STR(?resolved), "no reason given"))) AS ?label)
+  BIND(COALESCE(STR(?n0), "") AS ?note)
+  BIND(STR(?element) AS ?for)
+  BIND(IF(STRSTARTS(STR(?h), "https://kton.dev/o/"), CONCAT("sha256:", STRAFTER(STR(?h), "https://kton.dev/o/")), ?h) AS ?sha256)
+  OPTIONAL { ?ss nk:predicate w:source ; lab:stamp ?ssStamp ; lab:label ?stampLabel ; lab:full ?stampFull . FILTER(STR(?ssStamp) = STR(?stamp)) }
+  BIND("w.data" AS ?stampScope)
+}
+ORDER BY ?o

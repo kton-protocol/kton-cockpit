@@ -1,0 +1,14 @@
+{
+ "name": "w-capture-result",
+ "target": "either",
+ "predicate": "https://example.org/qa/decide/captureResult",
+ "fields": {
+  "outcome": {
+   "type": "string",
+   "required": true
+  },
+  "run": {
+   "type": "string"
+  }
+ }
+}

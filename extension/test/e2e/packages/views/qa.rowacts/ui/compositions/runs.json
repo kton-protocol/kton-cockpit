@@ -1,0 +1,13 @@
+{
+ "composition": "runs",
+ "kind": "view",
+ "subject": {"kind": "scope"},
+ "parts": [
+  {"id": "units", "heading": "Units", "blocks": [
+   {"id": "units", "use": {"package": "@workbench", "block": "rows"}, "query": "units", "empty": "show",
+    "options": {"columns": ["test", "result", "stamp"], "target": "claim", "propose": ["test=test"], "choices": ["reason=|Request rerun", "reason=capture mode|Request rerun (capture mode)"],
+     "nudge": "./send lane-a requests area=area-b title=\"rerun: {test}\" text=\"rerun request claim {claim}; test {test}\" why=\"row acts\""},
+    "acts": [{"intent": "record", "label": "Request rerun", "control": "rerun-request", "from": {"package": "qa.owner", "at": "1", "head": "sha256:defa32eef36e84d8f0362c9b11e842ccd21a1d93e2f2d9cd14fb75cb4dea66e9"}}]}
+  ]}
+ ]
+}

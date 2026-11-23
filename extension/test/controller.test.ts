@@ -182,13 +182,16 @@ async function setup(cfg: Partial<typeof DEFAULT_CONFIG> = {}, t: Transport = ne
 }
 const decisionIntent = (choice: string, extra: Record<string, string> = {}) => ({ kind: "sign", about: sha("1"), fields: { answers: sha("1"), outcome: "https://schema.org/AcceptAction", choice, ...extra } });
 
-test("S1.1: status bar shows both keys, unverified until the cockpit has an identity verb, and test mode", async () => {
+test("S1.1: status bar shows both keys, \"test\" (unverified: test keys, no identity verb) and test mode; decisions waiting apart from the inbox", async () => {
   const { h } = await setup();
   const s = h.status.get("identity") ?? "";
-  assert.equal(s, "person key qa-decider · agent key qa-decider-agent · unverified");
+  assert.equal(s, "person key qa-decider · agent key qa-decider-agent · test");
   assert.ok(!/qa-requestor/.test(s), "no name comes from a claim's signer");
   assert.equal(h.status.get("mode"), "TEST MODE");
-  assert.match(h.status.get("poll") ?? "", /polling: inbox every 30s · 1 open · 2 decisions/);
+  assert.match(h.status.get("poll") ?? "", /^polling: inbox every 30s · 1 open$/);
+  // proposals are not inbox messages: their own item, singular/plural, a click shows Home's Decisions waiting
+  assert.equal(h.status.get("decisions"), "2 decisions waiting");
+  assert.equal(h.statusCommand.get("decisions"), "ktonWorkbench.home.focus");
 });
 
 test("S1.3: a signer the view gives no tier for is shown as unknown, never by its label", async () => {
@@ -236,14 +239,14 @@ test("S1.5: after a rebuild (identity file back) the open panels are rendered ag
 
 test("S1.7: a missing person or agent key is named, and neither key stands in for the other", async () => {
   const noPerson = await setup({}, new FakeTransport(), { ...identity, person: { role: "person", keyName: "", keyId: "" } });
-  assert.match(noPerson.h.status.get("identity") ?? "", /^person key missing · agent key qa-decider-agent · unverified$/);
+  assert.match(noPerson.h.status.get("identity") ?? "", /^person key missing · agent key qa-decider-agent · test$/);
   noPerson.h.confirmAnswer = true;
   assert.equal(await noPerson.wb.chooseOption(P1, "a"), "failed");
   assert.match(noPerson.h.errors.at(-1) ?? "", /no person key.*agent key never stands in/);
   assert.equal(noPerson.t.says.length, 0);
 
   const noAgent = await setup({}, new FakeTransport(), { ...identity, agent: { role: "agent", keyName: "", keyId: "" } });
-  assert.match(noAgent.h.status.get("identity") ?? "", /^person key qa-decider · agent key missing · unverified$/);
+  assert.match(noAgent.h.status.get("identity") ?? "", /^person key qa-decider · agent key missing · test$/);
   noAgent.h.picks = ["announces"];
   assert.equal(await noAgent.wb.sayCommand(), "failed");
   assert.match(noAgent.h.errors.at(-1) ?? "", /no agent key.*person key never stands in/);
@@ -696,7 +699,11 @@ test("S4.2: a decision act goes through the one sign dialog and signs with the p
   assert.equal(t.says.at(-1)?.template, "test-note");
   assert.equal(t.says.at(-1)?.as, "qa-decider", "the person key");
   assert.equal(t.says.at(-1)?.subject, sha("1"));
-  assert.deepEqual(c.posted.at(-1), { type: "kton:data", id: "acts/probe#x.1", result: { signed: true, key: "person", message: "Signed with the person key (test-only)." } });
+  // confirmed at once: what was signed and the claim's short id, then the key line
+  const data = c.posted.filter((m) => (m as { type?: string }).type === "kton:data").at(-1) as { result: { message: string } };
+  assert.match(data.result.message, /^Signed: .+ \(claim 99999999\)\. Signed with the person key \(test-only\)\.$/);
+  assert.deepEqual({ ...data, result: { ...data.result, message: "" } }, { type: "kton:data", id: "acts/probe#x.1", result: { signed: true, key: "person", message: "", claim: `sha256:${"9".repeat(64)}` } });
+  assert.equal((c.posted.find((m) => (m as { type?: string }).type === "kton-workbench:signed") as { claim?: string } | undefined)?.claim, `sha256:${"9".repeat(64)}`, "and posted to the frame before any refresh");
 });
 
 test("S4.3: a record act is written with the agent key and no dialog", async () => {
@@ -778,16 +785,16 @@ test("H8: an act that ends after the frame reloaded (the dialog took its column)
   assert.equal(sets[0]?.state.acts["s#old.1"]?.status, "done");
 });
 
-test("status bar (MH's demo): both key names, distinct and short; the hint and the reason are in the tooltip", async () => {
+test("status bar : both key names, distinct and short; the hint and the reason are in the tooltip", async () => {
   const id = { ...identity, hintName: "demo-person", person: { ...identity.person, keyName: "demo-person" }, agent: { ...identity.agent, keyName: "demo-person-agent" } };
   const { h } = await setup({}, new FakeTransport(), id);
   const s = h.status.get("identity") ?? "";
-  assert.equal(s, "person key demo-person · agent key demo-person-agent · unverified");
+  assert.equal(s, "person key demo-person · agent key demo-person-agent · test");
   assert.ok(s.length < 80, `${s.length} characters`);
   assert.ok(!/identity verb|\(/.test(s), "no reason in the bar");
 });
 
-test("slot items (MH's demo): the entry's label once, with its package; no item repeats its first word", async () => {
+test("slot items : the entry's label once, with its package; no item repeats its first word", async () => {
   const t = withTestPackage();
   const f = t.fixtures[0] as ReturnType<typeof listed>;
   // a second package whose review-view entry is labelled "Review", like the hostile fixtures, and a record-view
@@ -807,7 +814,7 @@ test("layout (ktonpkg v0.9.5): the set names host.narrow; the frame's layout sta
   const { h, wb } = await setup({}, withTestPackage());
   const c = await openTestShell(h, wb);
   const set = c.posted[0] as { host: { narrow?: number } };
-  assert.equal(set.host.narrow, 640);
+  assert.equal(set.host.narrow, 820);
   c.onMessage({ type: "kton:state", state: { parts: { main: { layout: { tab: "approvals" } }, side: { layout: { ratio: 0.35 } } }, vars: { picked: "B" }, acts: { forged: { status: "done" } } } });
   c.onMessage({ type: "kton:ready" }); // the webview came back
   const again = c.posted.at(-1) as { state: Record<string, unknown> & { acts: Record<string, unknown> } };
@@ -960,4 +967,226 @@ test("N2 on #187: a meaning that is a value of two fields is refused, not taken 
   assert.equal(await wb.signAct(c, sha("2"), {}, "Approve", undefined, {}), "failed");
   assert.match(h.errors.at(-1) ?? "", /means approved, a value of several fields of rec-two \(outcome, status\)/);
   assert.equal(t.says.length, 0);
+});
+
+test("proposed fields: a value of a field with fixed values is taken (the dialog shows it); a free value is only the input's default", async () => {
+  const t = new FakeTransport();
+  const SPOT: TemplateInfo = { name: "review-spotcheck", package: "qa.review", fields: { verdict: { type: "enum", values: ["rule-judge-right", "second-model-right", "spec-unclear"], required: true }, proposal: { type: "string", required: true }, note: { type: "string" } } };
+  const DEC: TemplateInfo = { name: "review-decides", package: "qa.review", fields: { choice: { type: "string", required: true }, lookedAt: { type: "string" } } };
+  t.templateList = [...TEMPLATES, SPOT, DEC];
+  const { h, wb } = await setup({}, t);
+  h.confirmAnswer = true;
+  const spot = { package: "qa.review", name: "spotcheck", template: "review-spotcheck", kind: "decision" as const, meaning: "reviewed" };
+  assert.equal(await wb.signAct(spot, iri("a"), { proposal: iri("1") }, "Verdict", undefined, { proposed: { verdict: "second-model-right" } }), "signed");
+  assert.match(h.dialogs.at(-1)?.detail ?? "", /verdict = second-model-right/);
+  assert.deepEqual(t.says.at(-1)?.fields, { proposal: iri("1"), verdict: "second-model-right" });
+  // a proposed value outside the fixed values is asked
+  h.picks = ["spec-unclear"];
+  assert.equal(await wb.signAct(spot, iri("a"), { proposal: iri("1") }, "Verdict", undefined, { proposed: { verdict: "made-up" } }), "signed");
+  assert.equal(t.says.at(-1)?.fields?.["verdict"], "spec-unclear");
+  // a free field: the proposal is the input's default; what the person leaves is what is signed
+  const inputs: Array<[string, string | undefined]> = [];
+  (h as unknown as { input: (p: string, v?: string) => Promise<string | undefined> }).input = async (p: string, v?: string) => (inputs.push([p, v]), p.endsWith("choice") ? "a" : v);
+  const dec = { package: "qa.review", name: "decides", template: "review-decides", kind: "decision" as const };
+  assert.equal(await wb.signAct(dec, iri("1"), {}, "Choose", undefined, { proposed: { lookedAt: `${iri("a")} ${iri("b")}` } }), "signed");
+  assert.deepEqual(inputs, [["decides: choice", undefined], ["decides: lookedAt", `${iri("a")} ${iri("b")}`]]);
+  assert.deepEqual(t.says.at(-1)?.fields, { choice: "a", lookedAt: `${iri("a")} ${iri("b")}` });
+});
+
+test("proposed fields: a record (agent key, no dialog) takes no proposed value: a fixed value is asked, a free one has no default", async () => {
+  const t = new FakeTransport();
+  const NOTE: TemplateInfo = { name: "review-note", package: "qa.review", fields: { kind: { type: "enum", values: ["info", "blocking"], required: true }, text: { type: "string", required: true }, tag: { type: "enum", values: ["x", "y"] } } };
+  t.templateList = [...TEMPLATES, NOTE];
+  const { h, wb } = await setup({}, t);
+  const inputs: Array<[string, string | undefined]> = [];
+  (h as unknown as { input: (p: string, v?: string) => Promise<string | undefined> }).input = async (p: string, v?: string) => (inputs.push([p, v]), "typed");
+  h.picks = ["info"];
+  const note = { package: "qa.review", name: "note", template: "review-note", kind: "record" as const };
+  const dialogs = h.dialogs.length;
+  assert.equal(await wb.signAct(note, iri("a"), {}, "Note", undefined, { proposed: { kind: "blocking", text: "from the frame", tag: "x" } }), "signed");
+  assert.equal(h.dialogs.length, dialogs, "a record has no dialog");
+  assert.deepEqual(t.says.at(-1)?.fields, { kind: "info", text: "typed" }, "the frame's blocking and x were never signed; the optional tag is left out");
+  assert.deepEqual(inputs, [["note: text", undefined]], "no default from the frame");
+  assert.equal(h.picks.length, 0, "the fixed value was asked");
+});
+
+test("looked-at: the view session's evidence opens are offered for lookedAt and listed in the dialog; a template without lookedAt gets none", async () => {
+  const t = new FakeTransport();
+  const SPOT: TemplateInfo = { name: "review-spotcheck", package: "qa.review", fields: { verdict: { type: "enum", values: ["rule-judge-right", "second-model-right", "spec-unclear"], required: true }, proposal: { type: "string", required: true } } };
+  const DEC: TemplateInfo = { name: "review-decides", package: "qa.review", fields: { choice: { type: "string", required: true }, lookedAt: { type: "string" } } };
+  t.templateList = [...TEMPLATES, SPOT, DEC];
+  const { h, wb } = await setup({}, t);
+  h.confirmAnswer = true;
+  const opened = ["kton-src:/app/A.java?c0ffee0#L127", `run-artifact:p2/out/x.png@sha256:${"a".repeat(64)}`];
+  (h as unknown as { input: (p: string, v?: string) => Promise<string | undefined> }).input = async (p: string, v?: string) => (p.endsWith("choice") ? "a" : v);
+  const dec = { package: "qa.review", name: "decides", template: "review-decides", kind: "decision" as const };
+  assert.equal(await wb.signAct(dec, iri("1"), {}, "Choose", undefined, { scope: "qa.review", proposed: { lookedAt: iri("s") }, opened }), "signed");
+  assert.equal(t.says.at(-1)?.fields?.["lookedAt"], `${iri("s")} ${opened.join(" ")}`);
+  assert.equal(t.says.at(-1)?.scope, "qa.review");
+  const detail = h.dialogs.at(-1)?.detail ?? "";
+  assert.match(detail, /Into scope: qa\.review/);
+  assert.match(detail, /Evidence you opened in this view \(2\):\n {2}kton-src:\/app\/A\.java\?c0ffee0#L127 {2}\(in lookedAt\)\n {2}run-artifact:p2\/out\/x\.png@sha256:a{64} {2}\(in lookedAt\)/);
+  // the person takes one out of lookedAt: the dialog says so
+  (h as unknown as { input: (p: string, v?: string) => Promise<string | undefined> }).input = async (p: string) => (p.endsWith("choice") ? "a" : opened[0]);
+  assert.equal(await wb.signAct(dec, iri("1"), {}, "Choose", undefined, { opened }), "signed");
+  assert.match(h.dialogs.at(-1)?.detail ?? "", /x\.png@sha256:a{64} {2}\(not in lookedAt: you took it out\)/);
+  // a spot check has no lookedAt: nothing is offered or listed
+  const spot = { package: "qa.review", name: "spotcheck", template: "review-spotcheck", kind: "decision" as const, meaning: "reviewed" };
+  assert.equal(await wb.signAct(spot, iri("e"), { proposal: iri("1") }, "Verdict", undefined, { proposed: { verdict: "spec-unclear" }, opened }), "signed");
+  assert.doesNotMatch(h.dialogs.at(-1)?.detail ?? "", /Evidence you opened/);
+  assert.equal(t.says.at(-1)?.fields?.["lookedAt"], undefined);
+});
+
+test("open@1 evidence: a shown source or artifact is reported to the panel's looked-at list; a refused one is not", async () => {
+  const { h, wb } = await setup();
+  const shown: string[] = [];
+  const answers = { source: "Opened app:a/B.java#L127 at fa218aa8 (read-only)", artifact: "Opened p2/x.png (hash checked)" };
+  (h as unknown as Record<string, unknown>)["openSource"] = async () => answers.source;
+  (h as unknown as Record<string, unknown>)["openArtifact"] = async () => answers.artifact;
+  const open = (wb.packages as unknown as { path: { open: (t: Record<string, unknown>, cb: (r: string) => void) => Promise<string> } }).path.open;
+  const h64 = `sha256:${"b".repeat(64)}`;
+  await open({ source: { repo: "app", commit: "fa218aa8", path: "a/B.java", line: 127 } }, (r) => shown.push(r));
+  await open({ artifact: { run: "p2", name: "x.png", sha256: h64, mediaType: "image/png" } }, (r) => shown.push(r));
+  answers.source = "source not available on this host: app has no a/C.java at fa218aa8";
+  answers.artifact = "p2/y.png does not hash to sha256:…: refused, nothing shown";
+  await open({ source: { repo: "app", commit: "fa218aa8", path: "a/C.java" } }, (r) => shown.push(r));
+  await open({ artifact: { run: "p2", name: "y.png", sha256: h64 } }, (r) => shown.push(r));
+  assert.match(await open({ artifact: { run: "../p2", name: "y.png", sha256: h64 } }, (r) => shown.push(r)), /not opened: run is not a run name/);
+  assert.deepEqual(shown, ["kton-src:/app/a/B.java?fa218aa8#L127", `run-artifact:p2/x.png@${h64}`]);
+});
+
+// ---- the first screen
+const oneProposal = (t: FakeTransport) => {
+  t.answers["Q proposals"] = (t.answers["Q proposals"] ?? []).filter((p) => p["msg"] === P1);
+  return t;
+};
+const REVIEW_KEY = "kton-web-test/ui/test-shell.json";
+
+test("first screen 1: a review-view entry under Home → Packages opens its review view: one waiting proposal directly, several by a pick, none says where", async () => {
+  // two waiting proposals (P1, and P2 which only an agent key decided): a pick
+  const two = await setup({}, withTestPackage());
+  const pk = (two.h.trees["home"] ?? []).find((n) => n.label === "Packages");
+  const entry = pk?.children?.find((n) => n.label === "kton-web-test")?.children?.find((n) => n.description === "review-view");
+  assert.deepEqual(entry?.command, { id: "ktonWorkbench.openEntry", args: [REVIEW_KEY] });
+  two.h.picks.push("1. Which build?");
+  await workbenchCommands(() => two.wb).find(([id]) => id === CMD.openEntry)?.[1]?.(REVIEW_KEY as never);
+  assert.equal(two.h.compositions.length, 1, "the picked proposal's review view opened");
+  // exactly one: no pick
+  const one = await setup({}, oneProposal(withTestPackage()));
+  await one.wb.openEntry(REVIEW_KEY);
+  assert.equal(one.h.compositions.length, 1);
+  assert.equal(one.h.picks.length, 0);
+  // none waiting: it says where it opens from, opens nothing
+  const none = withTestPackage();
+  none.answers["Q proposals"] = [];
+  const z = await setup({}, none);
+  await z.wb.openEntry(REVIEW_KEY);
+  assert.equal(z.h.compositions.length, 0);
+  assert.match(z.h.infos.at(-1) ?? "", /opens from its proposal under Decisions waiting/);
+});
+
+test("first screen 2: on start, exactly one waiting decision with a review view opens it (kton.home.openOnStart); off, or two, nothing opens", async () => {
+  const on = await setup({ openOnStart: true }, oneProposal(withTestPackage()));
+  assert.equal(on.h.compositions.length, 1, "the one decision's review view opened");
+  assert.equal(on.h.compositions[0]?.key, `composition:${REVIEW_KEY}`);
+  await on.wb.refresh();
+  assert.equal(on.h.compositions.length, 1, "once per start, not per poll");
+  const off = await setup({ openOnStart: false }, oneProposal(withTestPackage()));
+  assert.equal(off.h.compositions.length, 0);
+  const two = await setup({ openOnStart: true }, withTestPackage());
+  assert.equal(two.h.compositions.length, 0, "two waiting decisions: nothing opens by itself");
+});
+
+test("first screen 3: the decisions item says 1 decision waiting (singular) and is not part of the inbox count", async () => {
+  const { h } = await setup({}, oneProposal(new FakeTransport()));
+  assert.equal(h.status.get("decisions"), "1 decision waiting");
+  assert.match(h.status.get("poll") ?? "", /· 1 open$/);
+});
+
+test("first screen 4: guard rules (finding-source) on Home: passed (0 findings), findings (n), or not run, with the full rule name", async () => {
+  const t = withTestPackage();
+  const f = t.fixtures[0] as ReturnType<typeof listed>;
+  const rule = (file: string, label: string, query: string) => ({ file, slot: "finding-source", label, query });
+  t.fixtures = [{ ...f, pkg: { ...f.pkg, ui: [...f.pkg.ui, rule("ui/r1.json", "reviewer-not-author: a review signed by a key that also signed the reviewed claim", "r-pass"), rule("ui/r2.json", "ranked-before-assigned", "r-find"), rule("ui/r3.json", "evidence-vs-reach", "r-error")] } }];
+  // the named queries answer in the JSON-argument form (sparql.results), as the cockpit does
+  const sparqlOf = (n: number) => ({ ok: true as const, value: { query: "sparql", ref: "", raw: "", sparql: { results: { head: { vars: ["rule", "focus"] }, results: { bindings: Array.from({ length: n }, (_x, i) => ({ rule: { type: "literal", value: "x" }, focus: { type: "literal", value: `f${i}` } })) } } } } });
+  const ask = t.ask.bind(t);
+  t.ask = async (req) => (req.name === "r-error" ? { ok: false, refusal: { code: "query.timeout", reason: "the query took over 30 s" } } : req.name === "r-pass" ? sparqlOf(0) : req.name === "r-find" ? sparqlOf(2) : ask(req));
+  const { h } = await setup({}, t);
+  const rules = (h.trees["home"] ?? []).find((n) => n.label === "Guard rules");
+  const lines = (rules?.children ?? []).map((n) => `${n.label} | ${n.description}`);
+  assert.deepEqual(lines, [
+    "reviewer-not-author: a review signed by a key that also signed the reviewed claim | passed (0 findings)",
+    "ranked-before-assigned | findings (2)",
+    "evidence-vs-reach | not run",
+  ]);
+  assert.match(rules?.children?.[2]?.tooltip ?? "", /Not run: .*took over 30 s/);
+  const pk = (h.trees["home"] ?? []).find((n) => n.label === "Packages");
+  assert.ok(!(pk?.children ?? []).some((n) => /not rendered/.test(n.description ?? "") && /reviewer-not-author|ranked-before-assigned|evidence-vs-reach/.test(n.label)), "no rule is listed as a cut-off 'not rendered'");
+});
+
+test("first screen 5 + 6: the identity item's tooltip says why the keys are not verified; the recorder row is short with a tooltip", async () => {
+  const h = new FakeHost();
+  const tips = new Map<string, string | undefined>();
+  h.setStatus = (id, text, tip) => { h.status.set(id, text); tips.set(id, tip); };
+  const wb = new Workbench(new FakeTransport(), h, queries, identity, { ...DEFAULT_CONFIG, surfaces: SURFACES }, new Scheduler(manualClock));
+  await wb.start();
+  await wb.refresh();
+  assert.match(tips.get("identity") ?? "", /^Test keys; this cockpit has no identity verb, so the name isn't verified\./);
+  const rec = (h.trees["home"] ?? []).find((n) => n.id === "recorder");
+  assert.equal(rec?.label, "Recorder");
+  assert.match(rec?.tooltip ?? "", /Recorded runs/);
+});
+
+test("inbox areas: kton.inbox.areas shows only those areas' messages and proposals; a copy signed by a relay key (kton.inbox.relayKeys) names its sender, its text without the prefix", async () => {
+  const RELAY = "https://kton.dev/agent/1111222233334444";
+  const t = new FakeTransport();
+  t.answers["Q proposals"] = [
+    { msg: P1, area: "area-a", title: "Rerun with capture?", text: "[from lane-a-review · 2026-11-20T17:01:00Z] Should unit-9 run again?", options: OPTIONS, from: "relay-claims", fromTier: "relay", s: RELAY, when: "2026-11-20T17:05:00Z" },
+    { msg: P2, area: "area-b", title: "Not mine", text: "t", options: OPTIONS, from: "relay-claims", fromTier: "relay", s: RELAY, when: "2026-11-20T17:06:00Z" },
+  ];
+  t.answers["N decides"] = [];
+  t.answers["Q messages"] = [
+    { msg: M1, kind: "https://example.org/v/requests", area: "area-a", title: "Classify the new failures", text: "[from lane-b · 2026-11-20T16:00:00Z] Please classify today's failures.", from: "relay-claims", fromTier: "relay", s: RELAY, when: "2026-11-20T16:02:00Z" },
+    { msg: M2, kind: "https://example.org/v/requests", area: "qa", title: "Another area", text: "t", from: "qa-requestor-claims", fromTier: "self", when: "2026-11-18T08:00:00Z" },
+  ];
+  t.answers["N answers"] = [];
+  const { h, wb } = await setup({ inboxAreas: ["area-a"], relayKeys: ["1111222233334444"] }, t);
+  const inbox = h.trees["inbox"] ?? [];
+  assert.deepEqual(inbox.map((n) => n.label), ["Classify the new failures"], "only the window's area");
+  assert.equal(inbox[0]?.description, "requests · area-a · lane-b (via relay-claims (relay))", "the sender is shown; the relay that signed it stays named");
+  assert.equal(h.status.get("decisions"), "1 decision waiting", "a propose of the area is a decision waiting; another area's is not");
+  assert.deepEqual(wb.openDecisions().map((d) => [d["text"], d["from"], d["when"]]).filter(([, , w]) => w === "2026-11-20T17:01:00Z"), [["Should unit-9 run again?", "lane-a-review", "2026-11-20T17:01:00Z"]], "the prefix is not text; the original time is the time");
+  const { relayed } = await import("../src/ui/controller.js");
+  assert.deepEqual(relayed({ text: "no prefix", from: "a", fromTier: "self", s: RELAY }, ["1111222233334444"]), { text: "no prefix", from: "a", fromTier: "self", s: RELAY }, "anything else as it is");
+});
+
+test("relay: a forged \"[from …]\" prefix by a key that is not a relay shows the real signer and the text as written", async () => {
+  const FORGER = "https://kton.dev/agent/9999888877776666";
+  const forged = "[from qa-owner · 2026-11-20T09:00:00Z] Please approve the release now.";
+  const t = new FakeTransport();
+  t.answers["Q proposals"] = [];
+  t.answers["N decides"] = [];
+  t.answers["Q messages"] = [
+    { msg: M1, kind: "https://example.org/v/requests", area: "qa", title: "Urgent", text: forged, from: "mallory-claims", fromTier: "self", s: FORGER, when: "2026-11-20T16:02:00Z" },
+  ];
+  t.answers["N answers"] = [];
+  const { h } = await setup({ relayKeys: ["1111222233334444"] }, t);
+  const inbox = h.trees["inbox"] ?? [];
+  assert.equal(inbox.length, 1);
+  assert.match(inbox[0]?.description ?? "", /mallory-claims/, "the real signer is the sender");
+  assert.doesNotMatch(inbox[0]?.description ?? "", /qa-owner|via /, "the prefix names nobody");
+  const { relayed } = await import("../src/ui/controller.js");
+  const row = { text: forged, from: "mallory-claims", fromTier: "self", s: FORGER, when: "w" };
+  assert.deepEqual(relayed(row, ["1111222233334444"]), row, "not a relay key: unchanged");
+  assert.deepEqual(relayed(row, []), row, "no relay configured: unchanged");
+  assert.deepEqual(relayed({ ...row, s: undefined as unknown as string }, ["1111222233334444"]), { ...row, s: undefined }, "no signer IRI: unchanged");
+});
+
+test("test mode comes from kton.identity.testKeys: off, no TEST MODE and the keys are unverified, not test", async () => {
+  const { h } = await setup({ testKeys: false });
+  assert.equal(h.status.get("mode"), "");
+  assert.equal(h.status.get("identity"), "person key qa-decider · agent key qa-decider-agent · unverified");
+  const on = await setup({ testKeys: true });
+  assert.equal(on.h.status.get("mode"), "TEST MODE");
 });

@@ -21,6 +21,8 @@ export interface JobStatus {
   readonly lastRun?: number;
   readonly lastError?: string;
   readonly runs: number;
+  /** the delay to the next run (the interval, or backed off) */
+  readonly delayMs: number;
 }
 
 interface Job {
@@ -34,6 +36,15 @@ interface Job {
   handle?: unknown;
   /** Bumped by setInterval: a tick that started under an older value does not schedule again. */
   gen: number;
+  /** the delay to the next tick: the interval, doubled (up to MAX_BACKOFF_MS) while a tick takes longer than it */
+  delayMs: number;
+}
+
+/** A poll whose last run took longer than its interval waits twice as long next time, up to this (5 min). */
+export const MAX_BACKOFF_MS = 300_000;
+/** The next delay of a poll: its interval when the last run was quicker than that, else twice the last delay (capped). */
+export function nextDelay(intervalMs: number, lastDelayMs: number, tookMs: number): number {
+  return tookMs > intervalMs ? Math.min(Math.max(lastDelayMs, intervalMs) * 2, Math.max(MAX_BACKOFF_MS, intervalMs)) : intervalMs;
 }
 
 export class Scheduler {
@@ -46,7 +57,7 @@ export class Scheduler {
   add(name: string, intervalMs: number, fn: () => Promise<void>): void {
     if (this.jobs.has(name)) throw new Error(`a poll named ${name} exists`);
     if (!(intervalMs >= 1000)) throw new Error("a poll runs at most once a second");
-    const job: Job = { name, intervalMs, fn, running: false, runs: 0, gen: 0 };
+    const job: Job = { name, intervalMs, fn, running: false, runs: 0, gen: 0, delayMs: intervalMs };
     this.jobs.set(name, job);
     this.schedule(job, 0);
   }
@@ -55,6 +66,7 @@ export class Scheduler {
     const job = this.jobs.get(name);
     if (!job) throw new Error(`no poll named ${name}`);
     job.intervalMs = intervalMs;
+    job.delayMs = intervalMs;
     job.gen++; // a tick running now must not start a second timer chain
     if (job.handle !== undefined) this.clock.clearTimeout(job.handle);
     this.schedule(job, intervalMs);
@@ -72,6 +84,7 @@ export class Scheduler {
       intervalMs: j.intervalMs,
       running: j.running,
       runs: j.runs,
+      delayMs: j.delayMs,
       ...(j.lastRun !== undefined ? { lastRun: j.lastRun } : {}),
       ...(j.lastError !== undefined ? { lastError: j.lastError } : {}),
     }));
@@ -87,7 +100,7 @@ export class Scheduler {
     const gen = job.gen;
     job.handle = this.clock.setTimeout(() => {
       void this.tick(job).then(() => {
-        if (job.gen === gen) this.schedule(job, job.intervalMs);
+        if (job.gen === gen) this.schedule(job, job.delayMs);
       });
     }, delay);
   }
@@ -95,6 +108,7 @@ export class Scheduler {
   private async tick(job: Job): Promise<void> {
     if (job.running || this.stopped) return;
     job.running = true;
+    const t0 = this.clock.now();
     try {
       await job.fn();
       delete job.lastError;
@@ -104,6 +118,7 @@ export class Scheduler {
       job.running = false;
       job.runs++;
       job.lastRun = this.clock.now();
+      job.delayMs = nextDelay(job.intervalMs, job.delayMs, job.lastRun - t0);
     }
   }
 }

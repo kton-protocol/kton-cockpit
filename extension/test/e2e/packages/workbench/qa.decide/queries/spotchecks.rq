@@ -1,0 +1,20 @@
+# Spot checks: the in-scope items of a group (not "none"), each with both judges; ?target is what a verdict is about.
+PREFIX nk:   <https://kton.dev/v/>
+PREFIX lab:  <https://kton.dev/v/lab/>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX dct:  <http://purl.org/dc/terms/>
+PREFIX xsd:  <http://www.w3.org/2001/XMLSchema#>
+PREFIX w:    <https://example.org/qa/decide/>
+SELECT ?item ?target ?element ?group ?title ?statement ?where ?testName ?testLoc ?judge1Who ?judge1Verdict ?judge1Why ?judge2Who ?judge2Verdict ?judge2Why ?earlier ?stamp ?stampLabel ?stampFull ?stampScope WHERE {
+  ?sc rdfs:label "w.data" .
+  ?item nk:scope ?sc ; nk:predicate w:item ; nk:about ?target ; lab:element ?element ; lab:inScope "true" ; lab:group ?group ; lab:stamp ?stamp .
+  FILTER(?group != "none")
+  OPTIONAL { ?item lab:statement ?statement } OPTIONAL { ?item lab:area ?where } OPTIONAL { ?item lab:test ?testName } OPTIONAL { ?item lab:testFile ?tf } OPTIONAL { ?item lab:testLine ?tl }
+  OPTIONAL { ?item lab:judge1 ?judge1Verdict } OPTIONAL { ?item lab:judge1Why ?judge1Why } OPTIONAL { ?item lab:judge1Source ?judge1Who }
+  OPTIONAL { ?item lab:judge2 ?judge2Verdict } OPTIONAL { ?item lab:judge2Why ?judge2Why } OPTIONAL { ?item lab:judge2Source ?judge2Who } OPTIONAL { ?item lab:earlier ?earlier }
+  BIND(CONCAT(?group, " · ", STR(?element)) AS ?title)
+  BIND(IF(BOUND(?tf), CONCAT(STR(?tf), IF(BOUND(?tl), CONCAT(":", STR(?tl)), "")), ?u1) AS ?testLoc)
+  OPTIONAL { ?ss nk:predicate w:source ; lab:stamp ?ssStamp ; lab:label ?stampLabel ; lab:full ?stampFull . FILTER(STR(?ssStamp) = STR(?stamp)) }
+  BIND("w.data" AS ?stampScope)
+}
+ORDER BY ?element LIMIT 4
