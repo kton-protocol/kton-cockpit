@@ -383,6 +383,11 @@ async function publishImprove(repo, steps, signIn = improveToken, onProgress = (
         child.on('close', (code) => { if (st.kind === 'publish') last = code === 0 ? stdout.trim() : ''; resolve(code); });
       });
       child = null;
+      // the parent sent with the publish (parentStep): the step is under its parent, but the parent-step claim was refused
+      if (st.kind === 'publish' && last) {
+        try { const j = JSON.parse(last); if (j.parentStepError) say(`kton: the step is under its parent in improve, but the parent-step claim was not signed: ${j.parentStepError}\n`); }
+        catch (e) { /* not JSON: nothing to read */ }
+      }
       if (code !== 0) { say(`kton: stopped, that line exited with ${code}\n`); finish({ ok: false, error: `line ${at} of ${work.length} exited with ${code} (see the terminal "kton cockpit (improve)")` }); return; }
     }
     say('kton: done\n');
