@@ -15,7 +15,10 @@ type Task struct {
 	Origins   []Origin `json:"origins,omitempty"` // where the code came from (Positron, S6)
 	Sources   []Source `json:"sources,omitempty"` // files run with source()/sys.source()
 	Vars      []Var    `json:"vars,omitempty"`    // global variables the command created or changed (ktonrec)
-	Uses      []VarUse `json:"uses,omitempty"`    // variables of earlier tasks this one used (from its code)
+	Derives   []Derive `json:"derives,omitempty"` // pharmpy modeling calls (ktonpharmpy): what derived from what
+	// ModelOrigins: the model files it wrote through pharmpy and the files they were developed from
+	ModelOrigins []ModelOrigin `json:"model_origins,omitempty"`
+	Uses         []VarUse      `json:"uses,omitempty"` // variables of earlier tasks this one used (from its code)
 
 	Inputs     []*Input    `json:"inputs"`
 	Outputs    []*Output   `json:"outputs"`
@@ -98,6 +101,13 @@ type Net struct {
 type Var struct {
 	Name string `json:"name"`
 	Desc string `json:"desc"` // class:shape, e.g. data.frame:6x3
+	// Hash of its value (ktonrec, "md5:<hex>" of its serialization), or Skip: why it was not hashed
+	// (excluded, pattern, class, size …, the person's filter); values.go
+	Hash string `json:"hash,omitempty"`
+	Skip string `json:"skip,omitempty"`
+	// State against the session so far: new (a name not seen), changed (another value than its
+	// last), same (the value it had before, computed again); empty without a hash
+	State string `json:"state,omitempty"`
 }
 
 // Source is a file a task ran with source(); Class tells project files from R's own.

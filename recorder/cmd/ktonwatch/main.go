@@ -192,7 +192,8 @@ func serve(args []string) {
 	defer api.Close()
 	mux.Handle("/v1/", api.Handler())
 	mux.Handle("/", sv.Handler())
-	srv := &http.Server{Addr: *listen, Handler: mux}
+	// loopback only, by Host and Origin: no web page reaches it, not even by DNS rebinding (kton-review C1 on #236)
+	srv := &http.Server{Addr: *listen, Handler: watch.LoopbackOnly(mux)}
 	go func() { <-ctx.Done(); srv.Close() }()
 	// a new ktonwatch installed over this one: start it in this process (MH 12.11.: after an install the
 	// old server kept running and answered 'unknown action' for what the new extension asked)

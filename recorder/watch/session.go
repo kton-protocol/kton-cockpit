@@ -187,7 +187,7 @@ func (s *Session) Handle(e Event) {
 		s.Last = e.TS
 	}
 	switch e.Op {
-	case "TASK", "END", "SOURCE", "ENV", "VARS":
+	case "TASK", "END", "SOURCE", "ENV", "VARS", "DERIVE":
 	default:
 		if s.root == 0 {
 			s.root = e.PID
@@ -196,7 +196,7 @@ func (s *Session) Handle(e Event) {
 	// the kton tooling never observes itself (MH 12.11.): a process that is the cockpit, ktonwatch or a
 	// reproduction, and everything it starts (git, curl, the improve CLI …), is not part of the person's work
 	switch e.Op {
-	case "TASK", "END", "SOURCE", "ENV", "VARS":
+	case "TASK", "END", "SOURCE", "ENV", "VARS", "DERIVE":
 	default:
 		if s.tooling == nil { // a session restored from the store
 			s.tooling = map[int]bool{}
@@ -214,7 +214,7 @@ func (s *Session) Handle(e Event) {
 	c := s.cur
 	t := c.t
 	switch e.Op {
-	case "TASK", "END", "SOURCE", "ENV", "VARS":
+	case "TASK", "END", "SOURCE", "ENV", "VARS", "DERIVE":
 		if s.owner == 0 {
 			s.owner = e.PID
 			// a traced wrapper (`sh run.sh` with `R -f x.R > log` in it): the redirect the
@@ -368,10 +368,14 @@ func (s *Session) Handle(e Event) {
 			}
 		}
 		t.Listings = listed
+	case "DERIVE":
+		if d, ok := parseDerive(e); ok {
+			t.Derives = append(t.Derives, d)
+		}
 	case "VARS":
 		for _, kv := range strings.Split(e.Extra, ";") {
 			if n, d, ok := strings.Cut(kv, "="); ok && n != "" {
-				t.Vars = append(t.Vars, Var{Name: n, Desc: d})
+				t.Vars = append(t.Vars, parseVar(n, d))
 			}
 		}
 	case "TASK":
@@ -711,6 +715,12 @@ func (s *Session) finish() {
 	sort.Ints(t.PIDs)
 	if t.ID == "tail" && len(t.Inputs)+len(t.Outputs)+len(t.Commands)+len(t.Network)+len(t.Missing) == 0 {
 		return
+	}
+	valueStates(s.Tasks, t)
+	// pharmpy: the model files it wrote and where their models came from, followed back over the whole
+	// session now (later readers see only the tasks with files, derive.go)
+	if len(t.Derives) > 0 && s.Project != "" {
+		t.ModelOrigins = modelOriginsIn(append(append([]*Task{}, s.Tasks...), t), t, RepoRoot(s.Project))
 	}
 	s.Tasks = append(s.Tasks, t)
 }

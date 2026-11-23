@@ -8,6 +8,7 @@ boundaries into the same log:
   ENV   once: the interpreter's own directories, so the watcher counts them as environment,
         the working directory as the project, and lang=python
   TASK  after every execution (IPython post_run_cell), status ok|err, with the code
+  DERIVE  a pharmpy modeling call that took or gave a model (ktonpharmpy)
   END   when the kernel exits
 
 Loaded by the IPython startup file recorder/install.sh places (50-kton.py), and only when the
@@ -71,6 +72,56 @@ def _post_run_cell(result):
     _line("TASK", "ok" if getattr(result, "success", True) else "err", str(_state["n"]), code[:300])
 
 
+class _PharmpyHook:
+    """Wraps pharmpy.modeling the moment it is imported (ktonpharmpy), so even
+    `from pharmpy.modeling import *` in the importing cell gets the recorded functions."""
+
+    def find_spec(self, name, path=None, target=None):
+        if name != "pharmpy.modeling":
+            return None
+        import importlib.machinery
+        import importlib.util
+
+        sys.meta_path.remove(self)  # find the real module, once
+        try:
+            spec = importlib.util.find_spec(name)
+        finally:
+            sys.meta_path.insert(0, self)
+        if spec is None or spec.loader is None:
+            return spec
+        loader = spec.loader
+
+        class _Loader:
+            def create_module(self, spec):
+                return loader.create_module(spec) if hasattr(loader, "create_module") else None
+
+            def exec_module(self, module):
+                loader.exec_module(module)
+                try:
+                    _state["kp"].wrap_modeling(module, _line)
+                except Exception as e:  # recording must never break the console
+                    print("kton: pharmpy calls not recorded:", e, file=sys.stderr)
+
+        spec.loader = _Loader()
+        return spec
+
+
+def _watch_pharmpy():
+    # imported now, while 50-kton.py has the recorder's folder on sys.path (it is removed after start)
+    import ktonpharmpy
+
+    _state["kp"] = ktonpharmpy
+    m = sys.modules.get("pharmpy.modeling")
+    if m is not None:  # imported before the recorder started
+        try:
+            ktonpharmpy.wrap_modeling(m, _line)
+        except Exception:
+            pass
+        return
+    if not any(isinstance(f, _PharmpyHook) for f in sys.meta_path):
+        sys.meta_path.insert(0, _PharmpyHook())
+
+
 def start(ip):
     """Start writing boundaries for the IPython shell ip. Does nothing without a log."""
     log = os.environ.get("KTON_TRACE_LOG", "")
@@ -79,5 +130,6 @@ def start(ip):
     _state.update(log=log, n=0, on=True)
     _line("ENV", "-", ",".join(_env_dirs()), "project=%s;lang=python" % os.getcwd())
     ip.events.register("post_run_cell", _post_run_cell)
+    _watch_pharmpy()  # pharmpy's model derivations as DERIVE lines (ktonpharmpy)
     atexit.register(lambda: _line("END"))
     return True

@@ -383,6 +383,11 @@ async function publishImprove(repo, steps, signIn = improveToken, onProgress = (
         child.on('close', (code) => { if (st.kind === 'publish') last = code === 0 ? stdout.trim() : ''; resolve(code); });
       });
       child = null;
+      // the parent sent with the publish (parentStep): the step is under its parent, but the parent-step claim was refused
+      if (st.kind === 'publish' && last) {
+        try { const j = JSON.parse(last); if (j.parentStepError) say(`kton: the step is under its parent in improve, but the parent-step claim was not signed: ${j.parentStepError}\n`); }
+        catch (e) { /* not JSON: nothing to read */ }
+      }
       if (code !== 0) { say(`kton: stopped, that line exited with ${code}\n`); finish({ ok: false, error: `line ${at} of ${work.length} exited with ${code} (see the terminal "kton cockpit (improve)")` }); return; }
     }
     say('kton: done\n');
@@ -820,6 +825,39 @@ async function basedOnLines(repo, cmd) {
   return ['cockpit claim based-on ' + sq(JSON.stringify({ 'based-on': id, why: `developed from ${parent}` }))];
 }
 
+// parentStepOf: the first model file's parent as {id, why} for cockpit-improve's parentStep, or null
+async function parentStepOf(repo, origins) {
+  for (const o of origins || []) {
+    const sum = o.from_sha256 || (await sha256File(path.join(repo, o.from)));
+    const ids = sum ? await producersOf(repo, sum) : [];
+    if (ids.length) return { id: ids[ids.length - 1], why: `developed in pharmpy from ${o.from}${(o.via || []).length ? ': ' + o.via.join(', ') : ''}` };
+  }
+  return null;
+}
+// improveTakesParent: whether this cockpit-improve takes parentStep in a publish request (its publish --help names it);
+// asked once per window
+let takesParent = null;
+function improveTakesParent() {
+  if (takesParent) return takesParent;
+  takesParent = new Promise((resolve) => execFile(bin('cockpit-improve'), ['publish', '--help'], { timeout: 15000 }, (err, out, errout) =>
+    resolve(/parentStep/.test(String(out || '') + String(errout || '')))));
+  return takesParent;
+}
+
+// parentStepLines: per model file a step wrote through pharmpy, the parent-step claim about the step just published,
+// naming the published step that made the file the model was read from (by the bytes the session read)
+async function parentStepLines(repo, origins) {
+  const out = [];
+  for (const o of origins || []) {
+    const sum = o.from_sha256 || (await sha256File(path.join(repo, o.from)));
+    const ids = sum ? await producersOf(repo, sum) : [];
+    const why = `developed in pharmpy from ${o.from}${(o.via || []).length ? ': ' + o.via.join(', ') : ''}`;
+    if (!ids.length) { out.push(`#   parent step: ${o.from} is not published yet; publish its step first, then this one (${why})`); continue; }
+    out.push('cockpit claim parent-step ' + sq(JSON.stringify({ 'parent-step': ids[ids.length - 1], why })));
+  }
+  return out;
+}
+
 // shortCall: a publish line as a few words (the call inside its JSON, or the template of a say)
 function shortCall(cmd) {
   const m = /'(\{.*\})'\s*$/.exec(cmd || '');
@@ -953,10 +991,21 @@ async function publishText(story, file, steps) {
     lines.push(...noteLines(s.note));
     for (const n of d.notes || []) lines.push(`#   note: ${n}`); // e.g. a sourced script that is not self-contained
     const req = { inputs: (d.inputs || []).filter((f) => f.use).map((f) => f.path), outputs: (d.outputs || []).filter((f) => f.use).map((f) => f.path), cmd: d.cmd };
+    // a step declared in the story editor (by hand, or kept from a heuristic) is published as declared, never as
+    // recorded (kton-cockpit v0.5.11 publish.declared; kton's nk:declared); a corrected recorded step says so
+    // a correction that adds what the recorder never saw (a file, another command) comes back declared=hand from ktonwatch
+    if (d.declared) { req.declared = d.declared; lines.push(d.edited ? `#   corrected by hand in the story editor: published as declared (${d.declared})` : `#   declared (${d.declared}): not recorded, so not reproducible from a recording`); }
+    else if (d.edited) lines.push('#   narrowed in the story editor: only files the recorder saw');
     if (!req.outputs.length) { // the files it wrote are not there with these bytes any more: nothing to sign
       lines.push('#   cannot be published: ' + ((d.outputs || []).map((f) => `${f.path}${f.note ? ' (' + f.note + ')' : ''}`).join(', ') || 'no output'));
       continue;
     }
+    // improve mode with a cockpit-improve that takes the parent in the request (cockpit-improve-backend 0e4e17e): it
+    // places the improve step under its parent's step while publishing, and signs the parent-step claim itself;
+    // otherwise the claim follows the publish (and the improve step is placed by the other rules)
+    const parentAllowed = allowsTemplate(story.repo, 'parent-step') && (d.derived_from || []).length > 0;
+    const ps = parentAllowed && repoMode(story.repo) === 'improve' && (await improveTakesParent()) ? await parentStepOf(story.repo, d.derived_from) : null;
+    if (ps) { req.parentStep = ps.id; req.parentWhy = ps.why; }
     lines.push('cockpit publish ' + sq(JSON.stringify(req)));
     const n = typeof s.note === 'string' ? { description: s.note } : (s.note || {});
     // see publish(): a say about the foton just published, one per template
@@ -981,6 +1030,9 @@ async function publishText(story, file, steps) {
     }
     // git mode: what the backend says about the published foton (based-on and parent-step for a new version,
     // base/final and \$PROBLEM for NONMEM; nothing twice), as the nmfe75 wrapper does
+    // developed in pharmpy (ktonpharmpy, MH 21.11.): the model file this step wrote came from another model file by
+    // modeling calls; the step is a child step of the step that made that file (pmx/parent-step), its latest published foton
+    if (parentAllowed && !ps) lines.push(...(await parentStepLines(story.repo, d.derived_from)));
     if (repoMode(story.repo) !== 'improve') lines.push('cockpit model-claims');
   }
   return lines.join('\n');
@@ -1018,7 +1070,10 @@ async function openStory(context, project, file) {
     const cockpitRepo = fs.existsSync(cfgFile(story.repo));
     const ps = await publishedSteps(story);
     const improve = repoMode(story.repo) === 'improve';
-    w.postMessage({ type: 'story', story, notes: mine, cockpitRepo, improve, published: ps.done, sameResult: ps.same,
+    // the recorded steps the person corrected in the story editor (a mark on their line)
+    const eds = await getJSON(`${viewerUrl()}api/edits?project=${encodeURIComponent(project)}`, 5000).catch(() => null);
+    const edited = Object.fromEntries(Object.keys((eds && eds.steps) || {}).map((k) => [k, true]));
+    w.postMessage({ type: 'story', story, notes: mine, cockpitRepo, improve, edited, published: ps.done, sameResult: ps.same,
       workflowRepros: cockpitRepo ? workflowReproductions(story.repo, path.relative(story.repo, file.path)) : [] });
     sendPlan();
   };
@@ -1112,6 +1167,80 @@ async function openStory(context, project, file) {
       catch (e) { w.postMessage({ type: 'done', what: 'reproduce', ok: false, error: e.message }); }
       finally { busy = null; }
       send();
+    }
+    // ---- the story editor (MH 20./21.11.): correct a recorded step, or declare one by hand; ktonwatch keeps both
+    // (/api/edits, /api/declared), and every reader of a step's draft sees the corrected step
+    else if (m.type === 'draft') {
+      const d = await getJSON(`${viewerUrl()}api/draft?session=${encodeURIComponent(m.session)}&task=${encodeURIComponent(m.task)}`, 10000).catch((e) => ({ error: e.message }));
+      w.postMessage({ type: 'draft', key: m.session + '/' + m.task, draft: d });
+    }
+    else if (m.type === 'pick' && story) {
+      // files of the repository only, as repository-relative paths (publish takes nothing else)
+      const got = await vscode.window.showOpenDialog({ defaultUri: vscode.Uri.file(story.repo), canSelectMany: true, canSelectFiles: true, canSelectFolders: false,
+        openLabel: m.field === 'outputs' ? 'Use as outputs' : 'Use as inputs', title: `kton: ${m.field === 'outputs' ? 'what the step made' : 'what the step used'}` });
+      if (!got) return;
+      const inside = [], outside = [];
+      for (const u of got) { const r = path.relative(story.repo, u.fsPath); (r && !r.startsWith('..') && !path.isAbsolute(r) ? inside : outside).push(r.split(path.sep).join('/')); }
+      if (outside.length) vscode.window.showWarningMessage(`kton: not in ${path.basename(story.repo)}, left out: ${outside.length} file(s)`);
+      w.postMessage({ type: 'picked', field: m.field, paths: inside });
+    }
+    else if (m.type === 'saveEdit' || m.type === 'resetEdit') {
+      const body = m.type === 'resetEdit' ? { key: m.key } : { key: m.key, inputs: m.inputs, outputs: m.outputs, cmd: m.cmd, by: 'you' };
+      try { await sendJSON('PUT', `${viewerUrl()}api/edits`, body); } catch (e) { vscode.window.showWarningMessage(`kton: the correction was not kept: ${e.message}`); }
+      send();
+    }
+    else if (m.type === 'declare' && story) {
+      const declared = /^heuristic:[A-Za-z0-9][A-Za-z0-9._-]*$/.test(m.declared || '') ? m.declared : 'hand';
+      try { await sendJSON('POST', `${viewerUrl()}api/declared`, { id: m.id || undefined, project, declared, inputs: m.inputs, outputs: m.outputs, cmd: m.cmd, by: 'you' }); }
+      catch (e) { vscode.window.showWarningMessage(`kton: the step was not kept: ${e.message}`); }
+      send();
+    }
+    // a workspace heuristic (ktonwatch heuristics.go): pick a registered one, or register a script; its proposals go to
+    // the story, where the person checks each in the editor before keeping it as a declared step
+    else if (m.type === 'heuristics' && story) {
+      const have = await getJSON(`${viewerUrl()}api/heuristics`, 5000).catch(() => ({}));
+      const REG = '$(add) Register a script…';
+      const pick = await vscode.window.showQuickPick([...Object.keys(have || {}).map((n) => ({ label: n, description: have[n] })), { label: REG, description: 'a script that reads the workspace and proposes steps' }],
+        { title: 'kton: reconstruct steps nobody recorded', placeHolder: 'a heuristic' });
+      if (!pick) return;
+      let name = pick.label;
+      if (name === REG) {
+        const f = await vscode.window.showOpenDialog({ canSelectMany: false, openLabel: 'Register', title: 'kton: the heuristic script (an executable; JSON in, proposals out)' });
+        if (!f) return;
+        name = await vscode.window.showInputBox({ title: 'kton: a name for it', value: path.basename(f[0].fsPath).replace(/\.[^.]*$/, ''), validateInput: (v) => (/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(v) ? null : 'letters, digits, . _ - only') });
+        if (!name) return;
+        try { await sendJSON('PUT', `${viewerUrl()}api/heuristics`, { name, path: f[0].fsPath }); }
+        catch (e) { vscode.window.showWarningMessage(`kton: not registered: ${e.message}`); return; }
+      }
+      w.postMessage({ type: 'busy', what: 'heuristic', text: `Reconstructing with ${name} …` });
+      let props = null, err = '';
+      try { props = await sendJSON('POST', `${viewerUrl()}api/heuristics/run`, { project, name }, 90000); } catch (e) { err = e.message; }
+      w.postMessage({ type: 'proposals', name, proposals: props || [], error: err });
+    }
+    else if (m.type === 'undeclare') {
+      const ok = await vscode.window.showWarningMessage('Remove this step you declared? The files stay as they are.', { modal: true }, 'Remove');
+      if (ok !== 'Remove') return;
+      try { await sendJSON('DELETE', `${viewerUrl()}api/declared?id=${encodeURIComponent(m.id)}`, {}); } catch (e) { vscode.window.showWarningMessage(`kton: not removed: ${e.message}`); }
+      send();
+    }
+    // an R value the person marks to keep (MH 21.11.: hashes always, saved only when marked): saveRDS runs in the R
+    // console, visibly, so the recorder records it as a step that wrote the file; ktonwatch keeps hash → file
+    else if (m.type === 'saveValue' && story) {
+      if (!/^[A-Za-z.][A-Za-z0-9._]*$/.test(m.name || '') || !/^md5:[0-9a-f]{32}$/.test(m.hash || '')) return;
+      const rel = `objects/${m.name}-${m.hash.slice(4, 12)}.rds`;
+      const code = `dir.create("objects", showWarnings = FALSE); saveRDS(${m.name}, ${JSON.stringify(rel)})`;
+      let positron = null;
+      try { positron = require('positron'); } catch (e) { /* plain VS Code */ }
+      if (positron && positron.runtime && positron.runtime.executeCode) {
+        try { await positron.runtime.executeCode('r', code, true); }
+        catch (e) { vscode.window.showWarningMessage(`kton: the R console did not run it: ${e.message}`); return; }
+      } else {
+        await vscode.env.clipboard.writeText(code);
+        vscode.window.showInformationMessage(`kton: run this in the R session that holds ${m.name} (copied): ${code}`);
+      }
+      // the value is what the R recorder hashed; the file is what saveRDS wrote from it
+      sendJSON('POST', `${viewerUrl()}api/values/saved`, { hash: m.hash, name: m.name, path: path.join(story.repo, rel), project }).catch(() => {});
+      setTimeout(send, 3000);
     }
     else if (m.type === 'diff') diffReproduced(project, m);
     else if (m.type === 'inkton' && story) openInKton(project, story.repo, file.sha256, path.basename(file.path));

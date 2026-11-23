@@ -7,7 +7,9 @@
 #   SOURCE  when source()/sys.source() runs a file, with its absolute path
 #   ENV     once: R.home() and .libPaths(), so the watcher counts them as environment,
 #           and the working directory at start as the project (in Positron: the open folder)
-#   VARS    after a command: the variables of the global environment it created or changed
+#   VARS    after a command: the variables of the global environment it created or changed, each
+#           with the hash of its value (MH 21.11.: what is new or changed and needs saving), or
+#           why it is not hashed (filtered by name, pattern, class or size; see track_options())
 #
 # Under Ark (Positron) the callback sees only Ark's own `.ark_last_value`, never the user's
 # code, and it fires after errors too. Failures are marked by an options(error) hook, which R
@@ -72,6 +74,57 @@ snapshot <- function(env = globalenv()) {
   vapply(changed, function(n) .describe(get(n, envir = env)), character(1))
 }
 
+#' Which values are hashed: R option ktonrec.track, a list with
+#'   exclude   names never hashed (character)
+#'   pattern   a regular expression of names never hashed
+#'   class     classes never hashed (e.g. "function", "ggplot")
+#'   max_mb    values larger than this (object.size) are not hashed (default 200)
+#' or the environment variable KTON_R_TRACK ("exclude=a,b;pattern=^tmp;class=function;max_mb=50"),
+#' which the Positron extension sets from its setting. The option wins.
+track_options <- function() {
+  o <- getOption("ktonrec.track")
+  if (is.null(o)) {
+    o <- list()
+    env <- Sys.getenv("KTON_R_TRACK")
+    for (kv in strsplit(env, ";", fixed = TRUE)[[1]]) {
+      p <- regexpr("=", kv, fixed = TRUE)
+      if (p < 2) next
+      k <- substr(kv, 1, p - 1)
+      v <- substr(kv, p + 1, nchar(kv))
+      o[[k]] <- if (k %in% c("exclude", "class")) strsplit(v, ",", fixed = TRUE)[[1]] else v
+    }
+  }
+  list(exclude = as.character(o$exclude %||% character()), pattern = as.character(o$pattern %||% ""),
+       class = as.character(o$class %||% character()), max_mb = as.numeric(o$max_mb %||% 200))
+}
+`%||%` <- function(a, b) if (is.null(a)) b else a
+
+#' The hash of a value ("md5:<hex>" of its serialization, source references dropped), or why not
+#' ("skip:<reason>"). Written to a temporary file and hashed there: base R hashes files only. The
+#' temporary directory is the session's own; the recorder does not count it as the project's.
+value_hash <- function(name, x, opt = track_options()) {
+  if (name %in% opt$exclude) return("skip:excluded")
+  if (nzchar(opt$pattern) && isTRUE(grepl(opt$pattern, name))) return("skip:pattern")
+  if (length(opt$class) && any(class(x) %in% opt$class)) return("skip:class")
+  size <- tryCatch(as.numeric(utils::object.size(x)), error = function(e) NA_real_)
+  if (!is.na(size) && size > opt$max_mb * 1024 * 1024) return(sprintf("skip:size %.1f MB", size / 1024 / 1024))
+  if (is.function(x)) x <- tryCatch(utils::removeSource(x), error = function(e) x)
+  f <- tempfile("ktonrec-")
+  on.exit(unlink(f), add = TRUE)
+  ok <- tryCatch({
+    r <- serialize(x, NULL, version = 3, xdr = TRUE)
+    # without the header: it names the R version that wrote it, so the same value would hash
+    # differently in another R (kton-review on #236). Header: "X\n", three ints (format, writer and
+    # reader version), then the native encoding as a length and its bytes.
+    n <- readBin(r[15:18], "integer", size = 4L, endian = "big")
+    con <- file(f, "wb")
+    tryCatch(writeBin(r[-seq_len(18L + n)], con), finally = close(con)) # closed (flushed) before it is hashed
+    TRUE
+  }, error = function(e) FALSE)
+  if (!ok) return("skip:unserializable")
+  paste0("md5:", unname(tools::md5sum(f)))
+}
+
 .mark <- function(expr, value, ok, visible) {
   .ktonrec$n <- .ktonrec$n + 1L
   txt <- substr(paste(deparse(expr, width.cutoff = 500L), collapse = " "), 1L, 300L)
@@ -83,7 +136,14 @@ snapshot <- function(env = globalenv()) {
   err <- geterrmessage()
   st <- if (!isTRUE(ok) || (!isTRUE(.ktonrec$hook) && !identical(err, .ktonrec$last_err))) "err" else "ok"
   .ktonrec$last_err <- err
-  vars <- tryCatch(snapshot(), error = function(e) character())
+  vars <- utils::head(tryCatch(snapshot(), error = function(e) character()), 50L)
+  if (length(vars)) {
+    opt <- tryCatch(track_options(), error = function(e) list(exclude = character(), pattern = "", class = character(), max_mb = 200))
+    for (n in names(vars)) {
+      h <- tryCatch(value_hash(n, get(n, envir = globalenv()), opt), error = function(e) "skip:error")
+      vars[[n]] <- paste0(vars[[n]], "|", h)
+    }
+  }
   if (length(vars)) {
     v <- utils::head(vars, 50L)
     .line("VARS", "-", "-", paste(paste0(names(v), "=", v), collapse = ";"))

@@ -340,10 +340,21 @@ func (sv *Service) Handler() http.Handler {
 		writeJSON(w, out)
 	})
 	mux.HandleFunc("GET /api/draft", func(w http.ResponseWriter, r *http.Request) {
+		session, task := r.URL.Query().Get("session"), r.URL.Query().Get("task")
+		if session == DeclaredSession { // a declared step: its picked files, checked against their bytes now
+			if sv.Edits != nil {
+				if d, ok := sv.Edits.DeclaredByID(task); ok {
+					writeJSON(w, DeclaredDraft(d))
+					return
+				}
+			}
+			http.NotFound(w, r)
+			return
+		}
 		var out *Draft
-		ok := sv.With(r.URL.Query().Get("session"), func(s *Session) {
+		ok := sv.With(session, func(s *Session) {
 			for _, t := range s.Tasks {
-				if t.ID == r.URL.Query().Get("task") {
+				if t.ID == task {
 					d := MakeDraft(s, sv.annotated(check, s, []*Task{t})[0])
 					out = &d
 				}
@@ -353,7 +364,132 @@ func (sv *Service) Handler() http.Handler {
 			http.NotFound(w, r)
 			return
 		}
+		// read through the person's corrections (the story editor): every reader sees the corrected step
+		if sv.Edits != nil {
+			if ed, ok := sv.Edits.Step(session + "/" + task); ok {
+				d := ApplyEdit(*out, ed)
+				out = &d
+			}
+		}
 		writeJSON(w, out)
+	})
+	// the story editor (edits.go): GET ?project=; PUT {key, inputs?, outputs?, cmd?} (nothing set: back to the
+	// recording); POST /api/declared {project, declared?, inputs, outputs, cmd}; DELETE /api/declared?id=
+	mux.HandleFunc("GET /api/edits", func(w http.ResponseWriter, r *http.Request) {
+		if sv.Edits == nil {
+			writeJSON(w, map[string]any{"steps": map[string]StepEdit{}, "declared": []DeclaredStep{}})
+			return
+		}
+		project := r.URL.Query().Get("project")
+		declared := sv.Edits.Declared(project)
+		if declared == nil {
+			declared = []DeclaredStep{}
+		}
+		writeJSON(w, map[string]any{"steps": sv.Edits.Steps(r.URL.Query()["prefix"]...), "declared": declared})
+	})
+	mux.HandleFunc("PUT /api/edits", func(w http.ResponseWriter, r *http.Request) {
+		var in struct {
+			Key string `json:"key"`
+			StepEdit
+		}
+		if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&in); err != nil || in.Key == "" || sv.Edits == nil {
+			http.Error(w, "want {key, inputs?, outputs?, cmd?}", http.StatusBadRequest)
+			return
+		}
+		if in.By == "" {
+			in.By = "you"
+		}
+		if err := sv.Edits.PutStep(in.Key, in.StepEdit); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeJSON(w, map[string]bool{"ok": true})
+	})
+	mux.HandleFunc("POST /api/declared", func(w http.ResponseWriter, r *http.Request) {
+		var in DeclareRequest
+		if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&in); err != nil || sv.Edits == nil {
+			http.Error(w, "want {project, declared?, inputs, outputs, cmd}", http.StatusBadRequest)
+			return
+		}
+		if !sv.isWatched(in.Project) {
+			http.Error(w, "not a recorded folder: "+in.Project, http.StatusBadRequest)
+			return
+		}
+		d, err := sv.Edits.Declare(in)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeJSON(w, d)
+	})
+	// workspace heuristics (heuristics.go): GET; PUT {name, path} registers (empty path removes);
+	// POST /api/heuristics/run {project, name} → proposals, checked, never stored (the person keeps one as a declared step)
+	mux.HandleFunc("GET /api/heuristics", func(w http.ResponseWriter, r *http.Request) {
+		if sv.Heuristics == nil {
+			writeJSON(w, map[string]string{})
+			return
+		}
+		writeJSON(w, sv.Heuristics.All())
+	})
+	mux.HandleFunc("PUT /api/heuristics", func(w http.ResponseWriter, r *http.Request) {
+		var in struct{ Name, Path string }
+		if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&in); err != nil || sv.Heuristics == nil {
+			http.Error(w, "want {name, path}", http.StatusBadRequest)
+			return
+		}
+		if err := sv.Heuristics.Register(in.Name, in.Path); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeJSON(w, map[string]bool{"ok": true})
+	})
+	mux.HandleFunc("POST /api/heuristics/run", func(w http.ResponseWriter, r *http.Request) {
+		var in struct{ Project, Name string }
+		if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&in); err != nil || sv.Heuristics == nil {
+			http.Error(w, "want {project, name}", http.StatusBadRequest)
+			return
+		}
+		if !sv.isWatched(in.Project) {
+			http.Error(w, "not a recorded folder: "+in.Project, http.StatusBadRequest)
+			return
+		}
+		props, err := sv.Heuristics.Run(r.Context(), in.Name, RepoRoot(in.Project))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if props == nil {
+			props = []HeuristicProposal{}
+		}
+		writeJSON(w, props)
+	})
+	// an R value the person saved from the story (values.go): POST {hash, name, path, project}
+	mux.HandleFunc("POST /api/values/saved", func(w http.ResponseWriter, r *http.Request) {
+		var in SavedValue
+		if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&in); err != nil || sv.Values == nil {
+			http.Error(w, "want {hash, name, path, project}", http.StatusBadRequest)
+			return
+		}
+		if !sv.isWatched(in.Project) {
+			http.Error(w, "not a recorded folder: "+in.Project, http.StatusBadRequest)
+			return
+		}
+		if err := sv.Values.MarkSaved(in); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeJSON(w, map[string]bool{"ok": true})
+	})
+	mux.HandleFunc("DELETE /api/declared", func(w http.ResponseWriter, r *http.Request) {
+		if sv.Edits == nil {
+			http.NotFound(w, r)
+			return
+		}
+		if err := sv.Edits.Undeclare(r.URL.Query().Get("id")); err != nil {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		writeJSON(w, map[string]bool{"ok": true})
 	})
 	mux.HandleFunc("GET /api/lineage", func(w http.ResponseWriter, r *http.Request) {
 		var out *Step

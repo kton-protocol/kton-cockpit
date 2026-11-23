@@ -19,21 +19,28 @@ import (
 
 // StoryStep is one thing that happened.
 type StoryStep struct {
-	Session  string     `json:"session"`
-	Task     string     `json:"task"`
-	When     int64      `json:"when_ns"`
-	Where    string     `json:"where"`    // "script 02_nca.R", "console", "chunk #1 of step3.qmd"
-	Sentence string     `json:"sentence"` // what happened, in words
-	Code     string     `json:"code,omitempty"`
-	Reads    []string   `json:"reads,omitempty"`     // project-relative
-	Writes   []string   `json:"writes,omitempty"`    // project-relative
-	Hashes   []string   `json:"hashes,omitempty"`    // sha256 of the writes, for asking kton
-	InHashes []string   `json:"in_hashes,omitempty"` // sha256 of everything it read, scripts too: kton has the step only with these inputs
-	Uses     []string   `json:"uses,omitempty"`
-	Makes    []string   `json:"makes,omitempty"` // variables it left
-	OnPath   bool       `json:"on_path"`
-	Error    bool       `json:"error,omitempty"`
-	Hand     bool       `json:"hand,omitempty"` // not recorded: a file changed by hand between two steps
+	Session  string   `json:"session"`
+	Task     string   `json:"task"`
+	When     int64    `json:"when_ns"`
+	Where    string   `json:"where"`    // "script 02_nca.R", "console", "chunk #1 of step3.qmd"
+	Sentence string   `json:"sentence"` // what happened, in words
+	Code     string   `json:"code,omitempty"`
+	Reads    []string `json:"reads,omitempty"`     // project-relative
+	Writes   []string `json:"writes,omitempty"`    // project-relative
+	Hashes   []string `json:"hashes,omitempty"`    // sha256 of the writes, for asking kton
+	InHashes []string `json:"in_hashes,omitempty"` // sha256 of everything it read, scripts too: kton has the step only with these inputs
+	Uses     []string `json:"uses,omitempty"`
+	Makes    []string `json:"makes,omitempty"` // variables it left
+	// Values: the variables it left with their value hash and state (new, changed, same), and where
+	// one was saved; filled when the R recorder hashed them (values.go)
+	Values []StepValue `json:"values,omitempty"`
+	OnPath bool        `json:"on_path"`
+	Error  bool        `json:"error,omitempty"`
+	Hand   bool        `json:"hand,omitempty"` // not recorded: a file changed by hand between two steps
+	// DerivedFrom: model files it wrote through pharmpy and the files they were developed from (derive.go)
+	DerivedFrom []ModelOrigin `json:"derived_from,omitempty"`
+	// Declared: not recorded but declared in the story editor, "hand" or "heuristic:<name>" (edits.go)
+	Declared string     `json:"declared,omitempty"`
 	Tools    []string   `json:"tools,omitempty"`
 	Warnings []string   `json:"warnings,omitempty"`
 	Repro    *StepRepro `json:"repro,omitempty"` // what the latest reproduction gave for this step
@@ -69,6 +76,21 @@ func (sv *Service) Story(project, path, sum string) *Story {
 		})
 	}
 	sv.mu.RUnlock()
+	if sv.Edits != nil {
+		st = withDeclared(st, project, path, sum, sv.Edits.Declared(project))
+	}
+	if st != nil && sv.Values != nil { // which values were saved, and where
+		for i := range st.Steps {
+			for j := range st.Steps[i].Values {
+				if x, ok := sv.Values.Saved(st.Steps[i].Values[j].Hash); ok {
+					st.Steps[i].Values[j].Saved = x.Path
+				}
+			}
+		}
+	}
+	if st == nil {
+		return nil
+	}
 	sv.Placer.placeSources(st, project, st.sourcesOrNil()) // asks the cockpit: not under the lock
 	if st != nil && sv.Placer != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), sv.Placer.Budget)
@@ -191,6 +213,7 @@ func storyOf(tasks []*Task, project, path, sum string) *Story {
 	sort.SliceStable(picked, func(i, j int) bool { return picked[i].End < picked[j].End })
 	for _, t := range picked {
 		s := StoryStep{Session: t.Session, Task: t.ID, When: t.End, Code: t.Code(), OnPath: on[stepKey(t)], Error: t.Status == "err"}
+		s.DerivedFrom = t.ModelOrigins
 		s.Where = StepWhere(t, rel)
 		var srcs []string
 		for _, x := range t.Sources {
@@ -221,6 +244,9 @@ func storyOf(tasks []*Task, project, path, sum string) *Story {
 		}
 		for _, v := range t.Vars {
 			s.Makes = append(s.Makes, v.Name)
+			if v.Hash != "" || v.Skip != "" {
+				s.Values = append(s.Values, StepValue{Var: v})
+			}
 		}
 		// the sentence: who, what was read, what ran, what came out
 		var parts []string
