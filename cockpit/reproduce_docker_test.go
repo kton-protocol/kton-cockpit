@@ -435,6 +435,25 @@ func TestQueryRun_ALoadedFileALoadWouldRefuseIsRefused(t *testing.T) {
 	if codeOf(err) != "derived.refused" || !strings.Contains(err.Error(), h) {
 		t.Errorf("an entity file on the load list: want derived.refused naming %s, got %v", h, err)
 	}
+	// The same file in UTF-16, which a byte search for <!ENTITY does not see: refused by the check itself,
+	// not left to the engine.
+	u16 := []byte{0xFF, 0xFE}
+	for _, r := range bomb {
+		u16 = append(u16, byte(r), 0)
+	}
+	r.Write(t, "rdf/bomb16.rdf", string(u16))
+	h16 := core.HashBytes(u16)
+	if err := forgetLoad(r.Config(t), h); err != nil {
+		t.Fatal(err)
+	}
+	if err := rememberLoad(r.Config(t), loadEntry{Hash: h16, From: "rdf/bomb16.rdf", MediaType: "application/rdf+xml"}); err != nil {
+		t.Fatal(err)
+	}
+	_, err = New(Start{}).Ask(ctx, AskRequest{Query: "sparql", Reproducible: true,
+		Sparql: `SELECT ?o WHERE { GRAPH ?g { ?s ?p ?o } }`})
+	if codeOf(err) != "derived.refused" || !strings.Contains(err.Error(), "UTF-8") {
+		t.Errorf("a UTF-16 entity file: want derived.refused by the check (not UTF-8), got %v", err)
+	}
 }
 
 // A file with relative IRIs gives the same triples in a query run as in a query of the index: both read

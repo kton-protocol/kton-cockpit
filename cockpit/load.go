@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	"kton.dev/plankton/core"
 
@@ -58,6 +59,11 @@ func checkLoadedBytes(cfg *config.Config, b []byte, mt, name string) error {
 	}
 	if !known {
 		return refuse("derived.type", "SPEC §12.6", "%s: %q is not a type a load reads", name, mt)
+	}
+	// The entity check reads bytes as UTF-8: a file in another encoding (UTF-16 with its BOM) would pass it
+	// unread, so it is refused here rather than left to the engine (kton-review on #235).
+	if mt == "application/rdf+xml" && !utf8.Valid(b) {
+		return refuse("derived.refused", "SPEC §12.6", "%s is not UTF-8; a load reads RDF/XML in UTF-8 only", name)
 	}
 	// A DTD's nested entities expand without bound while the engine parses (kton-review on ADR-017).
 	if mt == "application/rdf+xml" && bytes.Contains(bytes.ToUpper(b), []byte("<!ENTITY")) {
