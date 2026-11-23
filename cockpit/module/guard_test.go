@@ -72,8 +72,12 @@ func TestDecide_FailsClosed(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 		return Decision{Allow: true}
 	})
-	if d := Decide(ctx, req); d.Allow {
-		t.Errorf("a request whose context ended: want refused, got %+v", d)
+	// An immediate allow on an ended context: refused every time, never by chance of the select.
+	guard(t, "z-quick", func(context.Context, Request) Decision { return Decision{Allow: true} })
+	for i := 0; i < 2000; i++ {
+		if d := Decide(ctx, req); d.Allow {
+			t.Fatalf("a request whose context ended: want refused, got %+v (run %d)", d, i)
+		}
 	}
 }
 

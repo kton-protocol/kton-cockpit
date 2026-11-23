@@ -100,6 +100,12 @@ func Decide(ctx context.Context, r Request) Decision {
 	out := Decision{Allow: true}
 	for _, m := range guards {
 		d := ask(ctx, m, r)
+		// A copy: a guard may hand back a map it keeps (kton-review on #246).
+		denied := make(map[string]Reason, len(d.Denied))
+		for id, why := range d.Denied {
+			denied[id] = why
+		}
+		d.Denied = denied
 		// A denial that names no resource of the request is not understood, so it refuses: a reader leaving
 		// out by Key() would otherwise keep every resource (kton-review D1 on #246).
 		for id := range d.Denied {
@@ -137,6 +143,11 @@ func Decide(ctx context.Context, r Request) Decision {
 
 // ask runs one guard under its deadline; whatever is not an answer is a refusal.
 func ask(ctx context.Context, m Module, r Request) Decision {
+	// A request whose context has ended is refused before the guard starts and whatever it answers, so an
+	// immediate allow never wins the race with the end (kton-review on #246).
+	if err := ctx.Err(); err != nil {
+		return Decision{Why: fmt.Sprintf("the guard of module %q was not asked: %v", m.Name, err)}
+	}
 	ctx, cancel := context.WithTimeout(ctx, GuardTimeout)
 	defer cancel()
 	done := make(chan Decision, 1)
@@ -150,6 +161,9 @@ func ask(ctx context.Context, m Module, r Request) Decision {
 	}()
 	select {
 	case d := <-done:
+		if err := ctx.Err(); err != nil {
+			return Decision{Why: fmt.Sprintf("the guard of module %q answered after the request ended (%v)", m.Name, err)}
+		}
 		if !d.Allow && d.Why == "" {
 			d.Why = fmt.Sprintf("refused by the guard of module %q", m.Name)
 		}
