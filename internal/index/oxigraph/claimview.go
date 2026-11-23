@@ -95,7 +95,7 @@ func (vc ViewConfig) resolve(tmpl, x string) string {
 
 // viewVersion changes whenever ClaimView builds something else from the same quads: a view kept
 // from an older build is then built again rather than answered from.
-const viewVersion = 9 // 4: view vocabulary 1; 5: nested fields through the aliases; 6: package aliases; 7: no aliases for an unknown template; 8: scope graphs (ADR-018); 9: nk:row, nk:source, graphs kept
+const viewVersion = 10 // 4: view vocabulary 1; 5: nested fields through the aliases; 6: package aliases; 7: no aliases for an unknown template; 8: scope graphs (ADR-018); 9: nk:row, nk:source, graphs kept; 10: what a claim asserts about something else in no scope graph
 
 // Fingerprint changes whenever the view a ViewConfig builds would.
 func (vc ViewConfig) Fingerprint() string {
@@ -287,6 +287,7 @@ func ClaimView(trusted, structure []Quad, vc ViewConfig) []Quad {
 	}
 
 	var out []Quad
+	var shared []int // indexes of quads about something other than the claim
 	agents := map[string]bool{}
 	hexes := make([]string, 0, len(claims))
 	for h := range claims {
@@ -361,6 +362,10 @@ func ClaimView(trusted, structure []Quad, vc ViewConfig) []Quad {
 			}
 		}
 		for _, q := range c.other {
+			// What a claim asserts about something else (a seed's name for its scope) can be asserted by
+			// claims of several scopes alike: it belongs to no scope's graph, so the graphs hold only their
+			// own claims' triples and never share one (kton-review N1 on #226).
+			shared = append(shared, len(out))
 			out = append(out, Quad{S: q.S, P: q.P, O: q.O})
 			// A seed's assertion names its scope; the seed node carries that name too, so a scope
 			// is found by its name without joining through the assertion.
@@ -409,6 +414,10 @@ func ClaimView(trusted, structure []Quad, vc ViewConfig) []Quad {
 		for i := start; i < len(out); i++ {
 			out[i].G = g
 		}
+		for _, i := range shared {
+			out[i].G = ""
+		}
+		shared = shared[:0]
 	}
 	kids := make([]string, 0, len(agents))
 	for kid := range agents {
@@ -695,3 +704,9 @@ func ntQuote(v string) string {
 func Reserved(term string) bool {
 	return strings.HasPrefix(term, nkNS) && !strings.HasPrefix(term, labNS)
 }
+
+// ViewVersion is the version of the query projection a view is built by (ADR-020: a query run pins it).
+func ViewVersion() int { return viewVersion }
+
+// NTerm is t in N-Triples form.
+func NTerm(t Term) string { return ntTerm(t) }

@@ -72,7 +72,16 @@ type PublishRequest struct {
 	// recorder runs several tools. Omitted, the repo's environment.spectrum is used. Like EnvRef it is
 	// attested, and it is covered: it is part of the record's identity.
 	Environment string `json:"environment,omitempty" jsonschema:"optional: the environment class (env-spectrum id, sha256:<64 hex>) the work ran under; the repo's environment.spectrum when omitted"`
+	// Declared says the step was not recorded as it ran but declared afterwards: "hand" (written by a
+	// person, as in the recorder's story editor) or "heuristic:<name>" (inferred by the named heuristic).
+	// It is signed into the record and part of its identity; absent, its signer did not declare it, which
+	// alone does not say it was observed (MH, 21.11.; kton-review K1 on kton #292).
+	// A declared step is recorded, never run.
+	Declared string `json:"declared,omitempty" jsonschema:"optional: hand, or heuristic:<name>, for a step declared afterwards rather than recorded as it ran"`
 }
+
+// declaredForm is what Declared may say.
+var declaredForm = regexp.MustCompile(`^(hand|heuristic:[A-Za-z0-9][A-Za-z0-9._-]*)$`)
 
 type PublishResult struct {
 	FotonID string `json:"fotonId,omitempty"`
@@ -164,6 +173,10 @@ func (c *Cockpit) Publish(ctx context.Context, in PublishRequest) (*PublishResul
 	switch {
 	case in.OutputDir != "" && len(in.Outputs) > 0:
 		return nil, refuse("argument", "", "publish takes either outputs or outputDir, not both")
+	case in.Declared != "" && !declaredForm.MatchString(in.Declared):
+		return nil, refuse("argument", "SPEC §7", "declared is hand or heuristic:<name>, not %q", in.Declared)
+	case in.Declared != "" && (in.OutputDir != "" || in.OutputsIn != ""):
+		return nil, refuse("argument", "SPEC §7", "a declared step names its outputs: outputDir and outputsIn need a run, and a declared step is not run")
 	case in.OutputDir != "" && !cfg.Raw.Execution.Enabled():
 		return nil, refuse("execution.not-configured", "SPEC §10",
 			"outputDir needs this repo to run the command (execution.image is not configured) — "+
@@ -182,6 +195,16 @@ func (c *Cockpit) Publish(ctx context.Context, in PublishRequest) (*PublishResul
 	}
 
 	envRef, envErr := resolveEnvRef(cfg, in.EnvRef)
+	if in.Declared != "" {
+		// A declared step did not run: no environment the cockpit or the configuration would vouch for
+		// it ran in. Only what the caller asserts is recorded (kton-review D1 on #220).
+		envRef, envErr = in.EnvRef, ""
+		if in.EnvRef != "" {
+			if err := config.ValidateEnvRef(in.EnvRef); err != nil {
+				envErr = err.Error()
+			}
+		}
+	}
 	if envErr != "" {
 		return nil, refuse("env-ref", "SPEC §7.5", "%s", envErr)
 	}
@@ -238,7 +261,7 @@ func (c *Cockpit) Publish(ctx context.Context, in PublishRequest) (*PublishResul
 		}
 	}
 
-	if cfg.Raw.Execution.Enabled() {
+	if cfg.Raw.Execution.Enabled() && in.Declared == "" {
 		// Snapshotted around the run so the declaration can be held against what actually happened.
 		// This is the only point where that is possible: when the cockpit does not run the command,
 		// it has no idea what the command touched.
@@ -363,6 +386,7 @@ func (c *Cockpit) Publish(ctx context.Context, in PublishRequest) (*PublishResul
 		// resolveEnvironment for when the caller names them and when the cockpit does.
 		Environment: class,
 		EnvRef:      envRef,
+		Declared:    in.Declared,
 	})
 	if err != nil {
 		return nil, refuse("kernel", "", "plankton author failed: %v", err)

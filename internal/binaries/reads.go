@@ -89,10 +89,13 @@ type ReproductionsResult struct {
 	// ExcludedUntrusted is how many producer fotons were dropped from the count because no trusted
 	// key verified them. Carried because the difference between "nobody else produced these bytes"
 	// and "somebody did, but not anyone this repo trusts" is the whole point of the count.
-	ExcludedUntrusted int                    `json:"excludedUntrusted"`
-	Trust             string                 `json:"trust"`
-	Producers         []ReproductionProducer `json:"producers"`
-	Warning           string                 `json:"-"`
+	ExcludedUntrusted int `json:"excludedUntrusted"`
+	// ExcludedDeclared is how many producer fotons were dropped because their step was declared, not
+	// run (hand, heuristic:<name>): a declaration reproduces nothing (kton-review on #220).
+	ExcludedDeclared int                    `json:"excludedDeclared,omitempty"`
+	Trust            string                 `json:"trust"`
+	Producers        []ReproductionProducer `json:"producers"`
+	Warning          string                 `json:"-"`
 }
 
 // wire shapes, named as plankton prints them.
