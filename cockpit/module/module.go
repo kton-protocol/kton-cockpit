@@ -43,6 +43,9 @@ type Module struct {
 	Commands []Command // operator commands, CLI only (SPEC §6): never on MCP
 	Profiles []string  // the package profiles `cockpit install` hands to this module
 	Words    fs.FS     // templates/<name>.json and queries/<name>.rq; nil when it brings none
+	// Guard decides whether a request at the door may be answered (ADR-019 section 4); nil: the module
+	// guards nothing. Decide asks every module's guard.
+	Guard func(ctx context.Context, r Request) Decision
 }
 
 // Reserved are the core's own commands. A module cannot take one of them as its name.

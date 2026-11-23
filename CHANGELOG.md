@@ -23,6 +23,10 @@
   claims and other loaded files are in neither its rows nor its manifest, unscoped claims and the steps stay
   in. The manifest names the graphs.
 
+- **The guard door** (ADR-019 section 4, step 1): a module may register a `Guard`; `module.Decide` asks
+  every guard and fails closed (a guard that panics, times out or does not answer refuses; every guard must
+  allow). Nothing calls it yet, and without a guard module nothing changes.
+
 ### Fixed
 
 - **`cockpit shim serve --listen` and `cockpit show` refuse other web pages** (kton-review on #236): a
