@@ -106,3 +106,6 @@ ol.story li.declared::before { background: none; border: 2px dashed var(--vscode
 .ed-actions { margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 @container (max-width: 420px) { .editor { padding: 8px; } }
 .derived { font-size: 12px; margin-top: 2px; }
+.values { font-size: 12px; margin-top: 2px; display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; }
+.val.new code, .val.changed code { font-weight: 600; }
+.val.skipped { opacity: .7; }

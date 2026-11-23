@@ -1169,6 +1169,25 @@ async function openStory(context, project, file) {
       try { await sendJSON('DELETE', `${viewerUrl()}api/declared?id=${encodeURIComponent(m.id)}`, {}); } catch (e) { vscode.window.showWarningMessage(`kton: not removed: ${e.message}`); }
       send();
     }
+    // an R value the person marks to keep (MH 21.11.: hashes always, saved only when marked): saveRDS runs in the R
+    // console, visibly, so the recorder records it as a step that wrote the file; ktonwatch keeps hash → file
+    else if (m.type === 'saveValue' && story) {
+      if (!/^[A-Za-z.][A-Za-z0-9._]*$/.test(m.name || '') || !/^md5:[0-9a-f]{32}$/.test(m.hash || '')) return;
+      const rel = `objects/${m.name}-${m.hash.slice(4, 12)}.rds`;
+      const code = `dir.create("objects", showWarnings = FALSE); saveRDS(${m.name}, ${JSON.stringify(rel)})`;
+      let positron = null;
+      try { positron = require('positron'); } catch (e) { /* plain VS Code */ }
+      if (positron && positron.runtime && positron.runtime.executeCode) {
+        try { await positron.runtime.executeCode('r', code, true); }
+        catch (e) { vscode.window.showWarningMessage(`kton: the R console did not run it: ${e.message}`); return; }
+      } else {
+        await vscode.env.clipboard.writeText(code);
+        vscode.window.showInformationMessage(`kton: run this in the R session that holds ${m.name} (copied): ${code}`);
+      }
+      // the value is what the R recorder hashed; the file is what saveRDS wrote from it
+      sendJSON('POST', `${viewerUrl()}api/values/saved`, { hash: m.hash, name: m.name, path: path.join(story.repo, rel), project }).catch(() => {});
+      setTimeout(send, 3000);
+    }
     else if (m.type === 'diff') diffReproduced(project, m);
     else if (m.type === 'inkton' && story) openInKton(project, story.repo, file.sha256, path.basename(file.path));
     else if (m.type === 'save') {

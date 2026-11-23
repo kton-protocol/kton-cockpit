@@ -422,6 +422,23 @@ func (sv *Service) Handler() http.Handler {
 		}
 		writeJSON(w, d)
 	})
+	// an R value the person saved from the story (values.go): POST {hash, name, path, project}
+	mux.HandleFunc("POST /api/values/saved", func(w http.ResponseWriter, r *http.Request) {
+		var in SavedValue
+		if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&in); err != nil || sv.Values == nil {
+			http.Error(w, "want {hash, name, path, project}", http.StatusBadRequest)
+			return
+		}
+		if !sv.isWatched(in.Project) {
+			http.Error(w, "not a recorded folder: "+in.Project, http.StatusBadRequest)
+			return
+		}
+		if err := sv.Values.MarkSaved(in); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeJSON(w, map[string]bool{"ok": true})
+	})
 	mux.HandleFunc("DELETE /api/declared", func(w http.ResponseWriter, r *http.Request) {
 		if sv.Edits == nil {
 			http.NotFound(w, r)

@@ -178,6 +178,7 @@
         <div class="head">${c.where.startsWith("$ ") ? `<code class="cmdline">${esc(c.where)}</code>` : `<b>${esc(c.hand ? "by hand" : c.declared ? c.where : c.where.replace(/^script /, ""))}</b>`} ${what} ${flags}
           ${c.hand || c.declared ? "" : `<button class="link tog">${open[c.key] ? "less" : `${c.steps.length} commands`}</button>`} ${editBtn}</div>
         ${c.declared ? `<div class="muted"><code>${esc(c.steps[0].code || c.steps[0].sentence)}</code></div>` : ""}
+        ${valuesRow(c)}
         ${(c.path || []).flatMap((s) => s.derived_from || []).map((o) => `<div class="derived" title="pharmpy calls recorded in the console; Publish signs this step as a child step (pmx/parent-step) of the step that made ${esc(o.from)}"><span class="muted">child step of</span> <span class="f">${esc(short(o.from))}</span> <span class="muted">→ ${esc(short(o.output))}${(o.via || []).length ? " · " + esc(o.via.join(", ")) : ""}</span></div>`).join("")}
         ${editor}
         ${devs}
@@ -283,6 +284,23 @@
     return rows.join("");
   }
 
+  // the R values a line left (the last state of each name): new or changed and not saved is what may need saving;
+  // a value the person's filter skipped says why (MH 21.11.)
+  function valuesRow(c) {
+    const by = {};
+    for (const s of c.path || c.steps || []) for (const v of s.values || []) by[v.name] = v;
+    const vs = Object.values(by);
+    if (!vs.length) return "";
+    const one = (v) => {
+      if (v.skip) return `<span class="val skipped" title="not hashed: ${esc(v.skip)} (kton.recorder R value filter)"><code>${esc(v.name)}</code> <span class="muted">${esc(v.skip)}</span></span>`;
+      const st = v.state === "same" ? "unchanged" : v.state || "";
+      const act = v.saved ? `<span class="ok" title="${esc(v.saved)}">saved</span>`
+        : v.state === "same" ? "" : `<button class="link savev" data-n="${esc(v.name)}" data-h="${esc(v.hash)}" title="saveRDS in the R console, as objects/${esc(v.name)}-${esc((v.hash || "").slice(4, 12))}.rds; recorded as a step">save</button>`;
+      return `<span class="val ${esc(v.state || "")}" title="${esc(v.desc)} · ${esc(v.hash || "")}"><code>${esc(v.name)}</code> <span class="muted">${esc(st)}</span> ${act}</span>`;
+    };
+    return `<div class="values"><span class="muted">values</span> ${vs.map(one).join(" ")}</div>`;
+  }
+
   // a step the editor can correct: recorded, it made something, not in kton yet
   const editable = (s) => !s.hand && !s.published && (s.writes || []).length > 0 && !published[skey(s)];
 
@@ -375,6 +393,7 @@
       if (o) vscode.postMessage({type: "diff", path: o.path, recorded: o.recorded, reproduced: o.reproduced, dir: o.dir});
     };
     for (const b of root.querySelectorAll("button.edit")) b.onclick = () => startEdit(b.dataset.s, b.dataset.t);
+    for (const b of root.querySelectorAll("button.savev")) b.onclick = () => { b.disabled = true; vscode.postMessage({type: "saveValue", name: b.dataset.n, hash: b.dataset.h}); };
     for (const b of root.querySelectorAll("button.undeclare")) b.onclick = () => vscode.postMessage({type: "undeclare", id: b.dataset.id});
     const nb = document.getElementById("ed-new");
     if (nb) nb.onclick = startNew;

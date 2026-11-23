@@ -375,7 +375,7 @@ func (s *Session) Handle(e Event) {
 	case "VARS":
 		for _, kv := range strings.Split(e.Extra, ";") {
 			if n, d, ok := strings.Cut(kv, "="); ok && n != "" {
-				t.Vars = append(t.Vars, Var{Name: n, Desc: d})
+				t.Vars = append(t.Vars, parseVar(n, d))
 			}
 		}
 	case "TASK":
@@ -716,6 +716,7 @@ func (s *Session) finish() {
 	if t.ID == "tail" && len(t.Inputs)+len(t.Outputs)+len(t.Commands)+len(t.Network)+len(t.Missing) == 0 {
 		return
 	}
+	valueStates(s.Tasks, t)
 	// pharmpy: the model files it wrote and where their models came from, followed back over the whole
 	// session now (later readers see only the tasks with files, derive.go)
 	if len(t.Derives) > 0 && s.Project != "" {
