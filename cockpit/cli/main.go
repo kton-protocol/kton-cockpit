@@ -25,6 +25,7 @@ import (
 	"github.com/kton-protocol/kton-cockpit/internal/binaries"
 	"github.com/kton-protocol/kton-cockpit/internal/config"
 	"github.com/kton-protocol/kton-cockpit/internal/container"
+	"github.com/kton-protocol/kton-cockpit/internal/httpguard"
 	"github.com/kton-protocol/kton-cockpit/internal/material"
 	"github.com/kton-protocol/kton-cockpit/internal/mcpsurface"
 	"github.com/kton-protocol/kton-cockpit/internal/show"
@@ -456,6 +457,12 @@ func runShow(ctx context.Context, args []string) error {
 	}
 	fmt.Printf("\nkeys.json holds this repo's CONFIGURED trust tiers, so the viewer re-verifies against\n")
 	fmt.Printf("exactly what cockpit_ask does — not every pubkey that happens to sit in the registry.\n")
+	if httpguard.ListensOnLoopback(addr) {
+		// Served on the loopback, the records are not for a web page that rebinds a name to it or
+		// posts from another origin (kton-review on #236); bound to every interface, the note above
+		// says what that opens.
+		handler = httpguard.LoopbackOnly("cockpit show", handler)
+	}
 	return http.ListenAndServe(addr, handler)
 }
 

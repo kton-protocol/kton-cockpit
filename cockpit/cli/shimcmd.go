@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/kton-protocol/kton-cockpit/cockpit"
+	"github.com/kton-protocol/kton-cockpit/internal/httpguard"
 )
 
 // runShim serves the dispatcher of the tool shims (ADR-014): `cockpit shim serve --socket PATH`
@@ -44,5 +45,11 @@ func runShim(ctx context.Context, args []string) error {
 	}
 	defer c.Close()
 	fmt.Fprintf(os.Stderr, "cockpit: tool shims answered at %s\n", ln.Addr())
-	return http.Serve(ln, c.CallHandler())
+	h := c.CallHandler()
+	if args[1] == "--listen" {
+		// A browser on this machine reaches a TCP loopback port too: no rebinding Host, no other page's
+		// Origin (kton-review on #236). A unix socket no page reaches.
+		h = httpguard.LoopbackOnly("the tool shims' dispatcher", h)
+	}
+	return http.Serve(ln, h)
 }
