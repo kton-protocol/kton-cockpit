@@ -76,3 +76,30 @@ func TestDecide_FailsClosed(t *testing.T) {
 		t.Errorf("a request whose context ended: want refused, got %+v", d)
 	}
 }
+
+// A denial must name a resource of the request by its Key; one that does not refuses the request (D1). A
+// write or a signature with any denied resource is refused whole; only a read is answered over less (D2).
+func TestDecide_DenialsAreUnderstoodAndBindWrites(t *testing.T) {
+	guard(t, "d-bare-id", func(context.Context, Request) Decision {
+		return Decision{Allow: true, Denied: map[string]Reason{"sha256:a": {Rule: "r"}}}
+	})
+	if d := Decide(context.Background(), req); d.Allow || !strings.Contains(d.Why, "no resource of this request") {
+		t.Errorf("a denial by the bare ID: want refused, got %+v", d)
+	}
+	mu.Lock()
+	delete(modules, "d-bare-id")
+	mu.Unlock()
+	guard(t, "d-keyed", func(context.Context, Request) Decision {
+		return Decision{Allow: true, Denied: map[string]Reason{"scope:sha256:a": {Rule: "r"}}}
+	})
+	if d := Decide(context.Background(), req); !d.Allow || len(d.Denied) != 1 {
+		t.Errorf("a read with one resource denied: allowed over the rest, got %+v", d)
+	}
+	for _, a := range []Action{Write, Sign} {
+		w := req
+		w.Action = a
+		if d := Decide(context.Background(), w); d.Allow {
+			t.Errorf("a %s with a denied resource: want refused, got %+v", a, d)
+		}
+	}
+}

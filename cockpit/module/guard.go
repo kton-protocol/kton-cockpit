@@ -93,9 +93,22 @@ func Decide(ctx context.Context, r Request) Decision {
 	}
 	mu.RUnlock()
 	sort.Slice(guards, func(i, j int) bool { return guards[i].Name < guards[j].Name })
+	keys := map[string]bool{}
+	for _, res := range r.Resources {
+		keys[res.Key()] = true
+	}
 	out := Decision{Allow: true}
 	for _, m := range guards {
 		d := ask(ctx, m, r)
+		// A denial that names no resource of the request is not understood, so it refuses: a reader leaving
+		// out by Key() would otherwise keep every resource (kton-review D1 on #246).
+		for id := range d.Denied {
+			if !keys[id] {
+				d.Allow = false
+				d.Why = fmt.Sprintf("the guard of module %q denied %q, which is no resource of this request", m.Name, id)
+				delete(d.Denied, id)
+			}
+		}
 		if !d.Allow {
 			out.Allow = false
 			if out.Why == "" {
@@ -109,6 +122,14 @@ func Decide(ctx context.Context, r Request) Decision {
 			if _, seen := out.Denied[id]; !seen {
 				out.Denied[id] = why
 			}
+		}
+	}
+	// Only a read can be answered over less than it asked for; a write or a signature with a denied
+	// resource is refused whole (kton-review D2 on #246).
+	if r.Action != Read && len(out.Denied) > 0 {
+		out.Allow = false
+		if out.Why == "" {
+			out.Why = "a resource of this " + string(r.Action) + " is denied"
 		}
 	}
 	return out
