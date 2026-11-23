@@ -50,6 +50,8 @@ func trustedOrigin(origin, host string) bool {
 	}
 	switch u.Scheme {
 	case "vscode-webview": // the extension's own panels (the story, the In kton tab)
+		// any extension's webview has this scheme, not only ours: accepted, since an extension is code
+		// the person installed and runs locally anyway (kton-review on #236)
 		return true
 	case "http":
 		return loopbackHost(u.Host) && (u.Host == host || sameLoopbackPort(u.Host, host))
