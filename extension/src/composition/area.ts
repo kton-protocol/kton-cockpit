@@ -55,7 +55,7 @@ export interface ActPath {
   /** The commits between two commits that touched a test file or a helper it imports (option changesBetween). */
   changes?(repo: string, from: string, to: string, path: string): Promise<import("../ui/sources.js").Changes>;
   /** The commits under a rerun at head since the last reviewed state (option requireReviewed). */
-  reviewedState?(repo: string, head: string, reviewOf: (sha: string) => string | undefined): Promise<import("../ui/sources.js").ReviewedState | { why: string }>;
+  reviewedState?(repo: string, head: string, reviewOf: (sha: string) => string | undefined, base?: string): Promise<import("../ui/sources.js").ReviewedState | { why: string }>;
   /** A run artifact's thumbnail as a data URL, after its sha256 is checked (or undefined: shown as a link only). */
   thumb?(t: import("../ui/artifacts.js").ArtifactTarget): Promise<string | undefined>;
 }
@@ -477,10 +477,20 @@ export class PackagesArea {
     } catch (e) {
       return { blocked: `the commits under this rerun cannot be checked: ${(e as Error).message}`, lines: [] };
     }
+    let base: string | undefined;
+    if (r.base) {
+      try {
+        const b = (await this.named(pkg, r.base, {})) as { results?: { bindings?: Array<Record<string, { value?: string }>> } };
+        base = b.results?.bindings?.[0]?.["commit"]?.value;
+      } catch (e) {
+        return { blocked: `the commits under this rerun cannot be checked: ${(e as Error).message}`, lines: [] };
+      }
+      if (!base) return { blocked: `the commits under this rerun cannot be checked: ${r.base} names no commit the last run ran at`, lines: [] };
+    }
     const s = await this.path.reviewedState(r.repo, r.head, (sha) => {
       const t = reviewOf(sha, reviews);
       return t === "no review found" ? undefined : t;
-    });
+    }, base);
     return reviewedLines(s, r.head);
   }
 

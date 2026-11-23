@@ -263,34 +263,49 @@ export interface ReviewedState {
 }
 
 /**
- * Walk back from head (read-only `git log` over the mirror) to the newest proper ancestor that has an approval of its
- * own (the last reviewed state); every commit after it up to head is listed with its approval or none. An approval
+ * With a base (the state the last run ran at): every commit in base..head. Without one: walk back from head (read-only
+ * `git log` over the mirror) to the newest proper ancestor that has an approval of its own (the last reviewed state); every commit after it up to head is listed with its approval or none. An approval
  * covers only the commit it names (a later commit's approval does not cover its parents). No approved ancestor within
  * `cap` commits: all of them are listed and the cap is said.
  */
-export async function reviewedState(mirrors: string, repo: string, head: string, reviewOf: (sha: string) => string | undefined, aliases: Readonly<Record<string, string>> = {}, cap = 50): Promise<ReviewedState | { why: string }> {
+export async function reviewedState(mirrors: string, repo: string, head: string, reviewOf: (sha: string) => string | undefined, aliases: Readonly<Record<string, string>> = {}, cap = 50, base?: string): Promise<ReviewedState | { why: string }> {
   if (!mirrors) return { why: "source not available on this host (no mirrors configured: kton.sources.dir)" };
-  if (!NAME.test(repo) || !/^[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(head) || head.includes("..")) return { why: "repo or head is not plain" };
+  const REF = /^[A-Za-z0-9][A-Za-z0-9._/-]*$/;
+  if (!NAME.test(repo) || !REF.test(head) || head.includes("..") || (base !== undefined && (!REF.test(base) || base.includes("..")))) return { why: "repo, head or base is not plain" };
   const dir = mirrorDir(mirrors, repo, aliases);
-  const out = await new Promise<string | undefined>((resolve) =>
-    execFile("git", ["-C", dir, "log", "--no-color", `--max-count=${cap + 1}`, "--format=%H%x1f%s%x1f%an%x1f%aI", head, "--"], { encoding: "utf8", maxBuffer: 16 * 1024 * 1024, shell: false, windowsHide: true }, (err, o) => resolve(err ? undefined : String(o))),
-  );
+  const git = (args: string[]) => new Promise<string | undefined>((resolve) => execFile("git", ["-C", dir, ...args], { encoding: "utf8", maxBuffer: 16 * 1024 * 1024, shell: false, windowsHide: true }, (err, o) => resolve(err ? undefined : String(o))));
+  if (base !== undefined) {
+    // a given base (the state the last run ran at): every commit in base..head, each needing its own review
+    if ((await git(["merge-base", "--is-ancestor", base, head])) === undefined) return { why: `${base} is not an ancestor of ${head} in ${repo} (or ${repo} lacks one of them)` };
+    const list = await git(["log", "--no-color", `--max-count=${cap + 1}`, "--format=%H%x1f%s%x1f%an%x1f%aI", `${base}..${head}`, "--"]);
+    if (list === undefined) return { why: `source not available on this host: ${repo} has no ${base}..${head}` };
+    const cs = list.split("\n").filter(Boolean).map((l) => {
+      const [sha = "", subject = "", author = "", date = ""] = l.split("\x1f");
+      const review = reviewOf(sha);
+      return { sha, subject, author, date, ...(review ? { review } : {}) };
+    });
+    const capped = cs.length > cap ? `the newest ${cap} commits of ${base.slice(0, 12)}..${head}` : undefined;
+    const commits = cs.slice(0, cap);
+    const full = (await git(["rev-parse", base]))?.trim() ?? base;
+    return { base: full, commits, missing: commits.filter((c) => !c.review).map((c) => c.sha), ...(capped ? { capped } : {}) };
+  }
+  const out = await git(["log", "--no-color", `--max-count=${cap + 1}`, "--format=%H%x1f%s%x1f%an%x1f%aI", head, "--"]);
   if (out === undefined) return { why: `source not available on this host: ${repo} has no ${head}` };
   const all = out.split("\n").filter(Boolean).map((l) => {
     const [sha = "", subject = "", author = "", date = ""] = l.split("\x1f");
     return { sha, subject, author, date };
   });
   const commits: Array<ReviewedState["commits"][number]> = [];
-  let base: string | undefined;
+  let found: string | undefined;
   for (const [i, c] of all.entries()) {
     const review = reviewOf(c.sha);
     if (i > 0 && review) {
-      base = c.sha;
+      found = c.sha;
       break;
     }
     if (i >= cap) break;
     commits.push({ ...c, ...(review ? { review } : {}) });
   }
   const missing = commits.filter((c) => !c.review).map((c) => c.sha);
-  return { ...(base ? { base } : {}), commits, missing, ...(base ? {} : { capped: all.length > cap ? `no reviewed ancestor within ${cap} commits of ${head}` : `no reviewed ancestor of ${head}` }) };
+  return { ...(found ? { base: found } : {}), commits, missing, ...(found ? {} : { capped: all.length > cap ? `no reviewed ancestor within ${cap} commits of ${head}` : `no reviewed ancestor of ${head}` }) };
 }

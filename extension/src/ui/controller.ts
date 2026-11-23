@@ -165,7 +165,7 @@ export class Workbench {
     this.packages = new PackagesArea(t, host, {
       act: (c, about, fields, title, expect, into) => this.signAct(c, about, fields, title, expect, into),
       person: () => ({ keyId: this.identity.person.keyId, personTiers: this.cfg.personTiers }),
-      ...(this.host.reviewedState ? { reviewedState: (repo: string, head: string, reviewOf: (sha: string) => string | undefined) => (this.host.reviewedState as NonNullable<UiHost["reviewedState"]>)(repo, head, reviewOf) } : {}),
+      ...(this.host.reviewedState ? { reviewedState: (repo: string, head: string, reviewOf: (sha: string) => string | undefined, base?: string) => (this.host.reviewedState as NonNullable<UiHost["reviewedState"]>)(repo, head, reviewOf, base) } : {}),
       ...(this.host.changesBetween ? { changes: (repo: string, from: string, to: string, path: string) => (this.host.changesBetween as NonNullable<UiHost["changesBetween"]>)(repo, from, to, path) } : {}),
       ...(this.host.approvalStaleness ? { staleness: (repo: string, approved: string, head: string, paths: readonly string[]) => (this.host.approvalStaleness as NonNullable<UiHost["approvalStaleness"]>)(repo, approved, head, paths) } : {}),
       ...(this.host.artifactThumb ? { thumb: (t: import("./artifacts.js").ArtifactTarget) => (this.host.artifactThumb as NonNullable<UiHost["artifactThumb"]>)(t) } : {}),

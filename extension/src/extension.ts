@@ -111,8 +111,8 @@ class Tree implements vscode.TreeDataProvider<TreeNode> {
 }
 
 class VsHost implements UiHost {
-  reviewedState(repo: string, head: string, reviewOf: (sha: string) => string | undefined) {
-    return reviewedState(sourcesDir(), repo, head, reviewOf, sourceAliases());
+  reviewedState(repo: string, head: string, reviewOf: (sha: string) => string | undefined, base?: string) {
+    return reviewedState(sourcesDir(), repo, head, reviewOf, sourceAliases(), 50, base);
   }
   changesBetween(repo: string, from: string, to: string, path: string) {
     return changesBetween(sourcesDir(), repo, from, to, path, sourceAliases());

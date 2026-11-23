@@ -112,9 +112,13 @@ test("reviewedState: from head back to the newest proper ancestor with an approv
   assert.deepEqual(s.missing, [c2, c1]);
   const l = reviewedLines(s, "main");
   assert.equal(l.blocked, `2 commits under this rerun have no review: ${c2.slice(0, 7)}, ${c1.slice(0, 7)}`);
-  assert.match(l.lines[0] ?? "", /^main: 3 commits since the last reviewed state$/);
+  assert.match(l.lines[0] ?? "", /^main: 3 commits under this rerun$/);
   assert.ok(l.lines.includes(`${c2.slice(0, 7)} an unrelated helper: no review`));
-  assert.equal(l.lines.at(-1), `last reviewed state: ${c0.slice(0, 7)}`);
+  assert.equal(l.lines.at(-1), `since ${c0.slice(0, 7)}`);
+  // a base (the state the last run ran at): every commit after it, even when a later one is approved
+  const fromRun = await reviewedState(mirrors, "app", c3, (sha) => approved.get(sha), {}, 50, c1);
+  assert.ok(!("why" in fromRun) && fromRun.base === c1 && JSON.stringify(fromRun.commits.map((c) => c.sha)) === JSON.stringify([c3, c2]) && JSON.stringify(fromRun.missing) === JSON.stringify([c2]));
+  assert.match(((await reviewedState(mirrors, "app", c1, () => undefined, {}, 50, c3)) as { why: string }).why, /is not an ancestor/);
   const all = await reviewedState(mirrors, "app", c3, (sha) => (sha === c2 || sha === c1 ? "approved by R on 2026-11-21" : undefined));
   assert.ok(!("why" in all) && all.base === c2 && all.missing.length === 1, "head itself without a review");
   const none = await reviewedState(mirrors, "app", c3, () => undefined, {}, 2);
@@ -123,5 +127,6 @@ test("reviewedState: from head back to the newest proper ancestor with an approv
   assert.match(((await reviewedState(mirrors, "app", "-x", () => undefined)) as { why: string }).why, /not plain/);
   assert.equal(reviewedLines({ commits: [{ sha: c3, subject: "s", author: "a", date: "d", review: "approved by R on 2026-11-23" }], missing: [], base: c2 }, "main").blocked, undefined);
   assert.deepEqual(requireReviewedOf({ requireReviewed: "rerun-request:app|main|reviews" }), { control: "rerun-request", repo: "app", head: "main", reviews: "reviews" });
+  assert.deepEqual(requireReviewedOf({ requireReviewed: "app|main|reviews|last-run" }), { repo: "app", head: "main", reviews: "reviews", base: "last-run" });
   assert.equal(requireReviewedOf({ requireReviewed: "app|main" }), undefined);
 });

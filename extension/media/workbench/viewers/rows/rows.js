@@ -46,8 +46,9 @@
 //             once under the group's header; each row shows a small marker with the count and the items in its tooltip
 //   details   "column|Label": an expandable row detail (in the first cell) with these fields; with actsIn "details" the
 //             row's acts go there too
-//   requireReviewed "[control:]repo|head|reviews": the shell finds the commits a rerun at head would contain since the last
-//             reviewed state (each needs its own approval from the reviews query); while one has none, that control's act
+//   requireReviewed "[control:]repo|head|reviews[|base]": the shell finds the commits a rerun at head would contain since
+//             base (a query naming the commit the last run ran at; without one, the newest ancestor with an approval)
+//             (each needs its own approval from the reviews query); while one has none, that control's act
 //             is drawn disabled with the reason, and the commits are listed above the table
 //   changesBetween "repo|from|to|path": the row's columns naming a mirrored repository, two commits and a test file; the
 //             shell adds `changes` (the commits between them that touched the test or a helper it imports, each opening

@@ -44,7 +44,7 @@ export interface UiHost {
   /** The commits between two commits that touched a test file or a helper it imports (read-only git over the mirrors). */
   changesBetween?(repo: string, from: string, to: string, path: string): Promise<import("./sources.js").Changes>;
   /** The commits under a rerun at head since the last reviewed state, each with its review (read-only git over the mirrors). */
-  reviewedState?(repo: string, head: string, reviewOf: (sha: string) => string | undefined): Promise<import("./sources.js").ReviewedState | { why: string }>;
+  reviewedState?(repo: string, head: string, reviewOf: (sha: string) => string | undefined, base?: string): Promise<import("./sources.js").ReviewedState | { why: string }>;
   /** A run artifact's bytes as a data URL for a thumbnail, only after its sha256 checks (undefined: not shown). */
   artifactThumb?(t: import("./artifacts.js").ArtifactTarget): Promise<string | undefined>;
   /** A run artifact, read-only, checked against its sha256: "Opened …" / "Shown …" when shown, else why not. */
