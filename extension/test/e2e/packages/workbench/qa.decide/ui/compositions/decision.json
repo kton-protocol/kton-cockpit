@@ -437,6 +437,69 @@
    ]
   },
   {
+   "id": "history",
+   "heading": "Decisions on an element",
+   "blocks": [
+    {
+     "id": "sub",
+     "use": {
+      "package": "@workbench",
+      "block": "notice"
+     },
+     "options": {
+      "tone": "sub",
+      "text": "Every decision on each element, oldest first; a later one by someone else that differs is flagged. Cited artifacts open hash checked."
+     }
+    },
+    {
+     "id": "notes",
+     "use": {
+      "package": "@workbench",
+      "block": "rows"
+     },
+     "query": "history",
+     "options": {
+      "columns": [
+       "element",
+       "who",
+       "at",
+       "verdict",
+       "text",
+       "cites",
+       "citesNote",
+       "differs"
+      ],
+      "labels": [
+       "at|When",
+       "cites|Cited",
+       "citesNote|Not resolved",
+       "differs|Differs"
+      ],
+      "evidence": [
+       "cites"
+      ],
+      "cite": {
+       "columns": [
+        "text"
+       ],
+       "query": "cite-artifacts",
+       "structured": "evidence"
+      },
+      "differs": {
+       "group": "element",
+       "who": "who",
+       "when": "at",
+       "value": "verdict",
+       "lead": [
+        "Lead"
+       ]
+      },
+      "emptyText": "No decision on an element yet."
+     }
+    }
+   ]
+  },
+  {
    "id": "sign",
    "heading": "Decide",
    "blocks": [

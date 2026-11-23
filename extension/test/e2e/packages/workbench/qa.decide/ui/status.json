@@ -1,0 +1,6 @@
+{
+ "slot": "status-item",
+ "label": "Targets",
+ "query": "status-line",
+ "order": 1
+}

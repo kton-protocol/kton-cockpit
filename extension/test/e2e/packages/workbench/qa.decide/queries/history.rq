@@ -1,0 +1,12 @@
+# Every decision note on an element (w-note), oldest first: who, when, the verdict and its text (which may cite run
+# artifacts by hash; a structured citation in ?evidence takes precedence).
+PREFIX nk:   <https://kton.dev/v/>
+PREFIX lab:  <https://kton.dev/v/lab/>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX w:    <https://example.org/qa/decide/>
+SELECT ?element ?who ?at ?verdict ?text ?evidence ?claim WHERE {
+  ?sr rdfs:label "w.data" .
+  ?claim nk:scope ?sr ; nk:predicate w:note ; lab:element ?element ; lab:who ?who ; lab:at ?at ; lab:verdict ?verdict ; lab:text ?text .
+  OPTIONAL { ?claim lab:evidence ?evidence }
+}
+ORDER BY ?element ?at
