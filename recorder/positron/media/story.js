@@ -178,6 +178,7 @@
         <div class="head">${c.where.startsWith("$ ") ? `<code class="cmdline">${esc(c.where)}</code>` : `<b>${esc(c.hand ? "by hand" : c.declared ? c.where : c.where.replace(/^script /, ""))}</b>`} ${what} ${flags}
           ${c.hand || c.declared ? "" : `<button class="link tog">${open[c.key] ? "less" : `${c.steps.length} commands`}</button>`} ${editBtn}</div>
         ${c.declared ? `<div class="muted"><code>${esc(c.steps[0].code || c.steps[0].sentence)}</code></div>` : ""}
+        ${(c.path || []).flatMap((s) => s.derived_from || []).map((o) => `<div class="derived" title="pharmpy calls recorded in the console; Publish signs this step as a child step (pmx/parent-step) of the step that made ${esc(o.from)}"><span class="muted">child step of</span> <span class="f">${esc(short(o.from))}</span> <span class="muted">→ ${esc(short(o.output))}${(o.via || []).length ? " · " + esc(o.via.join(", ")) : ""}</span></div>`).join("")}
         ${editor}
         ${devs}
         ${planLine(c)}

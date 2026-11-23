@@ -820,6 +820,20 @@ async function basedOnLines(repo, cmd) {
   return ['cockpit claim based-on ' + sq(JSON.stringify({ 'based-on': id, why: `developed from ${parent}` }))];
 }
 
+// parentStepLines: per model file a step wrote through pharmpy, the parent-step claim about the step just published,
+// naming the published step that made the file the model was read from (by the bytes the session read)
+async function parentStepLines(repo, origins) {
+  const out = [];
+  for (const o of origins || []) {
+    const sum = o.from_sha256 || (await sha256File(path.join(repo, o.from)));
+    const ids = sum ? await producersOf(repo, sum) : [];
+    const why = `developed in pharmpy from ${o.from}${(o.via || []).length ? ': ' + o.via.join(', ') : ''}`;
+    if (!ids.length) { out.push(`#   parent step: ${o.from} is not published yet; publish its step first, then this one (${why})`); continue; }
+    out.push('cockpit claim parent-step ' + sq(JSON.stringify({ 'parent-step': ids[ids.length - 1], why })));
+  }
+  return out;
+}
+
 // shortCall: a publish line as a few words (the call inside its JSON, or the template of a say)
 function shortCall(cmd) {
   const m = /'(\{.*\})'\s*$/.exec(cmd || '');
@@ -985,6 +999,9 @@ async function publishText(story, file, steps) {
     }
     // git mode: what the backend says about the published foton (based-on and parent-step for a new version,
     // base/final and \$PROBLEM for NONMEM; nothing twice), as the nmfe75 wrapper does
+    // developed in pharmpy (ktonpharmpy, MH 21.11.): the model file this step wrote came from another model file by
+    // modeling calls; the step is a child step of the step that made that file (pmx/parent-step), its latest published foton
+    if (allowsTemplate(story.repo, 'parent-step')) lines.push(...(await parentStepLines(story.repo, d.derived_from)));
     if (repoMode(story.repo) !== 'improve') lines.push('cockpit model-claims');
   }
   return lines.join('\n');

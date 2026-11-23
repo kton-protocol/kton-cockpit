@@ -4,7 +4,8 @@
 #   $PREFIX/bin/ktonwatch              the watcher (ktonwatch serve)
 #   $PREFIX/bin/cockpit                the cockpit (publish, say, ask) the observations are documented with
 #   $PREFIX/share/kton/r/              kton-trace.R, ktonrec/, Rprofile-kton.R
-#   $PREFIX/share/kton/python/         ktonrec.py: command boundaries for the Python console
+#   $PREFIX/share/kton/python/         ktonrec.py: command boundaries for the Python console;
+#                                      ktonpharmpy.py: what a pharmpy session derived from what
 #   ~/.ipython/profile_default/startup/50-kton.py   loads it in IPython kernels that run under
 #                                      the shim; nothing else in the profile is touched
 #   $PREFIX/share/kton/kton-recorder-*.vsix   the Positron extension
@@ -37,6 +38,7 @@ rm -rf "$PREFIX/share/kton/r.new.$$" && cp -r "$ROOT/r" "$PREFIX/share/kton/r.ne
 rm -rf "$PREFIX/share/kton/r" && mv "$PREFIX/share/kton/r.new.$$" "$PREFIX/share/kton/r"
 mkdir -p "$PREFIX/share/kton/python"
 put "$ROOT/python/ktonrec.py" "$PREFIX/share/kton/python/ktonrec.py"
+put "$ROOT/python/ktonpharmpy.py" "$PREFIX/share/kton/python/ktonpharmpy.py"
 STARTUP=${IPYTHONDIR:-$HOME/.ipython}/profile_default/startup
 mkdir -p "$STARTUP"
 # the path as a Python string literal, whatever characters $PREFIX has

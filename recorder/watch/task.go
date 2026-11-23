@@ -15,7 +15,10 @@ type Task struct {
 	Origins   []Origin `json:"origins,omitempty"` // where the code came from (Positron, S6)
 	Sources   []Source `json:"sources,omitempty"` // files run with source()/sys.source()
 	Vars      []Var    `json:"vars,omitempty"`    // global variables the command created or changed (ktonrec)
-	Uses      []VarUse `json:"uses,omitempty"`    // variables of earlier tasks this one used (from its code)
+	Derives   []Derive `json:"derives,omitempty"` // pharmpy modeling calls (ktonpharmpy): what derived from what
+	// ModelOrigins: the model files it wrote through pharmpy and the files they were developed from
+	ModelOrigins []ModelOrigin `json:"model_origins,omitempty"`
+	Uses         []VarUse      `json:"uses,omitempty"` // variables of earlier tasks this one used (from its code)
 
 	Inputs     []*Input    `json:"inputs"`
 	Outputs    []*Output   `json:"outputs"`

@@ -21,6 +21,9 @@ type Draft struct {
 	Edited bool `json:"edited,omitempty"`
 	// Declared: not recorded but declared afterwards, "hand" or "heuristic:<name>" (publish --declared)
 	Declared string `json:"declared,omitempty"`
+	// DerivedFrom: model files the step wrote through pharmpy, each with the file it was developed
+	// from (derive.go); Publish proposes the step as a child step (pmx/parent-step) of that file's step
+	DerivedFrom []ModelOrigin `json:"derived_from,omitempty"`
 }
 
 type DraftFile struct {
@@ -38,6 +41,20 @@ var toolProgram = regexp.MustCompile(`^(nmfe\d*|execute|bbi|quarto|Rscript)$`)
 func MakeDraft(s *Session, t *Task) Draft {
 	repo := RepoRoot(s.Project)
 	d := Draft{Repo: repo, Cmd: draftCmd(t, repo)}
+	d.DerivedFrom = t.ModelOrigins
+	// the file a written model was read from (an earlier cell, pharmpy): an input of this step too
+	for _, o := range t.ModelOrigins {
+		if filepath.IsAbs(o.From) {
+			continue // not in the repository: publish takes only paths in it
+		}
+		have := false
+		for _, f := range d.Inputs {
+			have = have || f.Path == o.From
+		}
+		if !have {
+			d.Inputs = append(d.Inputs, DraftFile{Path: o.From, Use: true, Note: "the model was read from it (pharmpy)"})
+		}
+	}
 	d.Notes = append(d.Notes, sourcedNotes(t, d.Cmd)...)
 	tool := toolScopeOf(t, d.Cmd)
 	file := func(p string, cls Class, extra string) DraftFile {

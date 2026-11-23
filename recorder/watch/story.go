@@ -34,6 +34,8 @@ type StoryStep struct {
 	OnPath   bool     `json:"on_path"`
 	Error    bool     `json:"error,omitempty"`
 	Hand     bool     `json:"hand,omitempty"` // not recorded: a file changed by hand between two steps
+	// DerivedFrom: model files it wrote through pharmpy and the files they were developed from (derive.go)
+	DerivedFrom []ModelOrigin `json:"derived_from,omitempty"`
 	// Declared: not recorded but declared in the story editor, "hand" or "heuristic:<name>" (edits.go)
 	Declared string     `json:"declared,omitempty"`
 	Tools    []string   `json:"tools,omitempty"`
@@ -199,6 +201,7 @@ func storyOf(tasks []*Task, project, path, sum string) *Story {
 	sort.SliceStable(picked, func(i, j int) bool { return picked[i].End < picked[j].End })
 	for _, t := range picked {
 		s := StoryStep{Session: t.Session, Task: t.ID, When: t.End, Code: t.Code(), OnPath: on[stepKey(t)], Error: t.Status == "err"}
+		s.DerivedFrom = t.ModelOrigins
 		s.Where = StepWhere(t, rel)
 		var srcs []string
 		for _, x := range t.Sources {
