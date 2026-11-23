@@ -1308,3 +1308,38 @@ test("idle backoff in the status bar: 'kton: paused while away (since hh:mm)', a
   assert.match(h.status.get("poll") ?? "", /^polling: inbox every 30s/);
   wb.stop();
 });
+
+test("checkAgainst: the values about to be signed against the claims' current answer; the dialog lists each difference and the values both ways; signing stays possible and the difference goes into the note field", async () => {
+  const { checkValues } = await import("../src/ui/controller.js");
+  const { checkAgainstOf } = await import("../src/composition/host.js");
+  assert.deepEqual(checkAgainstOf({ checkAgainst: "gate:class-counts|class|count|total|class|reason" }, "gate", "pkg.a"), { package: "pkg.a", query: "class-counts", keyColumn: "class", valueColumn: "count", field: "total", keyField: "class", noteField: "reason" });
+  assert.equal(checkAgainstOf({ checkAgainst: "other:q|a|b|c|d" }, "gate", "p"), undefined);
+  assert.equal(checkAgainstOf({ checkAgainst: "q|a" }, "gate", "p"), undefined);
+  const rows = [{ class: "C1", count: "11", remark: "row 3 X-1 · row 9 Y-2" }, { class: "C2", count: "4" }];
+  const c = { keyColumn: "class", valueColumn: "count", field: "total", keyField: "class" };
+  assert.deepEqual(checkValues(c, { class: "C1", total: "12" }, rows), { differs: ["class C1: you sign total 12; the claims give 11 (row 3 X-1 · row 9 Y-2)"], values: ["C1: 11 (you sign 12)", "C2: 4"] });
+  assert.deepEqual(checkValues(c, { class: "C2", total: "4" }, rows).differs, []);
+  assert.deepEqual(checkValues(c, { class: "C3", total: "1" }, rows).differs, ["class C3: you sign total 1; the claims give none"]);
+
+  const t = new FakeTransport();
+  t.templateList = [...TEMPLATES, { name: "gate-status", package: "pkg.a", fields: { class: { type: "string", required: true }, total: { type: "string", required: true }, reason: { type: "string" } } }];
+  const { h, wb } = await setup({}, t);
+  h.confirmAnswer = true;
+  h.inputs.push("12");
+  const ctl = { package: "pkg.a", name: "gate", template: "gate-status", kind: "decision" as const, decl: {} } as never;
+  const r = await wb.signAct(ctl, sha("1"), { class: "C1" }, "Sign gate status", undefined, { check: { ...checkAgainstOf({ checkAgainst: "q|class|count|total|class|reason" }, "gate", "pkg.a")!, rows: async () => rows } });
+  assert.equal(r, "signed", "the Sign button stays enabled");
+  assert.equal(t.says.at(-1)?.fields?.["reason"], "checked against q: class C1: you sign total 12; the claims give 11 (row 3 X-1 · row 9 Y-2)");
+  const detail = h.dialogs.at(-1)?.detail ?? "";
+  assert.match(detail, /Checked against q: 1 difference\(s\)\n  class C1: you sign total 12; the claims give 11/);
+  assert.match(detail, /q: C1: 11 \(you sign 12\) · C2: 4/);
+  const { signDialogBody } = await import("../src/ui/pages.js");
+  const { plan } = await import("../src/sign.js");
+  const p = plan({ kind: "sign", about: sha("1"), fields: { class: "C1", total: "12" }, checks: { query: "q", differs: ["class C1: you sign total 12; the claims give 11"], values: ["C1: 11 (you sign 12)"] } }, { package: "pkg.a", name: "gate", template: "gate-status", kind: "decision" }, await t.templates().then((x) => (x.ok ? x.value : [])), identity);
+  assert.ok(p.ok);
+  const body = signDialogBody(p.ok ? p.value : (undefined as never), { verified: false, hint: "qa-decider", why: "test keys" } as never, "t");
+  assert.match(body, /data-checks="1" data-testid="sign-checks"/);
+  assert.match(body, /<li data-difference>class C1: you sign total 12; the claims give 11<\/li>/);
+  const p2 = plan({ kind: "sign", about: sha("1"), fields: { class: "C1", total: "12" } }, { package: "pkg.a", name: "gate", template: "gate-status", kind: "decision" }, await t.templates().then((x) => (x.ok ? x.value : [])), identity);
+  assert.ok(p.ok && p2.ok && p.value.digest !== p2.value.digest, "the checks are part of what the dialog's consent is bound to");
+});

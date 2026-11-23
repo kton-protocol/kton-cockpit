@@ -65,7 +65,7 @@ export interface Backend {
    * sign@1 / record@1 through the shell's one sign path (C1.4): the dialog for a decision, none for a record. `signed`
    * is called with the claim id and the fields as signed (what the person may have edited), once it is signed.
    */
-  act(control: Control, about: string, fields: Readonly<Record<string, string>>, title: string, proposed?: Readonly<Record<string, string>>, signed?: (s: Signed) => void, asks?: readonly AskEach[]): Promise<"signed" | "cancelled" | "failed">;
+  act(control: Control, about: string, fields: Readonly<Record<string, string>>, title: string, proposed?: Readonly<Record<string, string>>, signed?: (s: Signed) => void, asks?: readonly AskEach[], check?: CheckAgainst): Promise<"signed" | "cancelled" | "failed">;
   /** run@1: a ray (workflow run) with its holes. */
   run(ray: string, holes: Readonly<Record<string, string>>): Promise<string>;
   /** graph@1 (e): the registry's records with the ring to verify them: {records, keys, names}. */
@@ -242,6 +242,32 @@ export function askEachOf(options: Readonly<Record<string, unknown>> | undefined
     out.push({ field: m[2] as string, key: m[3] as string, ...(values?.length ? { values } : {}) });
   }
   return out;
+}
+
+/**
+ * What a sign act's values are checked against before the dialog (a use's option checkAgainst,
+ * "[control:]query|keyColumn|valueColumn|field|keyField[|noteField]"): the query's current answer (a named query of the
+ * use's package, e.g. counts derived from the signed claims), its row whose keyColumn equals the act's keyField, and its
+ * valueColumn against the act's field. The dialog lists every difference and the query's values for every key; signing
+ * stays possible, and the differences are added to noteField when the template has it.
+ */
+export interface CheckAgainst {
+  readonly package: string;
+  readonly query: string;
+  readonly keyColumn: string;
+  readonly valueColumn: string;
+  readonly field: string;
+  readonly keyField: string;
+  readonly noteField?: string;
+}
+export function checkAgainstOf(options: Readonly<Record<string, unknown>> | undefined, control: string, pkg: string): CheckAgainst | undefined {
+  const raw = options?.["checkAgainst"];
+  if (typeof raw !== "string") return undefined;
+  const m = /^(?:([^:|]+):)?(.+)$/.exec(raw.trim());
+  if (!m || (m[1] !== undefined && m[1] !== control)) return undefined;
+  const [query, keyColumn, valueColumn, field, keyField, noteField] = (m[2] ?? "").split("|").map((x) => x.trim());
+  if (!query || !keyColumn || !valueColumn || !field || !keyField) return undefined;
+  return { package: pkg, query, keyColumn, valueColumn, field, keyField, ...(noteField ? { noteField } : {}) };
 }
 
 /** A frame's state without acts: frames must not report them (host-held, H8). */
@@ -759,8 +785,10 @@ export class CompositionHost {
         const proposed = Object.fromEntries(given.filter(([k]) => !(k in chosen)));
         const actFields = { ...checked.act.fields, ...chosen };
         let made: Signed | undefined;
-        const asks = askEachOf((this.plan.uses.find((x) => x.key === i.from) as { options?: Record<string, unknown> } | undefined)?.options, c.name);
-        const r = await this.backend.act(c, this.aboutOf(i, checked.act), actFields, `${checked.act.label}: ${this.plan.root.package}/${this.plan.root.composition}`, proposed, (s) => (made = s), asks.length ? asks : undefined);
+        const useOf = this.plan.uses.find((x) => x.key === i.from) as { options?: Record<string, unknown>; query?: { package?: string } } | undefined;
+        const asks = askEachOf(useOf?.options, c.name);
+        const check = checkAgainstOf(useOf?.options, c.name, useOf?.query?.package ?? this.plan.root.package);
+        const r = await this.backend.act(c, this.aboutOf(i, checked.act), actFields, `${checked.act.label}: ${this.plan.root.package}/${this.plan.root.composition}`, proposed, (s) => (made = s), asks.length ? asks : undefined, check);
         if (r === "failed") return refuse(c.kind === "decision" ? "not signed (see the sign dialog)" : "not recorded");
         const keyLine = c.kind === "decision" ? "Signed with the person key (test-only)." : "Recorded with the agent key.";
         if (r === "signed") {

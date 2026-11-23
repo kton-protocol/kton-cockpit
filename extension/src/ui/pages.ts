@@ -195,6 +195,7 @@ export function signDialogDetail(p: SignPlan, signer: ShownSigner): string {
     ...(p.meaning !== undefined ? [p.meaningField ? `Meaning: ${p.meaning} (signed as ${p.meaningField} = ${p.meaning})` : `Act: ${p.meaning} (the control's meaning, not a field of the claim)`] : []),
     ...(p.expect.template ? [`Template as listed: ${p.expect.template.slice(0, 19)}…${p.expect.revision ? ` · package revision ${p.expect.revision.slice(0, 19)}…` : ""}`] : []),
     ...(p.scope !== undefined ? [`Into scope: ${p.scope}`] : []),
+    ...(p.checks ? [`Checked against ${p.checks.query}: ${p.checks.differs.length ? `${p.checks.differs.length} difference(s)\n${p.checks.differs.map((d) => `  ${d}`).join("\n")}` : "no difference"}`, ...(p.checks.values.length ? [`  ${p.checks.query}: ${p.checks.values.join(" · ")}`] : [])] : []),
     ...(p.opened?.length ? [`Evidence you opened in this view (${p.opened.length}):\n${p.opened.map((r) => `  ${r}${(p.fields["lookedAt"] ?? "").split(/\s+/).includes(r) ? "  (in lookedAt)" : "  (not in lookedAt: you took it out)"}`).join("\n")}`] : []),
     `Signs with: ${p.keyRole} key "${p.as}" · ${who}`,
     "",
@@ -313,6 +314,7 @@ ${ln("Signs in", `<b>${esc(p.template)}</b>${vocabularyLine(p) ? ` <span class="
 ${p.control.why ? ln("Why this template", esc(p.control.why), ' data-signs-why data-testid="signs-why"') : ""}
 ${conditionsBlock(p.fields["conditions"])}</section>
 <section class="blk"><h2>About</h2>${ln("About", about ? `<span class="hide">${esc(p.subject)} </span><span class="chip" title="${esc(p.subject)}" tabindex="0">claim <span class="mono">${esc((about[1] ?? "").slice(0, 8))}</span></span>` : `<span class="mono">${esc(p.subject)}</span>`)}</section>
+${p.checks ? `<section class="blk" data-checks="${p.checks.differs.length}" data-testid="sign-checks"><h2>Checked against ${esc(p.checks.query)}</h2>${p.checks.differs.length ? `<div class="callout warn" role="status"><b>${p.checks.differs.length} difference${p.checks.differs.length === 1 ? "" : "s"} from the signed claims.</b> You can still sign; the differences are recorded with it.</div><ul class="diffs">${p.checks.differs.map((d) => `<li data-difference>${esc(d)}</li>`).join("")}</ul>` : '<div class="muted" data-no-difference>No difference from the signed claims.</div>'}${p.checks.values.length ? `<div class="muted" data-check-values>${esc(p.checks.values.join(" · "))}</div>` : ""}</section>` : ""}
 <section class="blk"><h2>Fields</h2>${fields || '<div class="muted">(none)</div>'}</section>
 ${opened}
 <section class="blk"><h2>Signs as</h2>${ln("Signs with", `<b>${esc(p.as)}</b> <span class="muted">${esc(p.keyRole)} key "${esc(p.as)}"</span> <span class="hide">· ${esc(who)}</span><span class="pill ${signer.verified ? "ok" : "warn"}">${signer.verified ? esc(who) : "unverified"}</span>`, " data-signer")}${signer.verified ? "" : `<div class="muted">${esc(signer.why)}</div>`}</section>

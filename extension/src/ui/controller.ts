@@ -701,7 +701,7 @@ export class Workbench {
    * status bar (S7.4); a timeout or any failure after the say was sent is "unknown whether signed", and the
    * registry decides whether a claim exists (S7.3); "Not signed" only when it never reached the cockpit.
    */
-  private async signThroughDialog(intent: { kind: "sign"; about: string; fields: Readonly<Record<string, string>>; scope?: string; opened?: readonly string[] }, control: ControlInfo, title: string, expect?: ExpectRevision, onSigned?: (s: { id: string; fields: Readonly<Record<string, string>> }) => void): Promise<SignResult> {
+  private async signThroughDialog(intent: { kind: "sign"; about: string; fields: Readonly<Record<string, string>>; scope?: string; opened?: readonly string[]; checks?: SignPlan["checks"] }, control: ControlInfo, title: string, expect?: ExpectRevision, onSigned?: (s: { id: string; fields: Readonly<Record<string, string>> }) => void): Promise<SignResult> {
     const cannot = this.cannotSign(control.kind);
     if (cannot) {
       this.host.error(`Not signed: ${cannot}`);
@@ -796,7 +796,28 @@ export class Workbench {
     const recordProposed = Object.fromEntries(Object.entries(proposed).filter(([k]) => keys.has(k)));
     const asked = await this.askOpenFields(control, fields, c.kind === "record" ? recordProposed : proposed, into?.asks ?? [], keys);
     if (!asked) return "cancelled";
-    return this.signThroughDialog({ kind: "sign", about, fields: asked, ...(into?.scope ? { scope: into.scope } : {}), ...(opened ? { opened } : {}) }, control, title, expect, into?.signed);
+    // checkAgainst: the values about to be signed against the query's current answer; the differences are shown in the
+    // dialog (signing stays possible) and, where the template has the note field, added to it
+    let checks: SignPlan["checks"];
+    let fieldsToSign: Record<string, string> = asked;
+    if (into?.check) {
+      let rows: Array<Record<string, string>> | undefined;
+      try {
+        rows = await into.check.rows();
+      } catch (e) {
+        checks = { query: into.check.query, differs: [`not checked: ${describe(e)}`], values: [] };
+      }
+      if (rows) {
+        const r = checkValues(into.check, asked, rows);
+        checks = { query: into.check.query, ...r };
+        const nf = into.check.noteField;
+        if (r.differs.length && nf && tpl?.fields[nf]) {
+          const add = `checked against ${into.check.query}: ${r.differs.join("; ")}`;
+          fieldsToSign = { ...asked, [nf]: asked[nf] ? `${asked[nf]} · ${add}` : add };
+        }
+      }
+    }
+    return this.signThroughDialog({ kind: "sign", about, fields: fieldsToSign, ...(into?.scope ? { scope: into.scope } : {}), ...(opened ? { opened } : {}), ...(checks ? { checks } : {}) }, control, title, expect, into?.signed);
   }
 
   /**
@@ -1068,6 +1089,24 @@ function nonce(): string {
 export function claimSubject(iri: string, type?: string): Subject {
   const id = idOf(iri);
   return { kind: "claim", iri, id, claim: id, ...(type ? { type } : {}) };
+}
+
+/**
+ * The values about to be signed against a query's answer (option checkAgainst): the row whose keyColumn is the act's
+ * keyField, its valueColumn against the act's field (a difference, or no row for that key); and every row's key and value
+ * ("both ways": what the person signs beside what the claims give). A row may add a ?remark (e.g. which rows it counts).
+ */
+export function checkValues(c: { keyColumn: string; valueColumn: string; field: string; keyField: string }, fields: Readonly<Record<string, string>>, rows: ReadonlyArray<Record<string, string>>): { differs: string[]; values: string[] } {
+  const key = fields[c.keyField];
+  const mine = fields[c.field];
+  const differs: string[] = [];
+  if (key !== undefined && mine !== undefined) {
+    const row = rows.find((r) => r[c.keyColumn] === key);
+    if (!row) differs.push(`${c.keyField} ${key}: you sign ${c.field} ${mine}; the claims give none`);
+    else if (String(row[c.valueColumn] ?? "") !== mine) differs.push(`${c.keyField} ${key}: you sign ${c.field} ${mine}; the claims give ${row[c.valueColumn] ?? ""}${row["remark"] ? ` (${row["remark"]})` : ""}`);
+  }
+  const values = rows.map((r) => `${r[c.keyColumn] ?? ""}: ${r[c.valueColumn] ?? ""}${r[c.keyColumn] === key && mine !== undefined ? ` (you sign ${mine})` : ""}`);
+  return { differs, values };
 }
 
 /**

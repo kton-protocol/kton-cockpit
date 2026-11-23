@@ -7,7 +7,7 @@ import { loadPackages } from "../packages/model.js";
 import type { TreeNode } from "../ui/host.js";
 import { sparqlResultsOf } from "../ui/queries.js";
 import { supportView } from "../support/view-now.js";
-import { CompositionHost, LeafHost, type AskEach, type Backend, type Plan, type Signed } from "./host.js";
+import { CompositionHost, LeafHost, type AskEach, type Backend, type CheckAgainst, type Plan, type Signed } from "./host.js";
 import type { BoundTerm } from "../transport/port.js";
 import { applies, isView, oneNumber, partition, planComposition, planEntry, statusLine, type Subject } from "./slots.js";
 import { approvalCounts, areaComposition, BUILTIN, recordComposition, recordTerms, signerKeyId, withBuiltin } from "./qm-area.js";
@@ -68,6 +68,8 @@ export interface ActInto {
   readonly signed?: (s: Signed) => void;
   /** fields the shell asks per key (a use's option askEach) */
   readonly asks?: readonly AskEach[];
+  /** what the values are checked against before the dialog (a use's option checkAgainst), with its query's rows */
+  readonly check?: CheckAgainst & { readonly rows: () => Promise<Array<Record<string, string>>> };
 }
 
 export const SLOT_CMD = "ktonWorkbench.openSlot";
@@ -198,7 +200,7 @@ export class PackagesArea {
    * loaded now (or is closing), so an old revision's control never signs. While the act runs the panel is busy.
    */
   private actFor(key: string, label: string, mine: () => OpenPanel | undefined, scope?: string): Backend["act"] {
-    return async (c, about, fields, title, proposed, signed, asks) => {
+    return async (c, about, fields, title, proposed, signed, asks, check) => {
       const h = mine();
       const why = !h || this.hosts.get(key) !== h ? "the panel is closed or was opened again" : (h.retired ?? this.outdated(h) ?? (h.revisions.has(c.package) ? undefined : `control ${c.package}/${c.name} is not one this panel was opened with`));
       if (why) {
@@ -208,7 +210,10 @@ export class PackagesArea {
       const p = h as OpenPanel;
       p.busy++;
       try {
-        const r = await this.path.act(c, about, fields, title, { package: c.package, revision: p.revisions.get(c.package) as string }, { ...(scope ? { scope } : {}), ...(proposed && Object.keys(proposed).length ? { proposed } : {}), ...(p.opened.length ? { opened: [...p.opened] } : {}), ...(signed ? { signed } : {}), ...(asks?.length ? { asks } : {}) });
+        const r = await this.path.act(c, about, fields, title, { package: c.package, revision: p.revisions.get(c.package) as string }, { ...(scope ? { scope } : {}), ...(proposed && Object.keys(proposed).length ? { proposed } : {}), ...(p.opened.length ? { opened: [...p.opened] } : {}), ...(signed ? { signed } : {}), ...(asks?.length ? { asks } : {}), ...(check ? { check: { ...check, rows: async () => {
+          const a = (await this.named(check.package, check.query, {})) as { results?: { bindings?: Array<Record<string, { value?: string }>> } };
+          return (a.results?.bindings ?? []).map((b) => Object.fromEntries(Object.entries(b).map(([k, v]) => [k, v.value ?? ""])));
+        } } } : {}) });
         // a record is written with the agent key and no dialog: where it went is said, as the dialog says it for a
         // decision (the records scope is the package's declaration; kton-review N1 on #187)
         if (r === "signed" && c.kind === "record" && scope) this.ui.info(`${label}: recorded into scope ${scope} with the agent key (no dialog).`);
