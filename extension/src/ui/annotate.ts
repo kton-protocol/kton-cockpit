@@ -1,13 +1,13 @@
 // Columns the shell adds to a block's answer, from the use's options, before the frame sees it. Generic: what is cited,
 // and where decisions on one thing differ. Both read only the rows this window was answered; nothing else is fetched.
 //
-//   cite     {columns: [...], query: "<name>", structured?: "<column>"}: the text of these columns is scanned for
+//   cite     "<query>" with citeColumns [...] and citeStructured "<column>" (optional): the text of these columns is scanned for
 //            sha256 ids and hex prefixes of 8 or more digits; each is resolved against the rows of `query` (a named query of
 //            the same package answering ?sha256 ?run ?name, optional ?mediaType ?claim: run-artifact claims) by the
 //            artifact's sha256 or its claim id. A row whose `structured` column is set is cited from that column only
 //            (structured citations take precedence over the text). Adds `cites` (packed like an evidence column: one line
 //            per resolved artifact, images first as thumbnails) and `citesNote` (what did not resolve: ambiguous or unknown).
-//   differs  {group, who, when, value, lead?: [...]}: per value of `group` (e.g. an element), the rows in `when` order;
+//   differs  "group|who|when|value" with differsLead [...] (optional): per value of `group` (e.g. an element), the rows in `when` order;
 //            a row whose `value` differs from an earlier row by someone else gets `differs` ("differs from <who> (<value>,
 //            <when>)"), and `differsLead` "yes" when its `who` is one of `lead` (whose later decision matters most).
 
@@ -33,19 +33,20 @@ export interface DiffersOptions {
 const strs = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string" && x !== "") : typeof v === "string" && v ? [v] : []);
 
 export function citeOptions(options: Readonly<Record<string, unknown>> | undefined): CiteOptions | undefined {
-  const c = options?.["cite"] as Record<string, unknown> | undefined;
-  if (!c || typeof c !== "object" || typeof c["query"] !== "string" || !c["query"]) return undefined;
-  const columns = strs(c["columns"]);
+  const q = options?.["cite"];
+  if (typeof q !== "string" || !q) return undefined;
+  const columns = strs(options?.["citeColumns"]);
   if (!columns.length) return undefined;
-  return { columns, query: c["query"], ...(typeof c["structured"] === "string" && c["structured"] ? { structured: c["structured"] } : {}) };
+  const st = options?.["citeStructured"];
+  return { columns, query: q, ...(typeof st === "string" && st ? { structured: st } : {}) };
 }
 
 export function differsOptions(options: Readonly<Record<string, unknown>> | undefined): DiffersOptions | undefined {
-  const d = options?.["differs"] as Record<string, unknown> | undefined;
-  if (!d || typeof d !== "object") return undefined;
-  const [group, who, when, value] = ["group", "who", "when", "value"].map((k) => (typeof d[k] === "string" ? (d[k] as string) : ""));
+  const d = options?.["differs"];
+  if (typeof d !== "string") return undefined;
+  const [group, who, when, value] = d.split("|").map((x) => x.trim());
   if (!group || !who || !when || !value) return undefined;
-  return { group, who, when, value, lead: strs(d["lead"]) };
+  return { group, who, when, value, lead: strs(options?.["differsLead"]) };
 }
 
 const HEX = /(sha256:|https:\/\/kton\.dev\/o\/)?\b([0-9a-fA-F]{8,64})\b/g;

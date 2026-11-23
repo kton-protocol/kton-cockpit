@@ -38,7 +38,7 @@
 //   total     a column summed in a footer row
 //   short     columns shown short: a test id "repo:dir/File.kt#name" as "File.kt · name", an IRI with a label column
 //             (<column>Label) as its label; the full value stays in the tooltip
-//   evidence  a column (or a list of columns, e.g. "cites": what a text cites, added by the shell's option cite) of packed artifacts (assertion, kind, sha256, run, name, mediaType, bytes, site, text[, thumb] per
+//   evidence  a column (e.g. "cites": what a text cites, added by the shell's option cite) of packed artifacts (assertion, kind, sha256, run, name, mediaType, bytes, site, text[, thumb] per
 //             line): assertion screenshots as thumbnails in assertion order (file:line and the assertion in the tooltip;
 //             a click opens it full size, hash-checked), the error-context and the trace as links, "trace removed by
 //             the token scan" (traceNote: a column saying so), "none" where nothing exists
@@ -395,7 +395,7 @@ function table(rows, cols, { o, esc, value, shortly, click, perRow, rowButtons }
     }
     if (rg && c === rg.low) return `<td data-col="${esc(c)}" class="r muted">${value(r[rg.low]) && measurable(r) ? `${esc(pct(value(r[rg.low])).slice(0, -2))}–${esc(pct(value(r[rg.high])).slice(0, -2))}` : ""}${lead}</td>`;
     if (rg && c === rg.n) return `<td data-col="${esc(c)}" class="r${measurable(r) ? "" : " muted"}" data-number>${esc(value(r[c]))}${lead}</td>`;
-    if (o.evidence && (Array.isArray(o.evidence) ? o.evidence.includes(c) : c === o.evidence)) return `<td data-col="${esc(c)}" class="ev-cell">${evidenceCell(esc, value(r[c]), o.traceNote ? value(r[o.traceNote]) : "")}${lead}</td>`;
+    if (o.evidence && c === o.evidence) return `<td data-col="${esc(c)}" class="ev-cell">${evidenceCell(esc, value(r[c]), o.traceNote ? value(r[o.traceNote]) : "")}${lead}</td>`;
     const num = numeric.has(c) || NUM_RE.test(value(r[c]));
     const full = value(r[c]);
     const label = value(r[`${c}Label`]);

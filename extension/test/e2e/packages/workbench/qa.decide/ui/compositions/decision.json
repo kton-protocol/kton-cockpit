@@ -475,26 +475,17 @@
        "citesNote|Not resolved",
        "differs|Differs"
       ],
-      "evidence": [
-       "cites"
+      "evidence": "cites",
+      "cite": "cite-artifacts",
+      "differs": "element|who|at|verdict",
+      "emptyText": "No decision on an element yet.",
+      "citeColumns": [
+       "text"
       ],
-      "cite": {
-       "columns": [
-        "text"
-       ],
-       "query": "cite-artifacts",
-       "structured": "evidence"
-      },
-      "differs": {
-       "group": "element",
-       "who": "who",
-       "when": "at",
-       "value": "verdict",
-       "lead": [
-        "Lead"
-       ]
-      },
-      "emptyText": "No decision on an element yet."
+      "citeStructured": "evidence",
+      "differsLead": [
+       "Lead"
+      ]
      }
     }
    ]

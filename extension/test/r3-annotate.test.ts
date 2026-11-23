@@ -43,9 +43,9 @@ test("resolveCite: one artifact by its sha256 or its claim, several (ambiguous),
 });
 
 test("withCitations: a text's citations as a packed artifacts column (images as thumbnails), what did not resolve in a note; structured first", () => {
-  const o = citeOptions({ cite: { columns: ["text", "why"], query: "artifacts", structured: "evidence" } });
+  const o = citeOptions({ cite: "artifacts", citeColumns: ["text", "why"], citeStructured: "evidence" });
   assert.deepEqual(o, { columns: ["text", "why"], query: "artifacts", structured: "evidence" });
-  assert.equal(citeOptions({ cite: { columns: [] } }), undefined);
+  assert.equal(citeOptions({ cite: "artifacts", citeColumns: [] }), undefined);
   const out = rows(withCitations(ans([
     { text: "Fixed, see aaaaaaaa and abcd1234.", why: "also deadbeef" },
     { text: "aaaaaaaa", why: "", evidence: "abcd12340000" },
@@ -61,7 +61,7 @@ test("withCitations: a text's citations as a packed artifacts column (images as 
 });
 
 test("withDiffers: a later decision by someone else that differs is flagged, and marked when its signer leads", () => {
-  const d = differsOptions({ differs: { group: "element", who: "who", when: "when", value: "verdict", lead: ["Lead"] } });
+  const d = differsOptions({ differs: "element|who|when|verdict", differsLead: ["Lead"] });
   assert.ok(d);
   const out = rows(withDiffers(ans([
     { element: "e1", who: "Lead", when: "2026-11-23T12:00:00Z", verdict: "gap" },
@@ -74,5 +74,16 @@ test("withDiffers: a later decision by someone else that differs is flagged, and
   assert.equal(out[0]?.["differsLead"], "yes");
   assert.equal(out[1]?.["differs"], undefined, "the same signer changing its mind is not a conflict");
   assert.equal(out[4]?.["differs"], undefined, "the same value");
-  assert.equal(differsOptions({ differs: { group: "x" } }), undefined);
+  assert.equal(differsOptions({ differs: "x" }), undefined);
+});
+
+test("the rows block accepts the options the shell reads (a plan refuses an option a viewer does not accept)", async () => {
+  const { readFileSync } = await import("node:fs");
+  const acc = JSON.parse(readFileSync("media/workbench/viewers/rows/viewer.json", "utf8")).accepts as Record<string, unknown>;
+  assert.equal(acc["cite"], "literal");
+  assert.deepEqual(acc["citeColumns"], { set: "literal" });
+  assert.equal(acc["citeStructured"], "literal");
+  assert.equal(acc["differs"], "literal");
+  assert.deepEqual(acc["differsLead"], { set: "literal" });
+  assert.deepEqual(acc["askEach"], { set: "literal" });
 });
