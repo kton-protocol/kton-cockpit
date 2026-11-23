@@ -32,6 +32,7 @@ type evalPin struct {
 	image   string
 	vc      oxigraph.ViewConfig
 	sources map[string][]string
+	loaded  []loadedBytes // each into the graph its hash names (ADR-017)
 }
 
 // inContainerOver is inContainer over union u, or over cfg's union as it is when u is nil, evaluated
@@ -95,6 +96,19 @@ func inContainerOver(ctx context.Context, cfg *config.Config, keys []ed25519.Pub
 	}
 	if _, err := container.RunTool(ctx, cfg, image, dir, append([]string{"load", "--location", "/q/store"}, files...)...); err != nil {
 		return "", nil, refuse("query.failed", "", "%v", err)
+	}
+	if pin != nil {
+		for _, l := range pin.loaded {
+			name := "loaded-" + l.hex
+			if err := os.WriteFile(filepath.Join(dir, name), l.data, 0o644); err != nil {
+				return "", nil, refuse("io", "", "%v", err)
+			}
+			g := oxigraph.GraphOf(l.hex)
+			if _, err := container.RunTool(ctx, cfg, image, dir, "load", "--location", "/q/store", "--file", "/q/"+name,
+				"--format", l.mediaType, "--graph", g, "--base", g); err != nil {
+				return "", nil, refuse("query.failed", "ADR-020", "the loaded graph sha256:%s: %v", l.hex, err)
+			}
+		}
 	}
 	qctx := ctx
 	if timeout > 0 {

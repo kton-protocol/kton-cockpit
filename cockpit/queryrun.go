@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -43,16 +44,23 @@ type QueryRun struct {
 
 // QueryManifest is everything a query run's rows depend on, pinned (ADR-020, section 2).
 type QueryManifest struct {
-	Version     int                 `json:"version"`
-	Dataset     string              `json:"dataset"`
-	Bindings    map[string]string   `json:"bindings,omitempty"`
-	Registries  []PinnedRegistry    `json:"registries"`
-	Scopes      map[string][]string `json:"scopes"` // a scope's seed -> the tips of its chains the run read
-	Trust       []PinnedKey         `json:"trust"`
-	View        string              `json:"view"`               // sha256 of the pinned view (pinnedView), in the content store
-	Packages    []string            `json:"packages,omitempty"` // admitted package revisions: <package id>@<revision id>
-	ViewVersion int                 `json:"viewVersion"`
-	Engine      string              `json:"engine"`
+	Version    int                 `json:"version"`
+	Dataset    string              `json:"dataset"`
+	Bindings   map[string]string   `json:"bindings,omitempty"`
+	Registries []PinnedRegistry    `json:"registries"`
+	Scopes     map[string][]string `json:"scopes"` // a scope's seed -> the tips of its chains the run read
+	Trust      []PinnedKey         `json:"trust"`
+	View       string              `json:"view"`               // sha256 of the pinned view (pinnedView), in the content store
+	Packages   []string            `json:"packages,omitempty"` // admitted package revisions: <package id>@<revision id>
+	// Loaded are the files loaded for this repository that the query read as graphs (ADR-017), each by its
+	// hash, its bytes in the content store; only in the claims dataset with index.derived on, as the index.
+	// Absent: none.
+	Loaded []PinnedLoad `json:"loaded,omitempty"`
+	// Graphs are the scope seeds and loaded files the run was narrowed to (--graph), resolved; absent: every
+	// one. Unscoped claims and the steps are inputs either way.
+	Graphs      []string `json:"graphs,omitempty"`
+	ViewVersion int      `json:"viewVersion"`
+	Engine      string   `json:"engine"`
 }
 
 // manifestVersion is the manifest this cockpit writes and reproduces. Version 1 (v0.5.10) pinned the
@@ -66,6 +74,18 @@ type PinnedRegistry struct {
 	Name    string `json:"name"`
 	Records string `json:"records"`
 	Claims  string `json:"claims"`
+}
+
+// PinnedLoad is one loaded file the run read: its hash and the media type it was read as.
+type PinnedLoad struct {
+	Hash      string `json:"hash"`
+	MediaType string `json:"mediaType"`
+}
+
+// loadedBytes is a pinned loaded file with its bytes, for the evaluation.
+type loadedBytes struct {
+	hex, mediaType string
+	data           []byte
 }
 
 // PinnedKey is a key the run's trust counted, with its tier.
@@ -143,7 +163,7 @@ func (m *QueryManifest) trustKeys() ([]ed25519.PublicKey, error) {
 }
 
 // queryRun evaluates q as a query run and records it.
-func queryRun(ctx context.Context, cfg *config.Config, q, dataset string, bindings map[string]string, timeout time.Duration) (*SparqlAnswer, *QueryRun, error) {
+func queryRun(ctx context.Context, cfg *config.Config, q, dataset string, bindings map[string]string, graphs []string, timeout time.Duration) (*SparqlAnswer, *QueryRun, error) {
 	form, err := index.CheckFreeQuery(q)
 	if err != nil {
 		return nil, nil, refuse("query.invalid", "SPEC §9.9", "%v", err)
@@ -156,7 +176,11 @@ func queryRun(ctx context.Context, cfg *config.Config, q, dataset string, bindin
 	}
 	// Pinned first, then evaluated over exactly the pins: a claim signed meanwhile, or a source that moves,
 	// is in neither the rows nor the manifest (kton-review Q1 on #225; ADR-020 A2).
-	manifest, blobs, pinned, err := pinDataset(ctx, cfg, dataset, bindings)
+	manifest, blobs, pinned, err := pinDataset(ctx, cfg, dataset, bindings, graphs)
+	var ref *Refusal
+	if errors.As(err, &ref) {
+		return nil, nil, err
+	}
 	if err != nil {
 		return nil, nil, refuse("io", "ADR-020", "pinning what the query reads: %v", err)
 	}
@@ -182,7 +206,9 @@ func queryRun(ctx context.Context, cfg *config.Config, q, dataset string, bindin
 	if err != nil {
 		return nil, nil, err
 	}
-	return answerOf(form, res, "a container for this query run"), run, nil
+	ans := answerOf(form, res, "a container for this query run")
+	ans.LoadedGraphs = len(manifest.Loaded)
+	return ans, run, nil
 }
 
 // evaluatePinned evaluates q over exactly what m and pinned name, with m's engine, trust and view: the
@@ -229,7 +255,7 @@ func evaluatePinned(ctx context.Context, cfg *config.Config, q string, m *QueryM
 		sort.Strings(missing)
 		return nil, nil, refuse("query.not-reproducible", "ADR-020", "%d of the %d records and claims pinned are in no registry this repository reads, the first %s", len(missing), len(pinned.ids), missing[0])
 	}
-	body, _, err := inContainerOver(ctx, cfg, keys, u, &evalPin{image: m.Engine, vc: vc, sources: pinned.sources}, []byte(q), "json", m.Dataset, timeout)
+	body, _, err := inContainerOver(ctx, cfg, keys, u, &evalPin{image: m.Engine, vc: vc, sources: pinned.sources, loaded: pinned.loaded}, []byte(q), "json", m.Dataset, timeout)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -317,12 +343,13 @@ type pinnedSet struct {
 	ids     map[string]bool
 	sources map[string][]string // a claim's hash -> the registries that hold it, in the union's order
 	view    *pinnedView
+	loaded  []loadedBytes
 }
 
 // pinDataset is the manifest of what a query over cfg's union reads now, the blobs it names, and the
 // ids it pinned. A scope's tips are taken over every claim on disk, which can only widen the pin, never
 // narrow it (kton-review N4 on #225).
-func pinDataset(ctx context.Context, cfg *config.Config, dataset string, bindings map[string]string) (*QueryManifest, [][]byte, *pinnedSet, error) {
+func pinDataset(ctx context.Context, cfg *config.Config, dataset string, bindings map[string]string, graphs []string) (*QueryManifest, [][]byte, *pinnedSet, error) {
 	m := &QueryManifest{Version: manifestVersion, Dataset: dataset, Bindings: bindings, Scopes: map[string][]string{},
 		ViewVersion: oxigraph.ViewVersion(), Engine: cfg.Raw.Query.Image}
 	var blobs [][]byte
@@ -335,6 +362,18 @@ func pinDataset(ctx context.Context, cfg *config.Config, dataset string, binding
 		return nil, nil, nil, err
 	}
 	pinned := &pinnedSet{inputs: inputs, ids: map[string]bool{}, sources: map[string][]string{}}
+	withLoads := dataset == oxigraph.DatasetClaims && cfg.Raw.Index.Derived.Enabled
+	var list []loadEntry
+	if withLoads {
+		if list, err = readLoadList(cfg); err != nil {
+			return nil, nil, nil, err
+		}
+	}
+	scopes, loads, err := narrowTo(cfg, graphs, list)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	seeds := map[string]bool{}
 	prev := map[string]bool{}
 	scopeOf := map[string]string{}
 	for _, in := range inputs {
@@ -350,14 +389,23 @@ func pinDataset(ctx context.Context, cfg *config.Config, dataset string, binding
 		}
 		if n, err := binaries.OpenNektonSource(in.NektonDir); err == nil {
 			for _, r := range n.RawRecords() {
-				claims = append(claims, r.ClaimID)
 				st, _, err := nclaim.ParseEnvelope(r.Envelope)
-				if err != nil {
-					continue
-				}
 				var p nclaim.Predicate
+				parsed := err == nil && json.Unmarshal(st.Predicate, &p) == nil
+				// The scope a claim is in: a seed's own id, a member's scope; "" for an unscoped claim.
+				in := ""
+				if parsed && p.Genesis {
+					in = strings.ToLower(r.ClaimID)
+					seeds[in] = true
+				} else if parsed && p.Scope != "" {
+					in = strings.ToLower(p.Scope)
+				}
+				if scopes != nil && in != "" && !scopes[in] {
+					continue // narrowed out (--graph)
+				}
+				claims = append(claims, r.ClaimID)
 				// A seed names its scope by name in the same field; it opens the chain, and is no member of it.
-				if json.Unmarshal(st.Predicate, &p) == nil && p.Scope != "" && !p.Genesis {
+				if parsed && p.Scope != "" && !p.Genesis {
 					scopeOf[r.ClaimID] = p.Scope
 					if p.Prev != "" {
 						prev[p.Prev] = true
@@ -406,6 +454,34 @@ func pinDataset(ctx context.Context, cfg *config.Config, dataset string, binding
 	}
 	vb, _ := json.Marshal(pinned.view)
 	m.View = keep(vb)
+	// The files loaded for this repository, as a query of the index reads them: in the claims dataset, with
+	// index.derived on (ADR-017). A file whose bytes are no longer those it was loaded as is refused, named:
+	// the run would otherwise read what no store holds.
+	for s := range scopes {
+		m.Graphs = append(m.Graphs, s)
+		if !seeds[s] {
+			return nil, nil, nil, refuse("argument", "ADR-020", "graph %s is the seed of no scope this repository reads", s)
+		}
+	}
+	if withLoads {
+		for _, e := range list {
+			if loads != nil && !loads[e.Hash] {
+				continue // narrowed out (--graph)
+			}
+			b, hex, err := loadBytes(cfg, e.From)
+			if err != nil || "sha256:"+hex != e.Hash {
+				return nil, nil, nil, fmt.Errorf("the loaded graph %s (from %s) no longer has its bytes there: load it again or drop it (cockpit load --drop %s)", e.Hash, e.From, e.Hash)
+			}
+			keep(b)
+			m.Loaded = append(m.Loaded, PinnedLoad{Hash: e.Hash, MediaType: e.MediaType})
+			pinned.loaded = append(pinned.loaded, loadedBytes{hex: hex, mediaType: e.MediaType, data: b})
+		}
+		sort.Slice(m.Loaded, func(i, j int) bool { return m.Loaded[i].Hash < m.Loaded[j].Hash })
+	}
+	for h := range loads {
+		m.Graphs = append(m.Graphs, h)
+	}
+	sort.Strings(m.Graphs)
 	if usable, _, err := packages.Usable(cfg.RepoRoot, cfg.Raw.Claims.AllowedPackages); err == nil {
 		for _, in := range usable {
 			m.Packages = append(m.Packages, in.Package.ID+"@"+in.Revision.ID)
@@ -413,4 +489,34 @@ func pinDataset(ctx context.Context, cfg *config.Config, dataset string, binding
 		sort.Strings(m.Packages)
 	}
 	return m, blobs, pinned, nil
+}
+
+// narrowTo resolves the graphs a query run is narrowed to (--graph): a scope by its configured name or its
+// seed, a loaded file by its hash. Both maps are nil when graphs is empty: nothing is narrowed. A name that
+// is neither is refused.
+func narrowTo(cfg *config.Config, graphs []string, list []loadEntry) (scopes, loads map[string]bool, err error) {
+	if len(graphs) == 0 {
+		return nil, nil, nil
+	}
+	scopes, loads = map[string]bool{}, map[string]bool{}
+	loaded := map[string]bool{}
+	for _, e := range list {
+		loaded[e.Hash] = true
+	}
+	for _, g := range graphs {
+		g = strings.TrimSpace(g)
+		if id, _, ok := cfg.ScopeID(g); ok {
+			g = id
+		}
+		h, ok := core.NormalizeContentHash(g)
+		if !ok || !strings.HasPrefix(strings.ToLower(g), "sha256:") {
+			return nil, nil, refuse("argument", "ADR-020", "graph %q is no scope this repository configures by name, and no seed or loaded file (sha256:<hex>)", g)
+		}
+		if loaded[h] {
+			loads[h] = true
+		} else {
+			scopes[h] = true
+		}
+	}
+	return scopes, loads, nil
 }

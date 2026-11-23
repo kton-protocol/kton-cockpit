@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **Loaded files in query runs** (ADR-020 section 2): a query run in the claims dataset with `index.derived`
+  on reads the files loaded for the repository (`cockpit load`) as the graphs their hashes name, as a query of
+  the index does; each is pinned by its hash and media type, its bytes put in the content store, and
+  `reproduce` reads them from there. A loaded file whose bytes changed on disk since its load refuses the
+  run, named.
+- **`ask sparql --reproducible --graph SCOPE|sha256`** (MCP and serve: `graphs`; ADR-020 section 1): narrows a
+  query run to the scopes named (by name or seed) and the loaded files named (by hash); the other scopes'
+  claims and other loaded files are in neither its rows nor its manifest, unscoped claims and the steps stay
+  in. The manifest names the graphs.
+
 ## v0.5.11 — 2026-11-23
 
 Query runs reproducible by anyone, workflow runs as jobs, kton v0.4.3, and sessions decided (ADR-019).

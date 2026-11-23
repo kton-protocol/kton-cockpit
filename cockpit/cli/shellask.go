@@ -226,6 +226,12 @@ func shellSparql(ctx context.Context, args []string) error {
 			standard, in.Format = true, cockpit.SparqlFormatStandard
 		case "--reproducible":
 			in.Reproducible = true // a query run (ADR-020)
+		case "--graph":
+			if i+1 >= len(args) {
+				return fmt.Errorf("--graph needs a scope name, a seed id or a loaded file's sha256")
+			}
+			i++
+			in.Graphs = append(in.Graphs, args[i])
 		case "--name", "--bind":
 			if i+1 >= len(args) {
 				return fmt.Errorf("%s needs a value", a)
@@ -281,13 +287,13 @@ func shellSparql(ctx context.Context, args []string) error {
 			}
 		default:
 			if strings.HasPrefix(a, "--") {
-				return fmt.Errorf("unknown flag %s — usage: cockpit ask sparql <query.rq|-|--name QUERY> [--bind VAR=VALUE]... [--bind-iri VAR=IRI]... [--bind-typed VAR=VALUE^^DATATYPE]... [--limit N] [--timeout S] [--reproducible] [--json|--results-json]", a)
+				return fmt.Errorf("unknown flag %s — usage: cockpit ask sparql <query.rq|-|--name QUERY> [--bind VAR=VALUE]... [--bind-iri VAR=IRI]... [--bind-typed VAR=VALUE^^DATATYPE]... [--limit N] [--timeout S] [--reproducible [--graph SCOPE|sha256]...] [--json|--results-json]", a)
 			}
 			pos = append(pos, a)
 		}
 	}
 	if len(pos) != 1 && !(in.Name != "" && len(pos) == 0) {
-		return fmt.Errorf("usage: cockpit ask sparql <query.rq|-|--name QUERY> [--bind VAR=VALUE]... [--bind-iri VAR=IRI]... [--bind-typed VAR=VALUE^^DATATYPE]... [--limit N] [--timeout S] [--reproducible] [--json|--results-json]")
+		return fmt.Errorf("usage: cockpit ask sparql <query.rq|-|--name QUERY> [--bind VAR=VALUE]... [--bind-iri VAR=IRI]... [--bind-typed VAR=VALUE^^DATATYPE]... [--limit N] [--timeout S] [--reproducible [--graph SCOPE|sha256]...] [--json|--results-json]")
 	}
 	if in.Name == "" {
 		var q []byte

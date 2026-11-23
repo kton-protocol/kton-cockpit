@@ -154,6 +154,13 @@ func (c *Cockpit) Reproduce(ctx context.Context, in ReproduceRequest) (*Reproduc
 			}
 		}
 	}
+	for _, l := range m.Loaded {
+		b, err := blob("loaded graph", l.Hash)
+		if err != nil {
+			return nil, err
+		}
+		pinned.loaded = append(pinned.loaded, loadedBytes{hex: strings.TrimPrefix(l.Hash, "sha256:"), mediaType: l.MediaType, data: b})
+	}
 	res, result, err := evaluatePinned(ctx, cfg, string(q), &m, pinned, timeout)
 	if err != nil {
 		return nil, err
