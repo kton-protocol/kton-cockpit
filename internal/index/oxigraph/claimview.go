@@ -704,3 +704,9 @@ func ntQuote(v string) string {
 func Reserved(term string) bool {
 	return strings.HasPrefix(term, nkNS) && !strings.HasPrefix(term, labNS)
 }
+
+// ViewVersion is the version of the query projection a view is built by (ADR-020: a query run pins it).
+func ViewVersion() int { return viewVersion }
+
+// NTerm is t in N-Triples form.
+func NTerm(t Term) string { return ntTerm(t) }

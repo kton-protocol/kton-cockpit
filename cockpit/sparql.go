@@ -44,8 +44,10 @@ type SparqlAnswer struct {
 	// unscoped claims (ADR-018): an answer is stamped with exactly the graphs it was computed over.
 	// RepeatedLabels are the names more than one of them carries: read by name, such a scope reads all
 	// of them.
-	ClaimGraphs    []oxigraph.ClaimGraph `json:"claimGraphs,omitempty"`
-	RepeatedLabels []string              `json:"repeatedLabels,omitempty"`
+	ClaimGraphs []oxigraph.ClaimGraph `json:"claimGraphs,omitempty"`
+	// Run is the record a reproducible query left (ADR-020): its foton, its manifest, its result.
+	Run            *QueryRun `json:"run,omitempty"`
+	RepeatedLabels []string  `json:"repeatedLabels,omitempty"`
 	// Truncated says Rows stop at the limit and the query had more.
 	Truncated bool `json:"truncated,omitempty"`
 	Limit     int  `json:"limit"`
@@ -172,10 +174,33 @@ func askSparql(ctx context.Context, cfg *config.Config, in AskRequest) (*AskResu
 	if dataset == "" {
 		dataset = datasetLine(in.Sparql)
 	}
-	ans, err := runSparql(ctx, cfg, in.Sparql, dataset, timeout)
+	var ans *SparqlAnswer
+	var run *QueryRun
+	var err error
+	if in.Reproducible {
+		// A query run (ADR-020): over the pinned dataset in a container, recorded; never cut short.
+		var bound map[string]string
+		if len(in.Bind) > 0 || len(in.BindTerms) > 0 {
+			bound = map[string]string{}
+			for k, v := range in.Bind {
+				bound[k] = v
+			}
+			for k, v := range in.BindTerms {
+				t, _ := v.sparqlTerm()
+				bound[k] = t
+			}
+		}
+		ans, run, err = queryRun(ctx, cfg, in.Sparql, dataset, bound, timeout)
+		if err == nil && len(ans.Rows) > limit {
+			return nil, refuse("query.not-reproducible", "ADR-020", "the query run's answer has %d rows, more than the limit %d: no part of an answer passes for all of it; raise limit or narrow the query", len(ans.Rows), limit)
+		}
+	} else {
+		ans, err = runSparql(ctx, cfg, in.Sparql, dataset, timeout)
+	}
 	if err != nil {
 		return nil, err
 	}
+	ans.Run = run
 	ans.Limit, ans.Dataset, ans.From = limit, dataset, from
 	if len(ans.Rows) > limit {
 		ans.Rows, ans.terms, ans.Truncated = ans.Rows[:limit], ans.terms[:limit], true
