@@ -202,8 +202,9 @@ usage:
                    [--bind VAR=VALUE]... fixes a query parameter $VAR;
                    [--runs] a tool per installed workflow (run_<name>), its holes as arguments
   cockpit serve    --stdio: the frontend protocol for an editor extension, JSON-RPC 2.0 (SPEC §12.5)
-  cockpit load     <file|sha256>... [--as TYPE]: a file's RDF into the index as a graph named by its
-                   hash (ADR-017); --list, --drop <sha256>; signs nothing
+  cockpit load     <file|sha256>... [--as TYPE] [--label NAME]: a file's RDF into the index as a graph
+                   named by its hash (ADR-017), --label naming it for a query (nk:loadedAs); --list,
+                   --drop <sha256>; signs nothing
   cockpit reproduce <query run id> [--timeout SECONDS] [--sign-anyway] [--json]: a query run
                    (ask sparql --reproducible) evaluated again over its pinned dataset, built from the
                    registries; a match signs the run's record when every key it rests on is trusted
