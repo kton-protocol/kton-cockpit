@@ -13,6 +13,10 @@
 #
 # The work dir is mounted at the SAME path in every container: the engine's bind mounts are host paths.
 set -eu
+# Bounds (a test window must not take its host down): every container of the run gets --memory TEST_MEMORY, the
+# window's also --cpus CS_CPUS; POLL_SECONDS is the window's poll (the steps' waits grow with it); INDEX_MEMORY is the
+# index.memory a seed may give a registry it configures.
+TEST_MEMORY="${TEST_MEMORY:-4g}"; CS_CPUS="${CS_CPUS:-2}"; POLL_SECONDS="${POLL_SECONDS:-2}"; INDEX_MEMORY="${INDEX_MEMORY:-4g}"
 WORK="$1"; COCKPIT="$2"
 HERE=$(cd "$(dirname "$0")" && pwd)
 VOCAB="${3:-$HERE/vocabulary}"
@@ -49,7 +53,7 @@ cleanup() {
 trap cleanup EXIT
 
 echo "== docker CLI from $DOCKER_CLI_IMAGE"
-docker run --rm --entrypoint cat "$DOCKER_CLI_IMAGE" /usr/local/bin/docker > "$WORK/bin/docker"
+docker run --memory "$TEST_MEMORY" --rm --entrypoint cat "$DOCKER_CLI_IMAGE" /usr/local/bin/docker > "$WORK/bin/docker"
 chmod +x "$WORK/bin/docker"
 DOCKER_MOUNT="-v $WORK/bin/docker:/usr/local/bin/docker:ro"
 
@@ -64,14 +68,14 @@ docker pull -q "$ENGINE_IMAGE" >/dev/null
 GO_IMAGE=golang:1.25@sha256:699337d620559a59b4a2bb298ad59611e535d2ee755a34cf2d2a98f37578dc80
 echo "== ktonpkg v0.9.11 scope CLI"
 mkdir -p "$WORK/go"
-docker run --rm --network host -u "$UIDGID" -e HOME=/tmp -e GOPATH="$WORK/go" -e GOCACHE="$WORK/go/cache" -e CGO_ENABLED=0 -e GOTOOLCHAIN=local -e GOFLAGS=-modcacherw \
+docker run --memory "$TEST_MEMORY" --rm --network host -u "$UIDGID" -e HOME=/tmp -e GOPATH="$WORK/go" -e GOCACHE="$WORK/go/cache" -e CGO_ENABLED=0 -e GOTOOLCHAIN=local -e GOFLAGS=-modcacherw \
   -v "$WORK:$WORK" "$GO_IMAGE" \
   sh -c "GOBIN=$WORK/bin go install github.com/gitmick/ktonpkg/cmd/scope@v0.9.11"
 
 # ktonpkg v0.9.13's scope CLI for flow W's packages: an act through another package's control (from: a pinned head)
 echo "== ktonpkg v0.9.13 scope CLI"
 mkdir -p "$WORK/go/bin-0913"
-docker run --rm --network host -u "$UIDGID" -e HOME=/tmp -e GOPATH="$WORK/go" -e GOCACHE="$WORK/go/cache" -e CGO_ENABLED=0 -e GOTOOLCHAIN=local -e GOFLAGS=-modcacherw \
+docker run --memory "$TEST_MEMORY" --rm --network host -u "$UIDGID" -e HOME=/tmp -e GOPATH="$WORK/go" -e GOCACHE="$WORK/go/cache" -e CGO_ENABLED=0 -e GOTOOLCHAIN=local -e GOFLAGS=-modcacherw \
   -v "$WORK:$WORK" "$GO_IMAGE" \
   sh -c "GOBIN=$WORK/go/bin-0913 go install github.com/gitmick/ktonpkg/cmd/scope@v0.9.13"
 cp "$WORK/go/bin-0913/scope" "$WORK/bin/scope-0913"
@@ -104,7 +108,7 @@ fi
 # cannot reach that address, takes the daemon for dead and starts it again (docker rm -f, then run), which killed every
 # load the window's asks were waiting for (the index restarted every ~35 s while the sidecar asked; the seed's warm-up
 # never reached the window's index). The seed gets the docker socket too, so its warm-up asks build that same index.
-docker run --rm --network host -u "$UIDGID" --group-add "$DOCKER_GID" -v /var/run/docker.sock:/var/run/docker.sock $DOCKER_MOUNT -v "$WORK:$WORK" -v "$HERE/seed.sh:/seed.sh:ro" $EXTRA_MOUNT $EXTRA_SEED_ARGS \
+docker run --memory "$TEST_MEMORY" --rm --network host -u "$UIDGID" --group-add "$DOCKER_GID" -v /var/run/docker.sock:/var/run/docker.sock $DOCKER_MOUNT -v "$WORK:$WORK" -v "$HERE/seed.sh:/seed.sh:ro" $EXTRA_MOUNT $EXTRA_SEED_ARGS -e INDEX_MEMORY="$INDEX_MEMORY" \
   -v "$COCKPIT:/usr/local/bin/cockpit:ro" -v "$VOCAB:/vocab:ro" -v "$HERE/vocabulary-package:/vocab-package:ro" -v "$HERE:/e2e:ro" \
   "$NODE_IMAGE" sh /seed.sh "$WORK" /vocab /vocab-package
 
@@ -153,7 +157,7 @@ cat > "$WORK/cs/data/User/settings.json" <<EOF
   "kton.identity.personKey": "qa-decider",
   "kton.identity.agentKey": "qa-decider-agent",
   "kton.identity.personTiers": [],
-  "kton.poll.seconds": 2,
+  "kton.poll.seconds": $POLL_SECONDS,
   "kton.surfaces.file": "$WORK/surfaces.json",
   "kton.sources.dir": "$WORK/mirrors",
   "kton.artifacts.dir": "$WORK/artifacts",
@@ -165,7 +169,7 @@ cat > "$WORK/cs/data/User/settings.json" <<EOF
 EOF
 
 echo "== sidecar (registry side)"
-SIDE=$(docker run -d --rm --network host --name kton-wb-e2e-sidecar-$RUN_ID -u "$UIDGID" --group-add "$DOCKER_GID" -e HOME="$WORK/home" -e TMPDIR="$WORK/tmp" \
+SIDE=$(docker run --memory "$TEST_MEMORY" -d --rm --network host --name kton-wb-e2e-sidecar-$RUN_ID -u "$UIDGID" --group-add "$DOCKER_GID" -e HOME="$WORK/home" -e TMPDIR="$WORK/tmp" \
   -v "$WORK:$WORK" $EXTRA_CS_ARGS -v /var/run/docker.sock:/var/run/docker.sock $DOCKER_MOUNT -v "$COCKPIT:/usr/local/bin/cockpit:ro" \
   -v "$HERE/sidecar.mjs:/sidecar.mjs:ro" "$NODE_IMAGE" node /sidecar.mjs "$WORK")
 
@@ -173,9 +177,9 @@ echo "== code-server"
 CS_COMMON="-u $UIDGID --group-add $DOCKER_GID --network host -e HOME=$WORK/home -e TMPDIR=$WORK/tmp \
   -v $WORK:$WORK $EXTRA_CS_ARGS -v /var/run/docker.sock:/var/run/docker.sock $DOCKER_MOUNT \
   -v $COCKPIT:/usr/local/bin/cockpit:ro -v $EXT/out:/vsix:ro -v $HERE:$HERE:ro --entrypoint code-server"
-docker run --rm $CS_COMMON "$CS_IMAGE" --user-data-dir "$WORK/cs/data" --extensions-dir "$WORK/cs/ext" \
+docker run --memory "$TEST_MEMORY" --rm $CS_COMMON "$CS_IMAGE" --user-data-dir "$WORK/cs/data" --extensions-dir "$WORK/cs/ext" \
   --install-extension /vsix/kton-workbench.vsix
-CID=$(docker run -d --rm --name kton-wb-e2e-$RUN_ID $CS_COMMON "$CS_IMAGE" --user-data-dir "$WORK/cs/data" --extensions-dir "$WORK/cs/ext" \
+CID=$(docker run --memory "$TEST_MEMORY" -d --rm --name kton-wb-e2e-$RUN_ID --cpus "$CS_CPUS" $CS_COMMON "$CS_IMAGE" --user-data-dir "$WORK/cs/data" --extensions-dir "$WORK/cs/ext" \
   --auth none --bind-addr "127.0.0.1:$PORT" --disable-telemetry --disable-update-check --disable-workspace-trust "$WORK/repo")
 i=0; until curl -sf "http://127.0.0.1:$PORT/healthz" >/dev/null; do i=$((i+1)); [ $i -lt 60 ] || { docker logs "$CID" | tail -20; exit 1; }; sleep 1; done
 
@@ -183,7 +187,7 @@ echo "== playwright (npm ci from the committed lockfile)"
 cp "$HERE/package.json" "$HERE/package-lock.json" "$HERE/smoke.mjs" "$HERE/runrecord.mjs" "$WORK/pw/"
 [ -z "${EXTRA_FLOWS:-}" ] || [ ! -f "$EXTRA_FLOWS/flows.mjs" ] || cp "$EXTRA_FLOWS/flows.mjs" "$WORK/pw/extra-flows.mjs"
 RC=0
-docker run --rm --network host -u "$UIDGID" -e HOME=/tmp -e CS_URL="http://127.0.0.1:$PORT/?folder=$WORK/repo" -e OUT=/out -e FAILFAST="${FAILFAST:-0}" -e TRANSPORT="${TRANSPORT:-cli}" -e ONLY="${ONLY:-}" $EXTRA_PW_ENV \
+docker run --memory "$TEST_MEMORY" --rm --network host -u "$UIDGID" -e HOME=/tmp -e CS_URL="http://127.0.0.1:$PORT/?folder=$WORK/repo" -e OUT=/out -e FAILFAST="${FAILFAST:-0}" -e TRANSPORT="${TRANSPORT:-cli}" -e ONLY="${ONLY:-}" -e POLL_SECONDS="$POLL_SECONDS" $EXTRA_PW_ENV \
   -e WORK="$WORK" -v "$WORK:$WORK" -v "$OUTDIR:/out" -w "$WORK/pw" "$PW_IMAGE" \
   sh -c "npm ci --no-audit --no-fund >/dev/null && node smoke.mjs" || RC=$?
 
