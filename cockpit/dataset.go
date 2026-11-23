@@ -22,6 +22,11 @@ import (
 // inContainer evaluates q in a container started for it alone, over the dataset projected for keys,
 // and returns the engine's answer in format. A timeout above zero bounds the evaluation.
 func inContainer(ctx context.Context, cfg *config.Config, keys []ed25519.PublicKey, q []byte, format, dataset string, timeout time.Duration) (string, []oxigraph.ClaimGraph, error) {
+	return inContainerOver(ctx, cfg, keys, nil, q, format, dataset, timeout)
+}
+
+// inContainerOver is inContainer over union u, or over cfg's union as it is when u is nil.
+func inContainerOver(ctx context.Context, cfg *config.Config, keys []ed25519.PublicKey, u *binaries.Union, q []byte, format, dataset string, timeout time.Duration) (string, []oxigraph.ClaimGraph, error) {
 	// Under the checkout's own local directory, not the system's temporary one: the engine mounts it by
 	// its path, and where the cockpit reaches the engine through a socket passed in from the host (the
 	// persona windows), only a path on the host's side exists for it (userinterface, 21.11.). It is
@@ -60,7 +65,7 @@ func inContainer(ctx context.Context, cfg *config.Config, keys []ed25519.PublicK
 			}
 		}
 	}()
-	graphs, err := projectRegistries(ctx, cfg, keys, dataset, dir)
+	graphs, err := projectUnion(ctx, cfg, keys, u, dataset, dir)
 	if err != nil {
 		return "", nil, refuse("kernel", "", "projecting the registries: %v", err)
 	}
@@ -98,9 +103,16 @@ func inContainer(ctx context.Context, cfg *config.Config, keys []ed25519.PublicK
 // graph, and named.nq, the claims a trusted key signed; or for the query projection claims.nt, the
 // claims as nodes (oxigraph.ClaimDataset). The daemon selects and builds the same.
 func projectRegistries(rctx context.Context, cfg *config.Config, keys []ed25519.PublicKey, dataset, dir string) ([]oxigraph.ClaimGraph, error) {
-	u, err := binaries.OpenUnion(rctx, cfg)
-	if err != nil {
-		return nil, err
+	return projectUnion(rctx, cfg, keys, nil, dataset, dir)
+}
+
+// projectUnion is projectRegistries over u, or over cfg's union as it is when u is nil.
+func projectUnion(rctx context.Context, cfg *config.Config, keys []ed25519.PublicKey, u *binaries.Union, dataset, dir string) ([]oxigraph.ClaimGraph, error) {
+	if u == nil {
+		var err error
+		if u, err = binaries.OpenUnion(rctx, cfg); err != nil {
+			return nil, err
+		}
 	}
 	def, named, err := oxigraph.Dataset(u, keys)
 	if err != nil {

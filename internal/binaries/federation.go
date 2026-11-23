@@ -103,7 +103,28 @@ func sweepUnions(base, current string) {
 }
 
 // buildUnion joins inputs into fresh registries under dir.
-func buildUnion(dir string, inputs []Input) error {
+func buildUnion(dir string, inputs []Input) error { return buildFiltered(dir, inputs, nil) }
+
+// PinnedUnion builds, under dir, a union of inputs that holds only the records and claims keep names:
+// the dataset a query run pinned (ADR-020). Registries only grow, so the pinned ids are the state they
+// were in when pinned, whatever was added since.
+func PinnedUnion(dir string, inputs []Input, keep func(id string) bool) (*Union, error) {
+	if err := buildFiltered(dir, inputs, keep); err != nil {
+		return nil, err
+	}
+	preg, err := OpenPlanktonSource(filepath.Join(dir, "plankton"))
+	if err != nil {
+		return nil, err
+	}
+	nreg, err := OpenNektonSource(filepath.Join(dir, "nekton"))
+	if err != nil {
+		return nil, err
+	}
+	return &Union{Plankton: preg, Nekton: nreg}, nil
+}
+
+// buildFiltered is buildUnion, taking only what keep names when keep is given.
+func buildFiltered(dir string, inputs []Input, keep func(id string) bool) error {
 	pdir, ndir := filepath.Join(dir, "plankton"), filepath.Join(dir, "nekton")
 	preg, err := pregistry.Open(pdir)
 	if err != nil {
@@ -119,6 +140,9 @@ func buildUnion(dir string, inputs []Input) error {
 				return fmt.Errorf("source %s: its plankton registry skipped %d record(s) on load", name, n)
 			}
 			for _, rec := range p.Records(0) {
+				if keep != nil && !keep(rec.FotonID) {
+					continue
+				}
 				if _, _, err := preg.Add(rec.Envelope); err != nil {
 					return fmt.Errorf("source %s: plankton %s: %w", name, rec.FotonID, err)
 				}
@@ -141,6 +165,15 @@ func buildUnion(dir string, inputs []Input) error {
 			// not the source (kton-review F1 on #198). It is also what the kernel offers federation for: a
 			// record whose parent another source holds still transfers (registry.RawRecords).
 			recs := n.RawRecords()
+			if keep != nil {
+				kept := recs[:0:0]
+				for _, rec := range recs {
+					if keep(rec.ClaimID) {
+						kept = append(kept, rec)
+					}
+				}
+				recs = kept
+			}
 			envs := make([]core.Envelope, len(recs))
 			for i, rec := range recs {
 				envs[i] = rec.Envelope
