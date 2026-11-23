@@ -433,26 +433,27 @@ test("area: an area entry without a `when` opens on its scope from the QM areas 
   assert.ok(one);
 });
 
-test("area: a record's approvals match the record's claim in ?record (S6) or in ?claim (the training package)", async () => {
+test("area: a record's approvals match the record's claim in ?record only, never the approval's own ?claim", async () => {
   const draw = async (rows: Array<Record<string, string>>) => {
     const { mount } = (await import(pathToFileURL(join(process.cwd(), "media", "workbench", "viewers", "rows", "rows.js")).href)) as { mount: (el: unknown, ctx: unknown) => unknown };
     const el = { innerHTML: "", querySelectorAll: () => [], querySelector: () => null };
     let done!: () => void;
     const drawn = new Promise<void>((r) => (done = r));
     const request = async () => (setTimeout(done, 0), { head: { vars: ["claim", "record", "outcome"] }, results: { bindings: rows.map((r) => Object.fromEntries(Object.entries(r).map(([k, v]) => [k, { type: "uri", value: v }]))) } });
-    mount(el, { kit: { esc: String }, use: { options: { match: ["record", "claim"], columns: ["outcome"] } }, subject: { claim: `sha256:${"2".repeat(64)}` }, request, intent: async () => ({}) });
+    mount(el, { kit: { esc: String }, use: { options: { match: ["record"], columns: ["outcome"] } }, subject: { claim: `sha256:${"2".repeat(64)}` }, request, intent: async () => ({}) });
     await drawn;
     return el.innerHTML;
   };
   const mine = `https://kton.dev/o/${"2".repeat(64)}`;
   const other = `https://kton.dev/o/${"3".repeat(64)}`;
   const html = await draw([
-    { claim: `https://kton.dev/o/${"a".repeat(64)}`, record: mine, outcome: "s6-approved" },
-    { claim: mine, record: "https://example.org/rt-1", outcome: "attended" },
-    { claim: other, record: "https://example.org/rt-1", outcome: "elsewhere" },
+    { claim: `https://kton.dev/o/${"a".repeat(64)}`, record: mine, outcome: "approves-this" },
+    // the subject is itself an approval of another record: that is not an approval of the subject
+    { claim: mine, record: other, outcome: "approves-another" },
+    { claim: `https://kton.dev/o/${"b".repeat(64)}`, record: other, outcome: "elsewhere" },
   ]);
-  assert.match(html, /data-count="2"/);
-  assert.match(html, /s6-approved/);
-  assert.match(html, /attended/);
+  assert.match(html, /data-count="1"/);
+  assert.match(html, /approves-this/);
+  assert.doesNotMatch(html, /approves-another/);
   assert.doesNotMatch(html, /elsewhere/);
 });
