@@ -86,6 +86,24 @@ test("check 2: unknown fields and values outside the template are refused", () =
   assert.ok(!plan({ kind: "sign", about: SUBJECT, fields: { meaning: "released" } }, loose, templates, identity).ok);
 });
 
+test("the sign digest covers the control's title and the evidence opened: a dialog that showed others does not consent", () => {
+  const base = { kind: "sign" as const, about: SUBJECT, fields: {} };
+  const ev = (n: string) => `https://example.org/evidence/${n}`;
+  const digest = (c: ControlInfo, opened?: readonly string[]) => {
+    const p = plan({ ...base, ...(opened ? { opened } : {}) }, c, templates, identity);
+    assert.ok(p.ok);
+    return p.value.digest;
+  };
+  const titled = { ...approve, title: "Approve the record" };
+  const d = digest(titled, [ev("a")]);
+  assert.equal(digest(titled, [ev("a")]), d, "the same plan, the same digest");
+  assert.notEqual(digest(approve, [ev("a")]), d, "without the title");
+  assert.notEqual(digest({ ...approve, title: "Approve another record" }, [ev("a")]), d, "another title");
+  assert.notEqual(digest(titled), d, "no evidence opened");
+  assert.notEqual(digest(titled, [ev("b")]), d, "other evidence");
+  assert.notEqual(digest(titled, [ev("a"), ev("b")]), d, "more evidence");
+});
+
 test("O1: a decision needs the dialog's consent for exactly this plan; a record does not", async () => {
   const { transport, argvLog } = fakeCockpit([{ argv0: "say", stdout: JSON.stringify({ claimId: CLAIM, confirmation: "" }) }]);
   const p = plan({ kind: "sign", about: SUBJECT, fields: {} }, approve, templates, identity);
