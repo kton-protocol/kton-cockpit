@@ -295,8 +295,10 @@ func (c *Cockpit) Say(ctx context.Context, in SayRequest) (*SayResult, error) {
 		return nil, refuse(storeCode(err), "", "git commit/push of the claim registry failed: %v", err)
 	}
 
-	claims, err := r.About(ctx, in.Subject)
-	tr.mark("confirm (reads the union)")
+	// The claim went into this repository's own registry, so that is where it is confirmed: reading the
+	// union fetched and joined every federation source for a check none of them can answer (T12).
+	claims, err := r.OwnAbout(in.Subject)
+	tr.mark("confirm (reads the own registry)")
 	if err != nil {
 		return nil, refuse("kernel", "", "claim was recorded but confirmation query (nekton about) failed: %v", err)
 	}
@@ -313,7 +315,7 @@ func (c *Cockpit) Say(ctx context.Context, in SayRequest) (*SayResult, error) {
 	}
 	if !registered {
 		return nil, refuse("claim.not-registered", "",
-			"claim %s was signed but is not among the %d claim(s) nekton reports about %s — it did not register",
+			"claim %s was signed but is not among the %d claim(s) this repository's registry holds about %s — it did not register",
 			claimID, len(claims), in.Subject)
 	}
 
@@ -321,7 +323,7 @@ func (c *Cockpit) Say(ctx context.Context, in SayRequest) (*SayResult, error) {
 	out := SayResult{
 		ClaimID:      claimID,
 		Level:        level,
-		Confirmation: fmt.Sprintf("registered: nekton reports %s among the %d claim(s) about %s", claimID, len(claims), in.Subject),
+		Confirmation: fmt.Sprintf("registered: nekton reports %s among the %d claim(s) this repository holds about %s", claimID, len(claims), in.Subject),
 		Subject:      in.Subject,
 		ResolvedFrom: resolvedFrom,
 		Pending:      pending,

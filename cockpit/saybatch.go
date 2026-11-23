@@ -214,12 +214,17 @@ func (c *Cockpit) SayBatch(ctx context.Context, in SayBatchRequest) (*SayBatchRe
 	}
 	out.Pending = pending
 
-	// Confirmed by querying them back, once per subject, as say does for one.
+	// Confirmed by querying them back, once per subject, as say does for one: in this repository's own
+	// registry, where they were written, opened once (T12).
+	own, err := binaries.OpenNektonSource(cfg.NektonDir)
+	if err != nil {
+		return nil, refuse("kernel", "", "the claims were recorded but this repository's claim registry cannot be read back: %v", err)
+	}
 	bySubject := map[string]map[string]bool{}
 	for i := range out.Claims {
 		subj := out.Claims[i].Subject
 		if bySubject[subj] == nil {
-			claims, err := r.About(ctx, subj)
+			claims, err := binaries.ClaimsAbout(own, subj)
 			if err != nil {
 				return nil, refuse("kernel", "", "the claims were recorded but the confirmation query (nekton about) failed: %v", err)
 			}
