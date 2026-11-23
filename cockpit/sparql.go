@@ -160,6 +160,8 @@ func askSparql(ctx context.Context, cfg *config.Config, in AskRequest) (*AskResu
 		return nil, refuse("argument", "SPEC §9.9", "format is %q or empty, not %q", SparqlFormatStandard, in.Format)
 	case in.Dataset != "" && in.Dataset != oxigraph.DatasetClaims && in.Dataset != oxigraph.DatasetNanopub:
 		return nil, refuse("argument", "SPEC §9.9", "dataset is %q (the default) or %q, not %q", oxigraph.DatasetClaims, oxigraph.DatasetNanopub, in.Dataset)
+	case len(in.Graphs) > 0 && !in.Reproducible:
+		return nil, refuse("argument", "ADR-020", "graphs narrows a query run: ask with reproducible")
 	case in.TimeoutSeconds < 0 || time.Duration(in.TimeoutSeconds)*time.Second > sparqlMaxTimeout:
 		return nil, refuse("argument", "SPEC §9.9", "timeoutSeconds must be from 1 to %d, not %d", int(sparqlMaxTimeout/time.Second), in.TimeoutSeconds)
 	}
@@ -190,7 +192,7 @@ func askSparql(ctx context.Context, cfg *config.Config, in AskRequest) (*AskResu
 				bound[k] = t
 			}
 		}
-		ans, run, err = queryRun(ctx, cfg, in.Sparql, dataset, bound, timeout)
+		ans, run, err = queryRun(ctx, cfg, in.Sparql, dataset, bound, in.Graphs, timeout)
 		if err == nil && len(ans.Rows) > limit {
 			return nil, refuse("query.not-reproducible", "ADR-020", "the query run's answer has %d rows, more than the limit %d: no part of an answer passes for all of it; raise limit or narrow the query", len(ans.Rows), limit)
 		}

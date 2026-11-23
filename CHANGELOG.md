@@ -10,6 +10,18 @@
 - **`COCKPIT_TRACE=1`** prints a say's phases with their durations on stderr (prepare, the claims lock, the
   scope's head, sign and store, persist, confirm), to find where a slow say spends its time in a given
   registry.
+- **`query.memory`** (default 4g): the SPARQL engine's containers run bounded in memory and processes.
+- **Loaded files in query runs** (ADR-020 section 2): a query run in the claims dataset with `index.derived`
+  on reads the files loaded for the repository (`cockpit load`) as the graphs their hashes name, as a query of
+  the index does; each is pinned by its hash and media type, its bytes put in the content store, and
+  `reproduce` reads them from there. A loaded file whose bytes changed on disk since its load refuses the
+  run, named. Every loaded file is checked as a load checks it (type, no XML entities, size, triples), at
+  the run and at each reproduction under the reproducer's limits; a run with loaded files or `--graph` is
+  manifest version 3.
+- **`ask sparql --reproducible --graph SCOPE|sha256`** (MCP and serve: `graphs`; ADR-020 section 1): narrows a
+  query run to the scopes named (by name or seed) and the loaded files named (by hash); the other scopes'
+  claims and other loaded files are in neither its rows nor its manifest, unscoped claims and the steps stay
+  in. The manifest names the graphs.
 
 ### Fixed
 

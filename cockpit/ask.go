@@ -38,8 +38,11 @@ type AskRequest struct {
 	// BindTerms gives variables typed values: an IRI, or a literal with a datatype (SPEC §9.9).
 	// Reproducible makes a sparql query a query run (ADR-020): evaluated over its pinned dataset in a
 	// container, recorded as a foton with its manifest and canonical result, so anyone can reproduce it.
-	Reproducible bool                 `json:"reproducible,omitempty" jsonschema:"for query sparql: run it as a reproducible query run (ADR-020), recorded with everything it read"`
-	BindTerms    map[string]BoundTerm `json:"bindTerms,omitempty" jsonschema:"for query sparql: values for the query's variables as typed terms, e.g. {\"STEP\": {\"type\": \"iri\", \"value\": \"https://kton.dev/o/…\"}, \"N\": {\"type\": \"literal\", \"value\": \"12\", \"datatype\": \"xsd:integer\"}}"`
+	Reproducible bool `json:"reproducible,omitempty" jsonschema:"for query sparql: run it as a reproducible query run (ADR-020), recorded with everything it read"`
+	// Graphs narrow a query run to these scopes (by name or seed) and loaded files (by hash); unscoped
+	// claims and the steps stay in (ADR-020, section 1).
+	Graphs    []string             `json:"graphs,omitempty" jsonschema:"for a reproducible sparql query: narrow the run to these scopes (by name or seed id) and loaded files (by sha256); unscoped claims and the steps stay in"`
+	BindTerms map[string]BoundTerm `json:"bindTerms,omitempty" jsonschema:"for query sparql: values for the query's variables as typed terms, e.g. {\"STEP\": {\"type\": \"iri\", \"value\": \"https://kton.dev/o/…\"}, \"N\": {\"type\": \"literal\", \"value\": \"12\", \"datatype\": \"xsd:integer\"}}"`
 	// Limit and TimeoutSeconds bound a sparql answer; the defaults are sparqlLimit and sparqlTimeout.
 	Limit          int `json:"limit,omitempty" jsonschema:"for query sparql: the most rows to return; for query feed: the most records (default 1000, at most 10000)"`
 	TimeoutSeconds int `json:"timeoutSeconds,omitempty" jsonschema:"for query sparql: how long the query may run (default 30, at most 120)"`
