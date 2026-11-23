@@ -1,14 +1,18 @@
 # Changelog
 
-## Unreleased
+## v0.5.11 — 2026-11-23
 
-### Migrating
+Query runs reproducible by anyone, workflow runs as jobs, kton v0.4.3, and sessions decided (ADR-019).
+The code reviewed by kton-review; ADR-019 by userinterface and qm.
+
+### Migrating from v0.5.10
 
 - **Every view is built again once** after the update: the projection's version is 11.
+- **Query runs recorded by v0.5.10** (manifest version 1) cannot be reproduced; run them again.
 
 ### Added
 
-- **`cockpit reproduce <query run>`** ([ADR-020](docs/decisions/adr-020-reproducible-queries.md), part 2):
+- **`cockpit reproduce <query run>`** ([ADR-020](docs/decisions/adr-020-reproducible-queries.md), part 2, #229):
   reads the run's manifest, builds its dataset again from the registries over exactly the pinned ids (a claim
   signed since, or on another branch of a scope, is not in it), evaluates it with the pinned trust, view and
   engine (never pulled), and compares the result. A match signs the run's own record, so its
@@ -17,18 +21,24 @@
   another vocabulary or other packages are said beside it. Refused, named: a missing record or byte, another
   manifest or projection version, an absent engine, a different result (its first differing row).
 
+- **Workflow runs are jobs** in the checkout's journal (#218): their origin, `run list` and `run status`
+  (CLI and serve), `workflow/run` in the background, run events; serve ends its background runs with the
+  connection, recorded cancelled.
+- **ADR-019 accepted** (#219): sessions as actors, a guard module at the MCP door; the decision, not yet the
+  module.
+
 ### Changed
 
-- **A query run's manifest is version 2**: it pins the whole view it was evaluated with (signers' names,
+- **A query run's manifest is version 2** (#229): it pins the whole view it was evaluated with (signers' names,
   templates, alias files, row templates) as one blob, and the run is evaluated with it rather than with the
   repository's present, as a reproduction is. Runs recorded by v0.5.10 (version 1) are refused by
   `reproduce`, named.
-- **kton v0.4.3** (plankton, nekton, kton): a declared step carries `nk:declared` (`"hand"`,
+- **kton v0.4.3** (plankton, nekton, kton; #231): a declared step carries `nk:declared` (`"hand"`,
   `"heuristic:<name>"`) in a query; a step its signer did not declare carries none (kton#292).
 
 ### Fixed
 
-- **A short id is refused in every field of a say**, not only as the subject (userinterface, dry run 1): a
+- **A short id is refused in every field of a say** (#230), not only as the subject (userinterface, dry run 1): a
   `sha256:4c505bfa` in a string field was signed as text. The refusal names the whole id when one record or
   claim begins so; a batch with one is written not at all, its line named.
 
