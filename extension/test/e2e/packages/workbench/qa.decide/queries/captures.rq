@@ -1,0 +1,26 @@
+# Capture now, per test of one element ($element): the latest request in w.records and its answer (a capture
+# result about it), with the captured run's artifacts. $poll only makes each ask a new one.
+PREFIX nk:   <https://kton.dev/v/>
+PREFIX lab:  <https://kton.dev/v/lab/>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX dct:  <http://purl.org/dc/terms/>
+PREFIX xsd:  <http://www.w3.org/2001/XMLSchema#>
+PREFIX w:    <https://example.org/qa/decide/>
+SELECT DISTINCT ?test ?for ?status ?offer ?waiting ?request ?outcome ?run ?label ?name ?sha256 ?mediaType ?stamp WHERE {
+  FILTER(!BOUND($poll) || STR($poll) != "")
+  ?sr rdfs:label "w.runs" .
+  { SELECT DISTINCT ?test WHERE { ?sr0 rdfs:label "w.runs" . ?u nk:scope ?sr0 ; nk:predicate w:unit ; lab:element ?pe ; lab:test ?test . FILTER(STR(?pe) = STR($element)) } }
+  OPTIONAL { ?st rdfs:label "w.records" . ?request nk:scope ?st ; nk:predicate w:capture ; lab:test ?rt ; dct:created ?requested . FILTER(STR(?rt) = STR(?test)) FILTER NOT EXISTS { ?request nk:replacedBy ?nr } }
+  OPTIONAL { ?res nk:predicate w:captureResult ; nk:about ?request ; lab:outcome ?outcome . OPTIONAL { ?res lab:run ?run } }
+  OPTIONAL { FILTER(STR(?outcome) = "captured")
+    ?a nk:predicate w:artifact ; lab:run ?arun ; lab:test ?atest ; lab:kind ?akind ; lab:sha256 ?h ; lab:name ?name . OPTIONAL { ?a lab:mediaType ?mediaType }
+    FILTER(STR(?arun) = STR(?run) && STR(?atest) = STR(?test)) }
+  BIND(IF(STRSTARTS(STR(?h), "https://kton.dev/o/"), CONCAT("sha256:", STRAFTER(STR(?h), "https://kton.dev/o/")), ?h) AS ?sha256)
+  BIND(STR($element) AS ?for)
+  BIND(IF(BOUND(?sha256), CONCAT("Open ", STR(?akind), ": run ", STR(?run)), ?u2) AS ?label)
+  BIND(IF(!BOUND(?request), "", IF(!BOUND(?outcome), CONCAT("Requested ", STR(?requested), ". Waiting for its answer."), IF(STR(?outcome) = "captured", CONCAT("Captured in run ", STR(?run), "."), "Declined."))) AS ?status)
+  BIND(IF(BOUND(?request) && !BOUND(?outcome), "true", "false") AS ?waiting)
+  BIND(IF(BOUND(?request) && !BOUND(?outcome), "false", "true") AS ?offer)
+  BIND(IF(BOUND(?run), CONCAT("w.runs · ", STR(?run)), IF(BOUND(?request), "w.records · request", "w.runs")) AS ?stamp)
+}
+ORDER BY ?test ?name

@@ -1,0 +1,16 @@
+{
+ "name": "w-source",
+ "target": "either",
+ "predicate": "https://example.org/qa/decide/source",
+ "fields": {
+  "stamp": {
+   "type": "string"
+  },
+  "label": {
+   "type": "string"
+  },
+  "full": {
+   "type": "string"
+  }
+ }
+}

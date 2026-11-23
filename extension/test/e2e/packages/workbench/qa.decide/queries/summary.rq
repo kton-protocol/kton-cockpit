@@ -1,0 +1,21 @@
+# What was looked at for this decision ($proposal): spot-check verdicts naming it and capture requests about it;
+# per row the claim ids (?lookedAt). No row without a proposal.
+PREFIX nk:   <https://kton.dev/v/>
+PREFIX lab:  <https://kton.dev/v/lab/>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX dct:  <http://purl.org/dc/terms/>
+PREFIX xsd:  <http://www.w3.org/2001/XMLSchema#>
+PREFIX w:    <https://example.org/qa/decide/>
+SELECT ?label (COUNT(DISTINCT ?x) AS ?value) (GROUP_CONCAT(DISTINCT STR(?x); separator=" ") AS ?lookedAt) (SAMPLE(?s) AS ?stamp) WHERE {
+  VALUES (?o ?label ?pred) { (1 "spot checks judged" w:spotcheck) (2 "captures requested" w:capture) }
+  FILTER(BOUND($proposal))
+  BIND("this trial (w.records)" AS ?s)
+  OPTIONAL {
+    ?x nk:predicate ?pred ; nk:scope ?ts . ?ts rdfs:label "w.records" .
+    OPTIONAL { ?x lab:proposal ?pp } OPTIONAL { ?x nk:about ?ab }
+    FILTER NOT EXISTS { ?x nk:replacedBy ?n }
+    FILTER(STR(?pp) = STR($proposal) || STR(?ab) = STR($proposal))
+  }
+}
+GROUP BY ?o ?label
+ORDER BY ?o

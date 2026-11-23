@@ -1,0 +1,58 @@
+{
+ "name": "w-item",
+ "target": "either",
+ "predicate": "https://example.org/qa/decide/item",
+ "fields": {
+  "element": {
+   "type": "string"
+  },
+  "inScope": {
+   "type": "string"
+  },
+  "group": {
+   "type": "string"
+  },
+  "area": {
+   "type": "string"
+  },
+  "part": {
+   "type": "string"
+  },
+  "statement": {
+   "type": "string"
+  },
+  "test": {
+   "type": "string"
+  },
+  "testFile": {
+   "type": "string"
+  },
+  "testLine": {
+   "type": "string"
+  },
+  "judge1": {
+   "type": "string"
+  },
+  "judge1Why": {
+   "type": "string"
+  },
+  "judge1Source": {
+   "type": "string"
+  },
+  "judge2": {
+   "type": "string"
+  },
+  "judge2Why": {
+   "type": "string"
+  },
+  "judge2Source": {
+   "type": "string"
+  },
+  "earlier": {
+   "type": "string"
+  },
+  "stamp": {
+   "type": "string"
+  }
+ }
+}

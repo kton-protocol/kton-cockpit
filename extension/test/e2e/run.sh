@@ -1,5 +1,5 @@
 #!/bin/sh
-# e2e of the shell (the PR gate flows S1–S4, S7, S9, S10): seed a throwaway registry, start
+# e2e of the shell (the PR gate flows S1–S7, S9, S10, C1, C2 and W, the workbench views): seed a throwaway registry, start
 # code-server with the packaged VSIX, drive it with Playwright, check the registry. Everything runs in
 # containers (--rm), from images pinned by digest.
 #
@@ -35,6 +35,18 @@ case "$WORK" in /*) ;; *) echo "the work dir must be absolute" >&2; exit 1;; esa
 [ ! -e "$WORK" ] || { echo "$WORK exists; pass a fresh work dir" >&2; exit 1; }
 mkdir -p "$WORK/tmp" "$WORK/cs/data/User" "$WORK/cs/ext" "$WORK/pw" "$WORK/bin" "$WORK/rpc" "$WORK/faults" "$OUTDIR"
 find "$OUTDIR" -maxdepth 1 -type f \( -name '*.png' -o -name '*.json' \) -delete
+# from here on the run cleans up after itself, also when the seed or a build fails
+cleanup() {
+  docker stop kton-wb-e2e-$RUN_ID >/dev/null 2>&1 || true
+  docker stop kton-wb-e2e-sidecar-$RUN_ID >/dev/null 2>&1 || true
+  # the cockpit's index containers for this run's registries (persistent index, mounts under the work dir)
+  for c in $(docker ps -aq --filter name=kton-cockpit-index); do
+    docker inspect "$c" --format '{{range .Mounts}}{{.Source}} {{end}}' 2>/dev/null | grep -q "$WORK/" && docker rm -f "$c" >/dev/null 2>&1 || true
+  done
+  # Discard the throwaway registry and its test keys unless KEEP=1.
+  [ "${KEEP:-0}" = 1 ] || rm -r -f -- "$WORK"
+}
+trap cleanup EXIT
 
 echo "== docker CLI from $DOCKER_CLI_IMAGE"
 docker run --rm --entrypoint cat "$DOCKER_CLI_IMAGE" /usr/local/bin/docker > "$WORK/bin/docker"
@@ -47,17 +59,52 @@ ENGINE_IMAGE=oxigraph/oxigraph@sha256:10677fb643f8c5a7bfb03dd8f7971c79a84b01e795
 echo "== engine image"
 docker pull -q "$ENGINE_IMAGE" >/dev/null
 
-# PR 2: ktonpkg v0.9.7's scope CLI (the version the cockpit links) builds the test packages, from a golang image
-# pinned by digest.
+# ktonpkg v0.9.11's scope CLI builds the test packages (entry scopes on review-view entries need v0.9.11 in the
+# cockpit too), from a golang image pinned by digest.
 GO_IMAGE=golang:1.25@sha256:699337d620559a59b4a2bb298ad59611e535d2ee755a34cf2d2a98f37578dc80
-echo "== ktonpkg v0.9.7 scope CLI"
+echo "== ktonpkg v0.9.11 scope CLI"
 mkdir -p "$WORK/go"
 docker run --rm --network host -u "$UIDGID" -e HOME=/tmp -e GOPATH="$WORK/go" -e GOCACHE="$WORK/go/cache" -e CGO_ENABLED=0 -e GOTOOLCHAIN=local -e GOFLAGS=-modcacherw \
   -v "$WORK:$WORK" "$GO_IMAGE" \
-  sh -c "GOBIN=$WORK/bin go install github.com/gitmick/ktonpkg/cmd/scope@v0.9.7"
+  sh -c "GOBIN=$WORK/bin go install github.com/gitmick/ktonpkg/cmd/scope@v0.9.11"
+
+# ktonpkg v0.9.13's scope CLI for flow W's packages: an act through another package's control (from: a pinned head)
+echo "== ktonpkg v0.9.13 scope CLI"
+mkdir -p "$WORK/go/bin-0913"
+docker run --rm --network host -u "$UIDGID" -e HOME=/tmp -e GOPATH="$WORK/go" -e GOCACHE="$WORK/go/cache" -e CGO_ENABLED=0 -e GOTOOLCHAIN=local -e GOFLAGS=-modcacherw \
+  -v "$WORK:$WORK" "$GO_IMAGE" \
+  sh -c "GOBIN=$WORK/go/bin-0913 go install github.com/gitmick/ktonpkg/cmd/scope@v0.9.13"
+cp "$WORK/go/bin-0913/scope" "$WORK/bin/scope-0913"
 
 echo "== seed"
-docker run --rm -u "$UIDGID" -v "$WORK:$WORK" -v "$HERE/seed.sh:/seed.sh:ro" \
+# EXTRA_FLOWS (optional): a folder with more flows from outside this repository, run on top of these:
+#   hooks.sh   sourced here, before the seed: it may take snapshots (snapshot <name> <git repository>, below) and set
+#              EXTRA_SEED_ARGS (docker arguments of the seed container), EXTRA_CS_ARGS (of the sidecar and code-server)
+#              and EXTRA_PW_ENV (of the Playwright container), e.g. read-only mounts and their env;
+#   seed.sh    sourced at the end of seed.sh (mounted at /extra); it sets EXTRA_SEED_JSON (seed.json's "extra");
+#   flows.mjs  its default export runs further steps with smoke.mjs's helpers, after the flows here.
+# Every git repository a hook reads should be a SNAPSHOT taken once here: a local clone at the source's current HEAD
+# under $WORK/snap, mounted read-only, so nothing moves under a run's steps.
+SNAP="$WORK/snap"; mkdir -p "$SNAP"
+snapshot() { # snapshot <name> <git repository>: prints the snapshot's path
+  git -C "$2" rev-parse --verify -q HEAD >/dev/null || { echo "$2 is no git repository with a HEAD" >&2; exit 1; }
+  # the clone keeps the source's own remote (the cockpit reads the registry's owner/repo from origin; never pushed to)
+  git clone -q --local "$2" "$SNAP/$1" && git -C "$SNAP/$1" remote set-url origin "$(git -C "$2" remote get-url origin)" && echo "  snapshot $1: $2 at $(git -C "$SNAP/$1" rev-parse --short HEAD)" >&2
+  echo "$SNAP/$1"
+}
+EXTRA_SEED_ARGS=""; EXTRA_CS_ARGS=""; EXTRA_PW_ENV=""; EXTRA_MOUNT=""
+if [ -n "${EXTRA_FLOWS:-}" ]; then
+  EXTRA_FLOWS=$(cd "$EXTRA_FLOWS" && pwd)
+  EXTRA_MOUNT="-v $EXTRA_FLOWS:/extra:ro"
+  # shellcheck disable=SC1091
+  [ ! -f "$EXTRA_FLOWS/hooks.sh" ] || . "$EXTRA_FLOWS/hooks.sh"
+fi
+# The seed, the sidecar and code-server share one index daemon (HOME=$WORK/home: the cockpit's index directory and
+# daemon.json), published on the host's loopback only. All three run on the host network: a cockpit on a bridge network
+# cannot reach that address, takes the daemon for dead and starts it again (docker rm -f, then run), which killed every
+# load the window's asks were waiting for (the index restarted every ~35 s while the sidecar asked; the seed's warm-up
+# never reached the window's index). The seed gets the docker socket too, so its warm-up asks build that same index.
+docker run --rm --network host -u "$UIDGID" --group-add "$DOCKER_GID" -v /var/run/docker.sock:/var/run/docker.sock $DOCKER_MOUNT -v "$WORK:$WORK" -v "$HERE/seed.sh:/seed.sh:ro" $EXTRA_MOUNT $EXTRA_SEED_ARGS \
   -v "$COCKPIT:/usr/local/bin/cockpit:ro" -v "$VOCAB:/vocab:ro" -v "$HERE/vocabulary-package:/vocab-package:ro" -v "$HERE:/e2e:ro" \
   "$NODE_IMAGE" sh /seed.sh "$WORK" /vocab /vocab-package
 
@@ -100,7 +147,7 @@ echo normal > "$WORK/faults/mode"
 cat > "$WORK/cs/data/User/settings.json" <<EOF
 {
   "kton.cockpit.path": "$WORK/bin/cockpit-faults",
-  "kton.cockpit.timeoutSeconds": 20,
+  "kton.cockpit.timeoutSeconds": 60,
   "kton.cockpit.transport": "${TRANSPORT:-cli}",
   "kton.queries.dir": "$WORK/queries",
   "kton.identity.personKey": "qa-decider",
@@ -108,6 +155,8 @@ cat > "$WORK/cs/data/User/settings.json" <<EOF
   "kton.identity.personTiers": [],
   "kton.poll.seconds": 2,
   "kton.surfaces.file": "$WORK/surfaces.json",
+  "kton.sources.dir": "$WORK/mirrors",
+  "kton.artifacts.dir": "$WORK/artifacts",
   "security.workspace.trust.enabled": false,
   "workbench.startupEditor": "none",
   "telemetry.telemetryLevel": "off",
@@ -116,31 +165,25 @@ cat > "$WORK/cs/data/User/settings.json" <<EOF
 EOF
 
 echo "== sidecar (registry side)"
-SIDE=$(docker run -d --rm --name kton-wb-e2e-sidecar-$RUN_ID -u "$UIDGID" --group-add "$DOCKER_GID" -e HOME="$WORK/home" -e TMPDIR="$WORK/tmp" \
-  -v "$WORK:$WORK" -v /var/run/docker.sock:/var/run/docker.sock $DOCKER_MOUNT -v "$COCKPIT:/usr/local/bin/cockpit:ro" \
+SIDE=$(docker run -d --rm --network host --name kton-wb-e2e-sidecar-$RUN_ID -u "$UIDGID" --group-add "$DOCKER_GID" -e HOME="$WORK/home" -e TMPDIR="$WORK/tmp" \
+  -v "$WORK:$WORK" $EXTRA_CS_ARGS -v /var/run/docker.sock:/var/run/docker.sock $DOCKER_MOUNT -v "$COCKPIT:/usr/local/bin/cockpit:ro" \
   -v "$HERE/sidecar.mjs:/sidecar.mjs:ro" "$NODE_IMAGE" node /sidecar.mjs "$WORK")
 
 echo "== code-server"
 CS_COMMON="-u $UIDGID --group-add $DOCKER_GID --network host -e HOME=$WORK/home -e TMPDIR=$WORK/tmp \
-  -v $WORK:$WORK -v /var/run/docker.sock:/var/run/docker.sock $DOCKER_MOUNT \
-  -v $COCKPIT:/usr/local/bin/cockpit:ro -v $EXT/out:/vsix:ro --entrypoint code-server"
+  -v $WORK:$WORK $EXTRA_CS_ARGS -v /var/run/docker.sock:/var/run/docker.sock $DOCKER_MOUNT \
+  -v $COCKPIT:/usr/local/bin/cockpit:ro -v $EXT/out:/vsix:ro -v $HERE:$HERE:ro --entrypoint code-server"
 docker run --rm $CS_COMMON "$CS_IMAGE" --user-data-dir "$WORK/cs/data" --extensions-dir "$WORK/cs/ext" \
   --install-extension /vsix/kton-workbench.vsix
 CID=$(docker run -d --rm --name kton-wb-e2e-$RUN_ID $CS_COMMON "$CS_IMAGE" --user-data-dir "$WORK/cs/data" --extensions-dir "$WORK/cs/ext" \
   --auth none --bind-addr "127.0.0.1:$PORT" --disable-telemetry --disable-update-check --disable-workspace-trust "$WORK/repo")
-cleanup() {
-  docker stop kton-wb-e2e-$RUN_ID >/dev/null 2>&1 || true
-  docker stop kton-wb-e2e-sidecar-$RUN_ID >/dev/null 2>&1 || true
-  # Discard the throwaway registry and its test keys unless KEEP=1.
-  [ "${KEEP:-0}" = 1 ] || rm -r -f -- "$WORK"
-}
-trap cleanup EXIT
 i=0; until curl -sf "http://127.0.0.1:$PORT/healthz" >/dev/null; do i=$((i+1)); [ $i -lt 60 ] || { docker logs "$CID" | tail -20; exit 1; }; sleep 1; done
 
 echo "== playwright (npm ci from the committed lockfile)"
 cp "$HERE/package.json" "$HERE/package-lock.json" "$HERE/smoke.mjs" "$HERE/runrecord.mjs" "$WORK/pw/"
+[ -z "${EXTRA_FLOWS:-}" ] || [ ! -f "$EXTRA_FLOWS/flows.mjs" ] || cp "$EXTRA_FLOWS/flows.mjs" "$WORK/pw/extra-flows.mjs"
 RC=0
-docker run --rm --network host -u "$UIDGID" -e HOME=/tmp -e CS_URL="http://127.0.0.1:$PORT/?folder=$WORK/repo" -e OUT=/out -e FAILFAST="${FAILFAST:-0}" -e TRANSPORT="${TRANSPORT:-cli}" \
+docker run --rm --network host -u "$UIDGID" -e HOME=/tmp -e CS_URL="http://127.0.0.1:$PORT/?folder=$WORK/repo" -e OUT=/out -e FAILFAST="${FAILFAST:-0}" -e TRANSPORT="${TRANSPORT:-cli}" -e ONLY="${ONLY:-}" $EXTRA_PW_ENV \
   -e WORK="$WORK" -v "$WORK:$WORK" -v "$OUTDIR:/out" -w "$WORK/pw" "$PW_IMAGE" \
   sh -c "npm ci --no-audit --no-fund >/dev/null && node smoke.mjs" || RC=$?
 

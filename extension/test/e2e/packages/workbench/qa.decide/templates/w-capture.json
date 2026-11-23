@@ -1,0 +1,17 @@
+{
+ "name": "w-capture",
+ "target": "either",
+ "predicate": "https://example.org/qa/decide/capture",
+ "fields": {
+  "test": {
+   "type": "string",
+   "required": true
+  },
+  "proposal": {
+   "type": "iri"
+  },
+  "reason": {
+   "type": "string"
+  }
+ }
+}

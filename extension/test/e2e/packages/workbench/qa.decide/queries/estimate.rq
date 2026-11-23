@@ -1,0 +1,18 @@
+# The measured wrong-rate over covered elements, with the reported values beside it, on the covered base.
+PREFIX nk:   <https://kton.dev/v/>
+PREFIX lab:  <https://kton.dev/v/lab/>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX dct:  <http://purl.org/dc/terms/>
+PREFIX xsd:  <http://www.w3.org/2001/XMLSchema#>
+PREFIX w:    <https://example.org/qa/decide/>
+SELECT ?rate ?low ?high ?base ?target ?stamp ?wrong ?n ?same ?second ?reportedRate ?reportedLow ?reportedHigh ?reportedAt ?reportedSame ?reportedSecond ?note ?stampLabel ?stampFull ?stampScope WHERE {
+  ?sc rdfs:label "w.data" .
+  ?c nk:scope ?sc ; nk:predicate w:rate ; lab:sample "covered" ; lab:dimension "all" ; lab:rate ?rate ; lab:low ?low ; lab:high ?high ; lab:stamp ?stamp ;
+     lab:n ?n ; lab:wrong ?wrong ; lab:same ?same ; lab:second ?second .
+  OPTIONAL { ?c lab:reportedRate ?reportedRate } OPTIONAL { ?c lab:reportedLow ?reportedLow } OPTIONAL { ?c lab:reportedHigh ?reportedHigh }
+  OPTIONAL { ?c lab:reportedAt ?reportedAt } OPTIONAL { ?c lab:reportedSame ?reportedSame } OPTIONAL { ?c lab:reportedSecond ?reportedSecond } OPTIONAL { ?c lab:note ?note }
+  OPTIONAL { ?b nk:scope ?sc ; nk:predicate w:base ; lab:status "covered" ; lab:elements ?base }
+  BIND("5" AS ?target)
+  OPTIONAL { ?ss nk:predicate w:source ; lab:stamp ?ssStamp ; lab:label ?stampLabel ; lab:full ?stampFull . FILTER(STR(?ssStamp) = STR(?stamp)) }
+  BIND("w.data" AS ?stampScope)
+}

@@ -1,0 +1,15 @@
+# Guard rule source-stamped: every item's stamp names a source. A finding per item whose stamp no source claim names.
+PREFIX nk:   <https://kton.dev/v/>
+PREFIX lab:  <https://kton.dev/v/lab/>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX dct:  <http://purl.org/dc/terms/>
+PREFIX xsd:  <http://www.w3.org/2001/XMLSchema#>
+PREFIX w:    <https://example.org/qa/decide/>
+SELECT ?rule ?focus ?claim ?message WHERE {
+  BIND("source-stamped" AS ?rule)
+  BIND("an item whose stamp names no source (source-stamped)" AS ?message)
+  ?claim nk:predicate w:item ; lab:stamp ?stamp .
+  FILTER NOT EXISTS { ?ss nk:predicate w:source ; lab:stamp ?s2 . FILTER(STR(?s2) = STR(?stamp)) }
+  BIND(?claim AS ?focus)
+}
+ORDER BY ?focus

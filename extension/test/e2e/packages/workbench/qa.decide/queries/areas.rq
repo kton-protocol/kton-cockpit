@@ -1,0 +1,16 @@
+# The unsettled items in scope by area, with the measured rate of that area where there is one.
+PREFIX nk:   <https://kton.dev/v/>
+PREFIX lab:  <https://kton.dev/v/lab/>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX dct:  <http://purl.org/dc/terms/>
+PREFIX xsd:  <http://www.w3.org/2001/XMLSchema#>
+PREFIX w:    <https://example.org/qa/decide/>
+SELECT ?group ?area ?unsettled ?rate ?low ?high ?n ?enough ?stamp ?stampLabel ?stampFull ?stampScope WHERE {
+  { SELECT ?group ?area (COUNT(DISTINCT ?e) AS ?unsettled) (SAMPLE(?s) AS ?stamp) (MIN(?e) AS ?first) WHERE {
+      ?sc rdfs:label "w.data" . ?c nk:scope ?sc ; nk:predicate w:item ; lab:element ?e ; lab:inScope "true" ; lab:area ?area ; lab:group ?group ; lab:stamp ?s } GROUP BY ?group ?area }
+  OPTIONAL { ?r nk:predicate w:rate ; lab:sample "covered" ; lab:dimension "area" ; lab:group ?area ; lab:n ?rn ; lab:enough ?re ; lab:rate ?rr ; lab:low ?lo ; lab:high ?hi }
+  BIND(xsd:decimal(?rr) AS ?rate) BIND(xsd:decimal(?lo) AS ?low) BIND(xsd:decimal(?hi) AS ?high) BIND(xsd:integer(?rn) AS ?n) BIND(STR(?re) AS ?enough)
+  OPTIONAL { ?ss nk:predicate w:source ; lab:stamp ?ssStamp ; lab:label ?stampLabel ; lab:full ?stampFull . FILTER(STR(?ssStamp) = STR(?stamp)) }
+  BIND("w.data" AS ?stampScope)
+}
+ORDER BY ?group ?first

@@ -1,0 +1,16 @@
+{
+ "name": "w-base",
+ "target": "either",
+ "predicate": "https://example.org/qa/decide/base",
+ "fields": {
+  "status": {
+   "type": "string"
+  },
+  "elements": {
+   "type": "string"
+  },
+  "stamp": {
+   "type": "string"
+  }
+ }
+}

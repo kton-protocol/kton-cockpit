@@ -1,0 +1,24 @@
+# The recorded runs of the tests of one element ($element), with their artifacts (opened read-only, hash checked);
+# a passing run without an artifact says why.
+PREFIX nk:   <https://kton.dev/v/>
+PREFIX lab:  <https://kton.dev/v/lab/>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX dct:  <http://purl.org/dc/terms/>
+PREFIX xsd:  <http://www.w3.org/2001/XMLSchema#>
+PREFIX w:    <https://example.org/qa/decide/>
+SELECT DISTINCT ?kind ?label ?note ?run ?name ?sha256 ?mediaType ?bytes ?stamp ?stampScope ?testName ?outcome ?artifact ?passingWhy ?for WHERE {
+  ?sr rdfs:label "w.runs" .
+  ?u nk:scope ?sr ; nk:predicate w:unit ; lab:element ?pe ; lab:test ?test ; lab:run ?run ; lab:result ?result .
+  FILTER(STR(?pe) = STR($element))
+  OPTIONAL { ?a nk:scope ?sr ; nk:predicate w:artifact ; lab:run ?arun ; lab:test ?atest ; lab:kind ?akind ; lab:sha256 ?h ; lab:name ?name .
+    FILTER(STR(?arun) = STR(?run) && STR(?atest) = STR(?test))
+    OPTIONAL { ?a lab:mediaType ?mediaType } OPTIONAL { ?a lab:bytes ?bytes } }
+  BIND(IF(STRSTARTS(STR(?h), "https://kton.dev/o/"), CONCAT("sha256:", STRAFTER(STR(?h), "https://kton.dev/o/")), ?h) AS ?sha256)
+  BIND("artifact" AS ?kind)
+  BIND(IF(BOUND(?sha256), CONCAT("Open ", STR(?akind), ": run ", STR(?run), " (", STR(?result), ")"), CONCAT("Run ", STR(?run), " (", STR(?result), "): ", STR(?test))) AS ?label)
+  BIND(IF(BOUND(?sha256), STR(?test), IF(STR(?result) = "passed", "No artifact for passing runs: only a failure keeps one", CONCAT("no artifact for this ", STR(?result), " result"))) AS ?note)
+  BIND(IF(STR(?result) = "passed" && !BOUND(?sha256), "only a failure keeps one", ?u1) AS ?passingWhy)
+  BIND(STR(?test) AS ?testName) BIND(STR(?result) AS ?outcome) BIND(STR(?akind) AS ?artifact) BIND(STR(?pe) AS ?for)
+  BIND(CONCAT("w.runs · ", STR(?run)) AS ?stamp) BIND("w.runs" AS ?stampScope)
+}
+ORDER BY ?test ?run ?name

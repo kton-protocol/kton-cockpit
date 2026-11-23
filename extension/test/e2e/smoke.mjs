@@ -1,4 +1,4 @@
-// e2e of the PR gates in code-server, driven by Playwright: flows S1–S7, S9, S10 (shell flows,
+// e2e of the PR gates in code-server, driven by Playwright: flows S1–S7, S9, S10, C1, C2 and W (shell flows,
 // test-flow-design §4 v3), each step numbered as in the flow. The registry is checked from outside
 // the shell after every signature, through the sidecar (sidecar.mjs). Writes out/smoke-results.json
 // (native) and out/run.json (kton-testrun/1). Only PNG and JSON go to out/.
@@ -28,9 +28,13 @@ async function shot(name) {
   await page.screenshot({ path: `${OUT}/${file}` });
   current?.screenshots.push(file);
 }
+// ONLY=<flow>[,<flow>] (debugging, or a run on a loaded machine): only those flows' steps run, and a flow's own setup
+// (its folder, its registry asks) only when it is selected
+const selected = (flow) => !process.env.ONLY || process.env.ONLY.split(",").includes(flow);
 async function step(flow, n, title, fn) {
   // FAILFAST=1 (debugging): after the first failure the remaining steps do not run (and count as not run).
   if (process.env.FAILFAST === "1" && results.some((r) => !r.ok)) return;
+  if (!selected(flow)) return;
   const t0 = Date.now();
   current = { flow, n, title, ok: false, ms: 0, screenshots: [], checks: [] };
   try {
@@ -47,6 +51,7 @@ async function step(flow, n, title, fn) {
   current.ms = Date.now() - t0;
   if (current.ok && current.checks.length === 0) current.checks.push({ ok: true, message: "passed" });
   results.push(current);
+  current = null; // between steps (a flow's setup) nothing is recorded into the last step
 }
 /** A named check inside a step: recorded, and a failure fails the step. */
 function check(ok, message, expected, received) {
@@ -61,7 +66,8 @@ async function cockpit(argv, stdin, extra = {}) {
   const req = `${WORK}/rpc/${id}.req.json`;
   writeFileSync(`${req}.tmp`, JSON.stringify({ argv, ...(stdin !== undefined ? { stdin } : {}), ...extra }));
   renameSync(`${req}.tmp`, req);
-  const end = Date.now() + 180_000;
+  // the sidecar's own limit (sidecar.mjs: 600 s) and a minute for its queue
+  const end = Date.now() + 660_000;
   while (Date.now() < end) {
     const res = `${WORK}/rpc/${id}.res.json`;
     if (existsSync(res)) return JSON.parse(readFileSync(res, "utf8"));
@@ -69,13 +75,22 @@ async function cockpit(argv, stdin, extra = {}) {
   }
   throw new Error(`the sidecar did not answer ${argv.join(" ")}`);
 }
+/** One ask from the sidecar that builds the registry's view (index) after a federation change or a signing step, so a
+ *  window that asks next answers from a warm index; the time it took is recorded in the step. */
+async function warm(repo, argv = ["ask", "sparql", "-", "--results-json"], stdin = "SELECT * WHERE { ?s ?p ?o } LIMIT 1") {
+  const t0 = Date.now();
+  const r = await cockpit(argv, argv.includes("-") ? stdin : undefined, { repo });
+  const message = `${repo}: index warmed by one sidecar ask (${((Date.now() - t0) / 1000).toFixed(1)} s${r.code ? `, exit ${r.code}: ${(r.stderr || r.stdout).split("\n")[0]}` : ""})`;
+  current?.checks?.push({ ok: true, message });
+  return r;
+}
 const PREFIXES = `PREFIX nk: <https://kton.dev/v/>
 PREFIX t: <https://example.org/workbench-e2e/>
 PREFIX lab: <https://kton.dev/v/lab/>
 PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
 `;
-async function sparql(q) {
-  const r = await cockpit(["ask", "sparql", "-", "--results-json"], PREFIXES + q);
+async function sparql(q, repo) {
+  const r = await cockpit(["ask", "sparql", "-", "--results-json"], PREFIXES + q, repo ? { repo } : {});
   if (r.code !== 0) throw new Error(`registry check failed: ${r.stderr.split("\n")[0]}`);
   return JSON.parse(r.stdout).results.bindings.map((b) => Object.fromEntries(Object.entries(b).map(([k, v]) => [k, v.value])));
 }
@@ -188,10 +203,11 @@ await page.goto(URL);
 await page.locator(".monaco-workbench").waitFor({ timeout: 90000 });
 await views();
 
-await step("S1", 1, "status bar: both keys, unverified, no name from a claim; test mode; one poller", async () => {
-  await status().getByText("person key qa-decider · agent key qa-decider-agent · unverified", { exact: true }).waitFor({ timeout: 60000 });
+await step("S1", 1, "status bar: both keys, test (not verified: test keys), no name from a claim; test mode; one poller; decisions waiting apart from the inbox", async () => {
+  await status().getByText("person key qa-decider · agent key qa-decider-agent · test", { exact: true }).waitFor({ timeout: 60000 });
   await status().getByText("TEST MODE").waitFor();
-  await status().getByText(/polling: inbox every 2s · 2 open · 4 decisions/).waitFor({ timeout: 60000 });
+  await status().getByText(/polling: inbox every 2s · 2 open · cockpit-faults$/).waitFor({ timeout: 60000 });
+  await status().getByText("4 decisions waiting", { exact: true }).waitFor({ timeout: 60000 });
   const id = await status().getByText(/person key /).first().textContent();
   check(!/qa-requestor/.test(id), "the identity shows no name from a claim's signer", false, /qa-requestor/.test(id));
   await shot("s1-status-bar");
@@ -795,7 +811,7 @@ await step("S1", 5, "no identity file: reading works, signing is disabled", asyn
   await shot("s1-no-identity");
   renameSync(`${WORK}/repo/.kton/local/identity.json.away`, `${WORK}/repo/.kton/local/identity.json`);
   rebuild();
-  await status().getByText(/person key qa-decider · agent key qa-decider-agent · unverified/).waitFor({ timeout: 30000 });
+  await status().getByText(/person key qa-decider · agent key qa-decider-agent · test/).waitFor({ timeout: 30000 });
 });
 
 await step("S1", 7, "a missing person or agent key is named; neither stands in for the other", async () => {
@@ -811,7 +827,7 @@ await step("S1", 7, "a missing person or agent key is named; neither stands in f
   await shot("s1-no-agent-key");
   await clearToasts();
   setWorkspace({ "kton.identity.agentKey": "qa-decider-agent" });
-  await status().getByText(/agent key qa-decider-agent · unverified/).waitFor({ timeout: 30000 });
+  await status().getByText(/agent key qa-decider-agent · test/).waitFor({ timeout: 30000 });
 });
 
 await step("S7", 1, "cockpit missing: one clear error with the setting to check; the views say no data", async () => {
@@ -1067,12 +1083,15 @@ await step("S6", 9, "a read scope's data is shown (RACI from qa.deviations.raci)
   scopesBefore = await perScope();
 });
 
-await step("S6", 7, "training: the package's training query result, computed nowhere else", async () => {
+await step("S6", 7, "training: the package's training query result, computed nowhere else; unfiltered until a person is set, and stamped so", async () => {
   const f = await openArea("qa.area-one");
   // unfiltered until a person is picked (ktonpkg v0.9.10 optional params): the package's query, all 4 obligations
   check((await countIn(f, "training")) === 4, "the training query's 4 rows, unfiltered", 4, await countIn(f, "training"));
   const t = await boxText(f, "training");
   check(/person\/p1/.test(t) && /person\/p2/.test(t), "both RACI people's obligations");
+  // the unbound-parameter guard: a block that feeds no act runs unfiltered, and says so (the stamp above its rows)
+  const stampText = ((await box(f, "training").locator("[data-unfiltered]").first().textContent({ timeout: 10000 }).catch(() => "")) ?? "").trim();
+  check(stampText === "unfiltered: person not set", "the training block is stamped unfiltered", "unfiltered: person not set", stampText);
 });
 
 await step("S6", 10, "a param: the record query is bound to the record (subject.iri), not to all records", async () => {
@@ -1164,6 +1183,304 @@ await step("S6", "15b", "area-two's governing SOP QA-SOP-20 is shown as a draft"
   await shot("s6-governing-draft");
   await closeEditors();
 });
+
+// ---- W: the workbench's views (decision view, guard, evidence, requests, a foreign control, the inbox relay) over
+// invented data in repo-w (seed-workbench.sh). Expectations are the seed's data or asked from the registry.
+if (seed.w?.proposal && selected("W")) {
+  const W = seed.w;
+  const WN = "https://example.org/qa/decide/";
+  const W_TITLE = "Is the mapping a basis for the next step?";
+  const wFrame = (timeout = 60000) => frameWithSel('[data-composition="qa.decide/decision"]', timeout);
+  async function openDecisionW() {
+    await closeEditors();
+    await views();
+    await openReview(W_TITLE, "Decision view (trial)", "qa.decide");
+    const f = await wFrame();
+    await f.locator('[data-use$="top/summary#counts"] [data-figure]').first().waitFor({ timeout: 60000 });
+    return f;
+  }
+  /** The workbench's output channel as code-server logs it (the nudge lines are printed there). */
+  const outputLog = () => {
+    const files = [];
+    const walk = (d) => { for (const f of (existsSync(d) ? readdirSync(d, { withFileTypes: true }) : [])) f.isDirectory() ? walk(`${d}/${f.name}`) : /kton cockpit workbench\.log$/.test(f.name) && files.push(`${d}/${f.name}`); };
+    walk(`${WORK}/cs/data/logs`);
+    return files.map((f) => readFileSync(f, "utf8")).join("\n");
+  };
+  async function outputHas(re, timeout = 30000) {
+    const end = Date.now() + timeout;
+    for (;;) {
+      const m = outputLog().match(re);
+      if (m || Date.now() > end) return m?.[0] ?? "";
+      await page.waitForTimeout(1000);
+    }
+  }
+  const sha = (iri) => `sha256:${String(iri).replace(/^https:\/\/kton\.dev\/o\//, "")}`;
+  /** Back to the open decision view (an opened file or image took its column): the same view session. */
+  async function backToView() {
+    await page.locator(".tab", { hasText: "Decision view" }).first().click();
+    return wFrame();
+  }
+  const evidence = async (f, element) => {
+    const b = f.locator('[data-use$="#evidence"]');
+    await b.locator("[data-area-loading]").waitFor({ state: "detached", timeout: 120000 });
+    await b.locator('[data-testid="evidence-ask"]').fill(element);
+    await b.locator('[data-testid="evidence-show"]').click();
+    await b.locator("[data-evidence-for]", { hasText: element }).waitFor({ timeout: 60000 });
+    return b;
+  };
+  const openedOut = async (r) => {
+    await r.locator("[data-open-out]").filter({ hasText: /\S/ }).filter({ hasNotText: "Opening…" }).waitFor({ timeout: 60000 });
+    return ((await r.locator("[data-open-out]").textContent()) ?? "").trim();
+  };
+
+  await warm("repo-w");
+  await page.goto(URL.replace(/folder=[^&]*/, `folder=${encodeURIComponent(`${WORK}/repo-w`)}`));
+  await page.locator(".monaco-workbench").waitFor({ timeout: 90000 });
+  await views();
+
+  await step("W", 1, "first screen: the one waiting decision's review view opens on start; 1 decision waiting; the guard rules show their state", async () => {
+    await row(W_TITLE).waitFor({ timeout: 60000 });
+    await status().getByText("1 decision waiting", { exact: true }).waitFor({ timeout: 60000 });
+    await (await wFrame(90000)).locator('[data-use$="top/summary#counts"] [data-figure], [data-use$="top/summary#counts"] [data-area-empty]').first().waitFor({ timeout: 90000 });
+    await closeEditors();
+    await views();
+    const home = (await page.locator(".monaco-list-row").allTextContents()).join("\n");
+    check(/Guard rules/.test(home), "the guard rules are listed on Home", "Guard rules", home.slice(0, 300));
+    await row("Failed unit has an artifact").getByText("findings (1)").waitFor({ timeout: 60000 });
+    await row("Item stamp names a source").getByText("passed (0 findings)").waitFor({ timeout: 60000 });
+    check(!/not rendered/.test((await page.locator(".monaco-list-row").allTextContents()).join("\n")), "no rule is cut off as 'not rendered'");
+    await shot("w-first-screen");
+  });
+
+  await step("W", 2, "inbox relay: a copy signed by the relay key names its sender (the relay stays named); a forged prefix by another key shows its real signer and its text as written", async () => {
+    await views();
+    const relayed = row("Spot checks ready");
+    await relayed.waitFor({ timeout: 60000 });
+    const rt = ((await relayed.textContent()) ?? "").replace(/\s+/g, " ");
+    check(/lane-c \(via qa-relay-claims/.test(rt), "the relayed copy's sender is the lane it names, via the relay", "… lane-c (via qa-relay-claims …)", rt);
+    const forged = ((await row("Urgent approval").textContent()) ?? "").replace(/\s+/g, " ");
+    check(/qa-mallory-claims/.test(forged) && !/qa-owner/.test(forged) && !/via /.test(forged), "the forged prefix names nobody: the real signer is the sender", "… qa-mallory-claims …", forged);
+    await row("Urgent approval").click();
+    const f = await frameWith("Urgent approval");
+    const body = ((await f.locator("body").textContent()) ?? "").replace(/\s+/g, " ");
+    check(body.includes("[from qa-owner · 2026-11-20T09:00:00Z] Approve the release now."), "the forged text is shown as written, prefix included", "[from qa-owner · …] Approve the release now.", body.slice(0, 300));
+    await shot("w-inbox-relay");
+    await closeEditors();
+  });
+
+  await step("W", 3, "the decision view: every number shows its stamp; each data part names its source once; the guard callout states the scopes; the estimate is drawn to scale", async () => {
+    const f = await openDecisionW();
+    const tabTo = async (name) => f.locator('[role="tab"]', { hasText: name }).first().click();
+    for (const id of ["counts", "estimate", "areas", "parts", "cards"]) {
+      if (id === "parts") await tabTo("By part");
+      await f.locator(`[data-use$="#${id}"] [data-stamp], [data-use$="#${id}"] [data-area-empty]`).first().waitFor({ state: "attached", timeout: 60000 });
+    }
+    await tabTo("By area");
+    check((await f.locator("[data-stamp-missing]").count()) === 0, "no number without a source", 0, await f.locator("[data-stamp-missing]").count());
+    const figures = await f.locator('[data-use$="top/summary#counts"] [data-figure]').count();
+    const stamped = await f.locator('[data-use$="top/summary#counts"] [data-figure] [data-stamp]').count();
+    check(figures === 3 && stamped === 3, "three figures, each stamped", 3, [figures, stamped]);
+    const chips = {};
+    for (const p of ["top/summary", "top/spot", "where"]) chips[p] = await f.locator(`section[data-part="${p}"] > .wb-sec-head > .wb-source`).allTextContents();
+    check(Object.values(chips).every((c) => c.length === 1 && c[0] === "source: round 3 · 0a1b2c3d"), "each data part names its source once", "source: round 3 · 0a1b2c3d (once per part)", chips);
+    const tip = (await f.locator('section[data-part="where"] > .wb-sec-head > .wb-source').getAttribute("data-tip")) ?? "";
+    check(/scope w\.data/.test(tip) && /sha256:0a1b2c3de{56}/.test(tip), "the chip's tooltip has the scope and the full hash", "scope w.data, sha256:0a1b2c3d…", tip);
+    const g = ((await f.locator('[data-use$="#counts"] [data-guard]').textContent()) ?? "").replace(/\s+/g, " ");
+    check(/Mixed scopes\./.test(g) && /4 in scope \(as agreed\) \+ 2 outside your scope = 6 all judged/.test(g), "the guard callout names the counts with their scopes", "Mixed scopes. … 4 in scope (as agreed) + 2 outside your scope = 6 all judged.", g);
+    const est = ((await f.locator('[data-use$="#estimate"]').textContent()) ?? "").replace(/\s+/g, " ");
+    check(/4\.5 %/.test(est) && /3\.2–6\.1 %/.test(est) && /reported 4\.4 % \(3\.2–6\.0\), 03\.10\./.test(est), "the measured rate and band, with the reported one beside it", "4.5 % (3.2–6.1) … reported 4.4 % (3.2–6.0), 03.10.", est.slice(0, 400));
+    const rb = f.locator('[data-use$="#estimate"] .rb');
+    check((await rb.getAttribute("data-pt")) === "56.25" && (await rb.getAttribute("data-t")) === "62.5", "the range bar places the point and the target on its 0–8 % scale", "pt 56.25, t 62.5", [await rb.getAttribute("data-pt"), await rb.getAttribute("data-t")]);
+    check(/≈ 45/.test(est) && /1,000/.test(est), "as items on the covered base: ≈ 45 of 1,000", "≈ 45 … 1,000", est.slice(0, 300));
+    await shot("w-view");
+  });
+
+  await step("W", 4, "rows: by area in groups with their sums and a 'too few' row; by part with a total", async () => {
+    const f = await wFrame();
+    const areas = f.locator('[data-use$="#areas"]');
+    await areas.locator('tr.grp[data-group="alpha"]').waitFor({ timeout: 30000 });
+    const alpha = ((await areas.locator('tr.grp[data-group="alpha"]').textContent()) ?? "").replace(/\s+/g, " ");
+    check(/Alpha/.test(alpha) && /2 areas · 2 unsettled/.test(alpha), "group alpha: 2 areas, 2 unsettled", "Alpha 2 areas · 2 unsettled", alpha);
+    // south (7 measured) and east, west (none) are too few to measure; north has its rate
+    check((await areas.locator(".few").count()) === 3, "the areas with too few measurements say so", 3, await areas.locator(".few").count());
+    check(/1\.7 %/.test((await areas.locator("tr", { hasText: "north" }).first().textContent()) ?? ""), "north shows its rate", "1.7 %", await areas.locator("tr", { hasText: "north" }).first().textContent());
+    check((await areas.locator('tr.grp[data-group="none"]').textContent())?.includes("No group") ?? false, "the group none is labelled", "No group", await areas.locator('tr.grp[data-group="none"]').textContent());
+    await f.locator('[role="tab"]', { hasText: "By part" }).first().click();
+    const total = ((await f.locator('[data-use$="#parts"] [data-total]').textContent({ timeout: 30000 })) ?? "").trim();
+    check(total === "4", "the parts' total is the in-scope count", "4", total);
+    await f.locator('[role="tab"]', { hasText: "By area" }).first().click();
+  });
+
+  await step("W", 5, "a spot-check verdict signs with the person key through the dialog, about the card's element, into the records scope; the view stays filled while it refreshes and confirms the claim id", async () => {
+    const f = await wFrame();
+    const card = f.locator('[data-use$="#cards"] [data-card-row="0"]');
+    const item = await card.getAttribute("data-target");
+    const sign = card.locator('[data-testid="card-0-spotcheck"]');
+    check(await sign.isDisabled(), "Sign verdict… is disabled before a verdict is chosen", "disabled", "enabled");
+    await card.locator('[data-testid="card-0-second-right"]').click();
+    check(!(await sign.isDisabled()), "a chosen verdict enables it", "enabled", "disabled");
+    await sign.click();
+    const d = await dialog();
+    for (const s of ["verdict = second-right", "Act: reviewed (the control's meaning, not a field of the claim)", "Into scope: w.records", 'person key "qa-decider"']) await d.getByText(s, { exact: false }).first().waitFor({ timeout: 15000 });
+    await signInDialog(d);
+    await d.locator('[data-testid="sign-outcome"][data-state="signed"]').waitFor({ timeout: 60000 });
+    const toastText = (await toast(/Signed sha256:[0-9a-f]{64}/).textContent({ timeout: 30000 })) ?? "";
+    const rows = await sparql(`SELECT ?c ?s ?v ?p ?scope WHERE { ?c nk:predicate <${WN}spotcheck> ; nk:about <${item}> ; nk:signer ?s ; lab:verdict ?v ; lab:proposal ?p ; nk:scope ?sc . ?sc rdfs:label ?scope }`, "repo-w");
+    check(item === `${WN}element/item-1-e2`, "the verdict is about the card's element", `${WN}element/item-1-e2`, item);
+    check(rows.length === 1 && rows[0].s === PERSON && rows[0].v === "second-right" && rows[0].p === iriOf(W.proposal) && rows[0].scope === "w.records", "one spot check, by the person key, naming the proposal, in w.records", { s: PERSON, v: "second-right", scope: "w.records" }, rows);
+    const hex = String(rows[0]?.c ?? "").split("/").pop() ?? "";
+    await page.locator(".tab", { hasText: "Decision view" }).first().click();
+    const g = await wFrame();
+    const figs = g.locator('[data-use$="top/summary#counts"] [data-figure]');
+    await figs.first().waitFor({ timeout: 15000 });
+    let blank = 0;
+    for (let i = 0; i < 10; i++) {
+      if ((await figs.count()) === 0 || (await g.locator('[data-use$="top/summary#counts"] [data-area-loading]:visible').count()) > 0) blank++;
+      await page.waitForTimeout(500);
+    }
+    check(blank === 0, "after the signature the summary numbers stay visible while the view refreshes (no skeleton)", 0, blank);
+    const conf = ((await g.locator('[data-testid="signed-confirmation"]').textContent({ timeout: 15000 })) ?? "").trim();
+    check(/^[0-9a-f]{64}$/.test(hex) && conf.startsWith("Signed: ") && conf.includes(`(claim ${hex.slice(0, 8)})`), "the view confirms the signature at once, with its claim id", `Signed: … (claim ${hex.slice(0, 8)}) …`, conf);
+    check(toastText.includes(`sha256:${hex}`), "the notification names the claim id", `Signed sha256:${hex}`, toastText);
+    await shot("w-signed-refresh");
+  });
+
+  await step("W", 6, "evidence: the spec and the code open read-only at the stamped commit, hash checked; an unresolved match says why; a failed run's screenshot opens hash checked, a passing run says why it has none", async () => {
+    const f = await openDecisionW();
+    const b = await evidence(f, "item-1#e2");
+    const spec = b.locator('[data-evidence="spec"]').first();
+    await spec.locator("button").click();
+    const specOut = await openedOut(spec);
+    check(specOut === `Opened app:docs/spec a.md#L3 at ${W.mirrorCommit.slice(0, 12)} (read-only)`, "the spec opens at its line and commit", `Opened app:docs/spec a.md#L3 at ${W.mirrorCommit.slice(0, 12)} (read-only)`, specOut);
+    const code = b.locator('[data-evidence="code"]').first();
+    await code.locator("button").click();
+    const codeOut = await openedOut(code);
+    check(codeOut === `Opened app:src/Main.java#L3 at ${W.mirrorCommit.slice(0, 12)} (read-only)`, "the code opens at the stamped commit (the mirror has changed it since)", `Opened app:src/Main.java#L3 at ${W.mirrorCommit.slice(0, 12)} (read-only)`, codeOut);
+    await page.locator(".tab", { hasText: "Main.java" }).first().waitFor({ timeout: 20000 });
+    const a = f.locator('[data-use$="#artifacts"]');
+    await a.locator('[data-evidence="artifact"]').first().waitFor({ timeout: 60000 });
+    const shotRow = a.locator('[data-evidence="artifact"]', { has: f.locator('button[data-label="Open screenshot: run run-1 (failed)"]') }).first();
+    await shotRow.locator("button").click();
+    const out = await openedOut(shotRow);
+    check(/^Opened run-1\/shots\/fail-1\.png \(sha256:[0-9a-f]{12}…, \d+ bytes, hash checked\)$/.test(out), "opened after the hash check", "Opened run-1/shots/fail-1.png (sha256:…, n bytes, hash checked)", out);
+    const img = await frameWithSel('[data-testid="artifact-image"]', 30000);
+    const info = (await img.locator('[data-testid="artifact-info"]').textContent()) ?? "";
+    check(info.includes(W.pngSha256.slice(0, 19)), "the image panel names the claim's sha256", W.pngSha256.slice(0, 19), info);
+    check((await img.locator('[data-testid="artifact-image"]').evaluate((e) => e.naturalWidth)) > 0, "the screenshot renders");
+    const g = await backToView();
+    const a2 = g.locator('[data-use$="#artifacts"]');
+    check((await a2.locator(".wb-block-source").textContent()) === "source: w.runs", "the runs name their own source", "source: w.runs", await a2.locator(".wb-block-source").allTextContents());
+    const none = ((await a2.textContent()) ?? "").replace(/\s+/g, " ");
+    check(/1 passing run without an artifact: \S/.test(none) && (await a2.locator("[data-passing]").count()) === 1, "a passing run: no artifact, counted once, and why", "1 passing run without an artifact: …", none.match(/.{0,20}passing run.{0,80}/)?.[0]);
+    const b3 = await evidence(g, "item-3#e1");
+    const unresolved = b3.locator('[data-evidence="code"]').first();
+    const t = ((await unresolved.textContent()) ?? "").replace(/\s+/g, " ");
+    check(/not resolved: no file in reference/.test(t) && (await unresolved.locator("button").count()) === 0, "an unresolved match says why, with nothing to open", "not resolved: no file in reference", t.slice(0, 200));
+    await shot("w-evidence");
+  });
+
+  await step("W", 7, "requests: Capture now signs through the dialog into w.records and prints the nudge; the card waits, then shows the (stand-in) answer with the run's artifact", async () => {
+    const f = await backToView();
+    await evidence(f, "item-1#e2");
+    const box = f.locator('[data-use$="#captures"]');
+    const card = box.locator("[data-request-card]", { hasText: W.test1 }).first();
+    await card.waitFor({ timeout: 60000 });
+    await card.locator("button[data-act]").click();
+    const asked = [];
+    for (let i = 0; i < 2; i++) {
+      const input = page.locator(".quick-input-box input").first();
+      await input.waitFor({ timeout: 20000 });
+      await page.waitForTimeout(300);
+      asked.push(await input.inputValue());
+      await page.keyboard.press("Enter");
+      await page.waitForTimeout(500);
+    }
+    check(asked.includes(W.test1), "the test is the card's (a decision: the proposal is the input's default)", W.test1, asked);
+    const d = await dialog();
+    await d.getByText("Into scope: w.records", { exact: false }).first().waitFor({ timeout: 15000 });
+    await signInDialog(d);
+    await d.locator('[data-testid="sign-outcome"][data-state="signed"]').waitFor({ timeout: 60000 });
+    const caps = await sparql(`SELECT ?r ?s WHERE { ?sc rdfs:label "w.records" . ?r nk:scope ?sc ; nk:predicate <${WN}capture> ; nk:signer ?s ; lab:test ${JSON.stringify(W.test1)} }`, "repo-w");
+    check(caps.length === 1 && caps[0].s === PERSON, "one capture request in w.records, by the person key", 1, caps);
+    const line = await outputHas(new RegExp(`\\./send lane-a requests area=area-b title="capture now: (?:[^"\\\\]|\\\\.)*" text="request claim ${sha(caps[0]?.r ?? "x")}; test (?:[^"\\\\]|\\\\.)*" why="the decision view"`));
+    check(!!line, "the nudge line is in the output channel", "./send lane-a requests … capture now …", line || outputLog().split("\n").filter((l) => /nudge/.test(l)).slice(-2));
+    await warm("repo-w");
+    const g = await backToView();
+    await g.locator('[data-use$="#captures"]').getByText(/Waiting for its answer/).first().waitFor({ timeout: 120000 });
+    const r = await cockpit(["say", JSON.stringify({ template: "w-capture-result", subject: caps[0].r, scope: "w.runs", as: "standin-runner", fields: { outcome: "captured", run: "run-1" } })], undefined, { repo: "repo-w" });
+    check(r.code === 0, "STAND-IN for the runner: the capture result signed by a throwaway key of this run", 0, (r.stderr || r.stdout).split("\n")[0]);
+    await warm("repo-w");
+    await g.locator('[data-use$="#captures"]').getByText(/Captured in run run-1/).first().waitFor({ timeout: 120000 });
+    check((await g.locator('[data-use$="#captures"] button[data-open]').count()) > 0, "the captured run's artifact, to open", ">0", await g.locator('[data-use$="#captures"] button[data-open]').count());
+    await shot("w-capture");
+  });
+
+  await step("W", 8, "a foreign control: Request rerun (capture mode) on a unit row records qa.owner's pinned rerun-request by the agent key, about that row, into w.records; nothing proposed is taken unseen; the nudge is printed", async () => {
+    const f = await backToView();
+    // the failed run-1 row of test 1 (its unit claim is W.unitFailed; the registry check below names it)
+    const tr = f.locator('[data-use$="#units"] tbody tr', { hasText: "keeps a draft" }).filter({ hasText: "failed" }).first();
+    await tr.waitFor({ timeout: 60000 });
+    await tr.locator("button", { hasText: "Request rerun (capture mode)" }).click();
+    // a record has no dialog: nothing the frame proposed is signed. The choice's reason is the package's declared act
+    // field; the test, which the row only proposes, is asked, with no default
+    const input = page.locator(".quick-input-box input").first();
+    await input.waitFor({ timeout: 20000 });
+    await page.waitForTimeout(300);
+    const prompt = ((await page.locator(".quick-input-widget").first().textContent()) ?? "").replace(/\s+/g, " ");
+    const asked = await input.inputValue();
+    check(/rerun-request: test/.test(prompt) && asked === "", "the row's proposed test is not taken: the test is asked, empty", "rerun-request: test, empty", [prompt.slice(0, 80), asked]);
+    await page.keyboard.type(W.test1);
+    await page.keyboard.press("Enter");
+    const out = tr.locator("[data-row-out]");
+    await out.filter({ hasText: /Recorded|Not done/ }).first().waitFor({ timeout: 60000 }).catch(() => {});
+    check(/Recorded with the agent key/.test((await out.textContent()) ?? ""), "recorded (agent key, no dialog)", "Recorded with the agent key.", await out.textContent());
+    const reqs = await sparql(`SELECT ?r ?about ?reason ?s WHERE { ?sc rdfs:label "w.records" . ?r nk:scope ?sc ; nk:predicate <https://example.org/qa/rerunRequested> ; nk:about ?about ; nk:signer ?s . OPTIONAL { ?r ?pr ?reason . FILTER(STRENDS(STR(?pr), "reason")) } }`, "repo-w");
+    check(reqs.length === 1 && reqs[0].about === iriOf(W.unitFailed) && reqs[0].reason === "capture mode" && reqs[0].s === AGENT, "one rerun-requested in w.records, about the row, reason the choice's, by the agent key", { about: iriOf(W.unitFailed), reason: "capture mode" }, reqs);
+    const line = await outputHas(new RegExp(`\\./send lane-a requests area=area-b title="rerun: (?:[^"\\\\]|\\\\.)*" text="rerun request claim ${sha(reqs[0]?.r ?? "x")}; test (?:[^"\\\\]|\\\\.)*" why="row acts"`));
+    check(!!line, "the nudge line is in the output channel", "./send lane-a requests … rerun …", line);
+    await shot("w-foreign-control");
+  });
+
+  await step("W", 9, "decide: the summary counts the signed records; lookedAt is proposed with what this view session opened, listed in the dialog, and signed", async () => {
+    await warm("repo-w");
+    let t = "";
+    let f;
+    for (let i = 0; i < 6 && !/1 spot checks judged/.test(t); i++) {
+      if (i) await page.waitForTimeout(3000);
+      f = await backToView();
+      t = ((await f.locator('[data-use$="sign#summary"]').textContent()) ?? "").replace(/\s+/g, " ");
+    }
+    check(/1 spot checks judged/.test(t) && /1 captures requested/.test(t), "1 spot check, 1 capture requested", "1 spot checks judged · 1 captures requested", t.slice(0, 300));
+    await f.locator('[data-use$="sign#summary"] [data-testid="act-decides"]').click();
+    await inputQuick("b");
+    const box = page.locator(".quick-input-box input").first();
+    await box.waitFor({ timeout: 10000 });
+    const proposed = await box.inputValue();
+    check(/kton-src:\/app\/src\/Main\.java\?[0-9a-f]+#L3/.test(proposed) && /run-artifact:/.test(proposed), "lookedAt is proposed with the opened evidence", "… kton-src:/app/src/Main.java?…#L3 … run-artifact:…", proposed.slice(0, 300));
+    await page.keyboard.press("Enter");
+    const d = await dialog();
+    await d.getByText("Evidence you opened in this view", { exact: false }).first().waitFor({ timeout: 15000 });
+    await signInDialog(d);
+    await d.locator('[data-testid="sign-outcome"][data-state="signed"]').waitFor({ timeout: 60000 });
+    const rows = await sparql(`SELECT ?l ?scope ?s WHERE { ?c nk:predicate <${WN}decides> ; nk:about <${iriOf(W.proposal)}> ; lab:lookedAt ?l ; nk:signer ?s ; nk:scope ?sc . ?sc rdfs:label ?scope }`, "repo-w");
+    check(rows.length === 1 && /kton-src:\/app\//.test(rows[0].l) && /run-artifact:/.test(rows[0].l) && rows[0].scope === "w.records" && rows[0].s === PERSON, "the signed decision's lookedAt names the opens, in w.records, by the person key", "kton-src:… run-artifact:… (w.records)", rows);
+    await shot("w-decides");
+    await closeEditors();
+  });
+}
+
+// ---- more flows from outside this repository (run.sh EXTRA_FLOWS): extra-flows.mjs's default export runs its steps
+// with this harness's helpers, after the flows above
+// (run.sh copies it next to this file, into $WORK/pw)
+if (existsSync(`${WORK}/pw/extra-flows.mjs`)) {
+  const extra = await import("./extra-flows.mjs");
+  await extra.default({
+    page, seed, URL, OUT, WORK, step, check, shot, selected, current: () => current, cockpit, warm, sparql, PREFIXES, iriOf,
+    PERSON, AGENT, LOOKALIKE, frameWith, frameWithSel, status, toast, runCommand, pickQuick, inputQuick, clearToasts, views, row,
+    rowCount, setWorkspace, faults, retryDetached, closeEditors, dialog, signInDialog, chooseOnPanel, openReview, box, boxText,
+    countIn, rebuild,
+  });
+}
 
 await browser.close();
 const native = { file: "smoke-results.json", results };

@@ -1,0 +1,9 @@
+{
+ "title": "Capture now: the test runs again with a screenshot at its end",
+ "kind": "decision",
+ "meaning": "created",
+ "say": {
+  "template": "w-capture"
+ },
+ "about": "subject.claim"
+}

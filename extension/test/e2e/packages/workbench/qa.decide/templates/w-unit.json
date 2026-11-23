@@ -1,0 +1,19 @@
+{
+ "name": "w-unit",
+ "target": "either",
+ "predicate": "https://example.org/qa/decide/unit",
+ "fields": {
+  "element": {
+   "type": "string"
+  },
+  "test": {
+   "type": "string"
+  },
+  "run": {
+   "type": "string"
+  },
+  "result": {
+   "type": "string"
+  }
+ }
+}
