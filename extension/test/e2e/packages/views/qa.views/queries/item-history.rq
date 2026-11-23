@@ -1,0 +1,3 @@
+# The history of the picked item ($item, the item's claim).
+PREFIX qa: <https://example.org/qa/>
+SELECT ?when ?what WHERE { $item qa:event ?e . ?e qa:when ?when ; qa:what ?what } ORDER BY ?when

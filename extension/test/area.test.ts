@@ -5,7 +5,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
-import { PackagesArea, type ActPath, type CompositionUi, type ExpectRevision } from "../src/composition/area.js";
+import { PackagesArea, openedOf, type ActPath, type CompositionUi, type ExpectRevision } from "../src/composition/area.js";
 import { CompositionHost, LeafHost, type Backend } from "../src/composition/host.js";
 import { loadPackages, READ_WIDTH, type Control, type Loaded } from "../src/packages/model.js";
 import type { Transport } from "../src/transport/port.js";
@@ -17,14 +17,14 @@ const good = (label = "1", edit?: (p: string, b: Buffer) => Buffer) => listed(jo
 
 /** A cockpit whose ui list the test sets (a fixture, or a failure), and what the area asked it. */
 function cockpit(first: Fixture) {
-  const state: { fx: Fixture | undefined; asked: string[]; queries: string[] } = { fx: first, asked: [], queries: [] };
+  const state: { fx: Fixture | undefined; asked: string[]; queries: Array<string | { name: string; package: string }> } = { fx: first, asked: [], queries: [] };
   const t = {
     uiList: async () => {
       if (!state.fx) throw new Error("the cockpit cannot be reached");
       return { ok: true, value: { packages: [state.fx.pkg] } as UiListing };
     },
     uiCat: async (pkg: string, h: string) => reader(state.fx as Fixture)(pkg, h),
-    list: async () => ({ ok: true, value: { queries: state.queries.map((name) => ({ name })) } }),
+    list: async () => ({ ok: true, value: { queries: state.queries.map((q) => (typeof q === "string" ? { name: q } : q)) } }),
     ask: async (req: { name: string }) => {
       state.asked.push(req.name);
       return { ok: true, value: { results: { head: { vars: ["n"] }, results: { bindings: [{ n: { type: "literal", value: "3" } }] } } } };
@@ -187,4 +187,80 @@ test("the member batch stops at the first refusal: no member is read after it", 
   });
   assert.equal(l.refusals[0]?.code, "package.tampered");
   assert.ok(reads <= READ_WIDTH, `${reads} reads: only those already started when the refusal came`);
+});
+
+/** The hostile-good review entry with entry scopes (ktonpkg v0.9.11: scopes.records on review-view / record-view). */
+async function openedWithScopes(path: ActPath, records: string) {
+  const fx = good("1");
+  (fx.pkg as unknown as { ui: Array<Record<string, unknown>> }).ui = fx.pkg.ui.map((e) => ({ ...e, scopes: { records } }));
+  const c = cockpit(fx);
+  const w = windowUi();
+  const area = new PackagesArea(c.t, w.ui, path);
+  await area.refresh();
+  const key = `hostile-good/${area.loaded?.entries[0]?.file}`;
+  const host = await area.openSlot(key, SUBJECT);
+  return { ...c, ...w, area, host, key };
+}
+
+test("entry scopes: a review-view's scopes.records is where its acts sign (the area's records-scope path); a non-label is refused", async () => {
+  const intos: unknown[] = [];
+  const path: ActPath = {
+    // the signed callback (the claim id for a nudge) is the host's; the rest is what these tests check
+    act: async (_c, _a, _f, _t, _e, into) => { const { signed: _s, ...rest } = into ?? {}; intos.push(rest); return "signed"; },
+    open: async () => "opened",
+    identityName: () => "qa-decider",
+  };
+  const o = await openedWithScopes(path, "qa.review");
+  assert.ok(o.host instanceof CompositionHost);
+  await o.host.onMessage(signIntent(o.host, 1));
+  assert.deepEqual(intos, [{ scope: "qa.review" }]);
+  for (const bad of ["https://kton.dev/scope/x", "../x", "sha256:abc", ""]) {
+    const b = await openedWithScopes(path, bad);
+    assert.equal(b.host, undefined, `${JSON.stringify(bad)} opens nothing`);
+    assert.match(b.log.errors.at(-1) ?? "", /scopes\.records .* is not a scope label/);
+  }
+});
+
+test("looked-at: the evidence a panel opened goes with its acts (in memory, per panel); a refused open is not listed", async () => {
+  const intos: Array<{ opened?: readonly string[] } | undefined> = [];
+  const path: ActPath = {
+    // the signed callback (the claim id for a nudge) is the host's; the rest is what these tests check
+    act: async (_c, _a, _f, _t, _e, into) => { const { signed: _s, ...rest } = into ?? {}; intos.push(rest); return "signed"; },
+    open: async (target, opened) => {
+      const s = target["source"] as { path?: string } | undefined;
+      if (s?.path === "refused.md") return "not opened: does not hash";
+      opened?.(`kton-src:/r/${s?.path}?c`);
+      return "Opened";
+    },
+    identityName: () => "qa-decider",
+  };
+  const o = await openedWithScopes(path, "qa.review");
+  const h = o.host as CompositionHost;
+  const open = (n: number, p: string) => h.onMessage({ type: "kton:intent", intent: { id: `o#${n}`, kind: "open", from: h.plan.uses[0]?.key, source: { repo: "r", commit: "c", path: p } } });
+  await open(1, "a.md");
+  await open(2, "refused.md");
+  await open(3, "b.md");
+  await open(4, "a.md");
+  assert.deepEqual(openedOf(o.area, o.key), ["kton-src:/r/a.md?c", "kton-src:/r/b.md?c"]);
+  await h.onMessage(signIntent(h, 5));
+  assert.deepEqual(intos.at(-1), { scope: "qa.review", opened: ["kton-src:/r/a.md?c", "kton-src:/r/b.md?c"] });
+  // a new view session (the panel opened again) starts with nothing looked at
+  const again = (await o.area.openSlot(o.key, SUBJECT)) as CompositionHost;
+  assert.deepEqual(openedOf(o.area, o.key), []);
+  await again.onMessage(signIntent(again, 6));
+  assert.deepEqual(intos.at(-1), { scope: "qa.review" });
+});
+
+test("a query name two packages bring, listed plainly with each package: the panel's package asks it qualified", async () => {
+  const tile = (p: string, b: Buffer) => (p === "ui/review.json" ? Buffer.from(JSON.stringify({ slot: "home-tile", label: "Items", query: "items" })) : b);
+  const c = cockpit(good("1", tile));
+  c.state.queries = [{ name: "items", package: "hostile-good" }, { name: "items", package: "qa.review2" }];
+  const area = new PackagesArea(c.t, windowUi().ui, actPath().path);
+  await area.refresh();
+  assert.deepEqual(c.state.asked, ["hostile-good/items"]);
+  // one package only: the bare name
+  c.state.queries = [{ name: "items", package: "hostile-good" }];
+  c.state.asked.length = 0;
+  await new PackagesArea(c.t, windowUi().ui, actPath().path).refresh();
+  assert.deepEqual(c.state.asked, ["items"]);
 });
