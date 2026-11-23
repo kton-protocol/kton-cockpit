@@ -62,8 +62,10 @@ func checkLoadedBytes(cfg *config.Config, b []byte, mt, name string) error {
 	}
 	// The entity check reads bytes as UTF-8: a file in another encoding (UTF-16 with its BOM) would pass it
 	// unread, so it is refused here rather than left to the engine (kton-review on #235).
-	if mt == "application/rdf+xml" && !utf8.Valid(b) {
-		return refuse("derived.refused", "SPEC §12.6", "%s is not UTF-8; a load reads RDF/XML in UTF-8 only", name)
+	// UTF-16 without a BOM, or UTF-32, of ASCII characters is valid UTF-8 with NULs between; XML never allows
+	// U+0000, so a NUL byte refuses it (kton-review's nit on #235).
+	if mt == "application/rdf+xml" && (!utf8.Valid(b) || bytes.IndexByte(b, 0) >= 0) {
+		return refuse("derived.refused", "SPEC §12.6", "%s is not UTF-8 without NUL bytes; a load reads RDF/XML in UTF-8 only", name)
 	}
 	// A DTD's nested entities expand without bound while the engine parses (kton-review on ADR-017).
 	if mt == "application/rdf+xml" && bytes.Contains(bytes.ToUpper(b), []byte("<!ENTITY")) {

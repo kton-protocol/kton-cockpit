@@ -454,6 +454,21 @@ func TestQueryRun_ALoadedFileALoadWouldRefuseIsRefused(t *testing.T) {
 	if codeOf(err) != "derived.refused" || !strings.Contains(err.Error(), "UTF-8") {
 		t.Errorf("a UTF-16 entity file: want derived.refused by the check (not UTF-8), got %v", err)
 	}
+	// Without its BOM, ASCII in UTF-16 is valid UTF-8 with NULs between: refused by the check too.
+	nobom := u16[2:]
+	r.Write(t, "rdf/bomb16n.rdf", string(nobom))
+	hn := core.HashBytes(nobom)
+	if err := forgetLoad(r.Config(t), h16); err != nil {
+		t.Fatal(err)
+	}
+	if err := rememberLoad(r.Config(t), loadEntry{Hash: hn, From: "rdf/bomb16n.rdf", MediaType: "application/rdf+xml"}); err != nil {
+		t.Fatal(err)
+	}
+	_, err = New(Start{}).Ask(ctx, AskRequest{Query: "sparql", Reproducible: true,
+		Sparql: `SELECT ?o WHERE { GRAPH ?g { ?s ?p ?o } }`})
+	if codeOf(err) != "derived.refused" || !strings.Contains(err.Error(), "NUL") {
+		t.Errorf("a UTF-16 entity file without a BOM: want derived.refused by the check, got %v", err)
+	}
 }
 
 // A file with relative IRIs gives the same triples in a query run as in a query of the index: both read
