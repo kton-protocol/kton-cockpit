@@ -6,11 +6,13 @@
   const root = document.getElementById("root");
   let S = null, published = {}, sameResult = {}, notes = {}, cockpitRepo = false, open = {}, plan = null, busy = null, result = null, improve = false, wfRepros = [];
   // the story editor (MH 20./21.11.): one step at a time; edited = recorded steps the person corrected
-  let editing = null, edited = {}, proposals = null;
+  let editing = null, edited = {}, proposals = null, openNotes = {};
 
   const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
-  const clock = (ns) => new Date(ns / 1e6).toLocaleTimeString(undefined, {hour: "2-digit", minute: "2-digit"});
-  const day = (ns) => new Date(ns / 1e6).toLocaleDateString(undefined, {weekday: "short", day: "2-digit", month: "2-digit"});
+  // one form for times and dates, 24 h (userinterface F7): "16:00", "Mon 23.11."
+  const two = (x) => String(x).padStart(2, "0");
+  const clock = (ns) => { const d = new Date(ns / 1e6); return `${two(d.getHours())}:${two(d.getMinutes())}`; };
+  const day = (ns) => { const d = new Date(ns / 1e6); return `${["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][d.getDay()]} ${two(d.getDate())}.${two(d.getMonth() + 1)}.`; };
   const skey = (s) => s.session + "/" + s.task;
   const base = (p) => p.split("/").pop();
   const short = (p) => (p.startsWith("/") ? base(p) : p);
@@ -161,13 +163,13 @@
       c.failed ? `<span class="muted" title="failed commands, without effect">${c.failed}× failed</span>` : ""].filter(Boolean).join(" ");
     const details = open[c.key] ? `<div class="details">
         ${c.warn.map((w) => `<div class="warn">⚠ ${esc(w)}</div>`).join("")}
-        ${c.steps.map((s) => `<div class="cmd ${s.on_path ? "" : "off"}"><span class="when">${s.published ? "kton" : clock(s.when_ns)}</span> <code>${esc((s.code || s.sentence).split("\n")[0])}</code>${(s.writes || []).length ? ` → ${files(s.writes, 3)}` : ""}${s.error ? ' <span class="warn">fails</span>' : ""}${editable(s) && !c.declared ? ` <button class="link edit" data-s="${esc(s.session)}" data-t="${esc(s.task)}">${edited[skey(s)] ? "corrected · edit" : "edit"}</button>` : ""}</div>`).join("")}
+        ${c.steps.map((s) => `<div class="cmd ${s.on_path ? "" : "off"}"><span class="when">${s.published ? "kton" : clock(s.when_ns)}</span> <code>${esc((s.code || s.sentence).split("\n")[0])}</code>${(s.writes || []).length ? ` → ${files(s.writes, 3)}` : ""}${s.error ? ' <span class="warn">fails</span>' : ""}${editable(s) && !c.declared ? ` <button class="link edit" data-s="${esc(s.session)}" data-t="${esc(s.task)}">edit</button>${edited[skey(s)] ? ' <span class="pill muted-pill" title="you corrected this step in the editor">corrected</span>' : ""}` : ""}</div>`).join("")}
       </div>` : "";
     // a recorded line with one step that made something: Edit beside it; a line of several steps: per command (details)
     const writers = c.path.filter(editable);
     const editBtn = c.hand || c.inKton ? "" : c.declared
       ? `<button class="link edit" data-s="${esc(c.steps[0].session)}" data-t="${esc(c.steps[0].task)}">edit</button> <button class="link undeclare" data-id="${esc(c.steps[0].task)}">remove</button>`
-      : writers.length === 1 ? `<button class="link edit" data-s="${esc(writers[0].session)}" data-t="${esc(writers[0].task)}">${edited[skey(writers[0])] ? "corrected · edit" : "edit"}</button>` : "";
+      : writers.length === 1 ? `<button class="link edit" data-s="${esc(writers[0].session)}" data-t="${esc(writers[0].task)}">edit</button>${edited[skey(writers[0])] ? ' <span class="pill muted-pill" title="you corrected this step in the editor">corrected</span>' : ""}` : "";
     const editor = editing && c.steps.some((s) => skey(s) === editing.key) ? editorBlock() : "";
     // deviating outputs, each with a diff when both versions exist
     const devs = (c.devs || []).length ? `<div class="devs">${c.devs.map((o, i) => `<div class="dev"><span class="warn">≠</span> <span class="f">${esc(relp(o.path))}</span>
@@ -176,7 +178,7 @@
       <div class="t" ${c.steps[0].published ? 'title="published in kton, recorded elsewhere (another folder or person): its foton says what ran"' : ""}>${c.hand || c.declared ? "✎" : c.steps[0].published ? "kton" : clock(c.when)}</div>
       <div class="body">
         <div class="head">${c.where.startsWith("$ ") ? `<code class="cmdline">${esc(c.where)}</code>` : `<b>${esc(c.hand ? "by hand" : c.declared ? c.where : c.where.replace(/^script /, ""))}</b>`} ${what} ${flags}
-          ${c.hand || c.declared ? "" : `<button class="link tog">${open[c.key] ? "less" : `${c.steps.length} commands`}</button>`} ${editBtn}</div>
+          ${c.hand || c.declared ? "" : `<button class="link tog">${open[c.key] ? "less" : `${c.steps.length} command${c.steps.length === 1 ? "" : "s"}`}</button>`} ${editBtn}</div>
         ${c.declared ? `<div class="muted"><code>${esc(c.steps[0].code || c.steps[0].sentence)}</code></div>` : ""}
         ${valuesRow(c)}
         ${(c.path || []).flatMap((s) => s.derived_from || []).map((o) => `<div class="derived" title="pharmpy calls recorded in the console; Publish signs this step as a child step (pmx/parent-step) of the step that made ${esc(o.from)}"><span class="muted">child step of</span> <span class="f">${esc(short(o.from))}</span> <span class="muted">→ ${esc(short(o.output))}${(o.via || []).length ? " · " + esc(o.via.join(", ")) : ""}</span></div>`).join("")}
@@ -184,15 +186,15 @@
         ${devs}
         ${planLine(c)}
         ${details}
-        <div class="notes ${c.inKton && !note.description && !note.rationale ? "quiet" : ""}">
+        ${note.description || note.rationale || openNotes[c.noteKey] ? `<div class="notes ${c.inKton && !note.description && !note.rationale ? "quiet" : ""}">
           <span class="nl">Description</span>${field("description", c.hand ? "What did you change?" : "What was done here?")}
           <span class="nl">Rationale</span>${field("rationale", c.hand ? "Why was the change needed?" : "Why this way?")}
-        </div>
+        </div>` : `<button class="ghost small addnote" data-k="${esc(c.noteKey)}">Add description and rationale</button>`}
       </div></li>`;
   }
 
   // a reproduction is an event of the story: its own line, at its date, after the steps
-  const stamp = (iso) => new Date(iso).toLocaleString(undefined, {day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"});
+  const stamp = (iso) => { const d = new Date(iso); return `${two(d.getDate())}.${two(d.getMonth() + 1)}. ${two(d.getHours())}:${two(d.getMinutes())}`; };
   function reproLine(r) {
     const bad = (r.steps || []).filter((s) => (s.outputs || []).some((o) => !o.same)).length;
     const what = r.same ? `the same bytes${bad ? `, though ${bad} step${bad > 1 ? "s" : ""} on the way deviated` : ""}`
@@ -280,7 +282,7 @@
     const rows = ch.map((ps) => `<div class="ctx"><span class="muted">in</span> ${ps[0].levels.map((l) =>
       `<span class="lvl" title="scope ${esc(l.scope)}, seed found in ${esc(l.source)}">${esc(l.name)}</span>`).join(' <span class="muted">›</span> ')}
       <span class="muted">· from ${ps.map((p) => `<span title="published by ${esc(p.published_by)} as ${esc(p.foton)}">${esc(short(p.path))}</span>`).join(", ")}</span></div>`);
-    if (others.length) rows.push(`<div class="ctx muted" title="${esc(others.map((p) => short(p.path) + ": " + (p.note || "")).join("\n"))}">${ch.length ? "other sources" : "sources"}: ${others.length} not placed in a context</div>`);
+    if (others.length) rows.push(`<details class="ctx"><summary class="muted">${others.length} source${others.length > 1 ? "s" : ""} not placed in a context</summary>${others.map((p) => `<div class="muted"><span class="f">${esc(short(p.path))}</span> ${esc(p.note || "")}</div>`).join("")}</details>`);
     return rows.join("");
   }
 
@@ -294,8 +296,8 @@
     const one = (v) => {
       if (v.skip) return `<span class="val skipped" title="not hashed: ${esc(v.skip)} (kton.recorder R value filter)"><code>${esc(v.name)}</code> <span class="muted">${esc(v.skip)}</span></span>`;
       const st = v.state === "same" ? "unchanged" : v.state || "";
-      const act = v.saved ? `<span class="ok" title="${esc(v.saved)}">saved</span>`
-        : v.state === "same" ? "" : `<button class="link savev" data-n="${esc(v.name)}" data-h="${esc(v.hash)}" title="saveRDS in the R console, as objects/${esc(v.name)}-${esc((v.hash || "").slice(4, 12))}.rds; recorded as a step">save</button>`;
+      const act = v.saved ? `<span class="pill ok-pill" title="${esc(v.saved)}">saved</span>`
+        : v.state === "same" ? "" : `<button class="ghost small savev" data-n="${esc(v.name)}" data-h="${esc(v.hash)}" title="saveRDS in the R console, as objects/${esc(v.name)}-${esc((v.hash || "").slice(4, 12))}.rds; recorded as a step">Save</button>`;
       return `<span class="val ${esc(v.state || "")}" title="${esc(v.desc)} · ${esc(v.hash || "")}"><code>${esc(v.name)}</code> <span class="muted">${esc(st)}</span> ${act}</span>`;
     };
     return `<div class="values"><span class="muted">values</span> ${vs.map(one).join(" ")}</div>`;
@@ -318,9 +320,9 @@
         <button class="secondary small" data-pick="${field}">Add files…</button></div>`;
     };
     const head = e.kind === "new" ? (e.declared ? "A reconstructed step" : "A step by hand") : e.kind === "declared" ? "Your declared step" : "Correct this step";
-    const sub = e.kind === "recorded" ? "What the recorder saw, as you correct it. The recording stays as it was."
-      : e.declared ? `Proposed by ${e.declared.slice(10)}: check it. Kept, it is published as declared (${e.declared}), with these files as they are now.`
-      : "Not recorded: published as declared by hand, with these files as they are now.";
+    const sub = e.kind === "recorded" ? "As recorded, with your corrections; the recording itself stays."
+      : e.declared ? "Check it; kept, it is published as declared, with the files as they are now."
+      : "Not recorded: published as declared by hand, with the files as they are now.";
     const nOut = e.outputs.filter((f) => f.use).length;
     return `<section class="editor" aria-label="${esc(head)}">
       <h3>${esc(head)}</h3><div class="muted">${esc(sub)}</div>
@@ -328,11 +330,14 @@
       ${list("outputs", "The files the step wrote.")}
       <div class="ed-group"><h4>What was done</h4><textarea id="ed-cmd" rows="2" placeholder="the command, or in words what you did">${esc(e.cmd)}</textarea></div>
       <div class="ed-actions">
-        <button id="ed-save" ${nOut && e.cmd.trim() ? "" : "disabled"} title="${nOut ? "" : "a step needs at least one output"}">Save</button>
+        <button id="ed-save" ${nOut && e.cmd.trim() && changedEdit(e) ? "" : "disabled"} title="${!nOut ? "a step needs at least one output" : changedEdit(e) ? "" : "nothing changed yet"}">Save</button>
         ${e.kind === "recorded" && e.wasEdited ? `<button class="secondary" id="ed-reset" title="forget the correction: the step as recorded">Back to the recording</button>` : ""}
         <button class="ghost" id="ed-cancel">Cancel</button>
       </div></section>`;
   }
+  // what the editor opened with, to tell whether anything changed (Save stays disabled until it did)
+  const editSig = (e) => JSON.stringify([e.inputs, e.outputs, e.cmd]);
+  const changedEdit = (e) => e.kind === "new" || editSig(e) !== e.orig;
   function startEdit(session, task) {
     editing = {key: session + "/" + task, session, task, kind: session === "declared" ? "declared" : "recorded", loading: true, wasEdited: !!edited[session + "/" + task]};
     render();
@@ -341,7 +346,7 @@
   function startNew(from) {
     const t = targetRel();
     editing = from
-      ? {key: "new", kind: "new", declared: "heuristic:" + from.name, inputs: from.p.inputs.map((x) => ({path: x, use: true})), outputs: from.p.outputs.map((x) => ({path: x, use: true})), cmd: from.p.cmd}
+      ? {key: "new", kind: "new", prop: from.i, declared: "heuristic:" + from.name, inputs: from.p.inputs.map((x) => ({path: x, use: true})), outputs: from.p.outputs.map((x) => ({path: x, use: true})), cmd: from.p.cmd}
       : {key: "new", kind: "new", inputs: [], outputs: [{path: t, use: true}], cmd: ""};
     render();
   }
@@ -349,10 +354,10 @@
   function proposalsBlock() {
     if (!proposals) return "";
     const ok = proposals.list.filter((p) => !p.refused), bad = proposals.list.filter((p) => p.refused);
-    const rows = ok.map((p, i) => `<li class="prop">${files(p.inputs)} <span class="arrow">→</span> ${files(p.outputs)} <code>${esc(p.cmd)}</code>${p.note ? ` <span class="muted">· ${esc(p.note)}</span>` : ""}
-      <button class="secondary small" data-prop="${proposals.list.indexOf(p)}" ${editing ? "disabled" : ""}>Check and keep…</button></li>`).join("");
-    return `<section class="proposals"><h3>Proposed by ${esc(proposals.name)}</h3>
-      <div class="muted">Not recorded: each is reconstructed from the files. Check one in the editor; kept, it is published as declared (heuristic:${esc(proposals.name)}).</div>
+    const rows = ok.map((p, i) => editing && editing.prop === proposals.list.indexOf(p) ? `<li class="prop">${editorBlock()}</li>` : `<li class="prop">${files(p.inputs)} <span class="arrow">→</span> ${files(p.outputs)} <code>${esc(p.cmd)}</code>${p.note ? ` <span class="muted">· ${esc(p.note)}</span>` : ""}
+      <button class="secondary small" data-prop="${proposals.list.indexOf(p)}" ${editing ? `disabled title="${waitEdit}"` : ""}>Check and keep…</button></li>`).join("");
+    return `<section class="proposals"><h3>Proposed by <span class="f" title="published as declared: heuristic:${esc(proposals.name)}">${esc(proposals.name)}</span></h3>
+      <div class="muted">Reconstructed from the files, not recorded. Check one; kept, it is published as declared.</div>
       ${proposals.error ? `<div class="warn">${esc(proposals.error)}</div>` : ""}
       ${ok.length ? `<ol class="props">${rows}</ol>` : proposals.error ? "" : `<div class="empty">${esc(proposals.name)} found nothing to propose in this workspace.</div>`}
       ${bad.length ? `<details><summary>${bad.length} not offered</summary>${bad.map((p) => `<div class="muted">${esc(p.cmd || "?")}: ${esc(p.refused)}</div>`).join("")}</details>` : ""}
@@ -363,7 +368,7 @@
     for (const b of root.querySelectorAll(".ed-file input")) b.onchange = () => { editing[b.dataset.field][+b.dataset.i].use = b.checked; render(); };
     for (const b of root.querySelectorAll("button[data-pick]")) b.onclick = () => vscode.postMessage({type: "pick", field: b.dataset.pick});
     const cmd = document.getElementById("ed-cmd");
-    if (cmd) cmd.oninput = () => { editing.cmd = cmd.value; const sv = document.getElementById("ed-save"); if (sv) sv.disabled = !(editing.outputs.some((f) => f.use) && cmd.value.trim()); };
+    if (cmd) cmd.oninput = () => { editing.cmd = cmd.value; const sv = document.getElementById("ed-save"); if (sv) sv.disabled = !(editing.outputs.some((f) => f.use) && cmd.value.trim() && changedEdit(editing)); };
     const cancel = document.getElementById("ed-cancel");
     if (cancel) cancel.onclick = () => { editing = null; render(); };
     const reset = document.getElementById("ed-reset");
@@ -378,6 +383,8 @@
     };
   }
 
+  const waitEdit = "a step is open in the editor: save or cancel it first";
+
   function render() {
     const cs = chapters();
     const days = new Set(cs.map((c) => day(c.when)));
@@ -389,19 +396,19 @@
         ${contextLine()}
         <div class="actions">
           ${busy ? `<span class="busy"><span class="spin"></span> ${esc(busy.text)} <span id="elapsed" class="muted"></span></span>` : result ? `<span class="${result.ok ? "ok" : "warn"}">${result.ok ? "✓" : "⚠"} ${esc(result.text)}</span>` : ""}
-          <button id="repro" ${busy ? "disabled" : ""} title="source files and scripts into an empty folder, run there, compare the hash">Reproduce</button>
-          ${improve ? `<button id="reproimp" ${busy || !cockpitRepo ? "disabled" : ""} title="every step of this file's lineage (or everything published) again in improve, in a new tree you name; the original tree stays untouched">Reproduce in improve…</button>`
-            : cockpitRepo ? `<button id="reproimp" ${busy ? "disabled" : ""} title="every step of this file's lineage again, locally in an empty folder (NONMEM in its container), compared step by step">Reproduce the workflow…</button>` : ""}
+          <button class="secondary" id="repro" ${busy || editing ? "disabled" : ""} title="${editing ? waitEdit : "source files and scripts into an empty folder, run there, compare the hash"}">Reproduce</button>
+          ${improve ? `<button class="secondary" id="reproimp" ${busy || editing || !cockpitRepo ? "disabled" : ""} title="every step of this file's lineage (or everything published) again in improve, in a new tree you name; the original tree stays untouched">Reproduce in improve…</button>`
+            : cockpitRepo ? `<button class="secondary" id="reproimp" ${busy || editing ? "disabled" : ""} title="every step of this file's lineage again, locally in an empty folder (NONMEM in its container), compared step by step">Reproduce the workflow…</button>` : ""}
           ${planSummary(todo)}
-          <button id="publish" ${busy || !cockpitRepo || !todo.length ? "disabled" : ""} title="${cockpitRepo ? "cockpit publish for every line without ✓, in the terminal, with description and rationale as comments" : "no cockpit repo (cockpit init)"}">Publish to kton${todo.length ? ` (${todo.length})` : ""}</button>
+          <button id="publish" ${busy || editing || !cockpitRepo || !todo.length ? "disabled" : ""} title="${editing ? waitEdit : cockpitRepo ? "cockpit publish for every line without ✓, in the terminal, with description and rationale as comments" : "no cockpit repo (cockpit init)"}">Publish to kton${todo.length ? ` (${todo.length})` : ""}</button>
           <button class="secondary" id="inkton" ${cockpitRepo ? "" : "disabled"} title="${cockpitRepo ? "kton-web beside the story: what was recorded and what is signed, in one graph, centred on this file (kton-web verifies the records)" : "no cockpit repo (cockpit init)"}">In kton</button>
           ${/\.html?$/i.test(targetRel()) ? `<button class="secondary" id="rendered" title="the page as it renders (Live Preview, beside the story; it only reads the file)">Show rendered</button>` : ""}
           <button class="secondary" id="save">Markdown</button>
           <button class="ghost" id="ed-new" ${cockpitRepo && !editing ? "" : "disabled"} title="a step nobody recorded: you name what it used and made; it is published as declared by hand">Add a step by hand…</button>
-          <button class="ghost" id="heur" ${cockpitRepo && !busy ? "" : "disabled"} title="a script you register reads the workspace and proposes steps nobody recorded; you check each before keeping it">Reconstruct with…</button>
+          <button class="ghost" id="heur" ${cockpitRepo && !busy && !editing ? "" : "disabled"} title="a script you register reads the workspace and proposes steps nobody recorded; you check each before keeping it">Reconstruct with…</button>
         </div>
       </header>
-      ${editing && editing.kind === "new" ? editorBlock() : ""}
+      ${editing && editing.kind === "new" && editing.prop === undefined ? editorBlock() : ""}
       ${proposalsBlock()}
       <ol class="story">${cs.map(line).join("")}${(S.reproductions || []).slice(0, 1).map(reproLine).join("")}</ol>
       ${wfRepros.slice(0, 1).map(workflowRepro).join("")}
@@ -412,13 +419,14 @@
       if (o) vscode.postMessage({type: "diff", path: o.path, recorded: o.recorded, reproduced: o.reproduced, dir: o.dir});
     };
     for (const b of root.querySelectorAll("button.edit")) b.onclick = () => startEdit(b.dataset.s, b.dataset.t);
+    for (const b of root.querySelectorAll("button.addnote")) b.onclick = () => { openNotes[b.dataset.k] = true; render(); const n = root.querySelector(`.note[data-k="${CSS.escape(b.dataset.k)}"]`); if (n) n.focus(); };
     for (const b of root.querySelectorAll("button.savev")) b.onclick = () => { b.disabled = true; vscode.postMessage({type: "saveValue", name: b.dataset.n, hash: b.dataset.h}); };
     for (const b of root.querySelectorAll("button.undeclare")) b.onclick = () => vscode.postMessage({type: "undeclare", id: b.dataset.id});
     const nb = document.getElementById("ed-new");
     if (nb) nb.onclick = () => startNew();
     const hb = document.getElementById("heur");
     if (hb) hb.onclick = () => vscode.postMessage({type: "heuristics"});
-    for (const b of root.querySelectorAll("button[data-prop]")) b.onclick = () => startNew({name: proposals.name, p: proposals.list[+b.dataset.prop]});
+    for (const b of root.querySelectorAll("button[data-prop]")) b.onclick = () => startNew({name: proposals.name, i: +b.dataset.prop, p: proposals.list[+b.dataset.prop]});
     const pc = document.getElementById("props-close");
     if (pc) pc.onclick = () => { proposals = null; render(); };
     wireEditor();
@@ -485,6 +493,7 @@
       if (d.error) editing = {...editing, loading: false, error: d.error};
       else editing = {...editing, loading: false, inputs: (d.inputs || []).map((f) => ({path: f.path, use: !!f.use, note: f.note || ""})),
         outputs: (d.outputs || []).map((f) => ({path: f.path, use: !!f.use, note: f.note || ""})), cmd: d.cmd || ""};
+      editing.orig = editSig(editing);
       render();
     }
     if (m.type === "proposals") { busy = null; proposals = {name: m.name, list: m.proposals || [], error: m.error || ""}; render(); }
