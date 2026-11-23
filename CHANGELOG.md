@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Migrating
+
+- **Every view is built again once** after the update: the projection's version is 11.
+
+### Changed
+
+- **kton v0.4.3** (plankton, nekton, kton): a declared step carries `nk:declared` (`"hand"`,
+  `"heuristic:<name>"`) in a query; an observed one carries none (kton#292).
+
 ## v0.5.10 — 2026-11-23
 
 A faster view after a say, the index in the persona windows, and reproducible queries; each reviewed by
