@@ -37,6 +37,12 @@ func TestSay_KeepsTheSignedFiles(t *testing.T) {
 		out, _ := exec.Command("git", "-C", r.Root, "ls-tree", "-r", "--name-only", "HEAD", "--", ".kton/blobs/"+x[:2]+"/"+x).Output()
 		return strings.TrimSpace(string(out)) != ""
 	}
+	track := func(rel string) {
+		t.Helper()
+		if out, err := exec.Command("git", "-C", r.Root, "add", "--", rel).CombinedOutput(); err != nil {
+			t.Fatalf("git add %s: %v %s", rel, err, out)
+		}
+	}
 	say := func(subject string, fields map[string]string, tmpl string) *SayResult {
 		t.Helper()
 		res, err := c.Say(ctx, SayRequest{Subject: subject, Template: tmpl, Fields: fields})
@@ -47,6 +53,7 @@ func TestSay_KeepsTheSignedFiles(t *testing.T) {
 	}
 
 	r.Write(t, "data/tracked.csv", "a,b\n1,2\n")
+	track("data/tracked.csv")
 	h := core.HashBytes([]byte("a,b\n1,2\n"))
 	res := say("data/tracked.csv", map[string]string{"value": "v"}, "describes")
 	if len(res.Kept) != 1 || res.Kept[0].Where != "shared" || res.Kept[0].Hash != h || res.Kept[0].Size != 8 {
@@ -69,6 +76,7 @@ func TestSay_KeepsTheSignedFiles(t *testing.T) {
 	}
 
 	r.Write(t, "data/report.txt", "evidence bytes")
+	track("data/report.txt")
 	he := core.HashBytes([]byte("evidence bytes"))
 	res = say("urn:example:x", map[string]string{"report": "data/report.txt"}, "evidence")
 	if len(res.Kept) != 1 || res.Kept[0].Path != "data/report.txt" || res.Kept[0].Where != "shared" || !shared.Has(he) {
@@ -77,6 +85,7 @@ func TestSay_KeepsTheSignedFiles(t *testing.T) {
 
 	// The word form passes the file to the core, which keeps it.
 	r.Write(t, "data/word.csv", "word form")
+	track("data/word.csv")
 	hw := core.HashBytes([]byte("word form"))
 	if out, code := r.Cockpit(t, "say", "describes", "data/word.csv", "value=v"); code != 0 {
 		t.Fatalf("say in the word form: %d %s", code, out)
@@ -87,10 +96,33 @@ func TestSay_KeepsTheSignedFiles(t *testing.T) {
 
 	// A batch keeps each claim's file.
 	r.Write(t, "data/batch.csv", "batch")
+	track("data/batch.csv")
 	hb := core.HashBytes([]byte("batch"))
 	batch, err := c.SayBatch(ctx, SayBatchRequest{Claims: []SayRequest{{Subject: "data/batch.csv", Template: "describes", Fields: map[string]string{"value": "v"}}}})
 	if err != nil || len(batch.Claims[0].Kept) != 1 || batch.Claims[0].Kept[0].Where != "shared" || !shared.Has(hb) {
 		t.Errorf("a batch keeps its claims' files: %+v %v", batch, err)
+	}
+
+	// An untracked file that no .gitignore names (an .env) is not shared: it stays in this checkout
+	// (kton-review K1 on #248, P1).
+	r.Write(t, ".env", "TOKEN=secret")
+	hv := core.HashBytes([]byte("TOKEN=secret"))
+	res = say(".env", map[string]string{"value": "v"}, "describes")
+	if len(res.Kept) != 1 || res.Kept[0].Where != "local" || shared.Has(hv) || committed(hv) {
+		t.Errorf("an untracked file: kept local only: %+v (shared %v)", res.Kept, shared.Has(hv))
+	}
+	// A private key, tracked and named like any file, is kept nowhere (P2): an OpenSSH key, a bare seed.
+	for name, body := range map[string]string{
+		"keys/id_ed25519": "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAA\n-----END OPENSSH PRIVATE KEY-----\n",
+		"keys/seed.txt":   strings.Repeat("ab", 32) + "\n",
+	} {
+		r.Write(t, name, body)
+		track(name)
+		hk := core.HashBytes([]byte(body))
+		res = say(name, map[string]string{"value": "v"}, "describes")
+		if len(res.Kept) != 1 || res.Kept[0].Where != "no" || !strings.Contains(res.Kept[0].Why, "private key") || shared.Has(hk) || local.Has(hk) {
+			t.Errorf("%s: a private key is kept nowhere: %+v", name, res.Kept)
+		}
 	}
 
 	// Over the limit, and with keep off: not kept, and said.

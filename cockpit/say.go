@@ -296,7 +296,7 @@ func (c *Cockpit) Say(ctx context.Context, in SayRequest) (*SayResult, error) {
 	if set, err := r.Templates(); err == nil {
 		keepPaths = append(keepPaths, fileFieldPaths(set, in.Template, sets)...)
 	}
-	kept, keptShared := keepSigned(ctx, cfg, keepPaths, keepWant)
+	kept, keptShared := keepSigned(ctx, cfg, keepPaths, keepWant, signedHashes(cfg, claimID))
 	if keptShared {
 		registryPaths = append(registryPaths, config.Rel("blobs"))
 	}

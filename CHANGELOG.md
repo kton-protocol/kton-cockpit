@@ -6,7 +6,8 @@
 
 - **A say keeps the files it signs about** (B11, MH 23.11.): the subject's bytes and its file fields' go
   into `.kton/blobs`, committed and pushed with the claim, so the signed version opens after the working
-  copy changed; a file git ignores goes into `.kton/local/blobs`, this checkout only; one over
+  copy changed, when git tracks the file; any other file (untracked or ignored) goes into
+  `.kton/local/blobs`, this checkout only; a private key is kept nowhere; one over
   `claims.keepMaxBytes` (64 MiB) is not kept. `claims.keep: off` turns it off for a repository whose
   tracked files must not be duplicated. The answer names each file's hash, size and where it was kept.
 

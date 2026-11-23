@@ -211,7 +211,7 @@ func (c *Cockpit) SayBatch(ctx context.Context, in SayBatchRequest) (*SayBatchRe
 				want[p.resolvedFrom] = p.in.Subject
 			}
 			paths = append(paths, fileFieldPaths(set, p.in.Template, p.sets)...)
-			kept, shared := keepSigned(ctx, cfg, paths, want)
+			kept, shared := keepSigned(ctx, cfg, paths, want, signedHashes(cfg, out.Claims[i].ClaimID))
 			out.Claims[i].Kept = kept
 			anyShared = anyShared || shared
 		}

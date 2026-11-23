@@ -561,12 +561,13 @@ repository: it signs nothing.
 > `TestSay_AShortIDIsRefusedNamingTheWholeOne`.
 
 A say SHOULD keep the bytes of the files it signs about (its subject when that resolved from a file, and
-its `file` fields), so the signed version opens after the working copy changed: a file git does not ignore
-in the content store (`.kton/blobs`), committed and pushed with the claim; one git ignores in
-`.kton/local/blobs`, this checkout's only, never shared; one larger than `claims.keepMaxBytes` (64 MiB
-when not set), a link, or anything when `claims.keep` is `off`, not at all. It MUST NOT put the bytes of a
-file git ignores into the shared store, and MUST NOT keep a subject whose bytes no longer have the hash it
-was signed as. The answer MUST say, per file, its hash, its size and where it was kept (`kept`: shared,
+its `file` fields), so the signed version opens after the working copy changed: a file git tracks in the
+content store (`.kton/blobs`), committed and pushed with the claim, as it was signed, uncommitted changes
+included; any other (untracked, ignored, or git cannot tell) in `.kton/local/blobs`, this checkout's
+only, never shared; one larger than `claims.keepMaxBytes` (64 MiB when not set), a link, or anything when
+`claims.keep` is `off`, not at all. It MUST NOT put the bytes of a file git does not track into the shared
+store, MUST NOT keep a private key in either store (by its content: a PEM or OpenSSH private key, a bare
+hex seed, besides any `*.key`), and MUST NOT keep bytes whose hash the stored claim does not carry. The answer MUST say, per file, its hash, its size and where it was kept (`kept`: shared,
 local or no, with why).
 
 > **Checked by:** `TestSay_KeepsTheSignedFiles`.
