@@ -147,6 +147,9 @@ type AuthorInput struct {
 	// go into it by the same rules. Empty Kind is a script.
 	Kind       string
 	Descriptor map[string]any
+	// Declared, for a script, says it was declared afterwards rather than recorded as it ran (hand, or
+	// heuristic:<name>): in the descriptor, so signed and part of the record's identity.
+	Declared string
 	// Dir, when set, is the absolute directory Inputs and Outputs are read under instead of the
 	// repository: a tool call's staging directory.
 	Dir string
@@ -218,6 +221,9 @@ func (r *Runner) spec(in AuthorInput) (ffoton.Spec, []ffoton.FileSpec, []ffoton.
 	}
 	if in.Environment != "" {
 		desc["environment"] = in.Environment
+	}
+	if in.Declared != "" {
+		desc["declared"] = in.Declared
 	}
 	if in.EnvRef != "" && !envCarried(in) {
 		desc["envRef"] = in.EnvRef
@@ -507,8 +513,21 @@ func (r *Runner) Reproductions(ctx context.Context, outputHash, tier string) (*R
 		ProducerFotons: got.ProducerFotons, ExcludedUntrusted: got.ExcludedUntrusted,
 		Trust: "verified",
 	}
+	// A step declared afterwards (hand, heuristic:<name>) ran nowhere: it is no reproduction, so the
+	// count is taken again without it.
+	signers := map[string]bool{}
 	for _, p := range got.Producers {
+		if f, ok := reg.Foton(p.FotonID); ok && f.Protocol.Descriptor["declared"] != nil {
+			res.ExcludedDeclared++
+			continue
+		}
 		res.Producers = append(res.Producers, ReproductionProducer{ID: p.FotonID, KeyID: p.KeyID, Verified: p.Verified})
+		if p.Verified {
+			signers[p.KeyID] = true
+		}
+	}
+	if res.ExcludedDeclared > 0 {
+		res.DistinctSigners, res.ProducerFotons = len(signers), len(res.Producers)
 	}
 	return res, nil
 }

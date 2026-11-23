@@ -1,5 +1,57 @@
 # Changelog
 
+## v0.5.10 — 2026-11-23
+
+A faster view after a say, the index in the persona windows, and reproducible queries; each reviewed by
+kton-review.
+
+### Migrating from v0.5.9
+
+- **Every view is built again once** after the update (the projection's version changed): the first query of
+  each repository takes the build time; after that, a say rebuilds only what it changed.
+
+### Added
+
+- **Reproducible queries** ([ADR-020](docs/decisions/adr-020-reproducible-queries.md), part 1, #225):
+  `ask sparql --reproducible` (MCP and serve: `reproducible`) pins what the query reads (each scope at its
+  tips, every registry's record and claim ids, the trust keys, the vocabulary, the admitted packages, the
+  projection's version, the engine), evaluates it over exactly that in a container of its own, and records the
+  run as a `query/sparql` step with the query and the manifest in and the canonical result out, all in the
+  content store. Refused: values of the moment (`NOW`, `RAND`, …), answers that depend on evaluation order
+  (`SAMPLE`, `GROUP_CONCAT`, a `LIMIT` without a total order), blank nodes, results over the limit.
+  `cockpit reproduce` follows in part 2.
+
+### Fixed
+
+- **A say no longer rebuilds the whole view** (#226): the view is replaced graph by graph, only the graphs
+  whose content changed are uploaded, and the step records are copied only when they changed. One claim in a
+  scope of a 11,500-claim view: the next query 36 s -> 9.6 s.
+- **The index in the persona windows** (#223): a query container reads its dataset from under the checkout's
+  `.kton/local/tmp` (a path the host behind a passed-in engine socket has), a started daemon has 3 minutes to
+  answer, and `doctor` warns when the index uses 85% of its memory.
+
+## v0.5.9 — 2026-11-21
+
+A patch release: large federated views fit into the index again, and steps declared afterwards say so; each
+reviewed by kton-review.
+
+### Fixed
+
+- **The view of a large federated union goes into the index in chunks** (#221): it was written as one SPARQL
+  update, past Oxigraph's 128 MiB body limit, and every query of such a repository failed ("SPARQL body
+  payloads are limited…"). The data now goes up through the graph store into staging graphs, and one small
+  update puts them in place, so a reader still sees the old view or the new one whole. A build sweeps what a
+  killed build left staged; a blank node in the view is refused rather than split.
+- **When the index cannot be started and the query container fails too**, the refusal says why the index
+  was not used.
+
+### Added
+
+- **Declared steps** (#220, MH 21.11.): `publish --declared hand|heuristic:<name>` for a step written or
+  inferred afterwards rather than recorded as it ran. It is signed into the record (and is another record
+  than the same step observed), never run, records no image it did not run in, and is no reproduction.
+  Absent, its signer did not declare it. kton projects it as `nk:declared` from its next release.
+
 ## v0.5.8 — 2026-11-20
 
 Claims in a graph per scope (ADR-018), serve events, and federation that cannot look whole while missing a

@@ -366,7 +366,18 @@ Repo-relative input paths, repo-relative output paths, the command, and optional
 reference and a corpus. **Nothing else.** The caller MUST NOT supply a signing key, a commit, a
 permalink, or a foton id; the cockpit owns all of them.
 
-> **Checked by:** `examples/01-publish`, `TestPublish_RecordsASignedFotonAndPushesIt`.
+A step that was not recorded as it ran but declared afterwards says so: `declared` is `hand` (written by a
+person) or `heuristic:<name>` (inferred by the named heuristic). Absent, its signer did not declare it; that
+alone does not say it was observed (older records and other tools lack the field). It is part of the signed
+descriptor, so a declared step is another record than the same step observed. A declared step MUST NOT be
+run, also where the cockpit runs commands (§10); it records no environment but one its caller asserts, and
+takes no outputs only a run finds (`outputDir`, `outputsIn`); any other value is refused. A declared step is
+no reproduction: the count of independent producers (`ask reproductions`, the corpus check) leaves it out and
+says how many it left out (`excludedDeclared`).
+
+> **Checked by:** `examples/01-publish`, `TestPublish_RecordsASignedFotonAndPushesIt`,
+> `TestPublish_ADeclaredStepSaysSoInItsRecord`, `TestReproductions_ADeclaredStepIsNoReproduction`,
+> `TestContainer_ADeclaredStepIsNotRun`, `TestContainer_ADeclaredStepRecordsNoImageItDidNotRunIn` (`-tags docker`).
 
 ### 7.2 What is proven and what is attested
 
@@ -1102,6 +1113,21 @@ reaches no record outside that dataset, so it is under the same ceiling as every
   that is a kton id (`sha256:` and 64 hex digits) MUST be bound as the node it names,
   `https://kton.dev/o/<hex>`, and any other `sha256:` value refused
   (`TestBind_AKtonIDIsTheNodeItNames`).
+
+A query MAY be a **query run** (`reproducible`, `--reproducible`; ADR-020). It MUST be evaluated over the
+dataset built fresh in a container of its own (`query.image`), never the index, and MUST be refused
+(`query.not-reproducible`) when it calls `NOW`, `RAND`, `UUID`, `STRUUID` or `BNODE`, uses `SAMPLE` or
+`GROUP_CONCAT`, has a `LIMIT` or `OFFSET` in a sub-select or without a top-level `ORDER BY` naming every
+projected variable (`SELECT *` cannot), answers with a blank node, or has more rows than the limit; these are
+decided on the query's words, not inside its strings, IRIs or comments. It is recorded as a foton of kind
+`query/sparql` (descriptor: dataset, projection version, engine): inputs the query and a manifest of what it
+read (each registry's sorted record and claim ids, each scope's tips, the trust keys and tiers, the template
+set and alias file, the admitted package revisions, the projection version, the engine), output its result
+as a sorted multiset of terms in N-Triples form; every byte named is put in the content store, and the
+registry and the content store are persisted. The answer carries the run (`run`). A second run of the same
+query is another record: the first is now in what it reads.
+
+> **Checked by:** `TestCheckReproducible`, `TestQueryRun_IsARecordWithItsManifest` (`-tags docker`).
 
 The vocabulary of the projection, with examples, is in [docs/sparql.md](../docs/sparql.md). Every
 example there is run by a test.

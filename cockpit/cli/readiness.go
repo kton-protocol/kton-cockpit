@@ -122,6 +122,14 @@ func readiness(ctx context.Context, cfg *config.Config) []nextStep {
 	if !cfg.Raw.Execution.Enabled() {
 		steps = append(steps, nextStep{false, "optional: `cockpit pin <image>` runs every publish in a digest-pinned container, so the environment is observed, not asserted"})
 	}
+	// An index daemon near its memory limit stops answering (userinterface, 21.11.: a window federating
+	// twelve registries at 2 GiB of 2 GiB): said before it does.
+	if cfg.Raw.Index.Kind == "oxigraph" {
+		if p, limit, ok := oxigraph.MemoryInUse(ctx, cfg); ok && p >= 85 {
+			steps = append(steps, nextStep{false, fmt.Sprintf("the index daemon uses %.0f%% of its %s of memory: raise index.memory (or the machine's index memory file), then cockpit index stop; the next query starts it with more", p, limit)})
+		}
+	}
+
 	// The machine's shared index: what it runs with and where that came from, and a memory file that is
 	// not used (cockpit-runtime, 20.11.).
 	if cfg.Raw.Index.Kind == "oxigraph" && oxigraph.SharedIndex(cfg) {
