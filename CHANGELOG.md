@@ -31,7 +31,8 @@
 
 - **A say no longer reads the union to confirm itself** (userinterface's T12 trace): the claim is confirmed in
   this repository's own registry, where it was written. In MH's registry with 4 federated sources the
-  confirmation took 15.6 of a say's 20.3 s; a federation source that cannot be read no longer fails a say.
+  confirmation took 15.6 of a say's 20.3 s. A federation source that cannot be read no longer turns a say
+  that was written into an error, which invited signing it a second time on retry.
 
 - **`cockpit shim serve --listen` and `cockpit show` refuse other web pages** (kton-review on #236): a
   request whose Host is not the loopback (DNS rebinding) or whose `Origin` is another page's gets 403

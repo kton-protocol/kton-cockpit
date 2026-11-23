@@ -1123,7 +1123,7 @@ func (r *Runner) OwnAbout(subject string) ([]ClaimAxis, error) {
 	if err != nil {
 		return nil, err
 	}
-	return claimsFrom(reg.About(subject))
+	return ClaimsAbout(reg, subject)
 }
 
 // ClaimsAbout is About over one opened claim registry.
