@@ -11,7 +11,7 @@ tags: [architecture, keys, identity, signing, serve, mcp]
 
 ## Status
 
-Proposed 2026-11-23. Requested by this lane of kton (19.11., "Gap for v0.6.x: passphrase-protected
+Proposed 2026-11-23; kton-review's go for the direction with P1-P4, written in below. Requested by this lane of kton (19.11., "Gap for v0.6.x: passphrase-protected
 signing keys", kton #277); kton prepared the format and the loader in kton PR #299 (not merged: MH
 decides whether the kernel takes `golang.org/x/crypto`). This ADR is drafted against that API; it changes
 only if MH keeps the KDF out of the kernel (kton's option c). Three questions are open for MH (below).
@@ -44,26 +44,40 @@ and trust checks never ask for one.
 
 Asked only when a signature needs the key, never to read, in this order:
 
-1. **The frontend, over serve.** serve asks its client with a request of the frontend protocol,
-   `identity/passphrase {key: <name>, keyid, purpose}` (SPEC §12.5), and the workbench asks the person in
-   its sign dialog, which already asks for consent per signature (#196). The answer goes back over the
-   connection and is never logged.
-2. **A terminal.** The CLI on a terminal prompts on the terminal (no echo), naming the key and its keyid.
-3. **`KTON_KEY_PASSPHRASE`**, for what runs without a person (CI, tests), as the kernel's reference CLIs
-   take it (open for MH, Q2).
+1. **The frontend, over serve, bound to one signature** (kton-review P2). serve asks its client only
+   during a say, for that say's key: `identity/passphrase {say: <request id>, key: <name>, keyid, digest}`,
+   where `digest` is the one the sign dialog shows (SPEC §12.5), and the workbench asks the person in that
+   dialog, which already asks for consent per signature (#196). An answer for another say, a second answer,
+   or one nobody asked for is refused, and nothing is signed. After `keys.Load`, the public half derived from
+   the key must have the keyid asked about, or the say is refused. The key signs that say and is dropped.
+2. **A terminal.** The CLI prompts on the controlling terminal (`keys.CLIPassphrase`: `/dev/tty`,
+   `CONIN$` on Windows, never stdin), no echo, naming the key and its keyid.
+3. **`KTON_KEY_PASSPHRASE`**, for what runs without a person (CI, tests), documented as weaker (Q2), and
+   only as kton-review's P1 has it: `keys.TakeEnvPassphrase()` is the first thing `main` does, before
+   anything starts a child, so the variable is gone from the process's environment; no child the cockpit
+   starts (git, the container CLI, a shimmed tool, a workflow step) sees it, nor `/proc/<pid>/environ`.
+   `keys.ForgetEnvPassphrase()` clears the held value once the keys are loaded.
 4. **Nothing else.** The MCP server and a CLI without a terminal have no one to ask: an encrypted key is
    refused with `identity.locked`, naming the key and the ways to unlock it, before anything is signed.
 
-### 3 Never stored
+### 3 Never stored, never logged
 
-A passphrase is never written: not to a file, a log, the jobs journal or a trace. A decrypted key lives in
-the process's memory only, for as long as section 4 says, and is zeroed when it is dropped where Go allows.
+A passphrase is never written: not to a file, a log, the jobs journal, `COCKPIT_TRACE`, serve's stdio
+transport log or an error message that echoes a request (kton-review P3). SPEC §12.5 marks the field
+secret, so a frontend logs it nowhere either. serve decodes it as raw JSON into a byte slice, never a Go
+string, and clears it after `keys.Load`; the decrypted key is cleared after the signature. Go cannot
+promise that no copy remains in memory; the cockpit makes none of its own.
 
 ### 4 How long a key stays unlocked (open for MH, Q1)
 
 Proposed: per signature in serve for the person's keys (the dialog already asks per signature, so the
 passphrase is asked with it), and per process for the CLI (one prompt per `cockpit say`, which signs once
-or a batch). An agent key (records, #196) is not encrypted by default (Q3).
+or a batch). An unlock that holds for minutes would make serve a signing oracle for whatever reaches the
+connection (kton-review). An agent key (records, #196) is not encrypted by default (Q3).
+
+A batch (`say --batch`) asks once and signs all its claims or none. A run in the background (a workflow
+run over serve, #218) asks before its first step, while the person is at the dialog, or is refused before
+any step runs: a step never stops halfway for a passphrase (kton-review P4).
 
 ### 5 Making and checking
 
@@ -96,4 +110,8 @@ written; the plain and encrypted forms of one seed sign under one keyid; `doctor
 encrypted key's public half without asking; serve asks its client `identity/passphrase` and signs with the
 answer, and a client that does not answer gets `identity.locked`; the MCP server refuses an encrypted key
 with `identity.locked` before signing; the passphrase appears in no file, log, journal line or trace after a
-signature; `keygen --encrypt` writes a key `ssh-keygen -y` reads.
+signature; `keygen --encrypt` writes a key `ssh-keygen -y` reads; a child the cockpit starts after the
+key loads does not see `KTON_KEY_PASSPHRASE` (P1); an `identity/passphrase` answer nobody asked for, or for
+another say, is refused and nothing signed, and a key whose derived keyid is not the one asked about is
+refused (P2); a batch with an encrypted key asks once and signs all or none, and a background run asks
+before its first step or is refused before any (P4).
