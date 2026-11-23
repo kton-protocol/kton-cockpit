@@ -140,3 +140,40 @@ test("setInterval during a running tick leaves one timer chain", async () => {
   assert.equal(clock.timers.length, 1, "exactly one pending timer");
   s.stop();
 });
+
+test("idle backoff: unfocused 5 min the poll slows to every 5 min, 30 min it stops; the focus refreshes at once; runNow is never held", async () => {
+  const { idlePolicy } = await import("../src/poll.js");
+  const clock = new FakeClock();
+  const s = new Scheduler(clock, idlePolicy(5, 30));
+  const states: string[] = [];
+  s.onState = (st) => states.push(st.state);
+  let runs = 0;
+  s.add("inbox", 30_000, async () => {
+    runs++;
+  });
+  await clock.advance(0);
+  assert.equal(runs, 1);
+  s.setFocused(false);
+  await clock.advance(5 * 60_000);
+  assert.equal(runs, 11, "every 30 s for the first 5 min");
+  assert.deepEqual(states, ["slow"]);
+  const before = runs;
+  await clock.advance(10 * 60_000);
+  assert.ok(runs - before <= 3, `at most every 5 min while away: ${runs - before} runs in 10 min`);
+  await clock.advance(20 * 60_000);
+  assert.deepEqual(states, ["slow", "paused"]);
+  const paused = runs;
+  await clock.advance(60 * 60_000);
+  assert.equal(runs, paused, "no poll while paused");
+  await s.runNow("inbox");
+  assert.equal(runs, paused + 1, "the user's Refresh (and any write's refresh) is never held back");
+  assert.equal(s.pollState().state, "paused");
+  s.setFocused(true);
+  await new Promise((r) => setImmediate(r));
+  assert.equal(runs, paused + 2, "the focus refreshes at once");
+  assert.deepEqual(states, ["slow", "paused", "active"]);
+  await clock.advance(30_000);
+  assert.equal(runs, paused + 3, "then every 30 s again");
+  assert.deepEqual(idlePolicy(40, 30), { idleAfterMs: 30 * 60_000, pauseAfterMs: 30 * 60_000, slowMs: 5 * 60_000 });
+  s.stop();
+});

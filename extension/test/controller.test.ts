@@ -1289,3 +1289,22 @@ test("askEach: a record's per-key field is asked per key of the act's key field 
   const { askEachOf } = await import("../src/composition/host.js");
   assert.deepEqual(askEachOf({ askEach: ["rerun-request:expected=test|green,red,unchanged", "other:x=y", "conditions=test", "bad"] }, "rerun-request"), [{ field: "expected", key: "test", values: ["green", "red", "unchanged"] }, { field: "conditions", key: "test" }]);
 });
+
+test("idle backoff in the status bar: 'kton: paused while away (since hh:mm)', and the polling line again on focus", async () => {
+  const clock = { t: Date.parse("2026-11-23T10:00:00Z"), now() { return this.t; }, setTimeout: () => 0, clearTimeout: () => undefined };
+  const { Scheduler: S } = await import("../src/poll.js");
+  const sched = new S(clock, { idleAfterMs: 1000, pauseAfterMs: 2000, slowMs: 300_000 });
+  const h = new FakeHost();
+  const wb = new Workbench(new FakeTransport(), h, queries, identity, { ...DEFAULT_CONFIG, surfaces: SURFACES, lockRetry: { attempts: 3, delayMs: 1 } }, sched);
+  await wb.start();
+  await wb.refresh();
+  wb.setFocused(false);
+  clock.t += 2500;
+  await wb.refresh();
+  const t = new Date(Date.parse("2026-11-23T10:00:00Z"));
+  const hhmm = `${String(t.getHours()).padStart(2, "0")}:${String(t.getMinutes()).padStart(2, "0")}`;
+  assert.equal(h.status.get("poll"), `kton: paused while away (since ${hhmm})`);
+  wb.setFocused(true);
+  assert.match(h.status.get("poll") ?? "", /^polling: inbox every 30s/);
+  wb.stop();
+});

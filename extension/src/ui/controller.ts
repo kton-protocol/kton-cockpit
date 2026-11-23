@@ -10,7 +10,7 @@ import type { ControlInfo, SignPlan } from "../sign.js";
 import { DialogConsent, meaningField, plan, sign, templateFor, FOOTER } from "../sign.js";
 import type { UiEntry, SlotContext } from "../intents.js";
 import { checkIntent } from "../intents.js";
-import { Scheduler } from "../poll.js";
+import { DEFAULT_IDLE, realClock, Scheduler, type IdlePolicy, type PollState } from "../poll.js";
 import { sourceRef, sourceTarget } from "./sources.js";
 import { artifactRef, artifactTarget } from "./artifacts.js";
 import { PackagesArea, SLOT_CMD, type ActInto, type ExpectRevision } from "../composition/area.js";
@@ -55,6 +55,8 @@ export interface WorkbenchConfig {
    */
   readonly personTiers: readonly string[];
   readonly pollSeconds: number;
+  /** kton.poll.idleAfterMinutes / pauseAfterMinutes: the window unfocused this long slows its polls to every 5 min, then stops them */
+  readonly idle?: IdlePolicy;
   readonly surfaces: readonly Surface[];
   /** Folder of a surface without its own `folder`, with ${surface}. */
   readonly surfaceFolderPattern?: string;
@@ -158,7 +160,8 @@ export class Workbench {
     private readonly cfg: WorkbenchConfig = DEFAULT_CONFIG,
     scheduler?: Scheduler,
   ) {
-    this.scheduler = scheduler ?? new Scheduler();
+    this.scheduler = scheduler ?? new Scheduler(realClock, cfg.idle ?? DEFAULT_IDLE);
+    this.scheduler.onState = (st) => this.showPollState(st);
     this.packages = new PackagesArea(t, host, {
       act: (c, about, fields, title, expect, into) => this.signAct(c, about, fields, title, expect, into),
       person: () => ({ keyId: this.identity.person.keyId, personTiers: this.cfg.personTiers }),
@@ -206,6 +209,28 @@ export class Workbench {
 
   stop(): void {
     this.scheduler.stop();
+  }
+
+  /**
+   * The window's focus (VS Code: window.state.focused). Unfocused past idleAfterMinutes the inbox polls every 5 min;
+   * past pauseAfterMinutes it stops until the focus is back, which refreshes at once. Signing and the user's own
+   * asks and Refresh never wait for it.
+   */
+  setFocused(focused: boolean): void {
+    this.scheduler.setFocused(focused);
+    // back: the status bar says polling again at once (the refresh the scheduler starts follows)
+    if (focused && (this.goodAt !== undefined || this.lastError !== undefined)) this.render();
+  }
+
+  private showPollState(st: PollState): void {
+    if (st.state === "active") {
+      if (this.goodAt !== undefined || this.lastError !== undefined) this.render();
+      return;
+    }
+    const t = new Date(st.since);
+    const hhmm = `${String(t.getHours()).padStart(2, "0")}:${String(t.getMinutes()).padStart(2, "0")}`;
+    if (st.state === "paused") this.host.setStatus("poll", `kton: paused while away (since ${hhmm})`, "The window has not had the focus for a while: polls stop until it has it again (kton.poll.pauseAfterMinutes). Signing and your own asks are never held back.");
+    else this.host.setStatus("poll", `kton: polls every 5 min while away (since ${hhmm})`, "The window has not had the focus for a while: polls slow down (kton.poll.idleAfterMinutes).");
   }
 
   get currentSurface(): string {
@@ -380,7 +405,9 @@ export class Workbench {
     this.host.setTree("home", this.homeNodes(open, decisions));
     this.host.setTree("inbox", this.inboxNodes(open));
     this.host.setTree("lanes", this.laneNodes(open));
-    if (!this.stale) {
+    const away = this.scheduler.pollState();
+    if (away.state !== "active") this.showPollState(away);
+    else if (!this.stale) {
       this.host.setStatus(
         "poll",
         `polling: inbox every ${this.cfg.pollSeconds}s · ${open.length} open${this.cfg.cockpitLabel ? ` · ${this.cfg.cockpitLabel}` : ""}`,

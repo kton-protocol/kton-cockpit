@@ -67,6 +67,7 @@ import { startMermaidServer } from "./composition/mermaid-server.js";
 import type { Subject } from "./composition/slots.js";
 import type { LeafViewer, LoadedViewer, MirrorPackage, ViewerTree } from "./packages/model.js";
 import { CliTransport } from "./transport/cli.js";
+import { idlePolicy } from "./poll.js";
 import { StdioTransport } from "./transport/stdio.js";
 import { claimKeyId, readIdentityHint, type WindowIdentity } from "./identity.js";
 import type { DoctorReport } from "./transport/port.js";
@@ -479,6 +480,7 @@ async function build(host: VsHost): Promise<void> {
     vendoredViewers: vendored,
     ...(builtin ? { builtinPackage: builtin } : {}),
     pollSeconds: Math.max(1, cfg.get<number>("poll.seconds") ?? 30),
+    idle: idlePolicy(cfg.get<number>("poll.idleAfterMinutes") ?? 5, cfg.get<number>("poll.pauseAfterMinutes") ?? 30),
     // once per window: a rebuild after a changed setting does not open it again
     openOnStart: firstBuild && (cfg.get<boolean>("home.openOnStart") ?? true),
     cockpitLabel: executable.split(/[\\/]/).pop() ?? executable,
@@ -488,6 +490,8 @@ async function build(host: VsHost): Promise<void> {
   });
   firstBuild = false;
   await wb.start(host.openPanels());
+  // the idle backoff: a window without the focus slows its polls, then stops them (a tab left open polls for nobody)
+  wb.setFocused(vscode.window.state.focused);
 }
 /** the window's first workbench (kton.home.openOnStart applies to it only) */
 let firstBuild = true;
@@ -523,6 +527,7 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
     vscode.window.registerTreeDataProvider("ktonWorkbench.inbox", host.trees.inbox),
     vscode.window.registerTreeDataProvider("ktonWorkbench.lanes", host.trees.lanes),
     ...workbenchCommands(() => wb).map(([id, run]) => vscode.commands.registerCommand(id, run as (...args: unknown[]) => unknown)),
+    vscode.window.onDidChangeWindowState((st) => wb?.setFocused(st.focused)),
     // A changed setting (cockpit path, queries, surfaces, keys) rebuilds the workbench in place.
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration("kton")) void build(host);
