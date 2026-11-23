@@ -56,7 +56,7 @@ export interface Backend {
    * query@1: a named query of an admitted package (`cockpit ask {query: sparql, name, bindTerms}`), SPARQL JSON;
    * the package says whose query it is when two packages bring the name.
    */
-  query(pkg: string, name: string, terms: Readonly<Record<string, BoundTerm>>): Promise<unknown>;
+  query(pkg: string, name: string, terms: Readonly<Record<string, BoundTerm>>, use?: string): Promise<unknown>;
   /** content@1 / product@1 bytes of a package member, by package id and hash (`ui cat`; checked again here). */
   bytes(pkg: string, hash: string): Promise<Uint8Array>;
   /** open@1: show a file, a claim or a screen in the window; resolves with what was opened. */
@@ -81,6 +81,10 @@ export interface Signed {
 export interface HostUi {
   post(msg: unknown): void;
   log(line: string): void;
+  /** the frame's state after each change, for a view that keeps it in the window (CompositionUi.memo); never acts */
+  keep?(state: Record<string, unknown>): void;
+  /** the view changed (an answer, a state): the support file follows the active panel (kton.support.viewFile) */
+  changed?(): void;
 }
 
 /** content@1 / product@1 send base64 up to this many bytes (before encoding, H17); above it a url + hash. */
@@ -444,6 +448,20 @@ export class CompositionHost {
   private readonly refreshes = new Map<string, number>();
   /** the queries running now, by answer key: a second ask of the same shares the first */
   private readonly pending = new Map<string, Promise<unknown>>();
+  /** the last answer each use got, with its params: what the view shows now (the support file) */
+  private readonly lastByUse = new Map<string, { result: unknown; params: Readonly<Record<string, Term>> }>();
+  /** The view's blocks as answered now (for the support file): each use's last answer and its params as text. */
+  shown(): Array<{ use: string; block: string; query?: string; params?: Record<string, string>; answer?: unknown }> {
+    return this.plan.uses.map((u) => {
+      const l = this.lastByUse.get(u.key);
+      return {
+        use: u.key,
+        block: u.block,
+        ...(u.query ? { query: `${u.query.package}/${u.query.name}` } : {}),
+        ...(l ? { params: Object.fromEntries(Object.entries(l.params).map(([k, t]) => [k, t.value])), answer: l.result } : {}),
+      };
+    });
+  }
   private refreshSeq = 0;
   /** how many signatures this view made (an answer asked before the last one is old), when the last was (ms), and what */
   private epoch = 0;
@@ -479,6 +497,8 @@ export class CompositionHost {
         return;
       case "kton:state":
         this.state = withoutActs(m["state"]);
+        this.ui.keep?.(this.state);
+        this.ui.changed?.();
         if (this.setPending) this.acts.received();
         this.setPending = false;
         // a var change that guards a use (or frees it) changes which acts the frame may offer: a new set
@@ -517,7 +537,7 @@ export class CompositionHost {
           // the same query (use, params, refine) asked again while it runs: the one ask is shared, never a second
           let p = this.pending.get(k);
           if (!p) {
-            p = this.backend.query(q.package, q.name, termsOf(params));
+            p = this.backend.query(q.package, q.name, termsOf(params), u.key);
             this.pending.set(k, p);
             const done = () => this.pending.get(k) === p && this.pending.delete(k);
             p.then(done, done);
@@ -525,6 +545,8 @@ export class CompositionHost {
           result = await p;
           this.remember(u, result);
           this.answers.set(k, { result, epoch });
+          this.lastByUse.set(u.key, { result, params });
+          this.ui.changed?.();
           if (unbound.length) result = stampUnfiltered(result, unbound);
         }
       }
@@ -563,6 +585,8 @@ export class CompositionHost {
         this.refreshes.delete(k);
         this.remember(u, fresh);
         this.answers.set(k, { result: fresh, epoch });
+        this.lastByUse.set(u.key, { result: fresh, params });
+        this.ui.changed?.();
         this.ui.post({ type: "kton-workbench:answer", use: u.key, token, result: unbound.length ? stampUnfiltered(fresh, unbound) : fresh });
       },
       (e: unknown) => {

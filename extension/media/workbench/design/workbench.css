@@ -424,3 +424,14 @@ td.ev-cell .kton-stamp { margin-top: 4px; }
 .wb-prev { opacity: .85; }
 .wb-signed { margin: 0; padding: 4px 12px; font-size: 12px; color: var(--wb-fg); border-bottom: 1px solid var(--wb-hairline); background: var(--wb-surface); }
 .wb-signed::before { content: "✓"; color: var(--wb-ok); font-weight: 600; margin-right: 6px; }
+
+/* ---------- the queue, the rule cards, throughput ---------- */
+.q-head { flex-wrap: wrap; gap: 6px; }
+.q-head .q-group select { margin-left: 4px; }
+.q-item .kv { margin-top: 8px; }
+.q-keys { font-size: 12px; margin: 4px 0 0; }
+.q-decide { flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.q-decide kbd, .q-keys kbd { font-family: var(--wb-mono); font-size: 11px; padding: 0 4px; border: 1px solid var(--wb-hairline); border-radius: 3px; }
+ul.members { list-style: none; padding: 0; margin: 4px 0; max-height: 320px; overflow: auto; columns: 3 220px; }
+ul.members li { break-inside: avoid; font-size: 12px; }
+[data-throughput-tiles] .big { font-size: 20px; font-weight: 600; margin: 4px 0; }

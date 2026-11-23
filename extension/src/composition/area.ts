@@ -6,6 +6,7 @@ import type { Control, LeafViewer, Loaded, LoadedViewer, MirrorPackage, SlotEntr
 import { loadPackages } from "../packages/model.js";
 import type { TreeNode } from "../ui/host.js";
 import { sparqlResultsOf } from "../ui/queries.js";
+import { supportView } from "../support/view-now.js";
 import { CompositionHost, LeafHost, type Backend, type Plan, type Signed } from "./host.js";
 import type { BoundTerm } from "../transport/port.js";
 import { applies, isView, oneNumber, partition, planComposition, planEntry, type Subject } from "./slots.js";
@@ -26,6 +27,14 @@ export interface CompositionUi {
   info(text: string): void;
   error(text: string): void;
   log(line: string): void;
+  /**
+   * Per-window view state (VS Code workspace state), for a view whose blocks keep their place (viewer.json
+   * `keepsState`, e.g. the queue's position and skipped items): read when the panel opens, written on each change.
+   * Kept in the window only, never in a registry.
+   */
+  memo?: { get(key: string): unknown; set(key: string, value: unknown): void };
+  /** the panel's view changed: `build` makes the support file's content (kton.support.viewFile), when it is the active one */
+  support?(key: string, build: () => Record<string, unknown>): void;
 }
 /** The package revision an act was offered at: the sign path confirms it is still the installed one before say. */
 export interface ExpectRevision {
@@ -68,6 +77,8 @@ export function ruleText(s: RuleState | undefined): string {
   if ("why" in s) return "not run";
   return s.n === 0 ? "passed (0 findings)" : `findings (${s.n})`;
 }
+/** A view's query may run this long in the cockpit (its default 30 s is shorter than a cold build of a federated index). */
+export const ASK_TIMEOUT_S = 110;
 /** A scope label (as `say --scope` takes it), never an IRI or a path. */
 export const SCOPE_LABEL = /^[A-Za-z][A-Za-z0-9_.-]*$/;
 
@@ -259,10 +270,10 @@ export class PackagesArea {
   private queryOwners = new Map<string, Set<string>>();
 
   /** A package's named query: by <package>/<name> when the cockpit offers it so (two packages bring the name). */
-  private async named(pkg: string, name: string, terms: Readonly<Record<string, BoundTerm>>): Promise<unknown> {
+  private async named(pkg: string, name: string, terms: Readonly<Record<string, BoundTerm>>, supersede?: string): Promise<unknown> {
     const owners = this.queryOwners.get(name);
     const q = this.queryNames.has(`${pkg}/${name}`) || (owners !== undefined && owners.size > 1 && owners.has(pkg)) ? `${pkg}/${name}` : name;
-    const out = await this.t.ask({ query: "sparql", name: q, ...(Object.keys(terms).length ? { bindTerms: terms } : {}), format: "sparql-results+json" });
+    const out = await this.t.ask({ query: "sparql", name: q, ...(Object.keys(terms).length ? { bindTerms: terms } : {}), format: "sparql-results+json", timeoutSeconds: ASK_TIMEOUT_S }, supersede !== undefined ? { supersede } : undefined);
     if (!out.ok) throw new Error(`the cockpit refused ${q}: ${out.refusal.reason}`);
     // the JSON-argument form answers under sparql.results (cockpit v0.5.x); read there, never as "no rows"
     return sparqlResultsOf(out.value);
@@ -423,8 +434,9 @@ export class PackagesArea {
     plan = { ...plan, uses: plan.uses.map((u) => ({ ...u, module: shown.urls.get((u as { module?: string }).module ?? "") ?? "" })) } as Plan;
     const annotate = opts.annotate;
     const backend: Backend = {
-      query: async (p, name, terms) => {
-        const r = await this.named(p, name, terms);
+      query: async (p, name, terms, use) => {
+        // a block's newer ask drops its older one still waiting in the window's queue (a reader moving through items)
+        const r = await this.named(p, name, terms, use !== undefined ? `${panel}#${use}` : undefined);
         const shown = await this.withApprovals(annotate && p === annotate.package && name === annotate.query ? await this.withCounts(r) : r);
         return this.path.thumb ? withThumbs(shown, this.path.thumb) : shown;
       },
@@ -439,7 +451,25 @@ export class PackagesArea {
     };
     // blocks that draw their own act buttons (viewer.json rendersActs): their acts go to the frame as blockActs only
     const drawsActs = new Set(plan0.uses.filter((u) => viewers.get((u as { module?: string }).module ?? "")?.decl["rendersActs"] === true).map((u) => u.key));
-    host = new CompositionHost(plan, loaded, backend, { post: shown.post, log: (l) => this.ui.log(l) }, {}, drawsActs);
+    // a view with a block that keeps its place (viewer.json keepsState) starts from the window's last state of it
+    const keeps = used.some((v) => v.decl["keepsState"] === true) && this.ui.memo ? this.ui.memo : undefined;
+    const keepKey = `kton.viewState:${panel}`;
+    const support = this.ui.support ? (build: () => Record<string, unknown>) => this.ui.support?.(panel, build) : undefined;
+    const view = { package: plan.root.package, composition: plan.root.composition, entry: label };
+    const run = opts.scope && /^[A-Za-z0-9_-]+\./.test(opts.scope) ? opts.scope.slice(0, opts.scope.indexOf(".")) : undefined;
+    host = new CompositionHost(
+      plan,
+      loaded,
+      backend,
+      {
+        post: shown.post,
+        log: (l) => this.ui.log(l),
+        ...(keeps ? { keep: (st: unknown) => keeps.set(keepKey, st) } : {}),
+        ...(support ? { changed: () => support(() => supportView({ at: new Date(), identity: this.path.identityName(), view, ...(run ? { run } : {}), state: host?.state, blocks: host?.shown() ?? [], opened: me?.opened ?? [] })) } : {}),
+      },
+      keeps?.get(keepKey) ?? {},
+      drawsActs,
+    );
     const acting = plan.uses.flatMap((u) => (u.acts ?? []).map((a) => a.control?.package)).filter((x): x is string => !!x);
     me = { host, package: pkg, revisions: this.revisionsOf(loaded, [pkg, ...acting, ...(opts.revisions ?? [])]), busy: 0, opened: [] };
     this.open(panel, me);

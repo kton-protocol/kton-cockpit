@@ -10,7 +10,7 @@ export const MAX_IN_FLIGHT = 2;
 
 export class AskGate {
   private inFlight = 0;
-  private readonly waiting: Array<() => void> = [];
+  private readonly waiting: Array<{ go: () => void; drop: (e: Error) => void; key?: string }> = [];
   private cold = true;
   /** the most asks that ran at once (tests, the e2e's load check) */
   peak = 0;
@@ -28,10 +28,24 @@ export class AskGate {
     return this.waiting.length;
   }
 
-  async run<T>(fn: () => Promise<T>): Promise<T> {
+  /**
+   * Run `fn` when a slot is free. With `supersede` (e.g. a view block's key), an ask of the same key still waiting is
+   * dropped (rejected with Superseded): a reader moving fast through items asks once for where it stopped, not for
+   * every item it passed.
+   */
+  async run<T>(fn: () => Promise<T>, supersede?: string): Promise<T> {
+    if (supersede !== undefined) {
+      for (let i = this.waiting.length - 1; i >= 0; i--) {
+        const w = this.waiting[i];
+        if (w?.key === supersede) {
+          this.waiting.splice(i, 1);
+          w.drop(new Superseded(supersede));
+        }
+      }
+    }
     // the slot is taken synchronously (now, or by release() for a waiting ask): never more than the limit at once
     if (this.inFlight < this.limit() && this.waiting.length === 0) this.inFlight++;
-    else await new Promise<void>((resolve) => this.waiting.push(resolve));
+    else await new Promise<void>((go, drop) => this.waiting.push({ go, drop, ...(supersede !== undefined ? { key: supersede } : {}) }));
     this.peak = Math.max(this.peak, this.inFlight);
     let ok = false;
     try {
@@ -51,8 +65,16 @@ export class AskGate {
   private release(): void {
     while (this.waiting.length && this.inFlight < this.limit()) {
       this.inFlight++;
-      (this.waiting.shift() as () => void)();
+      (this.waiting.shift() as { go: () => void }).go();
     }
+  }
+}
+
+/** An ask dropped while it waited, because a newer one of the same key came. */
+export class Superseded extends Error {
+  constructor(key: string) {
+    super(`superseded by a newer ask of ${key}`);
+    this.name = "Superseded";
   }
 }
 
@@ -62,7 +84,7 @@ const WRITES = ["say", "publish", "install", "workflowRun"] as const;
 /** The transport with its reads through the gate; its writes pass and mark the index cold. */
 export function gated(t: Transport, gate: AskGate): Transport {
   const out: Record<string, unknown> = {};
-  for (const m of READS) out[m] = (...a: unknown[]) => gate.run(() => (t[m] as (...x: unknown[]) => Promise<unknown>).apply(t, a));
+  for (const m of READS) out[m] = (...a: unknown[]) => gate.run(() => (t[m] as (...x: unknown[]) => Promise<unknown>).apply(t, a), m === "ask" ? (a[1] as { supersede?: string } | undefined)?.supersede : undefined);
   for (const m of WRITES)
     out[m] = async (...a: unknown[]) => {
       try {

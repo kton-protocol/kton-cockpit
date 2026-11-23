@@ -2,6 +2,7 @@
 // src/ui/controller.ts and tested without VS Code. Ids live under `ktonWorkbench.` so the recorder
 // extension (its own `kton.` commands and `kton` view container) can run beside it.
 
+import { SupportWriter } from "./support/view-now.js";
 import { AskGate, gated } from "./transport/gate.js";
 import * as vscode from "vscode";
 import { randomBytes } from "node:crypto";
@@ -163,6 +164,22 @@ class VsHost implements UiHost {
 
   /** the Mermaid frame's URL as the webview reaches it (asExternalUri of 127.0.0.1), once the server runs */
   mermaidFrame: string | undefined;
+  /** per-window view state (CompositionUi.memo): VS Code's workspace state of this window, never a registry */
+  readonly memo = {
+    get: (key: string): unknown => this.ctx.workspaceState.get(key),
+    set: (key: string, value: unknown): void => void this.ctx.workspaceState.update(key, value),
+  };
+  /** the support file (kton.support.viewFile): the active composition panel's view, debounced; empty setting: none */
+  private readonly supportWriter = new SupportWriter(() => vscode.workspace.getConfiguration("kton").get<string>("support.viewFile") ?? "");
+  private readonly supportBuild = new Map<string, () => Record<string, unknown>>();
+  private supportActive = "";
+  support(key: string, build: () => Record<string, unknown>): void {
+    this.supportBuild.set(key, build);
+    if (!this.supportActive || this.supportActive === key) {
+      this.supportActive = key;
+      this.supportWriter.changed(build);
+    }
+  }
   constructor(private readonly ctx: vscode.ExtensionContext) {
     const order: StatusId[] = ["surface", "identity", "mode", "decisions", "poll", "slots"];
     order.forEach((id, i) => {
@@ -228,6 +245,15 @@ class VsHost implements UiHost {
       panel.onDidDispose(() => {
         this.panels.delete(key);
         this.handlers.delete(key);
+        this.supportBuild.delete(key);
+        if (this.supportActive === key) this.supportActive = "";
+      });
+      // the support file follows the panel in front
+      panel.onDidChangeViewState((e) => {
+        if (!e.webviewPanel.active) return;
+        this.supportActive = key;
+        const b = this.supportBuild.get(key);
+        if (b) this.supportWriter.changed(b);
       });
       panel.webview.onDidReceiveMessage((m: unknown) => this.handlers.get(key)?.(m));
     }

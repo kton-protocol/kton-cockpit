@@ -76,3 +76,19 @@ test("requests block: no poll while hidden (no layout box, page hidden, gone); i
   assert.equal(m.pollDelay(10_000, 10_000, 12_000), 20_000);
   assert.equal(m.pollDelay(10_000, 200_000, 250_000), 300_000);
 });
+
+test("gate: a newer ask of the same key drops the older one still waiting; one running is not touched", async () => {
+  const g = new AskGate();
+  await g.run(async () => 0); // warm
+  const hold = [deferred<void>(), deferred<void>()];
+  const r1 = g.run(async () => { await hold[0]?.promise; return "a"; }, "x");
+  const r2 = g.run(async () => { await hold[1]?.promise; return "b"; }, "y");
+  const w1 = g.run(async () => "item 1", "q");
+  const w2 = g.run(async () => "item 2", "q");
+  const w3 = g.run(async () => "item 3", "q");
+  await assert.rejects(w1, /superseded/);
+  await assert.rejects(w2, /superseded/);
+  hold[0]?.resolve();
+  hold[1]?.resolve();
+  assert.deepEqual(await Promise.all([r1, r2, w3]), ["a", "b", "item 3"], "the running ones finish; only the last of q runs");
+});

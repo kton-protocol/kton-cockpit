@@ -226,6 +226,11 @@
           "type": "boolean",
           "default": true,
           "description": "The window's keys are test keys: the status bar shows TEST MODE and names the keys as test keys. Off: neither is shown, and an unverified key is shown as unverified."
+        },
+        "kton.support.viewFile": {
+          "type": "string",
+          "default": "",
+          "description": "A file the shell writes the active composition view to (JSON: view, selected item, queue position, each block's rows as shown with their source stamps, the evidence opened), on every change, for a support session in this window's terminal. Never key material. Empty: nothing is written."
         }
       }
     },

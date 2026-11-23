@@ -1,0 +1,40 @@
+{
+ "viewer": "queue",
+ "module": "queue.js",
+ "requires": [
+  "query@1"
+ ],
+ "optional": [
+  "sign@1",
+  "record@1"
+ ],
+ "accepts": {
+  "group": "literal",
+  "groupLabel": "literal",
+  "page": "literal",
+  "pageSize": "literal",
+  "key": "literal",
+  "total": "literal",
+  "title": "literal",
+  "kind": "literal",
+  "quote": "literal",
+  "fields": {
+   "set": "literal"
+  },
+  "missing": "literal",
+  "target": "literal",
+  "choices": {
+   "set": "literal"
+  },
+  "emptyText": "literal",
+  "emptyHow": "literal"
+ },
+ "emits": {
+  "item": {
+   "from": "state.item",
+   "type": "literal"
+  }
+ },
+ "rendersActs": true,
+ "keepsState": true
+}
