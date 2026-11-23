@@ -3,7 +3,8 @@
 // and after a signature or anything else that changes the registry) is awaited once by a single ask: while cold, one at
 // a time; the first ask that answers makes it warm, and the queued asks run then (never each its own cold build).
 // Writes (say, publish, install, workflow run) are not queued behind reads (a person waits on them), and each marks
-// the index cold.
+// the index cold. Only a read that started after the last write makes it warm: one that was running across a write
+// answered from before it, and the index is not rebuilt for that write yet.
 import type { Transport } from "./port.js";
 
 export const MAX_IN_FLIGHT = 2;
@@ -12,6 +13,8 @@ export class AskGate {
   private inFlight = 0;
   private readonly waiting: Array<{ go: () => void; drop: (e: Error) => void; key?: string }> = [];
   private cold = true;
+  /** counts markCold (each write): a read warms the index only when none came while it ran */
+  private generation = 0;
   /** the most asks that ran at once (tests, the e2e's load check) */
   peak = 0;
 
@@ -19,6 +22,7 @@ export class AskGate {
 
   /** the index changed (a signature, a federation pull): the next ask runs alone */
   markCold(): void {
+    this.generation++;
     this.cold = true;
   }
   get isCold(): boolean {
@@ -47,6 +51,7 @@ export class AskGate {
     if (this.inFlight < this.limit() && this.waiting.length === 0) this.inFlight++;
     else await new Promise<void>((go, drop) => this.waiting.push({ go, drop, ...(supersede !== undefined ? { key: supersede } : {}) }));
     this.peak = Math.max(this.peak, this.inFlight);
+    const started = this.generation;
     let ok = false;
     try {
       const r = await fn();
@@ -54,7 +59,7 @@ export class AskGate {
       return r;
     } finally {
       this.inFlight--;
-      if (ok) this.cold = false;
+      if (ok && started === this.generation) this.cold = false;
       this.release();
     }
   }

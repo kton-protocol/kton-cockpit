@@ -110,3 +110,26 @@ test("gated: every method of Transport is a read through the queue or a write th
   for (const m of Object.keys(methods)) await w[m]?.({});
   assert.deepEqual(calls.sort(), Object.keys(methods).sort());
 });
+
+test("gate: a read running across a write leaves the index cold; the next read that starts after the write warms it", async () => {
+  const g = new AskGate();
+  await g.run(async () => 0);
+  assert.equal(g.isCold, false);
+  const slow = deferred<void>();
+  const across = g.run(async () => { await slow.promise; return "old"; });
+  await tick();
+  g.markCold(); // a write lands while the read runs
+  slow.resolve();
+  assert.equal(await across, "old");
+  assert.equal(g.isCold, true, "the read started before the write: it does not warm the index");
+  // while cold, one at a time: the next read runs alone and warms it
+  let running = 0, peak = 0;
+  const hold = deferred<void>();
+  const next = [0, 1].map(() => g.run(async () => { running++; peak = Math.max(peak, running); await hold.promise; running--; }));
+  await tick();
+  assert.equal(running, 1, "cold: one read alone");
+  hold.resolve();
+  await Promise.all(next);
+  assert.equal(peak, 1);
+  assert.equal(g.isCold, false, "a read started after the write warms it");
+});
