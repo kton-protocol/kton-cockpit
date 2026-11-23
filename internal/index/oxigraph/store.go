@@ -90,6 +90,9 @@ type prepared struct {
 
 // prepare reads into the store whatever changed in the registries of cfg's union and chooses the
 // dataset a query under keys reads.
+// duringBuild runs once a build has marked itself, for a test.
+var duringBuild func()
+
 func (d *Daemon) prepare(ctx context.Context, cfg *config.Config, keys []ed25519.PublicKey) (*prepared, error) {
 	inputs, err := binaries.Inputs(ctx, cfg)
 	if err != nil {
@@ -102,6 +105,11 @@ func (d *Daemon) prepare(ctx context.Context, cfg *config.Config, keys []ed25519
 	slot, key := datasetKey(inputs, keys, vc.Fingerprint())
 	if ds, ok := d.keptDataset(ctx, slot, key); ok {
 		return ds, nil
+	}
+	building := markBuilding(d.Dir, slot, cfg.RepoRoot)
+	defer building.done()
+	if duringBuild != nil {
+		duringBuild()
 	}
 	kept := true
 	var regs []string
@@ -119,6 +127,7 @@ func (d *Daemon) prepare(ctx context.Context, cfg *config.Config, keys []ed25519
 	if err != nil {
 		return nil, err
 	}
+	building.phase("projecting the claims")
 	view, err := d.claimView(ctx, named, pubinfo, vc)
 	if err != nil {
 		return nil, fmt.Errorf("building the query projection of the claims: %w", err)
@@ -128,6 +137,7 @@ func (d *Daemon) prepare(ctx context.Context, cfg *config.Config, keys []ed25519
 		return nil, err
 	}
 	graphs, meta := scopeGraphs(slot, view, sources)
+	building.phase("writing the view")
 	if err := d.makeView(ctx, slot, key, def, append(view, meta...), graphs); err != nil {
 		return nil, fmt.Errorf("writing the index's view of the trusted records: %w", err)
 	}

@@ -197,7 +197,10 @@ func (c *Cockpit) Say(ctx context.Context, in SayRequest) (*SayResult, error) {
 		return nil, refuse("verb.disabled", "SPEC §6", "say is disabled by this repo's cockpit.config.json")
 	}
 	r := binaries.New(cfg)
+	tr := newTrace("say")
+	defer tr.end()
 	p, prepErr := prepareSay(ctx, cfg, r, in)
+	tr.mark("prepare (template, subject, fields)")
 	if prepErr != nil {
 		return nil, prepErr
 	}
@@ -219,7 +222,9 @@ func (c *Cockpit) Say(ctx context.Context, in SayRequest) (*SayResult, error) {
 		}
 	}
 	defer releaseClaims()
+	tr.mark("the claims lock")
 	chain, head, cerr := resolveChain(ctx, r, cfg, in.Scope)
+	tr.mark("the scope's head (reads the union)")
 	if cerr != "" {
 		return nil, refuse("scope.unknown", "", "%s", cerr)
 	}
@@ -249,8 +254,10 @@ func (c *Cockpit) Say(ctx context.Context, in SayRequest) (*SayResult, error) {
 			sets["replaces"], replacedPrev = prev, prev
 		}
 	}
+	tr.mark("the previous claim")
 	claimID, err := r.Annotate(ctx, in.Subject, in.Template, sets, signKey, chain)
 	releaseClaims()
+	tr.mark("sign and store")
 	var changed *binaries.TemplateChanged
 	if errors.As(err, &changed) {
 		return nil, refuse("template.changed", "SPEC §8", "%s", changed.Reason)
@@ -282,12 +289,14 @@ func (c *Cockpit) Say(ctx context.Context, in SayRequest) (*SayResult, error) {
 		registryPaths = append(registryPaths, written...)
 	}
 	_, perr := persistStrict(ctx, cfg, registryPaths, "claim: "+in.Template+" on "+in.Subject)
+	tr.mark("persist (commit, push)")
 	pending, err := pendingIfBusy(perr, "the claim "+claimID)
 	if err != nil {
 		return nil, refuse(storeCode(err), "", "git commit/push of the claim registry failed: %v", err)
 	}
 
 	claims, err := r.About(ctx, in.Subject)
+	tr.mark("confirm (reads the union)")
 	if err != nil {
 		return nil, refuse("kernel", "", "claim was recorded but confirmation query (nekton about) failed: %v", err)
 	}

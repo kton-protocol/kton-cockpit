@@ -20,3 +20,6 @@ func ViewIRI(slot string) string { return viewIRI(slot) }
 
 // Staged is how many graphs were uploaded so far, for a test.
 func Staged() int64 { return staged.Load() }
+
+// SetDuringBuild sets what runs once a build has marked itself.
+func SetDuringBuild(f func()) { duringBuild = f }
