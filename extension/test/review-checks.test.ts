@@ -104,6 +104,18 @@ test("the sign digest covers the control's title and the evidence opened: a dial
   assert.notEqual(digest(titled, [ev("a"), ev("b")]), d, "more evidence");
 });
 
+test("the sign digest covers what say must still sign with: the template's hash, revision and predicate", () => {
+  const digest = (t: Partial<TemplateInfo>) => {
+    const p = plan({ kind: "sign", about: SUBJECT, fields: {} }, approve, [{ ...(templates[0] as TemplateInfo), predicate: "https://example.org/v/approves", ...t }], identity);
+    assert.ok(p.ok);
+    return p.value.digest;
+  };
+  const d = digest({});
+  assert.notEqual(digest({ hash: `sha256:${"0".repeat(64)}` }), d, "another template hash");
+  assert.notEqual(digest({ revision: `sha256:${"0".repeat(64)}` }), d, "another package revision");
+  assert.notEqual(digest({ predicate: "https://example.org/v/other" }), d, "another predicate");
+});
+
 test("O1: a decision needs the dialog's consent for exactly this plan; a record does not", async () => {
   const { transport, argvLog } = fakeCockpit([{ argv0: "say", stdout: JSON.stringify({ claimId: CLAIM, confirmation: "" }) }]);
   const p = plan({ kind: "sign", about: SUBJECT, fields: {} }, approve, templates, identity);
