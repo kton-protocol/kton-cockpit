@@ -3,7 +3,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { approvalCounts, areaComposition, BUILTIN, loadBuiltin, recordComposition, registerOf, withBuiltin } from "../src/composition/qm-area.js";
+import { pathToFileURL } from "node:url";
+import { approvalCounts, areaComposition, BUILTIN, listColumn, loadBuiltin, recordComposition, registerOf, rulesChecked, withBuiltin } from "../src/composition/qm-area.js";
 import { planComposition, type Subject } from "../src/composition/slots.js";
 import { PackagesArea, areaSubject, type ActPath, type CompositionUi } from "../src/composition/area.js";
 import { CompositionHost } from "../src/composition/host.js";
@@ -193,7 +194,7 @@ function areaWith(fx: Fixture[], rows: Record<string, Array<Record<string, strin
     log: () => undefined,
   };
   const path: ActPath = {
-    act: async (control, about, fields, _title, expect, into) => (acts.push({ control, about, fields, expect, into }), "signed"),
+    act: async (control, about, fields, _title, expect, into) => (acts.push({ control, about, fields, expect, into: withoutSigned(into) }), "signed"),
     open: async () => "opened elsewhere",
     identityName: () => "qa-decider",
     person: () => ({ keyId: PERSON_KID, personTiers }),
@@ -305,4 +306,153 @@ test("T21: a record query answering two current rows opens nothing (no subject, 
   assert.equal(w.shown.length, shown, "no record panel");
   assert.equal(w.area.hostOf(`${key}#record`), undefined);
   assert.match(JSON.stringify(w.posts.at(-1)), /not one current record of Deviations \(2 rows\): nothing opened/);
+});
+
+/** An act's `into` without its signed callback (a function: the host passes one for a nudge line; not compared here). */
+function withoutSigned<T>(into: T): T {
+  if (!into || typeof into !== "object") return into;
+  const { signed: _signed, ...rest } = into as Record<string, unknown>;
+  return rest as T;
+}
+
+// ---- what a first real area needed of the generic shell
+
+test("area: a list row opens by the list query's first projected column other than ?claim (?item, ?record, …)", () => {
+  assert.equal(listColumn("SELECT ?item ?claim ?identifier WHERE { }"), "item");
+  // a list with ?record first, an aggregate in between, ?claim last
+  assert.equal(listColumn('# SELECT ?nope WHERE\nSELECT ?record ?trainee ?date\n  (GROUP_CONCAT(DISTINCT STRAFTER(STR(?doc), "#"); separator=", ") AS ?documents) ?claim\nWHERE { }'), "record");
+  assert.equal(listColumn("SELECT DISTINCT ?claim ?record WHERE { }"), "record", "?claim is never the open column");
+  assert.equal(listColumn("SELECT (MIN(?d) AS ?first) ?x WHERE { }"), "x", "an aggregate's variables are skipped");
+  assert.equal(listColumn("SELECT ?claim WHERE { }"), undefined);
+  assert.equal(listColumn("SELECT * WHERE { }"), undefined);
+});
+
+test("area: a finding source checks the area's rule ids its query names as a literal; comments do not count", () => {
+  const rules = ["QA-R-DONE", "QA-R-TRAINER", "QA-R-PEER"];
+  assert.deepEqual(rulesChecked('SELECT ?rule ?focus ?claim ?message WHERE {\n  BIND("QA-R-TRAINER" AS ?rule)\n}', rules), ["QA-R-TRAINER"]);
+  assert.deepEqual(rulesChecked('# also QA-R-PEER, "QA-R-PEER"\nSELECT ?rule WHERE { BIND("QA-R-DONE" AS ?rule) }', rules), ["QA-R-DONE"]);
+  assert.deepEqual(rulesChecked('SELECT ?rule WHERE { BIND("QA-R-TRAINERX" AS ?rule) }', rules), [], "a longer id is another rule");
+});
+
+test("area: each finding source states its rules; a rule no source checks is said not run, never passed", async () => {
+  const l = await s6();
+  const e = areaOf(l, "qa.area-one");
+  const parts = (d: Record<string, unknown>) => Object.fromEntries((d["parts"] as Array<{ id: string; blocks: Array<Record<string, unknown>> }>).map((p) => [p.id, p]));
+  const f = parts(areaComposition(e, l).decl)["findings"];
+  assert.deepEqual(f?.blocks.map((b) => [b["id"], (b["options"] as { caption: string; ruleState: string[] }).caption, (b["options"] as { ruleState: string[] }).ruleState]), [
+    ["findings-1", "Major deviation without owner (QA-R-MAJOR-OWNER)", ["QA-R-MAJOR-OWNER"]],
+    ["findings-2", "Closed deviation without date (QA-R-CLOSED-DATE)", ["QA-R-CLOSED-DATE"]],
+  ]);
+  const more = { ...e, area: { ...e.area, findings: { package: "qa.rules", rules: ["QA-R-MAJOR-OWNER", "QA-R-CLOSED-DATE", "QA-R-UNPORTED"] } } };
+  const g = parts(areaComposition(more, l).decl)["findings"];
+  assert.equal(g?.blocks.length, 3);
+  assert.match(JSON.stringify(g?.blocks[2]), /Not run \(no finding source of qa.rules this area can show checks it\): QA-R-UNPORTED\./);
+  // the planned uses accept the new options (the built-in rows block declares them)
+  const a = areaComposition(more, l);
+  const ap = await planComposition({ package: BUILTIN, composition: String(a.decl["composition"]) }, withBuiltin(l, builtin(), a), areaSubject(e), a.params, "qa-decider", async () => ({ results: { bindings: [] } }));
+  assert.deepEqual((ap.uses.find((u) => u.key.endsWith("#findings-1")) as unknown as { options: Record<string, unknown> }).options["ruleState"], ["QA-R-MAJOR-OWNER"]);
+});
+
+test("area: a long-form record query (one row per field, all of one claim) opens the record", async () => {
+  const D2 = `https://kton.dev/o/${"2".repeat(64)}`;
+  const iri = "https://example.org/qa/deviation/D-002";
+  const w = areaWith(fixtures(), {
+    deviations: [{ item: iri, claim: D2, identifier: "D-002" }],
+    deviation: [
+      { claim: D2, field: "https://example.org/qa/identifier", value: "D-002" },
+      { claim: D2, field: "https://example.org/qa/title", value: "Cleaning log entry missing" },
+    ],
+  });
+  await w.area.refresh();
+  const e = areaOf(w.area.loaded as Loaded, "qa.area-one");
+  const key = `qa.area-one/${e.file}`;
+  const host = (await w.area.openSlot(key, areaSubject(e))) as CompositionHost;
+  const use = host.plan.uses.find((u) => u.key.endsWith("#records"))?.key as string;
+  await host.onMessage({ type: "kton:intent", intent: { id: "o#3", kind: "open", from: use, uri: iri } });
+  assert.equal((w.area.hostOf(`${key}#record`) as CompositionHost | undefined)?.plan.subject.claim, `sha256:${"2".repeat(64)}`, w.errors.join("; "));
+});
+
+/** The rows viewer mounted on a stand-in element: what it draws for one answer (or a failed query). */
+async function drawRows(options: Record<string, unknown>, answer: { vars: string[]; rows: Array<Record<string, string>> } | Error): Promise<string> {
+  const { mount } = (await import(pathToFileURL(join(process.cwd(), "media", "workbench", "viewers", "rows", "rows.js")).href)) as { mount: (el: unknown, ctx: unknown) => unknown };
+  const el = { innerHTML: "", querySelectorAll: () => [], querySelector: () => null };
+  const esc = (x: unknown) => String(x).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  let done!: () => void;
+  const drawn = new Promise<void>((r) => (done = r));
+  const request = async () => {
+    setTimeout(done, 0);
+    if (answer instanceof Error) throw answer;
+    return { head: { vars: answer.vars }, results: { bindings: answer.rows.map((r) => Object.fromEntries(Object.entries(r).map(([k, v]) => [k, { type: "literal", value: v }]))) } };
+  };
+  mount(el, { kit: { esc }, use: { options }, request, intent: async () => ({}) });
+  await drawn;
+  return el.innerHTML;
+}
+
+test("area: the rows block states each rule as passed, findings (n) or not run, and shows a long-form record as fields", async () => {
+  const vars = ["rule", "focus", "claim", "message"];
+  const two = [
+    { rule: "R-A", focus: "p1", claim: "c1", message: "m1" },
+    { rule: "R-A", focus: "p2", claim: "c2", message: "m2" },
+  ];
+  const opts = { caption: "Rule A or B", columns: ["rule", "focus", "message"], rules: ["R-A", "R-B"], ruleState: ["R-A", "R-B"], emptyText: "none" };
+  const html = await drawRows(opts, { vars, rows: two });
+  assert.match(html, /data-area-caption>Rule A or B</);
+  assert.match(html, /data-rule-state="R-A" data-state="findings" data-n="2"><strong>R-A<\/strong>: findings \(2\)/);
+  assert.match(html, /data-rule-state="R-B" data-state="passed" data-n="0"><strong>R-B<\/strong>: passed/);
+  assert.match(html, /data-area-table data-count="2"/);
+  const failed = await drawRows(opts, new Error("timed out after 30 s"));
+  assert.match(failed, /data-rule-state="R-A" data-state="not-run"[^>]*><strong>R-A<\/strong>: not run \(the query failed\)/);
+  assert.match(failed, /data-area-error[^>]*><p>timed out after 30 s</);
+  assert.doesNotMatch(failed, /passed/);
+  // a long-form record: every field, with the IRI's local name as its label
+  const rec = await drawRows({ card: "yes" }, { vars: ["claim", "field", "value"], rows: [
+    { claim: "c", field: "https://example.org/qa/onto#trainee", value: "https://example.org/p1" },
+    { claim: "c", field: "https://example.org/qa/onto#trainingDate", value: "2026-08-19" },
+  ] });
+  assert.match(rec, /data-area-card data-count="2"><dt>trainee<\/dt><dd data-col="trainee">https:\/\/example.org\/p1<\/dd><dt>trainingDate<\/dt><dd data-col="trainingDate">2026-08-19<\/dd>/);
+});
+
+test("area: an area entry without a `when` opens on its scope from the QM areas node", async () => {
+  const fx = fixtures();
+  const one = fx.find((f) => f.pkg.name === "qa.area-one") as Fixture;
+  const w0 = areaWith(fx, {});
+  await w0.area.refresh();
+  const e0 = areaOf(w0.area.loaded as Loaded, "qa.area-one");
+  // the same area as the package would list it without `when`
+  const loaded = w0.area.loaded as Loaded;
+  w0.area.loaded = { ...loaded, entries: loaded.entries.map((x) => (x === e0 ? (({ when: _w, ...rest }) => rest)(x) as SlotEntry : x)) };
+  const e = areaOf(w0.area.loaded, "qa.area-one");
+  assert.equal(e.when, undefined);
+  const host = await w0.area.openSlot(`qa.area-one/${e.file}`, areaSubject(e));
+  assert.ok(host instanceof CompositionHost, w0.errors.join("; "));
+  // a claim subject is still refused for it (only the area's scope opens it)
+  const errs = w0.errors.length;
+  await w0.area.openSlot(`qa.area-one/${e.file}`, { kind: "claim", iri: "https://example.org/x", id: `sha256:${"1".repeat(64)}`, claim: `sha256:${"1".repeat(64)}` });
+  assert.equal(w0.errors.length, errs + 1);
+  assert.ok(one);
+});
+
+test("area: a record's approvals match the record's claim in ?record (S6) or in ?claim (the training package)", async () => {
+  const draw = async (rows: Array<Record<string, string>>) => {
+    const { mount } = (await import(pathToFileURL(join(process.cwd(), "media", "workbench", "viewers", "rows", "rows.js")).href)) as { mount: (el: unknown, ctx: unknown) => unknown };
+    const el = { innerHTML: "", querySelectorAll: () => [], querySelector: () => null };
+    let done!: () => void;
+    const drawn = new Promise<void>((r) => (done = r));
+    const request = async () => (setTimeout(done, 0), { head: { vars: ["claim", "record", "outcome"] }, results: { bindings: rows.map((r) => Object.fromEntries(Object.entries(r).map(([k, v]) => [k, { type: "uri", value: v }]))) } });
+    mount(el, { kit: { esc: String }, use: { options: { match: ["record", "claim"], columns: ["outcome"] } }, subject: { claim: `sha256:${"2".repeat(64)}` }, request, intent: async () => ({}) });
+    await drawn;
+    return el.innerHTML;
+  };
+  const mine = `https://kton.dev/o/${"2".repeat(64)}`;
+  const other = `https://kton.dev/o/${"3".repeat(64)}`;
+  const html = await draw([
+    { claim: `https://kton.dev/o/${"a".repeat(64)}`, record: mine, outcome: "s6-approved" },
+    { claim: mine, record: "https://example.org/rt-1", outcome: "attended" },
+    { claim: other, record: "https://example.org/rt-1", outcome: "elsewhere" },
+  ]);
+  assert.match(html, /data-count="2"/);
+  assert.match(html, /s6-approved/);
+  assert.match(html, /attended/);
+  assert.doesNotMatch(html, /elsewhere/);
 });
