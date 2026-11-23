@@ -144,3 +144,60 @@ export function withDiffers(answer: unknown, o: DiffersOptions): unknown {
   const vars = [...new Set([...(a.head?.vars ?? []), "differs", "differsLead"])];
   return { ...a, head: { ...(a.head ?? {}), vars }, results: { ...(a.results ?? {}), bindings } };
 }
+
+/**
+ * changesBetween "repo|from|to|path" (the row's columns naming the mirrored repository, the two commits and the test
+ * file) with changesReviews "<query>" (optional: ?approvedCommit ?by ?when, a review naming the commit it approves):
+ * each such row gets `changes`, a JSON list of the commits between the two that touched the test file or a helper it
+ * imports ({sha, subject, author, date, touched: [{path, via}], review}), and `changesNote` (none, capped, or why not).
+ * Rows without all four values are left as they are.
+ */
+export interface ChangesOptions {
+  readonly repo: string;
+  readonly from: string;
+  readonly to: string;
+  readonly path: string;
+  readonly reviews?: string;
+}
+export function changesOptions(options: Readonly<Record<string, unknown>> | undefined): ChangesOptions | undefined {
+  const c = options?.["changesBetween"];
+  if (typeof c !== "string") return undefined;
+  const [repo, from, to, path] = c.split("|").map((x) => x.trim());
+  if (!repo || !from || !to || !path) return undefined;
+  const rv = options?.["changesReviews"];
+  return { repo, from, to, path, ...(typeof rv === "string" && rv ? { reviews: rv } : {}) };
+}
+
+type ChangesFn = (repo: string, from: string, to: string, path: string) => Promise<import("./sources.js").Changes>;
+
+/** The review of a commit among the review rows: one whose approvedCommit is a prefix of the sha (or the sha of it). */
+export function reviewOf(sha: string, reviews: ReadonlyArray<Record<string, { value?: string }>>): string {
+  const hits = reviews.filter((r) => {
+    const a = (r["approvedCommit"]?.value ?? "").toLowerCase();
+    return a.length >= 7 && (sha.startsWith(a) || a.startsWith(sha));
+  });
+  if (!hits.length) return "no review found";
+  return hits.map((r) => `approved by ${r["by"]?.value ?? "?"}${r["when"]?.value ? ` on ${r["when"].value.slice(0, 10)}` : ""}`).join("; ");
+}
+
+export async function withChanges(answer: unknown, o: ChangesOptions, changes: ChangesFn | undefined, reviews: ReadonlyArray<Record<string, { value?: string }>> = []): Promise<unknown> {
+  const a = answer as Answer;
+  const rows = a.results?.bindings;
+  if (!Array.isArray(rows)) return answer;
+  const memo = new Map<string, Promise<import("./sources.js").Changes>>();
+  const bindings = await Promise.all(rows.map(async (r) => {
+    const [repo, from, to, path] = [o.repo, o.from, o.to, o.path].map((k) => r[k]?.value ?? "");
+    if (!repo || !from || !to || !path) return r;
+    if (!changes) return { ...r, changesNote: lit("changes not shown: no sources on this host") };
+    const k = [repo, from, to, path].join("\n");
+    let p = memo.get(k);
+    if (!p) memo.set(k, (p = changes(repo, from, to, path)));
+    const c = await p;
+    if ("why" in c) return { ...r, changesNote: lit(`changes not shown: ${c.why}`) };
+    const list = c.commits.map((x) => ({ ...x, repo, review: reviewOf(x.sha, reviews) }));
+    const note = `${list.length ? `${list.length} commit${list.length === 1 ? "" : "s"}` : "no commit"} between ${from.slice(0, 7)} and ${to.slice(0, 7)} touched the test or one of its ${c.watched - 1} imported file${c.watched === 2 ? "" : "s"}${c.capped ? ` (${c.capped})` : ""}`;
+    return { ...r, changes: lit(JSON.stringify(list)), changesNote: lit(note) };
+  }));
+  const vars = [...new Set([...(a.head?.vars ?? []), "changes", "changesNote"])];
+  return { ...a, head: { ...(a.head ?? {}), vars }, results: { ...(a.results ?? {}), bindings } };
+}

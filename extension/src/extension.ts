@@ -10,7 +10,7 @@ import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { inside, writeTree } from "./packages/store.js";
-import { approvalStaleness, readAtCommit, sourceUri, SRC_SCHEME, targetOf, type SourceTarget } from "./ui/sources.js";
+import { approvalStaleness, changesBetween, readAtCommit, sourceUri, SRC_SCHEME, targetOf, type SourceTarget } from "./ui/sources.js";
 import { ART_SCHEME, artifactOf, artifactUri, readArtifact, showAs, THUMB_MAX_BYTES, type ArtifactTarget } from "./ui/artifacts.js";
 
 const artifactsDir = (): string => vscode.workspace.getConfiguration("kton").get<string>("artifacts.dir") ?? "";
@@ -111,6 +111,9 @@ class Tree implements vscode.TreeDataProvider<TreeNode> {
 }
 
 class VsHost implements UiHost {
+  changesBetween(repo: string, from: string, to: string, path: string) {
+    return changesBetween(sourcesDir(), repo, from, to, path, sourceAliases());
+  }
   approvalStaleness(repo: string, approved: string, head: string, paths: readonly string[]) {
     return approvalStaleness(sourcesDir(), repo, approved, head, paths, sourceAliases());
   }

@@ -13,7 +13,7 @@ import { applies, isView, oneNumber, partition, planComposition, planEntry, stat
 import { approvalCounts, areaComposition, BUILTIN, recordComposition, recordTerms, signerKeyId, withBuiltin } from "./qm-area.js";
 import { SIGNER_QUERY } from "../identity.js";
 import { withThumbs } from "../ui/artifacts.js";
-import { artifactsOf, citeOptions, differsOptions, withCitations, withDiffers } from "../ui/annotate.js";
+import { artifactsOf, changesOptions, citeOptions, differsOptions, withChanges, withCitations, withDiffers } from "../ui/annotate.js";
 import type { AreaDecl } from "../packages/listing.js";
 
 export interface CompositionUi {
@@ -52,6 +52,8 @@ export interface ActPath {
   person?(): { readonly keyId: string; readonly personTiers: readonly string[] };
   /** Whether an approval given on one commit still holds at another (read-only git over the mirrors). */
   staleness?(repo: string, approved: string, head: string, paths: readonly string[]): Promise<import("../ui/sources.js").Staleness>;
+  /** The commits between two commits that touched a test file or a helper it imports (option changesBetween). */
+  changes?(repo: string, from: string, to: string, path: string): Promise<import("../ui/sources.js").Changes>;
   /** A run artifact's thumbnail as a data URL, after its sha256 is checked (or undefined: shown as a link only). */
   thumb?(t: import("../ui/artifacts.js").ArtifactTarget): Promise<string | undefined>;
 }
@@ -488,6 +490,15 @@ export class PackagesArea {
           r = withCitations(r, co, await arts);
         }
         if (dof) r = withDiffers(r, dof);
+        const cb = changesOptions(uo);
+        if (cb) {
+          let reviews: Array<Record<string, { value?: string }>> = [];
+          if (cb.reviews) {
+            const rv = (await this.named(p, cb.reviews, {})) as { results?: { bindings?: Array<Record<string, { value?: string }>> } };
+            reviews = rv.results?.bindings ?? [];
+          }
+          r = await withChanges(r, cb, this.path.changes, reviews);
+        }
         const shown = await this.withApprovals(annotate && p === annotate.package && name === annotate.query ? await this.withCounts(r) : r);
         return this.path.thumb ? withThumbs(shown, this.path.thumb) : shown;
       },

@@ -46,6 +46,10 @@
 //             once under the group's header; each row shows a small marker with the count and the items in its tooltip
 //   details   "column|Label": an expandable row detail (in the first cell) with these fields; with actsIn "details" the
 //             row's acts go there too
+//   changesBetween "repo|from|to|path": the row's columns naming a mirrored repository, two commits and a test file; the
+//             shell adds `changes` (the commits between them that touched the test or a helper it imports, each opening
+//             its diff read-only, with its review from changesReviews "<query>": ?approvedCommit ?by ?when) and
+//             `changesNote`; list "changes" among the columns to show them
 //   stamp     column (default: a stamp column when the query answers one) | section (no column: each row keeps its
 //             stamp, hidden when the part's source chip names it) | hide
 export function mount(el, ctx) {
@@ -182,6 +186,17 @@ export function mount(el, ctx) {
         const [run, name, sha256, mediaType] = JSON.parse(b.dataset.art);
         b.disabled = true;
         ctx.intent({ kind: "open", artifact: { run, name, sha256, ...(mediaType ? { mediaType } : {}) } }).then((res) => {
+          b.disabled = false;
+          if (res?.refused) b.title = `Not opened: ${res.refused.why ?? res.refused}`;
+        });
+      });
+    }
+    for (const b of el.querySelectorAll("button[data-src]")) {
+      b.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        const [repo, commit] = JSON.parse(b.dataset.src);
+        b.disabled = true;
+        ctx.intent({ kind: "open", source: { repo, commit, diff: true } }).then((res) => {
           b.disabled = false;
           if (res?.refused) b.title = `Not opened: ${res.refused.why ?? res.refused}`;
         });
@@ -336,6 +351,24 @@ export function parseEvidence(packed) {
     .sort((a, b) => (Number(a.assertion) || 1e9) - (Number(b.assertion) || 1e9));
 }
 
+/** The commits a row's changes column lists (the shell's option changesBetween): each opens its diff read-only. */
+export function changesCell(esc, json) {
+  let list = [];
+  try {
+    list = JSON.parse(json || "[]");
+  } catch {
+    list = [];
+  }
+  if (!Array.isArray(list) || !list.length) return "";
+  return `<ul class="changes">${list
+    .map((x) => {
+      const touched = (x.touched ?? []).map((t) => `${String(t.path).split("/").pop()} (${t.via})`).join("; ");
+      const reviewed = /^approved by /.test(x.review ?? "");
+      return `<li data-commit="${esc(x.sha)}"><button type="button" class="ghost small mono" data-src="${esc(JSON.stringify([x.repo, x.sha]))}" data-tip="${esc(`${x.sha} · open the change read-only`)}">${esc(String(x.sha).slice(0, 7))}</button> ${esc(x.subject ?? "")} <span class="muted">· ${esc(x.author ?? "")} · ${esc(String(x.date ?? "").slice(0, 10))}</span><div class="muted" data-touched>touched: ${esc(touched)}</div><span class="pill ${reviewed ? "ok" : "warn"}" data-review>${esc(x.review ?? "")}</span></li>`;
+    })
+    .join("")}</ul>`;
+}
+
 function evidenceCell(esc, packed, traceNote) {
   const es = parseEvidence(packed);
   const art = (e) => esc(JSON.stringify([e.run, e.name, e.sha256, e.mediaType || ""]));
@@ -395,6 +428,7 @@ function table(rows, cols, { o, esc, value, shortly, click, perRow, rowButtons }
     }
     if (rg && c === rg.low) return `<td data-col="${esc(c)}" class="r muted">${value(r[rg.low]) && measurable(r) ? `${esc(pct(value(r[rg.low])).slice(0, -2))}–${esc(pct(value(r[rg.high])).slice(0, -2))}` : ""}${lead}</td>`;
     if (rg && c === rg.n) return `<td data-col="${esc(c)}" class="r${measurable(r) ? "" : " muted"}" data-number>${esc(value(r[c]))}${lead}</td>`;
+    if (o.changesBetween && c === "changes") return `<td data-col="changes" class="ch-cell">${changesCell(esc, value(r[c]))}${lead}</td>`;
     if (o.evidence && c === o.evidence) return `<td data-col="${esc(c)}" class="ev-cell">${evidenceCell(esc, value(r[c]), o.traceNote ? value(r[o.traceNote]) : "")}${lead}</td>`;
     const num = numeric.has(c) || NUM_RE.test(value(r[c]));
     const full = value(r[c]);

@@ -83,7 +83,9 @@
   },
   "askEach": {
    "set": "literal"
-  }
+  },
+  "changesBetween": "literal",
+  "changesReviews": "literal"
  },
  "emits": {
   "select": {
