@@ -139,6 +139,26 @@ ended or expired. A request in an ended or expired session is refused with `sess
 lines of the connection's own session; the operator command `cockpit session log --on-behalf-of <key>`
 returns those of every session on that person's behalf, for "what was refused today and why".
 
+### 9 For the module's build (kton-review on the v0.5.11 release)
+
+**The evidence is bound to the session (E1).** The `evidence` of `network: none` is the run-in-container
+record that made the session's key or names it; the machine key refuses `internal`/`none` with any other,
+so an old `--network none` run vouches for no session but its own.
+
+**The most restrictive class wins (E2).** A scope with several `classifiedAs` claims (by trusted keys) has
+every class they name, and a request needs clearance for each; never the latest alone. `doctor` names the
+unclassified scopes beside the classified ones, so an open scope is seen, not assumed.
+
+**What carries no class (E3), open for MH.** Steps, unscoped claims and loaded files' graphs are in no scope
+and so carry no class: a union query answers over them whatever the session's clearance. Proposed: a
+loaded file is classified as a scope is (`classifiedAs` about its hash), and `session.unclassified: open |
+closed` in the configuration decides the rest, `open` by default as section 2 decides for scopes; with
+`closed`, a session below a configured class reads no unclassified graph.
+
+**No unsealed lines (E4).** Lines written since the last seal could be dropped undetected until the day's
+seal. The module also seals at shutdown and every N lines (configurable, 1000 by default); a day whose
+last line is not sealed is a finding at the next start and in `doctor`.
+
 ## Consequences
 
 - One door change (the `Guard` field) and one module; SPEC §13 stays as it is.
@@ -156,7 +176,10 @@ after its day was sealed (the seal no longer matches); `session check --lane` re
 customer information with an external model; a machine key refusing to sign `internal`/`none` without its
 evidence; a `say` in a session signing with a key the rules do not allow it; a CLI call with a stale or
 replayed signature; `session.required` refusing a call without a session; a union query leaving out a class
-and naming the class, not the scope; `session/log` returning only the connection's own session.
+and naming the class, not the scope; `session/log` returning only the connection's own session; a machine key refusing `internal`/`none` with another session's evidence (E1); a scope classified
+twice answering with both classes (E2); `doctor` naming unclassified scopes; with `session.unclassified:
+closed`, a union query leaving out steps, unscoped claims and unclassified loaded files for a session below a
+class (E3); a line dropped after the last seal and before shutdown, found at the next start (E4).
 
 ## Alternatives
 
