@@ -1,6 +1,7 @@
 package cockpit
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"regexp"
@@ -8,6 +9,7 @@ import (
 
 	"kton.dev/plankton/core"
 
+	"github.com/kton-protocol/kton-cockpit/internal/binaries"
 	"github.com/kton-protocol/kton-cockpit/internal/config"
 	"github.com/kton-protocol/kton-cockpit/internal/repofile"
 )
@@ -46,3 +48,56 @@ func resolveSubject(cfg *config.Config, subject string) (id, resolvedFrom, why s
 // IsIRI reports whether s names something by IRI as a say subject may (SPEC §8): a scheme with an
 // authority, or urn:, tag:, did: or mailto:. The shell form uses it so every form takes the same.
 func IsIRI(s string) bool { return iriSubject.MatchString(s) }
+
+// isPartialID says v begins as a kton id (sha256:) and is not a whole one.
+func isPartialID(v string) bool {
+	if !strings.HasPrefix(strings.ToLower(v), "sha256:") {
+		return false
+	}
+	_, ok := core.NormalizeContentHash(v)
+	return !ok
+}
+
+// fullIDHint names the one record or claim a short id is the start of, so the refusal says which id to
+// paste; "" when none or more than one is. A short id is never signed in its place: a prefix that is
+// unique today need not be tomorrow.
+func fullIDHint(ctx context.Context, cfg *config.Config, v string) string {
+	if !isPartialID(v) {
+		return ""
+	}
+	prefix := strings.ToLower(strings.TrimRight(strings.TrimSpace(v), ".…"))
+	hexPart := strings.TrimPrefix(prefix, "sha256:")
+	if len(hexPart) < 6 || strings.Trim(hexPart, "0123456789abcdef") != "" {
+		return ""
+	}
+	inputs, err := binaries.Inputs(ctx, cfg)
+	if err != nil {
+		return ""
+	}
+	seen := map[string]bool{}
+	for _, in := range inputs {
+		if p, err := binaries.OpenPlanktonSource(in.PlanktonDir); err == nil {
+			for _, r := range p.Records(0) {
+				if strings.HasPrefix(strings.ToLower(r.FotonID), prefix) {
+					seen[strings.ToLower(r.FotonID)] = true
+				}
+			}
+		}
+		if n, err := binaries.OpenNektonSource(in.NektonDir); err == nil {
+			for _, r := range n.RawRecords() {
+				if strings.HasPrefix(strings.ToLower(r.ClaimID), prefix) {
+					seen[strings.ToLower(r.ClaimID)] = true
+				}
+			}
+		}
+	}
+	switch len(seen) {
+	case 0:
+		return "; no record or claim this repository reads begins so"
+	case 1:
+		for id := range seen {
+			return "; the one record or claim that begins so is " + id + ": give it whole"
+		}
+	}
+	return fmt.Sprintf("; %d records and claims begin so: give the whole id", len(seen))
+}

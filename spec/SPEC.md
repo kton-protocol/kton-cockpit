@@ -546,13 +546,19 @@ the repository, which stands for the hash of its bytes; the answer then reports 
 (`resolvedFrom`). This holds for every form of say. Anything else MUST be refused, never signed as a
 literal: a claim about the text of a path is about nothing a query can find.
 
+A value that begins as an id (`sha256:`) and is not a whole one MUST be refused, as the subject and in a
+field of any type, in every form of say; in a batch, nothing of the batch is written and the refusal names
+the line. A short id MUST NOT be signed in place of the whole one; the refusal SHOULD name the one record
+or claim the short id is the start of, when there is exactly one.
+
 A file is named by where it resolves: a symbolic link in the repository to a file outside it MUST be
 refused, since the claim is shared and a small file's hash can be guessed back. Only a regular file
 MUST be read; a directory, a FIFO or a device MUST be refused before it is opened, so a say never
 waits on a read that does not end. `ask` reads a file the same way, but may read one outside the
 repository: it signs nothing.
 
-> **Checked by:** `TestSay_ASubjectThatIsAFileIsItsBytes`, `TestHash_RefusesALinkOutAndAnythingButARegularFile`.
+> **Checked by:** `TestSay_ASubjectThatIsAFileIsItsBytes`, `TestHash_RefusesALinkOutAndAnythingButARegularFile`,
+> `TestSay_AShortIDIsRefusedNamingTheWholeOne`.
 
 For a template with `"replace": "previous"`, say MUST fill `replaces`, when the request names none,
 with the newest claim of that template about the same subject that the signing key itself signed

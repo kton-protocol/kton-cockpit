@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **A short id is refused in every field of a say**, not only as the subject (userinterface, dry run 1): a
+  `sha256:4c505bfa` in a string field was signed as text. The refusal names the whole id when one record or
+  claim begins so; a batch with one is written not at all, its line named.
+
 ## v0.5.10 — 2026-11-23
 
 A faster view after a say, the index in the persona windows, and reproducible queries; each reviewed by
