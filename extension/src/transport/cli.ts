@@ -131,7 +131,8 @@ export class CliTransport implements Transport {
     const why = checkSay(req);
     if (why) return bad(why);
     if (!SHA.test(req.subject)) {
-      // an IRI subject (an element, a rule case): the JSON form, which takes one (the word form does not, cockpit v0.5.x)
+      // an IRI subject (an element, a rule case): the JSON form. Since v0.5.1 the word form takes an IRI subject as it
+      // is too, unless a file of that name exists; the JSON form stays the choice (one argv element, every field named)
       return this.outcome(["say", JSON.stringify({ template: req.template, subject: req.subject, fields: req.fields ?? {}, ...(req.as !== undefined ? { as: req.as } : {}), ...(req.scope !== undefined ? { scope: req.scope } : {}), ...(req.expectTemplate ? { expectTemplate: req.expectTemplate } : {}), ...(req.expectRevision ? { expectRevision: req.expectRevision } : {}), ...(req.expectPredicate ? { expectPredicate: req.expectPredicate } : {}) })], assertSayResult);
     }
     const args = ["say", req.template, req.subject];
