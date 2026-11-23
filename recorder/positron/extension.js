@@ -820,6 +820,25 @@ async function basedOnLines(repo, cmd) {
   return ['cockpit claim based-on ' + sq(JSON.stringify({ 'based-on': id, why: `developed from ${parent}` }))];
 }
 
+// parentStepOf: the first model file's parent as {id, why} for cockpit-improve's parentStep, or null
+async function parentStepOf(repo, origins) {
+  for (const o of origins || []) {
+    const sum = o.from_sha256 || (await sha256File(path.join(repo, o.from)));
+    const ids = sum ? await producersOf(repo, sum) : [];
+    if (ids.length) return { id: ids[ids.length - 1], why: `developed in pharmpy from ${o.from}${(o.via || []).length ? ': ' + o.via.join(', ') : ''}` };
+  }
+  return null;
+}
+// improveTakesParent: whether this cockpit-improve takes parentStep in a publish request (its publish --help names it);
+// asked once per window
+let takesParent = null;
+function improveTakesParent() {
+  if (takesParent) return takesParent;
+  takesParent = new Promise((resolve) => execFile(bin('cockpit-improve'), ['publish', '--help'], { timeout: 15000 }, (err, out, errout) =>
+    resolve(/parentStep/.test(String(out || '') + String(errout || '')))));
+  return takesParent;
+}
+
 // parentStepLines: per model file a step wrote through pharmpy, the parent-step claim about the step just published,
 // naming the published step that made the file the model was read from (by the bytes the session read)
 async function parentStepLines(repo, origins) {
@@ -976,6 +995,12 @@ async function publishText(story, file, steps) {
       lines.push('#   cannot be published: ' + ((d.outputs || []).map((f) => `${f.path}${f.note ? ' (' + f.note + ')' : ''}`).join(', ') || 'no output'));
       continue;
     }
+    // improve mode with a cockpit-improve that takes the parent in the request (cockpit-improve-backend 0e4e17e): it
+    // places the improve step under its parent's step while publishing, and signs the parent-step claim itself;
+    // otherwise the claim follows the publish (and the improve step is placed by the other rules)
+    const parentAllowed = allowsTemplate(story.repo, 'parent-step') && (d.derived_from || []).length > 0;
+    const ps = parentAllowed && repoMode(story.repo) === 'improve' && (await improveTakesParent()) ? await parentStepOf(story.repo, d.derived_from) : null;
+    if (ps) { req.parentStep = ps.id; req.parentWhy = ps.why; }
     lines.push('cockpit publish ' + sq(JSON.stringify(req)));
     const n = typeof s.note === 'string' ? { description: s.note } : (s.note || {});
     // see publish(): a say about the foton just published, one per template
@@ -1002,7 +1027,7 @@ async function publishText(story, file, steps) {
     // base/final and \$PROBLEM for NONMEM; nothing twice), as the nmfe75 wrapper does
     // developed in pharmpy (ktonpharmpy, MH 21.11.): the model file this step wrote came from another model file by
     // modeling calls; the step is a child step of the step that made that file (pmx/parent-step), its latest published foton
-    if (allowsTemplate(story.repo, 'parent-step')) lines.push(...(await parentStepLines(story.repo, d.derived_from)));
+    if (parentAllowed && !ps) lines.push(...(await parentStepLines(story.repo, d.derived_from)));
     if (repoMode(story.repo) !== 'improve') lines.push('cockpit model-claims');
   }
   return lines.join('\n');
