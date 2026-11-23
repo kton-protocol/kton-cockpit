@@ -115,7 +115,12 @@ func sweepLocks(indexDir string) {
 			continue
 		}
 		if st, err := os.Stat(p); err == nil && time.Since(st.ModTime()) > time.Hour {
-			_ = os.Remove(p)
+			// Opening or locking a file leaves its time as it was: a build that has just locked it, its
+			// marker not yet written, holds it, so it stays (kton-review on #241).
+			if unlock, held, err := flock.TryLock(p); err == nil && !held {
+				_ = os.Remove(p)
+				unlock()
+			}
 		}
 	}
 }
