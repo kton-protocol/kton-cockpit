@@ -707,13 +707,22 @@ export class CompositionHost {
    * be about instead of the plan's subject (a spot check signs about the element the card showed).
    */
   private readonly served = new Map<string, Set<string>>();
+  /** the rows this host served per use, by their target value (a rule may depend on a row's column) */
+  private readonly servedRows = new Map<string, Map<string, Record<string, string>>>();
+
   private remember(u: PlanUse, result: unknown): void {
     const col = (u as { options?: Record<string, unknown> }).options?.["target"];
     if (typeof col !== "string") return;
     const b = (result as { results?: { bindings?: Array<Record<string, { value?: string }>> } }).results?.bindings ?? [];
     const set = this.served.get(u.key) ?? new Set<string>();
-    for (const row of b) if (typeof row[col]?.value === "string") set.add(row[col]?.value as string);
+    const rows = this.servedRows.get(u.key) ?? new Map<string, Record<string, string>>();
+    for (const row of b)
+      if (typeof row[col]?.value === "string") {
+        set.add(row[col]?.value as string);
+        rows.set(row[col]?.value as string, Object.fromEntries(Object.entries(row).map(([k, v]) => [k, v?.value ?? ""])));
+      }
     this.served.set(u.key, set);
+    this.servedRows.set(u.key, rows);
   }
 
   /**
@@ -789,7 +798,10 @@ export class CompositionHost {
         const useOf = this.plan.uses.find((x) => x.key === i.from) as { options?: Record<string, unknown>; query?: { package?: string } } | undefined;
         const asks = askEachOf(useOf?.options, c.name);
         const check = checkAgainstOf(useOf?.options, c.name, useOf?.query?.package ?? this.plan.root.package);
-        const rr = requireReviewedOf(useOf?.options);
+        const rr0 = requireReviewedOf(useOf?.options);
+        // a rule with `when` applies to a row's act only when that row (as this host served it) has a value there
+        const servedRow = typeof i["target"] === "string" ? this.servedRows.get(i.from ?? "")?.get(i["target"] as string) : undefined;
+        const rr = rr0 && rr0.when && typeof i["target"] === "string" && !servedRow?.[rr0.when] ? undefined : rr0;
         const review = rr ? { ...rr, package: useOf?.query?.package ?? this.plan.root.package } : undefined;
         const r = await this.backend.act(c, this.aboutOf(i, checked.act), actFields, `${checked.act.label}: ${this.plan.root.package}/${this.plan.root.composition}`, proposed, (s) => (made = s), asks.length ? asks : undefined, check, review);
         if (r === "failed") return refuse(c.kind === "decision" ? "not signed (see the sign dialog)" : "not recorded");

@@ -457,3 +457,23 @@ test("area: a record's approvals match the record's claim in ?record only, never
   assert.doesNotMatch(html, /approves-another/);
   assert.doesNotMatch(html, /elsewhere/);
 });
+
+test("rows: requireReviewed's state drawn per row: with blockedWhen, only rows with a value there get the act disabled with the reason; the commits are listed", async () => {
+  const { mount } = (await import(pathToFileURL(join(process.cwd(), "media", "workbench", "viewers", "rows", "rows.js")).href)) as { mount: (el: unknown, ctx: unknown) => unknown };
+  const el = { innerHTML: "", querySelectorAll: () => [], querySelector: () => null };
+  const esc = (x: unknown) => String(x).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  let done!: () => void;
+  const drawn = new Promise<void>((r) => (done = r));
+  const lit = (v: string) => ({ type: "literal", value: v });
+  const request = async () => {
+    setTimeout(done, 0);
+    return { head: { vars: ["test", "item", "reviewScope"] }, results: { bindings: [{ test: lit("ui test"), item: lit("u1"), reviewScope: lit("app") }, { test: lit("api test"), item: lit("u2") }] } };
+  };
+  const options = { columns: ["test"], target: "item", blocked: "rerun|1 commit under this rerun has no review: abc1234", blockedWhen: "reviewScope", reviewed: ["main: 2 commits under this rerun", "abc1234 x: no review"] };
+  mount(el, { kit: { esc }, use: { options, blockActs: [{ intent: "record", label: "Rerun", control: { package: "p", name: "rerun" } }] }, request, intent: async () => ({}) });
+  await drawn;
+  const html = el.innerHTML;
+  assert.match(html, /data-reviewed open><summary><b data-blocked-why>1 commit under this rerun has no review: abc1234<\/b>/);
+  assert.match(html, /<tr data-row="0"[^]*?data-row-act="0"[^>]*disabled data-blocked/, "the row of that repository: disabled");
+  assert.doesNotMatch(html.slice(html.indexOf('<tr data-row="1"')), /data-blocked/, "the other row (another suite): enabled");
+});

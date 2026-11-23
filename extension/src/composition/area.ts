@@ -501,7 +501,7 @@ export class PackagesArea {
       if (!r) return u;
       const pkg = ((u as { query?: { package?: string } }).query?.package) ?? plan.root.package;
       const st = await this.reviewState(pkg, r);
-      return { ...u, options: { ...o, reviewed: st.lines, ...(st.blocked ? { blocked: `${r.control ?? "*"}|${st.blocked}` } : {}) } };
+      return { ...u, options: { ...o, reviewed: st.lines, ...(st.blocked ? { blocked: `${r.control ?? "*"}|${st.blocked}` } : {}), ...(r.when ? { blockedWhen: r.when } : {}) } };
     }));
     return { ...plan, uses } as Plan;
   }

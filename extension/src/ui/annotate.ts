@@ -203,8 +203,10 @@ export async function withChanges(answer: unknown, o: ChangesOptions, changes: C
 }
 
 /**
- * requireReviewed "[control:]repo|head|reviews[|base]": a rerun's commits must each have a review (see
+ * requireReviewed "[control:]repo|head|reviews[|base[|when]]": a rerun's commits must each have a review (see
  * sources.reviewedState). base, optional: the state the last run ran at, as a query's name answering ?commit (one row).
+ * when, optional: a row column; the rule applies to a row's act only when that column has a value (e.g. only tests
+ * that run on that repository); an act not about a row is always checked.
  */
 export interface RequireReviewed {
   readonly control?: string;
@@ -212,14 +214,15 @@ export interface RequireReviewed {
   readonly head: string;
   readonly reviews: string;
   readonly base?: string;
+  readonly when?: string;
 }
 export function requireReviewedOf(options: Readonly<Record<string, unknown>> | undefined): RequireReviewed | undefined {
   const raw = options?.["requireReviewed"];
   if (typeof raw !== "string") return undefined;
   const m = /^(?:([^:|]+):)?(.+)$/.exec(raw.trim());
-  const [repo, head, reviews, base] = (m?.[2] ?? "").split("|").map((x) => x.trim());
+  const [repo, head, reviews, base, when] = (m?.[2] ?? "").split("|").map((x) => x.trim());
   if (!m || !repo || !head || !reviews) return undefined;
-  return { ...(m[1] ? { control: m[1] } : {}), repo, head, reviews, ...(base ? { base } : {}) };
+  return { ...(m[1] ? { control: m[1] } : {}), repo, head, reviews, ...(base ? { base } : {}), ...(when ? { when } : {}) };
 }
 
 /** The reason an act under requireReviewed is blocked, and the commits as lines (each with its review or "no review"). */

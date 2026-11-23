@@ -46,7 +46,7 @@
 //             once under the group's header; each row shows a small marker with the count and the items in its tooltip
 //   details   "column|Label": an expandable row detail (in the first cell) with these fields; with actsIn "details" the
 //             row's acts go there too
-//   requireReviewed "[control:]repo|head|reviews[|base]": the shell finds the commits a rerun at head would contain since
+//   requireReviewed "[control:]repo|head|reviews[|base[|when]]" (when: a row column; only rows with a value there): the shell finds the commits a rerun at head would contain since
 //             base (a query naming the commit the last run ran at; without one, the newest ancestor with an approval)
 //             (each needs its own approval from the reviews query); while one has none, that control's act
 //             is drawn disabled with the reason, and the commits are listed above the table
@@ -89,7 +89,8 @@ export function mount(el, ctx) {
   const perRow = !!o.target && acts.length > 0;
   // requireReviewed (the shell's option): an act whose rerun contains a commit without a review is drawn disabled, with why
   const [blockedCtl, blockedWhy] = typeof o.blocked === "string" && o.blocked.includes("|") ? [o.blocked.slice(0, o.blocked.indexOf("|")), o.blocked.slice(o.blocked.indexOf("|") + 1)] : [undefined, undefined];
-  const blockedFor = (a) => (blockedWhy && (blockedCtl === "*" || a.control?.name === blockedCtl) ? blockedWhy : "");
+  // with blockedWhen (the rule's `when` column), only a row with a value there is under the rule
+  const blockedFor = (a, r) => (blockedWhy && (blockedCtl === "*" || a.control?.name === blockedCtl) && (!o.blockedWhen || !r || value(r[o.blockedWhen])) ? blockedWhy : "");
   const reviewedNote = () =>
     Array.isArray(o.reviewed) && o.reviewed.length
       ? `<details class="reviewed" data-reviewed${blockedWhy ? " open" : ""}><summary>${blockedWhy ? `<b data-blocked-why>${esc(blockedWhy)}</b>` : esc(o.reviewed[0])}</summary><ul>${o.reviewed.map((l) => `<li>${esc(l)}</li>`).join("")}</ul></details>`
@@ -102,7 +103,7 @@ export function mount(el, ctx) {
             return own.length ? own.map(({ c, ci }) => ({ a, ai, c, ci })) : [{ a, ai, c: null, ci: -1 }];
           })
           .map(({ a, ai, c, ci }) => {
-            const why = blockedFor(a);
+            const why = blockedFor(a, r);
             return `<button type="button" class="small" data-row-act="${i}" data-act-i="${ai}" data-choice="${ci}" data-testid="row-${i}-${esc(c ? c.value : a.control?.name ?? a.intent)}"${why ? ` disabled data-blocked data-tip="${esc(why)}"` : ""}>${esc(c ? c.label : a.label ?? a.intent)}</button>`;
           })
           .join(" ") + ` <span class="kton-muted" data-row-out="${i}"></span>`
