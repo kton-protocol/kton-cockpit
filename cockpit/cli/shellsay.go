@@ -219,6 +219,15 @@ func shellSay(ctx context.Context, args []string) error {
 			fmt.Fprintf(os.Stderr, "(%s)\n", note)
 		}
 		in.Subject = id
+		// A file goes to the core as its path, which the core resolves to the same hash with the same
+		// resolver, so it knows which file the claim is about and keeps its bytes (B11).
+		if strings.HasPrefix(id, "sha256:") && !strings.HasPrefix(pos[0], "sha256:") {
+			if abs, err := filepath.Abs(pos[0]); err == nil {
+				if fi, err := os.Stat(abs); err == nil && fi.Mode().IsRegular() {
+					in.Subject = abs
+				}
+			}
+		}
 		fillFromIdentity(cfg, in.Template, in.As, in.Fields)
 		if err := checkFields(cfg, in.Template, in.Fields); err != nil {
 			// Nothing was signed: the cockpit declines the claim as it stands, which is a refusal.

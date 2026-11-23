@@ -172,6 +172,13 @@ type Claims struct {
 	// module name (ADR-015 section 1). A module's words are compiled into the binary, so they are the
 	// same in every repository; naming the module admits them, as naming a package admits its own.
 	AllowedModules []string `json:"allowedModules,omitempty"`
+
+	// Keep says whether a say keeps the bytes of the files it signs about (its subject, its file
+	// fields), so the signed version opens after the working copy changed (B11, MH 23.11.): "" keeps
+	// them (a file git tracks into .kton/blobs, shared; one git ignores into .kton/local/blobs, this
+	// checkout only), "off" keeps none. KeepMaxBytes is the largest file kept (0: 64 MiB).
+	Keep         string `json:"keep,omitempty"`
+	KeepMaxBytes int64  `json:"keepMaxBytes,omitempty"`
 }
 
 // Query is how search and profile rules are evaluated: SPARQL in a pinned image (Oxigraph).
@@ -527,6 +534,14 @@ func (d Derived) MaxBytesSharedOrDefault() int64 {
 	return 16 << 20
 }
 
+// KeepMaxBytesOrDefault is the largest file a say keeps.
+func (c Claims) KeepMaxBytesOrDefault() int64 {
+	if c.KeepMaxBytes > 0 {
+		return c.KeepMaxBytes
+	}
+	return 64 << 20
+}
+
 // MaxBytesOrDefault is the largest file `cockpit load` takes.
 func (d Derived) MaxBytesOrDefault() int64 {
 	if d.MaxBytes > 0 {
@@ -874,6 +889,9 @@ func validate(raw *Raw) error {
 	}
 	if err := validateExecution(raw.Execution, raw.Environment); err != nil {
 		return err
+	}
+	if k := raw.Claims.Keep; k != "" && k != "off" {
+		return fmt.Errorf("claims.keep is \"off\" or absent, not %q", k)
 	}
 	if err := validateMaterial(raw.Material); err != nil {
 		return err

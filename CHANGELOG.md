@@ -4,6 +4,12 @@
 
 ### Added
 
+- **A say keeps the files it signs about** (B11, MH 23.11.): the subject's bytes and its file fields' go
+  into `.kton/blobs`, committed and pushed with the claim, so the signed version opens after the working
+  copy changed; a file git ignores goes into `.kton/local/blobs`, this checkout only; one over
+  `claims.keepMaxBytes` (64 MiB) is not kept. `claims.keep: off` turns it off for a repository whose
+  tracked files must not be duplicated. The answer names each file's hash, size and where it was kept.
+
 - **`cockpit index status --json` lists the builds running** for the repository (`building`: slot, since,
   phase), so a frontend waiting on an ask shows "building the index since …" instead of guessing from
   timeouts (userinterface, T12). A build whose process was killed is not listed.

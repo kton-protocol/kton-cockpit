@@ -80,6 +80,10 @@ type SayResult struct {
 	// what this registry could see at the time and judges none of it: whether the chain is whole is
 	// a seal-verification question, answered by `cockpit_ask` with query "scope".
 	Chain *ChainPosition `json:"chain,omitempty"`
+	// Kept are the files the claim is about, its subject and its file fields, and where their bytes were
+	// kept: shared (.kton/blobs, committed with the claim), local (.kton/local/blobs, this checkout only:
+	// git ignores the file) or no, with why (B11).
+	Kept []KeptFile `json:"kept,omitempty"`
 }
 
 // ChainPosition is where a claim landed in its scope, and what the substrate saw when it did.
@@ -281,6 +285,21 @@ func (c *Cockpit) Say(ctx context.Context, in SayRequest) (*SayResult, error) {
 	}
 
 	registryPaths := []string{config.Rel("nekton")}
+	// The bytes of the files the claim is about are kept with it (B11): the subject's, compared with the
+	// hash it was signed as, and the file fields'.
+	var keepPaths []string
+	keepWant := map[string]string{}
+	if resolvedFrom != "" {
+		keepPaths = append(keepPaths, resolvedFrom)
+		keepWant[resolvedFrom] = in.Subject
+	}
+	if set, err := r.Templates(); err == nil {
+		keepPaths = append(keepPaths, fileFieldPaths(set, in.Template, sets)...)
+	}
+	kept, keptShared := keepSigned(ctx, cfg, keepPaths, keepWant)
+	if keptShared {
+		registryPaths = append(registryPaths, config.Rel("blobs"))
+	}
 	if cfg.Raw.Union.Publish {
 		written, uerr := show.WriteUnion(ctx, cfg)
 		if uerr != nil {
@@ -328,6 +347,7 @@ func (c *Cockpit) Say(ctx context.Context, in SayRequest) (*SayResult, error) {
 		ResolvedFrom: resolvedFrom,
 		Pending:      pending,
 		Replaces:     replacedPrev,
+		Kept:         kept,
 	}
 	out.Via, out.ViaFrom = reproducedVia, reproducedViaFrom
 	if anchored != nil {

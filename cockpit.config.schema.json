@@ -72,6 +72,8 @@
           "items": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
           "description": "Installed packages whose templates and SPARQL queries this cockpit uses, by package id (the hash of the package seed, as `cockpit install` reports it). The operator admits packages, not single templates: a vocabulary package brings its templates, and only its latest sealed revision counts."
         },
+        "keep": { "type": "string", "enum": ["off"], "description": "\"off\": a say keeps no bytes of the files it signs about. Absent: it keeps them, a file git tracks into .kton/blobs (shared, pushed with the claim), one git ignores into .kton/local/blobs (this checkout only), so the signed version opens after the working copy changed." },
+        "keepMaxBytes": { "type": "integer", "minimum": 1, "description": "The largest file a say keeps; default 64 MiB. A larger one is not kept, and the say says so." },
         "allowedModules": {
           "type": "array",
           "items": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
