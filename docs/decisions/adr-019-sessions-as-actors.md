@@ -149,11 +149,14 @@ so an old `--network none` run vouches for no session but its own.
 every class they name, and a request needs clearance for each; never the latest alone. `doctor` names the
 unclassified scopes beside the classified ones, so an open scope is seen, not assumed.
 
-**What carries no class (E3), open for MH.** Steps, unscoped claims and loaded files' graphs are in no scope
-and so carry no class: a union query answers over them whatever the session's clearance. Proposed: a
-loaded file is classified as a scope is (`classifiedAs` about its hash), and `session.unclassified: open |
-closed` in the configuration decides the rest, `open` by default as section 2 decides for scopes; with
-`closed`, a session below a configured class reads no unclassified graph.
+**What carries no class (E3), decided by MH (23.11.).** Steps, unscoped claims and loaded files' graphs
+are in no scope and so carry no class: a union query would answer over them whatever the session's
+clearance. A loaded file is classified as a scope is (`classifiedAs` about its hash; `cockpit load --class
+<class>` says it in one step). `session.unclassified: open | closed` in the configuration decides the rest:
+`open` by default, as section 2 decides for scopes; with `closed`, a session not cleared for the highest
+class the configuration names reads no unclassified graph (no steps, no unscoped claims, no unclassified
+loaded file), and the refusal names the setting. A repository that holds customer information sets
+`closed`; one that holds none loses nothing. `doctor` names the setting and the unclassified loaded files.
 
 **No unsealed lines (E4).** Lines written since the last seal could be dropped undetected until the day's
 seal. The module also seals at shutdown and every N lines (configurable, 1000 by default); a day whose
@@ -179,7 +182,7 @@ replayed signature; `session.required` refusing a call without a session; a unio
 and naming the class, not the scope; `session/log` returning only the connection's own session; a machine key refusing `internal`/`none` with another session's evidence (E1); a scope classified
 twice answering with both classes (E2); `doctor` naming unclassified scopes; with `session.unclassified:
 closed`, a union query leaving out steps, unscoped claims and unclassified loaded files for a session below a
-class (E3); a line dropped after the last seal and before shutdown, found at the next start (E4).
+class, and `load --class` classifying a loaded file (E3); a line dropped after the last seal and before shutdown, found at the next start (E4).
 
 ## Alternatives
 
