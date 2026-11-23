@@ -71,13 +71,16 @@ A signer is `<https://kton.dev/agent/<keyid>>`, where the keyid is the 16 hex ch
        prov:used ?input ;                  # each input file
        nk:protocolKind "script" ;
        nk:protocolRef ?protocol ;          # the content hash of what ran, not its text
+       nk:declared "hand" ;                # only a step its signer declared: "hand" or "heuristic:<name>"
        prov:wasAttributedTo ?signer .      # only where a key you trust verified it
 ?output prov:wasGeneratedBy ?step ;
         prov:wasDerivedFrom ?input .
 ?file  a prov:Entity ; rdfs:label "data/in.csv" .   # the path the step named it by
 ```
 
-A step carries no time and no command text.
+A step carries no time and no command text. A step without `nk:declared` was not declared by its
+signer; that alone does not make it observed (older records and other tools lack the field).
+`FILTER NOT EXISTS { ?step nk:declared ?d }` leaves out the declared ones.
 
 **A claim** with the claim id `sha256:<hex>` is the node `<https://kton.dev/o/<hex>>` (dataset
 `claims`):

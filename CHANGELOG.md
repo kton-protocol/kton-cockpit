@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Migrating
+
+- **Every view is built again once** after the update: the projection's version is 11.
+
 ### Added
 
 - **`cockpit reproduce <query run>`** ([ADR-020](docs/decisions/adr-020-reproducible-queries.md), part 2):
@@ -19,6 +23,8 @@
   templates, alias files, row templates) as one blob, and the run is evaluated with it rather than with the
   repository's present, as a reproduction is. Runs recorded by v0.5.10 (version 1) are refused by
   `reproduce`, named.
+- **kton v0.4.3** (plankton, nekton, kton): a declared step carries `nk:declared` (`"hand"`,
+  `"heuristic:<name>"`) in a query; a step its signer did not declare carries none (kton#292).
 
 ### Fixed
 
