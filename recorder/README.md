@@ -70,6 +70,30 @@ and those published from (they are kept on publish).
 **A Claude Code session:** the project hooks in `.claude/` (see the workstream) point
 `LD_PRELOAD` at the same shim for the Bash tool only and write a `TASK` per command.
 
+## The story editor
+
+A story can be corrected and completed before it is published (MH 20./21.11.):
+
+- **Correct a recorded step** (*edit* on a line): the files it used and made, and what was done. The
+  correction is kept beside the recording in ktonwatch (`/api/edits`), never in it; every reader of the
+  step's draft (Publish, the plan preview, New run, the MCP tools) sees the corrected step.
+- **Add a step by hand**: a step nobody recorded. Its files are hashed when picked; one that changes
+  afterwards is not published until it is picked again. Published as `declared: hand` (kton-cockpit
+  v0.5.11; kton's `nk:declared`), so kton tells it from a recorded one.
+- **Reconstruct with…**: a script the person registers once (an absolute path; nothing found in a
+  repository runs by itself) gets the repository's files as JSON on stdin and prints proposed steps
+  (`{inputs, outputs, cmd, note}`). Each is checked in the editor before it is kept, and is then
+  published as `declared: heuristic:<name>`. Example: `demo/heuristics/nonmem-runs`.
+- **Interactive pharmpy** (`python/ktonpharmpy.py`): the Python recorder wraps `pharmpy.modeling` when
+  it is imported. A model written in the console is followed back over the session to the file it was
+  read from; the story shows the step as a child step of that file's step, and Publish signs
+  `pmx/parent-step` about it.
+- **R values**: after each command the R recorder hashes every variable it created or changed, and
+  the story marks each *new*, *changed* or *unchanged*. Nothing is saved unless the person clicks
+  *save* (`saveRDS` in the R console, recorded as a step). Which values are hashed: the R option
+  `ktonrec.track = list(exclude = c("name"), pattern = "^tmp", class = c("function"), max_mb = 200)`,
+  or `KTON_R_TRACK="exclude=a,b;pattern=^tmp;class=function;max_mb=50"` in `positron.r.kernel.env`.
+
 ## What is tested
 
 ```sh
