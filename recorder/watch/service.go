@@ -52,6 +52,9 @@ type Service struct {
 	// Values: the R values the person saved from a story, by hash (Load opens them).
 	Values *Values
 
+	// Heuristics: the workspace scripts the person registered to reconstruct steps (Load opens them).
+	Heuristics *Heuristics
+
 	// UI passes what the MCP tools ask of the editor to the listening windows (Load makes it).
 	UI *UIHub
 
@@ -105,6 +108,9 @@ func (sv *Service) Load() error {
 	}
 	if sv.Notes == nil && sv.Store != "" {
 		sv.Notes = OpenNotes(filepath.Join(sv.Store, "notes")) // not *.json beside the sessions: those are read as sessions
+	}
+	if sv.Heuristics == nil && sv.Store != "" {
+		sv.Heuristics = OpenHeuristics(filepath.Join(sv.Store, "heuristics"))
 	}
 	if sv.Values == nil && sv.Store != "" {
 		sv.Values = OpenValues(filepath.Join(sv.Store, "values"))

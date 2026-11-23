@@ -109,3 +109,7 @@ ol.story li.declared::before { background: none; border: 2px dashed var(--vscode
 .values { font-size: 12px; margin-top: 2px; display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; }
 .val.new code, .val.changed code { font-weight: 600; }
 .val.skipped { opacity: .7; }
+.proposals { margin: 8px 0 12px; padding: 10px 12px; border: 1px dashed var(--vscode-panel-border); border-radius: 4px; max-width: 720px; }
+.proposals h3 { margin: 0; font-size: 13px; }
+ol.props { padding-left: 18px; margin: 6px 0; }
+ol.props li { margin: 4px 0; }

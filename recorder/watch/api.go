@@ -422,6 +422,47 @@ func (sv *Service) Handler() http.Handler {
 		}
 		writeJSON(w, d)
 	})
+	// workspace heuristics (heuristics.go): GET; PUT {name, path} registers (empty path removes);
+	// POST /api/heuristics/run {project, name} → proposals, checked, never stored (the person keeps one as a declared step)
+	mux.HandleFunc("GET /api/heuristics", func(w http.ResponseWriter, r *http.Request) {
+		if sv.Heuristics == nil {
+			writeJSON(w, map[string]string{})
+			return
+		}
+		writeJSON(w, sv.Heuristics.All())
+	})
+	mux.HandleFunc("PUT /api/heuristics", func(w http.ResponseWriter, r *http.Request) {
+		var in struct{ Name, Path string }
+		if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&in); err != nil || sv.Heuristics == nil {
+			http.Error(w, "want {name, path}", http.StatusBadRequest)
+			return
+		}
+		if err := sv.Heuristics.Register(in.Name, in.Path); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeJSON(w, map[string]bool{"ok": true})
+	})
+	mux.HandleFunc("POST /api/heuristics/run", func(w http.ResponseWriter, r *http.Request) {
+		var in struct{ Project, Name string }
+		if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&in); err != nil || sv.Heuristics == nil {
+			http.Error(w, "want {project, name}", http.StatusBadRequest)
+			return
+		}
+		if !sv.isWatched(in.Project) {
+			http.Error(w, "not a recorded folder: "+in.Project, http.StatusBadRequest)
+			return
+		}
+		props, err := sv.Heuristics.Run(r.Context(), in.Name, RepoRoot(in.Project))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if props == nil {
+			props = []HeuristicProposal{}
+		}
+		writeJSON(w, props)
+	})
 	// an R value the person saved from the story (values.go): POST {hash, name, path, project}
 	mux.HandleFunc("POST /api/values/saved", func(w http.ResponseWriter, r *http.Request) {
 		var in SavedValue

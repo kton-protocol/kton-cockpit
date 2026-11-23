@@ -6,7 +6,7 @@
   const root = document.getElementById("root");
   let S = null, published = {}, sameResult = {}, notes = {}, cockpitRepo = false, open = {}, plan = null, busy = null, result = null, improve = false, wfRepros = [];
   // the story editor (MH 20./21.11.): one step at a time; edited = recorded steps the person corrected
-  let editing = null, edited = {};
+  let editing = null, edited = {}, proposals = null;
 
   const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
   const clock = (ns) => new Date(ns / 1e6).toLocaleTimeString(undefined, {hour: "2-digit", minute: "2-digit"});
@@ -317,8 +317,10 @@
         ${rows || `<div class="empty">${field === "inputs" ? "No input yet. A step may use none; add the files it read." : "No output yet: a step is published by what it made. Add the files it wrote."}</div>`}
         <button class="secondary small" data-pick="${field}">Add files…</button></div>`;
     };
-    const head = e.kind === "new" ? "A step by hand" : e.kind === "declared" ? "Your declared step" : "Correct this step";
-    const sub = e.kind === "recorded" ? "What the recorder saw, as you correct it. The recording stays as it was." : "Not recorded: published as declared by hand, with these files as they are now.";
+    const head = e.kind === "new" ? (e.declared ? "A reconstructed step" : "A step by hand") : e.kind === "declared" ? "Your declared step" : "Correct this step";
+    const sub = e.kind === "recorded" ? "What the recorder saw, as you correct it. The recording stays as it was."
+      : e.declared ? `Proposed by ${e.declared.slice(10)}: check it. Kept, it is published as declared (${e.declared}), with these files as they are now.`
+      : "Not recorded: published as declared by hand, with these files as they are now.";
     const nOut = e.outputs.filter((f) => f.use).length;
     return `<section class="editor" aria-label="${esc(head)}">
       <h3>${esc(head)}</h3><div class="muted">${esc(sub)}</div>
@@ -336,10 +338,25 @@
     render();
     vscode.postMessage({type: "draft", session, task});
   }
-  function startNew() {
+  function startNew(from) {
     const t = targetRel();
-    editing = {key: "new", kind: "new", inputs: [], outputs: [{path: t, use: true}], cmd: ""};
+    editing = from
+      ? {key: "new", kind: "new", declared: "heuristic:" + from.name, inputs: from.p.inputs.map((x) => ({path: x, use: true})), outputs: from.p.outputs.map((x) => ({path: x, use: true})), cmd: from.p.cmd}
+      : {key: "new", kind: "new", inputs: [], outputs: [{path: t, use: true}], cmd: ""};
     render();
+  }
+  // what a heuristic proposed: each to check in the editor, or a refusal with its reason
+  function proposalsBlock() {
+    if (!proposals) return "";
+    const ok = proposals.list.filter((p) => !p.refused), bad = proposals.list.filter((p) => p.refused);
+    const rows = ok.map((p, i) => `<li class="prop">${files(p.inputs)} <span class="arrow">→</span> ${files(p.outputs)} <code>${esc(p.cmd)}</code>${p.note ? ` <span class="muted">· ${esc(p.note)}</span>` : ""}
+      <button class="secondary small" data-prop="${proposals.list.indexOf(p)}" ${editing ? "disabled" : ""}>Check and keep…</button></li>`).join("");
+    return `<section class="proposals"><h3>Proposed by ${esc(proposals.name)}</h3>
+      <div class="muted">Not recorded: each is reconstructed from the files. Check one in the editor; kept, it is published as declared (heuristic:${esc(proposals.name)}).</div>
+      ${proposals.error ? `<div class="warn">${esc(proposals.error)}</div>` : ""}
+      ${ok.length ? `<ol class="props">${rows}</ol>` : proposals.error ? "" : `<div class="empty">${esc(proposals.name)} found nothing to propose in this workspace.</div>`}
+      ${bad.length ? `<details><summary>${bad.length} not offered</summary>${bad.map((p) => `<div class="muted">${esc(p.cmd || "?")}: ${esc(p.refused)}</div>`).join("")}</details>` : ""}
+      <button class="ghost" id="props-close">Close</button></section>`;
   }
   function wireEditor() {
     if (!editing || editing.loading) return;
@@ -355,7 +372,7 @@
     if (save) save.onclick = () => {
       const used = (f) => editing[f].filter((x) => x.use).map((x) => x.path);
       if (editing.kind === "recorded") vscode.postMessage({type: "saveEdit", key: editing.key, inputs: used("inputs"), outputs: used("outputs"), cmd: editing.cmd});
-      else vscode.postMessage({type: "declare", id: editing.kind === "declared" ? editing.task : "", inputs: used("inputs"), outputs: used("outputs"), cmd: editing.cmd});
+      else vscode.postMessage({type: "declare", id: editing.kind === "declared" ? editing.task : "", declared: editing.declared || "", inputs: used("inputs"), outputs: used("outputs"), cmd: editing.cmd});
       editing = null;
       busy = {what: "edit", text: "Keeping your step …"}; render();
     };
@@ -381,9 +398,11 @@
           ${/\.html?$/i.test(targetRel()) ? `<button class="secondary" id="rendered" title="the page as it renders (Live Preview, beside the story; it only reads the file)">Show rendered</button>` : ""}
           <button class="secondary" id="save">Markdown</button>
           <button class="ghost" id="ed-new" ${cockpitRepo && !editing ? "" : "disabled"} title="a step nobody recorded: you name what it used and made; it is published as declared by hand">Add a step by hand…</button>
+          <button class="ghost" id="heur" ${cockpitRepo && !busy ? "" : "disabled"} title="a script you register reads the workspace and proposes steps nobody recorded; you check each before keeping it">Reconstruct with…</button>
         </div>
       </header>
       ${editing && editing.kind === "new" ? editorBlock() : ""}
+      ${proposalsBlock()}
       <ol class="story">${cs.map(line).join("")}${(S.reproductions || []).slice(0, 1).map(reproLine).join("")}</ol>
       ${wfRepros.slice(0, 1).map(workflowRepro).join("")}
       ${(S.gaps || []).length ? `<details class="gaps"><summary>${S.gaps.length} gap${S.gaps.length > 1 ? "s" : ""} in the recording</summary>${S.gaps.map((g) => `<div class="warn">${esc(g)}</div>`).join("")}</details>` : ""}
@@ -396,7 +415,12 @@
     for (const b of root.querySelectorAll("button.savev")) b.onclick = () => { b.disabled = true; vscode.postMessage({type: "saveValue", name: b.dataset.n, hash: b.dataset.h}); };
     for (const b of root.querySelectorAll("button.undeclare")) b.onclick = () => vscode.postMessage({type: "undeclare", id: b.dataset.id});
     const nb = document.getElementById("ed-new");
-    if (nb) nb.onclick = startNew;
+    if (nb) nb.onclick = () => startNew();
+    const hb = document.getElementById("heur");
+    if (hb) hb.onclick = () => vscode.postMessage({type: "heuristics"});
+    for (const b of root.querySelectorAll("button[data-prop]")) b.onclick = () => startNew({name: proposals.name, p: proposals.list[+b.dataset.prop]});
+    const pc = document.getElementById("props-close");
+    if (pc) pc.onclick = () => { proposals = null; render(); };
     wireEditor();
     for (const b of root.querySelectorAll("button.tog")) b.onclick = (e) => { const k = e.target.closest("li").dataset.k; open[k] = !open[k]; render(); };
     for (const n of root.querySelectorAll(".note")) {
@@ -463,6 +487,7 @@
         outputs: (d.outputs || []).map((f) => ({path: f.path, use: !!f.use, note: f.note || ""})), cmd: d.cmd || ""};
       render();
     }
+    if (m.type === "proposals") { busy = null; proposals = {name: m.name, list: m.proposals || [], error: m.error || ""}; render(); }
     if (m.type === "picked" && editing && !editing.loading) {
       const have = new Set(editing[m.field].map((f) => f.path));
       for (const p of m.paths || []) if (!have.has(p)) editing[m.field].push({path: p, use: true, note: "added by you"});

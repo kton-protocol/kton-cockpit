@@ -1159,9 +1159,32 @@ async function openStory(context, project, file) {
       send();
     }
     else if (m.type === 'declare' && story) {
-      try { await sendJSON('POST', `${viewerUrl()}api/declared`, { id: m.id || undefined, project, declared: 'hand', inputs: m.inputs, outputs: m.outputs, cmd: m.cmd, by: 'you' }); }
+      const declared = /^heuristic:[A-Za-z0-9][A-Za-z0-9._-]*$/.test(m.declared || '') ? m.declared : 'hand';
+      try { await sendJSON('POST', `${viewerUrl()}api/declared`, { id: m.id || undefined, project, declared, inputs: m.inputs, outputs: m.outputs, cmd: m.cmd, by: 'you' }); }
       catch (e) { vscode.window.showWarningMessage(`kton: the step was not kept: ${e.message}`); }
       send();
+    }
+    // a workspace heuristic (ktonwatch heuristics.go): pick a registered one, or register a script; its proposals go to
+    // the story, where the person checks each in the editor before keeping it as a declared step
+    else if (m.type === 'heuristics' && story) {
+      const have = await getJSON(`${viewerUrl()}api/heuristics`, 5000).catch(() => ({}));
+      const REG = '$(add) Register a script…';
+      const pick = await vscode.window.showQuickPick([...Object.keys(have || {}).map((n) => ({ label: n, description: have[n] })), { label: REG, description: 'a script that reads the workspace and proposes steps' }],
+        { title: 'kton: reconstruct steps nobody recorded', placeHolder: 'a heuristic' });
+      if (!pick) return;
+      let name = pick.label;
+      if (name === REG) {
+        const f = await vscode.window.showOpenDialog({ canSelectMany: false, openLabel: 'Register', title: 'kton: the heuristic script (an executable; JSON in, proposals out)' });
+        if (!f) return;
+        name = await vscode.window.showInputBox({ title: 'kton: a name for it', value: path.basename(f[0].fsPath).replace(/\.[^.]*$/, ''), validateInput: (v) => (/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(v) ? null : 'letters, digits, . _ - only') });
+        if (!name) return;
+        try { await sendJSON('PUT', `${viewerUrl()}api/heuristics`, { name, path: f[0].fsPath }); }
+        catch (e) { vscode.window.showWarningMessage(`kton: not registered: ${e.message}`); return; }
+      }
+      w.postMessage({ type: 'busy', what: 'heuristic', text: `Reconstructing with ${name} …` });
+      let props = null, err = '';
+      try { props = await sendJSON('POST', `${viewerUrl()}api/heuristics/run`, { project, name }, 90000); } catch (e) { err = e.message; }
+      w.postMessage({ type: 'proposals', name, proposals: props || [], error: err });
     }
     else if (m.type === 'undeclare') {
       const ok = await vscode.window.showWarningMessage('Remove this step you declared? The files stay as they are.', { modal: true }, 'Remove');
