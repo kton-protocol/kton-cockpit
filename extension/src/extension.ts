@@ -7,6 +7,54 @@ import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { inside, writeTree } from "./packages/store.js";
+import { approvalStaleness, readAtCommit, sourceUri, SRC_SCHEME, targetOf, type SourceTarget } from "./ui/sources.js";
+import { ART_SCHEME, artifactOf, artifactUri, readArtifact, showAs, THUMB_MAX_BYTES, type ArtifactTarget } from "./ui/artifacts.js";
+
+const artifactsDir = (): string => vscode.workspace.getConfiguration("kton").get<string>("artifacts.dir") ?? "";
+const sourcesDir = (): string => vscode.workspace.getConfiguration("kton").get<string>("sources.dir") ?? "";
+/** kton.sources.aliases: a data repository name → its mirror folder's name, where the two differ */
+const sourceAliases = (): Record<string, string> => {
+  const a = vscode.workspace.getConfiguration("kton").get<Record<string, unknown>>("sources.aliases") ?? {};
+  return Object.fromEntries(Object.entries(a).filter((e): e is [string, string] => typeof e[1] === "string"));
+};
+
+/** Run artifacts, read-only: every read checks the bytes against the hash the URI carries (from the claim). */
+class ArtifactFs implements vscode.FileSystemProvider {
+  private readonly emitter = new vscode.EventEmitter<vscode.FileChangeEvent[]>();
+  readonly onDidChangeFile = this.emitter.event;
+  private async bytes(uri: vscode.Uri): Promise<Uint8Array> {
+    const t = artifactOf({ path: uri.path, query: uri.query });
+    if (typeof t === "string") throw vscode.FileSystemError.FileNotFound(`not shown: ${t}`);
+    const r = await readArtifact(artifactsDir(), t);
+    if (!("bytes" in r)) throw vscode.FileSystemError.NoPermissions(r.why);
+    return r.bytes;
+  }
+  async stat(uri: vscode.Uri): Promise<vscode.FileStat> {
+    const b = await this.bytes(uri);
+    return { type: vscode.FileType.File, ctime: 0, mtime: 0, size: b.byteLength, permissions: vscode.FilePermission.Readonly };
+  }
+  readFile(uri: vscode.Uri): Promise<Uint8Array> {
+    return this.bytes(uri);
+  }
+  watch(): vscode.Disposable {
+    return new vscode.Disposable(() => undefined);
+  }
+  readDirectory(): never {
+    throw vscode.FileSystemError.NoPermissions("read-only");
+  }
+  createDirectory(): never {
+    throw vscode.FileSystemError.NoPermissions("read-only");
+  }
+  writeFile(): never {
+    throw vscode.FileSystemError.NoPermissions("read-only");
+  }
+  delete(): never {
+    throw vscode.FileSystemError.NoPermissions("read-only");
+  }
+  rename(): never {
+    throw vscode.FileSystemError.NoPermissions("read-only");
+  }
+}
 
 const STALE_TITLE = " (stale: the last poll failed)";
 import { compositionPage, leafPage } from "./composition/page.js";
@@ -22,7 +70,7 @@ import type { DoctorReport } from "./transport/port.js";
 import { loadQueries } from "./ui/queries.js";
 import { loadSurfaces } from "./ui/surfaces.js";
 import { CMD, DEFAULT_CONFIG, Workbench } from "./ui/controller.js";
-import { signDialogPage } from "./ui/pages.js";
+import { artifactImagePage, signDialogPage } from "./ui/pages.js";
 import { workbenchCommands } from "./ui/commands.js";
 import type { StatusId, TreeNode, UiHost, ViewId } from "./ui/host.js";
 
@@ -59,6 +107,52 @@ class Tree implements vscode.TreeDataProvider<TreeNode> {
 }
 
 class VsHost implements UiHost {
+  approvalStaleness(repo: string, approved: string, head: string, paths: readonly string[]) {
+    return approvalStaleness(sourcesDir(), repo, approved, head, paths, sourceAliases());
+  }
+  async openSource(t: SourceTarget): Promise<string> {
+    const r = await readAtCommit(sourcesDir(), t, sourceAliases());
+    if (!("bytes" in r)) return r.why;
+    const u = sourceUri(t);
+    const doc = await vscode.workspace.openTextDocument(vscode.Uri.from({ scheme: SRC_SCHEME, path: u.path, query: u.query, fragment: u.fragment }));
+    const line = Math.max(0, (t.line ?? 1) - 1);
+    // beside the view, without taking the focus: the decision view stays open (its session's looked-at list)
+    await vscode.window.showTextDocument(doc, { preview: true, viewColumn: vscode.ViewColumn.Beside, preserveFocus: true, selection: new vscode.Range(line, 0, line, 0) });
+    if (t.diff) return `Opened the change of ${t.repo} ${t.commit.slice(0, 12)}${t.path ? ` to ${t.path}` : ""} (read-only)`;
+    return `Opened ${t.repo}:${t.path}${t.line ? `#L${t.line}` : ""} at ${t.commit.slice(0, 12)} (read-only)`;
+  }
+  /** A thumbnail: the artifact's bytes as a data URL, only after they hash to its sha256, and only up to THUMB_MAX_BYTES. */
+  async artifactThumb(t: ArtifactTarget): Promise<string | undefined> {
+    if (!artifactsDir()) return undefined;
+    const r = await readArtifact(artifactsDir(), t);
+    if (!("bytes" in r) || r.bytes.byteLength > THUMB_MAX_BYTES || !/^image\/(png|jpeg|gif|webp)$/.test(t.mediaType ?? "")) return undefined;
+    return `data:${t.mediaType};base64,${r.bytes.toString("base64")}`;
+  }
+  /** A run artifact: checked against its sha256 before anything is shown; an image in the preview, text read-only. */
+  async openArtifact(t: ArtifactTarget): Promise<string> {
+    const r = await readArtifact(artifactsDir(), t);
+    if (!("bytes" in r)) {
+      this.out.appendLine(`run artifact not shown: ${r.why}`);
+      return r.why;
+    }
+    const u = artifactUri(t);
+    const uri = vscode.Uri.from({ scheme: ART_SCHEME, path: u.path, query: u.query });
+    const what = `${t.run}/${t.name} (${t.sha256.slice(0, 19)}…, ${r.bytes.byteLength} bytes, hash checked)`;
+    const how = showAs(t);
+    if (how === "image") {
+      this.showPanel(`artifact:${t.sha256}`, t.name.split("/").pop() ?? t.name, artifactImagePage(`${t.run}: ${t.name.split("/").pop() ?? t.name}`, what, t.mediaType ?? "image/png", r.bytes.toString("base64"), randomBytes(16).toString("base64")), undefined, true, vscode.ViewColumn.Beside);
+      return `Opened ${what}`;
+    }
+    if (how === "text") {
+      const doc = await vscode.workspace.openTextDocument(uri);
+      await vscode.window.showTextDocument(doc, { preview: true, viewColumn: vscode.ViewColumn.Beside, preserveFocus: true });
+      return `Opened ${what}`;
+    }
+    // a trace or a video: no viewer here; its hash and size, and where a trace viewer can open it
+    const text = `Shown ${what}: open it with the Playwright trace viewer (npx playwright show-trace <file>) from ${artifactsDir()}/${t.run}/${t.name}`;
+    void vscode.window.showInformationMessage(text);
+    return text;
+  }
   private readonly status = new Map<StatusId, vscode.StatusBarItem>();
   private readonly panels = new Map<string, vscode.WebviewPanel>();
   /** The latest handler per panel: a rebuilt workbench (changed setting) takes over open panels. */
@@ -69,7 +163,7 @@ class VsHost implements UiHost {
   /** the Mermaid frame's URL as the webview reaches it (asExternalUri of 127.0.0.1), once the server runs */
   mermaidFrame: string | undefined;
   constructor(private readonly ctx: vscode.ExtensionContext) {
-    const order: StatusId[] = ["surface", "identity", "mode", "poll", "slots"];
+    const order: StatusId[] = ["surface", "identity", "mode", "decisions", "poll", "slots"];
     order.forEach((id, i) => {
       const s = vscode.window.createStatusBarItem(`ktonWorkbench.${id}`, vscode.StatusBarAlignment.Left, 100 - i);
       s.name = `kton workbench ${id}`;
@@ -92,12 +186,12 @@ class VsHost implements UiHost {
   openPanels(): string[] {
     return [...this.panels.keys()];
   }
-  showPanel(key: string, title: string, html: string, onMessage?: (msg: unknown) => void, reveal = true): void {
+  showPanel(key: string, title: string, html: string, onMessage?: (msg: unknown) => void, reveal = true, column: vscode.ViewColumn = vscode.ViewColumn.Active): void {
     if (onMessage) this.handlers.set(key, onMessage);
     else this.handlers.delete(key);
     let p = this.panels.get(key);
     if (!p) {
-      p = vscode.window.createWebviewPanel("ktonWorkbench.panel", title, vscode.ViewColumn.Active, { enableScripts: !!onMessage, localResourceRoots: [] });
+      p = vscode.window.createWebviewPanel("ktonWorkbench.panel", title, { viewColumn: column, preserveFocus: column === vscode.ViewColumn.Beside }, { enableScripts: !!onMessage, localResourceRoots: [] });
       const panel = p;
       this.panels.set(key, panel);
       panel.onDidDispose(() => {
@@ -108,7 +202,7 @@ class VsHost implements UiHost {
     }
     p.title = title;
     p.webview.html = html;
-    if (reveal) p.reveal();
+    if (reveal) p.reveal(undefined, column === vscode.ViewColumn.Beside);
   }
   /**
    * A composition panel: the vendored kton-web frame, a CSP the host owns, and exactly the viewer trees the
@@ -116,6 +210,7 @@ class VsHost implements UiHost {
    */
   showComposition(key: string, title: string, viewers: readonly LoadedViewer[], onMessage: (msg: unknown) => void): { post: (msg: unknown) => void; urls: ReadonlyMap<string, string> } {
     const kit = vscode.Uri.joinPath(this.ctx.extensionUri, "media", "kton-web");
+    const design = vscode.Uri.joinPath(this.ctx.extensionUri, "media", "workbench", "design");
     const store = vscode.Uri.joinPath(this.ctx.globalStorageUri, "viewers");
     // the trees first, each path checked to stay under its tree's folder (F1 on #174): a refusal opens no panel
     const written = viewers.map((v) => {
@@ -126,7 +221,7 @@ class VsHost implements UiHost {
     this.handlers.set(key, onMessage);
     let p = this.panels.get(key);
     if (!p) {
-      p = vscode.window.createWebviewPanel("ktonWorkbench.composition", title, vscode.ViewColumn.Active, { enableScripts: true, retainContextWhenHidden: false, localResourceRoots: [kit, store] });
+      p = vscode.window.createWebviewPanel("ktonWorkbench.composition", title, vscode.ViewColumn.Active, { enableScripts: true, retainContextWhenHidden: false, localResourceRoots: [kit, store, design] });
       const panel = p;
       this.panels.set(key, panel);
       panel.onDidDispose(() => {
@@ -143,6 +238,7 @@ class VsHost implements UiHost {
       cspSource: webview.cspSource,
       frame: webview.asWebviewUri(vscode.Uri.joinPath(kit, "viewers", "compose", "frame.js")).toString(),
       css: webview.asWebviewUri(vscode.Uri.joinPath(kit, "core", "compose.css")).toString(),
+      design: { css: webview.asWebviewUri(vscode.Uri.joinPath(design, "workbench.css")).toString(), js: webview.asWebviewUri(vscode.Uri.joinPath(design, "frame-design.js")).toString() },
       ...(this.mermaidFrame ? { mermaidFrame: this.mermaidFrame } : {}),
     });
     p.reveal();
@@ -174,7 +270,7 @@ class VsHost implements UiHost {
   }
   /** The open sign dialog after its Sign was pressed: it shows "Signing…" and then the outcome. */
   private signing: vscode.WebviewPanel | undefined;
-  signDialog(title: string, detail: string, person: string): Promise<boolean> {
+  signDialog(title: string, detail: string, person: string, view?: Parameters<UiHost["signDialog"]>[3]): Promise<boolean> {
     this.signing?.dispose();
     this.signing = undefined;
     return new Promise((resolve) => {
@@ -200,7 +296,7 @@ class VsHost implements UiHost {
           resolve(false);
         }
       });
-      panel.webview.html = signDialogPage(title, detail, person, randomBytes(16).toString("base64url"));
+      panel.webview.html = signDialogPage(title, detail, person, randomBytes(16).toString("base64url"), view);
     });
   }
   signOutcome(ok: boolean, text: string): void {
@@ -311,16 +407,23 @@ async function build(host: VsHost): Promise<void> {
   wb = new Workbench(transport, host, queries, identity, {
     ...DEFAULT_CONFIG,
     personTiers: cfg.get<string[]>("identity.personTiers") ?? [],
+    inboxAreas: (cfg.get<string[]>("inbox.areas") ?? []).filter((x) => typeof x === "string" && x !== ""),
+    relayKeys: (cfg.get<string[]>("inbox.relayKeys") ?? []).filter((x) => typeof x === "string" && /^[0-9a-f]{16}$/.test(x)),
     vendoredViewers: vendored,
     ...(builtin ? { builtinPackage: builtin } : {}),
     pollSeconds: Math.max(1, cfg.get<number>("poll.seconds") ?? 30),
+    // once per window: a rebuild after a changed setting does not open it again
+    openOnStart: firstBuild && (cfg.get<boolean>("home.openOnStart") ?? true),
     cockpitLabel: executable.split(/[\\/]/).pop() ?? executable,
     surfaces,
     ...(pattern ? { surfaceFolderPattern: pattern } : {}),
     ...(initial ? { initialSurface: initial } : {}),
   });
+  firstBuild = false;
   await wb.start(host.openPanels());
 }
+/** the window's first workbench (kton.home.openOnStart applies to it only) */
+let firstBuild = true;
 
 export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
   vendored = loadVendored(join(ctx.extensionUri.fsPath, "media", "kton-web"));
@@ -339,6 +442,17 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
   }
   ctx.subscriptions.push(
     vscode.window.registerTreeDataProvider("ktonWorkbench.home", host.trees.home),
+    // evidence on demand: files as they were at a commit, from the local mirrors, read-only (no worktree)
+    vscode.workspace.registerTextDocumentContentProvider(SRC_SCHEME, {
+      provideTextDocumentContent: async (uri) => {
+        const t = targetOf({ path: uri.path, query: uri.query, fragment: uri.fragment });
+        if (typeof t === "string") return `not shown: ${t}`;
+        const r = await readAtCommit(sourcesDir(), t, sourceAliases());
+        return "bytes" in r ? r.bytes.toString("utf8") : r.why;
+      },
+    }),
+    // run artifacts: read-only, each read checked against the claim's sha256
+    vscode.workspace.registerFileSystemProvider(ART_SCHEME, new ArtifactFs(), { isReadonly: true, isCaseSensitive: true }),
     vscode.window.registerTreeDataProvider("ktonWorkbench.inbox", host.trees.inbox),
     vscode.window.registerTreeDataProvider("ktonWorkbench.lanes", host.trees.lanes),
     ...workbenchCommands(() => wb).map(([id, run]) => vscode.commands.registerCommand(id, run as (...args: unknown[]) => unknown)),

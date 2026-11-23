@@ -109,6 +109,10 @@
       {
         "command": "ktonWorkbench.openSlot",
         "title": "kton workbench: open a package view for a subject"
+      },
+      {
+        "command": "ktonWorkbench.openEntry",
+        "title": "kton workbench: open a package's review view for a waiting decision"
       }
     ],
     "configuration": {
@@ -124,6 +128,11 @@
           "default": 120,
           "minimum": 1,
           "description": "How long one cockpit call may take. A call that takes longer is reported as failed; whether it signed is then for the registry to say."
+        },
+        "kton.home.openOnStart": {
+          "type": "boolean",
+          "default": true,
+          "description": "When the window starts and exactly one decision is waiting that a package's review view applies to, open that review view."
         },
         "kton.poll.seconds": {
           "type": "number",
@@ -177,6 +186,41 @@
           ],
           "default": "cli",
           "description": "How the workbench talks to the cockpit: the command line (one process per call, the default), or one cockpit serve --stdio per window (the frontend protocol, SPEC §12.5: cockpit v0.5.6 or later)."
+        },
+        "kton.sources.dir": {
+          "type": "string",
+          "default": "",
+          "description": "Folder with the local git mirrors (one per repository) from which evidence opens files as they were at a commit, read-only (git show). Empty: sources are not available on this host."
+        },
+        "kton.artifacts.dir": {
+          "type": "string",
+          "default": "",
+          "description": "Read-only root of run artifacts: <run>/<name>, shown only when the bytes hash to the run-artifact claim's sha256. Empty: run artifacts are not available on this host."
+        },
+        "kton.inbox.areas": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "When not empty: the window shows only messages and proposals of these areas (Inbox, Home, decisions waiting), e.g. one role's own area."
+        },
+        "kton.inbox.relayKeys": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{16}$"
+          },
+          "default": [],
+          "description": "Key ids (16 hex) of relays: keys that re-sign other senders' messages with the text prefix \"[from <sender> · <time>]\". Only a message signed by one of these keys is shown with that sender and time (the relay stays named); the same prefix from any other key is shown as plain text under its real signer. The message queries must select the signer IRI as ?s."
+        },
+        "kton.sources.aliases": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {},
+          "description": "Where data names a repository otherwise than its mirror folder under kton.sources.dir: data name → folder name."
         }
       }
     },
@@ -212,6 +256,10 @@
         },
         {
           "command": "ktonWorkbench.openSlot",
+          "when": "false"
+        },
+        {
+          "command": "ktonWorkbench.openEntry",
           "when": "false"
         }
       ]

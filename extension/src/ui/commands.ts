@@ -18,5 +18,6 @@ export function workbenchCommands(wb: () => Workbench | undefined): ReadonlyArra
     [CMD.say, () => wb()?.sayCommand()],
     [CMD.compose, () => wb()?.composeCommand()],
     [CMD.openSlot, (key: string, subject: Subject) => wb()?.openSlot(key, subject)],
+    [CMD.openEntry, (key: string) => wb()?.openEntry(key)],
   ];
 }
