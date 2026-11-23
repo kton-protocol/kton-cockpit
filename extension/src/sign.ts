@@ -28,6 +28,8 @@ export interface ControlInfo {
   readonly kind: "decision" | "record";
   /** the control's title, shown in the dialog (and covered by the digest, as everything shown) */
   readonly title?: string;
+  /** why this control's template is the one signed (e.g. the proposal's vocabulary), shown in the dialog and digested */
+  readonly why?: string;
 }
 
 export const FOOTER = "A kton signature is not yet a QMS e-signature: every signature here is test-only.";
@@ -126,7 +128,7 @@ export function plan(
   if (!key.keyName) return refuse("identity.key-missing", `this window has no ${key.role} key, so it cannot sign a ${control.kind}`);
   const meaning = control.meaning ?? fields["meaning"];
   const expect = { ...(tpl.hash ? { template: tpl.hash } : {}), ...(tpl.revision ? { revision: tpl.revision } : {}), ...(tpl.predicate ? { predicate: tpl.predicate } : {}) };
-  const shown = { template: tpl.name, expect, subject: intent.about, fields, as: key.keyName, control: `${control.package}/${control.name}`, meaning: meaning ?? null, meaningField: fixed ?? null, scope: intent.scope ?? null, opened: intent.opened ?? [], ...(control.title ? { title: control.title } : {}) };
+  const shown = { template: tpl.name, expect, subject: intent.about, fields, as: key.keyName, control: `${control.package}/${control.name}`, meaning: meaning ?? null, meaningField: fixed ?? null, scope: intent.scope ?? null, opened: intent.opened ?? [], ...(control.title ? { title: control.title } : {}), ...(control.why ? { why: control.why } : {}) };
   // canonical JSON (keys sorted at every level): a key list as JSON.stringify's replacer would also filter the nested
   // objects' keys, and leave expect.revision and expect.predicate out of the digest
   const digest = createHash("sha256").update(canonical(shown)).update(JSON.stringify(Object.entries(fields).sort())).digest("hex");

@@ -66,7 +66,15 @@ export function mount(el, ctx) {
   let note = "";
   let gen = 0;
 
-  const order = () => queueOrder(rows, (r) => v(r[keyCol]), at(group()));
+  // rows this view signed a decision about (host-held, also after the frame reloaded for the sign dialog): decided
+  const signedKeys = () => {
+    const t = new Set((globalThis.ktonWorkbench?.signedActs?.(ctx.use.key) ?? []).map((a) => a.target).filter(Boolean));
+    return o.target && t.size ? rows.filter((r) => t.has(v(r[o.target]))).map((r) => v(r[keyCol])) : [];
+  };
+  const order = () => {
+    const a = at(group());
+    return queueOrder(rows, (r) => v(r[keyCol]), { ...a, done: [...a.done, ...signedKeys()] });
+  };
   const index = (list) => {
     const k = at(group()).item;
     const i = list.findIndex((r) => v(r[keyCol]) === k);
@@ -74,7 +82,7 @@ export function mount(el, ctx) {
   };
   const count = (list) => {
     if (complete) return list.length;
-    const done = new Set(at(group()).done);
+    const done = new Set([...at(group()).done, ...signedKeys()]);
     return Math.max(list.length, total - rows.filter((r) => done.has(v(r[keyCol]))).length);
   };
 
@@ -108,7 +116,7 @@ export function mount(el, ctx) {
       ? `<span class="pos" data-pos aria-live="polite">Item ${i + 1} of ${n} in this group</span>`
       : `<span class="pos" data-pos aria-live="polite">${loading ? "Loading…" : "Nothing open in this group"}</span>`;
     const extra = [skippedN ? `${skippedN} skipped (they come back at the end)` : "", a.done.length ? `${a.done.length} decided in this window` : "", !complete && rows.length ? `${rows.length} loaded` : ""].filter(Boolean).join(" · ");
-    const head = `<div class="q-head pager">${groupSel}<button type="button" class="ghost small" data-step="-1" aria-label="Previous item (←, k)" data-testid="queue-prev">${ICON_PREV}</button>${pos}<button type="button" class="ghost small" data-step="1" aria-label="Next item (→, j)" data-testid="queue-next">${ICON_NEXT}</button><button type="button" class="small secondary" data-skip data-testid="queue-skip"${row ? "" : " disabled"}>Skip (s)</button>${extra ? `<span class="muted" data-queue-extra>${esc(extra)}</span>` : ""}</div>`;
+    const head = `<div class="q-head pager">${groupSel}<button type="button" class="ghost small" data-step="-1" aria-label="Previous item (←, k)" data-testid="queue-prev">${ICON_PREV}</button>${pos}<button type="button" class="ghost small" data-step="1" aria-label="Next item (→, j)" data-testid="queue-next">${ICON_NEXT}</button><button type="button" class="small secondary" data-skip data-testid="queue-skip"${row ? "" : " disabled"}>Skip (s)</button>${extra ? `<span class="muted" data-queue-extra>${esc(extra)}</span>` : ""}${back ? `<button type="button" class="small" data-back data-testid="queue-back">Back to rule ${esc(back)}</button>` : ""}</div>`;
     const keys = `<p class="muted q-keys" data-keys>Keys: → or j next · ← or k previous · s skip (no decision, comes back at the end)${choices.length && act ? ` · ${choices.map((c, ci) => `${ci + 1} ${esc(c.label)}`).join(" · ")} (opens the sign dialog)` : ""}</p>`;
     if (failed) {
       el.innerHTML = `${head}<div class="callout error" data-area-error role="alert"><p>${esc(failed)}</p></div>`;
@@ -187,6 +195,14 @@ export function mount(el, ctx) {
   };
 
   function wire() {
+    el.querySelector("[data-back]")?.addEventListener("click", () => {
+      const label = o.backTab ?? "Rules";
+      back = "";
+      const d = globalThis.document;
+      const t = d ? [...d.querySelectorAll('[role="tab"]')].find((x) => (x.textContent ?? "").trim().startsWith(label)) : null;
+      if (t) t.click();
+      draw();
+    });
     for (const b of el.querySelectorAll("[data-step]")) b.addEventListener("click", () => move(Number(b.dataset.step)));
     el.querySelector("[data-skip]")?.addEventListener("click", skip);
     for (const b of el.querySelectorAll("[data-choice]")) b.addEventListener("click", () => decide(Number(b.dataset.choice)));
@@ -255,9 +271,33 @@ export function mount(el, ctx) {
     el.innerHTML = skeleton("card");
     page(group(), "", gen);
   }
+  // a jump from another block (option jump, fed by a var: {"group", "item", "from"}): this group at this item, with a way
+  // back ("Back to rule C14": the tab named backTab, default "Rules")
+  let lastJump = "";
+  const jumpTo = (raw) => {
+    // once per jump: a frame that mounts again (after the sign dialog) does not jump back
+    if (!raw || raw === lastJump || raw === st.jumped) return false;
+    lastJump = raw;
+    let j;
+    try {
+      j = JSON.parse(raw);
+    } catch {
+      return false;
+    }
+    if (!j || typeof j.item !== "string") return false;
+    const g = gParam && groups.includes(String(j.group)) ? String(j.group) : group();
+    at(g).item = j.item;
+    back = typeof j.from === "string" ? j.from : "";
+    save({ group: g, item: j.item, jumped: raw });
+    return true;
+  };
+  let back = "";
+  jumpTo(o.jump);
   load();
   return {
-    set() {},
+    set(next) {
+      if (next && typeof next.jump === "string" && jumpTo(next.jump)) load();
+    },
     destroy() {
       globalThis.document?.removeEventListener("keydown", onKey);
       if (quiet) {

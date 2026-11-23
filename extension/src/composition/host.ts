@@ -65,7 +65,7 @@ export interface Backend {
    * sign@1 / record@1 through the shell's one sign path (C1.4): the dialog for a decision, none for a record. `signed`
    * is called with the claim id and the fields as signed (what the person may have edited), once it is signed.
    */
-  act(control: Control, about: string, fields: Readonly<Record<string, string>>, title: string, proposed?: Readonly<Record<string, string>>, signed?: (s: Signed) => void): Promise<"signed" | "cancelled" | "failed">;
+  act(control: Control, about: string, fields: Readonly<Record<string, string>>, title: string, proposed?: Readonly<Record<string, string>>, signed?: (s: Signed) => void, asks?: readonly AskEach[]): Promise<"signed" | "cancelled" | "failed">;
   /** run@1: a ray (workflow run) with its holes. */
   run(ray: string, holes: Readonly<Record<string, string>>): Promise<string>;
   /** graph@1 (e): the registry's records with the ring to verify them: {records, keys, names}. */
@@ -217,6 +217,31 @@ export function nudgeFor(options: Readonly<Record<string, unknown>> | undefined,
     for (const x of many) if (typeof x === "string" && x.startsWith(`${control}|`)) return x.slice(control.length + 1);
   }
   return typeof options?.["nudge"] === "string" ? options["nudge"] : undefined;
+}
+
+/**
+ * A field the shell asks per key (a use's option `askEach`, "[control:]field=keyField[|v1,v2,…]"): its value is a JSON
+ * object {key: value} over the keys in the act's `keyField` (" ;; "-separated). With values, each key's value is picked
+ * among them (or none); without, it is typed (empty: none). The shell asks it, never the frame (e.g. what a rerun expects
+ * of each test, and the condition that excludes one).
+ */
+export interface AskEach {
+  readonly field: string;
+  readonly key: string;
+  readonly values?: readonly string[];
+}
+export function askEachOf(options: Readonly<Record<string, unknown>> | undefined, control: string): AskEach[] {
+  const raw = options?.["askEach"];
+  const list = Array.isArray(raw) ? raw : typeof raw === "string" ? [raw] : [];
+  const out: AskEach[] = [];
+  for (const x of list) {
+    if (typeof x !== "string") continue;
+    const m = /^(?:([^:=|]+):)?([A-Za-z_][A-Za-z0-9_]*)=([A-Za-z_][A-Za-z0-9_]*)(?:\|(.+))?$/.exec(x.trim());
+    if (!m || (m[1] !== undefined && m[1] !== control)) continue;
+    const values = m[4]?.split(",").map((v) => v.trim()).filter(Boolean);
+    out.push({ field: m[2] as string, key: m[3] as string, ...(values?.length ? { values } : {}) });
+  }
+  return out;
 }
 
 /** A frame's state without acts: frames must not report them (host-held, H8). */
@@ -467,6 +492,8 @@ export class CompositionHost {
   private epoch = 0;
   private signedAt = 0;
   private lastSigned: { what: string; claim: string; at: number } | undefined;
+  /** every act this view signed, with its use and row: sent with each set (blocks read it, ktonWorkbench.signedActs) */
+  readonly signedActs: Array<{ use: string; target?: string; claim: string; at: number; fields: Record<string, string> }> = [];
 
   constructor(
     readonly plan: Plan,
@@ -606,7 +633,7 @@ export class CompositionHost {
     this.setPending = true;
     // the state is host-held as the frame reported it: vars and layout ({tab, ratio}), never acts (H8: held apart);
     // the last signature of this view rides along, so a frame reloaded after the dialog still confirms it
-    this.ui.post({ type: "kton:set", state: { ...this.state, acts: this.acts.forSet() }, plan: this.framePlan(), host: { name: "vscode", provides: VSCODE_PROVIDES, narrow: NARROW_PX }, ...(this.lastSigned ? { signed: this.lastSigned } : {}) });
+    this.ui.post({ type: "kton:set", state: { ...this.state, acts: this.acts.forSet() }, plan: this.framePlan(), host: { name: "vscode", provides: VSCODE_PROVIDES, narrow: NARROW_PX }, ...(this.lastSigned ? { signed: this.lastSigned } : {}), ...(this.signedActs.length ? { signedActs: this.signedActs } : {}) });
   }
 
   /** the guarded uses as last sent to the frame (JSON of [key, params] pairs) */
@@ -732,7 +759,8 @@ export class CompositionHost {
         const proposed = Object.fromEntries(given.filter(([k]) => !(k in chosen)));
         const actFields = { ...checked.act.fields, ...chosen };
         let made: Signed | undefined;
-        const r = await this.backend.act(c, this.aboutOf(i, checked.act), actFields, `${checked.act.label}: ${this.plan.root.package}/${this.plan.root.composition}`, proposed, (s) => (made = s));
+        const asks = askEachOf((this.plan.uses.find((x) => x.key === i.from) as { options?: Record<string, unknown> } | undefined)?.options, c.name);
+        const r = await this.backend.act(c, this.aboutOf(i, checked.act), actFields, `${checked.act.label}: ${this.plan.root.package}/${this.plan.root.composition}`, proposed, (s) => (made = s), asks.length ? asks : undefined);
         if (r === "failed") return refuse(c.kind === "decision" ? "not signed (see the sign dialog)" : "not recorded");
         const keyLine = c.kind === "decision" ? "Signed with the person key (test-only)." : "Recorded with the agent key.";
         if (r === "signed") {
@@ -742,7 +770,11 @@ export class CompositionHost {
           this.signedAt = Date.now();
           const what = signedWhat(c, checked.act, i, made);
           this.lastSigned = { what, claim: made?.id ?? "", at: this.signedAt };
-          this.ui.post({ type: "kton-workbench:signed", ...this.lastSigned });
+          // what this view signed, by use and row (target), host-held for the view's life: a block drops a decided row
+          // at once, before the cockpit's answer has the signature (a cold index can take minutes after a say)
+          const act = { use: String(i.from ?? ""), ...(typeof i["target"] === "string" ? { target: i["target"] } : {}), claim: made?.id ?? "", at: this.signedAt, fields: { ...(made?.fields ?? proposed) } };
+          this.signedActs.push(act);
+          this.ui.post({ type: "kton-workbench:signed", ...this.lastSigned, act });
         }
         result = r === "signed" ? { signed: true, key: c.kind === "decision" ? "person" : "agent", message: made ? `${c.kind === "decision" ? "Signed" : "Recorded"}: ${signedWhat(c, checked.act, i, made)} (claim ${shortClaim(made.id)}). ${keyLine}` : keyLine, ...(made ? { claim: made.id } : {}) } : { signed: false, message: "Not signed: the dialog was cancelled." };
         // the use's nudge (option): the shell sends no lane message; it prints the exact line in its output channel

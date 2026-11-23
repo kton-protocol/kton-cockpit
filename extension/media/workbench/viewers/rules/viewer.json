@@ -37,11 +37,17 @@
   },
   "choices": {
    "set": "literal"
-  }
+  },
+  "lookedField": "literal",
+  "queueTab": "literal"
  },
  "emits": {
   "pick": {
    "from": "state.pick",
+   "type": "literal"
+  },
+  "jump": {
+   "from": "state.jump",
    "type": "literal"
   }
  },

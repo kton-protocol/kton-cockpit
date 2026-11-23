@@ -4,6 +4,7 @@
 
 import { SupportWriter } from "./support/view-now.js";
 import { AskGate, gated } from "./transport/gate.js";
+import { indexStatusText } from "./ui/index-status.js";
 import * as vscode from "vscode";
 import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
@@ -162,6 +163,40 @@ class VsHost implements UiHost {
   readonly trees: Record<ViewId, Tree> = { home: new Tree(), inbox: new Tree(), lanes: new Tree() };
   readonly out = vscode.window.createOutputChannel("kton cockpit workbench");
 
+  /** The window's ask queue on screen: a status bar item and the views' banner, refreshed each second while it builds. */
+  private indexTimer: ReturnType<typeof setInterval> | undefined;
+  private indexGate: AskGate | undefined;
+  watchIndex(gate: AskGate): void {
+    this.indexGate = gate;
+    gate.onChange(() => this.showIndex());
+    if (!this.indexTimer) {
+      this.indexTimer = setInterval(() => this.showIndex(true), 2000);
+      this.ctx.subscriptions.push({ dispose: () => this.indexTimer && clearInterval(this.indexTimer) });
+    }
+    this.showIndex();
+  }
+  private lastIndexText = "";
+  private showIndex(tick = false): void {
+    const g = this.indexGate;
+    if (!g) return;
+    const st = g.state();
+    const t = indexStatusText(st, Date.now());
+    const s = this.status.get("index");
+    if (s) {
+      if (t) {
+        s.text = t.text;
+        s.tooltip = t.tooltip;
+        s.show();
+      } else s.hide();
+    }
+    // the views: on a change, and each tick while something waits (a panel opened since gets it too)
+    const text = JSON.stringify(st);
+    if (!tick || st.buildingSince !== undefined || st.queued > 0 || text !== this.lastIndexText) {
+      this.lastIndexText = text;
+      for (const p of this.panels.values()) void p.webview.postMessage({ type: "kton-workbench:index", state: st });
+    }
+  }
+
   /** the Mermaid frame's URL as the webview reaches it (asExternalUri of 127.0.0.1), once the server runs */
   mermaidFrame: string | undefined;
   /** per-window view state (CompositionUi.memo): VS Code's workspace state of this window, never a registry */
@@ -181,7 +216,7 @@ class VsHost implements UiHost {
     }
   }
   constructor(private readonly ctx: vscode.ExtensionContext) {
-    const order: StatusId[] = ["surface", "identity", "mode", "decisions", "poll", "slots"];
+    const order: StatusId[] = ["surface", "identity", "mode", "decisions", "poll", "index", "slots"];
     order.forEach((id, i) => {
       const s = vscode.window.createStatusBarItem(`ktonWorkbench.${id}`, vscode.StatusBarAlignment.Left, 100 - i);
       s.name = `kton workbench ${id}`;
@@ -394,7 +429,10 @@ async function build(host: VsHost): Promise<void> {
   // the command line (default), or the frontend protocol: cockpit serve --stdio (SPEC §12.5, cockpit v0.5.6)
   const opts = { executable, cwd: folder, timeoutMs: timeout * 1000 };
   // one ask queue per window: at most 2 reads of the cockpit at a time, a cold index awaited by one (transport/gate.ts)
-  const transport = gated(cfg.get<string>("cockpit.transport") === "stdio" ? (stdio = new StdioTransport(opts)) : new CliTransport(opts), new AskGate());
+  const gate = new AskGate();
+  const transport = gated(cfg.get<string>("cockpit.transport") === "stdio" ? (stdio = new StdioTransport(opts)) : new CliTransport(opts), gate);
+  // what the window waits for: the status bar and a banner in every view
+  host.watchIndex(gate);
   if (stdio) {
     // kton-review W1 on #196: an answer to a request already failed came after all. A say among them may have
     // signed: name the claim and refresh, so the claim shows (it is never signed again).

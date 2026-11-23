@@ -14,7 +14,7 @@
 // It reads the plan from the host's kton:set (the same message the frame renders) and re-runs after each change.
 import { chipFor, sectionStamps, fullHash } from "./stamps.js";
 import { shownSection } from "./nav.js";
-import { answerStore, PREV_STRIP, signedText, staleText, updatingText } from "./refresh.js";
+import { answerStore, indexBannerText, PREV_STRIP, signedText, staleText, updatingText } from "./refresh.js";
 
 const root = document.getElementById("kton-root");
 let plan = null;
@@ -24,7 +24,12 @@ let clicked = "";
 let lastSigned = null;
 const answers = answerStore();
 // the blocks' way to the fresh answer the host posts after a signature (their stamped() follows a `refreshing` answer)
-globalThis.ktonWorkbench = { fresh: (use, token) => answers.fresh(use, token) };
+// and to what this view signed (host-held, by use and row target): a block drops a decided row before the cockpit answers
+let signedActs = [];
+globalThis.ktonWorkbench = {
+  fresh: (use, token) => answers.fresh(use, token),
+  signedActs: (use) => signedActs.filter((a) => !use || a.use === use),
+};
 
 window.addEventListener("message", (e) => {
   const m = e.data;
@@ -33,8 +38,13 @@ window.addEventListener("message", (e) => {
     plan = m.plan;
     document.getElementById("wb-top")?.remove();
     if (m.signed && typeof m.signed === "object") lastSigned = m.signed;
+    if (Array.isArray(m.signedActs)) signedActs = m.signedActs.filter((a) => a && typeof a.use === "string");
+  } else if (m.type === "kton-workbench:index") {
+    indexState = m.state && typeof m.state === "object" ? m.state : null;
+    showIndex();
   } else if (m.type === "kton-workbench:signed") {
     lastSigned = m;
+    if (m.act && typeof m.act.use === "string" && !signedActs.some((a) => a.claim && a.claim === m.act.claim)) signedActs = [...signedActs, m.act];
     showSigned();
   } else if (m.type === "kton-workbench:refreshing" && typeof m.use === "string") {
     if (!answers.has(m.use, m.token)) mark(boxOf(m.use), "host", m.since, m.token);
@@ -111,6 +121,30 @@ function copyOf(body) {
   for (const x of f.querySelectorAll("*")) for (const a of PREV_STRIP) x.removeAttribute(a);
   return f;
 }
+
+// ---- what the window waits for: a slim banner at the top while the index is built, asks wait, or failed
+let indexState = null;
+function showIndex() {
+  const b = indexBannerText(indexState, Date.now());
+  let p = document.getElementById("wb-index");
+  if (!b) {
+    p?.remove();
+    return;
+  }
+  if (!p) {
+    p = el("div", { id: "wb-index", class: "wb-index", role: "status", "data-testid": "index-banner" });
+    document.body.prepend(p);
+  }
+  p.dataset.kind = b.kind;
+  p.textContent = b.text;
+  if (b.kind === "failed") {
+    // Retry: the view asks again (the frame reloads; the host answers from what it has, then the fresh answers)
+    const r = el("button", { type: "button", class: "small", "data-testid": "index-retry" }, "Retry");
+    r.addEventListener("click", () => location.reload());
+    p.append(" ", r);
+  }
+}
+setInterval(() => indexState && typeof indexState.buildingSince === "number" && showIndex(), 1000);
 
 // ---- the confirmation of a signature, at once and after a reload
 function showSigned() {

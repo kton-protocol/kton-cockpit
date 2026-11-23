@@ -7,12 +7,13 @@ import { loadPackages } from "../packages/model.js";
 import type { TreeNode } from "../ui/host.js";
 import { sparqlResultsOf } from "../ui/queries.js";
 import { supportView } from "../support/view-now.js";
-import { CompositionHost, LeafHost, type Backend, type Plan, type Signed } from "./host.js";
+import { CompositionHost, LeafHost, type AskEach, type Backend, type Plan, type Signed } from "./host.js";
 import type { BoundTerm } from "../transport/port.js";
-import { applies, isView, oneNumber, partition, planComposition, planEntry, type Subject } from "./slots.js";
+import { applies, isView, oneNumber, partition, planComposition, planEntry, statusLine, type Subject } from "./slots.js";
 import { approvalCounts, areaComposition, BUILTIN, recordComposition, recordTerms, signerKeyId, withBuiltin } from "./qm-area.js";
 import { SIGNER_QUERY } from "../identity.js";
 import { withThumbs } from "../ui/artifacts.js";
+import { artifactsOf, citeOptions, differsOptions, withCitations, withDiffers } from "../ui/annotate.js";
 import type { AreaDecl } from "../packages/listing.js";
 
 export interface CompositionUi {
@@ -63,6 +64,8 @@ export interface ActInto {
   readonly opened?: readonly string[];
   /** called with the claim id and the signed fields once the act is signed (a block's nudge line is built from them) */
   readonly signed?: (s: Signed) => void;
+  /** fields the shell asks per key (a use's option askEach) */
+  readonly asks?: readonly AskEach[];
 }
 
 export const SLOT_CMD = "ktonWorkbench.openSlot";
@@ -107,6 +110,8 @@ export class PackagesArea {
   private stale = false;
   /** home-tile / status-item numbers, by entry key */
   private readonly numbers = new Map<string, string>();
+  /** status-item entries that answer a line (?text): the line and its tooltip, by entry key */
+  private readonly lines = new Map<string, { text: string; tooltip: string; stale: boolean }>();
   /** finding-source entries (guard rules): their state at the last poll, by entry key */
   private readonly rules = new Map<string, RuleState>();
 
@@ -191,7 +196,7 @@ export class PackagesArea {
    * loaded now (or is closing), so an old revision's control never signs. While the act runs the panel is busy.
    */
   private actFor(key: string, label: string, mine: () => OpenPanel | undefined, scope?: string): Backend["act"] {
-    return async (c, about, fields, title, proposed, signed) => {
+    return async (c, about, fields, title, proposed, signed, asks) => {
       const h = mine();
       const why = !h || this.hosts.get(key) !== h ? "the panel is closed or was opened again" : (h.retired ?? this.outdated(h) ?? (h.revisions.has(c.package) ? undefined : `control ${c.package}/${c.name} is not one this panel was opened with`));
       if (why) {
@@ -201,7 +206,7 @@ export class PackagesArea {
       const p = h as OpenPanel;
       p.busy++;
       try {
-        const r = await this.path.act(c, about, fields, title, { package: c.package, revision: p.revisions.get(c.package) as string }, { ...(scope ? { scope } : {}), ...(proposed && Object.keys(proposed).length ? { proposed } : {}), ...(p.opened.length ? { opened: [...p.opened] } : {}), ...(signed ? { signed } : {}) });
+        const r = await this.path.act(c, about, fields, title, { package: c.package, revision: p.revisions.get(c.package) as string }, { ...(scope ? { scope } : {}), ...(proposed && Object.keys(proposed).length ? { proposed } : {}), ...(p.opened.length ? { opened: [...p.opened] } : {}), ...(signed ? { signed } : {}), ...(asks?.length ? { asks } : {}) });
         // a record is written with the agent key and no dialog: where it went is said, as the dialog says it for a
         // decision (the records scope is the package's declaration; kton-review N1 on #187)
         if (r === "signed" && c.kind === "record" && scope) this.ui.info(`${label}: recorded into scope ${scope} with the agent key (no dialog).`);
@@ -225,6 +230,7 @@ export class PackagesArea {
 
   private async tiles(): Promise<void> {
     this.numbers.clear();
+    this.lines.clear();
     this.rules.clear();
     for (const e of this.loaded?.entries ?? []) {
       if (e.slot !== "finding-source") continue;
@@ -245,7 +251,14 @@ export class PackagesArea {
       if ((e.slot !== "home-tile" && e.slot !== "status-item") || !e.query) continue;
       try {
         const terms = Object.fromEntries(Object.entries(this.closedSet(e, undefined)).map(([k, v]) => [k, { type: "literal" as const, value: v }]));
-        const n = oneNumber(await this.named(e.package, e.query, terms));
+        const answer = await this.named(e.package, e.query, terms);
+        // a status-item may answer a line (?text) instead of one number: shown as it is, with its freshness
+        const line = e.slot === "status-item" ? statusLine(answer) : undefined;
+        if (line) {
+          this.lines.set(entryKey(e), line);
+          continue;
+        }
+        const n = oneNumber(answer);
         this.numbers.set(entryKey(e), "n" in n ? String(n.n) : `error: ${n.why}`);
       } catch (err) {
         this.numbers.set(entryKey(e), `error: ${(err as Error).message}`);
@@ -313,12 +326,32 @@ export class PackagesArea {
   /** status-item entries: label: number, for the status bar. */
   statusText(): string | undefined {
     const e = (this.loaded?.entries ?? []).filter((x) => x.slot === "status-item");
-    return e.length ? e.map((x) => `${x.label}: ${this.numbers.get(entryKey(x)) ?? "…"}`).join(" · ") : undefined;
+    return e.length ? e.map((x) => this.lines.get(entryKey(x))?.text ?? `${x.label}: ${this.numbers.get(entryKey(x)) ?? "…"}`).join(" · ") : undefined;
+  }
+
+  /** The status bar's tooltip for the status-item entries: each one's label and, for a line, its row. */
+  statusTooltip(): string {
+    const e = (this.loaded?.entries ?? []).filter((x) => x.slot === "status-item");
+    return e.map((x) => {
+      const l = this.lines.get(entryKey(x));
+      return l ? `${x.label} (${x.package})${l.stale ? " · stale" : ""}\n${l.tooltip}` : `${x.label} (${x.package})`;
+    }).join("\n\n") || "status-item entries of the admitted packages";
   }
 
   /** The keys of the review-view entries that apply to a subject, in their order. */
   reviewEntriesFor(s: Subject): string[] {
     return (this.loaded?.entries ?? []).filter((e) => e.slot === "review-view" && applies(e, s)).map(entryKey);
+  }
+
+  /**
+   * The decision control of a package whose review view applies to this proposal, when that package brings one that
+   * signs a `…decides` template (e.g. a review package's decides → its own <name>-decides): a decision taken on such a proposal signs in
+   * that package's vocabulary, not in the window's generic one (a guard counts a decision only in the vocabulary it expects).
+   */
+  decisionControlFor(s: Subject): Control | undefined {
+    const pkgs = new Set((this.loaded?.entries ?? []).filter((e) => e.slot === "review-view" && applies(e, s)).map((e) => e.package));
+    for (const c of this.loaded?.controls.values() ?? []) if (pkgs.has(c.package) && c.kind === "decision" && /(^|-)decides$/.test(c.template)) return c;
+    return undefined;
   }
 
   /** The review-view / record-view entries for a subject: children of its node (a click opens the panel). */
@@ -433,10 +466,28 @@ export class PackagesArea {
     // the frame imports each module from where the host serves its checked tree
     plan = { ...plan, uses: plan.uses.map((u) => ({ ...u, module: shown.urls.get((u as { module?: string }).module ?? "") ?? "" })) } as Plan;
     const annotate = opts.annotate;
+    const cites = new Map<string, Promise<ReturnType<typeof artifactsOf>>>();
     const backend: Backend = {
       query: async (p, name, terms, use) => {
         // a block's newer ask drops its older one still waiting in the window's queue (a reader moving through items)
-        const r = await this.named(p, name, terms, use !== undefined ? `${panel}#${use}` : undefined);
+        const r0 = await this.named(p, name, terms, use !== undefined ? `${panel}#${use}` : undefined);
+        // columns the shell adds from the use's options: what a text cites (resolved against a named query of the same
+        // package, asked once per panel) and where decisions on one thing differ
+        const uo = (plan0.uses.find((u) => u.key === use) as { options?: Record<string, unknown> } | undefined)?.options;
+        const co = citeOptions(uo);
+        const dof = differsOptions(uo);
+        let r = r0;
+        if (co) {
+          const k = `${p}/${co.query}`;
+          let arts = cites.get(k);
+          if (!arts) {
+            arts = this.named(p, co.query, {}).then(artifactsOf);
+            cites.set(k, arts);
+            arts.catch(() => cites.delete(k));
+          }
+          r = withCitations(r, co, await arts);
+        }
+        if (dof) r = withDiffers(r, dof);
         const shown = await this.withApprovals(annotate && p === annotate.package && name === annotate.query ? await this.withCounts(r) : r);
         return this.path.thumb ? withThumbs(shown, this.path.thumb) : shown;
       },

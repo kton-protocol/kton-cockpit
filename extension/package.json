@@ -113,6 +113,11 @@
       {
         "command": "ktonWorkbench.openEntry",
         "title": "kton workbench: open a package's review view for a waiting decision"
+      },
+      {
+        "command": "ktonWorkbench.openById",
+        "title": "kton workbench: open by id",
+        "icon": "$(search)"
       }
     ],
     "configuration": {
@@ -236,6 +241,11 @@
     },
     "menus": {
       "view/title": [
+        {
+          "command": "ktonWorkbench.openById",
+          "when": "view == ktonWorkbench.inbox",
+          "group": "navigation"
+        },
         {
           "command": "ktonWorkbench.switchSurface",
           "when": "view == ktonWorkbench.home",

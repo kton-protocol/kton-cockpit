@@ -27,7 +27,9 @@
    "set": "literal"
   },
   "emptyText": "literal",
-  "emptyHow": "literal"
+  "emptyHow": "literal",
+  "jump": "literal",
+  "backTab": "literal"
  },
  "emits": {
   "item": {
