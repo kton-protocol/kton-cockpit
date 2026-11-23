@@ -17,3 +17,6 @@ func (d *Daemon) Stage(ctx context.Context, g string, qs []Quad) error { return 
 
 // ViewIRI names slot's view, for a test.
 func ViewIRI(slot string) string { return viewIRI(slot) }
+
+// Staged is how many graphs were uploaded so far, for a test.
+func Staged() int64 { return staged.Load() }
