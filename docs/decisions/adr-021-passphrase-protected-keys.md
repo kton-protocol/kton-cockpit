@@ -54,8 +54,10 @@ Asked only when a signature needs the key, never to read, in this order:
    `CONIN$` on Windows, never stdin), no echo, naming the key and its keyid.
 3. **`KTON_KEY_PASSPHRASE`**, for what runs without a person (CI, tests), documented as weaker (Q2), and
    only as kton-review's P1 has it: `keys.TakeEnvPassphrase()` is the first thing `main` does, before
-   anything starts a child, so the variable is gone from the process's environment; no child the cockpit
-   starts (git, the container CLI, a shimmed tool, a workflow step) sees it, nor `/proc/<pid>/environ`.
+   anything starts a child, so the variable is gone from the process's environment and no child the
+   cockpit starts (git, the container CLI, a shimmed tool, a workflow step) inherits it. On Linux,
+   `/proc/<pid>/environ` still shows the start value, to the same user and root: nothing in the process
+   can change that, which is one reason this source is the weaker one.
    `keys.ForgetEnvPassphrase()` clears the held value once the keys are loaded.
 4. **Nothing else.** The MCP server and a CLI without a terminal have no one to ask: an encrypted key is
    refused with `identity.locked`, naming the key and the ways to unlock it, before anything is signed.
