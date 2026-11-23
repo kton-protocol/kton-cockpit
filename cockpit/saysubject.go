@@ -60,7 +60,9 @@ func isPartialID(v string) bool {
 
 // fullIDHint names the one record or claim a short id is the start of, so the refusal says which id to
 // paste; "" when none or more than one is. A short id is never signed in its place: a prefix that is
-// unique today need not be tomorrow.
+// unique today need not be tomorrow. Only this repository's own registry is searched, as it is on disk
+// (no source is fetched to word a refusal), and only what a trusted key signed is offered (kton-review
+// N1/N2 on #230).
 func fullIDHint(ctx context.Context, cfg *config.Config, v string) string {
 	if !isPartialID(v) {
 		return ""
@@ -70,34 +72,37 @@ func fullIDHint(ctx context.Context, cfg *config.Config, v string) string {
 	if len(hexPart) < 6 || strings.Trim(hexPart, "0123456789abcdef") != "" {
 		return ""
 	}
-	inputs, err := binaries.Inputs(ctx, cfg)
+	keys, err := binaries.TrustKeys(cfg, "")
 	if err != nil {
 		return ""
 	}
+	trusted := func(env core.Envelope) bool { return core.VerifiedSignerKeyID(env, keys) != "" }
 	seen := map[string]bool{}
-	for _, in := range inputs {
-		if p, err := binaries.OpenPlanktonSource(in.PlanktonDir); err == nil {
-			for _, r := range p.Records(0) {
-				if strings.HasPrefix(strings.ToLower(r.FotonID), prefix) {
-					seen[strings.ToLower(r.FotonID)] = true
+	if p, err := binaries.OpenPlanktonSource(cfg.PlanktonDir); err == nil {
+		for _, r := range p.Records(0) {
+			id := strings.ToLower(r.FotonID)
+			if strings.HasPrefix(id, prefix) {
+				if env, ok := p.Envelope(r.FotonID); ok && trusted(env) {
+					seen[id] = true
 				}
 			}
 		}
-		if n, err := binaries.OpenNektonSource(in.NektonDir); err == nil {
-			for _, r := range n.RawRecords() {
-				if strings.HasPrefix(strings.ToLower(r.ClaimID), prefix) {
-					seen[strings.ToLower(r.ClaimID)] = true
-				}
+	}
+	if n, err := binaries.OpenNektonSource(cfg.NektonDir); err == nil {
+		for _, r := range n.RawRecords() {
+			id := strings.ToLower(r.ClaimID)
+			if strings.HasPrefix(id, prefix) && trusted(r.Envelope) {
+				seen[id] = true
 			}
 		}
 	}
 	switch len(seen) {
 	case 0:
-		return "; no record or claim this repository reads begins so"
+		return "; nothing a trusted key signed in this repository's registry begins so (federation sources are not searched)"
 	case 1:
 		for id := range seen {
-			return "; the one record or claim that begins so is " + id + ": give it whole"
+			return "; the one record or claim in this repository's registry that begins so is " + id + ": give it whole"
 		}
 	}
-	return fmt.Sprintf("; %d records and claims begin so: give the whole id", len(seen))
+	return fmt.Sprintf("; %d records and claims in this repository's registry begin so: give the whole id", len(seen))
 }

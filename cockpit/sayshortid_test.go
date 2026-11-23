@@ -62,6 +62,14 @@ func TestSay_AShortIDIsRefusedNamingTheWholeOne(t *testing.T) {
 	if n := count(); n != before {
 		t.Errorf("nothing refused is written, nor the rest of its batch: %d claims, %d before", n, before)
 	}
+	// A claim no trusted key signed is never offered as the whole id (kton-review N2 on #230).
+	study := r.SeedScope(t, "study")
+	stranger := r.ChainClaimAsStranger(t, subj, study, study, "x")
+	_, err = c.Say(ctx, SayRequest{Subject: subj, Template: "describes", Fields: map[string]string{"value": stranger[:15]}})
+	refused("a short id of an untrusted claim", err, false)
+	if err != nil && strings.Contains(err.Error(), stranger) {
+		t.Errorf("an untrusted claim's id is offered: %v", err)
+	}
 	// A whole id in a field is taken as it is.
 	if _, err := c.Say(ctx, SayRequest{Subject: subj, Template: "describes", Fields: map[string]string{"value": first.ClaimID}}); err != nil {
 		t.Errorf("a whole id: %v", err)
