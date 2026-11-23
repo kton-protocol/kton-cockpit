@@ -16,6 +16,8 @@ func runReproduce(ctx context.Context, args []string) error {
 	for i := 0; i < len(args); i++ {
 		switch a := args[i]; a {
 		case "--json":
+		case "--sign-anyway":
+			in.SignAnyway = true
 		case "--timeout":
 			if i+1 >= len(args) {
 				return fmt.Errorf("--timeout needs a number of seconds")
@@ -34,7 +36,7 @@ func runReproduce(ctx context.Context, args []string) error {
 		}
 	}
 	if in.Run == "" {
-		return fmt.Errorf("usage: cockpit reproduce <query run id> [--timeout SECONDS] [--json]")
+		return fmt.Errorf("usage: cockpit reproduce <query run id> [--timeout SECONDS] [--sign-anyway] [--json]")
 	}
 	out, err := cockpit.New(cockpit.Start{}).Reproduce(ctx, in)
 	if err != nil {
@@ -43,7 +45,12 @@ func runReproduce(ctx context.Context, args []string) error {
 	if asJSON {
 		return printJSON(out)
 	}
-	fmt.Printf("reproduced %s: %d rows, result %s\n  signed as %s\n", out.Run, out.Rows, out.Result, out.FotonID)
+	fmt.Printf("reproduced %s: %d rows, result %s\n", out.Run, out.Rows, out.Result)
+	if out.Signed {
+		fmt.Printf("  signed as %s\n", out.FotonID)
+	} else {
+		fmt.Printf("  not signed: %s\n", out.NotSigned)
+	}
 	for _, n := range out.Notes {
 		fmt.Printf("  note: %s\n", n)
 	}

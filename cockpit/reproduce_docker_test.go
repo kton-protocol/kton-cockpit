@@ -17,6 +17,7 @@ import (
 
 	"kton.dev/plankton/blobstore"
 
+	"github.com/kton-protocol/kton-cockpit/cockpit/source"
 	"github.com/kton-protocol/kton-cockpit/internal/config"
 	"github.com/kton-protocol/kton-cockpit/internal/testrepo"
 )
@@ -76,15 +77,23 @@ SELECT ?c ?v WHERE { ?c nk:about ?s OPTIONAL { ?c <https://kton.dev/v/lab/value>
 	raw.Trust.Tiers = []string{"self"}
 	r.WriteConfig(t, raw)
 
+	// It rests on a key not trusted here: reproducible, not signed (kton-review R1 on #229).
 	out, err := New(Start{}).Reproduce(ctx, ReproduceRequest{Run: run.FotonID})
 	if err != nil {
 		t.Fatalf("reproduce: %v", err)
 	}
-	if out.FotonID != run.FotonID || out.Result != run.Result || out.Rows != rows {
-		t.Errorf("a match signs the run's own record with its result: %+v (run %+v, %d rows)", out, run, rows)
+	if !out.Reproducible || out.Signed || out.FotonID != "" || !strings.Contains(out.NotSigned, "not trusted here") || out.Result != run.Result {
+		t.Errorf("a match resting on a key not trusted here is reproducible and not signed: %+v", out)
 	}
 	notes := strings.Join(out.Notes, "\n")
-	for _, want := range []string{"no longer trusts", "vocabulary"} {
+	out, err = New(Start{}).Reproduce(ctx, ReproduceRequest{Run: run.FotonID, SignAnyway: true})
+	if err != nil {
+		t.Fatalf("reproduce, signing anyway: %v", err)
+	}
+	if !out.Signed || out.FotonID != run.FotonID || out.Result != run.Result || out.Rows != rows {
+		t.Errorf("a match signed when asked signs the run's own record with its result: %+v (run %+v, %d rows)", out, run, rows)
+	}
+	for _, want := range []string{"not trusted here", "vocabulary"} {
 		if !strings.Contains(notes, want) {
 			t.Errorf("the reproduction says what differs from the present (%q): %v", want, out.Notes)
 		}
@@ -103,7 +112,7 @@ SELECT ?c ?v WHERE { ?c nk:about ?s OPTIONAL { ?c <https://kton.dev/v/lab/value>
 	testrepo.TrustPub(t, cfg, "self", "other", string(ob))
 	r.WriteIdentity(t, config.Identity{SessionID: testrepo.SessionID, PlanktonKey: filepath.Join(keys, "other.key"),
 		NektonKey: r.Key(testrepo.SessionID + "-claims")})
-	if _, err := New(Start{}).Reproduce(ctx, ReproduceRequest{Run: run.FotonID}); err != nil {
+	if _, err := New(Start{}).Reproduce(ctx, ReproduceRequest{Run: run.FotonID, SignAnyway: true}); err != nil {
 		t.Fatalf("reproduce by another key: %v", err)
 	}
 	res, err := New(Start{}).Ask(ctx, AskRequest{Query: "reproductions", Ref: run.Result})
@@ -139,5 +148,78 @@ SELECT ?c ?v WHERE { ?c nk:about ?s OPTIONAL { ?c <https://kton.dev/v/lab/value>
 	// Not a query run: refused as such.
 	if _, err := New(Start{}).Reproduce(ctx, ReproduceRequest{Run: "sha256:" + strings.Repeat("0", 64)}); !errors.As(err, &ref) || ref.Code != "reproduce.missing" {
 		t.Errorf("an id in no registry: want reproduce.missing, got %v", err)
+	}
+}
+
+// A run made in another repository, with keys this one does not trust, is reproducible here and not
+// signed: a co-signature would count in its ↻N as an independent reproduction by a key others may trust
+// (kton-review R1 on #229, probe zz229). A run whose pinned records are in no registry read any more is
+// refused (the completeness check), and one whose engine is not on the machine (never pulled).
+func TestReproduce_ARunOnKeysNotTrustedHereIsNotSigned(t *testing.T) {
+	ctx := context.Background()
+	theirs := testrepo.New(t)
+	raw := testrepo.DefaultConfig()
+	raw.Claims.AllowedTemplates = append(raw.Claims.AllowedTemplates, "describes")
+	raw.Query.Image = oxigraphImage
+	theirs.WriteConfig(t, raw)
+	theirs.Use(t)
+	for _, v := range []string{"a", "b"} {
+		if _, err := New(Start{}).Say(ctx, SayRequest{Subject: "urn:example:x", Template: "describes", Fields: map[string]string{"value": v}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	q := `SELECT ?c ?v WHERE { ?c <https://kton.dev/v/lab/value> ?v }`
+	a, err := New(Start{}).Ask(ctx, AskRequest{Query: "sparql", Sparql: q, Reproducible: true})
+	if err != nil || a.Sparql.Run == nil || len(a.Sparql.Rows) != 2 {
+		t.Fatalf("their run: %v %+v", err, a)
+	}
+	theirRun := a.Sparql.Run
+
+	ours := testrepo.New(t)
+	oraw := testrepo.DefaultConfig()
+	oraw.Query.Image = oxigraphImage
+	var spec source.Spec
+	b, _ := json.Marshal(map[string]string{"name": "theirs", "kind": "dir", "path": theirs.Root})
+	if err := json.Unmarshal(b, &spec); err != nil {
+		t.Fatal(err)
+	}
+	oraw.Federation.Sources = []source.Spec{spec}
+	ours.WriteConfig(t, oraw)
+	ours.Use(t)
+	out, err := New(Start{}).Reproduce(ctx, ReproduceRequest{Run: theirRun.FotonID})
+	if err != nil {
+		t.Fatalf("reproduce their run here: %v", err)
+	}
+	if !out.Reproducible || out.Signed || out.FotonID != "" || out.NotSigned == "" {
+		t.Errorf("their run on keys not trusted here: reproducible, not signed: %+v", out)
+	}
+	if !strings.Contains(strings.Join(out.Notes, "\n"), "signed by no key trusted here") {
+		t.Errorf("the note names the run's signer as not trusted here: %v", out.Notes)
+	}
+	res, err := New(Start{}).Ask(ctx, AskRequest{Query: "reproductions", Ref: theirRun.Result})
+	if err == nil && res.VerifiedSigners > 1 {
+		t.Errorf("nothing was co-signed: %d signers", res.VerifiedSigners)
+	}
+
+	// Our own run over the union, then the source taken out: its pinned records are in no registry
+	// read, and the reproduction is refused, naming the first.
+	a, err = New(Start{}).Ask(ctx, AskRequest{Query: "sparql", Sparql: q, Reproducible: true})
+	if err != nil || a.Sparql.Run == nil {
+		t.Fatalf("our run over the union: %v %+v", err, a)
+	}
+	ourRun := a.Sparql.Run
+	// The engine is never pulled: absent, refused, named.
+	enginePresent = func(context.Context, *config.Config, string) bool { return false }
+	_, err = New(Start{}).Reproduce(ctx, ReproduceRequest{Run: ourRun.FotonID})
+	enginePresent = imagePresent
+	var ref *Refusal
+	if !errors.As(err, &ref) || ref.Code != "reproduce.unsupported" || !strings.Contains(ref.Reason, oxigraphImage) {
+		t.Errorf("an engine not on the machine: want reproduce.unsupported naming it, got %v", err)
+	}
+	oraw.Federation.Sources = nil
+	ours.WriteConfig(t, oraw)
+	_, err = New(Start{}).Reproduce(ctx, ReproduceRequest{Run: ourRun.FotonID})
+	if !errors.As(err, &ref) || ref.Code != "query.not-reproducible" || !strings.Contains(ref.Reason, "sha256:") {
+		t.Errorf("pinned records in no registry read: want query.not-reproducible naming the first, got %v", err)
 	}
 }

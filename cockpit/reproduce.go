@@ -31,16 +31,28 @@ import (
 type ReproduceRequest struct {
 	Run            string `json:"run"` // the query run's foton id
 	TimeoutSeconds int    `json:"timeoutSeconds,omitempty"`
+	// SignAnyway signs a match that rests on keys this repository does not trust: the reproducer then
+	// vouches for a dataset whose signers it does not know, and says so by asking for it.
+	SignAnyway bool `json:"signAnyway,omitempty"`
 }
 
 // ReproduceResult is a match: the record it signed, and what differs from the reproducer's present
 // beside it, not counted against it (ADR-020 A3).
 type ReproduceResult struct {
-	Run      string `json:"run"`
-	FotonID  string `json:"fotonId"` // the same as Run: a reproduction signs the run's own record
-	Result   string `json:"result"`  // sha256 of the canonical result, the run's and this one's
-	Rows     int    `json:"rows"`
-	Revision string `json:"revision,omitempty"`
+	Run string `json:"run"`
+	// Reproducible: the pinned dataset, rebuilt from the registries and evaluated with the pinned view and
+	// engine, gives the run's result (ADR-020 A3: apart from whether it is still accepted here).
+	Reproducible bool `json:"reproducible"`
+	// Signed: this repository signed the run's record. Only when every key the run's trust pinned is in
+	// this repository's tiers, or SignAnyway was asked: a co-signature counts in the run's ↻N as an
+	// independent reproduction by a key others may trust, and carries no notes (kton-review R1 on #229).
+	Signed bool `json:"signed"`
+	// NotSigned says why a reproducible run was not signed.
+	NotSigned string `json:"notSigned,omitempty"`
+	FotonID   string `json:"fotonId,omitempty"` // the same as Run when signed: a reproduction signs the run's own record
+	Result    string `json:"result"`            // sha256 of the canonical result, the run's and this one's
+	Rows      int    `json:"rows"`
+	Revision  string `json:"revision,omitempty"`
 	// Notes say where the reproducer's present differs from the run's pins: a pinned key it no longer
 	// trusts, another vocabulary, other packages.
 	Notes []string `json:"notes,omitempty"`
@@ -110,7 +122,7 @@ func (c *Cockpit) Reproduce(ctx context.Context, in ReproduceRequest) (*Reproduc
 		return nil, refuse("reproduce.mismatch", "ADR-020", "the record's engine %v is not the manifest's %s", f.Protocol.Descriptor["engine"], m.Engine)
 	}
 	// The engine is pinned by digest and never pulled: absent, the reproduction is refused, named.
-	if !imagePresent(ctx, cfg, m.Engine) {
+	if !enginePresent(ctx, cfg, m.Engine) {
 		return nil, refuse("reproduce.unsupported", "ADR-020", "the engine %s is not on this machine; it is never pulled for a reproduction: pull it by its digest first", m.Engine)
 	}
 	vb, err := blob("view", m.View)
@@ -152,7 +164,16 @@ func (c *Cockpit) Reproduce(ctx context.Context, in ReproduceRequest) (*Reproduc
 			return b
 		}(), result))
 	}
-	out := &ReproduceResult{Run: in.Run, Result: refs["result.json"], Rows: len(res.Terms), Notes: presentDiffers(cfg, &m)}
+	out := &ReproduceResult{Run: in.Run, Reproducible: true, Result: refs["result.json"], Rows: len(res.Terms), Notes: presentDiffers(cfg, &m)}
+	if keys, err := binaries.TrustKeys(cfg, ""); err == nil {
+		if env, ok := runEnvelope(ctx, cfg, in.Run); ok && core.VerifiedSignerKeyID(env, keys) == "" {
+			out.Notes = append(out.Notes, "the run is signed by no key trusted here")
+		}
+	}
+	if untrusted := untrustedPins(cfg, &m); len(untrusted) > 0 && !in.SignAnyway {
+		out.NotSigned = fmt.Sprintf("it rests on %d key(s) not trusted here (%s): reproducible, not signed; sign-anyway signs it", len(untrusted), strings.Join(untrusted, ", "))
+		return out, nil
+	}
 	store, err := blobstore.Open(cfg.BlobsDir)
 	if err != nil {
 		return nil, refuse("io", "", "%v", err)
@@ -170,7 +191,7 @@ func (c *Cockpit) Reproduce(ctx context.Context, in ReproduceRequest) (*Reproduc
 	if err != nil {
 		return nil, err
 	}
-	out.FotonID, out.Revision = run.FotonID, run.Revision
+	out.Signed, out.FotonID, out.Revision = true, run.FotonID, run.Revision
 	return out, nil
 }
 
@@ -205,7 +226,9 @@ func findBlob(cfg *config.Config, inputs []binaries.Input, h string) ([]byte, bo
 	return nil, false
 }
 
-// imagePresent says whether the engine's image is on this machine, without pulling it.
+// enginePresent says whether the engine's image is on this machine, without pulling it; a test replaces it.
+var enginePresent = imagePresent
+
 func imagePresent(ctx context.Context, cfg *config.Config, image string) bool {
 	ref := strings.TrimPrefix(image, "oci://")
 	return exec.CommandContext(ctx, cfg.Raw.Execution.EngineOrDefault(), "image", "inspect", ref).Run() == nil
@@ -258,18 +281,8 @@ func deref(b *bool) any {
 // beside a match, never counted against it.
 func presentDiffers(cfg *config.Config, m *QueryManifest) []string {
 	var notes []string
-	now := map[string]bool{}
-	for path := range cfg.TierPubkeys() {
-		if b, err := os.ReadFile(path); err == nil {
-			if pub, err := core.ParsePublicKeyHex(strings.TrimSpace(string(b))); err == nil {
-				now[hex.EncodeToString(pub)] = true
-			}
-		}
-	}
-	for _, k := range m.Trust {
-		if !now[k.Key] {
-			notes = append(notes, fmt.Sprintf("the run rests on the key %s (%s), which this repository no longer trusts", core.KeyIDHex(mustHex(k.Key)), k.Tier))
-		}
+	for _, k := range untrustedPins(cfg, m) {
+		notes = append(notes, fmt.Sprintf("the run rests on the key %s, which is not trusted here", k))
 	}
 	if pv, err := currentView(cfg); err == nil {
 		if b, err := json.Marshal(pv); err == nil && core.HashBytes(b) != m.View {
@@ -292,4 +305,41 @@ func presentDiffers(cfg *config.Config, m *QueryManifest) []string {
 func mustHex(s string) []byte {
 	b, _ := hex.DecodeString(s)
 	return b
+}
+
+// untrustedPins are the keyids of the keys the run's trust pinned that none of this repository's tiers
+// holds.
+func untrustedPins(cfg *config.Config, m *QueryManifest) []string {
+	now := map[string]bool{}
+	for path := range cfg.TierPubkeys() {
+		if b, err := os.ReadFile(path); err == nil {
+			if pub, err := core.ParsePublicKeyHex(strings.TrimSpace(string(b))); err == nil {
+				now[hex.EncodeToString(pub)] = true
+			}
+		}
+	}
+	var out []string
+	for _, k := range m.Trust {
+		if !now[k.Key] {
+			out = append(out, core.KeyIDHex(mustHex(k.Key))+" ("+k.Tier+" there)")
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// runEnvelope is the run's signed record, from whichever registry of the union holds it.
+func runEnvelope(ctx context.Context, cfg *config.Config, id string) (core.Envelope, bool) {
+	inputs, err := binaries.Inputs(ctx, cfg)
+	if err != nil {
+		return core.Envelope{}, false
+	}
+	for _, in := range inputs {
+		if p, err := binaries.OpenPlanktonSource(in.PlanktonDir); err == nil {
+			if env, ok := p.Envelope(id); ok {
+				return env, true
+			}
+		}
+	}
+	return core.Envelope{}, false
 }

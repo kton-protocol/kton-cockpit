@@ -8,8 +8,9 @@
   reads the run's manifest, builds its dataset again from the registries over exactly the pinned ids (a claim
   signed since, or on another branch of a scope, is not in it), evaluates it with the pinned trust, view and
   engine (never pulled), and compares the result. A match signs the run's own record, so its
-  `reproductions` count the reproducer; a key no longer trusted, another vocabulary or other packages are said
-  beside it. Refused, named: a missing record or byte, another manifest or projection version, an absent
+  `reproductions` count the reproducer, only when every key the run rests on is trusted here (or with
+  `--sign-anyway`); otherwise it is reproducible and not signed. Keys not trusted here, another vocabulary or
+  other packages are said beside it. Refused, named: a missing record or byte, another manifest or projection version, an absent
   engine, a different result (its first differing row).
 
 ### Changed
