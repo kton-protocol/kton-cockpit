@@ -1294,6 +1294,11 @@ A repository MAY configure `shims`: tools a shim in a calling environment hands 
 that is absolute or contains `..`, `.`, an empty segment or NUL, MUST hash the bytes it is sent
 itself, and MUST run the tool on exactly what it staged, in the configured digest-pinned image.
 
+A dispatcher served on a TCP port of the loopback (`shim serve --listen`) MUST refuse, before it reads a
+call, a request whose Host is not the loopback (DNS rebinding) or whose `Origin` is another page's: every
+browser on the machine reaches the port, and a cross-site `text/plain` POST needs no preflight. So MUST
+`cockpit show` when it listens on the loopback (its default).
+
 A run that leaves anything but regular files and directories MUST NOT be read or recorded. A run
 MUST NOT be recorded when its exit code is not a result, when it did not write what a result always
 has, or when an output contains a configured secret. A call is answered from a record only when this
@@ -1315,6 +1320,7 @@ cockpit builds for (on Windows, which has no `O_NOFOLLOW`, a link found before t
 > `TestShim_AnOutputAboveTheCallsDirectoryIsWritten`, `TestShim_FilesUnderTheStreamsDirectoryNeverComeBack`,
 > `TestShim_ARunThatLeavesTooMuchIsNotRead`, `TestCollect_ARepeatedIncludeIsReadOnce`,
 > `TestCollect_NonmemTakesTheControlStreamAndWhatItReads`.
+> `TestLoopbackOnly`, `TestLoopbackDoors_RefuseOtherPages`.
 
 ## 11 Carried evidence *(optional)*
 

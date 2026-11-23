@@ -11,6 +11,13 @@
   scope's head, sign and store, persist, confirm), to find where a slow say spends its time in a given
   registry.
 
+### Fixed
+
+- **`cockpit shim serve --listen` and `cockpit show` refuse other web pages** (kton-review on #236): a
+  request whose Host is not the loopback (DNS rebinding) or whose `Origin` is another page's gets 403
+  before anything runs. Without it, a page in any browser on the machine could post a tool call the
+  person's cockpit ran, or read the records `show` serves. The guard is shared (`internal/httpguard`).
+
 ## v0.5.11 — 2026-11-23
 
 Query runs reproducible by anyone, workflow runs as jobs, kton v0.4.3, and sessions decided (ADR-019).
