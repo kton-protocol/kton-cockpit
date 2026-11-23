@@ -95,6 +95,50 @@ model, with the rule and what is missing. `kw` refuses to start a lane the check
 MCP servers outside kton (improve-api, Atlassian); enforcement inside a model; who may classify a scope
 (a matter of the trust tiers, as for any claim).
 
+### 8 The shell's side (userinterface's review on #219)
+
+**Who signs the environment.** The shell makes the session key (Q4) and keeps its private half. It asks the
+cockpit on the host where the model runs to sign `session-environment`: serve's `session/environment
+{session, model, modelFiles?, modelHosting, network, evidence?}`, CLI `cockpit session environment …`. That
+cockpit holds the host's machine key at its machine path (ADR-016, never in a repository or an image) and
+signs only what it can back: `modelHosting: internal` with `network: none` needs the `evidence` record, which
+it checks; `external` or `open` needs none, since it clears nothing more. A window whose model is an external
+API (a desktop VS Code window with a hosted model) gets its claim from its own host's cockpit, saying
+`external`. A code-server container holds no machine key; the host's cockpit signs for it.
+
+**The behalf claim is the person's.** `session-behalf` is signed with the person's key, through the shell's
+sign dialog, once per session, never with an agent key. There is no renewal approved in advance: the person
+chooses `validUntil` in that dialog, and when it runs out the shell asks again (a new behalf claim). The shell
+warns before it runs out.
+
+**The session does not replace `as`.** The session is the actor; `as` still names the signing key. A `say`
+in a session signs with the key it names (person key for decisions, agent key for records, #196), and the
+guard is asked for the action `sign` with that key as the resource, so the rules may limit which keys a
+session uses. One window holds one session and both keys.
+
+**The CLI form.** The command line has no `initialize`, so each call carries its session: `--session
+<keyid>` (or `KTON_SESSION`) with `KTON_SESSION_SIG`, the session key's signature over the call (its
+arguments, working directory, time and a random nonce, canonical JSON). The module refuses a signature older
+than 60 seconds and a nonce it has seen (its local state). No token is held between calls.
+
+**Required sessions.** With the module in the build, `session.required: true` in the configuration refuses
+every request without a session, at the door and on the command line; otherwise a request without one acts
+as today. Without it a CLI window would stand outside the guard.
+
+**Refused versus not visible.** The guard judges a session's clearance for a data class, and naming a class,
+its rule and the missing attribute reveals nothing: classes are vocabulary. ADR-018's visibility comes first,
+and a scope a reader cannot see is never asked about. A request that names a scope it may not read is refused
+with `access.denied`, its reason given (the requester knew the name). A query over the union is answered over
+the scopes the session is cleared for, and says which classes were left out, never which scopes. The shell
+shows it as "this session is not cleared for <class> (rule …, missing …)", never as "hidden data exists".
+
+**Status and the log.** `session/status` (CLI `cockpit session status --json`) returns the connection's
+session: the environment claim's model, hosting and network, on whose behalf, until when, and whether it has
+ended or expired. A request in an ended or expired session is refused with `session.ended` or
+`session.expired`, so the shell disables acts with that reason. `session/log {since}` returns the access log's
+lines of the connection's own session; the operator command `cockpit session log --on-behalf-of <key>`
+returns those of every session on that person's behalf, for "what was refused today and why".
+
 ## Consequences
 
 - One door change (the `Guard` field) and one module; SPEC §13 stays as it is.
@@ -109,7 +153,10 @@ A session without its environment claim; with `network: open`; with an environme
 machine key; with an expired or ended behalf claim; a replayed nonce; a scope without a class (no rule
 applies); the pilot rule end to end (allowed and refused, both in the log); a line removed from the log
 after its day was sealed (the seal no longer matches); `session check --lane` refusing a lane that reaches
-customer information with an external model.
+customer information with an external model; a machine key refusing to sign `internal`/`none` without its
+evidence; a `say` in a session signing with a key the rules do not allow it; a CLI call with a stale or
+replayed signature; `session.required` refusing a call without a session; a union query leaving out a class
+and naming the class, not the scope; `session/log` returning only the connection's own session.
 
 ## Alternatives
 
