@@ -45,6 +45,34 @@ func LoopbackHost(hostport string) bool {
 	return ip != nil && ip.IsLoopback()
 }
 
+// AddressOnly refuses, with 403 before next runs, a request whose Host is not addr (a server bound to one
+// address of this machine: a rebinding name is refused) or whose Origin is another page's.
+func AddressOnly(what, addr string, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.EqualFold(r.Host, addr) {
+			http.Error(w, what+" answers at "+addr+" only (Host "+r.Host+")", http.StatusForbidden)
+			return
+		}
+		if o := r.Header.Get("Origin"); o != "" {
+			if u, err := url.Parse(o); err != nil || u.Scheme != "http" || !strings.EqualFold(u.Host, addr) {
+				http.Error(w, what+" does not answer pages of other origins ("+o+")", http.StatusForbidden)
+				return
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// Wildcard says whether a listen address binds every interface (":8377", "0.0.0.0:8377", "[::]:8377").
+func Wildcard(addr string) bool {
+	h, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return false
+	}
+	ip := net.ParseIP(h)
+	return h == "" || (ip != nil && ip.IsUnspecified())
+}
+
 // ListensOnLoopback says whether a listen address binds the loopback only (not ":8377", which binds
 // every interface).
 func ListensOnLoopback(addr string) bool {

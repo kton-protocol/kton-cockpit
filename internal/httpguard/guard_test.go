@@ -48,3 +48,34 @@ func TestListensOnLoopback(t *testing.T) {
 		}
 	}
 }
+
+func TestAddressOnlyAndWildcard(t *testing.T) {
+	ran := false
+	h := AddressOnly("test door", "192.168.1.5:8377", http.HandlerFunc(func(http.ResponseWriter, *http.Request) { ran = true }))
+	for _, c := range []struct {
+		host, origin string
+		ok           bool
+	}{
+		{"192.168.1.5:8377", "", true},
+		{"192.168.1.5:8377", "http://192.168.1.5:8377", true},
+		{"evil.example:8377", "", false},
+		{"192.168.1.5:8377", "https://evil.example", false},
+	} {
+		ran = false
+		req := httptest.NewRequest(http.MethodGet, "http://"+c.host+"/", nil)
+		req.Host = c.host
+		if c.origin != "" {
+			req.Header.Set("Origin", c.origin)
+		}
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if c.ok != ran {
+			t.Errorf("Host %s Origin %q: want answered=%v, got %v (%d)", c.host, c.origin, c.ok, ran, rec.Code)
+		}
+	}
+	for addr, want := range map[string]bool{":8377": true, "0.0.0.0:8377": true, "[::]:8377": true, "192.168.1.5:8377": false, "127.0.0.1:8377": false} {
+		if got := Wildcard(addr); got != want {
+			t.Errorf("Wildcard(%s) = %v, want %v", addr, got, want)
+		}
+	}
+}

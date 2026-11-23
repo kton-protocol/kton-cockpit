@@ -442,9 +442,10 @@ func runShow(ctx context.Context, args []string) error {
 		return err
 	}
 
-	if strings.HasPrefix(addr, ":") {
-		fmt.Printf("note: %s binds every interface, not just loopback — this repo's records will be\n", addr)
-		fmt.Printf("      reachable from the network by anyone who can reach this host.\n\n")
+	// Every address but the loopback is said, not only ":PORT" (kton-review on #239).
+	if !httpguard.ListensOnLoopback(addr) {
+		fmt.Printf("note: %s is not the loopback — this repo's records will be reachable from the\n", addr)
+		fmt.Printf("      network by anyone who can reach this host at that address.\n\n")
 	}
 	base := "http://" + displayAddr(addr)
 	fmt.Printf("cockpit show on %s/  (registry %s)\n", base, cfg.RepoRoot)
@@ -462,6 +463,10 @@ func runShow(ctx context.Context, args []string) error {
 		// posts from another origin (kton-review on #236); bound to every interface, the note above
 		// says what that opens.
 		handler = httpguard.LoopbackOnly("cockpit show", handler)
+	} else if !httpguard.Wildcard(addr) {
+		// One address of this machine: only that address as Host, so a rebinding name is refused there
+		// too; bound to every interface, the note above is all that applies.
+		handler = httpguard.AddressOnly("cockpit show", addr, handler)
 	}
 	return http.ListenAndServe(addr, handler)
 }
