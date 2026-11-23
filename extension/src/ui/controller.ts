@@ -165,6 +165,7 @@ export class Workbench {
     this.packages = new PackagesArea(t, host, {
       act: (c, about, fields, title, expect, into) => this.signAct(c, about, fields, title, expect, into),
       person: () => ({ keyId: this.identity.person.keyId, personTiers: this.cfg.personTiers }),
+      ...(this.host.reviewedState ? { reviewedState: (repo: string, head: string, reviewOf: (sha: string) => string | undefined) => (this.host.reviewedState as NonNullable<UiHost["reviewedState"]>)(repo, head, reviewOf) } : {}),
       ...(this.host.changesBetween ? { changes: (repo: string, from: string, to: string, path: string) => (this.host.changesBetween as NonNullable<UiHost["changesBetween"]>)(repo, from, to, path) } : {}),
       ...(this.host.approvalStaleness ? { staleness: (repo: string, approved: string, head: string, paths: readonly string[]) => (this.host.approvalStaleness as NonNullable<UiHost["approvalStaleness"]>)(repo, approved, head, paths) } : {}),
       ...(this.host.artifactThumb ? { thumb: (t: import("./artifacts.js").ArtifactTarget) => (this.host.artifactThumb as NonNullable<UiHost["artifactThumb"]>)(t) } : {}),
@@ -800,6 +801,11 @@ export class Workbench {
     // dialog (signing stays possible) and, where the template has the note field, added to it
     let checks: SignPlan["checks"];
     let fieldsToSign: Record<string, string> = asked;
+    // requireReviewed: the commits under the rerun with their reviews; a decision's dialog lists them, a record says them
+    if (into?.reviewed?.length) {
+      checks = { query: "the commits under this rerun", differs: [], values: [...into.reviewed] };
+      if (c.kind === "record") this.host.info(`${title}: ${into.reviewed.join(" · ")}`);
+    }
     if (into?.check) {
       let rows: Array<Record<string, string>> | undefined;
       try {
@@ -809,7 +815,7 @@ export class Workbench {
       }
       if (rows) {
         const r = checkValues(into.check, asked, rows);
-        checks = { query: into.check.query, ...r };
+        checks = { query: into.check.query, ...r, ...(checks ? { values: [...r.values, ...checks.values] } : {}) };
         const nf = into.check.noteField;
         if (r.differs.length && nf && tpl?.fields[nf]) {
           const add = `checked against ${into.check.query}: ${r.differs.join("; ")}`;

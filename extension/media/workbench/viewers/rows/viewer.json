@@ -86,7 +86,8 @@
   },
   "changesBetween": "literal",
   "changesReviews": "literal",
-  "checkAgainst": "literal"
+  "checkAgainst": "literal",
+  "requireReviewed": "literal"
  },
  "emits": {
   "select": {

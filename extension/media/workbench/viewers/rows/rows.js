@@ -46,6 +46,9 @@
 //             once under the group's header; each row shows a small marker with the count and the items in its tooltip
 //   details   "column|Label": an expandable row detail (in the first cell) with these fields; with actsIn "details" the
 //             row's acts go there too
+//   requireReviewed "[control:]repo|head|reviews": the shell finds the commits a rerun at head would contain since the last
+//             reviewed state (each needs its own approval from the reviews query); while one has none, that control's act
+//             is drawn disabled with the reason, and the commits are listed above the table
 //   changesBetween "repo|from|to|path": the row's columns naming a mirrored repository, two commits and a test file; the
 //             shell adds `changes` (the commits between them that touched the test or a helper it imports, each opening
 //             its diff read-only, with its review from changesReviews "<query>": ?approvedCommit ?by ?when) and
@@ -83,6 +86,13 @@ export function mount(el, ctx) {
   const choicesOf = (a) => choices.map((c, ci) => ({ c, ci })).filter(({ c }) => c.control === undefined || c.control === a.control?.name);
   const proposes = (o.propose ?? []).map((p) => [p.slice(0, p.indexOf("=")), p.slice(p.indexOf("=") + 1)]).filter(([f]) => f);
   const perRow = !!o.target && acts.length > 0;
+  // requireReviewed (the shell's option): an act whose rerun contains a commit without a review is drawn disabled, with why
+  const [blockedCtl, blockedWhy] = typeof o.blocked === "string" && o.blocked.includes("|") ? [o.blocked.slice(0, o.blocked.indexOf("|")), o.blocked.slice(o.blocked.indexOf("|") + 1)] : [undefined, undefined];
+  const blockedFor = (a) => (blockedWhy && (blockedCtl === "*" || a.control?.name === blockedCtl) ? blockedWhy : "");
+  const reviewedNote = () =>
+    Array.isArray(o.reviewed) && o.reviewed.length
+      ? `<details class="reviewed" data-reviewed${blockedWhy ? " open" : ""}><summary>${blockedWhy ? `<b data-blocked-why>${esc(blockedWhy)}</b>` : esc(o.reviewed[0])}</summary><ul>${o.reviewed.map((l) => `<li>${esc(l)}</li>`).join("")}</ul></details>`
+      : "";
   const rowButtons = (r, i) =>
     value(r[o.target])
       ? acts
@@ -90,7 +100,10 @@ export function mount(el, ctx) {
             const own = choicesOf(a);
             return own.length ? own.map(({ c, ci }) => ({ a, ai, c, ci })) : [{ a, ai, c: null, ci: -1 }];
           })
-          .map(({ a, ai, c, ci }) => `<button type="button" class="small" data-row-act="${i}" data-act-i="${ai}" data-choice="${ci}" data-testid="row-${i}-${esc(c ? c.value : a.control?.name ?? a.intent)}">${esc(c ? c.label : a.label ?? a.intent)}</button>`)
+          .map(({ a, ai, c, ci }) => {
+            const why = blockedFor(a);
+            return `<button type="button" class="small" data-row-act="${i}" data-act-i="${ai}" data-choice="${ci}" data-testid="row-${i}-${esc(c ? c.value : a.control?.name ?? a.intent)}"${why ? ` disabled data-blocked data-tip="${esc(why)}"` : ""}>${esc(c ? c.label : a.label ?? a.intent)}</button>`;
+          })
           .join(" ") + ` <span class="kton-muted" data-row-out="${i}"></span>`
       : "";
   const wireRowActs = (rows) => {
@@ -117,7 +130,7 @@ export function mount(el, ctx) {
   const actButtons = () =>
     acts.length && !perRow
       ? `<div class="kton-act" data-area-acts>${acts
-          .map((a, i) => `<button type="button" class="${actClasses(acts)[i]}" data-act="${i}" data-testid="act-${esc(a.control?.name ?? a.intent)}">${esc(a.label ?? a.intent)}</button>`)
+          .map((a, i) => `<button type="button" class="${actClasses(acts)[i]}" data-act="${i}" data-testid="act-${esc(a.control?.name ?? a.intent)}"${blockedFor(a) ? ` disabled data-blocked data-tip="${esc(blockedFor(a))}"` : ""}>${esc(a.label ?? a.intent)}</button>`)
           .join("")}<span class="kton-muted" data-act-out></span></div>`
       : "";
   const wireActs = () => {
@@ -178,7 +191,7 @@ export function mount(el, ctx) {
     const page = paging
       ? `<div class="kton-pager" data-pager data-page="${back.length + 1}"><span class="kton-muted">Page ${back.length + 1} · rows ${back.length * pageSize + (rows.length ? 1 : 0)}–${back.length * pageSize + rows.length}</span>${back.length ? ` <button type="button" class="small" data-page-prev>Previous</button>` : ""}${pageSize && rows.length >= pageSize ? ` <button type="button" class="small" data-page-next>Next</button>` : ""}</div>`
       : "";
-    el.innerHTML = `${o.title ? `<h3 data-block-title>${esc(o.title)}</h3>` : ""}${caption()}${ruleStates(rows)}${choices ? `<div class="kton-refine" data-refines>${choices}</div>` : ""}${body}${page}${actButtons()}`;
+    el.innerHTML = `${o.title ? `<h3 data-block-title>${esc(o.title)}</h3>` : ""}${reviewedNote()}${caption()}${ruleStates(rows)}${choices ? `<div class="kton-refine" data-refines>${choices}</div>` : ""}${body}${page}${actButtons()}`;
     for (const mb of el.querySelectorAll(".mb[data-lo]")) for (const k of ["lo", "hi", "pt", "t"]) mb.style.setProperty(`--${k}`, mb.dataset[k]);
     for (const b of el.querySelectorAll("button[data-art]")) {
       b.addEventListener("click", (ev) => {

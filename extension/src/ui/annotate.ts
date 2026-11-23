@@ -201,3 +201,29 @@ export async function withChanges(answer: unknown, o: ChangesOptions, changes: C
   const vars = [...new Set([...(a.head?.vars ?? []), "changes", "changesNote"])];
   return { ...a, head: { ...(a.head ?? {}), vars }, results: { ...(a.results ?? {}), bindings } };
 }
+
+/** requireReviewed "[control:]repo|head|reviews": a rerun's commits must each have a review (see sources.reviewedState). */
+export interface RequireReviewed {
+  readonly control?: string;
+  readonly repo: string;
+  readonly head: string;
+  readonly reviews: string;
+}
+export function requireReviewedOf(options: Readonly<Record<string, unknown>> | undefined): RequireReviewed | undefined {
+  const raw = options?.["requireReviewed"];
+  if (typeof raw !== "string") return undefined;
+  const m = /^(?:([^:|]+):)?(.+)$/.exec(raw.trim());
+  const [repo, head, reviews] = (m?.[2] ?? "").split("|").map((x) => x.trim());
+  if (!m || !repo || !head || !reviews) return undefined;
+  return { ...(m[1] ? { control: m[1] } : {}), repo, head, reviews };
+}
+
+/** The reason an act under requireReviewed is blocked, and the commits as lines (each with its review or "no review"). */
+export function reviewedLines(s: import("./sources.js").ReviewedState | { why: string }, head: string): { blocked?: string; lines: string[] } {
+  if ("why" in s) return { blocked: `the commits under this rerun cannot be checked: ${s.why}`, lines: [] };
+  const lines = s.commits.map((c) => `${c.sha.slice(0, 7)} ${c.subject}: ${c.review ?? "no review"}`);
+  if (s.base) lines.push(`last reviewed state: ${s.base.slice(0, 7)}`);
+  if (s.capped) lines.push(s.capped);
+  const n = s.missing.length;
+  return { ...(n ? { blocked: `${n} commit${n === 1 ? "" : "s"} under this rerun ${n === 1 ? "has" : "have"} no review: ${s.missing.map((x) => x.slice(0, 7)).join(", ")}` } : {}), lines: [`${head}: ${s.commits.length} commit${s.commits.length === 1 ? "" : "s"} since the last reviewed state`, ...lines] };
+}

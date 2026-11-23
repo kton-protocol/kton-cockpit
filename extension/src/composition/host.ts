@@ -16,6 +16,7 @@
 import { bindVars, typedTerm, varValuesOf } from "../../media/kton-web/core/ktonpkg-mirror/plan.js";
 import type { Control, Loaded } from "../packages/model.js";
 import type { BoundTerm } from "../transport/port.js";
+import { requireReviewedOf } from "../ui/annotate.js";
 
 export interface Term {
   readonly type: string;
@@ -65,7 +66,7 @@ export interface Backend {
    * sign@1 / record@1 through the shell's one sign path (C1.4): the dialog for a decision, none for a record. `signed`
    * is called with the claim id and the fields as signed (what the person may have edited), once it is signed.
    */
-  act(control: Control, about: string, fields: Readonly<Record<string, string>>, title: string, proposed?: Readonly<Record<string, string>>, signed?: (s: Signed) => void, asks?: readonly AskEach[], check?: CheckAgainst): Promise<"signed" | "cancelled" | "failed">;
+  act(control: Control, about: string, fields: Readonly<Record<string, string>>, title: string, proposed?: Readonly<Record<string, string>>, signed?: (s: Signed) => void, asks?: readonly AskEach[], check?: CheckAgainst, review?: import("../ui/annotate.js").RequireReviewed & { readonly package: string }): Promise<"signed" | "cancelled" | "failed">;
   /** run@1: a ray (workflow run) with its holes. */
   run(ray: string, holes: Readonly<Record<string, string>>): Promise<string>;
   /** graph@1 (e): the registry's records with the ring to verify them: {records, keys, names}. */
@@ -788,7 +789,9 @@ export class CompositionHost {
         const useOf = this.plan.uses.find((x) => x.key === i.from) as { options?: Record<string, unknown>; query?: { package?: string } } | undefined;
         const asks = askEachOf(useOf?.options, c.name);
         const check = checkAgainstOf(useOf?.options, c.name, useOf?.query?.package ?? this.plan.root.package);
-        const r = await this.backend.act(c, this.aboutOf(i, checked.act), actFields, `${checked.act.label}: ${this.plan.root.package}/${this.plan.root.composition}`, proposed, (s) => (made = s), asks.length ? asks : undefined, check);
+        const rr = requireReviewedOf(useOf?.options);
+        const review = rr ? { ...rr, package: useOf?.query?.package ?? this.plan.root.package } : undefined;
+        const r = await this.backend.act(c, this.aboutOf(i, checked.act), actFields, `${checked.act.label}: ${this.plan.root.package}/${this.plan.root.composition}`, proposed, (s) => (made = s), asks.length ? asks : undefined, check, review);
         if (r === "failed") return refuse(c.kind === "decision" ? "not signed (see the sign dialog)" : "not recorded");
         const keyLine = c.kind === "decision" ? "Signed with the person key (test-only)." : "Recorded with the agent key.";
         if (r === "signed") {

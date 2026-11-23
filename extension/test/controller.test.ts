@@ -1343,3 +1343,17 @@ test("checkAgainst: the values about to be signed against the claims' current an
   const p2 = plan({ kind: "sign", about: sha("1"), fields: { class: "C1", total: "12" } }, { package: "pkg.a", name: "gate", template: "gate-status", kind: "decision" }, await t.templates().then((x) => (x.ok ? x.value : [])), identity);
   assert.ok(p.ok && p2.ok && p.value.digest !== p2.value.digest, "the checks are part of what the dialog's consent is bound to");
 });
+
+test("requireReviewed at act time: the commits under the rerun are listed in a decision's dialog (and said for a record)", async () => {
+  const t = new FakeTransport();
+  t.templateList = [...TEMPLATES, { name: "rerun", package: "runs", fields: { reason: { type: "string" } } }];
+  const { h, wb } = await setup({}, t);
+  h.confirmAnswer = true;
+  const lines = ["main: 2 commits since the last reviewed state", "aaaaaaa head: approved by R on 2026-11-23", "last reviewed state: bbbbbbb"];
+  const rec = { package: "runs", name: "rerun-request", template: "rerun", kind: "record" as const, decl: {} } as never;
+  assert.equal(await wb.signAct(rec, sha("1"), { reason: "r" }, "Request rerun", undefined, { reviewed: lines }), "signed");
+  assert.ok(h.infos.some((i) => i === `Request rerun: ${lines.join(" · ")}`), "a record says the commits (no dialog)");
+  const dec = { package: "runs", name: "rerun-decide", template: "rerun", kind: "decision" as const, decl: {} } as never;
+  assert.equal(await wb.signAct(dec, sha("1"), { reason: "r" }, "Rerun", undefined, { reviewed: lines }), "signed");
+  assert.match(h.dialogs.at(-1)?.detail ?? "", /Checked against the commits under this rerun: no difference\n  the commits under this rerun: main: 2 commits since the last reviewed state · aaaaaaa head: approved by R on 2026-11-23/);
+});

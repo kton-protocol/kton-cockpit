@@ -98,3 +98,30 @@ test("rows renders the changes: each commit opens its diff read-only, with its t
   assert.match(html, /class="pill warn" data-review>no review found/);
   assert.equal(changesCell(esc, ""), "");
 });
+
+test("reviewedState: from head back to the newest proper ancestor with an approval of its own; each commit after it with its review or none; a later commit's approval does not cover its parent", async () => {
+  const { reviewedState } = await import("../src/ui/sources.js");
+  const { requireReviewedOf, reviewedLines } = await import("../src/ui/annotate.js");
+  const { mirrors, c0, c1, c2, c3 } = repo();
+  const approved = new Map([[c0, "approved by Reviewer on 2026-11-20"], [c3, "approved by Reviewer on 2026-11-23"]]);
+  const s = await reviewedState(mirrors, "app", c3, (sha) => approved.get(sha));
+  assert.ok(!("why" in s));
+  if ("why" in s) return;
+  assert.equal(s.base, c0, "the last reviewed state");
+  assert.deepEqual(s.commits.map((c) => [c.sha, c.review ?? "none"]), [[c3, "approved by Reviewer on 2026-11-23"], [c2, "none"], [c1, "none"]], "head's approval does not cover its parents");
+  assert.deepEqual(s.missing, [c2, c1]);
+  const l = reviewedLines(s, "main");
+  assert.equal(l.blocked, `2 commits under this rerun have no review: ${c2.slice(0, 7)}, ${c1.slice(0, 7)}`);
+  assert.match(l.lines[0] ?? "", /^main: 3 commits since the last reviewed state$/);
+  assert.ok(l.lines.includes(`${c2.slice(0, 7)} an unrelated helper: no review`));
+  assert.equal(l.lines.at(-1), `last reviewed state: ${c0.slice(0, 7)}`);
+  const all = await reviewedState(mirrors, "app", c3, (sha) => (sha === c2 || sha === c1 ? "approved by R on 2026-11-21" : undefined));
+  assert.ok(!("why" in all) && all.base === c2 && all.missing.length === 1, "head itself without a review");
+  const none = await reviewedState(mirrors, "app", c3, () => undefined, {}, 2);
+  assert.ok(!("why" in none) && none.base === undefined && /no reviewed ancestor within 2 commits/.test(none.capped ?? ""), "no reviewed ancestor within the cap: said");
+  assert.match(((await reviewedState(mirrors, "app", "no-such-branch", () => undefined)) as { why: string }).why, /has no no-such-branch/);
+  assert.match(((await reviewedState(mirrors, "app", "-x", () => undefined)) as { why: string }).why, /not plain/);
+  assert.equal(reviewedLines({ commits: [{ sha: c3, subject: "s", author: "a", date: "d", review: "approved by R on 2026-11-23" }], missing: [], base: c2 }, "main").blocked, undefined);
+  assert.deepEqual(requireReviewedOf({ requireReviewed: "rerun-request:app|main|reviews" }), { control: "rerun-request", repo: "app", head: "main", reviews: "reviews" });
+  assert.equal(requireReviewedOf({ requireReviewed: "app|main" }), undefined);
+});
