@@ -969,8 +969,9 @@ async function publishText(story, file, steps) {
     const req = { inputs: (d.inputs || []).filter((f) => f.use).map((f) => f.path), outputs: (d.outputs || []).filter((f) => f.use).map((f) => f.path), cmd: d.cmd };
     // a step declared in the story editor (by hand, or kept from a heuristic) is published as declared, never as
     // recorded (kton-cockpit v0.5.11 publish.declared; kton's nk:declared); a corrected recorded step says so
-    if (d.declared) { req.declared = d.declared; lines.push(`#   declared (${d.declared}): not recorded, so not reproducible from a recording`); }
-    else if (d.edited) lines.push('#   corrected in the story editor');
+    // a correction that adds what the recorder never saw (a file, another command) comes back declared=hand from ktonwatch
+    if (d.declared) { req.declared = d.declared; lines.push(d.edited ? `#   corrected by hand in the story editor: published as declared (${d.declared})` : `#   declared (${d.declared}): not recorded, so not reproducible from a recording`); }
+    else if (d.edited) lines.push('#   narrowed in the story editor: only files the recorder saw');
     if (!req.outputs.length) { // the files it wrote are not there with these bytes any more: nothing to sign
       lines.push('#   cannot be published: ' + ((d.outputs || []).map((f) => `${f.path}${f.note ? ' (' + f.note + ')' : ''}`).join(', ') || 'no output'));
       continue;

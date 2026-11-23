@@ -205,7 +205,11 @@ func (e *Edits) Declare(in DeclareRequest) (DeclaredStep, error) {
 				continue
 			}
 			seen[p] = true
-			sum, err := hashOf(filepath.Join(repo, filepath.FromSlash(p)))
+			abs, err := inRepo(repo, p)
+			if err != nil {
+				return nil, err
+			}
+			sum, err := hashOf(abs)
 			if err != nil {
 				return nil, fmt.Errorf("%s: %v", p, err)
 			}
@@ -285,21 +289,44 @@ func (e *Edits) save() error {
 
 // ApplyEdit is a recorded step's draft as the person corrected it. Files the person added that the
 // recording did not see are named as such; files they left out stay listed, unused.
+//
+// What is signed must not claim more observation than there was (kton-review D1 on #236): a
+// correction that only leaves out or takes in files the recorder saw the step read or write is
+// still an observation, narrowed by the person. A correction that adds a file the recorder never
+// saw, or changes what was done, is the person's account: the step is published as declared=hand.
 func ApplyEdit(d Draft, ed StepEdit) Draft {
 	if ed.empty() {
 		return d
 	}
 	d.Edited = true
+	added := false
 	if ed.Inputs != nil {
-		d.Inputs = choose(d.Inputs, *ed.Inputs)
+		d.Inputs, added = chooseNoting(d.Inputs, *ed.Inputs, added)
 	}
 	if ed.Outputs != nil {
-		d.Outputs = choose(d.Outputs, *ed.Outputs)
+		d.Outputs, added = chooseNoting(d.Outputs, *ed.Outputs, added)
 	}
-	if ed.Cmd != nil {
+	if ed.Cmd != nil && *ed.Cmd != d.Cmd {
 		d.Cmd = *ed.Cmd
+		added = true
+	}
+	if added {
+		d.Declared = "hand"
 	}
 	return d
+}
+
+func chooseNoting(have []DraftFile, want []string, added bool) ([]DraftFile, bool) {
+	seen := map[string]bool{}
+	for _, f := range have {
+		seen[f.Path] = true
+	}
+	for _, p := range want {
+		if !seen[p] {
+			added = true
+		}
+	}
+	return choose(have, want), added
 }
 
 // choose marks exactly the given paths as used: in their order first, then the rest, unused.
@@ -338,7 +365,12 @@ func DeclaredDraft(d DeclaredStep) Draft {
 	out := Draft{Repo: repo, Cmd: d.Cmd, Declared: d.Declared}
 	file := func(f PickedFile) DraftFile {
 		x := DraftFile{Path: f.Path, Use: true}
-		now, err := hashOf(filepath.Join(repo, filepath.FromSlash(f.Path)))
+		abs, err := inRepo(repo, f.Path)
+		if err != nil {
+			x.Use, x.Note = false, err.Error()
+			return x
+		}
+		now, err := hashOf(abs)
 		switch {
 		case err != nil:
 			x.Use, x.Note = false, "gone since it was picked"
@@ -367,6 +399,24 @@ func plainRel(p string) error {
 		}
 	}
 	return nil
+}
+
+// inRepo: the file a repository-relative path names, with every symlink resolved, refused when it
+// resolves outside the repository (kton-review S1 on #236: a link in the repo to a file outside it
+// would have its outside bytes declared as the repo's).
+func inRepo(repo, rel string) (string, error) {
+	root, err := filepath.EvalSymlinks(repo)
+	if err != nil {
+		return "", err
+	}
+	abs, err := filepath.EvalSymlinks(filepath.Join(repo, filepath.FromSlash(rel)))
+	if err != nil {
+		return "", fmt.Errorf("%s: %v", rel, err)
+	}
+	if r, err := filepath.Rel(root, abs); err != nil || r == ".." || strings.HasPrefix(r, ".."+string(filepath.Separator)) || filepath.IsAbs(r) {
+		return "", fmt.Errorf("%s resolves outside the repository", rel)
+	}
+	return abs, nil
 }
 
 func hashOf(path string) (string, error) {

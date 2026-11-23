@@ -112,8 +112,13 @@ value_hash <- function(name, x, opt = track_options()) {
   f <- tempfile("ktonrec-")
   on.exit(unlink(f), add = TRUE)
   ok <- tryCatch({
+    r <- serialize(x, NULL, version = 3, xdr = TRUE)
+    # without the header: it names the R version that wrote it, so the same value would hash
+    # differently in another R (kton-review on #236). Header: "X\n", three ints (format, writer and
+    # reader version), then the native encoding as a length and its bytes.
+    n <- readBin(r[15:18], "integer", size = 4L, endian = "big")
     con <- file(f, "wb")
-    tryCatch(serialize(x, con, version = 3), finally = close(con)) # closed (flushed) before it is hashed
+    tryCatch(writeBin(r[-seq_len(18L + n)], con), finally = close(con)) # closed (flushed) before it is hashed
     TRUE
   }, error = function(e) FALSE)
   if (!ok) return("skip:unserializable")

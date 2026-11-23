@@ -52,6 +52,27 @@ func TestApplyEdit_ChoosesExactlyTheListedFiles(t *testing.T) {
 	if ApplyEdit(d, StepEdit{}).Edited {
 		t.Fatal("an empty edit is no edit")
 	}
+	// kton-review D1: what the person added (a file never seen, another cmd) makes the step declared=hand;
+	// leaving out or taking in files the recorder saw stays an observation
+	if got.Declared != "hand" {
+		t.Fatalf("an added file and a changed cmd: declared %q", got.Declared)
+	}
+	narrowed := []string{"a.R"}
+	if n := ApplyEdit(d, StepEdit{Inputs: &narrowed}); !n.Edited || n.Declared != "" {
+		t.Fatalf("only left out recorded files: %+v", n)
+	}
+	seen := []string{"a.R", "lib.R"} // lib.R was seen, unticked by the recorder
+	if n := ApplyEdit(d, StepEdit{Inputs: &seen}); n.Declared != "" {
+		t.Fatalf("took in a file the recorder saw: %+v", n)
+	}
+	same := "Rscript a.R"
+	if n := ApplyEdit(d, StepEdit{Cmd: &same}); n.Declared != "" {
+		t.Fatalf("the same cmd is no change: %+v", n)
+	}
+	other := "Rscript a.R --fast"
+	if n := ApplyEdit(d, StepEdit{Cmd: &other}); n.Declared != "hand" {
+		t.Fatalf("a changed cmd: %+v", n)
+	}
 }
 
 func TestEdits_PutStepRefusesPathsOutsideAndBadKeys(t *testing.T) {
@@ -101,6 +122,19 @@ func TestEdits_DeclareHashesNowAndTheDraftSeesChanges(t *testing.T) {
 		if _, err := e.Declare(in); err == nil {
 			t.Errorf("bad request %d accepted: %+v", i, in)
 		}
+	}
+	// kton-review S1: a link in the repository to a file outside it is not declared as the repository's
+	outside := filepath.Join(t.TempDir(), "outside.txt")
+	os.WriteFile(outside, []byte("not the repo's"), 0o644)
+	if err := os.Symlink(outside, filepath.Join(repo, "link.txt")); err == nil {
+		if _, err := e.Declare(DeclareRequest{Project: repo, Outputs: []string{"link.txt"}, Cmd: "x"}); err == nil || !strings.Contains(err.Error(), "outside the repository") {
+			t.Fatalf("a link out of the repository was declared: %v", err)
+		}
+		os.Symlink("data/pk.csv", filepath.Join(repo, "inside-link.csv")) // a link within the repository is fine
+		if _, err := e.Declare(DeclareRequest{Project: repo, Outputs: []string{"inside-link.csv"}, Cmd: "x"}); err != nil {
+			t.Fatalf("a link inside the repository: %v", err)
+		}
+		e.data.Declared = nil
 	}
 	d, err := e.Declare(DeclareRequest{Project: repo, Inputs: []string{"data/pk.csv"}, Outputs: []string{"data/derived.csv"}, Cmd: "derived.csv from pk.csv in Excel"})
 	if err != nil {
