@@ -78,8 +78,10 @@ export class Superseded extends Error {
   }
 }
 
-const READS = ["ask", "templates", "list", "doctor", "version", "uiList", "uiCat", "graph"] as const;
-const WRITES = ["say", "publish", "install", "workflowRun"] as const;
+/** The Transport methods that go through the queue; every method of Transport is in READS or WRITES (test/gate.test.ts). */
+export const READS = ["ask", "templates", "list", "doctor", "version", "uiList", "uiCat", "graph"] as const;
+/** The Transport methods that pass the queue and mark the index cold. */
+export const WRITES = ["say", "publish", "install", "workflowRun"] as const;
 
 /** The transport with its reads through the gate; its writes pass and mark the index cold. */
 export function gated(t: Transport, gate: AskGate): Transport {
