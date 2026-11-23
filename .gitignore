@@ -7,3 +7,7 @@ uat/.work/
 
 # recorder build output (recorder/build.sh)
 recorder/.build/
+
+# test binaries and profiles (go test -c, -cpuprofile): never committed (kton-review B0 on #238)
+*.test
+*.prof

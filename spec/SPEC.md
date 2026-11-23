@@ -1579,10 +1579,15 @@ dataset of the request is the only wall between repositories, so a query that ca
 MUST be pinned by digest; a running daemon from another image or store schema is not used, and a store
 written under another schema is emptied first.
 
+A build of a view SHOULD say so while it runs: `index status --json` lists this repository's builds
+(`building`: slot, since, phase), and a build whose process ended is not listed, so a frontend waiting on
+an answer shows the build instead of guessing from timeouts.
+
 > **Checked by:** `TestOxigraph_RecordsAreStoredOnceAndTrustIsChosenPerQuery`,
 > `TestOxigraph_AttributionIsTheRegistrysOwn`, `TestOxigraph_AReaderNeverSeesARegistryHalfRead`,
 > `TestCheckQuery_RefusesServiceAndOnlyService`, `TestConfig_QueryImageIsPinnedByDigest`,
-> `TestQuery_TheIndexAnswersAsAContainerForTheQueryDoes` (both `-tags docker`).
+> `TestQuery_TheIndexAnswersAsAContainerForTheQueryDoes` (both `-tags docker`), `TestBuilding_AMarkerWhileABuildRuns`,
+> `TestOxigraph_ABuildIsListedWhileItRuns` (`-tags docker`).
 
 ### 12.5 The frontend protocol *(optional)*
 

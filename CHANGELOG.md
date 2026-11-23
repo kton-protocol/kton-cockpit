@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **`cockpit index status --json` lists the builds running** for the repository (`building`: slot, since,
+  phase), so a frontend waiting on an ask shows "building the index since …" instead of guessing from
+  timeouts (userinterface, T12). A build whose process was killed is not listed.
+- **`COCKPIT_TRACE=1`** prints a say's phases with their durations on stderr (prepare, the claims lock, the
+  scope's head, sign and store, persist, confirm), to find where a slow say spends its time in a given
+  registry.
+
 ## v0.5.11 — 2026-11-23
 
 Query runs reproducible by anyone, workflow runs as jobs, kton v0.4.3, and sessions decided (ADR-019).
