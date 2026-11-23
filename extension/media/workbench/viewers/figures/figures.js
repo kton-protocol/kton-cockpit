@@ -1,5 +1,5 @@
 // figures: numbers with their source. Each row of the query is one figure: ?value ?label ?stamp, and ?note,
-// ?scope, ?total when given. Every number carries its stamp (G5.4: every number names its source); a figure without
+// ?scope, ?total when given. Every number carries its stamp (every number names its source); a figure without
 // a stamp says so. Options:
 //   display     tiles (default: number, label, note in a bordered tile; one column under 440 px) | list
 //   guard       a column (e.g. "scope"): when the figures mix values of it, a callout says so ("Mixed scopes.")
