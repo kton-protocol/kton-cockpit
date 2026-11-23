@@ -25,9 +25,15 @@ export interface UiEntry {
   readonly order?: number;
   /** an `activity` entry's QM area (C3.2, ktonpkg v0.9.3): every name in it is the package's (or the named one's) */
   readonly area?: AreaDecl;
+  /** a review-view / record-view entry's scopes (ktonpkg v0.9.11, the area's shape): its acts sign into `records` */
+  readonly scopes?: ScopesDecl;
+}
+export interface ScopesDecl {
+  readonly records?: string;
+  readonly reads?: readonly string[];
 }
 export interface AreaDecl {
-  readonly scopes?: { readonly records?: string; readonly reads?: readonly string[] };
+  readonly scopes?: ScopesDecl;
   readonly record?: string;
   readonly raci?: string;
   readonly training?: string;
@@ -82,16 +88,21 @@ const list = (v: unknown, what: string): unknown[] => (v === undefined || v === 
 const obj = (v: unknown, what: string): Record<string, unknown> => (typeof v === "object" && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>) : bad(`${what} must be an object`));
 
 const strings = (v: unknown, what: string): string[] => list(v, what).map((x, i) => (typeof x === "string" ? x : bad(`${what}[${i}] must be a string`)));
+/** A scopes object (an area's, or a review-view / record-view entry's since ktonpkg v0.9.11), shape-checked. */
+function scopesOf(v: unknown, w: string): ScopesDecl {
+  const s = obj(v, w);
+  return { ...(s["records"] !== undefined ? { records: str(s, "records", w) as string } : {}), ...(s["reads"] !== undefined ? { reads: strings(s["reads"], `${w}.reads`) } : {}) };
+}
 /** An area object (C3.2): every field the shell reads, shape-checked; unknown fields are not read. */
 function areaOf(v: unknown, w: string): AreaDecl {
   const a = obj(v, w);
-  const s = a["scopes"] === undefined ? undefined : obj(a["scopes"], `${w}.scopes`);
+  const s = a["scopes"] === undefined ? undefined : scopesOf(a["scopes"], `${w}.scopes`);
   const params = a["params"] === undefined ? undefined : obj(a["params"], `${w}.params`);
   if (params) for (const [k, x] of Object.entries(params)) if (typeof x !== "string" || !/^[A-Za-z_]\w*$/.test(k)) bad(`${w}.params.${k} must name a $VAR and a string source`);
   const f = a["findings"] === undefined ? undefined : obj(a["findings"], `${w}.findings`);
   const one = (k: string) => str(a, k, w, true);
   const out: AreaDecl = {
-    ...(s ? { scopes: { ...(s["records"] !== undefined ? { records: str(s, "records", `${w}.scopes`) as string } : {}), ...(s["reads"] !== undefined ? { reads: strings(s["reads"], `${w}.scopes.reads`) } : {}) } } : {}),
+    ...(s ? { scopes: s } : {}),
     ...Object.fromEntries((["record", "raci", "training", "approvals", "history", "governing"] as const).filter((k) => a[k] !== undefined).map((k) => [k, one(k)])),
     ...(params ? { params: params as Record<string, string> } : {}),
     ...(a["actions"] !== undefined ? { actions: strings(a["actions"], `${w}.actions`) } : {}),
@@ -129,6 +140,7 @@ export function assertUiListing(v: unknown): UiListing {
         ...(inputs ? { inputs: inputs as Record<string, string> } : {}),
         ...(typeof o["order"] === "number" ? { order: o["order"] } : {}),
         ...(o["area"] !== undefined ? { area: areaOf(o["area"], `${w}.area`) } : {}),
+        ...(o["scopes"] !== undefined ? { scopes: scopesOf(o["scopes"], `${w}.scopes`) } : {}),
       };
       return e;
     });

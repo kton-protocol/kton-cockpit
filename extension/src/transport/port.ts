@@ -97,6 +97,9 @@ export interface AskRequest {
   readonly limit?: number;
   readonly dataset?: "claims" | "nanopub";
   readonly format?: "sparql-results+json";
+  /** How long the cockpit may run the query (1–120 s; its default is 30 s). A view's first ask after a signature waits
+   * for the index to be built again, which takes longer than 30 s on a federated registry. */
+  readonly timeoutSeconds?: number;
 }
 
 /** The ask answer. Only the fields the shell reads are typed; the rest stays opaque. */
@@ -212,7 +215,8 @@ export class OperatorConfirmation {
 import type { UiListing } from "../packages/listing.js";
 
 export interface Transport {
-  ask(req: AskRequest): Promise<Outcome<AskResult>>;
+  /** `opts.supersede`: the window's ask queue drops a waiting ask of the same key for this one (transport/gate.ts). */
+  ask(req: AskRequest, opts?: { readonly supersede?: string }): Promise<Outcome<AskResult>>;
   say(req: SayRequest): Promise<Outcome<SayResult>>;
   publish(req: PublishRequest): Promise<Outcome<PublishResult>>;
   workflowRun(req: WorkflowRunRequest): Promise<Outcome<Readonly<Record<string, unknown>>>>;

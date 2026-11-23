@@ -1,0 +1,24 @@
+{
+ "name": "w-spotcheck",
+ "target": "either",
+ "predicate": "https://example.org/qa/decide/spotcheck",
+ "replace": "previous",
+ "fields": {
+  "verdict": {
+   "type": "enum",
+   "values": [
+    "first-right",
+    "second-right",
+    "unclear"
+   ],
+   "required": true
+  },
+  "proposal": {
+   "type": "iri",
+   "required": true
+  },
+  "note": {
+   "type": "string"
+  }
+ }
+}

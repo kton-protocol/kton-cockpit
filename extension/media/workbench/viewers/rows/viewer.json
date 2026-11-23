@@ -1,19 +1,81 @@
 {
  "viewer": "rows",
  "module": "rows.js",
- "requires": ["query@1"],
- "optional": ["open@1", "sign@1", "record@1"],
+ "requires": [
+  "query@1"
+ ],
+ "optional": [
+  "open@1",
+  "sign@1",
+  "record@1"
+ ],
  "accepts": {
-  "columns": {"set": "literal"},
+  "columns": {
+   "set": "literal"
+  },
   "pick": "literal",
   "open": "literal",
-  "rules": {"set": "literal"},
-  "keys": {"set": "literal"},
-  "match": "literal",
+  "rules": {
+   "set": "literal"
+  },
+  "keys": {
+   "set": "literal"
+  },
+  "match": {
+   "set": "literal"
+  },
   "card": "literal",
-  "emptyText": "literal"
+  "caption": "literal",
+  "ruleState": {"set": "literal"},
+  "emptyText": "literal",
+  "atLeast": "literal",
+  "page": "literal",
+  "pageSize": "literal",
+  "target": "literal",
+  "choices": {
+   "set": "literal"
+  },
+  "propose": {
+   "set": "literal"
+  },
+  "nudge": "literal",
+  "nudges": {
+   "set": "literal"
+  },
+  "labels": {
+   "set": "literal"
+  },
+  "group": "literal",
+  "groupLabels": {
+   "set": "literal"
+  },
+  "groupSum": "literal",
+  "range": "literal",
+  "scale": "literal",
+  "measurable": "literal",
+  "total": "literal",
+  "numeric": {
+   "set": "literal"
+  },
+  "stamp": "literal",
+  "title": "literal",
+  "emptyHow": "literal",
+  "short": {
+   "set": "literal"
+  },
+  "groupNotes": "literal",
+  "evidence": "literal",
+  "traceNote": "literal",
+  "details": {
+   "set": "literal"
+  },
+  "actsIn": "literal"
  },
  "emits": {
-  "select": {"from": "intent.select", "type": "iri"}
- }
+  "select": {
+   "from": "intent.select",
+   "type": "iri"
+  }
+ },
+ "rendersActs": true
 }

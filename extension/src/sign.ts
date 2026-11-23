@@ -26,6 +26,8 @@ export interface ControlInfo {
   readonly meaning?: string;
   /** O1: a decision (person key, dialog) or a record (agent key, no dialog). Declared by the package. */
   readonly kind: "decision" | "record";
+  /** the control's title, shown in the dialog (and covered by the digest, as everything shown) */
+  readonly title?: string;
 }
 
 export const FOOTER = "A kton signature is not yet a QMS e-signature: every signature here is test-only.";
@@ -37,8 +39,10 @@ export interface SignPlan {
   readonly subject: string;
   readonly fields: Readonly<Record<string, string>>;
   readonly meaning?: string;
-  /** the scope the claim goes into (an area's records scope), shown in the dialog; none: the registry's default */
+  /** the scope the claim goes into (an area's or an entry's records scope), shown in the dialog; none: the registry's default */
   readonly scope?: string;
+  /** the evidence the view session opened (offered for lookedAt): listed in the dialog before signing */
+  readonly opened?: readonly string[];
   readonly as: string;
   readonly keyRole: "person" | "agent";
   readonly needsDialog: boolean;
@@ -85,7 +89,7 @@ export function templateFor(control: Pick<ControlInfo, "package" | "template">, 
 
 /** Build the plan from an intent. The intent supplies only `about` and field values (and the area's records scope). */
 export function plan(
-  intent: Extract<Intent, { kind: "sign" }> & { readonly scope?: string },
+  intent: Extract<Intent, { kind: "sign" }> & { readonly scope?: string; readonly opened?: readonly string[] },
   control: ControlInfo,
   templates: readonly TemplateInfo[],
   identity: WindowIdentity,
@@ -122,7 +126,7 @@ export function plan(
   if (!key.keyName) return refuse("identity.key-missing", `this window has no ${key.role} key, so it cannot sign a ${control.kind}`);
   const meaning = control.meaning ?? fields["meaning"];
   const expect = { ...(tpl.hash ? { template: tpl.hash } : {}), ...(tpl.revision ? { revision: tpl.revision } : {}), ...(tpl.predicate ? { predicate: tpl.predicate } : {}) };
-  const shown = { template: tpl.name, expect, subject: intent.about, fields, as: key.keyName, control: `${control.package}/${control.name}`, meaning: meaning ?? null, meaningField: fixed ?? null, scope: intent.scope ?? null };
+  const shown = { template: tpl.name, expect, subject: intent.about, fields, as: key.keyName, control: `${control.package}/${control.name}`, meaning: meaning ?? null, meaningField: fixed ?? null, scope: intent.scope ?? null, opened: intent.opened ?? [], ...(control.title ? { title: control.title } : {}) };
   const digest = createHash("sha256").update(JSON.stringify(shown, Object.keys(shown).sort())).update(JSON.stringify(Object.entries(fields).sort())).digest("hex");
   return {
     ok: true,
@@ -136,6 +140,7 @@ export function plan(
       fields,
       ...(meaning !== undefined ? { meaning } : {}),
       ...(intent.scope !== undefined ? { scope: intent.scope } : {}),
+      ...(intent.opened?.length ? { opened: [...intent.opened] } : {}),
       as: key.keyName,
       keyRole: key.role,
       needsDialog: control.kind === "decision",

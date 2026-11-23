@@ -1,0 +1,12 @@
+{
+ "slot": "review-view",
+ "label": "Decision view (trial)",
+ "when": {
+  "kind": "claim"
+ },
+ "composition": "decision",
+ "order": 5,
+ "scopes": {
+  "records": "w.records"
+ }
+}

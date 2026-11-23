@@ -1,0 +1,1 @@
+{"slot": "activity", "label": "Runs (row acts)", "when": {"kind": "scope"}, "composition": "runs", "order": 6, "scopes": {"records": "qa.requests"}}

@@ -35,6 +35,8 @@ export interface Control {
   readonly about?: string;
   /** what the act means (C3.4), declared on the control (ktonpkg v0.9.2) */
   readonly meaning?: string;
+  /** the control's title (shown in the sign dialog: what the act does, e.g. how long it takes) */
+  readonly title?: string;
 }
 /** A viewer that runs as a page in its own frame (viewer.json frame: leaf), pinned by a viewers/<name>.json declaration. */
 export interface LeafViewer {
@@ -215,7 +217,7 @@ async function loadOne(p: UiPackage, read: ReadBlob, vendored: ReadonlyMap<strin
     // the composition's hash as ui list names it must be the member whose bytes were read
     const listed = p.compositions.find((c) => c["name"] === m.name)?.["hash"];
     if (listed !== undefined && listed !== m.hash) throw new Refuse("composition.hash", fileOf(m), `${fileOf(m)}: ui list names hash ${String(listed)}, the member is ${m.hash}`);
-    pkg.compositions[m.name] = { decl: { composition: m.name, ...json(bytes.get(m) as Uint8Array, fileOf(m)) }, hash: m.hash, text: text(m) };
+    pkg.compositions[m.name] = { decl: withForeignControls({ composition: m.name, ...json(bytes.get(m) as Uint8Array, fileOf(m)) }, p.name, fileOf(m)), hash: m.hash, text: text(m) };
   }
   for (const m of of("content")) {
     const type = typeOfPath(m.name);
@@ -230,7 +232,7 @@ async function loadOne(p: UiPackage, read: ReadBlob, vendored: ReadonlyMap<strin
     const kind = d["kind"] === undefined || d["kind"] === "" ? "decision" : d["kind"];
     if (kind !== "decision" && kind !== "record") throw new Refuse("control.format", fileOf(m), `${fileOf(m)}: kind ${JSON.stringify(kind)} is neither decision nor record`);
     pkg.controls[m.name] = { decl: d };
-    controls.push({ package: p.name, name: m.name, template: say.template, kind, ...(typeof d["about"] === "string" ? { about: d["about"] } : {}), ...(typeof d["meaning"] === "string" ? { meaning: d["meaning"] } : {}) });
+    controls.push({ package: p.name, name: m.name, template: say.template, kind, ...(typeof d["about"] === "string" ? { about: d["about"] } : {}), ...(typeof d["meaning"] === "string" ? { meaning: d["meaning"] } : {}), ...(typeof d["title"] === "string" && d["title"] ? { title: d["title"] } : {}) });
   }
   // viewer declarations (viewers/<name>.json: {viewer, at, tree}) and the trees the package carries
   const declared = new Map(of("viewer").map((m) => [m.name, json(bytes.get(m) as Uint8Array, fileOf(m))]));
@@ -330,4 +332,43 @@ export async function loadPackages(listing: UiListing, read: ReadBlob, vendored:
   }
   entries.sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || a.package.localeCompare(b.package) || a.file.localeCompare(b.file));
   return { packages, entries, controls, refusals, notAdmitted, byHash };
+}
+
+/** Another package's sealed revision an act's control is in (ktonpkg v0.9.13 `from`: {package, at, head}). */
+export interface ControlPin {
+  readonly package: string;
+  readonly at: string;
+  readonly head: string;
+}
+
+/**
+ * Acts on another package's control (ktonpkg v0.9.13): `{control: "<name>", from: {package, at, head}}` becomes
+ * `{control: {package, name, pin}}`, the form the JS mirror carries through as it is (it knows only a control of the
+ * composition's own package by name). The cockpit (#206) serves the view only while the owner is in use at that pin,
+ * so the owner's control is among the loaded controls; the host refuses the act when it is not. A malformed pin
+ * refuses the package.
+ */
+export function withForeignControls(decl: Record<string, unknown>, self: string, file: string): Record<string, unknown> {
+  const act = (a: unknown): unknown => {
+    if (!a || typeof a !== "object" || Array.isArray(a)) return a;
+    const x = a as Record<string, unknown>;
+    if (x["from"] === undefined) return a;
+    const f = x["from"] as Record<string, unknown> | null;
+    const ok = f && typeof f === "object" && typeof f["package"] === "string" && /^[A-Za-z][A-Za-z0-9_.-]*$/.test(f["package"]) && f["package"] !== self && typeof f["at"] === "string" && f["at"] !== "" && typeof f["head"] === "string" && /^sha256:[0-9a-f]{64}$/.test(f["head"]);
+    if (!ok || typeof x["control"] !== "string" || !x["control"]) throw new Refuse("control.from", file, `${file}: an act's from must be {package (another package), at, head: sha256:<hex>} with a control name`);
+    const { from: _from, ...rest } = x;
+    const pin: ControlPin = { package: f["package"] as string, at: f["at"] as string, head: f["head"] as string };
+    return { ...rest, control: { package: pin.package, name: x["control"], pin } };
+  };
+  const use = (u: unknown): unknown => {
+    if (!u || typeof u !== "object" || Array.isArray(u)) return u;
+    const x = u as Record<string, unknown>;
+    return Array.isArray(x["acts"]) ? { ...x, acts: x["acts"].map(act) } : u;
+  };
+  const part = (pt: unknown): unknown => {
+    if (!pt || typeof pt !== "object" || Array.isArray(pt)) return pt;
+    const x = pt as Record<string, unknown>;
+    return { ...x, ...(Array.isArray(x["blocks"]) ? { blocks: x["blocks"].map(use) } : {}), ...(Array.isArray(x["parts"]) ? { parts: x["parts"].map(part) } : {}) };
+  };
+  return { ...decl, ...(Array.isArray(decl["parts"]) ? { parts: decl["parts"].map(part) } : {}), ...(Array.isArray(decl["eachPart"]) ? { eachPart: decl["eachPart"].map(use) } : {}) };
 }

@@ -1,0 +1,1 @@
+{"slot": "activity", "label": "Items (a view)", "when": {"kind": "scope"}, "composition": "items", "order": 5}

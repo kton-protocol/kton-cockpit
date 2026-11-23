@@ -1,0 +1,64 @@
+{
+ "name": "w-rate",
+ "target": "either",
+ "predicate": "https://example.org/qa/decide/rate",
+ "fields": {
+  "sample": {
+   "type": "string"
+  },
+  "dimension": {
+   "type": "string"
+  },
+  "group": {
+   "type": "string"
+  },
+  "rate": {
+   "type": "string"
+  },
+  "low": {
+   "type": "string"
+  },
+  "high": {
+   "type": "string"
+  },
+  "n": {
+   "type": "string"
+  },
+  "enough": {
+   "type": "string"
+  },
+  "wrong": {
+   "type": "string"
+  },
+  "same": {
+   "type": "string"
+  },
+  "second": {
+   "type": "string"
+  },
+  "reportedRate": {
+   "type": "string"
+  },
+  "reportedLow": {
+   "type": "string"
+  },
+  "reportedHigh": {
+   "type": "string"
+  },
+  "reportedAt": {
+   "type": "string"
+  },
+  "reportedSame": {
+   "type": "string"
+  },
+  "reportedSecond": {
+   "type": "string"
+  },
+  "note": {
+   "type": "string"
+  },
+  "stamp": {
+   "type": "string"
+  }
+ }
+}

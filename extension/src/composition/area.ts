@@ -6,11 +6,13 @@ import type { Control, LeafViewer, Loaded, LoadedViewer, MirrorPackage, SlotEntr
 import { loadPackages } from "../packages/model.js";
 import type { TreeNode } from "../ui/host.js";
 import { sparqlResultsOf } from "../ui/queries.js";
-import { CompositionHost, LeafHost, type Backend, type Plan } from "./host.js";
+import { supportView } from "../support/view-now.js";
+import { CompositionHost, LeafHost, type Backend, type Plan, type Signed } from "./host.js";
 import type { BoundTerm } from "../transport/port.js";
-import { applies, oneNumber, partition, planComposition, planEntry, type Subject } from "./slots.js";
+import { applies, isView, oneNumber, partition, planComposition, planEntry, type Subject } from "./slots.js";
 import { approvalCounts, areaComposition, BUILTIN, recordComposition, recordTerms, signerKeyId, withBuiltin } from "./qm-area.js";
 import { SIGNER_QUERY } from "../identity.js";
+import { withThumbs } from "../ui/artifacts.js";
 import type { AreaDecl } from "../packages/listing.js";
 
 export interface CompositionUi {
@@ -25,6 +27,14 @@ export interface CompositionUi {
   info(text: string): void;
   error(text: string): void;
   log(line: string): void;
+  /**
+   * Per-window view state (VS Code workspace state), for a view whose blocks keep their place (viewer.json
+   * `keepsState`, e.g. the queue's position and skipped items): read when the panel opens, written on each change.
+   * Kept in the window only, never in a registry.
+   */
+  memo?: { get(key: string): unknown; set(key: string, value: unknown): void };
+  /** the panel's view changed: `build` makes the support file's content (kton.support.viewFile), when it is the active one */
+  support?(key: string, build: () => Record<string, unknown>): void;
 }
 /** The package revision an act was offered at: the sign path confirms it is still the installed one before say. */
 export interface ExpectRevision {
@@ -33,14 +43,44 @@ export interface ExpectRevision {
 }
 export interface ActPath {
   /** The shell's one sign path (Workbench.signAct): the dialog for a decision control, the agent key for a record. */
-  act(control: Control, about: string, fields: Readonly<Record<string, string>>, title: string, expect?: ExpectRevision, into?: { readonly scope?: string }): Promise<"signed" | "cancelled" | "failed">;
-  open(target: Readonly<Record<string, unknown>>): Promise<string>;
+  act(control: Control, about: string, fields: Readonly<Record<string, string>>, title: string, expect?: ExpectRevision, into?: ActInto): Promise<"signed" | "cancelled" | "failed">;
+  /** open@1; `opened` is called with a reference to the evidence when it was shown (a source, a run artifact) */
+  open(target: Readonly<Record<string, unknown>>, opened?: (ref: string) => void): Promise<string>;
   identityName(): string;
   /** The window's person key id and the person tiers: whether an approval counts is decided over them (S6.12). */
   person?(): { readonly keyId: string; readonly personTiers: readonly string[] };
+  /** Whether an approval given on one commit still holds at another (read-only git over the mirrors). */
+  staleness?(repo: string, approved: string, head: string, paths: readonly string[]): Promise<import("../ui/sources.js").Staleness>;
+  /** A run artifact's thumbnail as a data URL, after its sha256 is checked (or undefined: shown as a link only). */
+  thumb?(t: import("../ui/artifacts.js").ArtifactTarget): Promise<string | undefined>;
+}
+
+/** Where an act goes and what goes with it: the records scope, the frame's proposals, the panel's evidence opens. */
+export interface ActInto {
+  readonly scope?: string;
+  readonly proposed?: Readonly<Record<string, string>>;
+  /** the evidence this panel opened in this session (in memory only; never counted, only offered to lookedAt) */
+  readonly opened?: readonly string[];
+  /** called with the claim id and the signed fields once the act is signed (a block's nudge line is built from them) */
+  readonly signed?: (s: Signed) => void;
 }
 
 export const SLOT_CMD = "ktonWorkbench.openSlot";
+/** A review-view entry clicked under Home → Packages: the shell finds its proposal (Workbench.openEntry). */
+export const ENTRY_CMD = "ktonWorkbench.openEntry";
+
+/** A guard rule's state on Home: its finding-source query run, or why it did not run. */
+export type RuleState = { readonly n: number } | { readonly why: string };
+/** A guard rule's line on Home: passed (0 findings), findings (n), or not run (the detail goes in the tooltip). */
+export function ruleText(s: RuleState | undefined): string {
+  if (!s) return "…";
+  if ("why" in s) return "not run";
+  return s.n === 0 ? "passed (0 findings)" : `findings (${s.n})`;
+}
+/** A view's query may run this long in the cockpit (its default 30 s is shorter than a cold build of a federated index). */
+export const ASK_TIMEOUT_S = 110;
+/** A scope label (as `say --scope` takes it), never an IRI or a path. */
+export const SCOPE_LABEL = /^[A-Za-z][A-Za-z0-9_.-]*$/;
 
 const PANEL = "composition:";
 const entryKey = (e: SlotEntry) => `${e.package}/${e.file}`;
@@ -54,6 +94,8 @@ interface OpenPanel {
   busy: number;
   /** why the panel is to close once no act is in progress */
   retired?: string;
+  /** the evidence opened from this panel, in order, once each (this view session only) */
+  readonly opened: string[];
 }
 
 export class PackagesArea {
@@ -65,6 +107,8 @@ export class PackagesArea {
   private stale = false;
   /** home-tile / status-item numbers, by entry key */
   private readonly numbers = new Map<string, string>();
+  /** finding-source entries (guard rules): their state at the last poll, by entry key */
+  private readonly rules = new Map<string, RuleState>();
 
   constructor(
     private readonly t: Transport,
@@ -91,7 +135,16 @@ export class PackagesArea {
         this.loaded = await loadPackages(out.value, (pkg, h) => this.t.uiCat(pkg, h), this.vendored);
         this.listingText = text;
         const l = await Promise.resolve().then(() => this.t.list()).catch(() => undefined);
+        // a name several packages bring is offered as <package>/<name> (by design, kton-cockpit); the listing may name it
+        // that way, or plainly with its package: both are read
         this.queryNames = new Set(l?.ok ? l.value.queries.map((q) => q.name) : []);
+        this.queryOwners = new Map();
+        for (const q of l?.ok ? l.value.queries : []) {
+          const slash = q.name.indexOf("/");
+          const base = slash < 0 ? q.name : q.name.slice(slash + 1);
+          const owner = q.package ?? (slash < 0 ? undefined : q.name.slice(0, slash));
+          if (owner) this.queryOwners.set(base, new Set([...(this.queryOwners.get(base) ?? []), owner]));
+        }
         for (const r of this.loaded.refusals) this.ui.log(`package ${r.package} refused: ${r.file ? `${r.file}: ` : ""}${r.reason} (${r.code})`);
       }
       this.error = undefined;
@@ -138,7 +191,7 @@ export class PackagesArea {
    * loaded now (or is closing), so an old revision's control never signs. While the act runs the panel is busy.
    */
   private actFor(key: string, label: string, mine: () => OpenPanel | undefined, scope?: string): Backend["act"] {
-    return async (c, about, fields, title) => {
+    return async (c, about, fields, title, proposed, signed) => {
       const h = mine();
       const why = !h || this.hosts.get(key) !== h ? "the panel is closed or was opened again" : (h.retired ?? this.outdated(h) ?? (h.revisions.has(c.package) ? undefined : `control ${c.package}/${c.name} is not one this panel was opened with`));
       if (why) {
@@ -148,7 +201,7 @@ export class PackagesArea {
       const p = h as OpenPanel;
       p.busy++;
       try {
-        const r = await this.path.act(c, about, fields, title, { package: c.package, revision: p.revisions.get(c.package) as string }, scope ? { scope } : {});
+        const r = await this.path.act(c, about, fields, title, { package: c.package, revision: p.revisions.get(c.package) as string }, { ...(scope ? { scope } : {}), ...(proposed && Object.keys(proposed).length ? { proposed } : {}), ...(p.opened.length ? { opened: [...p.opened] } : {}), ...(signed ? { signed } : {}) });
         // a record is written with the agent key and no dialog: where it went is said, as the dialog says it for a
         // decision (the records scope is the package's declaration; kton-review N1 on #187)
         if (r === "signed" && c.kind === "record" && scope) this.ui.info(`${label}: recorded into scope ${scope} with the agent key (no dialog).`);
@@ -172,6 +225,22 @@ export class PackagesArea {
 
   private async tiles(): Promise<void> {
     this.numbers.clear();
+    this.rules.clear();
+    for (const e of this.loaded?.entries ?? []) {
+      if (e.slot !== "finding-source") continue;
+      if (!e.query) {
+        this.rules.set(entryKey(e), { why: "the entry names no query" });
+        continue;
+      }
+      try {
+        const terms = Object.fromEntries(Object.entries(this.closedSet(e, undefined)).map(([k, v]) => [k, { type: "literal" as const, value: v }]));
+        const r = (await this.named(e.package, e.query, terms)) as { results?: { bindings?: unknown[] } };
+        const b = r.results?.bindings;
+        this.rules.set(entryKey(e), Array.isArray(b) ? { n: b.length } : { why: "the answer has no rows (no data)" });
+      } catch (err) {
+        this.rules.set(entryKey(e), { why: (err as Error).message });
+      }
+    }
     for (const e of this.loaded?.entries ?? []) {
       if ((e.slot !== "home-tile" && e.slot !== "status-item") || !e.query) continue;
       try {
@@ -197,11 +266,14 @@ export class PackagesArea {
 
   /** The names the cockpit offers its named queries under (`ask --json`): a clashing one as <package>/<name>. */
   private queryNames = new Set<string>();
+  /** the packages that bring each query name (from `ask --json`'s package field or a qualified name) */
+  private queryOwners = new Map<string, Set<string>>();
 
   /** A package's named query: by <package>/<name> when the cockpit offers it so (two packages bring the name). */
-  private async named(pkg: string, name: string, terms: Readonly<Record<string, BoundTerm>>): Promise<unknown> {
-    const q = this.queryNames.has(`${pkg}/${name}`) ? `${pkg}/${name}` : name;
-    const out = await this.t.ask({ query: "sparql", name: q, ...(Object.keys(terms).length ? { bindTerms: terms } : {}), format: "sparql-results+json" });
+  private async named(pkg: string, name: string, terms: Readonly<Record<string, BoundTerm>>, supersede?: string): Promise<unknown> {
+    const owners = this.queryOwners.get(name);
+    const q = this.queryNames.has(`${pkg}/${name}`) || (owners !== undefined && owners.size > 1 && owners.has(pkg)) ? `${pkg}/${name}` : name;
+    const out = await this.t.ask({ query: "sparql", name: q, ...(Object.keys(terms).length ? { bindTerms: terms } : {}), format: "sparql-results+json", timeoutSeconds: ASK_TIMEOUT_S }, supersede !== undefined ? { supersede } : undefined);
     if (!out.ok) throw new Error(`the cockpit refused ${q}: ${out.refusal.reason}`);
     // the JSON-argument form answers under sparql.results (cockpit v0.5.x); read there, never as "no rows"
     return sparqlResultsOf(out.value);
@@ -212,21 +284,41 @@ export class PackagesArea {
     if (this.error) return [{ id: "pkgs", label: "Packages", description: "cannot be read", tooltip: this.error, children: [{ id: "pkgs:error", label: this.error }] }];
     const l = this.loaded;
     if (!l || (Object.keys(l.packages).length === 0 && l.refusals.length === 0 && l.notAdmitted.length === 0)) return [];
-    const { rendered, listed } = partition(l.entries);
+    const { rendered, listed: all } = partition(l.entries);
+    // guard rules (finding-source) have their own node with their state; the rest of the listed ones as before
+    const findings = all.filter((e) => e.slot === "finding-source");
+    const listed = all.filter((e) => e.slot !== "finding-source");
     const children: TreeNode[] = [
-      ...Object.keys(l.packages).sort().map((name) => ({ id: `pkg:${name}`, label: name, description: "admitted", children: rendered.filter((e) => e.package === name).map((e) => ({ id: `slot:${entryKey(e)}`, label: e.label, description: e.slot })) })),
+      ...Object.keys(l.packages).sort().map((name) => ({ id: `pkg:${name}`, label: name, description: "admitted", children: rendered.filter((e) => e.package === name).map((e) => ({ id: `slot:${entryKey(e)}`, label: e.label, description: e.slot, ...(e.slot === "review-view" ? { tooltip: "A review view opens for a waiting proposal: click to open it for one", command: { id: ENTRY_CMD, args: [entryKey(e)] } } : {}) })) })),
       ...l.refusals.map((r, i) => ({ id: `ref:${i}:${r.package}`, label: r.package, description: `refused: ${r.code}`, tooltip: r.reason, children: [{ id: `ref:${i}:why`, label: r.reason, description: r.file }] })),
       ...l.notAdmitted.map((n) => ({ id: `na:${n}`, label: n, description: "installed, not admitted" })),
       ...listed.map((e) => ({ id: `listed:${entryKey(e)}`, label: `${e.package}: ${e.label}`, description: "not rendered", tooltip: e.why })),
     ];
     const tiles = rendered.filter((e) => e.slot === "home-tile").map((e) => ({ id: `tile:${entryKey(e)}`, label: e.label, description: this.numbers.get(entryKey(e)) ?? "…" }));
-    return [...tiles, { id: "pkgs", label: "Packages", description: `${Object.keys(l.packages).length} admitted${l.refusals.length ? ` · ${l.refusals.length} refused` : ""}`, children }];
+    const rules: TreeNode[] = findings.length
+      ? [{
+          id: "rules",
+          label: "Guard rules",
+          description: String(findings.length),
+          children: findings.map((e) => {
+            const s = this.rules.get(entryKey(e));
+            const why = s && "why" in s ? `\nNot run: ${s.why}` : "";
+            return { id: `rule:${entryKey(e)}`, label: e.label, description: ruleText(s), tooltip: `${e.label}\n${e.package} · query ${e.query ?? "(none)"}${s && "n" in s ? `\n${s.n} finding(s) at the last poll` : ""}${why}` };
+          }),
+        }]
+      : [];
+    return [...tiles, ...rules, { id: "pkgs", label: "Packages", description: `${Object.keys(l.packages).length} admitted${l.refusals.length ? ` · ${l.refusals.length} refused` : ""}`, children }];
   }
 
   /** status-item entries: label: number, for the status bar. */
   statusText(): string | undefined {
     const e = (this.loaded?.entries ?? []).filter((x) => x.slot === "status-item");
     return e.length ? e.map((x) => `${x.label}: ${this.numbers.get(entryKey(x)) ?? "…"}`).join(" · ") : undefined;
+  }
+
+  /** The keys of the review-view entries that apply to a subject, in their order. */
+  reviewEntriesFor(s: Subject): string[] {
+    return (this.loaded?.entries ?? []).filter((e) => e.slot === "review-view" && applies(e, s)).map(entryKey);
   }
 
   /** The review-view / record-view entries for a subject: children of its node (a click opens the panel). */
@@ -241,7 +333,9 @@ export class PackagesArea {
       this.ui.error(`No admitted package declares ${key}.`);
       return undefined;
     }
-    if (!applies(e, s)) {
+    // an area (activity + area) opens on its records scope, from the QM areas node: a `when` it declares must say
+    // scope; one without a `when` (ktonpkg does not ask for it on an activity) applies to its scope subject
+    if (!(e.area && e.when === undefined && s.kind === "scope") && !applies(e, s)) {
       this.ui.error(`${e.label} does not accept this subject (${s.kind}${s.type ? ` ${s.type}` : ""}).`);
       return undefined;
     }
@@ -249,14 +343,20 @@ export class PackagesArea {
     if (e.area) return this.openArea(key, { ...e, area: e.area }, s, loaded, "area");
     const leaf = e.viewer ? loaded.packages[e.package]?.leaves[e.viewer] : undefined;
     if (leaf) return this.openLeaf(key, e, s, leaf, loaded);
+    // the entry's records scope (ktonpkg v0.9.11, the area's shape): its acts sign into it, as an area's do
+    const records = e.scopes?.records;
+    if (records !== undefined && !SCOPE_LABEL.test(records)) {
+      this.ui.error(`${e.label} cannot be shown: its scopes.records ${JSON.stringify(records)} is not a scope label`);
+      return undefined;
+    }
     let plan: Plan;
     try {
-      plan = await planEntry(e, s, loaded, this.path.identityName(), (p, n, b) => this.named(p, n, b));
+      plan = await planEntry(e, s, loaded, this.path.identityName(), (p, n, b) => this.named(p, n, b), this.builtin);
     } catch (err) {
       this.ui.error(`${e.label} cannot be shown: ${(err as Error).message}`);
       return undefined;
     }
-    return this.showPlanned(`${PANEL}${key}`, e.label, e.package, plan, loaded, loaded.packages, {});
+    return this.showPlanned(`${PANEL}${key}`, e.label, e.package, plan, loaded, this.builtin ? { ...loaded.packages, [BUILTIN]: this.builtin } : loaded.packages, { ...(records ? { scope: records } : {}) });
   }
 
   /**
@@ -278,6 +378,10 @@ export class PackagesArea {
       return undefined;
     }
     const a = e.area;
+    if (a.scopes?.records !== undefined && !SCOPE_LABEL.test(a.scopes.records)) {
+      this.ui.error(`${e.label} cannot be shown: its scopes.records ${JSON.stringify(a.scopes.records)} is not a scope label`);
+      return undefined;
+    }
     const panel = which === "area" ? `${PANEL}${key}` : `${PANEL}${key}#record`;
     const label = which === "area" ? e.label : `${e.label}: ${s.iri.split("/").pop() ?? s.iri}`;
     return this.showPlanned(panel, label, e.package, plan, loaded, packages, {
@@ -291,7 +395,9 @@ export class PackagesArea {
         if (!terms || !a.record) return this.path.open(target);
         const r = (await this.named(e.package, a.record, terms)) as { results?: { bindings?: Array<Record<string, { value?: string }>> } };
         const rows = r.results?.bindings ?? [];
-        const claim = rows.length === 1 ? /^https:\/\/kton\.dev\/o\/([0-9a-f]{64})$/.exec(rows[0]?.["claim"]?.value ?? "")?.[1] : undefined;
+        // one current record: every row names the same claim (a record query may answer one row per field)
+        const claims = [...new Set(rows.map((x) => x["claim"]?.value ?? ""))];
+        const claim = rows.length >= 1 && claims.length === 1 ? /^https:\/\/kton\.dev\/o\/([0-9a-f]{64})$/.exec(claims[0] as string)?.[1] : undefined;
         if (!claim) return `${uri} is not one current record of ${e.label} (${rows.length} rows): nothing opened`;
         const opened = await this.openArea(key, e, { kind: "claim", iri: uri, id: `sha256:${claim}`, claim: `sha256:${claim}` }, loaded, "record");
         return opened ? `Opened ${uri}` : `${uri} cannot be shown`;
@@ -328,12 +434,14 @@ export class PackagesArea {
     plan = { ...plan, uses: plan.uses.map((u) => ({ ...u, module: shown.urls.get((u as { module?: string }).module ?? "") ?? "" })) } as Plan;
     const annotate = opts.annotate;
     const backend: Backend = {
-      query: async (p, name, terms) => {
-        const r = await this.named(p, name, terms);
-        return annotate && p === annotate.package && name === annotate.query ? await this.withCounts(r) : r;
+      query: async (p, name, terms, use) => {
+        // a block's newer ask drops its older one still waiting in the window's queue (a reader moving through items)
+        const r = await this.named(p, name, terms, use !== undefined ? `${panel}#${use}` : undefined);
+        const shown = await this.withApprovals(annotate && p === annotate.package && name === annotate.query ? await this.withCounts(r) : r);
+        return this.path.thumb ? withThumbs(shown, this.path.thumb) : shown;
       },
       bytes: (p, hash) => this.t.uiCat(p, hash),
-      open: opts.open ?? ((target) => this.path.open(target)),
+      open: opts.open ?? ((target) => this.path.open(target, (ref) => me && noteOpened(me, ref))),
       act: this.actFor(panel, label, () => me, opts.scope),
       run: async (ray, holes) => {
         const out = await this.t.workflowRun({ workflow: ray, bind: holes });
@@ -341,9 +449,29 @@ export class PackagesArea {
         return `ran ${ray}`;
       },
     };
-    host = new CompositionHost(plan, loaded, backend, { post: shown.post, log: (l) => this.ui.log(l) });
+    // blocks that draw their own act buttons (viewer.json rendersActs): their acts go to the frame as blockActs only
+    const drawsActs = new Set(plan0.uses.filter((u) => viewers.get((u as { module?: string }).module ?? "")?.decl["rendersActs"] === true).map((u) => u.key));
+    // a view with a block that keeps its place (viewer.json keepsState) starts from the window's last state of it
+    const keeps = used.some((v) => v.decl["keepsState"] === true) && this.ui.memo ? this.ui.memo : undefined;
+    const keepKey = `kton.viewState:${panel}`;
+    const support = this.ui.support ? (build: () => Record<string, unknown>) => this.ui.support?.(panel, build) : undefined;
+    const view = { package: plan.root.package, composition: plan.root.composition, entry: label };
+    const run = opts.scope && /^[A-Za-z0-9_-]+\./.test(opts.scope) ? opts.scope.slice(0, opts.scope.indexOf(".")) : undefined;
+    host = new CompositionHost(
+      plan,
+      loaded,
+      backend,
+      {
+        post: shown.post,
+        log: (l) => this.ui.log(l),
+        ...(keeps ? { keep: (st: unknown) => keeps.set(keepKey, st) } : {}),
+        ...(support ? { changed: () => support(() => supportView({ at: new Date(), identity: this.path.identityName(), view, ...(run ? { run } : {}), state: host?.state, blocks: host?.shown() ?? [], opened: me?.opened ?? [] })) } : {}),
+      },
+      keeps?.get(keepKey) ?? {},
+      drawsActs,
+    );
     const acting = plan.uses.flatMap((u) => (u.acts ?? []).map((a) => a.control?.package)).filter((x): x is string => !!x);
-    me = { host, package: pkg, revisions: this.revisionsOf(loaded, [pkg, ...acting, ...(opts.revisions ?? [])]), busy: 0 };
+    me = { host, package: pkg, revisions: this.revisionsOf(loaded, [pkg, ...acting, ...(opts.revisions ?? [])]), busy: 0, opened: [] };
     this.open(panel, me);
     return host;
   }
@@ -367,11 +495,57 @@ export class PackagesArea {
     return { ...a, head: { ...a.head, vars: [...(a.head?.vars ?? []), "counts"] }, results: { ...a.results, bindings } };
   }
 
+  /**
+   * Rows that name the commit a verdict approves (?approvedCommit, with ?repo and the reviewed ?commit) get
+   * ?approval: which commit the verdict approves (and "commit from text" when it was read out of the
+   * free-text why, ?approvedFrom "text"), and whether it is stale: the approved files (?approvedPaths, space-separated,
+   * else the approved commit's own files) changed up to the reviewed commit, named. Read-only git over the mirrors.
+   */
+  private async withApprovals(answer: unknown): Promise<unknown> {
+    const a = answer as { head?: { vars?: string[] }; results?: { bindings?: Array<Record<string, { type: string; value: string }>> } };
+    const b = a.results?.bindings ?? [];
+    if (!b.some((r) => r["approvedCommit"]?.value)) return answer;
+    const bindings = await Promise.all(
+      b.map(async (r) => {
+        const approved = r["approvedCommit"]?.value;
+        const repo = r["repo"]?.value;
+        const head = r["commit"]?.value;
+        if (!approved || !repo || !head) return r;
+        const from = r["approvedFrom"]?.value === "text" ? " (commit from text)" : "";
+        const paths = (r["approvedPaths"]?.value ?? "").split(/\s+/).filter(Boolean);
+        let text = `approves ${approved.slice(0, 12)}${from}`;
+        let stale = "";
+        if (approved.startsWith(head) || head.startsWith(approved)) text += " · the reviewed commit itself";
+        else if (!this.path.staleness) text += ` · not checked against ${head.slice(0, 12)} (no sources on this host)`;
+        else {
+          const s = await this.path.staleness(repo, approved, head, paths);
+          if ("why" in s) text += ` · not checked against ${head.slice(0, 12)}: ${s.why}`;
+          else if (s.stale) {
+            stale = "true";
+            text += ` · STALE for ${head.slice(0, 12)}: approved files changed since: ${s.files.join(", ")}`;
+          } else text += ` · holds for ${head.slice(0, 12)}: none of its ${s.paths.length} approved file(s) changed`;
+        }
+        return { ...r, approval: { type: "literal", value: text }, ...(stale ? { stale: { type: "literal", value: stale } } : {}) };
+      }),
+    );
+    return { ...a, head: { ...a.head, vars: [...new Set([...(a.head?.vars ?? []), "approval", "stale"])] }, results: { ...a.results, bindings } };
+  }
+
   /** The QM areas (activity entries with an area), in their order (order, then package name: C2.5, S6.16). */
   areaNodes(): TreeNode[] {
     const areas = (this.loaded?.entries ?? []).filter((e) => e.slot === "activity" && e.area);
     if (!areas.length) return [];
     return [{ id: "qm-areas", label: "QM areas", description: `${areas.length}`, children: areas.map((e) => ({ id: `area:${entryKey(e)}`, label: e.label, description: e.package, tooltip: `${e.package} (${e.file})${e.area?.scopes?.records ? ` · records ${e.area.scopes.records}` : ""}`, command: { id: SLOT_CMD, args: [entryKey(e), areaSubject(e)] } })) }];
+  }
+
+  /**
+   * The views: `activity` entries that name a composition and no area (isView), in their order (order, then package
+   * name, as the areas). A click opens the composition with the view's own place as its subject (viewSubject).
+   */
+  viewNodes(): TreeNode[] {
+    const views = (this.loaded?.entries ?? []).filter(isView);
+    if (!views.length) return [];
+    return [{ id: "views", label: "Views", description: `${views.length}`, children: views.map((e) => ({ id: `view:${entryKey(e)}`, label: e.label, description: e.package, tooltip: `${e.package} (${e.file})`, command: { id: SLOT_CMD, args: [entryKey(e), viewSubject(e)] } })) }];
   }
 
   /** A panel opened (or opened again over an older one, which is replaced: its acts are refused from now on). */
@@ -386,7 +560,7 @@ export class PackagesArea {
     return {
       query: (pkg, name, terms) => this.named(pkg, name, terms),
       bytes: (pkg, hash) => this.t.uiCat(pkg, hash),
-      open: (target) => this.path.open(target),
+      open: (target) => this.path.open(target, (ref) => { const m = mine(); if (m) noteOpened(m, ref); }),
       act: this.actFor(key, label, mine),
       run: async (ray, holes) => {
         const out = await this.t.workflowRun({ workflow: ray, bind: holes });
@@ -410,7 +584,7 @@ export class PackagesArea {
     let me: OpenPanel | undefined;
     const shown = this.ui.showLeaf(panel, e.label, leaf, (m) => void host?.onMessage(m));
     host = new LeafHost({ decl: leaf.decl, slot: e.slot }, { ...(e.inputs ? { inputs: e.inputs } : {}), ...(control ? { control } : {}), label: e.label, package: e.package }, { id: s.id, ...(s.claim ? { claim: s.claim } : {}), closed }, loaded, this.backend(panel, e.label, () => me), { post: shown.post, log: (l) => this.ui.log(l) });
-    me = { host, package: e.package, revisions: this.revisionsOf(loaded, [e.package]), busy: 0 };
+    me = { host, package: e.package, revisions: this.revisionsOf(loaded, [e.package]), busy: 0, opened: [] };
     this.open(panel, me);
     return host;
   }
@@ -421,6 +595,16 @@ export class PackagesArea {
   }
 }
 
+/** Evidence opened from a panel: kept once, in order, in memory. */
+function noteOpened(p: OpenPanel, ref: string): void {
+  if (!p.opened.includes(ref)) p.opened.push(ref);
+}
+
+/** The evidence a panel opened in this session (tests). */
+export function openedOf(area: PackagesArea, key: string): readonly string[] {
+  return (area as unknown as { hosts: Map<string, OpenPanel> }).hosts.get(`${PANEL}${key}`)?.opened ?? [];
+}
+
 /**
  * An area's subject: its records scope (when {kind: scope}). Its IRI (https://kton.dev/scope/<name>) is the shell's
  * own name for the panel's subject: it is never signed, asked or shown as a kton IRI, and no area query reads it
@@ -429,6 +613,15 @@ export class PackagesArea {
 export function areaSubject(e: SlotEntry): Subject {
   const scope = e.area?.scopes?.records ?? `${e.package}/${e.file}`;
   return { kind: "scope", iri: `https://kton.dev/scope/${encodeURIComponent(scope)}`, id: scope, scope };
+}
+
+/**
+ * A view's subject: the view's own place (<package>/<file>), {kind: scope}. Its IRI is the shell's own name for the
+ * panel's subject, as an area's: never signed, asked or shown as a kton IRI.
+ */
+export function viewSubject(e: SlotEntry): Subject {
+  const id = `${e.package}/${e.file}`;
+  return { kind: "scope", iri: `https://kton.dev/scope/${encodeURIComponent(id)}`, id };
 }
 
 /**

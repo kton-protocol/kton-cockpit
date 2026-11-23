@@ -1,0 +1,26 @@
+{
+ "viewer": "evidence",
+ "module": "evidence.js",
+ "requires": [
+  "query@1"
+ ],
+ "optional": [
+  "open@1"
+ ],
+ "accepts": {
+  "ask": "literal",
+  "emptyText": "literal",
+  "askHint": "literal",
+  "title": "literal",
+  "runs": "literal",
+  "collapsePassing": "literal",
+  "emptyHow": "literal",
+  "stamp": "literal"
+ },
+ "emits": {
+  "element": {
+   "from": "state.element",
+   "type": "literal"
+  }
+ }
+}

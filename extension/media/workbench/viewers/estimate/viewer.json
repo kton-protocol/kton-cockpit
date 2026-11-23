@@ -1,0 +1,20 @@
+{
+ "viewer": "estimate",
+ "module": "estimate.js",
+ "requires": [
+  "query@1"
+ ],
+ "optional": [],
+ "accepts": {
+  "unit": "literal",
+  "emptyText": "literal",
+  "title": "literal",
+  "chart": "literal",
+  "domain": "literal",
+  "reported": "literal",
+  "repro": "literal",
+  "emptyHow": "literal",
+  "stamp": "literal"
+ },
+ "emits": {}
+}

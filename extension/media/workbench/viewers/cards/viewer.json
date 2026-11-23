@@ -1,0 +1,55 @@
+{
+ "viewer": "cards",
+ "module": "cards.js",
+ "requires": [
+  "query@1"
+ ],
+ "optional": [
+  "sign@1",
+  "record@1",
+  "open@1"
+ ],
+ "accepts": {
+  "title": "literal",
+  "fields": {
+   "set": "literal"
+  },
+  "target": "literal",
+  "choices": {
+   "set": "literal"
+  },
+  "draws": {
+   "set": "literal"
+  },
+  "emptyText": "literal",
+  "pick": "literal",
+  "group": "literal",
+  "badge": "literal",
+  "quote": "literal",
+  "locs": {
+   "set": "literal"
+  },
+  "compare": {
+   "set": "literal"
+  },
+  "choiceLegend": "literal",
+  "drawsLabel": "literal",
+  "layout": "literal",
+  "effects": "literal",
+  "touched": "literal",
+  "heading": "literal",
+  "emptyHow": "literal",
+  "stamp": "literal"
+ },
+ "emits": {
+  "draw": {
+   "from": "state.draw",
+   "type": "literal"
+  },
+  "pick": {
+   "from": "state.pick",
+   "type": "literal"
+  }
+ },
+ "rendersActs": true
+}

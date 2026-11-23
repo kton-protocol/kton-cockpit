@@ -1,0 +1,3 @@
+# Every unit with its test; ?claim is the row an act is about.
+PREFIX qa: <https://example.org/qa/>
+SELECT ?test ?result ?stamp ?claim WHERE { ?claim qa:test ?test ; qa:result ?result ; qa:stamp ?stamp } ORDER BY ?test
