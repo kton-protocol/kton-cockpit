@@ -953,6 +953,10 @@ async function publishText(story, file, steps) {
     lines.push(...noteLines(s.note));
     for (const n of d.notes || []) lines.push(`#   note: ${n}`); // e.g. a sourced script that is not self-contained
     const req = { inputs: (d.inputs || []).filter((f) => f.use).map((f) => f.path), outputs: (d.outputs || []).filter((f) => f.use).map((f) => f.path), cmd: d.cmd };
+    // a step declared in the story editor (by hand, or kept from a heuristic) is published as declared, never as
+    // recorded (kton-cockpit v0.5.11 publish.declared; kton's nk:declared); a corrected recorded step says so
+    if (d.declared) { req.declared = d.declared; lines.push(`#   declared (${d.declared}): not recorded, so not reproducible from a recording`); }
+    else if (d.edited) lines.push('#   corrected in the story editor');
     if (!req.outputs.length) { // the files it wrote are not there with these bytes any more: nothing to sign
       lines.push('#   cannot be published: ' + ((d.outputs || []).map((f) => `${f.path}${f.note ? ' (' + f.note + ')' : ''}`).join(', ') || 'no output'));
       continue;
@@ -1018,7 +1022,10 @@ async function openStory(context, project, file) {
     const cockpitRepo = fs.existsSync(cfgFile(story.repo));
     const ps = await publishedSteps(story);
     const improve = repoMode(story.repo) === 'improve';
-    w.postMessage({ type: 'story', story, notes: mine, cockpitRepo, improve, published: ps.done, sameResult: ps.same,
+    // the recorded steps the person corrected in the story editor (a mark on their line)
+    const eds = await getJSON(`${viewerUrl()}api/edits?project=${encodeURIComponent(project)}`, 5000).catch(() => null);
+    const edited = Object.fromEntries(Object.keys((eds && eds.steps) || {}).map((k) => [k, true]));
+    w.postMessage({ type: 'story', story, notes: mine, cockpitRepo, improve, edited, published: ps.done, sameResult: ps.same,
       workflowRepros: cockpitRepo ? workflowReproductions(story.repo, path.relative(story.repo, file.path)) : [] });
     sendPlan();
   };
@@ -1111,6 +1118,38 @@ async function openStory(context, project, file) {
       try { await reproduce(project, file.path, file.sha256); w.postMessage({ type: 'done', what: 'reproduce', ok: true }); }
       catch (e) { w.postMessage({ type: 'done', what: 'reproduce', ok: false, error: e.message }); }
       finally { busy = null; }
+      send();
+    }
+    // ---- the story editor (MH 20./21.11.): correct a recorded step, or declare one by hand; ktonwatch keeps both
+    // (/api/edits, /api/declared), and every reader of a step's draft sees the corrected step
+    else if (m.type === 'draft') {
+      const d = await getJSON(`${viewerUrl()}api/draft?session=${encodeURIComponent(m.session)}&task=${encodeURIComponent(m.task)}`, 10000).catch((e) => ({ error: e.message }));
+      w.postMessage({ type: 'draft', key: m.session + '/' + m.task, draft: d });
+    }
+    else if (m.type === 'pick' && story) {
+      // files of the repository only, as repository-relative paths (publish takes nothing else)
+      const got = await vscode.window.showOpenDialog({ defaultUri: vscode.Uri.file(story.repo), canSelectMany: true, canSelectFiles: true, canSelectFolders: false,
+        openLabel: m.field === 'outputs' ? 'Use as outputs' : 'Use as inputs', title: `kton: ${m.field === 'outputs' ? 'what the step made' : 'what the step used'}` });
+      if (!got) return;
+      const inside = [], outside = [];
+      for (const u of got) { const r = path.relative(story.repo, u.fsPath); (r && !r.startsWith('..') && !path.isAbsolute(r) ? inside : outside).push(r.split(path.sep).join('/')); }
+      if (outside.length) vscode.window.showWarningMessage(`kton: not in ${path.basename(story.repo)}, left out: ${outside.length} file(s)`);
+      w.postMessage({ type: 'picked', field: m.field, paths: inside });
+    }
+    else if (m.type === 'saveEdit' || m.type === 'resetEdit') {
+      const body = m.type === 'resetEdit' ? { key: m.key } : { key: m.key, inputs: m.inputs, outputs: m.outputs, cmd: m.cmd, by: 'you' };
+      try { await sendJSON('PUT', `${viewerUrl()}api/edits`, body); } catch (e) { vscode.window.showWarningMessage(`kton: the correction was not kept: ${e.message}`); }
+      send();
+    }
+    else if (m.type === 'declare' && story) {
+      try { await sendJSON('POST', `${viewerUrl()}api/declared`, { id: m.id || undefined, project, declared: 'hand', inputs: m.inputs, outputs: m.outputs, cmd: m.cmd, by: 'you' }); }
+      catch (e) { vscode.window.showWarningMessage(`kton: the step was not kept: ${e.message}`); }
+      send();
+    }
+    else if (m.type === 'undeclare') {
+      const ok = await vscode.window.showWarningMessage('Remove this step you declared? The files stay as they are.', { modal: true }, 'Remove');
+      if (ok !== 'Remove') return;
+      try { await sendJSON('DELETE', `${viewerUrl()}api/declared?id=${encodeURIComponent(m.id)}`, {}); } catch (e) { vscode.window.showWarningMessage(`kton: not removed: ${e.message}`); }
       send();
     }
     else if (m.type === 'diff') diffReproduced(project, m);

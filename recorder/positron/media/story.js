@@ -5,6 +5,8 @@
   const vscode = acquireVsCodeApi();
   const root = document.getElementById("root");
   let S = null, published = {}, sameResult = {}, notes = {}, cockpitRepo = false, open = {}, plan = null, busy = null, result = null, improve = false, wfRepros = [];
+  // the story editor (MH 20./21.11.): one step at a time; edited = recorded steps the person corrected
+  let editing = null, edited = {};
 
   const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
   const clock = (ns) => new Date(ns / 1e6).toLocaleTimeString(undefined, {hour: "2-digit", minute: "2-digit"});
@@ -22,11 +24,11 @@
     for (const s of S.steps) {
       const where = s.where.replace(/^chunk \S+ of /, "");
       const last = out[out.length - 1];
-      if (last && !s.hand && !last.hand && last.session === s.session && last.where === where) last.steps.push(s);
-      else out.push({session: s.session, where, hand: !!s.hand, steps: [s]});
+      if (last && !s.hand && !last.hand && !s.declared && !last.declared && last.session === s.session && last.where === where) last.steps.push(s);
+      else out.push({session: s.session, where, hand: !!s.hand, declared: s.declared || "", steps: [s]});
     }
     for (const c of out) {
-      c.key = c.hand ? skey(c.steps[0]) : c.session + "/" + c.where;
+      c.key = c.hand || c.declared ? skey(c.steps[0]) : c.session + "/" + c.where;
       // a line's note: kept per step (session/task, as the MCP tools write it); a line written
       // before that kept it under the line's own key. Read from wherever it is, written back there.
       c.noteKey = [...c.steps.map(skey), c.key].find((k) => notes[k]) || skey(c.steps[0]);
@@ -145,9 +147,10 @@
     const field = (f, ph) => `<div class="note ${note[f] ? "" : "empty"}" contenteditable="true" data-k="${esc(c.noteKey)}" data-f="${f}" data-ph="${ph}">${esc(note[f])}</div>`;
     // the dot: blue, green when in kton, orange for a hand edit, the warning colour when the step
     // has a warning (a file it used was changed or overwritten since), also over green
-    const cls = [c.hand ? "hand" : c.inKton ? "done" : "", c.warn.length ? "warned" : ""].filter(Boolean).join(" ");
+    const cls = [c.hand ? "hand" : c.declared ? "declared" : c.inKton ? "done" : "", c.warn.length ? "warned" : ""].filter(Boolean).join(" ");
     const what = c.hand
       ? `<span class="f w">${esc(c.steps[0].reads[0])}</span> changed by hand <span class="muted">· not recorded</span>`
+      : c.declared ? `${files(c.ins)} <span class="arrow">→</span> ${files(c.outs.length ? c.outs : c.steps[0].writes || [], 4, c.kton)} <span class="badge" title="not recorded: declared afterwards (${esc(c.declared)}); published with that mark">declared</span>`
       : `${files(c.ins)} <span class="arrow">→</span>${c.tools.length ? ` <span class="tool">${esc(c.tools.join(", "))}</span> <span class="arrow">→</span>` : ""} ${c.outs.length ? files(c.outs, 4, c.kton) : '<span class="muted" title="this step wrote no file that a later step of this story read: whatever it handed on stayed in the R session (objects), or nothing at all">no files handed on</span>'}`;
     const rp = c.repro;
     const flags = [c.inKton ? '<span class="ok" title="already in kton">✓ in kton</span>' : "",
@@ -158,16 +161,24 @@
       c.failed ? `<span class="muted" title="failed commands, without effect">${c.failed}× failed</span>` : ""].filter(Boolean).join(" ");
     const details = open[c.key] ? `<div class="details">
         ${c.warn.map((w) => `<div class="warn">⚠ ${esc(w)}</div>`).join("")}
-        ${c.steps.map((s) => `<div class="cmd ${s.on_path ? "" : "off"}"><span class="when">${s.published ? "kton" : clock(s.when_ns)}</span> <code>${esc((s.code || s.sentence).split("\n")[0])}</code>${(s.writes || []).length ? ` → ${files(s.writes, 3)}` : ""}${s.error ? ' <span class="warn">fails</span>' : ""}</div>`).join("")}
+        ${c.steps.map((s) => `<div class="cmd ${s.on_path ? "" : "off"}"><span class="when">${s.published ? "kton" : clock(s.when_ns)}</span> <code>${esc((s.code || s.sentence).split("\n")[0])}</code>${(s.writes || []).length ? ` → ${files(s.writes, 3)}` : ""}${s.error ? ' <span class="warn">fails</span>' : ""}${editable(s) && !c.declared ? ` <button class="link edit" data-s="${esc(s.session)}" data-t="${esc(s.task)}">${edited[skey(s)] ? "corrected · edit" : "edit"}</button>` : ""}</div>`).join("")}
       </div>` : "";
+    // a recorded line with one step that made something: Edit beside it; a line of several steps: per command (details)
+    const writers = c.path.filter(editable);
+    const editBtn = c.hand || c.inKton ? "" : c.declared
+      ? `<button class="link edit" data-s="${esc(c.steps[0].session)}" data-t="${esc(c.steps[0].task)}">edit</button> <button class="link undeclare" data-id="${esc(c.steps[0].task)}">remove</button>`
+      : writers.length === 1 ? `<button class="link edit" data-s="${esc(writers[0].session)}" data-t="${esc(writers[0].task)}">${edited[skey(writers[0])] ? "corrected · edit" : "edit"}</button>` : "";
+    const editor = editing && c.steps.some((s) => skey(s) === editing.key) ? editorBlock() : "";
     // deviating outputs, each with a diff when both versions exist
     const devs = (c.devs || []).length ? `<div class="devs">${c.devs.map((o, i) => `<div class="dev"><span class="warn">≠</span> <span class="f">${esc(relp(o.path))}</span>
       ${o.reproduced ? `<span class="muted">${esc(o.recorded.slice(0, 8))} → ${esc(o.reproduced.slice(0, 8))}</span> <button class="link diff" data-k="${esc(c.key)}" data-i="${i}">open diff</button>` : '<span class="muted">not produced</span>'}</div>`).join("")}</div>` : "";
     return `<li class="${cls}" data-k="${esc(c.key)}">
-      <div class="t" ${c.steps[0].published ? 'title="published in kton, recorded elsewhere (another folder or person): its foton says what ran"' : ""}>${c.hand ? "✎" : c.steps[0].published ? "kton" : clock(c.when)}</div>
+      <div class="t" ${c.steps[0].published ? 'title="published in kton, recorded elsewhere (another folder or person): its foton says what ran"' : ""}>${c.hand || c.declared ? "✎" : c.steps[0].published ? "kton" : clock(c.when)}</div>
       <div class="body">
-        <div class="head">${c.where.startsWith("$ ") ? `<code class="cmdline">${esc(c.where)}</code>` : `<b>${esc(c.hand ? "by hand" : c.where.replace(/^script /, ""))}</b>`} ${what} ${flags}
-          ${c.hand ? "" : `<button class="link tog">${open[c.key] ? "less" : `${c.steps.length} commands`}</button>`}</div>
+        <div class="head">${c.where.startsWith("$ ") ? `<code class="cmdline">${esc(c.where)}</code>` : `<b>${esc(c.hand ? "by hand" : c.declared ? c.where : c.where.replace(/^script /, ""))}</b>`} ${what} ${flags}
+          ${c.hand || c.declared ? "" : `<button class="link tog">${open[c.key] ? "less" : `${c.steps.length} commands`}</button>`} ${editBtn}</div>
+        ${c.declared ? `<div class="muted"><code>${esc(c.steps[0].code || c.steps[0].sentence)}</code></div>` : ""}
+        ${editor}
         ${devs}
         ${planLine(c)}
         ${details}
@@ -271,10 +282,70 @@
     return rows.join("");
   }
 
+  // a step the editor can correct: recorded, it made something, not in kton yet
+  const editable = (s) => !s.hand && !s.published && (s.writes || []).length > 0 && !published[skey(s)];
+
+  // the editor: what the step used and made, and what was done. One primary action (Save); the person's
+  // correction is kept beside the recording, never in it, and every publish reads the step through it
+  function editorBlock() {
+    const e = editing;
+    if (e.loading) return `<section class="editor"><span class="spin"></span> reading the step …</section>`;
+    if (e.error) return `<section class="editor"><div class="warn">The step's draft could not be read: ${esc(e.error)}</div><button class="ghost" id="ed-cancel">Close</button></section>`;
+    const list = (field, ph) => {
+      const fs = e[field];
+      const rows = fs.map((f, i) => `<label class="ed-file ${f.use ? "" : "unused"}"><input type="checkbox" data-field="${field}" data-i="${i}" ${f.use ? "checked" : ""}> <span class="f">${esc(f.path)}</span>${f.note ? ` <span class="muted">· ${esc(f.note)}</span>` : ""}</label>`).join("");
+      return `<div class="ed-group"><h4>${field === "inputs" ? "Used" : "Made"}</h4><div class="muted">${ph}</div>
+        ${rows || `<div class="empty">${field === "inputs" ? "No input yet. A step may use none; add the files it read." : "No output yet: a step is published by what it made. Add the files it wrote."}</div>`}
+        <button class="secondary small" data-pick="${field}">Add files…</button></div>`;
+    };
+    const head = e.kind === "new" ? "A step by hand" : e.kind === "declared" ? "Your declared step" : "Correct this step";
+    const sub = e.kind === "recorded" ? "What the recorder saw, as you correct it. The recording stays as it was." : "Not recorded: published as declared by hand, with these files as they are now.";
+    const nOut = e.outputs.filter((f) => f.use).length;
+    return `<section class="editor" aria-label="${esc(head)}">
+      <h3>${esc(head)}</h3><div class="muted">${esc(sub)}</div>
+      ${list("inputs", "The files the step read. Unticked ones are left out.")}
+      ${list("outputs", "The files the step wrote.")}
+      <div class="ed-group"><h4>What was done</h4><textarea id="ed-cmd" rows="2" placeholder="the command, or in words what you did">${esc(e.cmd)}</textarea></div>
+      <div class="ed-actions">
+        <button id="ed-save" ${nOut && e.cmd.trim() ? "" : "disabled"} title="${nOut ? "" : "a step needs at least one output"}">Save</button>
+        ${e.kind === "recorded" && e.wasEdited ? `<button class="secondary" id="ed-reset" title="forget the correction: the step as recorded">Back to the recording</button>` : ""}
+        <button class="ghost" id="ed-cancel">Cancel</button>
+      </div></section>`;
+  }
+  function startEdit(session, task) {
+    editing = {key: session + "/" + task, session, task, kind: session === "declared" ? "declared" : "recorded", loading: true, wasEdited: !!edited[session + "/" + task]};
+    render();
+    vscode.postMessage({type: "draft", session, task});
+  }
+  function startNew() {
+    const t = targetRel();
+    editing = {key: "new", kind: "new", inputs: [], outputs: [{path: t, use: true}], cmd: ""};
+    render();
+  }
+  function wireEditor() {
+    if (!editing || editing.loading) return;
+    for (const b of root.querySelectorAll(".ed-file input")) b.onchange = () => { editing[b.dataset.field][+b.dataset.i].use = b.checked; render(); };
+    for (const b of root.querySelectorAll("button[data-pick]")) b.onclick = () => vscode.postMessage({type: "pick", field: b.dataset.pick});
+    const cmd = document.getElementById("ed-cmd");
+    if (cmd) cmd.oninput = () => { editing.cmd = cmd.value; const sv = document.getElementById("ed-save"); if (sv) sv.disabled = !(editing.outputs.some((f) => f.use) && cmd.value.trim()); };
+    const cancel = document.getElementById("ed-cancel");
+    if (cancel) cancel.onclick = () => { editing = null; render(); };
+    const reset = document.getElementById("ed-reset");
+    if (reset) reset.onclick = () => { vscode.postMessage({type: "resetEdit", key: editing.key}); editing = null; };
+    const save = document.getElementById("ed-save");
+    if (save) save.onclick = () => {
+      const used = (f) => editing[f].filter((x) => x.use).map((x) => x.path);
+      if (editing.kind === "recorded") vscode.postMessage({type: "saveEdit", key: editing.key, inputs: used("inputs"), outputs: used("outputs"), cmd: editing.cmd});
+      else vscode.postMessage({type: "declare", id: editing.kind === "declared" ? editing.task : "", inputs: used("inputs"), outputs: used("outputs"), cmd: editing.cmd});
+      editing = null;
+      busy = {what: "edit", text: "Keeping your step …"}; render();
+    };
+  }
+
   function render() {
     const cs = chapters();
     const days = new Set(cs.map((c) => day(c.when)));
-    const todo = cs.filter((c) => !c.hand && !c.inKton && c.path.some((s) => (s.writes || []).length));
+    const todo = cs.filter((c) => !c.hand && !c.inKton && (c.declared || c.path.some((s) => (s.writes || []).length)));
     root.innerHTML = `<main class="one">
       <header>
         <h1>${esc(targetRel())}</h1>
@@ -290,8 +361,10 @@
           <button class="secondary" id="inkton" ${cockpitRepo ? "" : "disabled"} title="${cockpitRepo ? "kton-web beside the story: what was recorded and what is signed, in one graph, centred on this file (kton-web verifies the records)" : "no cockpit repo (cockpit init)"}">In kton</button>
           ${/\.html?$/i.test(targetRel()) ? `<button class="secondary" id="rendered" title="the page as it renders (Live Preview, beside the story; it only reads the file)">Show rendered</button>` : ""}
           <button class="secondary" id="save">Markdown</button>
+          <button class="ghost" id="ed-new" ${cockpitRepo && !editing ? "" : "disabled"} title="a step nobody recorded: you name what it used and made; it is published as declared by hand">Add a step by hand…</button>
         </div>
       </header>
+      ${editing && editing.kind === "new" ? editorBlock() : ""}
       <ol class="story">${cs.map(line).join("")}${(S.reproductions || []).slice(0, 1).map(reproLine).join("")}</ol>
       ${wfRepros.slice(0, 1).map(workflowRepro).join("")}
       ${(S.gaps || []).length ? `<details class="gaps"><summary>${S.gaps.length} gap${S.gaps.length > 1 ? "s" : ""} in the recording</summary>${S.gaps.map((g) => `<div class="warn">${esc(g)}</div>`).join("")}</details>` : ""}
@@ -300,6 +373,11 @@
       const c = cs.find((x) => x.key === b.dataset.k), o = c && c.devs[+b.dataset.i];
       if (o) vscode.postMessage({type: "diff", path: o.path, recorded: o.recorded, reproduced: o.reproduced, dir: o.dir});
     };
+    for (const b of root.querySelectorAll("button.edit")) b.onclick = () => startEdit(b.dataset.s, b.dataset.t);
+    for (const b of root.querySelectorAll("button.undeclare")) b.onclick = () => vscode.postMessage({type: "undeclare", id: b.dataset.id});
+    const nb = document.getElementById("ed-new");
+    if (nb) nb.onclick = startNew;
+    wireEditor();
     for (const b of root.querySelectorAll("button.tog")) b.onclick = (e) => { const k = e.target.closest("li").dataset.k; open[k] = !open[k]; render(); };
     for (const n of root.querySelectorAll(".note")) {
       n.oninput = () => {
@@ -343,6 +421,7 @@
           continue;
         }
         if (c.hand) { steps.push({hand: true, sentence: c.steps[0].sentence, note: noteOf(c.noteKey)}); continue; }
+        if (c.declared) { const s = c.steps[0]; if (!published[skey(s)]) steps.push({session: s.session, task: s.task, where: s.where, sentence: s.sentence, note: noteOf(c.noteKey)}); continue; }
         c.path.filter((s) => (s.writes || []).length && !published[skey(s)]).forEach((s, i) =>
           steps.push({session: s.session, task: s.task, where: s.where, sentence: s.sentence, note: i === 0 ? noteOf(c.noteKey) : null}));
       }
@@ -356,7 +435,19 @@
       window.__focusWired = true;
       document.addEventListener("focusin", (e) => { const k = e.target && e.target.dataset && e.target.dataset.k; if (k) vscode.postMessage({type: "focus", key: k}); });
     }
-    if (m.type === "story") { S = m.story; published = m.published || {}; sameResult = m.sameResult || {}; notes = m.notes || {}; cockpitRepo = m.cockpitRepo; improve = !!m.improve; wfRepros = m.workflowRepros || []; render(); }
+    if (m.type === "story") { S = m.story; published = m.published || {}; sameResult = m.sameResult || {}; notes = m.notes || {}; cockpitRepo = m.cockpitRepo; improve = !!m.improve; wfRepros = m.workflowRepros || []; edited = m.edited || {}; if (busy && busy.what === "edit") busy = null; render(); }
+    if (m.type === "draft" && editing && editing.key === m.key) {
+      const d = m.draft || {};
+      if (d.error) editing = {...editing, loading: false, error: d.error};
+      else editing = {...editing, loading: false, inputs: (d.inputs || []).map((f) => ({path: f.path, use: !!f.use, note: f.note || ""})),
+        outputs: (d.outputs || []).map((f) => ({path: f.path, use: !!f.use, note: f.note || ""})), cmd: d.cmd || ""};
+      render();
+    }
+    if (m.type === "picked" && editing && !editing.loading) {
+      const have = new Set(editing[m.field].map((f) => f.path));
+      for (const p of m.paths || []) if (!have.has(p)) editing[m.field].push({path: p, use: true, note: "added by you"});
+      render();
+    }
     if (m.type === "published") { published = m.published || {}; sameResult = m.sameResult || {}; render(); }
     if (m.type === "plan") { plan = m.plan; render(); }
     if (m.type === "busy") { busy = {what: m.what, text: m.text, since: Date.now()}; render(); tick(); }

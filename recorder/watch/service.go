@@ -46,6 +46,9 @@ type Service struct {
 	// Notes are the drafts of descriptions and rationales per story step (Load opens them).
 	Notes *Notes
 
+	// Edits are the story editor's corrections and declared steps (Load opens them).
+	Edits *Edits
+
 	// UI passes what the MCP tools ask of the editor to the listening windows (Load makes it).
 	UI *UIHub
 
@@ -99,6 +102,9 @@ func (sv *Service) Load() error {
 	}
 	if sv.Notes == nil && sv.Store != "" {
 		sv.Notes = OpenNotes(filepath.Join(sv.Store, "notes")) // not *.json beside the sessions: those are read as sessions
+	}
+	if sv.Edits == nil && sv.Store != "" {
+		sv.Edits = OpenEdits(filepath.Join(sv.Store, "edits"))
 	}
 	if sv.Watched == nil && sv.Store != "" {
 		sv.Watched = OpenWatched(sv.Store, sv.HashFile)

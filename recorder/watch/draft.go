@@ -17,6 +17,10 @@ type Draft struct {
 	Outputs []DraftFile `json:"outputs"`
 	Cmd     string      `json:"cmd"`
 	Notes   []string    `json:"notes,omitempty"` // what cannot be a foton input and needs a claim
+	// Edited: the person corrected the recorded step in the story editor (edits.go)
+	Edited bool `json:"edited,omitempty"`
+	// Declared: not recorded but declared afterwards, "hand" or "heuristic:<name>" (publish --declared)
+	Declared string `json:"declared,omitempty"`
 }
 
 type DraftFile struct {

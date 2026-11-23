@@ -87,3 +87,21 @@ details.gaps summary { cursor: pointer; color: var(--vscode-descriptionForegroun
 
 .wfrepro .finding { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin: 2px 0; font-size: 0.95em; }
 .wfrepro button.small { padding: 0 6px; font-size: 0.85em; }
+
+/* the story editor (userinterface's design guide: VS Code's look, one primary action, a heading of a
+   few words with one muted line, empty states that say what will appear, works at 400 px) */
+button.ghost { background: none; color: var(--vscode-textLink-foreground); border: 0; }
+button.ghost:hover { text-decoration: underline; background: none; }
+button.small { font-size: 11px; padding: 1px 8px; }
+ol.story li.declared::before { background: none; border: 2px dashed var(--vscode-charts-purple, var(--vscode-charts-blue)); width: 6px; height: 6px; }
+.badge { font-size: 10px; padding: 0 6px; border-radius: 9px; border: 1px solid var(--vscode-charts-purple, var(--vscode-panel-border)); color: var(--vscode-charts-purple, var(--vscode-descriptionForeground)); }
+.editor { margin: 8px 0 10px; padding: 10px 12px; border: 1px solid var(--vscode-panel-border); border-radius: 4px; background: var(--vscode-sideBar-background, transparent); max-width: 720px; }
+.editor h3 { margin: 0; font-size: 13px; }
+.editor h4 { margin: 10px 0 0; font-size: 12px; }
+.ed-group .muted { font-size: 11px; margin-bottom: 4px; }
+.ed-file { display: block; padding: 2px 0; overflow-wrap: anywhere; }
+.ed-file.unused .f { opacity: .55; text-decoration: line-through; }
+.ed-group .empty { font-size: 12px; color: var(--vscode-descriptionForeground); padding: 2px 0 6px; }
+.editor textarea { width: 100%; box-sizing: border-box; font-family: var(--vscode-editor-font-family); font-size: 12px; color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, var(--vscode-panel-border)); border-radius: 2px; padding: 4px; resize: vertical; }
+.ed-actions { margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+@container (max-width: 420px) { .editor { padding: 8px; } }
