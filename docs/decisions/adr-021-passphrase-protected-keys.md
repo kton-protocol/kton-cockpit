@@ -3,7 +3,7 @@ title: "Passphrase-protected signing keys: the kernel's format, one loader, the 
 type: "decision"
 project: "kton-cockpit"
 date: 2026-11-23
-status: "proposed"
+status: "accepted"
 tags: [architecture, keys, identity, signing, serve, mcp]
 ---
 
@@ -11,10 +11,11 @@ tags: [architecture, keys, identity, signing, serve, mcp]
 
 ## Status
 
-Proposed 2026-11-23; kton-review's go for the direction with P1-P4, written in below. Requested by this lane of kton (19.11., "Gap for v0.6.x: passphrase-protected
+Accepted by MH (2026-11-23) as proposed, Q1-Q3 as below. Proposed 2026-11-23; kton-review's go for the
+direction with P1-P4, written in below. Requested by this lane of kton (19.11., "Gap for v0.6.x: passphrase-protected
 signing keys", kton #277); kton prepared the format and the loader in kton PR #299 (not merged: MH
 decides whether the kernel takes `golang.org/x/crypto`). This ADR is drafted against that API; it changes
-only if MH keeps the KDF out of the kernel (kton's option c). Three questions are open for MH (below).
+only if MH keeps the KDF out of the kernel (kton's option c). MH answered its three questions as proposed.
 
 ## Context
 
@@ -70,7 +71,7 @@ secret, so a frontend logs it nowhere either. serve decodes it as raw JSON into 
 string, and clears it after `keys.Load`; the decrypted key is cleared after the signature. Go cannot
 promise that no copy remains in memory; the cockpit makes none of its own.
 
-### 4 How long a key stays unlocked (open for MH, Q1)
+### 4 How long a key stays unlocked (Q1)
 
 Proposed: per signature in serve for the person's keys (the dialog already asks per signature, so the
 passphrase is asked with it), and per process for the CLI (one prompt per `cockpit say`, which signs once
@@ -87,7 +88,7 @@ any step runs: a step never stops halfway for a passphrase (kton-review P4).
 terminal. `doctor` says per key whether it is encrypted, from the file alone, without asking. `ssh-agent`
 holding the key is a later step, as in the kernel (it needs a newer x/crypto).
 
-## Open for MH
+## Decided by MH (23.11., as proposed)
 
 - **Q1, unlock lifetime:** per signature for person keys in serve, per process on the CLI (proposed), or
   an unlock that holds for N minutes in serve.
