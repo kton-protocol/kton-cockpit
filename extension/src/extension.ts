@@ -409,6 +409,7 @@ async function build(host: VsHost): Promise<void> {
     personTiers: cfg.get<string[]>("identity.personTiers") ?? [],
     inboxAreas: (cfg.get<string[]>("inbox.areas") ?? []).filter((x) => typeof x === "string" && x !== ""),
     relayKeys: (cfg.get<string[]>("inbox.relayKeys") ?? []).filter((x) => typeof x === "string" && /^[0-9a-f]{16}$/.test(x)),
+    testKeys: cfg.get<boolean>("identity.testKeys") ?? true,
     vendoredViewers: vendored,
     ...(builtin ? { builtinPackage: builtin } : {}),
     pollSeconds: Math.max(1, cfg.get<number>("poll.seconds") ?? 30),

@@ -993,6 +993,23 @@ test("proposed fields: a value of a field with fixed values is taken (the dialog
   assert.deepEqual(t.says.at(-1)?.fields, { choice: "a", lookedAt: `${iri("a")} ${iri("b")}` });
 });
 
+test("proposed fields: a record (agent key, no dialog) takes no proposed value: a fixed value is asked, a free one has no default", async () => {
+  const t = new FakeTransport();
+  const NOTE: TemplateInfo = { name: "review-note", package: "qa.review", fields: { kind: { type: "enum", values: ["info", "blocking"], required: true }, text: { type: "string", required: true }, tag: { type: "enum", values: ["x", "y"] } } };
+  t.templateList = [...TEMPLATES, NOTE];
+  const { h, wb } = await setup({}, t);
+  const inputs: Array<[string, string | undefined]> = [];
+  (h as unknown as { input: (p: string, v?: string) => Promise<string | undefined> }).input = async (p: string, v?: string) => (inputs.push([p, v]), "typed");
+  h.picks = ["info"];
+  const note = { package: "qa.review", name: "note", template: "review-note", kind: "record" as const };
+  const dialogs = h.dialogs.length;
+  assert.equal(await wb.signAct(note, iri("a"), {}, "Note", undefined, { proposed: { kind: "blocking", text: "from the frame", tag: "x" } }), "signed");
+  assert.equal(h.dialogs.length, dialogs, "a record has no dialog");
+  assert.deepEqual(t.says.at(-1)?.fields, { kind: "info", text: "typed" }, "the frame's blocking and x were never signed; the optional tag is left out");
+  assert.deepEqual(inputs, [["note: text", undefined]], "no default from the frame");
+  assert.equal(h.picks.length, 0, "the fixed value was asked");
+});
+
 test("looked-at: the view session's evidence opens are offered for lookedAt and listed in the dialog; a template without lookedAt gets none", async () => {
   const t = new FakeTransport();
   const SPOT: TemplateInfo = { name: "review-spotcheck", package: "qa.review", fields: { verdict: { type: "enum", values: ["rule-judge-right", "second-model-right", "spec-unclear"], required: true }, proposal: { type: "string", required: true } } };
@@ -1166,3 +1183,10 @@ test("relay: a forged \"[from …]\" prefix by a key that is not a relay shows t
   assert.deepEqual(relayed({ ...row, s: undefined as unknown as string }, ["1111222233334444"]), { ...row, s: undefined }, "no signer IRI: unchanged");
 });
 
+test("test mode comes from kton.identity.testKeys: off, no TEST MODE and the keys are unverified, not test", async () => {
+  const { h } = await setup({ testKeys: false });
+  assert.equal(h.status.get("mode"), "");
+  assert.equal(h.status.get("identity"), "person key qa-decider · agent key qa-decider-agent · unverified");
+  const on = await setup({ testKeys: true });
+  assert.equal(on.h.status.get("mode"), "TEST MODE");
+});

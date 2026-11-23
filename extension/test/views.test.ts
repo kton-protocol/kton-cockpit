@@ -146,8 +146,12 @@ test("row acts: a claimless view's act is about the picked row, through another 
   await host.onMessage({ type: "kton:intent", intent: { id: "i1", kind: "record", from: u.key, control: act.control, about: (u.acts[0] as unknown as { about: string }).about, target: `https://kton.dev/o/${"8".repeat(64)}`, fields: {} } });
   assert.match(JSON.stringify(w.posts.at(-1)), /not a row this block was shown/);
   await host.onMessage({ type: "kton:intent", intent: { id: "i2", kind: "record", from: u.key, control: act.control, about: (u.acts[0] as unknown as { about: string }).about, target: w.UNIT, fields: { test: "item-1829 STP-002", reason: "capture mode" } } });
-  assert.deepEqual(w.acts, [{ control: "qa.owner/rerun-request", about: `sha256:${"7".repeat(64)}`, fields: {}, scope: "qa.requests" }]);
+  // the choice the use declares ("reason=capture mode") is an act field; the row's test is only proposed
+  assert.deepEqual(w.acts, [{ control: "qa.owner/rerun-request", about: `sha256:${"7".repeat(64)}`, fields: { reason: "capture mode" }, scope: "qa.requests" }]);
   assert.ok(w.logs.some((l) => l.endsWith(`./send lane-a requests area=area-b title="rerun: item-1829 STP-002" text="rerun request claim sha256:${"9".repeat(64)}; test item-1829 STP-002" why="row acts"`)), w.logs.join("\n"));
+  // a value no choice declares is not an act field (only proposed: a record takes none)
+  await host.onMessage({ type: "kton:intent", intent: { id: "i3", kind: "record", from: u.key, control: act.control, about: (u.acts[0] as unknown as { about: string }).about, target: w.UNIT, fields: { reason: "made up" } } });
+  assert.deepEqual(w.acts.at(-1)?.fields, {});
 });
 
 test("row acts: with the owner package not in use, the act is refused and names the pin", async () => {

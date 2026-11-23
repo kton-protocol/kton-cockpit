@@ -221,6 +221,11 @@
           },
           "default": {},
           "description": "Where data names a repository otherwise than its mirror folder under kton.sources.dir: data name → folder name."
+        },
+        "kton.identity.testKeys": {
+          "type": "boolean",
+          "default": true,
+          "description": "The window's keys are test keys: the status bar shows TEST MODE and names the keys as test keys. Off: neither is shown, and an unverified key is shown as unverified."
         }
       }
     },

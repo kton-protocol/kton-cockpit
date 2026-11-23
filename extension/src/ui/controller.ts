@@ -81,6 +81,8 @@ export interface WorkbenchConfig {
    * shown as it is, prefix included, under its real signer.
    */
   readonly relayKeys?: readonly string[];
+  /** kton.identity.testKeys: the window's keys are test keys (status "TEST MODE"; the keys are shown as "test"). */
+  readonly testKeys?: boolean;
 }
 
 export const DEFAULT_CONFIG: WorkbenchConfig = {
@@ -192,7 +194,8 @@ export class Workbench {
   async start(openPanels: readonly string[] = []): Promise<void> {
     this.reopen = openPanels;
     await this.showIdentity();
-    this.host.setStatus("mode", "TEST MODE", FOOTER);
+    if (this.cfg.testKeys ?? true) this.host.setStatus("mode", "TEST MODE", FOOTER);
+    else this.host.setStatus("mode", "", "");
     this.showSurface();
     this.scheduler.add("inbox", this.cfg.pollSeconds * 1000, () => this.refresh());
   }
@@ -213,11 +216,12 @@ export class Workbench {
     }
     const p = hasKey(this.identity.person) ? await this.signer("person") : "missing";
     const a = hasKey(this.identity.agent) ? await this.signer("agent") : "missing";
-    // the window always runs in test mode (status "TEST MODE"): its keys are test keys
-    const why = unverifiedWhy(p, a, true);
+    // kton.identity.testKeys (default on): the keys are test keys, and the bar says so instead of "unverified"
+    const test = this.cfg.testKeys ?? true;
+    const why = unverifiedWhy(p, a, test);
     this.host.setStatus(
       "identity",
-      statusText(p, a, { person: this.identity.person.keyName, agent: this.identity.agent.keyName }, true),
+      statusText(p, a, { person: this.identity.person.keyName, agent: this.identity.agent.keyName }, test),
       `${why ? `${why}\n` : ""}${statusTooltip(p, a)}\nOne person per window; another identity means another window. Person key: decisions, always through the sign dialog. Agent key: records, no dialog. A missing key is never replaced by the other.`,
     );
   }
@@ -664,7 +668,9 @@ export class Workbench {
     const opened = tpl?.fields["lookedAt"] && into?.opened?.length ? into.opened : undefined;
     const proposed = { ...(into?.proposed ?? {}) };
     if (opened) proposed["lookedAt"] = [...new Set([...(proposed["lookedAt"] ?? "").split(/\s+/).filter(Boolean), ...opened])].join(" ");
-    const asked = await this.askOpenFields(control, fields, proposed);
+    // a record is signed with the agent key and no dialog: nobody would see a value taken from a proposal, so a record
+    // takes none (its open fields are asked as if nothing was proposed)
+    const asked = await this.askOpenFields(control, fields, c.kind === "record" ? {} : proposed);
     if (!asked) return "cancelled";
     return this.signThroughDialog({ kind: "sign", about, fields: asked, ...(into?.scope ? { scope: into.scope } : {}), ...(opened ? { opened } : {}) }, control, title, expect, into?.signed);
   }

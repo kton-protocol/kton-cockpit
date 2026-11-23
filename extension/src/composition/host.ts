@@ -138,12 +138,34 @@ export function shortClaim(id: string): string {
  * What a signature was, in a few words: the act (or the control's title), what it is about (the row's target, its last
  * segment decoded) and the fields the person chose, e.g. "Sign verdict… · item-12#e4 · verdict right".
  */
+/**
+ * The choices a use declares for an act (options.choices "[control:]field=value|Label"): only a non-empty value, and only
+ * a choice for this act's control or for every act.
+ */
+export function declaredChoices(u: PlanUse | undefined, act: PlanAct): Array<{ field: string; value: string }> {
+  const raw = (u as { options?: Record<string, unknown> } | undefined)?.options?.["choices"];
+  const list = Array.isArray(raw) ? raw.filter((x): x is string => typeof x === "string") : [];
+  const name = act.control?.name;
+  return list.flatMap((c) => {
+    const cfv = c.includes("|") ? c.slice(0, c.indexOf("|")) : c;
+    const eq = cfv.indexOf("=");
+    if (eq < 1) return [];
+    const left = cfv.slice(0, eq);
+    const value = cfv.slice(eq + 1);
+    const colon = left.indexOf(":");
+    const control = colon < 0 ? undefined : left.slice(0, colon);
+    const field = colon < 0 ? left : left.slice(colon + 1);
+    return value !== "" && field !== "" && (control === undefined || control === name) ? [{ field, value }] : [];
+  });
+}
+
 export function signedWhat(c: { name: string; title?: string }, act: { label?: string }, i: Readonly<Record<string, unknown>>, made?: { fields: Readonly<Record<string, string>> }): string {
   const name = (act.label ?? c.title ?? c.name).replace(/…$/, "");
   const target = typeof i["target"] === "string" && i["target"] ? lastSegment(i["target"]) : "";
   const fields = (i["fields"] ?? {}) as Record<string, unknown>;
   const chosen = Object.keys(fields)
-    .map((k) => [k, made?.fields[k] ?? String(fields[k])] as const)
+    // what was signed when the signature is known (a proposal the person changed or that was not taken is not named)
+    .map((k) => [k, made ? (made.fields[k] ?? "") : String(fields[k])] as const)
     .filter(([, v]) => v && v.length <= 60)
     .map(([k, v]) => `${k} ${v}`);
   return [name, target, ...chosen].filter(Boolean).join(" · ");
@@ -663,11 +685,17 @@ export class CompositionHost {
       else if (i.kind === "run") result = { message: await this.backend.run(checked.act.ray as string, checked.act.fields) };
       else {
         const c = checked.control as Control;
-        // fields a frame proposes are offered to the person, never signed unseen: a value of a field with fixed values
-        // shows in the dialog, any other is the default of the shell's input box (Workbench.askOpenFields)
-        const proposed = Object.fromEntries(Object.entries((i["fields"] ?? {}) as Record<string, unknown>).filter(([k, v]) => typeof v === "string" && !(k in checked.act.fields))) as Record<string, string>;
+        // a choice the use declares for this act (options.choices "field=value|Label", the button the person pressed) is
+        // the package's value, checked against the plan here; any other field a frame proposes is offered to the
+        // person, never signed unseen: a value of a field with fixed values shows in the dialog, any other is the
+        // default of the shell's input box (Workbench.askOpenFields); a record, which has no dialog, takes none
+        const given = Object.entries((i["fields"] ?? {}) as Record<string, unknown>).filter((e): e is [string, string] => typeof e[1] === "string" && !(e[0] in checked.act.fields));
+        const declared = declaredChoices(this.plan.uses.find((x) => x.key === i.from), checked.act);
+        const chosen = Object.fromEntries(given.filter(([k, v]) => declared.some((d) => d.field === k && d.value === v)));
+        const proposed = Object.fromEntries(given.filter(([k]) => !(k in chosen)));
+        const actFields = { ...checked.act.fields, ...chosen };
         let made: Signed | undefined;
-        const r = await this.backend.act(c, this.aboutOf(i, checked.act), checked.act.fields, `${checked.act.label}: ${this.plan.root.package}/${this.plan.root.composition}`, proposed, (s) => (made = s));
+        const r = await this.backend.act(c, this.aboutOf(i, checked.act), actFields, `${checked.act.label}: ${this.plan.root.package}/${this.plan.root.composition}`, proposed, (s) => (made = s));
         if (r === "failed") return refuse(c.kind === "decision" ? "not signed (see the sign dialog)" : "not recorded");
         const keyLine = c.kind === "decision" ? "Signed with the person key (test-only)." : "Recorded with the agent key.";
         if (r === "signed") {

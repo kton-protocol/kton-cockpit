@@ -73,7 +73,8 @@ export function readAtCommit(mirrors: string, t: SourceTarget, aliases: Readonly
     });
   }
   return new Promise((resolve) => {
-    execFile("git", ["-C", dir, "show", `${t.commit}:${t.path}`], { encoding: "buffer", maxBuffer: 64 * 1024 * 1024, shell: false, windowsHide: true }, (err, stdout) => {
+    // the blob's bytes as stored: no textconv filter of the mirror's config turns them into something else
+    execFile("git", ["-C", dir, "show", "--no-textconv", `${t.commit}:${t.path}`], { encoding: "buffer", maxBuffer: 64 * 1024 * 1024, shell: false, windowsHide: true }, (err, stdout) => {
       if (err) return resolve({ why: `source not available on this host: ${t.repo} has no ${t.path} at ${t.commit.slice(0, 12)}` });
       const bytes = stdout as Buffer;
       if (t.sha256 && `sha256:${createHash("sha256").update(bytes).digest("hex")}` !== t.sha256) {
