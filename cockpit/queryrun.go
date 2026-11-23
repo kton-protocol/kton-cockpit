@@ -2,6 +2,7 @@ package cockpit
 
 import (
 	"context"
+	"crypto/ed25519"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	nclaim "kton.dev/nekton/claim"
+	ntemplate "kton.dev/nekton/template"
 	"kton.dev/plankton/blobstore"
 	"kton.dev/plankton/core"
 
@@ -47,12 +49,16 @@ type QueryManifest struct {
 	Registries  []PinnedRegistry    `json:"registries"`
 	Scopes      map[string][]string `json:"scopes"` // a scope's seed -> the tips of its chains the run read
 	Trust       []PinnedKey         `json:"trust"`
-	Templates   string              `json:"templates"`          // sha256 of the template set, canonical, in the content store
-	Aliases     string              `json:"aliases,omitempty"`  // sha256 of .kton/aliases.json
+	View        string              `json:"view"`               // sha256 of the pinned view (pinnedView), in the content store
 	Packages    []string            `json:"packages,omitempty"` // admitted package revisions: <package id>@<revision id>
 	ViewVersion int                 `json:"viewVersion"`
 	Engine      string              `json:"engine"`
 }
+
+// manifestVersion is the manifest this cockpit writes and reproduces. Version 1 (v0.5.10) pinned the
+// templates but not the signers' names, the row templates or the packages' aliases, so its view cannot
+// be rebuilt exactly; it is refused, named.
+const manifestVersion = 2
 
 // PinnedRegistry is one registry the run read: the sorted ids of its records and claims, each list in
 // the content store.
@@ -68,6 +74,74 @@ type PinnedKey struct {
 	Tier string `json:"tier"`
 }
 
+// pinnedView is the view a query run evaluated with (ADR-020: the trust keys that counted, the
+// templates and alias files, the row templates), as bytes, so a reproduction rebuilds it exactly.
+type pinnedView struct {
+	Signers        map[string]oxigraph.Signer  `json:"signers"`           // by keyid
+	Templates      map[string]json.RawMessage  `json:"templates"`         // by name, as the set holds them
+	Aliases        json.RawMessage             `json:"aliases,omitempty"` // the repository's alias file
+	PackageAliases map[string]packages.Aliases `json:"packageAliases,omitempty"`
+	Rows           []string                    `json:"rows,omitempty"`
+}
+
+// currentView is cfg's view as a query run pins it.
+func currentView(cfg *config.Config) (*pinnedView, error) {
+	vc, err := oxigraph.ViewConfigFor(cfg)
+	if err != nil {
+		return nil, err
+	}
+	pv := &pinnedView{Signers: vc.Signers, Templates: map[string]json.RawMessage{}, PackageAliases: vc.Aliases}
+	for _, n := range vc.Templates.Names() {
+		t, _ := vc.Templates.Get(n)
+		b, err := json.Marshal(t)
+		if err != nil {
+			return nil, err
+		}
+		pv.Templates[n] = b
+	}
+	if b, err := os.ReadFile(filepath.Join(cfg.KtonDir, "aliases.json")); err == nil {
+		pv.Aliases = b
+	}
+	for n := range vc.Rows {
+		pv.Rows = append(pv.Rows, n)
+	}
+	sort.Strings(pv.Rows)
+	return pv, nil
+}
+
+// config is the view pv pins, as the projection takes it.
+func (pv *pinnedView) config() (oxigraph.ViewConfig, error) {
+	raw := map[string][]byte{}
+	for n, b := range pv.Templates {
+		raw[n] = b
+	}
+	set, err := ntemplate.New(raw, pv.Aliases)
+	if err != nil {
+		return oxigraph.ViewConfig{}, err
+	}
+	vc := oxigraph.ViewConfig{Signers: pv.Signers, Templates: set, Aliases: pv.PackageAliases, Rows: map[string]bool{}}
+	if vc.Signers == nil {
+		vc.Signers = map[string]oxigraph.Signer{}
+	}
+	for _, n := range pv.Rows {
+		vc.Rows[n] = true
+	}
+	return vc, nil
+}
+
+// trustKeys are the keys a manifest pins.
+func (m *QueryManifest) trustKeys() ([]ed25519.PublicKey, error) {
+	var keys []ed25519.PublicKey
+	for _, k := range m.Trust {
+		raw, err := hex.DecodeString(k.Key)
+		if err != nil || len(raw) != ed25519.PublicKeySize {
+			return nil, fmt.Errorf("the manifest pins %q, which is not a public key", k.Key)
+		}
+		keys = append(keys, ed25519.PublicKey(raw))
+	}
+	return keys, nil
+}
+
 // queryRun evaluates q as a query run and records it.
 func queryRun(ctx context.Context, cfg *config.Config, q, dataset string, bindings map[string]string, timeout time.Duration) (*SparqlAnswer, *QueryRun, error) {
 	form, err := index.CheckFreeQuery(q)
@@ -80,10 +154,6 @@ func queryRun(ctx context.Context, cfg *config.Config, q, dataset string, bindin
 	if cfg.Raw.Query.Image == "" {
 		return nil, nil, refuse("query.not-configured", "ADR-020", "a query run is evaluated in a container of its own: set query.image")
 	}
-	keys, err := trustedKeys(cfg)
-	if err != nil {
-		return nil, nil, err
-	}
 	// Pinned first, then evaluated over exactly the pins: a claim signed meanwhile, or a source that moves,
 	// is in neither the rows nor the manifest (kton-review Q1 on #225; ADR-020 A2).
 	manifest, blobs, pinned, err := pinDataset(ctx, cfg, dataset, bindings)
@@ -92,6 +162,40 @@ func queryRun(ctx context.Context, cfg *config.Config, q, dataset string, bindin
 	}
 	if afterPin != nil {
 		afterPin()
+	}
+	res, result, err := evaluatePinned(ctx, cfg, q, manifest, pinned, timeout)
+	if err != nil {
+		return nil, nil, err
+	}
+	mb, _ := json.MarshalIndent(manifest, "", "  ")
+	store, err := blobstore.Open(cfg.BlobsDir)
+	if err != nil {
+		return nil, nil, refuse("io", "", "%v", err)
+	}
+	for _, b := range blobs {
+		if _, err := store.Put(b); err != nil {
+			return nil, nil, refuse("io", "", "%v", err)
+		}
+	}
+	run, err := recordQueryRun(ctx, cfg, store, []byte(q), mb, result,
+		map[string]any{"dataset": dataset, "viewVersion": oxigraph.ViewVersion(), "engine": cfg.Raw.Query.Image}, "query run")
+	if err != nil {
+		return nil, nil, err
+	}
+	return answerOf(form, res, "a container for this query run"), run, nil
+}
+
+// evaluatePinned evaluates q over exactly what m and pinned name, with m's engine, trust and view: the
+// one path a query run and its reproductions take. It answers the engine's results and their
+// canonical form.
+func evaluatePinned(ctx context.Context, cfg *config.Config, q string, m *QueryManifest, pinned *pinnedSet, timeout time.Duration) (*oxigraph.Results, []byte, error) {
+	keys, err := m.trustKeys()
+	if err != nil {
+		return nil, nil, refuse("query.not-reproducible", "ADR-020", "%v", err)
+	}
+	vc, err := pinned.view.config()
+	if err != nil {
+		return nil, nil, refuse("query.not-reproducible", "ADR-020", "the pinned view cannot be rebuilt: %v", err)
 	}
 	tmp := filepath.Join(cfg.LocalDir, "tmp")
 	if err := os.MkdirAll(tmp, 0o700); err != nil {
@@ -116,9 +220,16 @@ func queryRun(ctx context.Context, cfg *config.Config, q, dataset string, bindin
 	// Every pinned id must be in what is evaluated: a source whose history was rewritten between pinning
 	// and building would otherwise give a run over less than its manifest names (kton-review on #225).
 	if len(found) != len(pinned.ids) {
-		return nil, nil, refuse("query.not-reproducible", "ADR-020", "%d of the %d records and claims pinned were not found when the dataset was built: a source changed under the run", len(pinned.ids)-len(found), len(pinned.ids))
+		var missing []string
+		for id := range pinned.ids {
+			if !found[id] {
+				missing = append(missing, id)
+			}
+		}
+		sort.Strings(missing)
+		return nil, nil, refuse("query.not-reproducible", "ADR-020", "%d of the %d records and claims pinned are in no registry this repository reads, the first %s", len(missing), len(pinned.ids), missing[0])
 	}
-	body, _, err := inContainerOver(ctx, cfg, keys, u, []byte(q), "json", dataset, timeout)
+	body, _, err := inContainerOver(ctx, cfg, keys, u, &evalPin{image: m.Engine, vc: vc, sources: pinned.sources}, []byte(q), "json", m.Dataset, timeout)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -130,53 +241,47 @@ func queryRun(ctx context.Context, cfg *config.Config, q, dataset string, bindin
 	if err != nil {
 		return nil, nil, refuse("query.not-reproducible", "ADR-020", "%v", err)
 	}
-	mb, _ := json.MarshalIndent(manifest, "", "  ")
+	return res, result, nil
+}
 
-	store, err := blobstore.Open(cfg.BlobsDir)
-	if err != nil {
-		return nil, nil, refuse("io", "", "%v", err)
-	}
-	put := func(b []byte) (string, error) { return store.Put(b) }
-	for _, b := range blobs {
-		if _, err := put(b); err != nil {
-			return nil, nil, refuse("io", "", "%v", err)
-		}
-	}
+// recordQueryRun signs a query/sparql foton over the query, the manifest and the result, with every
+// byte in the content store, and persists it. A reproduction records the same foton again, signed by
+// its reproducer.
+func recordQueryRun(ctx context.Context, cfg *config.Config, store *blobstore.Store, q, manifest, result []byte, descriptor map[string]any, what string) (*QueryRun, error) {
 	run := &QueryRun{}
 	stage, err := os.MkdirTemp(filepath.Join(cfg.LocalDir), "queryrun-")
 	if err != nil {
-		return nil, nil, refuse("io", "", "%v", err)
+		return nil, refuse("io", "", "%v", err)
 	}
 	defer os.RemoveAll(stage)
 	for _, f := range []struct {
 		name string
 		b    []byte
 		into *string
-	}{{"query.rq", []byte(q), &run.Query}, {"manifest.json", mb, &run.Manifest}, {"result.json", result, &run.Result}} {
-		h, err := put(f.b)
+	}{{"query.rq", q, &run.Query}, {"manifest.json", manifest, &run.Manifest}, {"result.json", result, &run.Result}} {
+		h, err := store.Put(f.b)
 		if err != nil {
-			return nil, nil, refuse("io", "", "%v", err)
+			return nil, refuse("io", "", "%v", err)
 		}
 		*f.into = h
 		if err := os.WriteFile(filepath.Join(stage, f.name), f.b, 0o600); err != nil {
-			return nil, nil, refuse("io", "", "%v", err)
+			return nil, refuse("io", "", "%v", err)
 		}
 	}
 	a, err := binaries.New(cfg).Author(ctx, binaries.AuthorInput{
 		Dir: stage, Inputs: []string{"query.rq", "manifest.json"}, Outputs: []string{"result.json"},
-		SignKey: cfg.PlanktonKey, Kind: "query/sparql",
-		Descriptor: map[string]any{"dataset": dataset, "viewVersion": oxigraph.ViewVersion(), "engine": cfg.Raw.Query.Image},
+		SignKey: cfg.PlanktonKey, Kind: "query/sparql", Descriptor: descriptor,
 	})
 	if err != nil {
-		return nil, nil, refuse("kernel", "", "recording the query run: %v", err)
+		return nil, refuse("kernel", "", "recording the %s: %v", what, err)
 	}
 	run.FotonID = a.ID
-	rev, err := persist(ctx, cfg, []string{config.Rel("plankton"), config.Rel("blobs")}, "query run: "+a.ID)
+	rev, err := persist(ctx, cfg, []string{config.Rel("plankton"), config.Rel("blobs")}, what+": "+a.ID)
 	if err != nil {
-		return nil, nil, refuse(storeCode(err), "", "persisting the query run: %v", err)
+		return nil, refuse(storeCode(err), "", "persisting the %s: %v", what, err)
 	}
 	run.Revision = rev.ID
-	return answerOf(form, res, "a container for this query run"), run, nil
+	return run, nil
 }
 
 // canonicalResult is a SELECT's rows as a sorted multiset of RDF terms in N-Triples form, or an ASK's
@@ -208,15 +313,17 @@ func canonicalResult(r *oxigraph.Results) ([]byte, error) {
 
 // pinnedSet is what pinDataset pinned: the inputs it read, and the ids of every record and claim.
 type pinnedSet struct {
-	inputs []binaries.Input
-	ids    map[string]bool
+	inputs  []binaries.Input
+	ids     map[string]bool
+	sources map[string][]string // a claim's hash -> the registries that hold it, in the union's order
+	view    *pinnedView
 }
 
 // pinDataset is the manifest of what a query over cfg's union reads now, the blobs it names, and the
 // ids it pinned. A scope's tips are taken over every claim on disk, which can only widen the pin, never
 // narrow it (kton-review N4 on #225).
 func pinDataset(ctx context.Context, cfg *config.Config, dataset string, bindings map[string]string) (*QueryManifest, [][]byte, *pinnedSet, error) {
-	m := &QueryManifest{Version: 1, Dataset: dataset, Bindings: bindings, Scopes: map[string][]string{},
+	m := &QueryManifest{Version: manifestVersion, Dataset: dataset, Bindings: bindings, Scopes: map[string][]string{},
 		ViewVersion: oxigraph.ViewVersion(), Engine: cfg.Raw.Query.Image}
 	var blobs [][]byte
 	keep := func(b []byte) string {
@@ -227,7 +334,7 @@ func pinDataset(ctx context.Context, cfg *config.Config, dataset string, binding
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	pinned := &pinnedSet{inputs: inputs, ids: map[string]bool{}}
+	pinned := &pinnedSet{inputs: inputs, ids: map[string]bool{}, sources: map[string][]string{}}
 	prev := map[string]bool{}
 	scopeOf := map[string]string{}
 	for _, in := range inputs {
@@ -263,6 +370,10 @@ func pinDataset(ctx context.Context, cfg *config.Config, dataset string, binding
 		}
 		for _, id := range claims {
 			pinned.ids[id] = true
+			h := strings.ToLower(strings.TrimPrefix(id, "sha256:"))
+			if l := pinned.sources[h]; len(l) == 0 || l[len(l)-1] != name {
+				pinned.sources[h] = append(l, name)
+			}
 		}
 		sort.Strings(recs)
 		sort.Strings(claims)
@@ -290,20 +401,11 @@ func pinDataset(ctx context.Context, cfg *config.Config, dataset string, binding
 		m.Trust = append(m.Trust, PinnedKey{Key: hex.EncodeToString(pub), Tier: tier})
 	}
 	sort.Slice(m.Trust, func(i, j int) bool { return m.Trust[i].Key < m.Trust[j].Key })
-	set, err := binaries.New(cfg).Templates()
-	if err != nil {
+	if pinned.view, err = currentView(cfg); err != nil {
 		return nil, nil, nil, err
 	}
-	tpl := map[string]any{}
-	for _, n := range set.Names() {
-		t, _ := set.Get(n)
-		tpl[n] = t
-	}
-	tb, _ := json.Marshal(tpl)
-	m.Templates = keep(tb)
-	if b, err := os.ReadFile(filepath.Join(cfg.KtonDir, "aliases.json")); err == nil {
-		m.Aliases = keep(b)
-	}
+	vb, _ := json.Marshal(pinned.view)
+	m.View = keep(vb)
 	if usable, _, err := packages.Usable(cfg.RepoRoot, cfg.Raw.Claims.AllowedPackages); err == nil {
 		for _, in := range usable {
 			m.Packages = append(m.Packages, in.Package.ID+"@"+in.Revision.ID)

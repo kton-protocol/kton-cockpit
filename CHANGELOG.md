@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **`cockpit reproduce <query run>`** ([ADR-020](docs/decisions/adr-020-reproducible-queries.md), part 2):
+  reads the run's manifest, builds its dataset again from the registries over exactly the pinned ids (a claim
+  signed since, or on another branch of a scope, is not in it), evaluates it with the pinned trust, view and
+  engine (never pulled), and compares the result. A match signs the run's own record, so its
+  `reproductions` count the reproducer; a key no longer trusted, another vocabulary or other packages are said
+  beside it. Refused, named: a missing record or byte, another manifest or projection version, an absent
+  engine, a different result (its first differing row).
+
+### Changed
+
+- **A query run's manifest is version 2**: it pins the whole view it was evaluated with (signers' names,
+  templates, alias files, row templates) as one blob, and the run is evaluated with it rather than with the
+  repository's present, as a reproduction is. Runs recorded by v0.5.10 (version 1) are refused by
+  `reproduce`, named.
+
 ## v0.5.10 — 2026-11-23
 
 A faster view after a say, the index in the persona windows, and reproducible queries; each reviewed by

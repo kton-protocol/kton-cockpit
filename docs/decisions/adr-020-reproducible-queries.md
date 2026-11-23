@@ -55,7 +55,10 @@ Each input is pinned by what names it and cannot change:
   admitted packages' revisions, the row templates, the projection's version (`viewVersion`) and the engine's
   image digest (kton-review 3).
 
-The pins go into one **manifest** (canonical JSON) in the content store, with every byte it refers to.
+The pins go into one **manifest** (canonical JSON) in the content store, with every byte it refers to. The view is
+pinned as one blob (its signers' names, templates, alias files and row templates), and the first run is
+evaluated with it, as every reproduction is (manifest version 2, part 2; version 1 pinned the templates only
+and is refused by `reproduce`, named).
 
 ### 3 The run is a record
 

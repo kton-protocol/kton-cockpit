@@ -86,10 +86,10 @@ SELECT ?c ?v WHERE { ?c nk:about ?s ; <https://kton.dev/v/lab/value> ?v }`
 			t.Errorf("the manifest names a scope by its id, not %q", k)
 		}
 	}
-	if len(m.Trust) == 0 || m.Templates == "" || m.ViewVersion == 0 || m.Engine != oxigraphImage || len(m.Registries) == 0 {
+	if len(m.Trust) == 0 || m.View == "" || m.ViewVersion == 0 || m.Engine != oxigraphImage || len(m.Registries) == 0 {
 		t.Errorf("the manifest pins trust, vocabulary, projection and engine: %+v", m)
 	}
-	for _, h := range []string{a.Run.Query, a.Run.Result, m.Templates, m.Registries[0].Claims} {
+	for _, h := range []string{a.Run.Query, a.Run.Result, m.View, m.Registries[0].Claims} {
 		if !store.Has(h) {
 			t.Errorf("%s is not in the content store", h)
 		}
