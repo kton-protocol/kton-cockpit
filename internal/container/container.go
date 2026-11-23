@@ -158,16 +158,23 @@ func Version(ctx context.Context, cfg *config.Config) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
+// toolArgs are the engine's run arguments: no network, the invoking user, no capabilities, and bounded in
+// memory and processes, since what it reads may come from someone else's record (kton-review L1 on #235).
+func toolArgs(cfg *config.Config, dir, ref string) []string {
+	mem := cfg.Raw.Query.MemoryOrDefault()
+	return []string{"run", "--rm", "--network", "none",
+		"--user", fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid()),
+		"--cap-drop=ALL", "--security-opt=no-new-privileges",
+		"--memory", mem, "--memory-swap", mem, "--pids-limit", "256",
+		"--volume", dir + ":/q", ref}
+}
+
 // RunTool runs a pinned tool image (not the execution image) with dir mounted at /q, without network
 // and as the invoking user: the SPARQL engine for search and profile rules. args go to the image's
 // own entrypoint.
 func RunTool(ctx context.Context, cfg *config.Config, image, dir string, args ...string) (string, error) {
 	ref := strings.TrimPrefix(image, "oci://")
-	full := []string{"run", "--rm", "--network", "none",
-		"--user", fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid()),
-		"--cap-drop=ALL", "--security-opt=no-new-privileges",
-		"--volume", dir + ":/q", ref}
-	full = append(full, args...)
+	full := append(toolArgs(cfg, dir, ref), args...)
 	c := exec.CommandContext(ctx, cfg.Raw.Execution.EngineOrDefault(), full...)
 	var out, errBuf bytes.Buffer
 	c.Stdout = &out

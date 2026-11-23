@@ -68,6 +68,9 @@ type QueryManifest struct {
 // be rebuilt exactly; it is refused, named.
 const manifestVersion = 2
 
+// manifestNewest is the newest manifest this cockpit reproduces: 3 adds loaded files and graphs.
+const manifestNewest = 3
+
 // PinnedRegistry is one registry the run read: the sorted ids of its records and claims, each list in
 // the content store.
 type PinnedRegistry struct {
@@ -472,6 +475,9 @@ func pinDataset(ctx context.Context, cfg *config.Config, dataset string, binding
 			if err != nil || "sha256:"+hex != e.Hash {
 				return nil, nil, nil, fmt.Errorf("the loaded graph %s (from %s) no longer has its bytes there: load it again or drop it (cockpit load --drop %s)", e.Hash, e.From, e.Hash)
 			}
+			if err := checkLoadedBytes(cfg, b, e.MediaType, e.Hash); err != nil {
+				return nil, nil, nil, err
+			}
 			keep(b)
 			m.Loaded = append(m.Loaded, PinnedLoad{Hash: e.Hash, MediaType: e.MediaType})
 			pinned.loaded = append(pinned.loaded, loadedBytes{hex: hex, mediaType: e.MediaType, data: b})
@@ -482,6 +488,11 @@ func pinDataset(ctx context.Context, cfg *config.Config, dataset string, binding
 		m.Graphs = append(m.Graphs, h)
 	}
 	sort.Strings(m.Graphs)
+	// A run that read loaded files or was narrowed is version 3: a cockpit that reads only version 2 would
+	// evaluate it without them and call the difference a mismatch (kton-review L2 on #235).
+	if len(m.Loaded) > 0 || len(m.Graphs) > 0 {
+		m.Version = 3
+	}
 	if usable, _, err := packages.Usable(cfg.RepoRoot, cfg.Raw.Claims.AllowedPackages); err == nil {
 		for _, in := range usable {
 			m.Packages = append(m.Packages, in.Package.ID+"@"+in.Revision.ID)

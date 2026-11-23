@@ -112,8 +112,8 @@ func (c *Cockpit) Reproduce(ctx context.Context, in ReproduceRequest) (*Reproduc
 	if err := json.Unmarshal(mb, &m); err != nil {
 		return nil, refuse("reproduce.unsupported", "ADR-020", "the manifest %s is not one this cockpit reads: %v", refs["manifest.json"], err)
 	}
-	if m.Version != manifestVersion {
-		return nil, refuse("reproduce.unsupported", "ADR-020", "the manifest is version %d; this cockpit reproduces version %d (version 1 does not pin the view's signers, row templates and package aliases)", m.Version, manifestVersion)
+	if m.Version < manifestVersion || m.Version > manifestNewest {
+		return nil, refuse("reproduce.unsupported", "ADR-020", "the manifest is version %d; this cockpit reproduces versions %d to %d (version 1 does not pin the view's signers, row templates and package aliases)", m.Version, manifestVersion, manifestNewest)
 	}
 	if m.ViewVersion != oxigraph.ViewVersion() {
 		return nil, refuse("reproduce.unsupported", "ADR-020", "the run was projected with view version %d; this cockpit projects version %d", m.ViewVersion, oxigraph.ViewVersion())
@@ -157,6 +157,9 @@ func (c *Cockpit) Reproduce(ctx context.Context, in ReproduceRequest) (*Reproduc
 	for _, l := range m.Loaded {
 		b, err := blob("loaded graph", l.Hash)
 		if err != nil {
+			return nil, err
+		}
+		if err := checkLoadedBytes(cfg, b, l.MediaType, l.Hash); err != nil {
 			return nil, err
 		}
 		pinned.loaded = append(pinned.loaded, loadedBytes{hex: strings.TrimPrefix(l.Hash, "sha256:"), mediaType: l.MediaType, data: b})

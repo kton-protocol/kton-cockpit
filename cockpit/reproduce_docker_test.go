@@ -304,10 +304,31 @@ func TestQueryRun_ALoadedFileIsAnInput(t *testing.T) {
 	if len(m.Loaded) != 1 || m.Loaded[0].Hash != h || m.Loaded[0].MediaType != "text/turtle" || !store.Has(h) {
 		t.Fatalf("the manifest pins the loaded file by its hash, its bytes in the store: %+v", m.Loaded)
 	}
+	if m.Version != 3 {
+		t.Errorf("a run that read loaded files is manifest version 3, which a cockpit reading only 2 refuses: %d", m.Version)
+	}
 	// --graph names the loaded file by its hash: it is pinned, and named in the manifest.
 	if n, err := c.Ask(ctx, AskRequest{Query: "sparql", Sparql: q, Reproducible: true, Graphs: []string{h}}); err != nil || n.Sparql.LoadedGraphs != 1 || len(n.Sparql.Rows) != 2 {
 		t.Errorf("--graph %s: the loaded graph read: %+v %v", h, n, err)
 	}
+	// The reproducer's own limits apply to the pinned bytes (kton-review L1 on #235).
+	raw := testrepo.DefaultConfig()
+	raw.Query.Image = oxigraphImage
+	raw.Index.Kind = "oxigraph"
+	raw.Index.Derived.Enabled = true
+	raw.Index.Derived.MaxBytes = 10
+	r.WriteConfig(t, raw)
+	if _, err := c.Reproduce(ctx, ReproduceRequest{Run: run.FotonID}); codeOf(err) != "derived.refused" || !strings.Contains(err.Error(), h) {
+		t.Errorf("pinned bytes over the reproducer's maxBytes: want derived.refused naming %s, got %v", h, err)
+	}
+	raw.Index.Derived.MaxBytes = 0
+	raw.Index.Derived.MaxTriples = 1
+	r.WriteConfig(t, raw)
+	if _, err := c.Reproduce(ctx, ReproduceRequest{Run: run.FotonID}); codeOf(err) != "derived.refused" || !strings.Contains(err.Error(), "maxTriples") {
+		t.Errorf("pinned graphs over the reproducer's maxTriples: want derived.refused, got %v", err)
+	}
+	raw.Index.Derived.MaxTriples = 0
+	r.WriteConfig(t, raw)
 	// The file on disk changes: the reproduction reads the pinned bytes.
 	r.Write(t, "rdf/coverage.ttl", turtle+"<https://example.org/element3> <https://example.org/outcome> \"Gap\" .\n")
 	out, err := c.Reproduce(ctx, ReproduceRequest{Run: run.FotonID})
@@ -389,5 +410,54 @@ func TestQueryRun_GraphNarrowsTheRun(t *testing.T) {
 	}
 	if _, err := c.Ask(ctx, AskRequest{Query: "sparql", Sparql: q, Graphs: []string{"study-a"}}); !errors.As(err, &ref) || ref.Code != "argument" {
 		t.Errorf("graphs without a query run: want refused, got %v", err)
+	}
+}
+
+// A loaded file a load would refuse is refused by a query run too, whoever listed it: RDF/XML with
+// entities, a billion-laughs shape (kton-review L1 on #235, probe zz235).
+func TestQueryRun_ALoadedFileALoadWouldRefuseIsRefused(t *testing.T) {
+	r := loadingRepo(t)
+	ctx := context.Background()
+	bomb := `<?xml version="1.0"?>
+<!DOCTYPE rdf:RDF [ <!ENTITY a "aaaaaaaaaa"> <!ENTITY b "&a;&a;&a;&a;&a;&a;&a;&a;&a;&a;"> ]>
+<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:ex="https://example.org/">
+  <rdf:Description rdf:about="https://example.org/x"><ex:p>&b;</ex:p></rdf:Description>
+</rdf:RDF>
+`
+	r.Write(t, "rdf/bomb.rdf", bomb)
+	h := core.HashBytes([]byte(bomb))
+	// Listed by hand, as another repository's run may list it: no load of this cockpit took it.
+	if err := rememberLoad(r.Config(t), loadEntry{Hash: h, From: "rdf/bomb.rdf", MediaType: "application/rdf+xml"}); err != nil {
+		t.Fatal(err)
+	}
+	_, err := New(Start{}).Ask(ctx, AskRequest{Query: "sparql", Reproducible: true,
+		Sparql: `SELECT ?o WHERE { GRAPH ?g { ?s ?p ?o } }`})
+	if codeOf(err) != "derived.refused" || !strings.Contains(err.Error(), h) {
+		t.Errorf("an entity file on the load list: want derived.refused naming %s, got %v", h, err)
+	}
+}
+
+// A file with relative IRIs gives the same triples in a query run as in a query of the index: both read
+// it with the graph's IRI as the base (kton-review's point 1 on #235).
+func TestQueryRun_RelativeIRIsResolveAsInTheIndex(t *testing.T) {
+	r := loadingRepo(t)
+	ctx := context.Background()
+	c := New(Start{})
+	ttl := "<item1> <https://example.org/outcome> \"Covered\" .\n"
+	r.Write(t, "rdf/rel.ttl", ttl)
+	if _, err := c.Load(ctx, LoadRequest{Files: []string{"rdf/rel.ttl"}}); err != nil {
+		t.Fatal(err)
+	}
+	q := `SELECT ?s WHERE { GRAPH ?g { ?s <https://example.org/outcome> ?o } }`
+	idx, err := c.Ask(ctx, AskRequest{Query: "sparql", Sparql: q})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := c.Ask(ctx, AskRequest{Query: "sparql", Sparql: q, Reproducible: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(idx.Sparql.Rows) != 1 || len(run.Sparql.Rows) != 1 || idx.Sparql.Rows[0]["s"] != run.Sparql.Rows[0]["s"] {
+		t.Errorf("a relative IRI resolves alike: index %v, run %v", idx.Sparql.Rows, run.Sparql.Rows)
 	}
 }

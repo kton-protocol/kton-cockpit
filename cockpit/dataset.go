@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -97,17 +98,46 @@ func inContainerOver(ctx context.Context, cfg *config.Config, keys []ed25519.Pub
 	if _, err := container.RunTool(ctx, cfg, image, dir, append([]string{"load", "--location", "/q/store"}, files...)...); err != nil {
 		return "", nil, refuse("query.failed", "", "%v", err)
 	}
-	if pin != nil {
+	if pin != nil && len(pin.loaded) > 0 {
+		// Loaded under the query's own time bound, and counted against index.derived.maxTriples as a load is
+		// (kton-review L1 on #235).
+		lctx := ctx
+		if timeout > 0 {
+			var cancel context.CancelFunc
+			lctx, cancel = context.WithTimeout(ctx, timeout)
+			defer cancel()
+		}
+		var values []string
 		for _, l := range pin.loaded {
 			name := "loaded-" + l.hex
 			if err := os.WriteFile(filepath.Join(dir, name), l.data, 0o644); err != nil {
 				return "", nil, refuse("io", "", "%v", err)
 			}
 			g := oxigraph.GraphOf(l.hex)
-			if _, err := container.RunTool(ctx, cfg, image, dir, "load", "--location", "/q/store", "--file", "/q/"+name,
+			if _, err := container.RunTool(lctx, cfg, image, dir, "load", "--location", "/q/store", "--file", "/q/"+name,
 				"--format", l.mediaType, "--graph", g, "--base", g); err != nil {
+				if lctx.Err() == context.DeadlineExceeded {
+					return "", nil, refuse("query.timeout", "ADR-020", "loading sha256:%s took longer than %s", l.hex, timeout)
+				}
 				return "", nil, refuse("query.failed", "ADR-020", "the loaded graph sha256:%s: %v", l.hex, err)
 			}
+			values = append(values, "<"+g+">")
+		}
+		count := "SELECT (COUNT(*) AS ?n) WHERE { VALUES ?g { " + strings.Join(values, " ") + " } GRAPH ?g { ?s ?p ?o } }"
+		if err := os.WriteFile(filepath.Join(dir, "count.rq"), []byte(count), 0o644); err != nil {
+			return "", nil, refuse("io", "", "%v", err)
+		}
+		out, err := container.RunTool(lctx, cfg, image, dir, "query", "--location", "/q/store", "--query-file", "/q/count.rq", "--results-format", "json")
+		if err != nil {
+			return "", nil, refuse("query.failed", "ADR-020", "counting the loaded graphs: %v", err)
+		}
+		res, err := oxigraph.ParseResults([]byte(out))
+		if err != nil || len(res.Terms) != 1 {
+			return "", nil, refuse("query.failed", "ADR-020", "counting the loaded graphs: %v", err)
+		}
+		n, _ := strconv.ParseInt(res.Terms[0]["n"].Value, 10, 64)
+		if limit := cfg.Raw.Index.Derived.MaxTriplesOrDefault(); n > limit {
+			return "", nil, refuse("derived.refused", "ADR-020", "the loaded graphs hold %d triples, more than index.derived.maxTriples (%d)", n, limit)
 		}
 	}
 	qctx := ctx

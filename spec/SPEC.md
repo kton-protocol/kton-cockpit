@@ -1134,7 +1134,12 @@ the admitted package revisions, the projection version, the engine, and in the c
 of terms in N-Triples form; it MUST be evaluated with the pinned trust and view, not the repository's
 present. Every byte named is put in the content store, and the registry and the content store are persisted.
 The answer carries the run (`run`). A second run of the same query is another record: the first is now in
-what it reads. A loaded file whose bytes are no longer those it was loaded as MUST refuse the run, named. A run MAY be narrowed
+what it reads. A loaded file whose bytes are no longer those it was loaded as MUST refuse the run, named. Every loaded file
+a run reads MUST pass a load's checks, at the run and at each reproduction under the reader's own
+configuration (a type a load reads, no XML entities, `index.derived.maxBytes`, and all of them together
+within `index.derived.maxTriples`), and the engine MUST run bounded in memory (`query.memory`, 4g by
+default), processes and time: a run made elsewhere may list bytes no load here would take. A run that read
+loaded files or was narrowed is manifest version 3. A run MAY be narrowed
 (`graphs`, `--graph`) to scopes, by configured name or seed, and loaded files, by hash: the claims of
 other scopes and the other loaded files MUST then be in neither its rows nor its manifest, which names the
 graphs (`graphs`); unscoped claims and the steps stay in. A graph that is no scope or loaded file of the
@@ -1159,7 +1164,8 @@ is in no registry read.
 > **Checked by:** `TestCheckReproducible`, `TestQueryRun_IsARecordWithItsManifest`, `TestReproduce_QueryRun`,
 > `TestReproduce_ARunOnKeysNotTrustedHereIsNotSigned`,
 > `TestReproduce_ARunByAnUntrustedSignerIsNotSigned`, `TestQueryRun_ALoadedFileIsAnInput`,
-> `TestQueryRun_GraphNarrowsTheRun` (`-tags docker`).
+> `TestQueryRun_GraphNarrowsTheRun`, `TestQueryRun_ALoadedFileALoadWouldRefuseIsRefused`,
+> `TestQueryRun_RelativeIRIsResolveAsInTheIndex` (`-tags docker`), `TestToolArgs_TheEngineIsBounded`.
 
 The vocabulary of the projection, with examples, is in [docs/sparql.md](../docs/sparql.md). Every
 example there is run by a test.

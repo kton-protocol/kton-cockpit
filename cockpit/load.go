@@ -47,6 +47,28 @@ var loadTypes = map[string]string{
 	".jsonld": "application/ld+json",
 }
 
+// checkLoadedBytes is what a load checks of a file's bytes before the engine reads them: a type a load
+// reads, no XML entities, within index.derived.maxBytes. A query run checks every loaded file it reads
+// again, at the run and at each reproduction, under the reader's own limits: a run made elsewhere may
+// list bytes no load of this cockpit would take (kton-review L1 on #235).
+func checkLoadedBytes(cfg *config.Config, b []byte, mt, name string) error {
+	known := false
+	for _, t := range loadTypes {
+		known = known || t == mt
+	}
+	if !known {
+		return refuse("derived.type", "SPEC §12.6", "%s: %q is not a type a load reads", name, mt)
+	}
+	// A DTD's nested entities expand without bound while the engine parses (kton-review on ADR-017).
+	if mt == "application/rdf+xml" && bytes.Contains(bytes.ToUpper(b), []byte("<!ENTITY")) {
+		return refuse("derived.refused", "SPEC §12.6", "%s declares XML entities; a load does not read RDF/XML with a DTD", name)
+	}
+	if limit := cfg.Raw.Index.Derived.MaxBytesOrDefault(); int64(len(b)) > limit {
+		return refuse("derived.refused", "SPEC §12.6", "%s is %d bytes, more than index.derived.maxBytes (%d)", name, len(b), limit)
+	}
+	return nil
+}
+
 // quadTypes carry graph names of their own, which would compete with the hash as the graph's name.
 var quadTypes = map[string]bool{"application/n-quads": true, "application/trig": true}
 
@@ -115,9 +137,8 @@ func (c *Cockpit) Load(ctx context.Context, in LoadRequest) (*LoadResult, error)
 		if _, err := run.EnvelopeFor(ctx, "sha256:"+hex); err == nil {
 			return nil, refuse("derived.clash", "SPEC §12.6", "%s hashes to sha256:%s, the id of a record of this repository: a record's graph has that name", ref, hex)
 		}
-		// A DTD's nested entities expand without bound while the engine parses (kton-review on ADR-017).
-		if mt == "application/rdf+xml" && bytes.Contains(b, []byte("<!ENTITY")) {
-			return nil, refuse("derived.refused", "SPEC §12.6", "%s declares XML entities; a load does not read RDF/XML with a DTD", ref)
+		if err := checkLoadedBytes(cfg, b, mt, ref); err != nil {
+			return nil, err
 		}
 		files = append(files, file{ref, hex, mt, b})
 	}
