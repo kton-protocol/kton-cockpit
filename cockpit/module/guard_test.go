@@ -29,11 +29,11 @@ func TestDecide_NoGuardAllows(t *testing.T) {
 // Every guard must allow, and the resources any guard denies are all denied (ADR-019 section 4).
 func TestDecide_EveryGuardMustAllow(t *testing.T) {
 	guard(t, "a-allows", func(context.Context, Request) Decision {
-		return Decision{Allow: true, Denied: map[string]Reason{"sha256:a": {Rule: "r1", Missing: "network none"}}}
+		return Decision{Allow: true, Denied: map[string]Reason{req.Resources[0].Key(): {Rule: "r1", Missing: "network none"}}}
 	})
 	guard(t, "b-allows", func(context.Context, Request) Decision { return Decision{Allow: true} })
 	d := Decide(context.Background(), req)
-	if !d.Allow || d.Denied["sha256:a"].Rule != "r1" || len(d.Denied) != 1 {
+	if !d.Allow || d.Denied["scope:sha256:a"].Rule != "r1" || len(d.Denied) != 1 {
 		t.Errorf("both allow, one denies a resource: %+v", d)
 	}
 	guard(t, "c-refuses", func(context.Context, Request) Decision { return Decision{Why: "no session"} })

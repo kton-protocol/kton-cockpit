@@ -46,6 +46,9 @@ type Request struct {
 	Resources []Resource `json:"resources"`
 }
 
+// Key names a resource in Decision.Denied: its kind and its ID.
+func (r Resource) Key() string { return r.Kind + ":" + r.ID }
+
 // Reason is why a resource is refused: the rule, and the attribute the session lacks.
 type Reason struct {
 	Rule    string `json:"rule"`
@@ -53,7 +56,8 @@ type Reason struct {
 }
 
 // Decision is a guard's answer. Allow false refuses the request; Denied names the resources refused, by
-// their ID, so a read over many resources can leave those out and answer over the rest (section 8).
+// their Key (kind and ID: a scope's seed and a loaded file's hash are both sha256:…), so a read over many
+// resources can leave those out and answer over the rest (section 8).
 type Decision struct {
 	Allow  bool              `json:"allow"`
 	Denied map[string]Reason `json:"denied,omitempty"`
