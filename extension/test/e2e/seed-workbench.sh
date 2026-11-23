@@ -68,8 +68,10 @@ SPECSHA=$(git -C "$MIR" show "$MCOMMIT:docs/spec a.md" > "$E2E/tmp-spec" && h "$
 PNGSHA=$(h "$E2E/artifacts/run-1/shots/fail-1.png"); PNGBYTES=$(wc -c < "$E2E/artifacts/run-1/shots/fail-1.png" | tr -d ' ')
 
 # the data: six items (four in scope), rates, the covered base, the source of the stamp
-WN=https://example.org/qa/decide; ST="sha256:0a1b2c3d"; LN=qa-lane
-FULL="sha256:0a1b2c3d$(printf 'e%.0s' $(seq 1 56))"
+# the stamp is the whole id: since cockpit v0.5.11 (#230) say refuses a field value that starts as an id and is not a
+# whole one; the label carries the short form
+WN=https://example.org/qa/decide; LN=qa-lane
+FULL="sha256:0a1b2c3d$(printf 'e%.0s' $(seq 1 56))"; ST="$FULL"
 sayq w-source "$WN/source/round-3" w.data $LN "{\"stamp\":\"$ST\",\"label\":\"round 3 · 0a1b2c3d\",\"full\":\"$FULL\"}" >/dev/null
 item() { # item ELEMENT SUBJECT-TAIL INSCOPE GROUP AREA PART
   sayq w-item "$WN/element/$2" w.data $LN "{\"element\":\"$1\",\"inScope\":\"$3\",\"group\":\"$4\",\"area\":\"$5\",\"part\":\"$6\",\"statement\":\"The form of $1 keeps a draft.\",\"test\":\"suite/a.spec.ts#T-1 keeps a draft\",\"testFile\":\"suite/tests/a.spec.ts\",\"testLine\":\"12\",\"judge1\":\"asserted\",\"judge1Why\":\"the test checks the draft\",\"judge1Source\":\"judge one\",\"judge2\":\"exercised\",\"judge2Why\":\"the test only runs it\",\"judge2Source\":\"judge two\",\"earlier\":\"unclear\",\"stamp\":\"$ST\"}"

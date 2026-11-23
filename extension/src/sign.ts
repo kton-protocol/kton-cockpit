@@ -127,7 +127,9 @@ export function plan(
   const meaning = control.meaning ?? fields["meaning"];
   const expect = { ...(tpl.hash ? { template: tpl.hash } : {}), ...(tpl.revision ? { revision: tpl.revision } : {}), ...(tpl.predicate ? { predicate: tpl.predicate } : {}) };
   const shown = { template: tpl.name, expect, subject: intent.about, fields, as: key.keyName, control: `${control.package}/${control.name}`, meaning: meaning ?? null, meaningField: fixed ?? null, scope: intent.scope ?? null, opened: intent.opened ?? [], ...(control.title ? { title: control.title } : {}) };
-  const digest = createHash("sha256").update(JSON.stringify(shown, Object.keys(shown).sort())).update(JSON.stringify(Object.entries(fields).sort())).digest("hex");
+  // canonical JSON (keys sorted at every level): a key list as JSON.stringify's replacer would also filter the nested
+  // objects' keys, and leave expect.revision and expect.predicate out of the digest
+  const digest = createHash("sha256").update(canonical(shown)).update(JSON.stringify(Object.entries(fields).sort())).digest("hex");
   return {
     ok: true,
     value: {
@@ -149,6 +151,13 @@ export function plan(
       digest,
     },
   };
+}
+
+/** JSON with every object's keys sorted, at every level. */
+function canonical(v: unknown): string {
+  if (Array.isArray(v)) return `[${v.map(canonical).join(",")}]`;
+  if (v && typeof v === "object") return `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${canonical((v as Record<string, unknown>)[k])}`).join(",")}}`;
+  return JSON.stringify(v ?? null);
 }
 
 /** The person pressed Sign in the dialog that showed exactly this plan. Bound to the plan's digest. */

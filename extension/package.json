@@ -230,7 +230,7 @@
         "kton.support.viewFile": {
           "type": "string",
           "default": "",
-          "description": "A file the shell writes the active composition view to (JSON: view, selected item, queue position, each block's rows as shown with their source stamps, the evidence opened), on every change, for a support session in this window's terminal. Never key material. Empty: nothing is written."
+          "description": "A file the shell writes the active composition view to (JSON: view, selected item, queue position, each block's rows as shown with their source stamps, the evidence opened), on every change, for a support session in this window's terminal. Written with mode 0600 (readable by the window's user only). Never key material. Empty: nothing is written."
         }
       }
     },

@@ -6,8 +6,8 @@
 //   open      a row click asks the host to open this column's IRI (with the row's claim): list → record
 //   rules     keep only the rows whose ?rule is one of these (an area's findings.rules)
 //   keys      keep only the rows whose ?key is one of these (an area's documents)
-//   match     keep only the rows where one of these columns equals the subject's claim (a record's approvals: the
-//             S6 packages name the record's claim ?record, the training package ?claim)
+//   match     keep only the rows where one of these columns equals the subject's claim (a record's approvals:
+//             ?record, the record claim the approval ?claim approves)
 //   card      "yes": the first row as fields, not a table; a long-form answer (?field ?value, one row per field)
 //             as all its rows' fields
 //   caption   a line above the rows (a finding source's label)

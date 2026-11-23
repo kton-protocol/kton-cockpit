@@ -131,8 +131,9 @@ export class CliTransport implements Transport {
     const why = checkSay(req);
     if (why) return bad(why);
     if (!SHA.test(req.subject)) {
-      // an IRI subject (an element, a rule case): the JSON form, which takes one (the word form does not, cockpit v0.5.x)
-      return this.outcome(["say", JSON.stringify({ template: req.template, subject: req.subject, fields: req.fields ?? {}, ...(req.as !== undefined ? { as: req.as } : {}), ...(req.scope !== undefined ? { scope: req.scope } : {}), ...(req.expectTemplate ? { expectTemplate: req.expectTemplate } : {}), ...(req.expectRevision ? { expectRevision: req.expectRevision } : {}), ...(req.expectPredicate ? { expectPredicate: req.expectPredicate } : {}) })], assertSayResult);
+      // an IRI subject (an element, a rule case): the JSON form. Since v0.5.1 the word form takes an IRI subject as it
+      // is too, unless a file of that name exists; the JSON form stays the choice (one argv element, every field named)
+      return this.outcome(["say", JSON.stringify({ template: req.template, subject: req.subject, fields: req.fields ?? {}, ...(req.as !== undefined ? { as: req.as } : {}), ...(req.scope !== undefined ? { scope: req.scope } : {}), ...(req.expectHead !== undefined ? { expectHead: req.expectHead } : {}), ...(req.expectTemplate ? { expectTemplate: req.expectTemplate } : {}), ...(req.expectRevision ? { expectRevision: req.expectRevision } : {}), ...(req.expectPredicate ? { expectPredicate: req.expectPredicate } : {}) })], assertSayResult);
     }
     const args = ["say", req.template, req.subject];
     for (const k of Object.keys(req.fields ?? {}).sort()) args.push(`${k}=${(req.fields ?? {})[k] ?? ""}`);
@@ -286,7 +287,6 @@ const LINEAGE: ReadonlySet<string> = new Set(["record", "producer", "uses", "lin
 export function checkSay(req: SayRequest): string | undefined {
   if (!QNAME.test(req.template)) return `template ${JSON.stringify(req.template)} is not a name`;
   if (!SHA.test(req.subject) && !IRI_SUBJECT.test(req.subject)) return "say takes a sha256 id or an http(s) IRI as its subject, never a path";
-  if (!SHA.test(req.subject) && req.expectHead !== undefined) return "expectHead is not taken with an IRI subject";
   for (const k of Object.keys(req.fields ?? {})) if (!NAME.test(k)) return `field ${JSON.stringify(k)} is not a name`;
   if (req.as !== undefined && !NAME.test(req.as)) return "as is not a key name";
   if (req.scope !== undefined && !NAME.test(req.scope)) return `scope ${JSON.stringify(req.scope)} is not a name`;
