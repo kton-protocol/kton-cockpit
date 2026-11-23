@@ -141,6 +141,24 @@ test("design: source chips: once per part, the round's label, the scope where no
   assert.equal(perRun.blocks.runs, "mixed");
 });
 
+test("design: the section nav highlights the section on screen, not the last link clicked", async () => {
+  const { shownSection } = await media("design/nav.js");
+  // the decision view's nav, scrolled so that Rule cases' head has passed the sticky bar (line 80); Evidence is above it
+  const at = (tops: number[]) => ["summary", "spot", "where", "evidence", "capture", "rules", "options", "sign"].map((id, i) => ({ id, top: tops[i] as number, bottom: tops.find((t, j) => j > i && t > (tops[i] as number)) ?? (tops[i] as number) + 400 }));
+  const scrolled = at([-2400, -2400, -1800, -1200, -700, 40, 1300, 1700]);
+  assert.equal(shownSection(scrolled, { line: 80, viewH: 900 }), "rules", "the section whose head passed the bar last");
+  assert.equal(shownSection(scrolled, { line: 80, viewH: 900, clicked: "evidence" }), "rules", "a link clicked earlier does not keep the highlight");
+  assert.equal(shownSection(at([100, 100, 700, 1300, 1900, 2400, 3600, 4000]), { line: 80, viewH: 900 }), "summary", "at the top: the first section");
+  assert.equal(shownSection(at([-40, -40, 700, 1300, 1900, 2400, 3600, 4000]), { line: 80, viewH: 900 }), "summary", "side by side (equal tops): the first of them");
+  // at the bottom of the page the last sections never reach the bar: the one clicked if it is on screen, else the last on screen
+  const bottom = at([-4000, -4000, -3400, -2800, -2200, -600, 300, 700]);
+  assert.equal(shownSection(bottom, { line: 80, viewH: 900, atBottom: true }), "sign");
+  assert.equal(shownSection(bottom, { line: 80, viewH: 900, atBottom: true, clicked: "options" }), "options");
+  assert.equal(shownSection(bottom, { line: 80, viewH: 900, atBottom: true, clicked: "evidence" }), "sign", "a clicked section off screen does not win");
+  assert.equal(shownSection([], { line: 80 }), "");
+  assert.equal(shownSection([{ id: "x", top: NaN, bottom: NaN }], { line: 80 }), "", "unmeasured sections are skipped");
+});
+
 test("design: cards: short test names and decoded locations, verdict pills, the segmented choice gates the one primary", async () => {
   const c = await media("viewers/cards/cards.js");
   assert.equal(c.shortTest("api-tests:com/example/app/integrationtests/resources/StepRunTest.kt#a step can be run with a clean inventory"), "StepRunTest.kt · a step can be run with a clean inventory");

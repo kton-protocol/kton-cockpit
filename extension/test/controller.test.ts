@@ -699,7 +699,11 @@ test("S4.2: a decision act goes through the one sign dialog and signs with the p
   assert.equal(t.says.at(-1)?.template, "test-note");
   assert.equal(t.says.at(-1)?.as, "qa-decider", "the person key");
   assert.equal(t.says.at(-1)?.subject, sha("1"));
-  assert.deepEqual(c.posted.at(-1), { type: "kton:data", id: "acts/probe#x.1", result: { signed: true, key: "person", message: "Signed with the person key (test-only).", claim: `sha256:${"9".repeat(64)}` } });
+  // confirmed at once: what was signed and the claim's short id, then the key line
+  const data = c.posted.filter((m) => (m as { type?: string }).type === "kton:data").at(-1) as { result: { message: string } };
+  assert.match(data.result.message, /^Signed: .+ \(claim 99999999\)\. Signed with the person key \(test-only\)\.$/);
+  assert.deepEqual({ ...data, result: { ...data.result, message: "" } }, { type: "kton:data", id: "acts/probe#x.1", result: { signed: true, key: "person", message: "", claim: `sha256:${"9".repeat(64)}` } });
+  assert.equal((c.posted.find((m) => (m as { type?: string }).type === "kton-workbench:signed") as { claim?: string } | undefined)?.claim, `sha256:${"9".repeat(64)}`, "and posted to the frame before any refresh");
 });
 
 test("S4.3: a record act is written with the agent key and no dialog", async () => {

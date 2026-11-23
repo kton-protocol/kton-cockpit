@@ -1,25 +1,133 @@
 // The workbench frame's look: what compose.js (vendored at its kton-web pin, unchanged) draws gets
 // the view's frame here, after it draws it. Nothing in here fetches, acts or changes what a block shows:
-//   - the banner (a notice with tone banner) and the section nav, sticky above the view;
+//   - the banner (a notice with tone banner) and the section nav, sticky above the view; the nav's link of the
+//     section on screen is on (nav.js), on scroll and after each redraw, not only after a click;
 //   - each part's head: its heading, the one-line subtitle (a notice with tone sub, moved up) and its source chip;
 //   - source chips once per part (stamps.js): stamps equal to the part's are hidden in the blocks (still in the DOM:
 //     every number keeps its stamp), a block with another source gets its own chip, a missing stamp stays red;
-//   - tab labels count their rows; tooltips (data-tip) open on hover and on keyboard focus.
+//   - tab labels count their rows; tooltips (data-tip) open on hover and on keyboard focus;
+//   - never a blank block after its first answer (refresh.js): a block asked again shows its last content
+//     (inert) with "Updating …" instead of a skeleton, and keeps it, marked stale with the reason, when the ask fails; the
+//     host's answers from memory after a signature are marked "Updating after your signature (since hh:mm, about N s)"
+//     until the fresh one arrives (globalThis.ktonWorkbench.fresh, which the blocks' stamped() follows);
+//   - a signature of this view is confirmed at once in the sticky bar: "Signed: <what> (claim <short id>)".
 // It reads the plan from the host's kton:set (the same message the frame renders) and re-runs after each change.
 import { chipFor, sectionStamps, fullHash } from "./stamps.js";
+import { shownSection } from "./nav.js";
+import { answerStore, PREV_STRIP, signedText, staleText, updatingText } from "./refresh.js";
 
 const root = document.getElementById("kton-root");
 let plan = null;
 let queued = false;
 let busy = false;
+let clicked = "";
+let lastSigned = null;
+const answers = answerStore();
+// the blocks' way to the fresh answer the host posts after a signature (their stamped() follows a `refreshing` answer)
+globalThis.ktonWorkbench = { fresh: (use, token) => answers.fresh(use, token) };
 
 window.addEventListener("message", (e) => {
   const m = e.data;
-  if (m && m.type === "kton:set" && m.plan) {
+  if (!m || typeof m.type !== "string") return;
+  if (m.type === "kton:set" && m.plan) {
     plan = m.plan;
     document.getElementById("wb-top")?.remove();
+    if (m.signed && typeof m.signed === "object") lastSigned = m.signed;
+  } else if (m.type === "kton-workbench:signed") {
+    lastSigned = m;
+    showSigned();
+  } else if (m.type === "kton-workbench:refreshing" && typeof m.use === "string") {
+    if (!answers.has(m.use, m.token)) mark(boxOf(m.use), "host", m.since, m.token);
+  } else if (m.type === "kton-workbench:answer" && typeof m.use === "string") {
+    answers.put(m);
+    const box = boxOf(m.use);
+    const line = box?.querySelector(":scope > .wb-updating[data-updating='host']");
+    if (!line) return;
+    if (m.error === undefined) line.remove();
+    else stale(line, m.error, m.since);
   }
 });
+
+// ---- never a blank block
+const boxOf = (use) => (root ? [...root.querySelectorAll(".kton-block[data-use]")].find((b) => b.dataset.use === use) : null);
+function mark(box, kind, since, token) {
+  if (!box) return null;
+  let line = box.querySelector(":scope > .wb-updating");
+  if (!line) {
+    line = el("p", { class: "wb-updating", role: "status" });
+    box.prepend(line);
+  }
+  line.dataset.updating = kind;
+  line.dataset.state = "updating";
+  line.dataset.since = String(since || Date.now());
+  if (token !== undefined) line.dataset.token = String(token);
+  line.textContent = updatingText(Number(line.dataset.since), Date.now(), kind === "host");
+  return line;
+}
+function stale(line, why, since) {
+  line.dataset.state = "stale";
+  line.textContent = staleText(why, Number(since || line.dataset.since || Date.now()));
+}
+setInterval(() => {
+  for (const line of document.querySelectorAll(".wb-updating[data-state='updating']")) line.textContent = updatingText(Number(line.dataset.since), Date.now(), line.dataset.updating === "host");
+}, 1000);
+
+// the last content each block showed with an answer (a copy, made when it changed), shown again while it asks anew
+const good = new Map();
+function keepShown(box) {
+  const body = box.querySelector(":scope > .kton-block-body");
+  const use = box.dataset.use;
+  if (!body || !use) return;
+  const loading = body.querySelector(":scope > [data-area-loading]");
+  const failed = body.querySelector(":scope > [data-area-error]");
+  const prev = body.querySelector(":scope > .wb-prev");
+  if (!loading && !failed) {
+    if (prev) prev.remove();
+    body.classList.remove("wb-has-prev");
+    const local = box.querySelector(":scope > .wb-updating[data-updating='local']");
+    if (local) local.remove();
+    if (body.childElementCount && !body.querySelector(":scope > .kton-waiting")) {
+      const sig = body.innerHTML.length;
+      if (good.get(use)?.sig !== sig) good.set(use, { sig, copy: copyOf(body) });
+    }
+    return;
+  }
+  const last = good.get(use);
+  if (!last) return; // the first load: the skeleton (or the error) as drawn
+  if (!prev) {
+    const p = el("div", { class: "wb-prev", "aria-busy": loading ? "true" : "false" });
+    p.inert = true;
+    p.append(last.copy.cloneNode(true));
+    body.append(p);
+    body.classList.add("wb-has-prev");
+  }
+  const line = box.querySelector(":scope > .wb-updating");
+  if (failed) stale(line ?? mark(box, "local", Date.now()), failed.textContent ?? "", Number(line?.dataset.since) || Date.now());
+  else if (!line) mark(box, "local", Date.now());
+}
+function copyOf(body) {
+  const f = document.createDocumentFragment();
+  for (const n of body.childNodes) if (!(n instanceof Element && n.classList.contains("wb-prev"))) f.append(n.cloneNode(true));
+  for (const x of f.querySelectorAll("*")) for (const a of PREV_STRIP) x.removeAttribute(a);
+  return f;
+}
+
+// ---- the confirmation of a signature, at once and after a reload
+function showSigned() {
+  const bar = document.getElementById("wb-top");
+  if (!bar || !lastSigned) return;
+  let p = bar.querySelector(".wb-signed");
+  if (!p) {
+    p = el("p", { class: "wb-signed", role: "status", "data-testid": "signed-confirmation" });
+    bar.append(p);
+  }
+  p.textContent = signedText(lastSigned);
+  p.dataset.claim = String(lastSigned.claim ?? "");
+  if (lastSigned.claim) {
+    p.setAttribute("data-tip", `Claim ${lastSigned.claim}`);
+    p.tabIndex = 0;
+  }
+}
 
 const el = (tag, attrs = {}, text) => {
   const x = document.createElement(tag);
@@ -70,7 +178,8 @@ function decorate() {
           const a = el("a", { href: `#wb-s-${p.dataset.part}`, "data-nav": p.dataset.part }, headingOf(p));
           a.addEventListener("click", (e) => {
             e.preventDefault();
-            for (const x of nav.querySelectorAll("a")) x.classList.toggle("on", x === a);
+            clicked = p.dataset.part;
+            markNav(nav, clicked);
             root.querySelector(`section.kton-part[data-part="${CSS.escape(p.dataset.part)}"]`)?.scrollIntoView({ block: "start" });
           });
           nav.append(a);
@@ -86,7 +195,10 @@ function decorate() {
         } else badge?.remove();
       }
     }
+    showSigned();
     document.documentElement.style.setProperty("--wb-top-h", `${bar.offsetHeight}px`);
+    spy();
+    for (const box of root.querySelectorAll(".kton-block[data-use]")) keepShown(box);
     // ---- eyebrow: the package and the subject
     const eb = root.querySelector(".wb-head [data-eyebrow]");
     if (eb && !eb.dataset.done) {
@@ -130,7 +242,7 @@ function decorate() {
       }
       // ---- source chips: every stamp in this part, its nested parts (tabs) included
       const blocks = [...p.querySelectorAll(".kton-block")].filter((b) => !b.classList.contains("wb-moved"));
-      const list = blocks.map((b) => ({ id: b.dataset.use, b, stamps: [...b.querySelectorAll("[data-stamp]:not([data-stamp=''])")].filter((x) => !x.closest(".wb-banner")).map(stampOf) }));
+      const list = blocks.map((b) => ({ id: b.dataset.use, b, stamps: [...b.querySelectorAll("[data-stamp]:not([data-stamp=''])")].filter((x) => !x.closest(".wb-banner, .wb-prev")).map(stampOf) }));
       const r = sectionStamps(list);
       let sc = head.querySelector(":scope > .wb-source");
       const key = r.section ? r.section.label || r.section.scope || r.section.stamp : "";
@@ -169,6 +281,42 @@ function decorate() {
   }
 }
 
+// ---- the nav follows the reader: the link of the section on screen is on, on scroll and after each redraw
+function markNav(nav, id) {
+  for (const x of nav.querySelectorAll("a")) {
+    const on = x.dataset.nav === id;
+    x.classList.toggle("on", on);
+    if (on) x.setAttribute("aria-current", "true");
+    else x.removeAttribute("aria-current");
+  }
+}
+function spy() {
+  const nav = document.querySelector("#wb-top nav.wb-nav");
+  if (!nav || !root) return;
+  const parts = [...nav.querySelectorAll("a[data-nav]")].map((a) => {
+    const r = root.querySelector(`section.kton-part[data-part="${CSS.escape(a.dataset.nav)}"]`)?.getBoundingClientRect();
+    return { id: a.dataset.nav, top: r?.top ?? NaN, bottom: r?.bottom ?? NaN };
+  });
+  const bar = document.getElementById("wb-top");
+  const doc = document.documentElement;
+  const atBottom = Math.ceil(scrollY + innerHeight) >= doc.scrollHeight - 2 && doc.scrollHeight > innerHeight;
+  const id = shownSection(parts, { line: (bar?.offsetHeight ?? 0) + 8, viewH: innerHeight, atBottom, clicked });
+  if (id) markNav(nav, id);
+}
+let spyQueued = false;
+addEventListener(
+  "scroll",
+  () => {
+    if (spyQueued) return;
+    spyQueued = true;
+    requestAnimationFrame(() => {
+      spyQueued = false;
+      spy();
+    });
+  },
+  { passive: true },
+);
+
 function headingOf(p) {
   const short = p.querySelector(":scope .wb-sub[data-nav-label]")?.dataset.navLabel;
   if (short) return short;
@@ -183,7 +331,9 @@ const schedule = () => {
     decorate();
   });
 };
-if (root) new MutationObserver(schedule).observe(root, { childList: true, subtree: true, attributes: true, attributeFilter: ["data-settled", "hidden"] });
+// the "Updating … about N s" lines tick every second: their own text changes redecorate nothing
+const ours = (r) => r.target instanceof Element && !!r.target.closest(".wb-updating");
+if (root) new MutationObserver((recs) => recs.some((r) => !ours(r)) && schedule()).observe(root, { childList: true, subtree: true, attributes: true, attributeFilter: ["data-settled", "hidden"] });
 
 // ---- tooltips: hover or keyboard focus; Escape hides
 const tip = el("div", { id: "wb-tip", role: "tooltip" });

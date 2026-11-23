@@ -124,6 +124,42 @@ const notSet = (names: readonly string[]) => `${names.join(", ")} ${names.length
 /** What a guarded use shows instead of its answer: it neither runs its query nor offers an act. */
 export const cannotShow = (names: readonly string[]) => `cannot show: ${notSet(names)}`;
 /** An answer run with unbound optional params, stamped so: `unfiltered` names them (blocks show "unfiltered: <p> not set"). */
+/** The key of a use's answer in the host's memory: the use, its params and its refine values. */
+export function answerKey(use: string, params: Readonly<Record<string, Term>>, refine?: unknown): string {
+  return JSON.stringify([use, params, refine ?? null]);
+}
+
+/** "sha256:1234abcd…" → "1234abcd" (the claim's short id; the full one is in the notification and the tooltip). */
+export function shortClaim(id: string): string {
+  return String(id).replace(/^sha256:/, "").slice(0, 8);
+}
+
+/**
+ * What a signature was, in a few words: the act (or the control's title), what it is about (the row's target, its last
+ * segment decoded) and the fields the person chose, e.g. "Sign verdict… · item-12#e4 · verdict right".
+ */
+export function signedWhat(c: { name: string; title?: string }, act: { label?: string }, i: Readonly<Record<string, unknown>>, made?: { fields: Readonly<Record<string, string>> }): string {
+  const name = (act.label ?? c.title ?? c.name).replace(/…$/, "");
+  const target = typeof i["target"] === "string" && i["target"] ? lastSegment(i["target"]) : "";
+  const fields = (i["fields"] ?? {}) as Record<string, unknown>;
+  const chosen = Object.keys(fields)
+    .map((k) => [k, made?.fields[k] ?? String(fields[k])] as const)
+    .filter(([, v]) => v && v.length <= 60)
+    .map(([k, v]) => `${k} ${v}`);
+  return [name, target, ...chosen].filter(Boolean).join(" · ");
+}
+
+function lastSegment(iri: string): string {
+  // the last path segment, then its fragment if it has one (…/cases#case-3), decoded (…/item-12%23e4)
+  const seg = iri.replace(/\/+$/, "").split("/").pop() ?? iri;
+  const s = seg.includes("#") ? seg.slice(seg.lastIndexOf("#") + 1) : seg;
+  try {
+    return decodeURIComponent(s);
+  } catch {
+    return s;
+  }
+}
+
 export function stampUnfiltered(answer: unknown, names: readonly string[]): unknown {
   return answer && typeof answer === "object" && !Array.isArray(answer) ? { ...(answer as Record<string, unknown>), unfiltered: [...names] } : answer;
 }
@@ -376,6 +412,19 @@ export class CompositionHost {
   private setPending = false;
   /** how many times the frame said ready: an act that ends after a reload must reach the new frame (H8) */
   private loads = 0;
+  /**
+   * The last answer of each use (key: use + params) and when its query started; never a skeleton after a signature:
+   * after a signature here the cockpit may rebuild a federated index cold, and every ask waits for
+   * it. A re-ask (the frame reloads when the sign dialog took its column) is answered at once with the last answer,
+   * marked `refreshing`; the fresh one follows as a kton-workbench:answer message (or the error that kept it stale).
+   */
+  private readonly answers = new Map<string, { result: unknown; epoch: number }>();
+  private readonly refreshes = new Map<string, number>();
+  private refreshSeq = 0;
+  /** how many signatures this view made (an answer asked before the last one is old), when the last was (ms), and what */
+  private epoch = 0;
+  private signedAt = 0;
+  private lastSigned: { what: string; claim: string; at: number } | undefined;
 
   constructor(
     readonly plan: Plan,
@@ -432,9 +481,20 @@ export class CompositionHost {
         // other use runs, and its answer says it is unfiltered
         const unbound = unboundParams(u, params);
         if (unbound.length && feedsAct(u)) throw new Refused(cannotShow(unbound));
-        result = await this.backend.query(q.package, q.name, termsOf(params));
-        this.remember(u, result);
-        if (unbound.length) result = stampUnfiltered(result, unbound);
+        const k = answerKey(u.key, params, args["refine"]);
+        const last = this.answers.get(k);
+        if (last && last.epoch < this.epoch) {
+          // asked again after a signature: the last answer now, marked; the fresh one follows (never a blank view)
+          const token = this.refresh(k, u, q, params, unbound);
+          this.ui.post({ type: "kton-workbench:refreshing", use: u.key, since: this.signedAt, token });
+          result = { ...(last.result as object), refreshing: { since: this.signedAt, token } };
+        } else {
+          const epoch = this.epoch;
+          result = await this.backend.query(q.package, q.name, termsOf(params));
+          this.remember(u, result);
+          this.answers.set(k, { result, epoch });
+          if (unbound.length) result = stampUnfiltered(result, unbound);
+        }
       }
       else if (cap === "content@1") {
         if (!u.content?.binary || args["hash"] !== u.content.hash) throw new Refused(`${u.key}: the content differs from the plan's`);
@@ -454,10 +514,40 @@ export class CompositionHost {
     }
   }
 
+  /**
+   * Ask a use's query again in the background (once per key at a time): the fresh answer replaces the last one and goes
+   * to the frame as {type: "kton-workbench:answer", use, token, result}; a failure as {…, error, since}: the frame keeps
+   * the last answer, marked stale with the reason. Returns the token the frame matches the answer by.
+   */
+  private refresh(k: string, u: PlanUse, q: { package: string; name: string }, params: Readonly<Record<string, Term>>, unbound: readonly string[]): number {
+    const running = this.refreshes.get(k);
+    if (running !== undefined) return running;
+    const token = ++this.refreshSeq;
+    this.refreshes.set(k, token);
+    const epoch = this.epoch;
+    const since = this.signedAt;
+    void this.backend.query(q.package, q.name, termsOf(params)).then(
+      (fresh) => {
+        this.refreshes.delete(k);
+        this.remember(u, fresh);
+        this.answers.set(k, { result: fresh, epoch });
+        this.ui.post({ type: "kton-workbench:answer", use: u.key, token, result: unbound.length ? stampUnfiltered(fresh, unbound) : fresh });
+      },
+      (e: unknown) => {
+        this.refreshes.delete(k);
+        const why = e instanceof Error ? e.message : String(e);
+        this.ui.log(`composition: refresh of ${u.key} after a signature failed: ${why}`);
+        this.ui.post({ type: "kton-workbench:answer", use: u.key, token, error: why, since });
+      },
+    );
+    return token;
+  }
+
   private sendSet(): void {
     this.setPending = true;
-    // the state is host-held as the frame reported it: vars and layout ({tab, ratio}), never acts (H8: held apart)
-    this.ui.post({ type: "kton:set", state: { ...this.state, acts: this.acts.forSet() }, plan: this.framePlan(), host: { name: "vscode", provides: VSCODE_PROVIDES, narrow: NARROW_PX } });
+    // the state is host-held as the frame reported it: vars and layout ({tab, ratio}), never acts (H8: held apart);
+    // the last signature of this view rides along, so a frame reloaded after the dialog still confirms it
+    this.ui.post({ type: "kton:set", state: { ...this.state, acts: this.acts.forSet() }, plan: this.framePlan(), host: { name: "vscode", provides: VSCODE_PROVIDES, narrow: NARROW_PX }, ...(this.lastSigned ? { signed: this.lastSigned } : {}) });
   }
 
   /** the guarded uses as last sent to the frame (JSON of [key, params] pairs) */
@@ -579,7 +669,17 @@ export class CompositionHost {
         let made: Signed | undefined;
         const r = await this.backend.act(c, this.aboutOf(i, checked.act), checked.act.fields, `${checked.act.label}: ${this.plan.root.package}/${this.plan.root.composition}`, proposed, (s) => (made = s));
         if (r === "failed") return refuse(c.kind === "decision" ? "not signed (see the sign dialog)" : "not recorded");
-        result = r === "signed" ? { signed: true, key: c.kind === "decision" ? "person" : "agent", message: c.kind === "decision" ? "Signed with the person key (test-only)." : "Recorded with the agent key.", ...(made ? { claim: made.id } : {}) } : { signed: false, message: "Not signed: the dialog was cancelled." };
+        const keyLine = c.kind === "decision" ? "Signed with the person key (test-only)." : "Recorded with the agent key.";
+        if (r === "signed") {
+          // confirmed at once, before any refresh: in the view (the act's own line, and the frame's banner,
+          // also after a reload) and as the notification the sign path shows with the full claim id
+          this.epoch += 1;
+          this.signedAt = Date.now();
+          const what = signedWhat(c, checked.act, i, made);
+          this.lastSigned = { what, claim: made?.id ?? "", at: this.signedAt };
+          this.ui.post({ type: "kton-workbench:signed", ...this.lastSigned });
+        }
+        result = r === "signed" ? { signed: true, key: c.kind === "decision" ? "person" : "agent", message: made ? `${c.kind === "decision" ? "Signed" : "Recorded"}: ${signedWhat(c, checked.act, i, made)} (claim ${shortClaim(made.id)}). ${keyLine}` : keyLine, ...(made ? { claim: made.id } : {}) } : { signed: false, message: "Not signed: the dialog was cancelled." };
         // the use's nudge (option): the shell sends no lane message; it prints the exact line in its output channel
         const use = this.plan.uses.find((x) => x.key === i.from) as { options?: Record<string, unknown> } | undefined;
         const nudge = nudgeFor(use?.options, c.name);

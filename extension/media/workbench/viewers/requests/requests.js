@@ -107,7 +107,7 @@ export function mount(el, ctx) {
   };
 
   const ask = () =>
-    stamped(el, esc, ctx.request("query@1", canPoll ? { refine: { poll: String(n) } } : {})).then(draw, (e) => {
+    stamped(el, esc, ctx.request("query@1", canPoll ? { refine: { poll: String(n) } } : {}), ctx.use.key).then(draw, (e) => {
       el.innerHTML = `<div class="callout error" data-area-error role="alert"><p>${esc(e?.message ?? String(e))}</p></div>`;
     });
   // an act of this view (any block) signed or recorded: ask again soon, then for a while (the index may still be building)
@@ -166,18 +166,36 @@ export function emptyBox(esc, text, how) {
 
 // An answer the host ran with a declared optional param unbound says so (`unfiltered`: the params): its FILTER did not
 // apply, so the block is stamped "unfiltered: <param> not set" above what it drew (the unbound-parameter guard).
-function stamped(el, esc, asked) {
+// An answer the host gave from memory while it asks again after a signature (`refreshing`: {since, token})
+// is drawn at once, and the fresh answer is drawn over it when the frame has it (ktonWorkbench.fresh, frame-design.js).
+// A failed refresh leaves the drawn answer (the frame marks it stale, with the reason): never a skeleton after an answer.
+function stamped(el, esc, asked, use) {
   return {
     then(ok, err) {
-      const drawn = asked.then(ok, err);
-      asked.then(
-        (r) => {
-          const u = Array.isArray(r?.unfiltered) ? r.unfiltered.filter((x) => typeof x === "string") : [];
-          if (u.length) el.insertAdjacentHTML("afterbegin", `<p class="kton-stamp kton-unfiltered" data-unfiltered>unfiltered: ${esc(u.join(", "))} not set</p>`);
-        },
-        () => {},
-      );
-      return drawn;
+      const mark = (r) => {
+        const u = Array.isArray(r?.unfiltered) ? r.unfiltered.filter((x) => typeof x === "string") : [];
+        if (u.length) el.insertAdjacentHTML("afterbegin", `<p class="kton-stamp kton-unfiltered" data-unfiltered>unfiltered: ${esc(u.join(", "))} not set</p>`);
+      };
+      const follow = (r) => {
+        const token = r?.refreshing?.token;
+        const wb = globalThis.ktonWorkbench;
+        if (token === undefined || !use || typeof wb?.fresh !== "function") return;
+        wb.fresh(use, token).then(
+          (x) => {
+            if (x && x.result) {
+              ok(x.result);
+              mark(x.result);
+            }
+          },
+          () => {},
+        );
+      };
+      return asked.then((r) => {
+        const out = ok(r);
+        mark(r);
+        follow(r);
+        return out;
+      }, err);
     },
   };
 }

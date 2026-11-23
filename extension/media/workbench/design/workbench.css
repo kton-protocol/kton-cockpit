@@ -413,3 +413,14 @@ tr.grp .grp-notes ol { margin: 2px 0 0; padding-left: 18px; color: var(--wb-mute
 h3[data-block-title] { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: baseline; }
 table.t td:not([data-number]):not(:first-child) { min-width: 7em; }
 td.ev-cell .kton-stamp { margin-top: 4px; }
+
+/* Never a blank block after a signature: the last content stays, marked, until the fresh answer is drawn. */
+.wb-updating { margin: 0 0 6px; padding: 3px 8px; font-size: 11px; color: var(--wb-muted); border-left: 2px solid var(--wb-focus); background: var(--wb-surface); }
+.wb-updating[data-state="updating"]::before { content: ""; display: inline-block; width: 6px; height: 6px; margin-right: 6px; border-radius: 50%; background: var(--wb-focus); vertical-align: 1px; animation: wb-pulse 1.2s ease-in-out infinite; }
+.wb-updating[data-state="stale"] { color: var(--wb-warn-fg); border-left-color: var(--wb-warn-border); background: var(--wb-warn-bg); }
+@keyframes wb-pulse { 50% { opacity: .3; } }
+@media (prefers-reduced-motion: reduce) { .wb-updating[data-state="updating"]::before { animation: none; } }
+.kton-block-body.wb-has-prev > [data-area-loading], .kton-block-body.wb-has-prev > [data-area-error] { display: none; }
+.wb-prev { opacity: .85; }
+.wb-signed { margin: 0; padding: 4px 12px; font-size: 12px; color: var(--wb-fg); border-bottom: 1px solid var(--wb-hairline); background: var(--wb-surface); }
+.wb-signed::before { content: "✓"; color: var(--wb-ok); font-weight: 600; margin-right: 6px; }
