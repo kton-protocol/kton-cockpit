@@ -1115,6 +1115,22 @@ func (r *Runner) About(ctx context.Context, subject string) ([]ClaimAxis, error)
 	return claimsFrom(reg.About(subject))
 }
 
+// OwnAbout is About over this repository's own claim registry alone, as it is on disk: what a say just
+// wrote is there, and confirming it does not need every federation source fetched and joined (16 of 20 s
+// of a say in a 4-source registry, userinterface's T12 trace).
+func (r *Runner) OwnAbout(subject string) ([]ClaimAxis, error) {
+	reg, err := OpenNektonSource(r.cfg.NektonDir)
+	if err != nil {
+		return nil, err
+	}
+	return ClaimsAbout(reg, subject)
+}
+
+// ClaimsAbout is About over one opened claim registry.
+func ClaimsAbout(reg *nregistry.Registry, subject string) ([]ClaimAxis, error) {
+	return claimsFrom(reg.About(subject))
+}
+
 // ByAxis is which index `nekton by` searches. It is a required argument of that command, not an
 // optional refinement: there is no "search everything" form.
 type ByAxis string
