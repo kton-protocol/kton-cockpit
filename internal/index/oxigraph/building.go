@@ -86,9 +86,10 @@ func BuildsRunning(indexDir, repo string) []Building {
 			continue
 		}
 		if !held {
-			// nobody holds it: a killed build's marker, no build
+			// nobody holds it: a killed build's marker, no build. Its lock file stays: a new build of the
+			// same name may already wait on it, and unlinking it would leave that build locking a file no
+			// status finds (kton-review's nit on #241); sweepLocks removes it once it is old.
 			_ = os.Remove(p)
-			_ = os.Remove(lockOf(p))
 			unlock()
 			continue
 		}
@@ -96,6 +97,25 @@ func BuildsRunning(indexDir, repo string) []Building {
 			out = append(out, b)
 		}
 	}
+	sweepLocks(indexDir)
 	sort.Slice(out, func(i, j int) bool { return out[i].Since.Before(out[j].Since) })
 	return out
+}
+
+// sweepLocks removes a lock file that has no marker beside it and has not changed for an hour: a killed
+// build's, long past any build of its name.
+func sweepLocks(indexDir string) {
+	entries, _ := os.ReadDir(buildingDir(indexDir))
+	for _, e := range entries {
+		if !strings.HasSuffix(e.Name(), ".lock") {
+			continue
+		}
+		p := filepath.Join(buildingDir(indexDir), e.Name())
+		if _, err := os.Stat(strings.TrimSuffix(p, ".lock") + ".json"); err == nil {
+			continue
+		}
+		if st, err := os.Stat(p); err == nil && time.Since(st.ModTime()) > time.Hour {
+			_ = os.Remove(p)
+		}
+	}
 }
