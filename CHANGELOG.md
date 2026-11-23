@@ -9,7 +9,7 @@
 ### Changed
 
 - **kton v0.4.3** (plankton, nekton, kton): a declared step carries `nk:declared` (`"hand"`,
-  `"heuristic:<name>"`) in a query; an observed one carries none (kton#292).
+  `"heuristic:<name>"`) in a query; a step its signer did not declare carries none (kton#292).
 
 ## v0.5.10 — 2026-11-23
 

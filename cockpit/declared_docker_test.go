@@ -49,7 +49,7 @@ func TestContainer_ADeclaredStepRecordsNoImageItDidNotRunIn(t *testing.T) {
 }
 
 // A query tells a declared step from an observed one (kton v0.4.3, kton#292): the declared one carries
-// nk:declared with what declared it, the observed one none (absent is "not declared").
+// nk:declared with what declared it, the other none (absent is "not declared by its signer").
 func TestSparql_ADeclaredStepCarriesNkDeclared(t *testing.T) {
 	r := testrepo.New(t)
 	raw := testrepo.DefaultConfig()
