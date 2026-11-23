@@ -102,7 +102,7 @@ func runInstall(ctx context.Context, args []string) error {
 
 func runWorkflow(ctx context.Context, args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: cockpit workflow propose|extract|list|show|run|trace …")
+		return fmt.Errorf("usage: cockpit workflow propose|extract|list|show|run|runs|status|trace …")
 	}
 	c := cockpit.New(cockpit.Start{})
 	switch args[0] {
@@ -118,8 +118,12 @@ func runWorkflow(ctx context.Context, args []string) error {
 		return workflowRun(ctx, c, args[1:])
 	case "trace":
 		return workflowTrace(ctx, c, args[1:])
+	case "runs":
+		return workflowRuns(ctx, c, args[1:])
+	case "status":
+		return workflowStatus(ctx, c, args[1:])
 	}
-	return fmt.Errorf("unknown workflow command %q (propose, extract, list, show, run, trace)", args[0])
+	return fmt.Errorf("unknown workflow command %q (propose, extract, list, show, run, runs, status, trace)", args[0])
 }
 
 func workflowPropose(ctx context.Context, c *cockpit.Cockpit, args []string) error {
@@ -315,10 +319,13 @@ func workflowShow(ctx context.Context, c *cockpit.Cockpit, args []string) error 
 func workflowRun(ctx context.Context, c *cockpit.Cockpit, args []string) error {
 	a, err := parseArgs(args, "--check")
 	if err != nil || len(a.pos) != 1 {
-		return fmt.Errorf("usage: cockpit workflow run <name> [--check] [--bind NAME=VALUE]... [--dir DIR] [--json]")
+		return fmt.Errorf("usage: cockpit workflow run <name> [--check] [--bind NAME=VALUE]... [--dir DIR] [--origin JSON] [--json]")
 	}
 	req := cockpit.WorkflowRunRequest{Name: a.pos[0], Check: a.flags["--check"], Dir: a.one("--dir"),
 		Bindings: map[string]string{}}
+	if o := a.one("--origin"); o != "" {
+		req.Origin = json.RawMessage(o)
+	}
 	for _, b := range a.multi["--bind"] {
 		k, v, ok := strings.Cut(b, "=")
 		if !ok {
@@ -339,7 +346,7 @@ func workflowRun(ctx context.Context, c *cockpit.Cockpit, args []string) error {
 		bs = append(bs, k+"="+v)
 	}
 	sort.Strings(bs)
-	fmt.Printf("ran %s in %s  (%s)\n", out.Name, out.Dir, strings.Join(bs, ", "))
+	fmt.Printf("ran %s in %s  (%s), run %s\n", out.Name, out.Dir, strings.Join(bs, ", "), out.RunID)
 	if out.InReferenceDir {
 		fmt.Printf("  %s is where the reference ran: paths are part of a record's identity, so only there\n"+
 			"  is the same work the same record — and your run signs the reference instead of standing beside it\n", out.Dir)
@@ -382,6 +389,68 @@ func workflowTrace(ctx context.Context, c *cockpit.Cockpit, args []string) error
 		if s.Reference != "" {
 			fmt.Printf("     this is the reference run of %s\n", s.Reference)
 		}
+	}
+	return nil
+}
+
+// workflowRuns lists the runs of the checkout's jobs journal (SPEC §12.5): `cockpit workflow runs
+// [--origin JSON] [--limit N] [--json]`.
+func workflowRuns(ctx context.Context, c *cockpit.Cockpit, args []string) error {
+	a, err := parseArgs(args)
+	if err != nil || len(a.pos) != 0 {
+		return fmt.Errorf("usage: cockpit workflow runs [--origin JSON] [--limit N] [--json]")
+	}
+	req := cockpit.RunListRequest{Origin: json.RawMessage(a.one("--origin"))}
+	if n := a.one("--limit"); n != "" {
+		if req.Limit, err = strconv.Atoi(n); err != nil {
+			return fmt.Errorf("--limit wants a number, got %q", n)
+		}
+	}
+	out, err := c.RunList(ctx, req)
+	exitIfRefused(err)
+	if err != nil {
+		return err
+	}
+	if a.flags["--json"] {
+		return emitJSON(out)
+	}
+	if len(out.Runs) == 0 {
+		fmt.Println("no runs in this checkout's jobs journal")
+	}
+	for _, r := range out.Runs {
+		what := r.Kind
+		if r.Ray != nil {
+			what = r.Ray.Package + "@" + r.Ray.Revision
+		}
+		fmt.Printf("%s  %-9s  %s  %s\n", r.ID, r.State, what, r.Start)
+	}
+	return nil
+}
+
+// workflowStatus is one run: `cockpit workflow status <run-id> [--json]`.
+func workflowStatus(ctx context.Context, c *cockpit.Cockpit, args []string) error {
+	a, err := parseArgs(args)
+	if err != nil || len(a.pos) != 1 {
+		return fmt.Errorf("usage: cockpit workflow status <run-id> [--json]")
+	}
+	r, err := c.RunStatus(ctx, a.pos[0])
+	exitIfRefused(err)
+	if err != nil {
+		return err
+	}
+	if a.flags["--json"] {
+		return emitJSON(r)
+	}
+	fmt.Printf("%s  %s  started %s", r.ID, r.State, r.Start)
+	if r.End != "" {
+		fmt.Printf(", ended %s", r.End)
+	}
+	fmt.Println()
+	if r.Error != "" {
+		fmt.Println("  " + r.Error)
+	}
+	for _, s := range r.Steps {
+		fmt.Println("  step " + s)
 	}
 	return nil
 }

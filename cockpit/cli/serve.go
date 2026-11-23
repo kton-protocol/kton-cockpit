@@ -16,6 +16,7 @@ import (
 	"github.com/kton-protocol/kton-cockpit/cockpit"
 	"github.com/kton-protocol/kton-cockpit/internal/config"
 	"github.com/kton-protocol/kton-cockpit/internal/frontrpc"
+	"github.com/kton-protocol/kton-cockpit/internal/jobs"
 )
 
 // The frontend protocol (ADR-011, section 6; SPEC §12.5): `cockpit serve --stdio` answers JSON-RPC 2.0
@@ -114,6 +115,11 @@ type serveSession struct {
 	// ctx ends with the connection; notify sends a notification on it (the events).
 	ctx    context.Context
 	notify func(method string, params any)
+	// runs are the background runs this connection started, by id with the repository they run in:
+	// when the connection ends they are cancelled, waited for, and what did not end is marked so
+	// (kton-review J1 on #218).
+	runs   sync.WaitGroup
+	runIDs map[string]string
 }
 
 func (s *serveSession) get() (*ServeInit, string, time.Duration, bool) {
@@ -139,7 +145,23 @@ func serve(ctx context.Context, r interface{ Read([]byte) (int, error) }, w inte
 	srv.MapError = serveError
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel() // ends the events once the connection is done
-	sess := &serveSession{ctx: ctx, notify: func(m string, p any) { _ = srv.Notify(m, p) }}
+	sess := &serveSession{ctx: ctx, notify: func(m string, p any) { _ = srv.Notify(m, p) }, runIDs: map[string]string{}}
+	// The process ends with the connection: a background run is cancelled, waited for (at most 10 s),
+	// and one that still has not ended is recorded as cancelled, never left queued or running.
+	defer func() {
+		cancel()
+		done := make(chan struct{})
+		go func() { sess.runs.Wait(); close(done) }()
+		select {
+		case <-done:
+		case <-time.After(10 * time.Second):
+		}
+		sess.mu.Lock()
+		defer sess.mu.Unlock()
+		for id, root := range sess.runIDs {
+			_ = cockpit.New(cockpit.Start{Dir: root}).EndRun(context.Background(), id, jobs.Cancelled, "the serve connection ended")
+		}
+	}()
 	// shutdown takes no new request and answers once every request it accepted before is answered;
 	// exit and the end of the input end the connection after the same wait (SPEC §12.5).
 	srv.HandleInline("shutdown", func(context.Context, json.RawMessage) (any, error) {
@@ -268,6 +290,40 @@ func serveMethods(sess *serveSession) map[string]frontrpc.Handler {
 		sort.Strings(names)
 		return ServeInitResult{Protocol: ServeProtocol, Cockpit: versionInfo(), Root: root, RepoRoot: cfg.RepoRoot, As: in.As, Methods: names}, nil
 	}
+
+	// Runs (SPEC §12.5): workflow/run answers the run's id at once and runs it in the background, for as
+	// long as the connection lasts; run/list and run/status read the checkout's jobs journal.
+	m["workflow/run"] = method(sess, func(ctx context.Context, _ *ServeInit, cfg *config.Config, in cockpit.WorkflowRunRequest) (map[string]string, error) {
+		cc := c(cfg.RepoRoot)
+		id, err := cc.QueueRun(ctx, in)
+		if err != nil {
+			return nil, err
+		}
+		in.RunID = id
+		sess.mu.Lock()
+		sess.runIDs[id] = cfg.RepoRoot
+		sess.mu.Unlock()
+		sess.runs.Add(1)
+		go func() {
+			defer sess.runs.Done()
+			if _, err := cc.WorkflowRun(sess.ctx, in); err != nil {
+				state := jobs.Failed
+				if sess.ctx.Err() != nil {
+					state = jobs.Cancelled
+				}
+				_ = cc.EndRun(context.Background(), id, state, err.Error())
+			}
+		}()
+		return map[string]string{"runId": id}, nil
+	})
+	m["run/list"] = method(sess, func(ctx context.Context, _ *ServeInit, cfg *config.Config, in cockpit.RunListRequest) (*cockpit.RunList, error) {
+		return c(cfg.RepoRoot).RunList(ctx, in)
+	})
+	m["run/status"] = method(sess, func(ctx context.Context, _ *ServeInit, cfg *config.Config, in struct {
+		ID string `json:"id"`
+	}) (*jobs.Run, error) {
+		return c(cfg.RepoRoot).RunStatus(ctx, in.ID)
+	})
 
 	// The verbs, with the same request and result types as the Go API, MCP and the JSON argument.
 	m["publish"] = method(sess, func(ctx context.Context, _ *ServeInit, cfg *config.Config, in cockpit.PublishRequest) (*cockpit.PublishResult, error) {
