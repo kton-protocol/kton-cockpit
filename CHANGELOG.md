@@ -6,10 +6,31 @@
 
 - **Every view is built again once** after the update: the projection's version is 11.
 
+### Added
+
+- **`cockpit reproduce <query run>`** ([ADR-020](docs/decisions/adr-020-reproducible-queries.md), part 2):
+  reads the run's manifest, builds its dataset again from the registries over exactly the pinned ids (a claim
+  signed since, or on another branch of a scope, is not in it), evaluates it with the pinned trust, view and
+  engine (never pulled), and compares the result. A match signs the run's own record, so its
+  `reproductions` count the reproducer, only when the run's signer and every key it rests on are trusted
+  here (or with `--sign-anyway`); otherwise it is reproducible and not signed. Keys not trusted here,
+  another vocabulary or other packages are said beside it. Refused, named: a missing record or byte, another
+  manifest or projection version, an absent engine, a different result (its first differing row).
+
 ### Changed
 
+- **A query run's manifest is version 2**: it pins the whole view it was evaluated with (signers' names,
+  templates, alias files, row templates) as one blob, and the run is evaluated with it rather than with the
+  repository's present, as a reproduction is. Runs recorded by v0.5.10 (version 1) are refused by
+  `reproduce`, named.
 - **kton v0.4.3** (plankton, nekton, kton): a declared step carries `nk:declared` (`"hand"`,
   `"heuristic:<name>"`) in a query; a step its signer did not declare carries none (kton#292).
+
+### Fixed
+
+- **A short id is refused in every field of a say**, not only as the subject (userinterface, dry run 1): a
+  `sha256:4c505bfa` in a string field was signed as text. The refusal names the whole id when one record or
+  claim begins so; a batch with one is written not at all, its line named.
 
 ## v0.5.10 — 2026-11-23
 

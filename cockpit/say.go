@@ -123,7 +123,20 @@ func prepareSay(ctx context.Context, cfg *config.Config, r *binaries.Runner, in 
 	}
 	subject, resolvedFrom, why := resolveSubject(cfg, in.Subject)
 	if why != "" {
-		return nil, refuse("argument", "SPEC §8", "%s", why)
+		return nil, refuse("argument", "SPEC §8", "%s%s", why, fullIDHint(ctx, cfg, in.Subject))
+	}
+	// A value that starts as an id and is not a whole one is refused in every field, whatever its type: a
+	// string field would otherwise sign the short form as text, a decision about nothing ask can find
+	// (userinterface, dry run 1 finding 6b3b60e3).
+	fields := make([]string, 0, len(in.Fields))
+	for k := range in.Fields {
+		fields = append(fields, k)
+	}
+	sort.Strings(fields)
+	for _, k := range fields {
+		if v := strings.TrimSpace(in.Fields[k]); isPartialID(v) {
+			return nil, refuse("argument", "SPEC §8", "field %s = %q is not a whole id (sha256: and 64 hex digits)%s", k, v, fullIDHint(ctx, cfg, v))
+		}
 	}
 	in.Subject = subject
 	p := &preparedSay{in: in, resolvedFrom: resolvedFrom}
