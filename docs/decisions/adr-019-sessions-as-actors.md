@@ -89,9 +89,10 @@ session, dataClass, action, resource, decision, rule, environmentClaim, behalfCl
 the hash of the line before (Q5). Once a day the module signs the day's last hash as a claim (the server's
 key), so a changed or dropped line shows. No claim per access. The log and the nonce memory are the module's
 state, not the core's. They are authoritative, not a rebuildable cache, which SPEC §13 as written does not
-allow; how SPEC §13 takes them is open for MH (kton-review's proposal: a module may keep state under
-`.kton/local/<module>/`, never consulted for the binding verdict or a trust tier, its loss a finding the
-module names, never a silent reset).
+allow. MH decided (23.11.) that SPEC §13 takes kton-review's sentence, written in with the module and its
+tests: a module may keep state of its own under `.kton/local/<module>/`; it is never consulted for the
+binding verdict or a trust tier, and its loss is a finding the module names (doctor), never a silent
+reset.
 
 ### 6 Lanes are sessions under the same rule
 
@@ -177,8 +178,8 @@ last line is not sealed is a finding at the next start and in `doctor`.
 
 ## Consequences
 
-- One door change (the `Guard` field) and one module; SPEC §13 needs one sentence for module state (section
-  5, open for MH).
+- One door change (the `Guard` field) and one module; SPEC §13 takes one sentence for module state (section
+  5, decided by MH).
 - A session's attributes are signed facts, by the machine and by the person, so a rule never reads a model's
   name for its hosting.
 - Every access is accountable by session key, and the log cannot be edited silently after its daily seal.
