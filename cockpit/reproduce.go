@@ -43,8 +43,8 @@ type ReproduceResult struct {
 	// Reproducible: the pinned dataset, rebuilt from the registries and evaluated with the pinned view and
 	// engine, gives the run's result (ADR-020 A3: apart from whether it is still accepted here).
 	Reproducible bool `json:"reproducible"`
-	// Signed: this repository signed the run's record. Only when every key the run's trust pinned is in
-	// this repository's tiers, or SignAnyway was asked: a co-signature counts in the run's ↻N as an
+	// Signed: this repository signed the run's record. Only when a key of this repository's tiers signed
+	// the run and every key the run's trust pinned is in them, or SignAnyway was asked: a co-signature counts in the run's ↻N as an
 	// independent reproduction by a key others may trust, and carries no notes (kton-review R1 on #229).
 	Signed bool `json:"signed"`
 	// NotSigned says why a reproducible run was not signed.
@@ -165,13 +165,25 @@ func (c *Cockpit) Reproduce(ctx context.Context, in ReproduceRequest) (*Reproduc
 		}(), result))
 	}
 	out := &ReproduceResult{Run: in.Run, Reproducible: true, Result: refs["result.json"], Rows: len(res.Terms), Notes: presentDiffers(cfg, &m)}
+	// Signed only by a reproducer that knows who made the run and every key it rests on: steps are in the
+	// dataset whoever signed them, so trusted pins alone do not make an untrusted run ours to vouch for
+	// (kton-review's note on #229, MH 23.11.).
+	var why []string
+	signerTrusted := false
 	if keys, err := binaries.TrustKeys(cfg, ""); err == nil {
-		if env, ok := runEnvelope(ctx, cfg, in.Run); ok && core.VerifiedSignerKeyID(env, keys) == "" {
-			out.Notes = append(out.Notes, "the run is signed by no key trusted here")
+		if env, ok := runEnvelope(ctx, cfg, in.Run); ok && core.VerifiedSignerKeyID(env, keys) != "" {
+			signerTrusted = true
 		}
 	}
-	if untrusted := untrustedPins(cfg, &m); len(untrusted) > 0 && !in.SignAnyway {
-		out.NotSigned = fmt.Sprintf("it rests on %d key(s) not trusted here (%s): reproducible, not signed; sign-anyway signs it", len(untrusted), strings.Join(untrusted, ", "))
+	if !signerTrusted {
+		out.Notes = append(out.Notes, "the run is signed by no key trusted here")
+		why = append(why, "the run is signed by no key trusted here")
+	}
+	if untrusted := untrustedPins(cfg, &m); len(untrusted) > 0 {
+		why = append(why, fmt.Sprintf("it rests on %d key(s) not trusted here (%s)", len(untrusted), strings.Join(untrusted, ", ")))
+	}
+	if len(why) > 0 && !in.SignAnyway {
+		out.NotSigned = strings.Join(why, "; ") + ": reproducible, not signed; sign-anyway signs it"
 		return out, nil
 	}
 	store, err := blobstore.Open(cfg.BlobsDir)

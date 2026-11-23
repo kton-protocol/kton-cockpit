@@ -1133,9 +1133,9 @@ what it reads.
 source's), build the dataset again from the registries over exactly the pinned ids, evaluate it with the
 pinned trust, view and engine, and compare the canonical result's hash with the run's output. A match is
 `reproducible`. It MUST be signed (recorded as the run's own foton, signed by the reproducer, so the run's
-`reproductions` count it) only when every key the run's trust pinned is in the reproducer's tiers, or the
-reproducer asks for it (`--sign-anyway`); otherwise it MUST be answered reproducible and not signed, saying
-which keys are not trusted here (`notSigned`): a co-signature counts as an independent reproduction by a
+`reproductions` count it) only when a key of the reproducer's tiers signed the run and every key the run's
+trust pinned is in them, or the reproducer asks for it (`--sign-anyway`); otherwise it MUST be answered
+reproducible and not signed, saying why (`notSigned`: the run's signer, or the keys not trusted here): a co-signature counts as an independent reproduction by a
 key others may trust. What differs from the reproducer's present (a pinned key not trusted here, a run
 signed by no key trusted here, another vocabulary, other packages) MUST be said beside the match (`notes`),
 not counted against it. It MUST be refused: `reproduce.missing`
@@ -1145,7 +1145,8 @@ result differs, with the row counts and the first row that differs; `query.not-r
 is in no registry read.
 
 > **Checked by:** `TestCheckReproducible`, `TestQueryRun_IsARecordWithItsManifest`, `TestReproduce_QueryRun`,
-> `TestReproduce_ARunOnKeysNotTrustedHereIsNotSigned` (`-tags docker`).
+> `TestReproduce_ARunOnKeysNotTrustedHereIsNotSigned`,
+> `TestReproduce_ARunByAnUntrustedSignerIsNotSigned` (`-tags docker`).
 
 The vocabulary of the projection, with examples, is in [docs/sparql.md](../docs/sparql.md). Every
 example there is run by a test.

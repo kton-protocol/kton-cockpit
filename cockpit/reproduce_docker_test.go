@@ -223,3 +223,44 @@ func TestReproduce_ARunOnKeysNotTrustedHereIsNotSigned(t *testing.T) {
 		t.Errorf("pinned records in no registry read: want query.not-reproducible naming the first, got %v", err)
 	}
 }
+
+// A run signed by a key this repository does not trust is not signed here, even when every key its trust
+// pinned is trusted: steps are in the dataset whoever signed them (kton-review's note on #229, MH 23.11.).
+// Asked for, it is signed.
+func TestReproduce_ARunByAnUntrustedSignerIsNotSigned(t *testing.T) {
+	ctx := context.Background()
+	r := testrepo.New(t)
+	raw := testrepo.DefaultConfig()
+	raw.Claims.AllowedTemplates = append(raw.Claims.AllowedTemplates, "describes")
+	raw.Query.Image = oxigraphImage
+	r.WriteConfig(t, raw)
+	r.Use(t)
+	if _, err := New(Start{}).Say(ctx, SayRequest{Subject: "urn:example:x", Template: "describes", Fields: map[string]string{"value": "a"}}); err != nil {
+		t.Fatal(err)
+	}
+	// The run is signed by a key in no tier here; the trust it pins is this repository's own.
+	if b, err := exec.Command(filepath.Join(r.Bin, "plankton"), "keygen", filepath.Join(r.Keys, "unknown")).CombinedOutput(); err != nil {
+		t.Fatalf("keygen: %v %s", err, b)
+	}
+	r.WriteIdentity(t, config.Identity{SessionID: testrepo.SessionID, PlanktonKey: filepath.Join(r.Keys, "unknown.key"),
+		NektonKey: r.Key(testrepo.SessionID + "-claims")})
+	a, err := New(Start{}).Ask(ctx, AskRequest{Query: "sparql", Reproducible: true,
+		Sparql: `SELECT ?c ?v WHERE { ?c <https://kton.dev/v/lab/value> ?v }`})
+	if err != nil || a.Sparql.Run == nil {
+		t.Fatalf("the run: %v %+v", err, a)
+	}
+	run := a.Sparql.Run
+	r.WriteIdentity(t, config.Identity{SessionID: testrepo.SessionID, PlanktonKey: r.Key(testrepo.SessionID),
+		NektonKey: r.Key(testrepo.SessionID + "-claims")})
+	out, err := New(Start{}).Reproduce(ctx, ReproduceRequest{Run: run.FotonID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !out.Reproducible || out.Signed || !strings.Contains(out.NotSigned, "signed by no key trusted here") || strings.Contains(out.NotSigned, "rests on") {
+		t.Errorf("a run by an untrusted signer over trusted pins: reproducible, not signed, for its signer: %+v", out)
+	}
+	out, err = New(Start{}).Reproduce(ctx, ReproduceRequest{Run: run.FotonID, SignAnyway: true})
+	if err != nil || !out.Signed || out.FotonID != run.FotonID {
+		t.Errorf("signed when asked: %+v %v", out, err)
+	}
+}
