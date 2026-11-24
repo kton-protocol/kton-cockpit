@@ -185,3 +185,16 @@ test("reviewedState without a base: a side commit of a merge that is older than 
   assert.deepEqual(st.missing, [s], "only the side commit has no review");
   assert.match(reviewedLines(st, "main").blocked ?? "", /1 commit under this rerun has no review/);
 });
+
+test("changesBetween: a path with glob characters watches only that file", async () => {
+  const { changesBetween } = await import("../src/ui/sources.js");
+  const { mirrors, commit } = scratch();
+  const c0 = commit("base", { "a1.spec.ts": "x\n", "a[1].spec.ts": "y\n", "b.spec.ts": "z\n" }, "2026-11-01T10:00:00Z");
+  const c1 = commit("touches the sibling only", { "a1.spec.ts": "x2\n" }, "2026-11-02T10:00:00Z");
+  const c2 = commit("touches the test", { "a[1].spec.ts": "y2\n" }, "2026-11-03T10:00:00Z");
+  const r = await changesBetween(mirrors, "app", c0, c2, "a[1].spec.ts");
+  assert.ok(!("why" in r));
+  if ("why" in r) return;
+  assert.deepEqual(r.commits.map((c) => c.sha), [c2], "the sibling a1.spec.ts is not matched by [1]");
+  void c1;
+});

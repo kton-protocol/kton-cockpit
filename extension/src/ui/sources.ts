@@ -197,7 +197,7 @@ export async function changesBetween(mirrors: string, repo: string, from: string
   const dir = mirrorDir(mirrors, repo, aliases);
   const git = (args: string[]) =>
     new Promise<string | undefined>((resolve) => execFile("git", ["-C", dir, ...args], { encoding: "utf8", maxBuffer: 32 * 1024 * 1024, shell: false, windowsHide: true }, (err, out) => resolve(err ? undefined : String(out))));
-  const tree = await git(["ls-tree", "-r", "--name-only", to]);
+  const tree = await git(["--literal-pathspecs", "ls-tree", "-r", "--name-only", to]);
   if (tree === undefined) return { why: `source not available on this host: ${repo} has no commit ${to.slice(0, 12)}` };
   const files = new Set(tree.split("\n").filter(Boolean));
   if (!files.has(testPath)) return { why: `${testPath} is not in ${repo} at ${to.slice(0, 12)}` };
@@ -208,7 +208,7 @@ export async function changesBetween(mirrors: string, repo: string, from: string
   for (let depth = 1; level.length && !capped; depth++) {
     const next: string[] = [];
     for (const f of level) {
-      const text = await git(["show", "--no-textconv", `${to}:${f}`]);
+      const text = await git(["--literal-pathspecs", "show", "--no-textconv", `${to}:${f}`]);
       if (text === undefined) continue;
       for (const spec of relativeImports(text)) {
         const p = resolveImport(f, spec, (x) => files.has(x));
@@ -236,7 +236,7 @@ export async function changesBetween(mirrors: string, repo: string, from: string
     return chain.length ? `a helper the test imports via ${chain.join(" → ")}` : "a helper the test imports";
   };
   const via = new Map([...parent.keys()].map((f) => [f, viaOf(f)]));
-  const log = await git(["log", "--no-color", `--max-count=${caps.commits + 1}`, "--format=%x1e%H%x1f%s%x1f%an%x1f%aI", "--name-only", `${from}..${to}`, "--", ...via.keys()]);
+  const log = await git(["--literal-pathspecs", "log", "--no-color", `--max-count=${caps.commits + 1}`, "--format=%x1e%H%x1f%s%x1f%an%x1f%aI", "--name-only", `${from}..${to}`, "--", ...via.keys()]);
   if (log === undefined) return { why: `source not available on this host: ${repo} has no ${from.slice(0, 12)}..${to.slice(0, 12)}` };
   const commits: ChangedCommit[] = [];
   for (const rec of log.split("\x1e").map((r) => r.trim()).filter(Boolean)) {
