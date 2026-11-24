@@ -63,6 +63,9 @@ func MakeDraft(s *Session, t *Task) Draft {
 			return DraftFile{Path: p, Note: "not in the repo: cockpit publish takes only paths in the repo"}
 		}
 		f := DraftFile{Path: r, Use: cls == ClassProject, Note: extra}
+		if inKtonDir(r) {
+			f.Use, f.Note = false, ktonDirNote
+		}
 		return f
 	}
 	for _, in := range t.Inputs {
@@ -347,6 +350,9 @@ func CallDraft(c Call, repo string, now func(path, sum string) string) Draft {
 		if Scratch(f.Path) {
 			df.Use, df.Note = false, "a work file of the tool"
 		}
+		if inKtonDir(r) {
+			df.Use, df.Note = false, ktonDirNote
+		}
 		if now != nil && df.Use {
 			nowNote(&df, now(f.Path, f.SHA256))
 		}
@@ -548,4 +554,15 @@ func isShell(prog string) bool {
 		return true
 	}
 	return false
+}
+
+// ktonDirNote: why a file under .kton/ is never preselected. It holds the repository's configuration,
+// registries and keys; cockpit publish refuses any path in it (SPEC §7.3), so a script that reads
+// .kton/derivations.json (the model table: which run was developed from which) would stop the publish.
+const ktonDirNote = "the cockpit's own configuration (.kton/): publish never takes it"
+
+// inKtonDir: a repository-relative path in .kton/
+func inKtonDir(rel string) bool {
+	rel = filepath.ToSlash(rel)
+	return rel == ".kton" || strings.HasPrefix(rel, ".kton/")
 }
