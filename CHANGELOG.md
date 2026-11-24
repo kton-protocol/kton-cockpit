@@ -1,6 +1,14 @@
 # Changelog
 
-## Unreleased
+## v0.5.12 — 2026-11-24
+
+A say keeps the files it signs and confirms itself in its own registry; query runs with loaded files;
+the loopback guard; the guard door's first step. The code reviewed by kton-review.
+
+### Migrating from v0.5.11
+
+- Nothing to do: views are not rebuilt, and query runs of v0.5.11 (manifest version 2) still reproduce.
+- A repository whose tracked files must not be copied into `.kton/blobs` sets `claims.keep: off`.
 
 ### Added
 
