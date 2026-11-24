@@ -359,3 +359,12 @@ func TestDraft_ToolCallNamesWhatTheToolRead(t *testing.T) {
 		t.Fatalf("cmd %q inputs %v", d.Cmd, got)
 	}
 }
+
+func TestInKtonDir(t *testing.T) {
+	for p, want := range map[string]bool{".kton/derivations.json": true, ".kton": true, ".kton/keys/self/MH.pub": true,
+		"script/model-table.R": false, ".ktonx/a": false, "data/.kton/x": false} {
+		if got := inKtonDir(p); got != want {
+			t.Errorf("inKtonDir(%q) = %v, want %v", p, got, want)
+		}
+	}
+}
