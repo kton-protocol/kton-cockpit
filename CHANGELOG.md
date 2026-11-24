@@ -3,7 +3,8 @@
 ## v0.5.12 — 2026-11-24
 
 A say keeps the files it signs and confirms itself in its own registry; query runs with loaded files;
-the loopback guard; the guard door's first step. The code reviewed by kton-review.
+the loopback guard; the guard door's first step; workbench views round 3 (#251).
+The code reviewed by kton-review (#242's help text after its merge); #237 is ADR text.
 
 ### Migrating from v0.5.11
 
