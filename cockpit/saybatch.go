@@ -200,6 +200,25 @@ func (c *Cockpit) SayBatch(ctx context.Context, in SayBatchRequest) (*SayBatchRe
 	}
 
 	registryPaths := []string{config.Rel("nekton")}
+	// Each claim's files kept with it, as say keeps one's (B11).
+	if set, err := r.Templates(); err == nil {
+		anyShared := false
+		for i, p := range preps {
+			var paths []string
+			want := map[string]string{}
+			if p.resolvedFrom != "" {
+				paths = append(paths, p.resolvedFrom)
+				want[p.resolvedFrom] = p.in.Subject
+			}
+			paths = append(paths, fileFieldPaths(set, p.in.Template, p.sets)...)
+			kept, shared := keepSigned(ctx, cfg, paths, want, signedHashes(cfg, out.Claims[i].ClaimID))
+			out.Claims[i].Kept = kept
+			anyShared = anyShared || shared
+		}
+		if anyShared {
+			registryPaths = append(registryPaths, config.Rel("blobs"))
+		}
+	}
 	if cfg.Raw.Union.Publish {
 		written, uerr := show.WriteUnion(ctx, cfg)
 		if uerr != nil {
