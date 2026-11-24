@@ -180,6 +180,11 @@ export function reviewOf(sha: string, reviews: ReadonlyArray<Record<string, { va
   return hits.map((r) => `approved by ${r["by"]?.value ?? "?"}${r["when"]?.value ? ` on ${r["when"].value.slice(0, 10)}` : ""}`).join("; ");
 }
 
+/** Answers for full commit ids cannot change: kept across refreshes (per changes function), the oldest dropped at the cap. */
+export const CHANGES_CACHE_MAX = 200;
+const FULL_SHA = /^[0-9a-f]{40}$/;
+const changesCache = new WeakMap<object, Map<string, Promise<import("./sources.js").Changes>>>();
+
 export async function withChanges(answer: unknown, o: ChangesOptions, changes: ChangesFn | undefined, reviews: ReadonlyArray<Record<string, { value?: string }>> = []): Promise<unknown> {
   const a = answer as Answer;
   const rows = a.results?.bindings;
@@ -191,7 +196,22 @@ export async function withChanges(answer: unknown, o: ChangesOptions, changes: C
     if (!changes) return { ...r, changesNote: lit("changes not shown: no sources on this host") };
     const k = [repo, from, to, path].join("\n");
     let p = memo.get(k);
-    if (!p) memo.set(k, (p = changes(repo, from, to, path)));
+    if (!p) {
+      // only for full ids: a branch name or a short id may move or be ambiguous
+      const stable = FULL_SHA.test(from) && FULL_SHA.test(to);
+      let cache = changesCache.get(changes);
+      if (!cache) changesCache.set(changes, (cache = new Map()));
+      p = stable ? cache.get(k) : undefined;
+      if (!p) {
+        p = changes(repo, from, to, path);
+        if (stable) {
+          cache.set(k, p);
+          p.then((c) => { if ("why" in c) cache.delete(k); }, () => cache.delete(k));
+          while (cache.size > CHANGES_CACHE_MAX) cache.delete(cache.keys().next().value as string);
+        }
+      }
+      memo.set(k, p);
+    }
     const c = await p;
     if ("why" in c) return { ...r, changesNote: lit(`changes not shown: ${c.why}`) };
     const list = c.commits.map((x) => ({ ...x, repo, review: reviewOf(x.sha, reviews) }));

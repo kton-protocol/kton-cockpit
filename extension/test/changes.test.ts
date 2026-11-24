@@ -130,3 +130,22 @@ test("reviewedState: from head back to the newest proper ancestor with an approv
   assert.deepEqual(requireReviewedOf({ requireReviewed: "app|main|reviews|last-run" }), { repo: "app", head: "main", reviews: "reviews", base: "last-run" });
   assert.equal(requireReviewedOf({ requireReviewed: "app|main" }), undefined);
 });
+
+test("withChanges: full ids are cached across refreshes (git runs once); a branch name is asked every time", async () => {
+  const lit = (v: string) => ({ type: "literal", value: v });
+  const row = (from: string, to: string) => ({ head: { vars: [] }, results: { bindings: [{ repo: lit("app"), before: lit(from), now: lit(to), file: lit("t.ts") }] } });
+  const opts = { repo: "repo", from: "before", to: "now", path: "file" } as const;
+  let calls = 0;
+  const fn = async () => { calls++; return { commits: [], watched: 1 } as never; };
+  const [a, b] = ["a".repeat(40), "b".repeat(40)];
+  const ask = (from: string, to: string) => withChanges(row(from, to), opts as never, fn);
+  await ask(a, b);
+  await ask(a, b);
+  assert.equal(calls, 1, "the second refresh with full ids does not run git again");
+  await ask("main", b);
+  await ask("main", b);
+  assert.equal(calls, 3, "a branch name is not cached");
+  await ask(a.slice(0, 7), b);
+  await ask(a.slice(0, 7), b);
+  assert.equal(calls, 5, "a short id is not cached");
+});
