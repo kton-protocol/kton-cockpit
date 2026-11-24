@@ -13,6 +13,12 @@
   "columns": {
    "set": "literal"
   },
+  "cols": {
+   "set": "literal"
+  },
+  "line2": {
+   "set": "literal"
+  },
   "pick": "literal",
   "open": "literal",
   "rules": {
@@ -90,7 +96,8 @@
   "requireReviewed": "literal",
   "defaults": {
    "set": "literal"
-  }
+  },
+  "actsAt": "literal"
  },
  "emits": {
   "select": {
