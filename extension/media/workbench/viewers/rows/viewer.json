@@ -87,7 +87,10 @@
   "changesBetween": "literal",
   "changesReviews": "literal",
   "checkAgainst": "literal",
-  "requireReviewed": "literal"
+  "requireReviewed": "literal",
+  "defaults": {
+   "set": "literal"
+  }
  },
  "emits": {
   "select": {
