@@ -106,7 +106,7 @@ test("design: rows draws group headers, too few muted, a total, no stamp column 
   m.mount(el, { use: { options: { columns: ["area", "unsettled", "rate", "low", "n", "stamp"], group: "group", groupSum: "unsettled", range: "rate,low,high,n", scale: "0,20,5", measurable: "enough", total: "unsettled", stamp: "section", labels: ["area|Area", "unsettled|Unsettled"] } }, kit, request: async () => answer, intent: async () => ({}), setState: () => {} });
   await new Promise((r) => setTimeout(r, 10));
   const h = el.innerHTML as string;
-  assert.match(h, /<tr class="grp" data-group="gamma"><th colspan="5" scope="colgroup">Gamma <span class="muted">2 areas · 74 unsettled<\/span><\/th><\/tr>/);
+  assert.match(h, /<tr class="grp" data-group="gamma"><th colspan="4" scope="colgroup">Gamma <span class="muted">2 areas · 74 unsettled<\/span><\/th><\/tr>/);
   assert.doesNotMatch(h, /data-head="stamp"/, "no stamp column");
   assert.match(h, /data-stamp="sha256:0a1b2c3d"/, "each row keeps its stamp");
   assert.match(h, /class="few">too few to measure/);
