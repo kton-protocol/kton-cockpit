@@ -186,8 +186,14 @@ i=0; until curl -sf "http://127.0.0.1:$PORT/healthz" >/dev/null; do i=$((i+1)); 
 echo "== playwright (npm ci from the committed lockfile)"
 cp "$HERE/package.json" "$HERE/package-lock.json" "$HERE/smoke.mjs" "$HERE/runrecord.mjs" "$WORK/pw/"
 [ -z "${EXTRA_FLOWS:-}" ] || [ ! -f "$EXTRA_FLOWS/flows.mjs" ] || cp "$EXTRA_FLOWS/flows.mjs" "$WORK/pw/extra-flows.mjs"
+# SHOTS_DIR=<absolute dir>: PNGs of each surface the flows open, at the full width and at 400 px (off by default)
+SHOTS_ARGS=""
+if [ -n "${SHOTS_DIR:-}" ]; then
+  case "$SHOTS_DIR" in /*) ;; *) echo "SHOTS_DIR must be absolute" >&2; exit 1;; esac
+  mkdir -p "$SHOTS_DIR"; SHOTS_ARGS="-e SHOTS_DIR=/shots -v $SHOTS_DIR:/shots"
+fi
 RC=0
-docker run --memory "$TEST_MEMORY" --rm --network host -u "$UIDGID" -e HOME=/tmp -e CS_URL="http://127.0.0.1:$PORT/?folder=$WORK/repo" -e OUT=/out -e FAILFAST="${FAILFAST:-0}" -e TRANSPORT="${TRANSPORT:-cli}" -e ONLY="${ONLY:-}" -e POLL_SECONDS="$POLL_SECONDS" $EXTRA_PW_ENV \
+docker run --memory "$TEST_MEMORY" --rm --network host -u "$UIDGID" -e HOME=/tmp -e CS_URL="http://127.0.0.1:$PORT/?folder=$WORK/repo" -e OUT=/out -e FAILFAST="${FAILFAST:-0}" -e TRANSPORT="${TRANSPORT:-cli}" -e ONLY="${ONLY:-}" -e POLL_SECONDS="$POLL_SECONDS" $EXTRA_PW_ENV $SHOTS_ARGS \
   -e WORK="$WORK" -v "$WORK:$WORK" -v "$OUTDIR:/out" -w "$WORK/pw" "$PW_IMAGE" \
   sh -c "npm ci --no-audit --no-fund >/dev/null && node smoke.mjs" || RC=$?
 
