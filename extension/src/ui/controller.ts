@@ -10,10 +10,11 @@ import type { ControlInfo, SignPlan } from "../sign.js";
 import { DialogConsent, meaningField, plan, sign, templateFor, FOOTER } from "../sign.js";
 import type { UiEntry, SlotContext } from "../intents.js";
 import { checkIntent } from "../intents.js";
-import { Scheduler } from "../poll.js";
+import { DEFAULT_IDLE, realClock, Scheduler, type IdlePolicy, type PollState } from "../poll.js";
 import { sourceRef, sourceTarget } from "./sources.js";
 import { artifactRef, artifactTarget } from "./artifacts.js";
 import { PackagesArea, SLOT_CMD, type ActInto, type ExpectRevision } from "../composition/area.js";
+import type { AskEach } from "../composition/host.js";
 import type { Subject } from "../composition/slots.js";
 import type { Control, MirrorPackage, ViewerTree } from "../packages/model.js";
 import type { TreeNode, UiHost } from "./host.js";
@@ -54,6 +55,8 @@ export interface WorkbenchConfig {
    */
   readonly personTiers: readonly string[];
   readonly pollSeconds: number;
+  /** kton.poll.idleAfterMinutes / pauseAfterMinutes: the window unfocused this long slows its polls to every 5 min, then stops them */
+  readonly idle?: IdlePolicy;
   readonly surfaces: readonly Surface[];
   /** Folder of a surface without its own `folder`, with ${surface}. */
   readonly surfaceFolderPattern?: string;
@@ -119,10 +122,13 @@ export const CMD = {
   compose: "ktonWorkbench.compose",
   openSlot: SLOT_CMD,
   openEntry: "ktonWorkbench.openEntry",
+  openById: "ktonWorkbench.openById",
   focusHome: "ktonWorkbench.home.focus",
 } as const;
 
 const SHA = /^sha256:[0-9a-f]{64}$/;
+/** When a decision's condition must hold, when its template does not list the values itself. */
+export const CONDITION_WHEN = ["before-rerun", "before-gate", "before-merge"] as const;
 type SignResult = "signed" | "cancelled" | "failed";
 
 export class Workbench {
@@ -154,10 +160,13 @@ export class Workbench {
     private readonly cfg: WorkbenchConfig = DEFAULT_CONFIG,
     scheduler?: Scheduler,
   ) {
-    this.scheduler = scheduler ?? new Scheduler();
+    this.scheduler = scheduler ?? new Scheduler(realClock, cfg.idle ?? DEFAULT_IDLE);
+    this.scheduler.onState = (st) => this.showPollState(st);
     this.packages = new PackagesArea(t, host, {
       act: (c, about, fields, title, expect, into) => this.signAct(c, about, fields, title, expect, into),
       person: () => ({ keyId: this.identity.person.keyId, personTiers: this.cfg.personTiers }),
+      ...(this.host.reviewedState ? { reviewedState: (repo: string, head: string, reviewOf: (sha: string) => string | undefined, base?: string) => (this.host.reviewedState as NonNullable<UiHost["reviewedState"]>)(repo, head, reviewOf, base) } : {}),
+      ...(this.host.changesBetween ? { changes: (repo: string, from: string, to: string, path: string) => (this.host.changesBetween as NonNullable<UiHost["changesBetween"]>)(repo, from, to, path) } : {}),
       ...(this.host.approvalStaleness ? { staleness: (repo: string, approved: string, head: string, paths: readonly string[]) => (this.host.approvalStaleness as NonNullable<UiHost["approvalStaleness"]>)(repo, approved, head, paths) } : {}),
       ...(this.host.artifactThumb ? { thumb: (t: import("./artifacts.js").ArtifactTarget) => (this.host.artifactThumb as NonNullable<UiHost["artifactThumb"]>)(t) } : {}),
       // open@1: a source at a commit (read-only, kton-src), a run artifact (read-only, kton-art), or a claim this
@@ -202,6 +211,28 @@ export class Workbench {
 
   stop(): void {
     this.scheduler.stop();
+  }
+
+  /**
+   * The window's focus (VS Code: window.state.focused). Unfocused past idleAfterMinutes the inbox polls every 5 min;
+   * past pauseAfterMinutes it stops until the focus is back, which refreshes at once. Signing and the user's own
+   * asks and Refresh never wait for it.
+   */
+  setFocused(focused: boolean): void {
+    this.scheduler.setFocused(focused);
+    // back: the status bar says polling again at once (the refresh the scheduler starts follows)
+    if (focused && (this.goodAt !== undefined || this.lastError !== undefined)) this.render();
+  }
+
+  private showPollState(st: PollState): void {
+    if (st.state === "active") {
+      if (this.goodAt !== undefined || this.lastError !== undefined) this.render();
+      return;
+    }
+    const t = new Date(st.since);
+    const hhmm = `${String(t.getHours()).padStart(2, "0")}:${String(t.getMinutes()).padStart(2, "0")}`;
+    if (st.state === "paused") this.host.setStatus("poll", `kton: paused while away (since ${hhmm})`, "The window has not had the focus for a while: polls stop until it has it again (kton.poll.pauseAfterMinutes). Signing and your own asks are never held back.");
+    else this.host.setStatus("poll", `kton: polls every 5 min while away (since ${hhmm})`, "The window has not had the focus for a while: polls slow down (kton.poll.idleAfterMinutes).");
   }
 
   get currentSurface(): string {
@@ -289,7 +320,7 @@ export class Workbench {
       Object.assign(this, { templates: tpl.value, proposals: proposals.map(relay), decides, messages: messages.map(relay), answers, lanes });
       await packages;
       const st = this.packages.statusText();
-      if (st) this.host.setStatus("slots", st, "status-item entries of the admitted packages");
+      if (st) this.host.setStatus("slots", st, this.packages.statusTooltip());
     } catch (e) {
       const msg = describe(e);
       this.stale = this.goodAt !== undefined;
@@ -376,7 +407,9 @@ export class Workbench {
     this.host.setTree("home", this.homeNodes(open, decisions));
     this.host.setTree("inbox", this.inboxNodes(open));
     this.host.setTree("lanes", this.laneNodes(open));
-    if (!this.stale) {
+    const away = this.scheduler.pollState();
+    if (away.state !== "active") this.showPollState(away);
+    else if (!this.stale) {
       this.host.setStatus(
         "poll",
         `polling: inbox every ${this.cfg.pollSeconds}s · ${open.length} open${this.cfg.cockpitLabel ? ` · ${this.cfg.cockpitLabel}` : ""}`,
@@ -543,13 +576,96 @@ export class Workbench {
     const row = this.openDecisions().find((d) => d["msg"] === msg);
     if (!row) return this.host.error("That decision is no longer open.");
     const cannot = this.cannotSign("decision");
+    const choice = this.decideControlFor(row, {});
+    const tpl = choice.control ? templateFor(choice.control, this.templates) : undefined;
+    const cf = tpl?.fields["conditions"];
     this.host.showPanel(
       `decision:${msg}`,
       row["title"] ?? "Decision",
-      decisionPage(row, nonce(), { records: this.records(msg), ...(cannot ? { cannotSign: cannot } : {}) }),
+      decisionPage(row, nonce(), {
+        records: this.records(msg),
+        ...(cannot ? { cannotSign: cannot } : {}),
+        decidesWith: choice.cannot !== undefined ? { cannot: choice.cannot } : { template: tpl?.name ?? choice.control.template, why: choice.why },
+        // structured conditions only where the decision's template has the field (else they would not be signed)
+        ...(cf ? { conditions: { when: CONDITION_WHEN } } : {}),
+      }),
       (m) => void this.onDecisionIntent(row, m),
       !this.quiet,
     );
+  }
+
+  /**
+   * Which template a decision on this proposal signs, and why (a guard counts a decision only in the vocabulary it
+   * expects; the window says which one and never offers another):
+   *   - a proposal a package's review view applies to, when that package brings a decision control for a `…decides`
+   *     template: that control, with the fields its template has;
+   *   - a proposal of a vocabulary (its type `<ns>proposes`): that vocabulary's decides (`<ns>decides`) as a package lists it;
+   *     when none is installed, the decision cannot be signed here (another vocabulary's decides would not count);
+   *   - a proposal without a type: the window's own decides.
+   */
+  decideControlFor(row: Row, fields: Readonly<Record<string, string>>): DecideChoice {
+    return chooseDecideControl(row, fields, this.templates, this.packages.decisionControlFor(claimSubject(row["msg"] ?? "", row["type"])), this.cfg.decideControl);
+  }
+
+  /**
+   * Open by id: a full claim id, its IRI, or a prefix of 8 or more hex digits. It resolves among the proposals and
+   * messages this window shows (kton.inbox.areas applies), by their own id and, for a copy a relay re-signed (signer in
+   * kton.inbox.relayKeys; the message queries select ?about), by the id it is about: its original. One match opens (an open proposal as its
+   * decision, from which it is decided; a message as its thread); several: a pick; none: said so. Nothing is fetched.
+   */
+  async openById(input?: string): Promise<string> {
+    const raw = input ?? (await this.host.input("Open by id: a claim id (sha256:…, its IRI, or 8 or more hex digits)"));
+    if (raw === undefined || raw.trim() === "") return "cancelled";
+    const q = idPrefix(raw);
+    if (!q) {
+      const why = `Not an id: ${raw.trim()} (a claim id is sha256: and 64 hex digits; a short id needs at least 8 hex digits)`;
+      this.host.error(why);
+      return why;
+    }
+    const only = this.cfg.inboxAreas?.filter((a) => a !== "");
+    const shown = (r: Row) => !only?.length || (r["area"] !== undefined && only.includes(r["area"]));
+    const hex = (v: string | undefined) => /([0-9a-f]{64})$/.exec(idOf(v ?? ""))?.[1] ?? "";
+    const open = new Set(this.openDecisions().map((d) => d["msg"]));
+    const found: Array<{ row: Row; kind: "decision" | "decided" | "message"; via?: string }> = [];
+    for (const [rows, isProposal] of [[this.proposals, true], [this.messages, false]] as const) {
+      for (const r of rows) {
+        if (!shown(r)) continue;
+        const own = hex(r["msg"]).startsWith(q);
+        // the id a row is about counts as its original only for a copy a configured relay re-signed (kton.inbox.relayKeys)
+        const relay = (this.cfg.relayKeys ?? []).includes(signerKeyId(r["s"]) ?? "");
+        const about = relay ? hex(r["about"]) : "";
+        const viaAbout = !own && about !== "" && about.startsWith(q);
+        if (!own && !viaAbout) continue;
+        found.push({ row: r, kind: isProposal ? (open.has(r["msg"]) ? "decision" : "decided") : "message", ...(viaAbout ? { via: `sha256:${about}` } : {}) });
+      }
+    }
+    if (found.length === 0) {
+      const why = `No proposal or message with the id ${raw.trim()} in this window.`;
+      this.host.info(why);
+      return why;
+    }
+    let hit = found[0];
+    if (found.length > 1) {
+      const labels = found.map((f, i) => `${i + 1}. ${f.row["title"] ?? f.row["msg"]} · ${f.kind === "message" ? "message" : "proposal"} ${hex(f.row["msg"]).slice(0, 8)}${f.via ? ` (copy of ${f.via.slice(7, 15)})` : ""}`);
+      const pick = await this.host.pick(`${found.length} match ${raw.trim()}: open which?`, labels);
+      if (!pick) return "cancelled";
+      hit = found[labels.indexOf(pick)];
+    }
+    if (!hit) return "cancelled";
+    const msg = hit.row["msg"] ?? "";
+    const copy = hit.via ? ` (a copy of ${hit.via.slice(0, 15)}…, about it)` : "";
+    if (hit.kind === "decision") {
+      this.openDecision(msg);
+      return `Opened the decision ${idOf(msg)}${copy}`;
+    }
+    if (hit.kind === "message") {
+      this.openThread(msg);
+      return `Opened the thread ${idOf(msg)}${copy}`;
+    }
+    const by = this.decides.filter((d) => d["answers"] === msg && this.byPerson(d)).map((d) => `${signerLabel(d["by"], d["byTier"])}${d["when"] ? ` at ${d["when"]}` : ""}${d["choice"] ? ` (${d["choice"]})` : ""}`);
+    const text = `${hit.row["title"] ?? idOf(msg)}${copy}: already decided by ${by.join(", ") || "a person"}.`;
+    this.host.info(text);
+    return text;
   }
 
   /** S3.7: an option on the Home card: the same checked intent and the same dialog as the Decision panel. */
@@ -573,7 +689,12 @@ export class Workbench {
       return "failed";
     }
     if (intent.value.kind !== "sign") return "failed";
-    return this.signThroughDialog(intent.value, this.cfg.decideControl, `Sign decision: ${row["title"] ?? id}`);
+    const choice = this.decideControlFor(row, intent.value.fields);
+    if (choice.cannot !== undefined) {
+      this.host.error(`Not signed: ${choice.cannot}`);
+      return "failed";
+    }
+    return this.signThroughDialog({ ...intent.value, fields: choice.fields }, choice.control, `Sign decision: ${row["title"] ?? id}`);
   }
 
   /**
@@ -581,7 +702,7 @@ export class Workbench {
    * status bar (S7.4); a timeout or any failure after the say was sent is "unknown whether signed", and the
    * registry decides whether a claim exists (S7.3); "Not signed" only when it never reached the cockpit.
    */
-  private async signThroughDialog(intent: { kind: "sign"; about: string; fields: Readonly<Record<string, string>>; scope?: string; opened?: readonly string[] }, control: ControlInfo, title: string, expect?: ExpectRevision, onSigned?: (s: { id: string; fields: Readonly<Record<string, string>> }) => void): Promise<SignResult> {
+  private async signThroughDialog(intent: { kind: "sign"; about: string; fields: Readonly<Record<string, string>>; scope?: string; opened?: readonly string[]; checks?: SignPlan["checks"] }, control: ControlInfo, title: string, expect?: ExpectRevision, onSigned?: (s: { id: string; fields: Readonly<Record<string, string>> }) => void): Promise<SignResult> {
     const cannot = this.cannotSign(control.kind);
     if (cannot) {
       this.host.error(`Not signed: ${cannot}`);
@@ -670,9 +791,39 @@ export class Workbench {
     if (opened) proposed["lookedAt"] = [...new Set([...(proposed["lookedAt"] ?? "").split(/\s+/).filter(Boolean), ...opened])].join(" ");
     // a record is signed with the agent key and no dialog: nobody would see a value taken from a proposal, so a record
     // takes none (its open fields are asked as if nothing was proposed)
-    const asked = await this.askOpenFields(control, fields, c.kind === "record" ? {} : proposed);
+    // a record takes no proposed value, except the key field of a per-key ask (askEach): asked in the input box with the
+    // row's value as its default, so the person sees and confirms it before the per-key values are asked
+    const keys = new Set((into?.asks ?? []).map((a) => a.key));
+    const recordProposed = Object.fromEntries(Object.entries(proposed).filter(([k]) => keys.has(k)));
+    const asked = await this.askOpenFields(control, fields, c.kind === "record" ? recordProposed : proposed, into?.asks ?? [], keys);
     if (!asked) return "cancelled";
-    return this.signThroughDialog({ kind: "sign", about, fields: asked, ...(into?.scope ? { scope: into.scope } : {}), ...(opened ? { opened } : {}) }, control, title, expect, into?.signed);
+    // checkAgainst: the values about to be signed against the query's current answer; the differences are shown in the
+    // dialog (signing stays possible) and, where the template has the note field, added to it
+    let checks: SignPlan["checks"];
+    let fieldsToSign: Record<string, string> = asked;
+    // requireReviewed: the commits under the rerun with their reviews; a decision's dialog lists them, a record says them
+    if (into?.reviewed?.length) {
+      checks = { query: "the commits under this rerun", differs: [], values: [...into.reviewed] };
+      if (c.kind === "record") this.host.info(`${title}: ${into.reviewed.join(" · ")}`);
+    }
+    if (into?.check) {
+      let rows: Array<Record<string, string>> | undefined;
+      try {
+        rows = await into.check.rows();
+      } catch (e) {
+        checks = { query: into.check.query, differs: [`not checked: ${describe(e)}`], values: [] };
+      }
+      if (rows) {
+        const r = checkValues(into.check, asked, rows);
+        checks = { query: into.check.query, ...r, ...(checks ? { values: [...r.values, ...checks.values] } : {}) };
+        const nf = into.check.noteField;
+        if (r.differs.length && nf && tpl?.fields[nf]) {
+          const add = `checked against ${into.check.query}: ${r.differs.join("; ")}`;
+          fieldsToSign = { ...asked, [nf]: asked[nf] ? `${asked[nf]} · ${add}` : add };
+        }
+      }
+    }
+    return this.signThroughDialog({ kind: "sign", about, fields: fieldsToSign, ...(into?.scope ? { scope: into.scope } : {}), ...(opened ? { opened } : {}), ...(checks ? { checks } : {}) }, control, title, expect, into?.signed);
   }
 
   /**
@@ -680,22 +831,45 @@ export class Workbench {
    * a field with values, else an input), never taken from a frame: a decision's open outcome is picked
    * (approved or rejected, C3.4), a note its text. Before the dialog, which then shows them. Undefined: cancelled.
    */
-  private async askOpenFields(control: ControlInfo, fields: Readonly<Record<string, string>>, proposed: Readonly<Record<string, string>> = {}): Promise<Record<string, string> | undefined> {
+  private async askOpenFields(control: ControlInfo, fields: Readonly<Record<string, string>>, proposed: Readonly<Record<string, string>> = {}, asks: readonly AskEach[] = [], askKeys: ReadonlySet<string> = new Set()): Promise<Record<string, string> | undefined> {
     const tpl = templateFor(control, this.templates);
     const out: Record<string, string> = { ...fields };
+    const each = new Map(asks.filter((a) => tpl?.fields[a.field] !== undefined && out[a.field] === undefined).map((a) => [a.field, a]));
     for (const [k, f] of Object.entries(tpl?.fields ?? {})) {
+      const a = each.get(k);
+      if (a) {
+        // per key of the act's key field: a value picked (or none), or a text typed (empty: none); a JSON object
+        const keys = (out[a.key] ?? "").split(/\s*;;\s*/).map((x) => x.trim()).filter(Boolean);
+        const obj: Record<string, string> = {};
+        for (const key of keys) {
+          if (a.values) {
+            const none = "(none)";
+            const v = await this.host.pick(`${control.name}: ${k} for ${key}`, [...a.values, none]);
+            if (v === undefined) return undefined;
+            if (v !== none) obj[key] = v;
+          } else {
+            const v = await this.host.input(`${control.name}: ${k} for ${key} (empty: none)`);
+            if (v === undefined) return undefined;
+            if (v.trim() !== "") obj[key] = v.trim();
+          }
+        }
+        if (Object.keys(obj).length) out[k] = JSON.stringify(obj);
+        else if (f.required) return undefined;
+        continue;
+      }
       // a field the control's meaning fixes is never asked, nor taken from a proposal: the meaning shown is the meaning
       // signed (F2/O1 on #187); the plan refuses any other value for it
       if (out[k] !== undefined || (tpl && k === meaningField(control, tpl)) || (control.meaning !== undefined && f.values?.includes(control.meaning))) continue;
       const p = proposed[k];
       // a proposed value of a field with fixed values is taken as one of them (the dialog shows it); a proposed
       // free value is only the input box's default; an optional field nobody proposed is left out
-      if (f.values && p !== undefined && f.values.includes(p)) {
+      if (f.values && p !== undefined && f.values.includes(p) && !askKeys.has(k)) {
         out[k] = p;
         continue;
       }
       if (!f.required && p === undefined) continue;
-      const v = f.values ? await this.host.pick(`${control.name}: ${k}`, f.values) : await this.host.input(`${control.name}: ${k}`, p);
+      // a key field of a per-key ask is never taken unseen, not even a value of a fixed set: the person confirms it
+      const v = f.values && !askKeys.has(k) ? await this.host.pick(`${control.name}: ${k}`, f.values) : await this.host.input(`${control.name}: ${k}`, p);
       if (v === undefined || (v === "" && f.required)) return undefined;
       if (v !== "") out[k] = v;
     }
@@ -815,6 +989,17 @@ export class Workbench {
       this.host.error("Not signed: the subject must be a sha256 id.");
       return "failed";
     }
+    // a decides about a proposal this window shows is counted only in the template the proposal's vocabulary (or its
+    // package's review view) names: any other is refused here, before a field is asked, with the one that counts
+    const proposal = /decides$/.test(tpl.predicate ?? name) ? this.proposals.find((p) => idOf(p["msg"] ?? "") === about) : undefined;
+    if (proposal) {
+      const choice = this.decideControlFor(proposal, {});
+      const counted = choice.control ? (templateFor(choice.control, templates)?.name ?? choice.control.template) : undefined;
+      if (choice.cannot !== undefined || counted !== name) {
+        this.host.error(`Not signed: ${choice.cannot ?? `a decision on this proposal is counted only as ${counted} (${choice.why}), not as ${name}. Open the proposal and choose an option there.`}`);
+        return "failed";
+      }
+    }
     const fields: Record<string, string> = {};
     for (const [k, f] of Object.entries(tpl.fields)) {
       const v = await this.host.input(`${k}${f.required ? " (required)" : ""}${f.values ? ` — one of ${f.values.join("|")}` : ""}`);
@@ -912,6 +1097,34 @@ export function claimSubject(iri: string, type?: string): Subject {
   return { kind: "claim", iri, id, claim: id, ...(type ? { type } : {}) };
 }
 
+/**
+ * The values about to be signed against a query's answer (option checkAgainst): the row whose keyColumn is the act's
+ * keyField, its valueColumn against the act's field (a difference, or no row for that key); and every row's key and value
+ * ("both ways": what the person signs beside what the claims give). A row may add a ?remark (e.g. which rows it counts).
+ */
+export function checkValues(c: { keyColumn: string; valueColumn: string; field: string; keyField: string }, fields: Readonly<Record<string, string>>, rows: ReadonlyArray<Record<string, string>>): { differs: string[]; values: string[] } {
+  const key = fields[c.keyField];
+  const mine = fields[c.field];
+  const differs: string[] = [];
+  if (key !== undefined && mine !== undefined) {
+    const row = rows.find((r) => r[c.keyColumn] === key);
+    if (!row) differs.push(`${c.keyField} ${key}: you sign ${c.field} ${mine}; the claims give none`);
+    else if (String(row[c.valueColumn] ?? "") !== mine) differs.push(`${c.keyField} ${key}: you sign ${c.field} ${mine}; the claims give ${row[c.valueColumn] ?? ""}${row["remark"] ? ` (${row["remark"]})` : ""}`);
+  }
+  const values = rows.map((r) => `${r[c.keyColumn] ?? ""}: ${r[c.valueColumn] ?? ""}${r[c.keyColumn] === key && mine !== undefined ? ` (you sign ${mine})` : ""}`);
+  return { differs, values };
+}
+
+/**
+ * The hex an id names, lowercased: a full id (sha256:…, its kton IRI, 64 hex) or a prefix of at least 8 hex digits
+ * (optionally after "sha256:"). Undefined: not an id.
+ */
+export function idPrefix(raw: string): string | undefined {
+  const t = raw.trim().toLowerCase();
+  const m = /^(?:https:\/\/kton\.dev\/o\/|sha256:)?([0-9a-f]{8,64})$/.exec(t);
+  return m ? m[1] : undefined;
+}
+
 /** The status bar's decisions item: "1 decision waiting", "2 decisions waiting". */
 export function decisionsText(n: number): string {
   return `${n} decision${n === 1 ? "" : "s"} waiting`;
@@ -931,4 +1144,48 @@ export function relayed(row: Row, relayKeys: readonly string[]): Row {
   if (!m) return row;
   const via = signerLabel(row["from"], row["fromTier"]);
   return { ...row, text: (row["text"] ?? "").slice(m[0].length), from: (m[1] ?? "").trim(), fromTier: `via ${via}`, when: (m[2] ?? "").trim(), relayedWhen: row["when"] ?? "" };
+}
+
+/** The vocabulary of a predicate IRI: everything up to its last name (after the last "/" or "#"). */
+export function vocabularyOf(predicate: string | undefined): string | undefined {
+  if (!predicate) return undefined;
+  const i = Math.max(predicate.lastIndexOf("/"), predicate.lastIndexOf("#"));
+  return i > 0 && i < predicate.length - 1 ? predicate.slice(0, i + 1) : undefined;
+}
+
+/** What a decision signs with: the control and fields, why that template, or why nothing can be signed here. */
+export type DecideChoice =
+  | { readonly control: ControlInfo; readonly fields: Readonly<Record<string, string>>; readonly why: string; readonly cannot?: undefined }
+  | { readonly control?: undefined; readonly fields: Readonly<Record<string, string>>; readonly why?: undefined; readonly cannot: string };
+
+/** The control a decision on this proposal signs with (Workbench.decideControlFor), from what the window has installed. */
+export function chooseDecideControl(
+  row: Readonly<Record<string, string | undefined>>,
+  fields: Readonly<Record<string, string>>,
+  templates: readonly TemplateInfo[],
+  pkg: ControlInfo | undefined,
+  fallback: ControlInfo,
+): DecideChoice {
+  if (pkg) {
+    const tpl = templateFor(pkg, templates);
+    const keep = Object.fromEntries(Object.entries(fields).filter(([k]) => tpl?.fields[k] !== undefined));
+    const why = `${pkg.package}'s review view applies to this proposal, and its decisions are counted in ${pkg.template}`;
+    return { control: { package: pkg.package, name: pkg.name, template: pkg.template, kind: pkg.kind, ...(pkg.meaning !== undefined ? { meaning: pkg.meaning } : {}), ...(pkg.title ? { title: pkg.title } : {}), why }, fields: keep, why };
+  }
+  const type = row["type"];
+  const ns = vocabularyOf(type);
+  if (type && ns && /proposes$/.test(type)) {
+    const want = `${ns}decides`;
+    const t = templates.find((x) => x.predicate === want);
+    if (!t) return { fields, cannot: `No decision template of this proposal's vocabulary (${want}) is installed here: a decision in another vocabulary would not be counted, so none is offered.` };
+    const slash = t.name.indexOf("/");
+    const name = slash < 0 ? t.name : t.name.slice(slash + 1);
+    const pkgName = t.package ?? (slash < 0 ? fallback.package : t.name.slice(0, slash));
+    const keep = Object.fromEntries(Object.entries(fields).filter(([k]) => t.fields[k] !== undefined));
+    const why = `${pkgName === fallback.package ? "" : `${pkgName} `}${name}, because this is a proposal in the vocabulary ${ns} (its decisions are ${want})`;
+    if (name === fallback.template && t.package === undefined) return { control: { ...fallback, why }, fields: keep, why };
+    return { control: { package: pkgName, name: "decide", template: name, kind: "decision", title: `Decide (${pkgName} ${name})`, why }, fields: keep, why };
+  }
+  const why = "the window's own decision template (the proposal names no vocabulary)";
+  return { control: { ...fallback, why }, fields, why };
 }

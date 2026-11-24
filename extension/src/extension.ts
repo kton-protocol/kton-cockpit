@@ -4,12 +4,13 @@
 
 import { SupportWriter } from "./support/view-now.js";
 import { AskGate, gated } from "./transport/gate.js";
+import { indexStatusText } from "./ui/index-status.js";
 import * as vscode from "vscode";
 import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { inside, writeTree } from "./packages/store.js";
-import { approvalStaleness, readAtCommit, sourceUri, SRC_SCHEME, targetOf, type SourceTarget } from "./ui/sources.js";
+import { approvalStaleness, changesBetween, readAtCommit, reviewedState, sourceUri, SRC_SCHEME, targetOf, type SourceTarget } from "./ui/sources.js";
 import { ART_SCHEME, artifactOf, artifactUri, readArtifact, showAs, THUMB_MAX_BYTES, type ArtifactTarget } from "./ui/artifacts.js";
 
 const artifactsDir = (): string => vscode.workspace.getConfiguration("kton").get<string>("artifacts.dir") ?? "";
@@ -66,6 +67,7 @@ import { startMermaidServer } from "./composition/mermaid-server.js";
 import type { Subject } from "./composition/slots.js";
 import type { LeafViewer, LoadedViewer, MirrorPackage, ViewerTree } from "./packages/model.js";
 import { CliTransport } from "./transport/cli.js";
+import { idlePolicy } from "./poll.js";
 import { StdioTransport } from "./transport/stdio.js";
 import { claimKeyId, readIdentityHint, type WindowIdentity } from "./identity.js";
 import type { DoctorReport } from "./transport/port.js";
@@ -109,6 +111,12 @@ class Tree implements vscode.TreeDataProvider<TreeNode> {
 }
 
 class VsHost implements UiHost {
+  reviewedState(repo: string, head: string, reviewOf: (sha: string) => string | undefined, base?: string) {
+    return reviewedState(sourcesDir(), repo, head, reviewOf, sourceAliases(), 50, base);
+  }
+  changesBetween(repo: string, from: string, to: string, path: string) {
+    return changesBetween(sourcesDir(), repo, from, to, path, sourceAliases());
+  }
   approvalStaleness(repo: string, approved: string, head: string, paths: readonly string[]) {
     return approvalStaleness(sourcesDir(), repo, approved, head, paths, sourceAliases());
   }
@@ -162,6 +170,40 @@ class VsHost implements UiHost {
   readonly trees: Record<ViewId, Tree> = { home: new Tree(), inbox: new Tree(), lanes: new Tree() };
   readonly out = vscode.window.createOutputChannel("kton cockpit workbench");
 
+  /** The window's ask queue on screen: a status bar item and the views' banner, refreshed each second while it builds. */
+  private indexTimer: ReturnType<typeof setInterval> | undefined;
+  private indexGate: AskGate | undefined;
+  watchIndex(gate: AskGate): void {
+    this.indexGate = gate;
+    gate.onChange(() => this.showIndex());
+    if (!this.indexTimer) {
+      this.indexTimer = setInterval(() => this.showIndex(true), 2000);
+      this.ctx.subscriptions.push({ dispose: () => this.indexTimer && clearInterval(this.indexTimer) });
+    }
+    this.showIndex();
+  }
+  private lastIndexText = "";
+  private showIndex(tick = false): void {
+    const g = this.indexGate;
+    if (!g) return;
+    const st = g.state();
+    const t = indexStatusText(st, Date.now());
+    const s = this.status.get("index");
+    if (s) {
+      if (t) {
+        s.text = t.text;
+        s.tooltip = t.tooltip;
+        s.show();
+      } else s.hide();
+    }
+    // the views: on a change, and each tick while something waits (a panel opened since gets it too)
+    const text = JSON.stringify(st);
+    if (!tick || st.buildingSince !== undefined || st.queued > 0 || text !== this.lastIndexText) {
+      this.lastIndexText = text;
+      for (const p of this.panels.values()) void p.webview.postMessage({ type: "kton-workbench:index", state: st });
+    }
+  }
+
   /** the Mermaid frame's URL as the webview reaches it (asExternalUri of 127.0.0.1), once the server runs */
   mermaidFrame: string | undefined;
   /** per-window view state (CompositionUi.memo): VS Code's workspace state of this window, never a registry */
@@ -181,7 +223,7 @@ class VsHost implements UiHost {
     }
   }
   constructor(private readonly ctx: vscode.ExtensionContext) {
-    const order: StatusId[] = ["surface", "identity", "mode", "decisions", "poll", "slots"];
+    const order: StatusId[] = ["surface", "identity", "mode", "decisions", "poll", "index", "slots"];
     order.forEach((id, i) => {
       const s = vscode.window.createStatusBarItem(`ktonWorkbench.${id}`, vscode.StatusBarAlignment.Left, 100 - i);
       s.name = `kton workbench ${id}`;
@@ -394,7 +436,10 @@ async function build(host: VsHost): Promise<void> {
   // the command line (default), or the frontend protocol: cockpit serve --stdio (SPEC §12.5, cockpit v0.5.6)
   const opts = { executable, cwd: folder, timeoutMs: timeout * 1000 };
   // one ask queue per window: at most 2 reads of the cockpit at a time, a cold index awaited by one (transport/gate.ts)
-  const transport = gated(cfg.get<string>("cockpit.transport") === "stdio" ? (stdio = new StdioTransport(opts)) : new CliTransport(opts), new AskGate());
+  const gate = new AskGate();
+  const transport = gated(cfg.get<string>("cockpit.transport") === "stdio" ? (stdio = new StdioTransport(opts)) : new CliTransport(opts), gate);
+  // what the window waits for: the status bar and a banner in every view
+  host.watchIndex(gate);
   if (stdio) {
     // kton-review W1 on #196: an answer to a request already failed came after all. A say among them may have
     // signed: name the claim and refresh, so the claim shows (it is never signed again).
@@ -441,6 +486,7 @@ async function build(host: VsHost): Promise<void> {
     vendoredViewers: vendored,
     ...(builtin ? { builtinPackage: builtin } : {}),
     pollSeconds: Math.max(1, cfg.get<number>("poll.seconds") ?? 30),
+    idle: idlePolicy(cfg.get<number>("poll.idleAfterMinutes") ?? 5, cfg.get<number>("poll.pauseAfterMinutes") ?? 30),
     // once per window: a rebuild after a changed setting does not open it again
     openOnStart: firstBuild && (cfg.get<boolean>("home.openOnStart") ?? true),
     cockpitLabel: executable.split(/[\\/]/).pop() ?? executable,
@@ -450,6 +496,8 @@ async function build(host: VsHost): Promise<void> {
   });
   firstBuild = false;
   await wb.start(host.openPanels());
+  // the idle backoff: a window without the focus slows its polls, then stops them (a tab left open polls for nobody)
+  wb.setFocused(vscode.window.state.focused);
 }
 /** the window's first workbench (kton.home.openOnStart applies to it only) */
 let firstBuild = true;
@@ -485,6 +533,7 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
     vscode.window.registerTreeDataProvider("ktonWorkbench.inbox", host.trees.inbox),
     vscode.window.registerTreeDataProvider("ktonWorkbench.lanes", host.trees.lanes),
     ...workbenchCommands(() => wb).map(([id, run]) => vscode.commands.registerCommand(id, run as (...args: unknown[]) => unknown)),
+    vscode.window.onDidChangeWindowState((st) => wb?.setFocused(st.focused)),
     // A changed setting (cockpit path, queries, surfaces, keys) rebuilds the workbench in place.
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration("kton")) void build(host);

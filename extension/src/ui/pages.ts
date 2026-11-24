@@ -68,6 +68,13 @@ export interface DecisionView {
   readonly cannotSign?: string;
   /** Claims of the decision's template about this proposal by signers that are not a person: records. */
   readonly records?: readonly Row[];
+  /** Which template a decision here signs and why, or why none can be signed (the proposal's vocabulary is not installed). */
+  readonly decidesWith?: { readonly template: string; readonly why: string } | { readonly cannot: string };
+  /**
+   * The decision's template has a `conditions` field: the page lets the person add conditions to the chosen option, each
+   * {text, owner, when} with `when` one of these values (sent as a JSON list in the field; the dialog shows them).
+   */
+  readonly conditions?: { readonly when: readonly string[] };
 }
 
 /** Screen 3: a decision with its options. A button posts a sign intent; the shell opens the sign dialog. */
@@ -75,7 +82,8 @@ export function decisionPage(row: Row, nonce: string, view: DecisionView = {}): 
   const id = idOf(row["msg"] ?? "");
   const opts = parseOptions(row["options"]);
   const rec = row["recommended"];
-  const off = view.cannotSign ? " disabled" : "";
+  const cannot = view.cannotSign ?? (view.decidesWith && "cannot" in view.decidesWith ? view.decidesWith.cannot : undefined);
+  const off = cannot ? " disabled" : "";
   const list = opts
     .map(
       (o) => `<div class="opt" data-testid="option-${esc(o.id)}"><button data-choice="${esc(o.id)}" data-testid="choose-${esc(o.id)}" aria-label="Choose ${esc(o.id)}"${off}>Choose ${esc(o.id)}</button>
@@ -90,10 +98,16 @@ export function decisionPage(row: Row, nonce: string, view: DecisionView = {}): 
 <div class="box" data-testid="proposal-text">${esc(row["text"] ?? "")}</div>
 <div class="muted">Why: ${esc(row["why"] ?? "")}</div>
 <div class="box" data-testid="guard"><b>Rules</b><div class="muted">${esc(RULES_LABEL)}</div></div>
+${view.decidesWith && "template" in view.decidesWith ? `<div class="muted" data-testid="decides-with">A decision here signs <b>${esc(view.decidesWith.template)}</b>: ${esc(view.decidesWith.why)}.</div>` : ""}
+${view.conditions && !cannot ? `<div class="box" data-testid="conditions"><b>Conditions</b> <span class="muted">(optional: what must hold for the option you choose; signed with it)</span><ol id="conds" data-testid="conditions-list"></ol>
+<div class="cond-new"><input id="cond-text" data-testid="condition-text" placeholder="Condition" aria-label="Condition"> <input id="cond-owner" data-testid="condition-owner" placeholder="Owner (lane or person)" aria-label="Owner"> <select id="cond-when" data-testid="condition-when" aria-label="When">${view.conditions.when.map((w) => `<option value="${esc(w)}">${esc(w)}</option>`).join("")}</select> <button id="cond-add" data-testid="condition-add">Add condition</button></div></div>` : ""}
 <div class="box"><b>Options</b>${list || '<div class="muted">This proposal has no options.</div>'}</div>
 ${records}
-${view.cannotSign ? `<div class="error" data-testid="cannot-sign">${esc(view.cannotSign)}</div>` : '<div class="muted">Choosing opens the sign dialog. Nothing is signed before you confirm there and press Sign.</div>'}`;
-  const script = `const vscode=acquireVsCodeApi();for(const b of document.querySelectorAll('button[data-choice]')){b.addEventListener('click',()=>vscode.postMessage({kind:'sign',about:${JSON.stringify(id)},fields:{answers:${JSON.stringify(id)},outcome:'https://schema.org/AcceptAction',choice:b.dataset.choice}}));}`;
+${cannot ? `<div class="error" data-testid="cannot-sign">${esc(cannot)}</div>` : '<div class="muted">Choosing opens the sign dialog. Nothing is signed before you confirm there and press Sign.</div>'}`;
+  const conds = view.conditions && !cannot
+    ? `const conds=[];const ol=document.getElementById('conds');const draw=()=>{ol.textContent='';conds.forEach((c,i)=>{const li=document.createElement('li');li.dataset.condition=String(i);li.textContent=c.text+(c.owner?' · owner '+c.owner:'')+(c.when?' · '+c.when:'');const x=document.createElement('button');x.textContent='Remove';x.dataset.testid='condition-remove';x.addEventListener('click',()=>{conds.splice(i,1);draw();});li.append(' ',x);ol.append(li);});};document.getElementById('cond-add').addEventListener('click',()=>{const t=document.getElementById('cond-text');const text=t.value.trim();if(!text)return;const owner=document.getElementById('cond-owner').value.trim();const when=document.getElementById('cond-when').value;conds.push(Object.assign({id:'c'+(conds.length+1),text},owner?{owner}:{},when?{when}:{}));t.value='';draw();});const extra=()=>conds.length?{conditions:JSON.stringify(conds)}:{};`
+    : "const extra=()=>({});";
+  const script = `const vscode=acquireVsCodeApi();${conds}for(const b of document.querySelectorAll('button[data-choice]')){b.addEventListener('click',()=>vscode.postMessage({kind:'sign',about:${JSON.stringify(id)},fields:Object.assign({answers:${JSON.stringify(id)},outcome:'https://schema.org/AcceptAction',choice:b.dataset.choice},extra())}));}`;
   return page(row["title"] ?? "Decision", body, nonce, script);
 }
 
@@ -174,17 +188,50 @@ export function signDialogDetail(p: SignPlan, signer: ShownSigner): string {
     `Template: ${p.template}  (control ${p.control.package}/${p.control.name})`,
     ...(p.control.title ? [`Control: ${p.control.title}`] : []),
     ...(p.predicate !== undefined ? [`Says: ${p.predicate}`] : []),
+    ...(vocabularyLine(p) ? [`Signs in: ${vocabularyLine(p)}`] : []),
+    ...(p.control.why ? [`Why this template: ${p.control.why}`] : []),
     `About: ${p.subject}`,
     `Fields:\n${fields || "  (none)"}`,
     ...(p.meaning !== undefined ? [p.meaningField ? `Meaning: ${p.meaning} (signed as ${p.meaningField} = ${p.meaning})` : `Act: ${p.meaning} (the control's meaning, not a field of the claim)`] : []),
     ...(p.expect.template ? [`Template as listed: ${p.expect.template.slice(0, 19)}…${p.expect.revision ? ` · package revision ${p.expect.revision.slice(0, 19)}…` : ""}`] : []),
     ...(p.scope !== undefined ? [`Into scope: ${p.scope}`] : []),
+    ...(p.checks ? [`Checked against ${p.checks.query}: ${p.checks.differs.length ? `${p.checks.differs.length} difference(s)\n${p.checks.differs.map((d) => `  ${d}`).join("\n")}` : "no difference"}`, ...(p.checks.values.length ? [`  ${p.checks.query}: ${p.checks.values.join(" · ")}`] : [])] : []),
     ...(p.opened?.length ? [`Evidence you opened in this view (${p.opened.length}):\n${p.opened.map((r) => `  ${r}${(p.fields["lookedAt"] ?? "").split(/\s+/).includes(r) ? "  (in lookedAt)" : "  (not in lookedAt: you took it out)"}`).join("\n")}`] : []),
     `Signs with: ${p.keyRole} key "${p.as}" · ${who}`,
     "",
     p.rules,
     p.footer,
   ].join("\n");
+}
+
+/** The vocabulary a plan's predicate belongs to (up to its last "/" or "#"), if the listing names a predicate. */
+function vocabularyOfPlan(p: SignPlan): string | undefined {
+  const pr = p.predicate;
+  if (!pr) return undefined;
+  const i = Math.max(pr.lastIndexOf("/"), pr.lastIndexOf("#"));
+  return i > 0 && i < pr.length - 1 ? pr.slice(0, i + 1) : undefined;
+}
+function vocabularyLine(p: SignPlan): string | undefined {
+  const v = vocabularyOfPlan(p);
+  return v ? `${p.template} (vocabulary ${v})` : undefined;
+}
+
+/** A decision's conditions (a JSON list of {id?, text, owner?, when?}), one line each; anything else as it is. */
+export function parseConditions(v: string | undefined): Array<{ id?: string; text: string; owner?: string; when?: string }> | undefined {
+  if (!v) return undefined;
+  try {
+    const a = JSON.parse(v) as unknown;
+    if (!Array.isArray(a)) return undefined;
+    const out = a.filter((c): c is Record<string, unknown> => !!c && typeof c === "object" && typeof (c as Record<string, unknown>)["text"] === "string").map((c) => ({ text: String(c["text"]), ...(typeof c["id"] === "string" ? { id: c["id"] } : {}), ...(typeof c["owner"] === "string" && c["owner"] ? { owner: c["owner"] } : {}), ...(typeof c["when"] === "string" && c["when"] ? { when: c["when"] } : {}) }));
+    return out.length === a.length ? out : undefined;
+  } catch {
+    return undefined;
+  }
+}
+function conditionsBlock(v: string | undefined): string {
+  const cs = parseConditions(v);
+  if (!cs?.length) return "";
+  return `<div class="ln" data-conditions="${cs.length}"><span class="k">With conditions (${cs.length})<span class="hide">: </span></span><span class="v"><ol class="conds">${cs.map((c) => `<li data-condition><b>${esc(c.text)}</b>${c.owner ? ` <span class="muted">· owner ${esc(c.owner)}</span>` : ""}${c.when ? ` <span class="muted">· ${esc(c.when)}</span>` : ""}</li>`).join("")}</ol></span></div>`;
 }
 
 /** A looked-at reference as a person reads it: the decoded file name and where it is; the full reference stays. */
@@ -262,8 +309,12 @@ export function signDialogBody(p: SignPlan, signer: ShownSigner, title: string):
 <h1>${esc(p.control.title ?? "Sign")}</h1>
 <section class="blk"><h2>You sign</h2>
 ${p.meaning !== undefined ? (p.meaningField ? ln("Meaning", `<b>${esc(p.meaning)}</b> <span class="muted">(signed as ${esc(p.meaningField)} = ${esc(p.meaning)})</span>`, " data-act-meaning") : ln("Act", `<b>${esc(p.meaning)}</b> <span class="muted">(the control's meaning, not a field of the claim)</span>`, " data-act-meaning")) : ""}
-${p.scope !== undefined ? ln("Into scope", `<span class="mono">${esc(p.scope)}</span>`, " data-into-scope") : ""}</section>
+${p.scope !== undefined ? ln("Into scope", `<span class="mono">${esc(p.scope)}</span>`, " data-into-scope") : ""}
+${ln("Signs in", `<b>${esc(p.template)}</b>${vocabularyLine(p) ? ` <span class="muted">· vocabulary <span class="mono">${esc(vocabularyOfPlan(p) ?? "")}</span></span>` : ""}`, ' data-signs-in data-testid="signs-in"')}
+${p.control.why ? ln("Why this template", esc(p.control.why), ' data-signs-why data-testid="signs-why"') : ""}
+${conditionsBlock(p.fields["conditions"])}</section>
 <section class="blk"><h2>About</h2>${ln("About", about ? `<span class="hide">${esc(p.subject)} </span><span class="chip" title="${esc(p.subject)}" tabindex="0">claim <span class="mono">${esc((about[1] ?? "").slice(0, 8))}</span></span>` : `<span class="mono">${esc(p.subject)}</span>`)}</section>
+${p.checks ? `<section class="blk" data-checks="${p.checks.differs.length}" data-testid="sign-checks"><h2>Checked against ${esc(p.checks.query)}</h2>${p.checks.differs.length ? `<div class="callout warn" role="status"><b>${p.checks.differs.length} difference${p.checks.differs.length === 1 ? "" : "s"} from the signed claims.</b> You can still sign; the differences are recorded with it.</div><ul class="diffs">${p.checks.differs.map((d) => `<li data-difference>${esc(d)}</li>`).join("")}</ul>` : '<div class="muted" data-no-difference>No difference from the signed claims.</div>'}${p.checks.values.length ? `<div class="muted" data-check-values>${esc(p.checks.values.join(" · "))}</div>` : ""}</section>` : ""}
 <section class="blk"><h2>Fields</h2>${fields || '<div class="muted">(none)</div>'}</section>
 ${opened}
 <section class="blk"><h2>Signs as</h2>${ln("Signs with", `<b>${esc(p.as)}</b> <span class="muted">${esc(p.keyRole)} key "${esc(p.as)}"</span> <span class="hide">· ${esc(who)}</span><span class="pill ${signer.verified ? "ok" : "warn"}">${signer.verified ? esc(who) : "unverified"}</span>`, " data-signer")}${signer.verified ? "" : `<div class="muted">${esc(signer.why)}</div>`}</section>

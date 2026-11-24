@@ -38,6 +38,8 @@ interface Job {
   gen: number;
   /** the delay to the next tick: the interval, doubled (up to MAX_BACKOFF_MS) while a tick takes longer than it */
   delayMs: number;
+  /** stopped while the window is away (past pauseAfterMs); the focus starts it again */
+  paused?: boolean;
 }
 
 /** A poll whose last run took longer than its interval waits twice as long next time, up to this (5 min). */
@@ -47,11 +49,84 @@ export function nextDelay(intervalMs: number, lastDelayMs: number, tookMs: numbe
   return tookMs > intervalMs ? Math.min(Math.max(lastDelayMs, intervalMs) * 2, Math.max(MAX_BACKOFF_MS, intervalMs)) : intervalMs;
 }
 
+/** The idle backoff: how long the window may be unfocused before its polls slow down, and before they stop. */
+export interface IdlePolicy {
+  /** unfocused this long: polls run at most every slowMs */
+  readonly idleAfterMs: number;
+  /** unfocused this long: polls stop until the window has the focus again */
+  readonly pauseAfterMs: number;
+  /** the interval while idle (5 minutes) */
+  readonly slowMs: number;
+}
+export const DEFAULT_IDLE: IdlePolicy = { idleAfterMs: 5 * 60_000, pauseAfterMs: 30 * 60_000, slowMs: 5 * 60_000 };
+/** The policy from the settings (minutes); a pause before the slow-down is taken as both at the pause. */
+export function idlePolicy(idleAfterMinutes: number, pauseAfterMinutes: number): IdlePolicy {
+  const idle = Math.max(1, idleAfterMinutes) * 60_000;
+  const pause = Math.max(1, pauseAfterMinutes) * 60_000;
+  return { idleAfterMs: Math.min(idle, pause), pauseAfterMs: pause, slowMs: DEFAULT_IDLE.slowMs };
+}
+export type PollState = { readonly state: "active" } | { readonly state: "slow" | "paused"; readonly since: number };
+
 export class Scheduler {
   private readonly jobs = new Map<string, Job>();
   private stopped = false;
+  /** when the window lost the focus (undefined: it has it) */
+  private unfocusedSince: number | undefined;
+  private shown: PollState["state"] = "active";
+  /** told when the polls slow down, stop or run normally again (the status bar says it) */
+  onState?: (s: PollState) => void;
 
-  constructor(private readonly clock: Clock = realClock) {}
+  constructor(
+    private readonly clock: Clock = realClock,
+    private readonly idle: IdlePolicy = DEFAULT_IDLE,
+  ) {}
+
+  /** The poll state now: active, slow (unfocused past idleAfterMs) or paused (past pauseAfterMs). */
+  pollState(): PollState {
+    if (this.unfocusedSince === undefined) return { state: "active" };
+    const away = this.clock.now() - this.unfocusedSince;
+    if (away >= this.idle.pauseAfterMs) return { state: "paused", since: this.unfocusedSince };
+    if (away >= this.idle.idleAfterMs) return { state: "slow", since: this.unfocusedSince };
+    return { state: "active" };
+  }
+
+  private tell(): PollState {
+    const s = this.pollState();
+    if (s.state !== this.shown) {
+      this.shown = s.state;
+      this.onState?.(s);
+    }
+    return s;
+  }
+
+  /**
+   * The window's focus (VS Code's window state). Losing it starts the idle clock; getting it back runs every poll once
+   * now and then at its own interval again. Writes and the user's own asks never wait for this (runNow is not held).
+   */
+  setFocused(focused: boolean): void {
+    if (!focused) {
+      if (this.unfocusedSince === undefined) this.unfocusedSince = this.clock.now();
+      // a check when the window would slow down and when it would stop, so the status bar says it on time
+      for (const ms of [this.idle.idleAfterMs, this.idle.pauseAfterMs]) this.clock.setTimeout(() => void this.tell(), ms + 1);
+      return;
+    }
+    const was = this.unfocusedSince;
+    this.unfocusedSince = undefined;
+    this.tell();
+    if (was === undefined) return;
+    for (const job of this.jobs.values()) {
+      if (job.paused || this.clock.now() - was >= this.idle.idleAfterMs) {
+        job.paused = false;
+        job.gen++;
+        if (job.handle !== undefined) this.clock.clearTimeout(job.handle);
+        job.delayMs = job.intervalMs;
+        const gen = job.gen;
+        void this.tick(job).then(() => {
+          if (job.gen === gen) this.schedule(job, job.delayMs);
+        });
+      }
+    }
+  }
 
   /** Register a poll. A second job under the same name is refused: one poll per thing. */
   add(name: string, intervalMs: number, fn: () => Promise<void>): void {
@@ -99,8 +174,16 @@ export class Scheduler {
     if (this.stopped) return;
     const gen = job.gen;
     job.handle = this.clock.setTimeout(() => {
+      const st = this.tell();
+      // away past pauseAfterMs: no poll until the focus comes back (setFocused runs it then)
+      if (st.state === "paused") {
+        job.paused = true;
+        return;
+      }
       void this.tick(job).then(() => {
-        if (job.gen === gen) this.schedule(job, job.delayMs);
+        if (job.gen !== gen) return;
+        // away past idleAfterMs: at most every slowMs
+        this.schedule(job, this.pollState().state === "slow" ? Math.max(job.delayMs, this.idle.slowMs) : job.delayMs);
       });
     }, delay);
   }

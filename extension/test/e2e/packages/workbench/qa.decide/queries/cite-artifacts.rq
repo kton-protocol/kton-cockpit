@@ -1,0 +1,11 @@
+# The run artifacts a text may cite: their sha256, run, name and media type, and the claim (a citation may name either).
+PREFIX nk:   <https://kton.dev/v/>
+PREFIX lab:  <https://kton.dev/v/lab/>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX w:    <https://example.org/qa/decide/>
+SELECT ?sha256 ?run ?name ?mediaType ?claim WHERE {
+  ?sr rdfs:label "w.runs" .
+  ?claim nk:scope ?sr ; nk:predicate w:artifact ; lab:run ?run ; lab:name ?name ; lab:sha256 ?h .
+  OPTIONAL { ?claim lab:mediaType ?mediaType }
+  BIND(IF(STRSTARTS(STR(?h), "https://kton.dev/o/"), CONCAT("sha256:", STRAFTER(STR(?h), "https://kton.dev/o/")), STR(?h)) AS ?sha256)
+}

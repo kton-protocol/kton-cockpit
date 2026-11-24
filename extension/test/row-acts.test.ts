@@ -40,3 +40,25 @@ test("an act about a row: only a row the host served to that block; the frame's 
   await h.onMessage(sign(ROW, { verdict: "rule-judge-right", proposal: "https://evil.example/" }));
   assert.deepEqual(acts, [{ about: `sha256:${"a".repeat(64)}`, fields: { proposal: `https://kton.dev/o/${"1".repeat(64)}` }, proposed: { verdict: "rule-judge-right" } }], "the plan's proposal field stays; the verdict is a proposal");
 });
+
+test("requireReviewed with a `when` column: a row's act is checked only when that row (as served) has a value there; other rows' acts go unchecked", async () => {
+  const reviews: unknown[] = [];
+  const plan = {
+    root: { package: "p", composition: "c" },
+    subject: { iri: `https://kton.dev/o/${"1".repeat(64)}`, claim: CLAIM },
+    uses: [{ key: "runs#rows", block: "@workbench/rows", requires: ["query@1"], optional: ["record@1"], query: { package: "p", name: "q", hash: "h" }, params: {}, options: { target: "item", requireReviewed: "rerun:app|main|reviews|last-run|reviewScope" },
+      acts: [{ intent: "record", label: "Rerun", control: { package: "p", name: "rerun" }, about: CLAIM, fields: {} }] }],
+  } as unknown as Plan;
+  const rerun: Control = { package: "p", name: "rerun", template: "rerun-requested", kind: "record" };
+  const loaded = { controls: new Map([["p/rerun", rerun]]), byHash: new Map(), packages: {} } as unknown as Loaded;
+  const backend = {
+    query: async () => ({ head: { vars: ["item", "reviewScope"] }, results: { bindings: [{ item: { type: "uri", value: ROW }, reviewScope: { type: "literal", value: "app" } }, { item: { type: "uri", value: OTHER } }] } }),
+    act: async (...a: unknown[]) => (reviews.push(a[8]), "signed" as const),
+  } as unknown as Backend;
+  const h = new CompositionHost(plan, loaded, backend, { post: () => undefined, log: () => undefined });
+  await h.onMessage({ type: "kton:request", id: "q#1", cap: "query@1", args: { use: "runs#rows" } });
+  const rec = (target: string) => ({ type: "kton:intent", intent: { id: `r#${target}`, kind: "record", from: "runs#rows", about: CLAIM, control: { package: "p", name: "rerun" }, target, fields: {} } });
+  await h.onMessage(rec(ROW));
+  await h.onMessage(rec(OTHER));
+  assert.deepEqual(reviews, [{ control: "rerun", repo: "app", head: "main", reviews: "reviews", base: "last-run", when: "reviewScope", package: "p" }, undefined], "the row of that repository is checked; the other row (e.g. another suite's test) is not");
+});

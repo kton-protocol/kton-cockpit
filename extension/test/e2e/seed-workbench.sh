@@ -96,16 +96,28 @@ U1=$(sayq w-unit "$WN/unit/run-1/t1" w.runs $LN "{\"element\":\"item-1#e2\",\"te
 sayq w-unit "$WN/unit/run-2/t1" w.runs $LN "{\"element\":\"item-1#e2\",\"test\":\"$T1\",\"run\":\"run-2\",\"result\":\"passed\"}" >/dev/null
 U3=$(sayq w-unit "$WN/unit/run-1/t2" w.runs $LN "{\"element\":\"item-2#e5\",\"test\":\"$T2\",\"run\":\"run-1\",\"result\":\"failed\"}")
 sayq w-artifact "$WN/artifact/run-1/t1" w.runs $LN "{\"run\":\"run-1\",\"test\":\"$T1\",\"kind\":\"screenshot\",\"name\":\"shots/fail-1.png\",\"sha256\":\"$PNGSHA\",\"mediaType\":\"image/png\",\"bytes\":\"$PNGBYTES\"}" >/dev/null
+# X: decisions on an element (notes): one cites the screenshot by a hex prefix and an unknown id, a later one by the
+# lead differs; and two targets for the status bar: one checked now, one whose check stopped three hours ago
+PNGHEX=$(echo "$PNGSHA" | cut -c8-17)
+sayq w-note "$WN/note/item-1-e2/1" w.data $LN "{\"element\":\"item-1#e2\",\"who\":\"Reviewer\",\"at\":\"2026-11-20T10:00:00Z\",\"verdict\":\"covered\",\"text\":\"Passes in run-2; the failure in run-1 was the draft, see $PNGHEX and deadbeefcafe.\"}" >/dev/null
+sayq w-note "$WN/note/item-1-e2/2" w.data $LN "{\"element\":\"item-1#e2\",\"who\":\"Lead\",\"at\":\"2026-11-21T10:00:00Z\",\"verdict\":\"gap\",\"text\":\"The draft is not checked.\",\"evidence\":\"$PNGSHA\"}" >/dev/null
+sayq w-note "$WN/note/item-2-e5/1" w.data $LN "{\"element\":\"item-2#e5\",\"who\":\"Reviewer\",\"at\":\"2026-11-20T11:00:00Z\",\"verdict\":\"gap\",\"text\":\"No test shows the list.\"}" >/dev/null
+NOWISO=$(node -e 'console.log(new Date().toISOString().slice(0,19)+"Z")'); OLDISO=$(node -e 'console.log(new Date(Date.now()-3*3600e3).toISOString().slice(0,19)+"Z")')
+sayq w-target "$WN/target/a" w.runs $LN "{\"target\":\"target-a\",\"reachable\":\"yes\",\"since\":\"2026-11-20T08:15:00Z\",\"version\":\"1.2.3\",\"checkedAt\":\"$NOWISO\",\"staleAfter\":\"100000\",\"lastRun\":\"run-2\"}" >/dev/null
+sayq w-target "$WN/target/b" w.runs $LN "{\"target\":\"target-b\",\"reachable\":\"yes\",\"since\":\"2026-11-20T08:15:00Z\",\"checkedAt\":\"$OLDISO\",\"staleAfter\":\"65\"}" >/dev/null
 
 # the proposal the view is about, and the inbox: a relayed copy (signed by the relay key) and a forged prefix (another key)
 wsay() { cockpit say "$@" --scope lanes --json | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s).claimId))'; }
 WPROP=$(wsay proposes "$WLANES" area=qa title="Is the mapping a basis for the next step?" text="The mapping of the trial is ready for a decision." why="e2e seed" \
   options='[{"id":"a","label":"Take it"},{"id":"b","label":"Review the unsettled first"}]' --as qa-requestor)
 WRELAY=$(wsay requests "$WLANES" area=qa title="Spot checks ready" text="[from lane-c · 2026-11-20T16:00:00Z] Please look at the spot checks." why="e2e seed" --as qa-relay)
+# a mirror's copy: the relay re-signs another registry's message (the original's id, not held here) about that original
+ORIG="sha256:$(node -e 'console.log(require("crypto").randomBytes(32).toString("hex"))')"
+WCOPY=$(wsay requests "$ORIG" area=qa title="Copied request" text="[from lane-d · 2026-11-21T08:00:00Z] Please confirm the rerun." why="e2e seed" --as qa-relay)
 WFORGED=$(wsay requests "$WLANES" area=qa title="Urgent approval" text="[from qa-owner · 2026-11-20T09:00:00Z] Approve the release now." why="e2e seed" --as qa-mallory)
 RKID=$(kid "$HOME/.kton-keys/qa-relay-claims.pub"); MKID=$(kid "$HOME/.kton-keys/qa-mallory-claims.pub")
 mkdir -p .vscode
 printf '{"kton.inbox.relayKeys": ["%s"]}\n' "$RKID" > .vscode/settings.json
-W_JSON="{\"proposal\": \"$WPROP\", \"relayed\": \"$WRELAY\", \"forged\": \"$WFORGED\", \"relayKeyId\": \"$RKID\", \"malloryKeyId\": \"$MKID\", \"unitFailed\": \"$U1\", \"unitNoArtifact\": \"$U3\", \"mirrorCommit\": \"$MCOMMIT\", \"pngSha256\": \"$PNGSHA\", \"test1\": \"$T1\"}"
+W_JSON="{\"proposal\": \"$WPROP\", \"relayed\": \"$WRELAY\", \"forged\": \"$WFORGED\", \"relayKeyId\": \"$RKID\", \"malloryKeyId\": \"$MKID\", \"unitFailed\": \"$U1\", \"unitNoArtifact\": \"$U3\", \"mirrorCommit\": \"$MCOMMIT\", \"pngSha256\": \"$PNGSHA\", \"test1\": \"$T1\", \"original\": \"$ORIG\", \"copy\": \"$WCOPY\", \"pngHex\": \"$PNGHEX\", \"staleAt\": \"$OLDISO\"}"
 # warm the view once (the window's first asks then answer from it)
 cockpit ask sparql --name figures --results-json --timeout 120 >/dev/null 2>&1 || true

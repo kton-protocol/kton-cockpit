@@ -1190,3 +1190,170 @@ test("test mode comes from kton.identity.testKeys: off, no TEST MODE and the key
   const on = await setup({ testKeys: true });
   assert.equal(on.h.status.get("mode"), "TEST MODE");
 });
+
+// --- role views round 3: open by id, the decision's template and conditions, per-key asks ---
+
+test("open by id: a full id, its IRI or 8+ hex digits opens what this window shows; a relay's copy by its original's id; several: a pick; none: said so", async () => {
+  const RELAY = "https://kton.dev/agent/1111222233334444";
+  const ORIG = HEX("7");
+  const t = new FakeTransport();
+  t.answers["Q proposals"] = [
+    { msg: P1, area: "qa", title: "Which build?", text: "t", why: "w", options: OPTIONS, from: "qa-requestor-claims", fromTier: "self", when: "2026-11-18T10:00:00Z" },
+    { msg: iri("5"), about: `https://kton.dev/o/${ORIG}`, area: "qa", title: "Copied proposal", text: "[from lane-a · 2026-11-20T17:01:00Z] t", why: "w", options: OPTIONS, from: "relay-claims", fromTier: "relay", s: RELAY, when: "2026-11-20T17:05:00Z" },
+    { msg: iri("c"), about: iri("1"), area: "qa", title: "Not a copy", text: "t", why: "w", options: OPTIONS, from: "qa-requestor-claims", fromTier: "self", when: "2026-11-20T17:06:00Z" },
+    { msg: iri("d"), area: "hidden-area", title: "Elsewhere", text: "t", why: "w", options: OPTIONS, from: "qa-requestor-claims", fromTier: "self", when: "2026-11-20T17:07:00Z" },
+  ];
+  const { h, wb } = await setup({ relayKeys: ["1111222233334444"], inboxAreas: ["qa", "ops"] }, t);
+  assert.match(await wb.openById(sha("1")), /^Opened the decision sha256:1{64}$/);
+  assert.equal(h.panels.at(-1)?.key, `decision:${P1}`, "decided from the proposal shown, never by typing its id into a say");
+  assert.match(await wb.openById("  SHA256:11111111 "), /^Opened the decision/, "a short id, any case");
+  assert.match(await wb.openById(`https://kton.dev/o/${ORIG}`), /^Opened the decision sha256:5{64} \(a copy of sha256:77777777…, about it\)$/, "the mirror's copy by its original's id");
+  assert.match(await wb.openById(ORIG.slice(0, 8)), /a copy of/);
+  assert.match(await wb.openById("22222222"), /^Opened the thread sha256:2{64}$/, "a message opens its thread");
+  assert.match(await wb.openById("dddddddd"), /^No proposal or message with the id dddddddd in this window\.$/, "a proposal of an area this window does not show is not there");
+  assert.match(await wb.openById("1234"), /^Not an id/);
+  t.answers["Q proposals"].push({ msg: iri("e"), about: `https://kton.dev/o/${ORIG}`, area: "qa", title: "Second copy", text: "t", why: "w", options: OPTIONS, from: "relay-claims", fromTier: "relay", s: RELAY, when: "2026-11-20T17:08:00Z" });
+  await wb.refresh();
+  h.picks.push("1. Copied proposal · proposal 55555555 (copy of 77777777)");
+  assert.match(await wb.openById(ORIG.slice(0, 10)), /^Opened the decision sha256:5{64}/, "two copies: the person picks one");
+  assert.match(await wb.openById("cccccccc"), /^Opened the decision sha256:c{64}$/);
+  assert.match(await wb.openById("11111111"), /^Opened the decision sha256:1{64}$/, "a row not signed by a relay is never found by what it is about");
+  const d = new FakeTransport();
+  d.answers["N decides"] = [{ d: iri("8"), answers: P2, outcome: "https://schema.org/AcceptAction", choice: "b", s: agentIri(PKID), by: "qa-decider-claims", byTier: "self", when: "2026-11-18T11:00:00Z" }];
+  const decided = await setup({}, d);
+  assert.equal(await decided.wb.openById("66666666"), "Agent decided this one: already decided by qa-decider-claims (self) at 2026-11-18T11:00:00Z (b).");
+  assert.ok(workbenchCommands(() => wb).some(([id]) => id === CMD.openById), "registered as a command");
+});
+
+test("the decision page says which template a decision signs and why; with a conditions field the person adds conditions, signed and shown in the dialog", async () => {
+  const VOC = "https://example.org/vocab-one/";
+  const t = new FakeTransport();
+  t.templateList = [
+    ...TEMPLATES,
+    { name: "vocab-one/decides", package: "vocab-one", predicate: `${VOC}decides`, fields: { answers: { type: "ref", required: true }, outcome: { type: "enum", required: true, values: ["https://schema.org/AcceptAction"] }, choice: { type: "string" }, conditions: { type: "string" } } },
+  ];
+  t.answers["Q proposals"] = [{ msg: P1, type: `${VOC}proposes`, area: "qa", title: "Approve the fix?", text: "t", why: "w", options: OPTIONS, from: "qa-requestor-claims", fromTier: "self", when: "2026-11-18T10:00:00Z" }];
+  const { h, wb } = await setup({}, t);
+  wb.openDecision(P1);
+  const html = h.panels.at(-1)?.html ?? "";
+  assert.match(html, /data-testid="decides-with">A decision here signs <b>vocab-one\/decides<\/b>: vocab-one decides, because this is a proposal in the vocabulary https:\/\/example\.org\/vocab-one\//);
+  assert.match(html, /data-testid="conditions"/);
+  assert.match(html, /<option value="before-rerun">before-rerun<\/option><option value="before-gate">/);
+  h.confirmAnswer = true;
+  const conds = JSON.stringify([{ id: "c1", text: "The rerun must close row 30", owner: "lane-a", when: "before-rerun" }]);
+  assert.equal(await wb.onDecisionIntent(t.answers["Q proposals"][0] as never, decisionIntent("a", { conditions: conds })), "signed");
+  assert.equal(t.says.at(-1)?.template, "vocab-one/decides");
+  assert.equal(t.says.at(-1)?.fields?.["conditions"], conds);
+  const detail = h.dialogs.at(-1)?.detail ?? "";
+  assert.match(detail, /Signs in: vocab-one\/decides \(vocabulary https:\/\/example\.org\/vocab-one\/\)/);
+  assert.match(detail, /Why this template: vocab-one decides, because this is a proposal in the vocabulary/);
+  const { signDialogBody, parseConditions } = await import("../src/ui/pages.js");
+  assert.deepEqual(parseConditions(conds), [{ id: "c1", text: "The rerun must close row 30", owner: "lane-a", when: "before-rerun" }]);
+  assert.equal(parseConditions("free text"), undefined);
+  const { plan } = await import("../src/sign.js");
+  const p = plan({ kind: "sign", about: sha("1"), fields: { answers: sha("1"), outcome: "https://schema.org/AcceptAction", choice: "a", conditions: conds } }, { package: "vocab-one", name: "decide", template: "decides", kind: "decision", why: "because" }, await t.templates().then((x) => (x.ok ? x.value : [])), identity);
+  assert.ok(p.ok);
+  const body = signDialogBody(p.ok ? p.value : (undefined as never), { verified: false, hint: "qa-decider", why: "test keys" } as never, "t");
+  assert.match(body, /data-testid="signs-in"/);
+  assert.match(body, /data-conditions="1"/);
+  assert.match(body, /<b>The rerun must close row 30<\/b> <span class="muted">· owner lane-a<\/span> <span class="muted">· before-rerun<\/span>/);
+});
+
+test("without a decides of the proposal's vocabulary nothing is offered; the say command refuses a decides the proposal's decision is not counted in", async () => {
+  const t = new FakeTransport();
+  t.answers["Q proposals"] = [{ msg: P1, type: "https://example.org/vocab-three/proposes", area: "qa", title: "Elsewhere", text: "t", why: "w", options: OPTIONS, from: "qa-requestor-claims", fromTier: "self", when: "2026-11-18T10:00:00Z" }];
+  t.templateList = [...TEMPLATES.map((x) => (x.name === "decides" ? { ...x, predicate: "https://example.org/workbench-e2e/decides" } : x))];
+  const { h, wb } = await setup({}, t);
+  wb.openDecision(P1);
+  assert.match(h.panels.at(-1)?.html ?? "", /data-testid="cannot-sign"[^>]*>No decision template of this proposal&#39;s vocabulary/);
+  assert.match(h.panels.at(-1)?.html ?? "", /data-choice="a"[^>]* disabled/);
+  h.confirmAnswer = true;
+  assert.equal(await wb.onDecisionIntent(t.answers["Q proposals"][0] as never, decisionIntent("a")), "failed");
+  h.picks.push("decides");
+  h.inputs.push(sha("1"));
+  assert.equal(await wb.sayCommand(), "failed");
+  assert.match(h.errors.at(-1) ?? "", /^Not signed: No decision template of this proposal's vocabulary/);
+  assert.equal(t.says.length, 0, "nothing signed");
+});
+
+test("askEach: a record's per-key field is asked per key of the act's key field (confirmed from the row), a JSON object; none: left out", async () => {
+  const t = new FakeTransport();
+  t.templateList = [...TEMPLATES, { name: "rerun", package: "runs", fields: { test: { type: "string" }, reason: { type: "string" }, expected: { type: "string" }, conditions: { type: "string" } } }];
+  const { h, wb } = await setup({}, t);
+  h.inputs.push("t-1 ;; t-2", "not counted: flaky", "");
+  h.picks.push("green", "(none)");
+  const c = { package: "runs", name: "rerun-request", template: "rerun", kind: "record" as const, decl: {} } as never;
+  const r = await wb.signAct(c, sha("1"), {}, "Request rerun", undefined, { proposed: { test: "t-1 ;; t-2", reason: "unseen" }, asks: [{ field: "expected", key: "test", values: ["green", "red", "unchanged"] }, { field: "conditions", key: "test" }] });
+  assert.equal(r, "signed");
+  assert.deepEqual(t.says.at(-1)?.fields, { test: "t-1 ;; t-2", expected: JSON.stringify({ "t-1": "green" }), conditions: JSON.stringify({ "t-1": "not counted: flaky" }) }, "reason, proposed for a record, is not taken; the key field is asked with the row's value; t-2 has no expectation and no condition");
+  const { askEachOf } = await import("../src/composition/host.js");
+  assert.deepEqual(askEachOf({ askEach: ["rerun-request:expected=test|green,red,unchanged", "other:x=y", "conditions=test", "bad"] }, "rerun-request"), [{ field: "expected", key: "test", values: ["green", "red", "unchanged"] }, { field: "conditions", key: "test" }]);
+});
+
+test("idle backoff in the status bar: 'kton: paused while away (since hh:mm)', and the polling line again on focus", async () => {
+  const clock = { t: Date.parse("2026-11-23T10:00:00Z"), now() { return this.t; }, setTimeout: () => 0, clearTimeout: () => undefined };
+  const { Scheduler: S } = await import("../src/poll.js");
+  const sched = new S(clock, { idleAfterMs: 1000, pauseAfterMs: 2000, slowMs: 300_000 });
+  const h = new FakeHost();
+  const wb = new Workbench(new FakeTransport(), h, queries, identity, { ...DEFAULT_CONFIG, surfaces: SURFACES, lockRetry: { attempts: 3, delayMs: 1 } }, sched);
+  await wb.start();
+  await wb.refresh();
+  wb.setFocused(false);
+  clock.t += 2500;
+  await wb.refresh();
+  const t = new Date(Date.parse("2026-11-23T10:00:00Z"));
+  const hhmm = `${String(t.getHours()).padStart(2, "0")}:${String(t.getMinutes()).padStart(2, "0")}`;
+  assert.equal(h.status.get("poll"), `kton: paused while away (since ${hhmm})`);
+  wb.setFocused(true);
+  assert.match(h.status.get("poll") ?? "", /^polling: inbox every 30s/);
+  wb.stop();
+});
+
+test("checkAgainst: the values about to be signed against the claims' current answer; the dialog lists each difference and the values both ways; signing stays possible and the difference goes into the note field", async () => {
+  const { checkValues } = await import("../src/ui/controller.js");
+  const { checkAgainstOf } = await import("../src/composition/host.js");
+  assert.deepEqual(checkAgainstOf({ checkAgainst: "gate:class-counts|class|count|total|class|reason" }, "gate", "pkg.a"), { package: "pkg.a", query: "class-counts", keyColumn: "class", valueColumn: "count", field: "total", keyField: "class", noteField: "reason" });
+  assert.equal(checkAgainstOf({ checkAgainst: "other:q|a|b|c|d" }, "gate", "p"), undefined);
+  assert.equal(checkAgainstOf({ checkAgainst: "q|a" }, "gate", "p"), undefined);
+  const rows = [{ class: "C1", count: "11", remark: "row 3 X-1 · row 9 Y-2" }, { class: "C2", count: "4" }];
+  const c = { keyColumn: "class", valueColumn: "count", field: "total", keyField: "class" };
+  assert.deepEqual(checkValues(c, { class: "C1", total: "12" }, rows), { differs: ["class C1: you sign total 12; the claims give 11 (row 3 X-1 · row 9 Y-2)"], values: ["C1: 11 (you sign 12)", "C2: 4"] });
+  assert.deepEqual(checkValues(c, { class: "C2", total: "4" }, rows).differs, []);
+  assert.deepEqual(checkValues(c, { class: "C3", total: "1" }, rows).differs, ["class C3: you sign total 1; the claims give none"]);
+
+  const t = new FakeTransport();
+  t.templateList = [...TEMPLATES, { name: "gate-status", package: "pkg.a", fields: { class: { type: "string", required: true }, total: { type: "string", required: true }, reason: { type: "string" } } }];
+  const { h, wb } = await setup({}, t);
+  h.confirmAnswer = true;
+  h.inputs.push("12");
+  const ctl = { package: "pkg.a", name: "gate", template: "gate-status", kind: "decision" as const, decl: {} } as never;
+  const r = await wb.signAct(ctl, sha("1"), { class: "C1" }, "Sign gate status", undefined, { check: { ...checkAgainstOf({ checkAgainst: "q|class|count|total|class|reason" }, "gate", "pkg.a")!, rows: async () => rows } });
+  assert.equal(r, "signed", "the Sign button stays enabled");
+  assert.equal(t.says.at(-1)?.fields?.["reason"], "checked against q: class C1: you sign total 12; the claims give 11 (row 3 X-1 · row 9 Y-2)");
+  const detail = h.dialogs.at(-1)?.detail ?? "";
+  assert.match(detail, /Checked against q: 1 difference\(s\)\n  class C1: you sign total 12; the claims give 11/);
+  assert.match(detail, /q: C1: 11 \(you sign 12\) · C2: 4/);
+  const { signDialogBody } = await import("../src/ui/pages.js");
+  const { plan } = await import("../src/sign.js");
+  const p = plan({ kind: "sign", about: sha("1"), fields: { class: "C1", total: "12" }, checks: { query: "q", differs: ["class C1: you sign total 12; the claims give 11"], values: ["C1: 11 (you sign 12)"] } }, { package: "pkg.a", name: "gate", template: "gate-status", kind: "decision" }, await t.templates().then((x) => (x.ok ? x.value : [])), identity);
+  assert.ok(p.ok);
+  const body = signDialogBody(p.ok ? p.value : (undefined as never), { verified: false, hint: "qa-decider", why: "test keys" } as never, "t");
+  assert.match(body, /data-checks="1" data-testid="sign-checks"/);
+  assert.match(body, /<li data-difference>class C1: you sign total 12; the claims give 11<\/li>/);
+  const p2 = plan({ kind: "sign", about: sha("1"), fields: { class: "C1", total: "12" } }, { package: "pkg.a", name: "gate", template: "gate-status", kind: "decision" }, await t.templates().then((x) => (x.ok ? x.value : [])), identity);
+  assert.ok(p.ok && p2.ok && p.value.digest !== p2.value.digest, "the checks are part of what the dialog's consent is bound to");
+});
+
+test("requireReviewed at act time: the commits under the rerun are listed in a decision's dialog (and said for a record)", async () => {
+  const t = new FakeTransport();
+  t.templateList = [...TEMPLATES, { name: "rerun", package: "runs", fields: { reason: { type: "string" } } }];
+  const { h, wb } = await setup({}, t);
+  h.confirmAnswer = true;
+  const lines = ["main: 2 commits since the last reviewed state", "aaaaaaa head: approved by R on 2026-11-23", "last reviewed state: bbbbbbb"];
+  const rec = { package: "runs", name: "rerun-request", template: "rerun", kind: "record" as const, decl: {} } as never;
+  assert.equal(await wb.signAct(rec, sha("1"), { reason: "r" }, "Request rerun", undefined, { reviewed: lines }), "signed");
+  assert.ok(h.infos.some((i) => i === `Request rerun: ${lines.join(" · ")}`), "a record says the commits (no dialog)");
+  const dec = { package: "runs", name: "rerun-decide", template: "rerun", kind: "decision" as const, decl: {} } as never;
+  assert.equal(await wb.signAct(dec, sha("1"), { reason: "r" }, "Rerun", undefined, { reviewed: lines }), "signed");
+  assert.match(h.dialogs.at(-1)?.detail ?? "", /Checked against the commits under this rerun: no difference\n  the commits under this rerun: main: 2 commits since the last reviewed state · aaaaaaa head: approved by R on 2026-11-23/);
+});

@@ -1,0 +1,16 @@
+# The status bar's line per target (status-item, a ?text line): reachable since when, version, last run; with
+# ?checkedAt and ?staleAfterMinutes the shell shows "<target>: status check stopped" once the last check is older.
+PREFIX nk:   <https://kton.dev/v/>
+PREFIX lab:  <https://kton.dev/v/lab/>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX w:    <https://example.org/qa/decide/>
+SELECT ?text ?since ?checkedAt ?staleAfterMinutes ?staleText ?target WHERE {
+  ?sr rdfs:label "w.runs" .
+  ?c nk:scope ?sr ; nk:predicate w:target ; lab:target ?target ; lab:reachable ?reachable ; lab:since ?since ;
+     lab:checkedAt ?checkedAt ; lab:staleAfter ?staleAfterMinutes .
+  OPTIONAL { ?c lab:version ?version } OPTIONAL { ?c lab:lastRun ?lastRun }
+  BIND(CONCAT(STR(?target), IF(STR(?reachable) = "yes", ": up since {since|time}", ": down since {since|time}"),
+              IF(BOUND(?version), CONCAT(", ", STR(?version)), ""), ", last run ", COALESCE(STR(?lastRun), "none")) AS ?text)
+  BIND(CONCAT(STR(?target), ": status check stopped") AS ?staleText)
+}
+ORDER BY ?target

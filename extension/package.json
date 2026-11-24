@@ -113,6 +113,11 @@
       {
         "command": "ktonWorkbench.openEntry",
         "title": "kton workbench: open a package's review view for a waiting decision"
+      },
+      {
+        "command": "ktonWorkbench.openById",
+        "title": "kton workbench: open by id",
+        "icon": "$(search)"
       }
     ],
     "configuration": {
@@ -139,6 +144,18 @@
           "default": 30,
           "minimum": 1,
           "description": "How often the inbox is polled (by code, never by a language model)."
+        },
+        "kton.poll.idleAfterMinutes": {
+          "type": "number",
+          "default": 5,
+          "minimum": 1,
+          "description": "When the window has not had the focus for this long, its polls run every 5 minutes. Signing and your own asks are never held back."
+        },
+        "kton.poll.pauseAfterMinutes": {
+          "type": "number",
+          "default": 30,
+          "minimum": 1,
+          "description": "When the window has not had the focus for this long, its polls stop until it has it again (then one refresh at once). The status bar says \"kton: paused while away (since hh:mm)\"."
         },
         "kton.queries.dir": {
           "type": "string",
@@ -236,6 +253,11 @@
     },
     "menus": {
       "view/title": [
+        {
+          "command": "ktonWorkbench.openById",
+          "when": "view == ktonWorkbench.inbox",
+          "group": "navigation"
+        },
         {
           "command": "ktonWorkbench.switchSurface",
           "when": "view == ktonWorkbench.home",

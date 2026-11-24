@@ -38,7 +38,7 @@
 //   total     a column summed in a footer row
 //   short     columns shown short: a test id "repo:dir/File.kt#name" as "File.kt · name", an IRI with a label column
 //             (<column>Label) as its label; the full value stays in the tooltip
-//   evidence  a column of packed artifacts (assertion, kind, sha256, run, name, mediaType, bytes, site, text[, thumb] per
+//   evidence  a column (e.g. "cites": what a text cites, added by the shell's option cite) of packed artifacts (assertion, kind, sha256, run, name, mediaType, bytes, site, text[, thumb] per
 //             line): assertion screenshots as thumbnails in assertion order (file:line and the assertion in the tooltip;
 //             a click opens it full size, hash-checked), the error-context and the trace as links, "trace removed by
 //             the token scan" (traceNote: a column saying so), "none" where nothing exists
@@ -46,6 +46,14 @@
 //             once under the group's header; each row shows a small marker with the count and the items in its tooltip
 //   details   "column|Label": an expandable row detail (in the first cell) with these fields; with actsIn "details" the
 //             row's acts go there too
+//   requireReviewed "[control:]repo|head|reviews[|base[|when]]" (when: a row column; only rows with a value there): the shell finds the commits a rerun at head would contain since
+//             base (a query naming the commit the last run ran at; without one, the newest ancestor with an approval)
+//             (each needs its own approval from the reviews query); while one has none, that control's act
+//             is drawn disabled with the reason, and the commits are listed above the table
+//   changesBetween "repo|from|to|path": the row's columns naming a mirrored repository, two commits and a test file; the
+//             shell adds `changes` (the commits between them that touched the test or a helper it imports, each opening
+//             its diff read-only, with its review from changesReviews "<query>": ?approvedCommit ?by ?when) and
+//             `changesNote`; list "changes" among the columns to show them
 //   stamp     column (default: a stamp column when the query answers one) | section (no column: each row keeps its
 //             stamp, hidden when the part's source chip names it) | hide
 export function mount(el, ctx) {
@@ -79,6 +87,14 @@ export function mount(el, ctx) {
   const choicesOf = (a) => choices.map((c, ci) => ({ c, ci })).filter(({ c }) => c.control === undefined || c.control === a.control?.name);
   const proposes = (o.propose ?? []).map((p) => [p.slice(0, p.indexOf("=")), p.slice(p.indexOf("=") + 1)]).filter(([f]) => f);
   const perRow = !!o.target && acts.length > 0;
+  // requireReviewed (the shell's option): an act whose rerun contains a commit without a review is drawn disabled, with why
+  const [blockedCtl, blockedWhy] = typeof o.blocked === "string" && o.blocked.includes("|") ? [o.blocked.slice(0, o.blocked.indexOf("|")), o.blocked.slice(o.blocked.indexOf("|") + 1)] : [undefined, undefined];
+  // with blockedWhen (the rule's `when` column), only a row with a value there is under the rule
+  const blockedFor = (a, r) => (blockedWhy && (blockedCtl === "*" || a.control?.name === blockedCtl) && (!o.blockedWhen || !r || value(r[o.blockedWhen])) ? blockedWhy : "");
+  const reviewedNote = () =>
+    Array.isArray(o.reviewed) && o.reviewed.length
+      ? `<details class="reviewed" data-reviewed${blockedWhy ? " open" : ""}><summary>${blockedWhy ? `<b data-blocked-why>${esc(blockedWhy)}</b>` : esc(o.reviewed[0])}</summary><ul>${o.reviewed.map((l) => `<li>${esc(l)}</li>`).join("")}</ul></details>`
+      : "";
   const rowButtons = (r, i) =>
     value(r[o.target])
       ? acts
@@ -86,7 +102,10 @@ export function mount(el, ctx) {
             const own = choicesOf(a);
             return own.length ? own.map(({ c, ci }) => ({ a, ai, c, ci })) : [{ a, ai, c: null, ci: -1 }];
           })
-          .map(({ a, ai, c, ci }) => `<button type="button" class="small" data-row-act="${i}" data-act-i="${ai}" data-choice="${ci}" data-testid="row-${i}-${esc(c ? c.value : a.control?.name ?? a.intent)}">${esc(c ? c.label : a.label ?? a.intent)}</button>`)
+          .map(({ a, ai, c, ci }) => {
+            const why = blockedFor(a, r);
+            return `<button type="button" class="small" data-row-act="${i}" data-act-i="${ai}" data-choice="${ci}" data-testid="row-${i}-${esc(c ? c.value : a.control?.name ?? a.intent)}"${why ? ` disabled data-blocked data-tip="${esc(why)}"` : ""}>${esc(c ? c.label : a.label ?? a.intent)}</button>`;
+          })
           .join(" ") + ` <span class="kton-muted" data-row-out="${i}"></span>`
       : "";
   const wireRowActs = (rows) => {
@@ -113,7 +132,7 @@ export function mount(el, ctx) {
   const actButtons = () =>
     acts.length && !perRow
       ? `<div class="kton-act" data-area-acts>${acts
-          .map((a, i) => `<button type="button" class="${actClasses(acts)[i]}" data-act="${i}" data-testid="act-${esc(a.control?.name ?? a.intent)}">${esc(a.label ?? a.intent)}</button>`)
+          .map((a, i) => `<button type="button" class="${actClasses(acts)[i]}" data-act="${i}" data-testid="act-${esc(a.control?.name ?? a.intent)}"${blockedFor(a) ? ` disabled data-blocked data-tip="${esc(blockedFor(a))}"` : ""}>${esc(a.label ?? a.intent)}</button>`)
           .join("")}<span class="kton-muted" data-act-out></span></div>`
       : "";
   const wireActs = () => {
@@ -174,7 +193,7 @@ export function mount(el, ctx) {
     const page = paging
       ? `<div class="kton-pager" data-pager data-page="${back.length + 1}"><span class="kton-muted">Page ${back.length + 1} · rows ${back.length * pageSize + (rows.length ? 1 : 0)}–${back.length * pageSize + rows.length}</span>${back.length ? ` <button type="button" class="small" data-page-prev>Previous</button>` : ""}${pageSize && rows.length >= pageSize ? ` <button type="button" class="small" data-page-next>Next</button>` : ""}</div>`
       : "";
-    el.innerHTML = `${o.title ? `<h3 data-block-title>${esc(o.title)}</h3>` : ""}${caption()}${ruleStates(rows)}${choices ? `<div class="kton-refine" data-refines>${choices}</div>` : ""}${body}${page}${actButtons()}`;
+    el.innerHTML = `${o.title ? `<h3 data-block-title>${esc(o.title)}</h3>` : ""}${reviewedNote()}${caption()}${ruleStates(rows)}${choices ? `<div class="kton-refine" data-refines>${choices}</div>` : ""}${body}${page}${actButtons()}`;
     for (const mb of el.querySelectorAll(".mb[data-lo]")) for (const k of ["lo", "hi", "pt", "t"]) mb.style.setProperty(`--${k}`, mb.dataset[k]);
     for (const b of el.querySelectorAll("button[data-art]")) {
       b.addEventListener("click", (ev) => {
@@ -182,6 +201,17 @@ export function mount(el, ctx) {
         const [run, name, sha256, mediaType] = JSON.parse(b.dataset.art);
         b.disabled = true;
         ctx.intent({ kind: "open", artifact: { run, name, sha256, ...(mediaType ? { mediaType } : {}) } }).then((res) => {
+          b.disabled = false;
+          if (res?.refused) b.title = `Not opened: ${res.refused.why ?? res.refused}`;
+        });
+      });
+    }
+    for (const b of el.querySelectorAll("button[data-src]")) {
+      b.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        const [repo, commit] = JSON.parse(b.dataset.src);
+        b.disabled = true;
+        ctx.intent({ kind: "open", source: { repo, commit, diff: true } }).then((res) => {
           b.disabled = false;
           if (res?.refused) b.title = `Not opened: ${res.refused.why ?? res.refused}`;
         });
@@ -336,6 +366,24 @@ export function parseEvidence(packed) {
     .sort((a, b) => (Number(a.assertion) || 1e9) - (Number(b.assertion) || 1e9));
 }
 
+/** The commits a row's changes column lists (the shell's option changesBetween): each opens its diff read-only. */
+export function changesCell(esc, json) {
+  let list = [];
+  try {
+    list = JSON.parse(json || "[]");
+  } catch {
+    list = [];
+  }
+  if (!Array.isArray(list) || !list.length) return "";
+  return `<ul class="changes">${list
+    .map((x) => {
+      const touched = (x.touched ?? []).map((t) => `${String(t.path).split("/").pop()} (${t.via})`).join("; ");
+      const reviewed = /^approved by /.test(x.review ?? "");
+      return `<li data-commit="${esc(x.sha)}"><button type="button" class="ghost small mono" data-src="${esc(JSON.stringify([x.repo, x.sha]))}" data-tip="${esc(`${x.sha} · open the change read-only`)}">${esc(String(x.sha).slice(0, 7))}</button> ${esc(x.subject ?? "")} <span class="muted">· ${esc(x.author ?? "")} · ${esc(String(x.date ?? "").slice(0, 10))}</span><div class="muted" data-touched>touched: ${esc(touched)}</div><span class="pill ${reviewed ? "ok" : "warn"}" data-review>${esc(x.review ?? "")}</span></li>`;
+    })
+    .join("")}</ul>`;
+}
+
 function evidenceCell(esc, packed, traceNote) {
   const es = parseEvidence(packed);
   const art = (e) => esc(JSON.stringify([e.run, e.name, e.sha256, e.mediaType || ""]));
@@ -351,7 +399,7 @@ function evidenceCell(esc, packed, traceNote) {
   const ctx = es.filter((e) => e.kind === "error-context").map((e) => link(e, "error-context")).join("");
   const shot = es.filter((e) => e.kind === "screenshot").map((e) => link(e, "screenshot")).join("");
   const trace = es.filter((e) => e.kind === "trace").map((e) => link(e, "trace")).join("") || (traceNote ? `<span class="muted">${esc(traceNote)}</span>` : "");
-  const other = es.filter((e) => !["assertion-screenshot", "error-context", "screenshot", "trace", "assertions"].includes(e.kind)).map((e) => link(e, e.kind)).join("");
+  const other = es.filter((e) => !["assertion-screenshot", "error-context", "screenshot", "trace", "assertions"].includes(e.kind)).map((e) => link(e, e.kind === "cited" ? String(e.name ?? "").split("/").pop() || "cited" : e.kind)).join("");
   const any = thumbs || ctx || shot || trace || other;
   return any ? `<div class="ev-thumbs">${thumbs}</div><div class="ev-links">${shot}${ctx}${trace}${other}</div>` : `<span class="muted">none</span>`;
 }
@@ -395,6 +443,7 @@ function table(rows, cols, { o, esc, value, shortly, click, perRow, rowButtons }
     }
     if (rg && c === rg.low) return `<td data-col="${esc(c)}" class="r muted">${value(r[rg.low]) && measurable(r) ? `${esc(pct(value(r[rg.low])).slice(0, -2))}–${esc(pct(value(r[rg.high])).slice(0, -2))}` : ""}${lead}</td>`;
     if (rg && c === rg.n) return `<td data-col="${esc(c)}" class="r${measurable(r) ? "" : " muted"}" data-number>${esc(value(r[c]))}${lead}</td>`;
+    if (o.changesBetween && c === "changes") return `<td data-col="changes" class="ch-cell">${changesCell(esc, value(r[c]))}${lead}</td>`;
     if (o.evidence && c === o.evidence) return `<td data-col="${esc(c)}" class="ev-cell">${evidenceCell(esc, value(r[c]), o.traceNote ? value(r[o.traceNote]) : "")}${lead}</td>`;
     const num = numeric.has(c) || NUM_RE.test(value(r[c]));
     const full = value(r[c]);

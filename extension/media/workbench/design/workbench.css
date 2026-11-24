@@ -435,3 +435,10 @@ td.ev-cell .kton-stamp { margin-top: 4px; }
 ul.members { list-style: none; padding: 0; margin: 4px 0; max-height: 320px; overflow: auto; columns: 3 220px; }
 ul.members li { break-inside: avoid; font-size: 12px; }
 [data-throughput-tiles] .big { font-size: 20px; font-weight: 600; margin: 4px 0; }
+ul.rule-lines { list-style: none; padding: 0; margin: 6px 0; }
+ul.rule-lines li { padding: 4px 0; border-bottom: 1px solid var(--wb-hairline); font-size: 12px; }
+
+/* the window's wait for the cockpit */
+.wb-index { position: sticky; top: 0; z-index: 30; margin: 0 0 8px; padding: 4px 10px; font-size: 12px; border-left: 3px solid var(--wb-focus); background: var(--wb-surface); }
+.wb-index[data-kind="failed"] { border-left-color: var(--wb-error); color: var(--wb-error); }
+.wb-index button { margin-left: 8px; }

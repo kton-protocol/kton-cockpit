@@ -132,8 +132,10 @@ export async function withThumbs(answer: unknown, thumb: (t: ArtifactTarget) => 
   const out = [];
   for (const r of rows) {
     const row = { ...r };
-    const ev = r["evidence"]?.value;
-    if (typeof ev === "string" && ev.includes("\t")) {
+    // a column of packed artifacts: the evidence column, or what a text cites (ui/annotate.ts)
+    const col = ["evidence", "cites"].find((c) => typeof r[c]?.value === "string" && (r[c]?.value ?? "").includes("\t"));
+    const ev = col ? r[col]?.value : undefined;
+    if (col && typeof ev === "string") {
       const es = evidenceEntries(ev).sort((x, y) => (Number(x[0]) || 1e9) - (Number(y[0]) || 1e9));
       let n = 0;
       for (const e of es) {
@@ -147,7 +149,7 @@ export async function withThumbs(answer: unknown, thumb: (t: ArtifactTarget) => 
         e.length = 9;
         e.push(url);
       }
-      row["evidence"] = { type: "literal", value: es.map((e) => e.map((x) => x ?? "").join("\t")).join("\n") };
+      row[col] = { type: "literal", value: es.map((e) => e.map((x) => x ?? "").join("\t")).join("\n") };
       added = true;
     } else {
       const kind = r["artifact"]?.value ?? r["kind"]?.value ?? "";

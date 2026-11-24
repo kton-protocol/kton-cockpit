@@ -43,21 +43,65 @@ test("queue: the current item with its fields, its kind, its stamp, where it is,
   assert.equal(states.at(-1).item, "item-1#e1", "the first item is emitted (once the reader stops moving)");
 });
 
-test("rules: settles n items = what they collapse to; the caveat; a signed rule names its members as decided by it", async () => {
+test("rules: the overview lists the open rules (settles n items = what they collapse to, the caveat flag) and the decided ones apart, with who signed; the flow shows one rule in full", async () => {
   const m = await media("viewers/rules/rules.js");
-  const el: Any = { innerHTML: "", querySelector: () => null, querySelectorAll: () => [] };
-  const opts = { id: "candidate", title: "rule", target: "target", size: "size", settles: "settles", collapses: "collapsesTo", answer: "proposedAnswer", caveat: "caveat", examples: "examples", members: "members", excludeField: "excluded", decidedBy: "by", decidedVerdict: "verdict", excluded: "excluded", choices: ["verdict=accepted|Accept…"] };
+  const opts = { id: "candidate", title: "rule", target: "target", size: "size", settles: "settles", collapses: "collapsesTo", answer: "proposedAnswer", caveat: "caveat", examples: "examples", members: "members", excludeField: "excluded", decidedBy: "by", decidedAt: "at", decidedVerdict: "verdict", excluded: "excluded", choices: ["verdict=accepted|Accept…"] };
   const rows = [
     b({ candidate: "R14", rule: "Gap, group A", size: "240", settles: "240", collapsesTo: "31 specs", proposedAnswer: "extend the spec's tests", caveat: "the area map decides R14 vs R15", examples: "item-1#e1; item-2#e3", members: "item-1#e1 ;; item-2#e3", target: "https://kton.dev/o/" + "a".repeat(64), stamp: "sha256:0a1b2c3d" }),
-    b({ candidate: "R02", rule: "Covered by a run", size: "3", members: "a ;; b ;; c", by: "Tester (test)", verdict: "accepted", excluded: "b", target: "https://kton.dev/o/" + "b".repeat(64), stamp: "s" }),
+    b({ candidate: "R02", rule: "Covered by a run", size: "3", members: "a ;; b ;; c", by: "Tester (test)", at: "2026-11-23T13:10:00Z", verdict: "accepted", excluded: "b", target: "https://kton.dev/o/" + "b".repeat(64), stamp: "s" }),
+    b({ candidate: "R01", rule: "Outside the scope", size: "75", members: "x", target: "https://kton.dev/o/" + "c".repeat(64), stamp: "s" }),
   ];
-  m.mount(el, { use: { key: "r", options: opts, blockActs: [{ intent: "sign", control: { name: "decide-rule" } }] }, kit, state: {}, request: async () => ({ results: { bindings: rows } }), intent: async () => ({}), setState: () => {} });
+  const mountWith = async (state: Any, signed: Any[] = []) => {
+    (globalThis as Any).ktonWorkbench = { signedActs: (use: string) => signed.filter((x) => x.use === use) };
+    const el: Any = { innerHTML: "", querySelector: () => null, querySelectorAll: () => [] };
+    m.mount(el, { use: { key: "r", options: opts, blockActs: [{ intent: "sign", control: { name: "decide-rule" } }] }, kit, state, request: async () => ({ results: { bindings: rows } }), intent: async () => ({}), setState: () => {} });
+    await tick();
+    return el.innerHTML as string;
+  };
+  const ov = await mountWith({});
+  assert.match(ov, /data-open-count>2 open · 1 decided</);
+  assert.match(ov, /Settles 240 items = 31 specs: extend the spec&#39;s tests/);
+  assert.match(ov, /data-caveat-flag[^>]*>check the area map</);
+  assert.match(ov, /data-testid="rules-start"/);
+  assert.match(ov, /<summary>Decided \(1\)<\/summary>[\s\S]*R02<\/span> <b>Covered by a run<\/b> · accepted · signed by Tester \(test\) at 2026-11-23T13:10:00Z/);
+  assert.doesNotMatch(ov, /data-rule-line="R02"/, "a decided rule is not in the open list");
+  // signed in this view, before the cockpit answers: decided at once
+  const ov2 = await mountWith({}, [{ use: "r", target: "https://kton.dev/o/" + "c".repeat(64), claim: "sha256:" + "d".repeat(64), at: Date.parse("2026-11-23T14:00:00Z"), fields: { verdict: "accepted" } }]);
+  assert.match(ov2, /data-open-count>1 open · 2 decided</);
+  assert.match(ov2, /R01<\/span> <b>Outside the scope<\/b> · accepted · signed by you, in this view at 2026-11-23 14:00 \(the cockpit's answer follows\)/);
+  const fl = await mountWith({ mode: "flow", cur: "R14" });
+  assert.match(fl, /data-pos aria-live="polite">Rule 1 of 2 open</);
+  assert.match(fl, /data-caveat role="status"><p><b>Check the area map\.<\/b> the area map decides R14 vs R15/);
+  assert.match(fl, /data-testid="rule-R14-accepted"/);
+  assert.match(fl, /data-member="item-2#e3" aria-label="Keep item-2#e3 in the rule" checked/);
+  assert.match(fl, /data-example="item-2#e3" title="Show item-2#e3 beside this rule">item-2#e3</, "a member opens beside too");
+  assert.match(fl, /Drawn examples \(click or Enter: its item screen beside this rule\)/);
+  assert.doesNotMatch(fl, /data-beside=/, "nothing beside until one is clicked");
+  // an example shown beside: what is beside, take out, open in the item queue, close (Esc)
+  const bs = await mountWith({ mode: "flow", cur: "R14", pick: "item-2#e3" });
+  assert.match(bs, /data-beside="item-2#e3"[\s\S]*the item screen of <span class="mono">item-2#e3<\/span>/);
+  assert.match(bs, /data-testid="beside-takeout">Take this member out of the rule</);
+  assert.match(bs, /data-testid="beside-queue">Open in item queue</);
+  assert.match(bs, /data-testid="beside-close">Close \(Esc\)</);
+  const bs2 = await mountWith({ mode: "flow", cur: "R14", pick: "item-2#e3", excluded: { R14: ["item-2#e3"] } });
+  assert.match(bs2, /data-testid="beside-takeout">Put it back into the rule</, "taken out from the panel, the same list");
+  delete (globalThis as Any).ktonWorkbench;
+});
+
+test("queue: a jump from another block (the rule card's Open in item queue) shows that item in its group, with Back to rule", async () => {
+  const m = await media("viewers/queue/queue.js");
+  const el: Any = { innerHTML: "", isConnected: true, querySelector: () => null, querySelectorAll: () => [] };
+  const rows = ["item-1#e1", "item-1#e2", "item-1#e3"].map((k) => b({ key: k, total: "3", stamp: "s", target: "https://e/" + k }));
+  const asked: Any[] = [];
+  m.mount(el, {
+    use: { key: "q", options: { key: "key", title: "key", total: "total", group: "GROUP", jump: JSON.stringify({ group: "R14", item: "item-1#e3", from: "R14", n: 1 }) }, refine: { GROUP: { values: ["person", "R14"] } } },
+    kit, state: {}, request: async (_c: string, a: Any) => (asked.push(a), { results: { bindings: rows } }), intent: async () => ({}), setState: () => {},
+  });
   await tick();
-  assert.match(el.innerHTML, /Settles 240 items = 31 specs: extend the spec&#39;s tests/);
-  assert.match(el.innerHTML, /data-caveat role="status"><p><b>Check the area map\.<\/b> the area map decides R14 vs R15/);
-  assert.match(el.innerHTML, /data-testid="rule-R14-accepted"/);
-  assert.match(el.innerHTML, /2 members: decided by rule R02, signed by Tester \(test\)\. Taken out \(1, back in the queue\): <span class="mono">b<\/span>/);
-  assert.doesNotMatch(el.innerHTML, /data-testid="rule-C02-accepted"/, "a decided rule offers no second signature");
+  assert.equal(asked[0]?.refine?.GROUP, "R14", "the rule's group");
+  assert.match(el.innerHTML, /data-queue-item="item-1#e3"/);
+  assert.match(el.innerHTML, /Item 3 of 3 in this group/);
+  assert.match(el.innerHTML, /data-testid="queue-back">Back to rule R14</);
 });
 
 test("throughput: per hour by rule and one by one over the first to the last signature; one signature has no rate", async () => {

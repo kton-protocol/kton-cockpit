@@ -19,5 +19,6 @@ export function workbenchCommands(wb: () => Workbench | undefined): ReadonlyArra
     [CMD.compose, () => wb()?.composeCommand()],
     [CMD.openSlot, (key: string, subject: Subject) => wb()?.openSlot(key, subject)],
     [CMD.openEntry, (key: string) => wb()?.openEntry(key)],
+    [CMD.openById, (id?: string) => wb()?.openById(typeof id === "string" ? id : undefined)],
   ];
 }

@@ -28,6 +28,8 @@ export interface ControlInfo {
   readonly kind: "decision" | "record";
   /** the control's title, shown in the dialog (and covered by the digest, as everything shown) */
   readonly title?: string;
+  /** why this control's template is the one signed (e.g. the proposal's vocabulary), shown in the dialog and digested */
+  readonly why?: string;
 }
 
 export const FOOTER = "A kton signature is not yet a QMS e-signature: every signature here is test-only.";
@@ -43,6 +45,8 @@ export interface SignPlan {
   readonly scope?: string;
   /** the evidence the view session opened (offered for lookedAt): listed in the dialog before signing */
   readonly opened?: readonly string[];
+  /** what the values were checked against before the dialog (option checkAgainst): shown in the dialog, digested */
+  readonly checks?: { readonly query: string; readonly differs: readonly string[]; readonly values: readonly string[] };
   readonly as: string;
   readonly keyRole: "person" | "agent";
   readonly needsDialog: boolean;
@@ -89,7 +93,7 @@ export function templateFor(control: Pick<ControlInfo, "package" | "template">, 
 
 /** Build the plan from an intent. The intent supplies only `about` and field values (and the area's records scope). */
 export function plan(
-  intent: Extract<Intent, { kind: "sign" }> & { readonly scope?: string; readonly opened?: readonly string[] },
+  intent: Extract<Intent, { kind: "sign" }> & { readonly scope?: string; readonly opened?: readonly string[]; readonly checks?: SignPlan["checks"] },
   control: ControlInfo,
   templates: readonly TemplateInfo[],
   identity: WindowIdentity,
@@ -126,7 +130,7 @@ export function plan(
   if (!key.keyName) return refuse("identity.key-missing", `this window has no ${key.role} key, so it cannot sign a ${control.kind}`);
   const meaning = control.meaning ?? fields["meaning"];
   const expect = { ...(tpl.hash ? { template: tpl.hash } : {}), ...(tpl.revision ? { revision: tpl.revision } : {}), ...(tpl.predicate ? { predicate: tpl.predicate } : {}) };
-  const shown = { template: tpl.name, expect, subject: intent.about, fields, as: key.keyName, control: `${control.package}/${control.name}`, meaning: meaning ?? null, meaningField: fixed ?? null, scope: intent.scope ?? null, opened: intent.opened ?? [], ...(control.title ? { title: control.title } : {}) };
+  const shown = { template: tpl.name, expect, subject: intent.about, fields, as: key.keyName, control: `${control.package}/${control.name}`, meaning: meaning ?? null, meaningField: fixed ?? null, scope: intent.scope ?? null, opened: intent.opened ?? [], ...(control.title ? { title: control.title } : {}), ...(control.why ? { why: control.why } : {}), ...(intent.checks ? { checks: intent.checks } : {}) };
   // canonical JSON (keys sorted at every level): a key list as JSON.stringify's replacer would also filter the nested
   // objects' keys, and leave expect.revision and expect.predicate out of the digest
   const digest = createHash("sha256").update(canonical(shown)).update(JSON.stringify(Object.entries(fields).sort())).digest("hex");
@@ -143,6 +147,7 @@ export function plan(
       ...(meaning !== undefined ? { meaning } : {}),
       ...(intent.scope !== undefined ? { scope: intent.scope } : {}),
       ...(intent.opened?.length ? { opened: [...intent.opened] } : {}),
+      ...(intent.checks ? { checks: intent.checks } : {}),
       as: key.keyName,
       keyRole: key.role,
       needsDialog: control.kind === "decision",

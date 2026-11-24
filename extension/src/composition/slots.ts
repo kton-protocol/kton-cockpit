@@ -101,3 +101,33 @@ export function oneNumber(answer: unknown): { n: number } | { why: string } {
   const n = Number(vals[0]?.value);
   return Number.isFinite(n) ? { n } : { why: `${JSON.stringify(vals[0]?.value)} is not a number` };
 }
+
+/**
+ * A status-item whose query answers a `?text` column (a line, not a number): the line as the status bar shows it, and its
+ * tooltip. `{col}` in the text is that column's value, `{col|time}` its time of day (hh:mm, this window's clock zone).
+ * Freshness, when the row says it: `?checkedAt` (when the source last looked) and `?staleAfterMinutes`; a check older than
+ * that shows `?staleText` (default "status check stopped") with the time of the last check, never the stale line as if it
+ * were current. Several rows: their lines joined with " · ". No `text` column: undefined (a number item, oneNumber).
+ */
+export function statusLine(answer: unknown, now: Date = new Date()): { text: string; tooltip: string; stale: boolean } | undefined {
+  const b = (answer as { results?: { bindings?: Array<Record<string, { value?: string }>> } }).results?.bindings ?? [];
+  if (!b.length || !b.every((r) => typeof r["text"]?.value === "string")) return undefined;
+  const hhmm = (v: string) => {
+    const d = new Date(v);
+    return Number.isNaN(d.getTime()) ? v : `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  };
+  let stale = false;
+  const lines = b.map((r) => {
+    const v = (k: string) => r[k]?.value ?? "";
+    const fill = (t: string) => t.replace(/\{([A-Za-z_][A-Za-z0-9_]*)(\|time)?\}/g, (_m, k: string, f?: string) => (f ? (v(k) ? hhmm(v(k)) : "?") : v(k)));
+    const checked = v("checkedAt") ? new Date(v("checkedAt")) : undefined;
+    const after = Number(v("staleAfterMinutes"));
+    if (checked && !Number.isNaN(checked.getTime()) && Number.isFinite(after) && after > 0 && now.getTime() - checked.getTime() > after * 60_000) {
+      stale = true;
+      return `${fill(v("staleText") || "status check stopped")} (last check ${hhmm(v("checkedAt"))})`;
+    }
+    return fill(v("text"));
+  });
+  const tips = b.map((r) => (r["tooltip"]?.value ? r["tooltip"].value : Object.entries(r).filter(([k]) => !["text", "tooltip", "staleText", "staleAfterMinutes"].includes(k)).map(([k, x]) => `${k}: ${x.value ?? ""}`).join("\n")));
+  return { text: lines.join(" · "), tooltip: tips.join("\n\n"), stale };
+}

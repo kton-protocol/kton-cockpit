@@ -1471,6 +1471,81 @@ if (seed.w?.proposal && selected("W")) {
     await shot("w-decides");
     await closeEditors();
   });
+
+  // X: a status line from a query, open by id (through a relay's copy), the decision's template and its conditions, and
+  // decisions on an element (cited artifacts resolved by hash, a later differing decision flagged)
+  await step("X", 1, "status bar: a status-item answers a line per target; a target whose check is older than its limit says 'status check stopped', never down", async () => {
+    const bar = status().locator(".statusbar-item", { hasText: "target-a" }).first();
+    await bar.waitFor({ timeout: 90000 });
+    const t = ((await bar.textContent()) ?? "").replace(/\s+/g, " ");
+    check(/target-a: up since \d\d:\d\d, 1\.2\.3, last run run-2/.test(t), "target-a: up since hh:mm, version, last run", "target-a: up since hh:mm, 1.2.3, last run run-2", t);
+    check(/target-b: status check stopped \(last check \d\d:\d\d\)/.test(t) && !/target-b: (up|down)/.test(t), "target-b's check stopped three hours ago: said so, not up or down", "target-b: status check stopped (last check hh:mm)", t);
+    await shot("x-status");
+  });
+
+  await step("X", 2, "open by id: the original's id opens the relay's copy; an id this window has no claim for is said so; a short id opens the proposal's decision", async () => {
+    await closeEditors();
+    await runCommand("kton workbench: open by id");
+    await inputQuick(W.original.slice(7, 17));
+    const f = await frameWith("Please confirm the rerun.", 30000);
+    check(!!f, "the copy's thread opens by its original's short id");
+    await closeEditors();
+    await runCommand("kton workbench: open by id");
+    await inputQuick("0123abcd99");
+    await toast(/No proposal or message with the id 0123abcd99 in this window\./).waitFor({ timeout: 20000 });
+    await clearToasts();
+    await runCommand("kton workbench: open by id");
+    await inputQuick(W.proposal.slice(7, 19));
+    await frameWith("A decision here signs", 30000);
+    await shot("x-open-by-id");
+  });
+
+  await step("X", 3, "the decision page says which template a decision signs and why; conditions added there are shown in the dialog (cancelled: nothing signed)", async () => {
+    const f = await frameWith("A decision here signs", 30000);
+    const dw = ((await f.locator('[data-testid="decides-with"]').textContent()) ?? "").replace(/\s+/g, " ");
+    check(/signs w-decides: qa\.decide's review view applies to this proposal, and its decisions are counted in w-decides/.test(dw), "the package's template, and why", "… w-decides: qa.decide's review view applies …", dw);
+    await f.locator('[data-testid="condition-text"]').fill("The rerun closes row 3");
+    await f.locator('[data-testid="condition-owner"]').fill("lane-a");
+    await f.locator('[data-testid="condition-when"]').selectOption("before-gate");
+    await f.locator('[data-testid="condition-add"]').click();
+    check((await f.locator("#conds li").count()) === 1, "one condition listed", 1, await f.locator("#conds li").count());
+    const before = (await sparql(`SELECT ?c WHERE { ?c nk:predicate <${WN}decides> }`, "repo-w")).length;
+    await f.locator('[data-testid="choose-a"]').click();
+    const d = await dialog();
+    const signsIn = ((await d.locator('[data-testid="signs-in"]').textContent()) ?? "").replace(/\s+/g, " ");
+    check(/w-decides/.test(signsIn) && /vocabulary https:\/\/example\.org\/qa\/decide\//.test(signsIn), "the dialog names the template and its vocabulary", "w-decides · vocabulary https://example.org/qa/decide/", signsIn);
+    check(/qa\.decide's review view applies/.test((await d.locator('[data-testid="signs-why"]').textContent()) ?? ""), "and why that template");
+    const cond = ((await d.locator("[data-conditions] li").first().textContent()) ?? "").replace(/\s+/g, " ");
+    check(/The rerun closes row 3 · owner lane-a · before-gate/.test(cond), "the condition is shown with what is signed", "The rerun closes row 3 · owner lane-a · before-gate", cond);
+    await shot("x-dialog-conditions");
+    await d.locator('[data-testid="sign-cancel"]').click();
+    await page.waitForTimeout(1500);
+    const after = (await sparql(`SELECT ?c WHERE { ?c nk:predicate <${WN}decides> }`, "repo-w")).length;
+    check(after === before, "cancelled: nothing signed", before, after);
+    await closeEditors();
+  });
+
+  await step("X", 4, "decisions on an element: a text's hex prefix resolves to the run's screenshot (inline, opens hash checked), an unknown one is said so, a structured citation wins; the lead's later differing decision is flagged", async () => {
+    await openReview(W_TITLE, "Decision view (trial)", "qa.decide");
+    const f = await wFrame(90000);
+    const b = f.locator('[data-use$="#notes"]');
+    await b.locator("[data-area-table]").first().waitFor({ timeout: 120000 });
+    const rows = await b.locator("tbody tr[data-row]").evaluateAll((trs) => trs.map((tr) => Object.fromEntries([...tr.querySelectorAll("td[data-col]")].map((td) => [td.dataset.col, (td.textContent ?? "").trim()]))));
+    check(rows.length === 3, "three decisions", 3, rows.length);
+    const r1 = b.locator("tbody tr[data-row]").nth(0);
+    const art = r1.locator('td[data-col="cites"] button[data-art]');
+    check((await art.count()) === 1 && ((await art.getAttribute("data-art")) ?? "").includes(W.pngSha256), "the hex prefix in the text resolves to the screenshot's artifact", W.pngSha256, await art.getAttribute("data-art"));
+    check(/deadbeefcafe is not a run artifact here/.test(rows[0]?.citesNote ?? ""), "an id that is no artifact here is said so", "deadbeefcafe is not a run artifact here", rows[0]?.citesNote);
+    const r2 = b.locator("tbody tr[data-row]").nth(1);
+    check(((await r2.locator('td[data-col="cites"] button[data-art]').getAttribute("data-art")) ?? "").includes(W.pngSha256), "the structured citation is resolved (its text cites nothing)");
+    check(/^differs from Reviewer \(covered, 2026-11-20T10:00:00Z\)$/.test(rows[1]?.differs ?? ""), "the lead's later decision that differs is flagged", "differs from Reviewer (covered, …)", rows[1]?.differs);
+    check(!rows[0]?.differs && !rows[2]?.differs, "nothing else is flagged", "", [rows[0]?.differs, rows[2]?.differs]);
+    await art.click();
+    await frameWith("hash checked", 30000);
+    check(true, "the cited screenshot opens, hash checked");
+    await shot("x-history");
+    await closeEditors();
+  });
 }
 
 // ---- more flows from outside this repository (run.sh EXTRA_FLOWS): extra-flows.mjs's default export runs its steps

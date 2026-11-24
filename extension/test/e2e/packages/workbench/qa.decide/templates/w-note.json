@@ -1,0 +1,30 @@
+{
+ "name": "w-note",
+ "target": "either",
+ "predicate": "https://example.org/qa/decide/note",
+ "fields": {
+  "element": {
+   "type": "string",
+   "required": true
+  },
+  "who": {
+   "type": "string",
+   "required": true
+  },
+  "verdict": {
+   "type": "string",
+   "required": true
+  },
+  "text": {
+   "type": "string",
+   "required": true
+  },
+  "at": {
+   "type": "string",
+   "required": true
+  },
+  "evidence": {
+   "type": "string"
+  }
+ }
+}

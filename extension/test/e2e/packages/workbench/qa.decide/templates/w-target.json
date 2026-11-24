@@ -1,0 +1,33 @@
+{
+ "name": "w-target",
+ "target": "either",
+ "predicate": "https://example.org/qa/decide/target",
+ "fields": {
+  "target": {
+   "type": "string",
+   "required": true
+  },
+  "reachable": {
+   "type": "string",
+   "required": true
+  },
+  "since": {
+   "type": "string",
+   "required": true
+  },
+  "version": {
+   "type": "string"
+  },
+  "checkedAt": {
+   "type": "string",
+   "required": true
+  },
+  "staleAfter": {
+   "type": "string",
+   "required": true
+  },
+  "lastRun": {
+   "type": "string"
+  }
+ }
+}
