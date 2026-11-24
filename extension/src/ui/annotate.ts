@@ -170,7 +170,7 @@ export function changesOptions(options: Readonly<Record<string, unknown>> | unde
 
 type ChangesFn = (repo: string, from: string, to: string, path: string) => Promise<import("./sources.js").Changes>;
 
-/** The review of a commit among the review rows: one whose approvedCommit is a prefix of the sha (or the sha of it). */
+/** The review of a commit among the review rows, for display: one whose approvedCommit is a prefix of the sha (or the sha of it). */
 export function reviewOf(sha: string, reviews: ReadonlyArray<Record<string, { value?: string }>>): string {
   const hits = reviews.filter((r) => {
     const a = (r["approvedCommit"]?.value ?? "").toLowerCase();
@@ -252,5 +252,6 @@ export function reviewedLines(s: import("./sources.js").ReviewedState | { why: s
   if (s.base) lines.push(`since ${s.base.slice(0, 7)}`);
   if (s.capped) lines.push(s.capped);
   const n = s.missing.length;
+  if (s.truncated) return { blocked: `not all commits under this rerun were checked${s.capped ? ` (${s.capped})` : ""}${n ? `; ${n} of the checked ${n === 1 ? "has" : "have"} no review: ${s.missing.map((x) => x.slice(0, 7)).join(", ")}` : ""}`, lines: [`${head}: ${s.commits.length} commit${s.commits.length === 1 ? "" : "s"} checked`, ...lines] };
   return { ...(n ? { blocked: `${n} commit${n === 1 ? "" : "s"} under this rerun ${n === 1 ? "has" : "have"} no review: ${s.missing.map((x) => x.slice(0, 7)).join(", ")}` } : {}), lines: [`${head}: ${s.commits.length} commit${s.commits.length === 1 ? "" : "s"} under this rerun`, ...lines] };
 }

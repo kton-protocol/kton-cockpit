@@ -260,6 +260,8 @@ export interface ReviewedState {
   /** the commits after base up to head with no approval of their own */
   readonly missing: readonly string[];
   readonly capped?: string;
+  /** more commits than the cap: the oldest were not checked (an act under the rule is blocked, fail closed) */
+  readonly truncated?: boolean;
 }
 
 /**
@@ -287,7 +289,7 @@ export async function reviewedState(mirrors: string, repo: string, head: string,
     const capped = cs.length > cap ? `the newest ${cap} commits of ${base.slice(0, 12)}..${head}` : undefined;
     const commits = cs.slice(0, cap);
     const full = (await git(["rev-parse", base]))?.trim() ?? base;
-    return { base: full, commits, missing: commits.filter((c) => !c.review).map((c) => c.sha), ...(capped ? { capped } : {}) };
+    return { base: full, commits, missing: commits.filter((c) => !c.review).map((c) => c.sha), ...(capped ? { capped, truncated: true } : {}) };
   }
   const out = await git(["log", "--no-color", `--max-count=${cap + 1}`, "--format=%H%x1f%s%x1f%an%x1f%aI", head, "--"]);
   if (out === undefined) return { why: `source not available on this host: ${repo} has no ${head}` };
@@ -310,5 +312,5 @@ export async function reviewedState(mirrors: string, repo: string, head: string,
   // behind it in the log): with the base found, list base..head as a given base does, every commit outside its history
   if (found) return reviewedState(mirrors, repo, head, reviewOf, aliases, cap, found);
   const missing = commits.filter((c) => !c.review).map((c) => c.sha);
-  return { commits, missing, capped: all.length > cap ? `no reviewed ancestor within ${cap} commits of ${head}` : `no reviewed ancestor of ${head}` };
+  return { commits, missing, capped: all.length > cap ? `no reviewed ancestor within ${cap} commits of ${head}` : `no reviewed ancestor of ${head}`, ...(all.length > cap ? { truncated: true } : {}) };
 }
