@@ -7,7 +7,8 @@ import { loadPackages } from "../packages/model.js";
 import type { TreeNode } from "../ui/host.js";
 import { sparqlResultsOf } from "../ui/queries.js";
 import { supportView } from "../support/view-now.js";
-import { CompositionHost, LeafHost, type AskEach, type Backend, type CheckAgainst, type Plan, type Signed } from "./host.js";
+import { CompositionHost, LeafHost, type AskEach, type Backend, type BatchItem, type BatchOutcome, type CheckAgainst, type Plan, type Signed } from "./host.js";
+export type { BatchItem, BatchOutcome } from "./host.js";
 import type { BoundTerm } from "../transport/port.js";
 import { applies, isView, oneNumber, partition, planComposition, planEntry, statusLine, type Subject } from "./slots.js";
 import { approvalCounts, areaComposition, BUILTIN, recordComposition, recordTerms, signerKeyId, withBuiltin } from "./qm-area.js";
@@ -45,6 +46,8 @@ export interface ExpectRevision {
 export interface ActPath {
   /** The shell's one sign path (Workbench.signAct): the dialog for a decision control, the agent key for a record. */
   act(control: Control, about: string, fields: Readonly<Record<string, string>>, title: string, expect?: ExpectRevision, into?: ActInto): Promise<"signed" | "cancelled" | "failed">;
+  /** Several decisions of one control behind one dialog (Workbench.signBatchAct); absent: no batch signing on this host. */
+  actBatch?(control: Control, items: readonly BatchItem[], title: string, expect?: ExpectRevision, into?: ActInto): Promise<BatchOutcome>;
   /** open@1; `opened` is called with a reference to the evidence when it was shown (a source, a run artifact) */
   open(target: Readonly<Record<string, unknown>>, opened?: (ref: string) => void): Promise<string>;
   identityName(): string;
@@ -68,8 +71,12 @@ export interface ActInto {
   readonly opened?: readonly string[];
   /** called with the claim id and the signed fields once the act is signed (a block's nudge line is built from them) */
   readonly signed?: (s: Signed) => void;
+  /** a batch: called with each item's place and claim as it is signed */
+  readonly signedEach?: (index: number, s: Signed) => void;
   /** fields the shell asks per key (a use's option askEach) */
   readonly asks?: readonly AskEach[];
+  /** defaults for the enum fields the shell asks (a use's option defaults): preselected, checked against the field's values */
+  readonly defaults?: Readonly<Record<string, string>>;
   /** the commits under the act's rerun with their reviews (option requireReviewed): shown in the dialog, or said for a record */
   readonly reviewed?: readonly string[];
   /** what the values are checked against before the dialog (a use's option checkAgainst), with its query's rows */
@@ -107,6 +114,8 @@ interface OpenPanel {
   retired?: string;
   /** the evidence opened from this panel, in order, once each (this view session only) */
   readonly opened: string[];
+  /** claims arrived from outside while an act was in progress: the view asks again when it ends */
+  refreshAfter?: boolean;
 }
 
 export class PackagesArea {
@@ -199,14 +208,43 @@ export class PackagesArea {
     this.ui.info(`Closed ${key.slice(PANEL.length)}: ${why}.`);
   }
 
+  /** Why an act through `c` is not offered by this panel now (closed, retired, another revision, not its control), or undefined. */
+  private refusedAct(key: string, h: OpenPanel | undefined, c: Control): string | undefined {
+    return !h || this.hosts.get(key) !== h ? "the panel is closed or was opened again" : (h.retired ?? this.outdated(h) ?? (h.revisions.has(c.package) ? undefined : `control ${c.package}/${c.name} is not one this panel was opened with`));
+  }
+
+  /** The batch act path of one open panel: the same checks as actFor's, once, for all the items (one dialog). */
+  private batchFor(key: string, label: string, mine: () => OpenPanel | undefined, scope?: string): NonNullable<Backend["actBatch"]> {
+    return async (c, items, title, signedEach) => {
+      const h = mine();
+      const why = this.refusedAct(key, h, c);
+      if (why || !h) {
+        this.ui.error(`Not signed: ${label}: ${why}.`);
+        return { result: "failed", signed: [], ...(why ? { why } : {}) };
+      }
+      if (!this.path.actBatch) {
+        this.ui.error(`Not signed: ${label}: this host does not sign several claims at once.`);
+        return { result: "failed", signed: [], why: "no batch signing on this host" };
+      }
+      h.busy++;
+      try {
+        return await this.path.actBatch(c, items, title, { package: c.package, revision: h.revisions.get(c.package) as string }, { ...(scope ? { scope } : {}), ...(h.opened.length ? { opened: [...h.opened] } : {}), ...(signedEach ? { signedEach } : {}) });
+      } finally {
+        h.busy--;
+        if (h.retired && h.busy === 0) this.retire(key, h, h.retired);
+        else if (h.busy === 0) this.refreshIfChanged(h);
+      }
+    };
+  }
+
   /**
    * The act path of one open panel: refused when the panel was opened at another revision of a package than the one
    * loaded now (or is closing), so an old revision's control never signs. While the act runs the panel is busy.
    */
   private actFor(key: string, label: string, mine: () => OpenPanel | undefined, scope?: string): Backend["act"] {
-    return async (c, about, fields, title, proposed, signed, asks, check, review) => {
+    return async (c, about, fields, title, proposed, signed, asks, check, review, defaults) => {
       const h = mine();
-      const why = !h || this.hosts.get(key) !== h ? "the panel is closed or was opened again" : (h.retired ?? this.outdated(h) ?? (h.revisions.has(c.package) ? undefined : `control ${c.package}/${c.name} is not one this panel was opened with`));
+      const why = this.refusedAct(key, h, c);
       if (why) {
         this.ui.error(`Not signed: ${label}: ${why}.`);
         return "failed";
@@ -224,7 +262,7 @@ export class PackagesArea {
       }
       p.busy++;
       try {
-        const r = await this.path.act(c, about, fields, title, { package: c.package, revision: p.revisions.get(c.package) as string }, { ...(scope ? { scope } : {}), ...(proposed && Object.keys(proposed).length ? { proposed } : {}), ...(p.opened.length ? { opened: [...p.opened] } : {}), ...(signed ? { signed } : {}), ...(asks?.length ? { asks } : {}), ...(reviewed ? { reviewed } : {}), ...(check ? { check: { ...check, rows: async () => {
+        const r = await this.path.act(c, about, fields, title, { package: c.package, revision: p.revisions.get(c.package) as string }, { ...(scope ? { scope } : {}), ...(proposed && Object.keys(proposed).length ? { proposed } : {}), ...(p.opened.length ? { opened: [...p.opened] } : {}), ...(signed ? { signed } : {}), ...(asks?.length ? { asks } : {}), ...(defaults ? { defaults } : {}), ...(reviewed ? { reviewed } : {}), ...(check ? { check: { ...check, rows: async () => {
           const a = (await this.named(check.package, check.query, {})) as { results?: { bindings?: Array<Record<string, { value?: string }>> } };
           return (a.results?.bindings ?? []).map((b) => Object.fromEntries(Object.entries(b).map(([k, v]) => [k, v.value ?? ""])));
         } } } : {}) });
@@ -235,8 +273,30 @@ export class PackagesArea {
       } finally {
         p.busy--;
         if (p.retired && p.busy === 0) this.retire(key, p, p.retired);
+        else if (p.busy === 0) this.refreshIfChanged(p);
       }
     };
+  }
+
+  /**
+   * The index has claims it did not have at the last poll (another process signed): every open view asks its queries
+   * again. A panel under an act (a sign dialog may be open) is refreshed when the act ends, never under it. Returns how
+   * many panels were refreshed now.
+   */
+  claimsChanged(): number {
+    let n = 0;
+    for (const h of this.hosts.values()) {
+      if (!(h.host instanceof CompositionHost)) continue;
+      if (h.busy > 0 || h.retired) h.refreshAfter = true;
+      else if (h.host.externalChange()) n++;
+    }
+    return n;
+  }
+
+  private refreshIfChanged(h: OpenPanel): void {
+    if (!h.refreshAfter) return;
+    h.refreshAfter = false;
+    if (h.host instanceof CompositionHost) h.host.externalChange();
   }
 
   /** The (name, revision) of the named packages as loaded now. */
@@ -569,6 +629,7 @@ export class PackagesArea {
       bytes: (p, hash) => this.t.uiCat(p, hash),
       open: opts.open ?? ((target) => this.path.open(target, (ref) => me && noteOpened(me, ref))),
       act: this.actFor(panel, label, () => me, opts.scope),
+      actBatch: this.batchFor(panel, label, () => me, opts.scope),
       run: async (ray, holes) => {
         const out = await this.t.workflowRun({ workflow: ray, bind: holes });
         if (!out.ok) throw new Error(`the cockpit refused ${ray}: ${out.refusal.reason}`);
@@ -688,6 +749,7 @@ export class PackagesArea {
       bytes: (pkg, hash) => this.t.uiCat(pkg, hash),
       open: (target) => this.path.open(target, (ref) => { const m = mine(); if (m) noteOpened(m, ref); }),
       act: this.actFor(key, label, mine),
+      actBatch: this.batchFor(key, label, mine),
       run: async (ray, holes) => {
         const out = await this.t.workflowRun({ workflow: ray, bind: holes });
         if (!out.ok) throw new Error(`the cockpit refused ${ray}: ${out.refusal.reason}`);

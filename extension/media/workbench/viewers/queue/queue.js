@@ -16,7 +16,14 @@
 //             value reads "No <label> recorded."; missing a column that says which detail the item has not (shown
 //             as a warning under the fields)
 //   target    the column naming what the act is about (the host checks it is a row it served this block)
-//   choices   "field=value|Label": the decisions, keys 1…n in this order; each proposes its value for the field
+//   choices   "field=value|Label": the decisions, keys 1…n in this order; each proposes its value for the field.
+//             A choice with no value ("field=|Label") sets nothing of its own: it accepts what `propose` offers
+//   propose   "field=column": each item's act proposes that item's column for the field (as the rows block does; never
+//             signed unseen: the shell shows it in the dialog, or asks it with the value as the default). Several fields:
+//             round, class, position taken from the row. Key 1 as "field=|Accept" is then "accept the proposal"
+//   batch     the label of the summary ("Sign all"): a choice does not open the sign dialog; the item leaves the queue and
+//             waits in a summary below it (one line per item, each can be taken back). "<label> N" signs all N in ONE sign
+//             dialog (the shell checks each claim as a single one, signs none if one fails). Needs `target`
 // Its place is kept: the group, the current item and, per group, the skipped and the decided items of this window
 // (ctx.setState; the shell keeps a keepsState view's state in the window, never in a registry). Decided items leave the
 // queue at once; the query leaves them out once the cockpit has the signature.
@@ -40,11 +47,25 @@ export function mount(el, ctx) {
     const k = fv.indexOf("=");
     return { field: fv.slice(0, k), value: fv.slice(k + 1), label };
   });
+  const proposes = (o.propose ?? []).map((p) => [p.slice(0, p.indexOf("=")), p.slice(p.indexOf("=") + 1)]).filter(([f]) => f);
   const act = acts[0];
+  // the fields an item's act proposes: its columns for the proposed fields, then the choice's own value (none: it accepts the proposal)
+  const fieldsFor = (row, c) => {
+    const f = {};
+    for (const [field, col] of proposes) if (v(row[col])) f[field] = v(row[col]);
+    if (c.value !== "") f[c.field] = c.value;
+    return f;
+  };
+  // batch: the decisions wait (per group) in a summary and are signed together
+  const batch = typeof o.batch === "string" && o.batch !== "" && !!o.target && !!act ? o.batch : "";
 
   let st = clone(ctx.state);
   const group = () => (gParam ? (groups.includes(st.group) ? st.group : String(v(ctx.use.params?.[gParam]) || groups[0] || "")) : "");
-  const at = (g) => ((st.at ??= {})[g] ??= { item: "", skipped: [], done: [] });
+  const at = (g) => {
+    const a = ((st.at ??= {})[g] ??= { item: "", skipped: [], done: [] });
+    if (batch) a.pending ??= {};
+    return a;
+  };
   // the state (and with it the emitted item, which the detail blocks ask for) is written once the reader stops moving
   // (QUIET ms after the last key): moving through 50 items asks the detail of one, not of 50
   let quiet = null;
@@ -73,7 +94,7 @@ export function mount(el, ctx) {
   };
   const order = () => {
     const a = at(group());
-    return queueOrder(rows, (r) => v(r[keyCol]), { ...a, done: [...a.done, ...signedKeys()] });
+    return queueOrder(rows, (r) => v(r[keyCol]), { ...a, done: [...a.done, ...signedKeys(), ...Object.keys(a.pending ?? {})] });
   };
   const index = (list) => {
     const k = at(group()).item;
@@ -82,7 +103,7 @@ export function mount(el, ctx) {
   };
   const count = (list) => {
     if (complete) return list.length;
-    const done = new Set([...at(group()).done, ...signedKeys()]);
+    const done = new Set([...at(group()).done, ...signedKeys(), ...Object.keys(at(group()).pending ?? {})]);
     return Math.max(list.length, total - rows.filter((r) => done.has(v(r[keyCol]))).length);
   };
 
@@ -115,16 +136,18 @@ export function mount(el, ctx) {
     const pos = row
       ? `<span class="pos" data-pos aria-live="polite">Item ${i + 1} of ${n} in this group</span>`
       : `<span class="pos" data-pos aria-live="polite">${loading ? "Loading…" : "Nothing open in this group"}</span>`;
-    const extra = [skippedN ? `${skippedN} skipped (they come back at the end)` : "", a.done.length ? `${a.done.length} decided in this window` : "", !complete && rows.length ? `${rows.length} loaded` : ""].filter(Boolean).join(" · ");
+    const waiting = Object.keys(a.pending ?? {}).length;
+    const extra = [waiting ? `${waiting} waiting to be signed` : "", skippedN ? `${skippedN} skipped (they come back at the end)` : "", a.done.length ? `${a.done.length} decided in this window` : "", !complete && rows.length ? `${rows.length} loaded` : ""].filter(Boolean).join(" · ");
     const head = `<div class="q-head pager">${groupSel}<button type="button" class="ghost small" data-step="-1" aria-label="Previous item (←, k)" data-testid="queue-prev">${ICON_PREV}</button>${pos}<button type="button" class="ghost small" data-step="1" aria-label="Next item (→, j)" data-testid="queue-next">${ICON_NEXT}</button><button type="button" class="small secondary" data-skip data-testid="queue-skip"${row ? "" : " disabled"}>Skip (s)</button>${extra ? `<span class="muted" data-queue-extra>${esc(extra)}</span>` : ""}${back ? `<button type="button" class="small" data-back data-testid="queue-back">Back to rule ${esc(back)}</button>` : ""}</div>`;
-    const keys = `<p class="muted q-keys" data-keys>Keys: → or j next · ← or k previous · s skip (no decision, comes back at the end)${choices.length && act ? ` · ${choices.map((c, ci) => `${ci + 1} ${esc(c.label)}`).join(" · ")} (opens the sign dialog)` : ""}</p>`;
+    const keys = `<p class="muted q-keys" data-keys>Keys: → or j next · ← or k previous · s skip (no decision, comes back at the end)${choices.length && act ? ` · ${choices.map((c, ci) => `${ci + 1} ${esc(c.label)}`).join(" · ")} ${batch ? "(kept for the summary below)" : "(opens the sign dialog)"}` : ""}</p>`;
+    const summary = pendingHtml();
     if (failed) {
       el.innerHTML = `${head}<div class="callout error" data-area-error role="alert"><p>${esc(failed)}</p></div>`;
       wire();
       return;
     }
     if (!row) {
-      el.innerHTML = `${head}${loading ? skeleton("card") : emptyBox(esc, o.emptyText || "Nothing open in this group.", o.emptyHow)}${keys}`;
+      el.innerHTML = `${head}${loading ? skeleton("card") : emptyBox(esc, o.emptyText || "Nothing open in this group.", o.emptyHow)}${summary}${keys}`;
       wire();
       return;
     }
@@ -141,7 +164,7 @@ export function mount(el, ctx) {
   ${missing}
   ${(o.fields ?? []).length ? `<dl class="kv">${o.fields.map(split).map((f) => field(row, f)).join("")}</dl>` : ""}
   ${seg}
-</article>${keys}`;
+</article>${summary}${keys}`;
     wire();
   };
 
@@ -174,11 +197,23 @@ export function mount(el, ctx) {
     const row = list[i];
     const c = choices[ci];
     if (!row || !c || !act || busy) return;
+    const k = v(row[keyCol]);
+    if (batch) {
+      // kept for the summary: nothing is signed (no dialog) until "Sign all"
+      const a = at(group());
+      a.pending[k] = { target: v(row[o.target]), fields: fieldsFor(row, c), label: c.label, title: v(row[o.title ?? keyCol]) || k };
+      a.skipped = a.skipped.filter((x) => x !== k);
+      const next = order();
+      note = `${c.label}: ${k} waits in the summary (${Object.keys(a.pending).length}).`;
+      select(next[Math.min(i, next.length - 1)]);
+      save({});
+      draw();
+      return;
+    }
     busy = true;
     note = `${c.label}: confirm in the sign dialog…`;
     draw();
-    const k = v(row[keyCol]);
-    ctx.intent({ kind: act.intent, control: act.control, about: act.about, fields: { [c.field]: c.value }, ...(o.target ? { target: v(row[o.target]) } : {}) }).then((res) => {
+    ctx.intent({ kind: act.intent, control: act.control, about: act.about, fields: fieldsFor(row, c), ...(o.target ? { target: v(row[o.target]) } : {}) }).then((res) => {
       busy = false;
       if (res?.result?.signed === true) {
         const a = at(group());
@@ -194,7 +229,56 @@ export function mount(el, ctx) {
     });
   };
 
+  // the summary of a batch: what waits, each can be taken back; "Sign all" signs them behind one dialog
+  const pendingHtml = () => {
+    if (!batch) return "";
+    const list = Object.entries(at(group()).pending ?? {});
+    if (!list.length) return "";
+    return `<section class="kton-card card q-pending" data-pending="${list.length}" aria-label="Waiting to be signed"><h4>${list.length} waiting to be signed</h4><ul class="q-pending-list">${list
+      .map(([k, p]) => `<li data-pending-item="${esc(k)}"><span class="pid">${esc(p.title)}</span> <span class="muted">${esc(p.label)}${Object.entries(p.fields).map(([f, x]) => ` · ${esc(f)} ${esc(x)}`).join("")}</span> <button type="button" class="ghost small" data-unpend="${esc(k)}" aria-label="Take back ${esc(p.title)}">Take back</button></li>`)
+      .join("")}</ul><div class="actions"><button type="button" class="primary" data-sign-all data-testid="queue-sign-all"${busy ? " disabled" : ""}>${esc(batch)} ${list.length}</button><span class="kton-muted" data-act-out role="status"></span></div></section>`;
+  };
+  const signAll = () => {
+    const a = at(group());
+    const list = Object.entries(a.pending ?? {});
+    if (!list.length || busy || !act) return;
+    busy = true;
+    note = `${batch}: confirm in the sign dialog…`;
+    draw();
+    const fieldsForTarget = Object.fromEntries(list.map(([, p]) => [p.target, p.fields]));
+    ctx.intent({ kind: act.intent, control: act.control, about: act.about, fields: {}, targets: list.map(([, p]) => p.target), fieldsFor: fieldsForTarget }).then((res) => {
+      busy = false;
+      // what the host signed (by row, held by the host): those leave the summary, signed or not the rest stays to try again
+      const signedT = new Set((globalThis.ktonWorkbench?.signedActs?.(ctx.use.key) ?? []).map((x) => x.target).filter(Boolean));
+      const allDone = res?.result?.signed === true;
+      for (const [k, p] of list) {
+        if (allDone || signedT.has(p.target)) {
+          delete a.pending[k];
+          a.done = [...a.done.filter((x) => x !== k), k];
+        }
+      }
+      if (allDone) note = res.result.message ?? "Signed.";
+      else if (res?.result?.partial) note = `${res.result.message ?? "Some were signed."} The ones not signed stay in the summary.`;
+      else note = res?.refused ? `Not done: ${res.refused.why ?? res.refused}` : res?.result?.message ?? "Not signed.";
+      save({});
+      if (allDone || res?.result?.partial) announceAct({ result: { signed: true, claim: (res.result.claims ?? []).at(-1) ?? null } }, ctx.use.key);
+      draw();
+    });
+  };
+
   function wire() {
+    el.querySelector("[data-sign-all]")?.addEventListener("click", signAll);
+    for (const b of el.querySelectorAll("[data-unpend]")) {
+      b.addEventListener("click", () => {
+        const a = at(group());
+        const k = b.dataset.unpend;
+        delete a.pending[k];
+        note = `${k} is back in the queue.`;
+        select(rows.find((r) => v(r[keyCol]) === k));
+        save({});
+        draw();
+      });
+    }
     el.querySelector("[data-back]")?.addEventListener("click", () => {
       const label = o.backTab ?? "Rules";
       back = "";
