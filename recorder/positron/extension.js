@@ -1845,7 +1845,13 @@ function tokenFilePath() {
 }
 function startTerminalToken(context) {
   const file = tokenFilePath();
-  const drop = () => { try { fs.unlinkSync(file); } catch (e) { /* not there */ } };
+  // every window of this user shares the file (ktonwatch reads it too): a window without the sign-in, or one
+  // closing, removes it only when it wrote it itself, never another window's (24.11.: VS Code windows without
+  // the grant removed Positron's token every minute)
+  const drop = () => {
+    try { if (JSON.parse(fs.readFileSync(file, 'utf8')).pid !== process.pid) return; } catch (e) { return; }
+    try { fs.unlinkSync(file); } catch (e) { /* not there */ }
+  };
   const write = async () => {
     let s;
     try { s = await vscode.authentication.getSession('improve-auth', [], { silent: true }); } catch (e) { s = undefined; }
@@ -1853,7 +1859,7 @@ function startTerminalToken(context) {
     try {
       fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
       const tmp = `${file}.${process.pid}.tmp`;
-      fs.writeFileSync(tmp, JSON.stringify({ accessToken: s.accessToken, account: (s.account && s.account.label) || '', at: new Date().toISOString() }), { mode: 0o600 });
+      fs.writeFileSync(tmp, JSON.stringify({ accessToken: s.accessToken, account: (s.account && s.account.label) || '', at: new Date().toISOString(), pid: process.pid }), { mode: 0o600 });
       fs.renameSync(tmp, file);
     } catch (e) { out.appendLine(`improve token for terminals: ${e.message}`); }
   };
