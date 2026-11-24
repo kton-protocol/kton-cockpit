@@ -306,6 +306,9 @@ export async function reviewedState(mirrors: string, repo: string, head: string,
     if (i >= cap) break;
     commits.push({ ...c, ...(review ? { review } : {}) });
   }
+  // the walk follows commit dates, which differ from history at a merge (a side commit older than the reviewed one is
+  // behind it in the log): with the base found, list base..head as a given base does, every commit outside its history
+  if (found) return reviewedState(mirrors, repo, head, reviewOf, aliases, cap, found);
   const missing = commits.filter((c) => !c.review).map((c) => c.sha);
-  return { ...(found ? { base: found } : {}), commits, missing, ...(found ? {} : { capped: all.length > cap ? `no reviewed ancestor within ${cap} commits of ${head}` : `no reviewed ancestor of ${head}` }) };
+  return { commits, missing, capped: all.length > cap ? `no reviewed ancestor within ${cap} commits of ${head}` : `no reviewed ancestor of ${head}` };
 }

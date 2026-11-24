@@ -149,3 +149,39 @@ test("withChanges: full ids are cached across refreshes (git runs once); a branc
   await ask(a.slice(0, 7), b);
   assert.equal(calls, 5, "a short id is not cached");
 });
+
+function scratch() {
+  const mirrors = mkdtempSync(join(tmpdir(), "mirrors-"));
+  const dir = join(mirrors, "app");
+  mkdirSync(dir, { recursive: true });
+  const git = (env: Record<string, string>, ...a: string[]) => execFileSync("git", ["-C", dir, ...a], { encoding: "utf8", env: { ...process.env, GIT_AUTHOR_NAME: "Dev One", GIT_AUTHOR_EMAIL: "d@example.org", GIT_COMMITTER_NAME: "Dev One", GIT_COMMITTER_EMAIL: "d@example.org", ...env } }).trim();
+  git({}, "init", "-q", "-b", "main");
+  const commit = (msg: string, files: Record<string, string>, date: string) => {
+    for (const [p, t] of Object.entries(files)) writeFileSync(join(dir, p), t);
+    git({}, "add", "-A");
+    git({ GIT_AUTHOR_DATE: date, GIT_COMMITTER_DATE: date }, "commit", "-q", "-m", msg);
+    return git({}, "rev-parse", "HEAD");
+  };
+  return { mirrors, git, commit, dir };
+}
+
+test("reviewedState without a base: a side commit of a merge that is older than the reviewed one is still listed and blocks", async () => {
+  const { reviewedState } = await import("../src/ui/sources.js");
+  const { reviewedLines } = await import("../src/ui/annotate.js");
+  const { mirrors, git, commit } = scratch();
+  const c0 = commit("base", { "a.txt": "0\n" }, "2026-11-01T10:00:00Z");
+  git({}, "checkout", "-q", "-b", "side");
+  const s = commit("side work, backdated", { "s.txt": "1\n" }, "2026-11-02T10:00:00Z");
+  git({}, "checkout", "-q", "main");
+  const r = commit("main work, reviewed", { "m.txt": "1\n" }, "2026-11-10T10:00:00Z");
+  git({ GIT_AUTHOR_DATE: "2026-11-11T10:00:00Z", GIT_COMMITTER_DATE: "2026-11-11T10:00:00Z" }, "merge", "-q", "--no-ff", "-m", "merge side", "side");
+  const m = git({}, "rev-parse", "HEAD");
+  const approved = new Map([[c0, "approved by Reviewer on 2026-11-01"], [r, "approved by Reviewer on 2026-11-10"], [m, "approved by Reviewer on 2026-11-11"]]);
+  const st = await reviewedState(mirrors, "app", m, (sha) => approved.get(sha));
+  assert.ok(!("why" in st));
+  if ("why" in st) return;
+  assert.equal(st.base, r, "the newest approved proper ancestor");
+  assert.ok(st.commits.map((c) => c.sha).includes(s), "the side commit is listed");
+  assert.deepEqual(st.missing, [s], "only the side commit has no review");
+  assert.match(reviewedLines(st, "main").blocked ?? "", /1 commit under this rerun has no review/);
+});
