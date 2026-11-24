@@ -22,6 +22,11 @@ export function indexStatusText(s: GateState, now: number): { text: string; tool
       text: `$(sync~spin) kton: building the index… since ${hhmm(s.buildingSince)} (${seconds(now - s.buildingSince)})${s.queued ? ` · ${s.queued} waiting` : ""}`,
       tooltip: "The first ask after a change (a signature, a new source, the window's start) builds the cockpit's index; the other asks wait for it. The first load can take 1–2 min.",
     };
+  if (s.lastError?.unreachable && s.cold)
+    return {
+      text: `$(error) kton: index not reachable · ${s.lastError.message.slice(0, 60)}`,
+      tooltip: `The index did not answer at ${hhmm(s.lastError.at)}: ${s.lastError.message}. Run \`cockpit doctor\` to check the cockpit and its index daemon. The next ask (a poll, or Retry in a view) tries again.`,
+    };
   if (s.lastError && s.cold)
     return { text: `$(warning) kton: not loaded · ${s.lastError.message.slice(0, 60)}`, tooltip: `The last ask failed at ${hhmm(s.lastError.at)}: ${s.lastError.message}. The next ask (a poll, or Retry in a view) tries again.` };
   if (s.queued > 0) return { text: `$(clock) kton: ${s.queued} waiting`, tooltip: `${s.inFlight} asks running, ${s.queued} waiting (at most 2 at a time).` };

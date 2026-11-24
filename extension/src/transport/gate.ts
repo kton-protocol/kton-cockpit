@@ -19,7 +19,7 @@ export interface GateState {
   readonly inFlight: number;
   readonly queued: number;
   /** the last ask that failed or was refused for a reason other than its content (timeout, the cockpit gone), and when */
-  readonly lastError?: { readonly message: string; readonly at: number };
+  readonly lastError?: { readonly message: string; readonly at: number; /** the index could not be reached (down, or building for longer than the limit) */ readonly unreachable?: boolean };
   /** when the index became warm again after a build (ms) */
   readonly readyAt?: number;
 }
@@ -33,13 +33,15 @@ export class AskGate {
   /** the most asks that ran at once (tests, the e2e's load check) */
   peak = 0;
   private buildingSince: number | undefined;
-  private lastError: { message: string; at: number } | undefined;
+  private lastError: { message: string; at: number; unreachable?: boolean } | undefined;
   private readyAt: number | undefined;
   private readonly listeners: Array<(s: GateState) => void> = [];
 
   constructor(
     private readonly max = MAX_IN_FLIGHT,
     private readonly now: () => number = Date.now,
+    /** how long "building" may last before a transient error counts as unreachable: twice the ask timeout (110 s) */
+    private readonly buildLimitMs: number = BUILD_LIMIT_MS,
   ) {}
 
   /** called on every change of the state (an ask queued, started, ended; cold, warm) */
@@ -107,23 +109,24 @@ export class AskGate {
     const started = this.generation;
     // building since the first cold ask, across asks: a slow daemon start or a build longer than one ask is still
     // "building the index…", never an error (a window once went dark while the daemon started)
-    if (this.cold && this.buildingSince === undefined) this.buildingSince = this.now();
+    // (not again once it was found unreachable: that stays shown until an ask answers)
+    if (this.cold && this.buildingSince === undefined && !this.lastError?.unreachable) this.buildingSince = this.now();
     this.emit();
     let ok = false;
     try {
       const r = await fn();
       // a refusal that is not about the query (a timeout, a busy store, a daemon starting) leaves the index cold
       const why = refusalWhy(r);
-      const transient = why !== undefined && TRANSIENT.test(why);
-      ok = why === undefined || !transient;
+      const kind = why === undefined ? undefined : this.classify(why);
+      // a refusal about the query itself means the index answered; building or down leaves it cold
+      ok = kind === undefined || kind === "failed";
+      if (kind === "down") this.fail(why as string, true);
       return r;
     } catch (e) {
       const why = e instanceof Error ? e.message : String(e);
-      // still building (a timeout, the daemon starting): keep "building"; anything else is a failure, said with its reason
-      if (!TRANSIENT.test(why)) {
-        this.lastError = { message: why, at: this.now() };
-        this.buildingSince = undefined;
-      }
+      // still building (a timeout, the daemon starting): keep "building"; down or anything else is a failure, said with its reason
+      const kind = this.classify(why);
+      if (kind !== "building") this.fail(why, kind === "down");
       throw e;
     } finally {
       this.inFlight--;
@@ -138,6 +141,16 @@ export class AskGate {
     }
   }
 
+  /** building: a timeout or a start, and not for longer than the limit; down: not running, unreachable (or building too long); else a failure */
+  private classify(why: string): "building" | "down" | "failed" {
+    if (DOWN.test(why)) return "down";
+    if (!BUILDING.test(why)) return "failed";
+    return this.buildingSince !== undefined && this.now() - this.buildingSince > this.buildLimitMs ? "down" : "building";
+  }
+  private fail(message: string, unreachable: boolean): void {
+    this.lastError = { message, at: this.now(), ...(unreachable ? { unreachable } : {}) };
+    this.buildingSince = undefined;
+  }
   private limit(): number {
     return this.cold ? 1 : this.max;
   }
@@ -149,8 +162,12 @@ export class AskGate {
   }
 }
 
+/** twice the ask timeout of the views (110 s): a build that takes longer is shown as not reachable */
+export const BUILD_LIMIT_MS = 220_000;
 /** Reasons that mean the index is still being built or started (not a failure to show as one). */
-const TRANSIENT = /timeout|timed out|longer than|busy|not running|unreachable|did not start|starting|daemon/i;
+const BUILDING = /timeout|timed out|longer than|busy|starting/i;
+/** Reasons that mean the index is gone: shown at once, not as building. */
+const DOWN = /not running|unreachable|did not start|connection refused|econnrefused|no such (?:file|socket)|enoent/i;
 
 /** The reason of an Outcome that is a refusal ({ok: false, refusal: {reason}}), else undefined. */
 function refusalWhy(r: unknown): string | undefined {

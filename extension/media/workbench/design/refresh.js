@@ -78,6 +78,8 @@ export function indexBannerText(s, now) {
   if (!s || typeof s !== "object") return null;
   if (typeof s.buildingSince === "number")
     return { kind: "building", text: `Loading data: the index is being built after a change (first load takes about 1–2 min; started ${clock(s.buildingSince)}, ${Math.max(0, Math.round((now - s.buildingSince) / 1000))} s so far).${s.queued ? ` ${s.queued} asks wait for it.` : ""}` };
+  if (s.cold && s.lastError && s.lastError.unreachable && typeof s.lastError.message === "string")
+    return { kind: "failed", text: `Index not reachable: ${s.lastError.message.replace(/\s+/g, " ").trim()} (at ${clock(s.lastError.at)}). Run \`cockpit doctor\`. The last answers stay shown.` };
   if (s.cold && s.lastError && typeof s.lastError.message === "string")
     return { kind: "failed", text: `Not loaded: ${s.lastError.message.replace(/\s+/g, " ").trim()} (at ${clock(s.lastError.at)}). The last answers stay shown.` };
   if (s.queued > 0) return { kind: "waiting", text: `Loading data: ${s.queued} asks waiting (at most 2 at a time).` };
