@@ -144,10 +144,13 @@ export class AskGate {
   /** building: a timeout or a start, and not for longer than the limit; down: not running, unreachable (or building too long); else a failure */
   private classify(why: string): "building" | "down" | "failed" {
     if (DOWN.test(why)) return "down";
+    // a missing executable or a missing file is a failure of its own kind, never "the index is not reachable"
+    if (NOT_FOUND.test(why)) return "failed";
     if (!BUILDING.test(why)) return "failed";
     return this.buildingSince !== undefined && this.now() - this.buildingSince > this.buildLimitMs ? "down" : "building";
   }
   private fail(message: string, unreachable: boolean): void {
+    if (NOT_FOUND.test(message) && !unreachable) message = describeNotFound(message);
     this.lastError = { message, at: this.now(), ...(unreachable ? { unreachable } : {}) };
     this.buildingSince = undefined;
   }
@@ -167,7 +170,13 @@ export const BUILD_LIMIT_MS = 220_000;
 /** Reasons that mean the index is still being built or started (not a failure to show as one). */
 const BUILDING = /timeout|timed out|longer than|busy|starting/i;
 /** Reasons that mean the index is gone: shown at once, not as building. */
-const DOWN = /not running|unreachable|did not start|connection refused|econnrefused|no such (?:file|socket)|enoent/i;
+const DOWN = /not running|unreachable|did not start|connection refused|econnrefused|no such socket|(?:connect|dial)[^\n]*(?:no such file|enoent)|socket[^\n]*(?:no such file|enoent)/i;
+/** The cockpit executable could not be started (spawn ENOENT), or a file the ask names is missing: not an index that is down. */
+const NOT_FOUND = /spawn [^\n]*enoent|cannot run [^\n]*(?:enoent|no such file)|no such file|enoent/i;
+/** The text shown for a not-found failure: a missing executable says so; a missing file keeps the file error's text. */
+export function describeNotFound(why: string): string {
+  return /spawn [^\n]*enoent|cannot run [^\n]*(?:enoent|no such file)/i.test(why) && !/^cockpit not found/i.test(why) ? `cockpit not found: ${why}` : why;
+}
 
 /** The reason of an Outcome that is a refusal ({ok: false, refusal: {reason}}), else undefined. */
 function refusalWhy(r: unknown): string | undefined {

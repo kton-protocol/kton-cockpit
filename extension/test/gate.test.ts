@@ -133,3 +133,20 @@ test("gate: a read running across a write leaves the index cold; the next read t
   assert.equal(peak, 1);
   assert.equal(g.isCold, false, "a read started after the write warms it");
 });
+
+test("gate: a missing cockpit executable and a missing file are failures of their own, not 'index not reachable'; a missing socket is still down", async () => {
+  const g = new AskGate();
+  await assert.rejects(g.run(async () => { throw new Error("cannot run /opt/none/cockpit: spawn /opt/none/cockpit ENOENT"); }));
+  assert.equal(g.state().lastError?.unreachable, undefined, "not unreachable");
+  assert.match(g.state().lastError?.message ?? "", /^cockpit not found: /);
+  const f = new AskGate();
+  const r = await f.run(async () => ({ ok: false as const, refusal: { code: "x", reason: "open views/q.rq: no such file or directory" } }));
+  assert.equal(r.ok, false);
+  assert.equal(f.state().lastError, undefined, "a refusal about the query's file is the query's, answered by the index");
+  await assert.rejects(f.run(async () => { throw new Error("read views/q.rq: no such file or directory"); }));
+  assert.equal(f.state().lastError?.unreachable, undefined);
+  assert.equal(f.state().lastError?.message, "read views/q.rq: no such file or directory");
+  const d = new AskGate();
+  await d.run(async () => ({ ok: false as const, refusal: { code: "x", reason: "dial unix /run/x.sock: connect: no such file or directory" } }));
+  assert.equal(d.state().lastError?.unreachable, true, "a socket that is gone: down");
+});
