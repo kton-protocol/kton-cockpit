@@ -464,9 +464,12 @@ function activate(ctx) {
     }),
     vscode.commands.registerCommand('ktonWorkgroup.background', (el) => {
       // closing the terminal ends its tmux client: the session keeps running, detached
+      // (a surface: its own terminal and those of its lanes on other machines; a lane: the terminal it shows in)
       const s = surfaceOf(el);
-      const t = s && tree.terminals.get(m.termKey(s, el && el.kind === 'lane' ? el.l.name : undefined));
-      if (t) t.dispose();
+      if (!s) return;
+      const keys = el && el.kind === 'lane' ? [m.termKey(s, el.l.name)]
+        : [s.name, ...[...tree.terminals.keys()].filter((k) => k.startsWith(`${s.name}/`))];
+      for (const k of keys) { const t = tree.terminals.get(k); if (t) t.dispose(); }
       tree.changed();
     }),
     vscode.commands.registerCommand('ktonWorkgroup.start', async (el) => {
