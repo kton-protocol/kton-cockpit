@@ -170,6 +170,17 @@ export function changesOptions(options: Readonly<Record<string, unknown>> | unde
 
 type ChangesFn = (repo: string, from: string, to: string, path: string) => Promise<import("./sources.js").Changes>;
 
+/**
+ * The review that counts for the requireReviewed gate: only an approvedCommit that is the full sha (40 hex, any case).
+ * A short prefix is not enough here: a commit could be made to share one (see reviewOf, which only labels).
+ */
+export function reviewedSha(sha: string, reviews: ReadonlyArray<Record<string, { value?: string }>>): string {
+  const full = /^[0-9a-f]{40}$/i.test(sha);
+  const hits = full ? reviews.filter((r) => (r["approvedCommit"]?.value ?? "").trim().toLowerCase() === sha.toLowerCase()) : [];
+  if (!hits.length) return "no review found";
+  return hits.map((r) => `approved by ${r["by"]?.value ?? "?"}${r["when"]?.value ? ` on ${r["when"].value.slice(0, 10)}` : ""}`).join("; ");
+}
+
 /** The review of a commit among the review rows, for display: one whose approvedCommit is a prefix of the sha (or the sha of it). */
 export function reviewOf(sha: string, reviews: ReadonlyArray<Record<string, { value?: string }>>): string {
   const hits = reviews.filter((r) => {

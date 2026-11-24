@@ -13,7 +13,7 @@ import { applies, isView, oneNumber, partition, planComposition, planEntry, stat
 import { approvalCounts, areaComposition, BUILTIN, recordComposition, recordTerms, signerKeyId, withBuiltin } from "./qm-area.js";
 import { SIGNER_QUERY } from "../identity.js";
 import { withThumbs } from "../ui/artifacts.js";
-import { artifactsOf, changesOptions, citeOptions, differsOptions, requireReviewedOf, reviewedLines, reviewOf, withChanges, withCitations, withDiffers, type RequireReviewed } from "../ui/annotate.js";
+import { artifactsOf, changesOptions, citeOptions, differsOptions, requireReviewedOf, reviewedLines, reviewedSha, withChanges, withCitations, withDiffers, type RequireReviewed } from "../ui/annotate.js";
 import type { AreaDecl } from "../packages/listing.js";
 
 export interface CompositionUi {
@@ -488,7 +488,7 @@ export class PackagesArea {
       if (!base) return { blocked: `the commits under this rerun cannot be checked: ${r.base} names no commit the last run ran at`, lines: [] };
     }
     const s = await this.path.reviewedState(r.repo, r.head, (sha) => {
-      const t = reviewOf(sha, reviews);
+      const t = reviewedSha(sha, reviews);
       return t === "no review found" ? undefined : t;
     }, base);
     return reviewedLines(s, r.head);

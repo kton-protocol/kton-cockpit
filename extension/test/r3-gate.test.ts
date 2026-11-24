@@ -6,7 +6,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { reviewedState } from "../src/ui/sources.js";
-import { reviewedLines } from "../src/ui/annotate.js";
+import { reviewOf, reviewedLines, reviewedSha } from "../src/ui/annotate.js";
 
 function mk(name: string) {
   const mirrors = mkdtempSync(join(tmpdir(), "gate-"));
@@ -63,5 +63,17 @@ test("with a base, more commits than the cap: the act is blocked, said in the re
   const ok = await reviewedState(mirrors, "r3", head, () => "approved", {}, 100, B);
   assert.ok(!("why" in ok));
   if (!("why" in ok)) assert.equal(reviewedLines(ok, "main").blocked, undefined);
+});
+
+test("the gate counts only a full, equal sha; the display still matches a 7-hex prefix", () => {
+  const A = "a1b2c3d" + "0".repeat(33);
+  const other = "a1b2c3d" + "f".repeat(33);
+  const prefix = [{ approvedCommit: { value: A.slice(0, 7) }, by: { value: "alice" } }];
+  assert.equal(reviewedSha(other, prefix), "no review found");
+  assert.equal(reviewedSha(A, prefix), "no review found", "a short approval does not open the gate, not even for its own commit");
+  assert.match(reviewOf(A, prefix), /approved by alice/, "display keeps the prefix match");
+  const full = [{ approvedCommit: { value: A.toUpperCase() }, by: { value: "alice" }, when: { value: "2026-03-01T00:00:00Z" } }];
+  assert.equal(reviewedSha(A, full), "approved by alice on 2026-03-01");
+  assert.equal(reviewedSha(other, full), "no review found");
 });
 
