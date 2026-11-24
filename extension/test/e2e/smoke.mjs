@@ -26,10 +26,59 @@ const leaked = [];
 page.on("request", (r) => {
   if (/example\.org/.test(r.url())) leaked.push(r.url());
 });
+// The surfaces the flows open (their shots): nothing on them scrolls sideways, at the full width and at 400 px
+// (DESIGN principle 8). SHOTS_DIR=<dir> (run.sh mounts it): a PNG of each of them at both widths, named after the shot.
+const SURFACES = new Set(["s5-review-view", "c2-grid", "c2-tabs", "c2-split", "s5-graph-leaf", "s3-decision", "s6-areas", "s6-record", "s6-history", "s6-findings", "s6-record-bound", "s6-approvals", "s6-area-two", "s6-governing-draft", "w-first-screen", "w-view", "w-evidence", "w-decides", "x-history"]);
+/** Every block, table wrap, nav and the page of every webview on screen: scrollWidth <= clientWidth. Returns {checked, wide: [..]}. */
+async function sideways() {
+  let checked = 0;
+  const wide = [];
+  for (const f of page.frames()) {
+    if (f === page.mainFrame()) continue;
+    try {
+      const r = await f.evaluate(() => {
+        const out = { checked: 0, wide: [] };
+        const sel = "[data-use], .tbl-wrap, .wb-nav, #kton-root, body";
+        if (!document.querySelector("[data-use], .wb-nav")) return out;
+        for (const e of document.querySelectorAll(sel)) {
+          if (!e.getClientRects().length) continue;
+          out.checked++;
+          const w = e === document.body ? Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) - document.documentElement.clientWidth : e.scrollWidth - e.clientWidth;
+          if (w > 1) out.wide.push(`${e.getAttribute("data-use") ?? (e.className || e.id || e.tagName)} +${w}px`);
+        }
+        return out;
+      });
+      checked += r.checked;
+      wide.push(...r.wide);
+    } catch {}
+  }
+  return { checked, wide };
+}
+async function fitAt(name) {
+  const size = page.viewportSize();
+  const shots = process.env.SHOTS_DIR;
+  const pass = async (tag, width) => {
+    if (width !== size.width) {
+      await page.setViewportSize({ width, height: size.height });
+      await page.waitForTimeout(800); // the blocks redraw on a resize
+    }
+    const r = await sideways();
+    if (shots) await page.screenshot({ path: `${shots}/${name}-${tag}.png` });
+    check(r.checked > 0 && r.wide.length === 0, `${name}: nothing scrolls sideways at ${tag} (${width}px; ${r.checked} blocks, tables and navs checked)`, 0, r.checked ? r.wide : "no block found");
+  };
+  try {
+    await pass("full", size.width);
+    await pass("400", 400);
+  } finally {
+    await page.setViewportSize(size);
+    await page.waitForTimeout(500);
+  }
+}
 async function shot(name) {
   const file = `${name}.png`;
   await page.screenshot({ path: `${OUT}/${file}` });
   current?.screenshots.push(file);
+  if (current && SURFACES.has(name)) await fitAt(name);
 }
 // ONLY=<flow>[,<flow>] (debugging, or a run on a loaded machine): only those flows' steps run, and a flow's own setup
 // (its folder, its registry asks) only when it is selected
@@ -1530,14 +1579,18 @@ if (seed.w?.proposal && selected("W")) {
     const f = await wFrame(90000);
     const b = f.locator('[data-use$="#notes"]');
     await b.locator("[data-area-table]").first().waitFor({ timeout: 120000 });
-    const rows = await b.locator("tbody tr[data-row]").evaluateAll((trs) => trs.map((tr) => Object.fromEntries([...tr.querySelectorAll("td[data-col]")].map((td) => [td.dataset.col, (td.textContent ?? "").trim()]))));
+    // text, cites, citesNote and differs are the 5th column on: behind the row's disclosure (its details row follows the row)
+    const rows = await b.locator("tbody tr[data-row]").evaluateAll((trs) => trs.map((tr) => Object.fromEntries([...tr.querySelectorAll("td[data-col]"), ...(tr.parentElement.querySelector(`tr[data-det="${tr.dataset.row}"]`)?.querySelectorAll("[data-col]") ?? [])].map((c) => [c.dataset.col, (c.textContent ?? "").trim()]))));
     check(rows.length === 3, "three decisions", 3, rows.length);
-    const r1 = b.locator("tbody tr[data-row]").nth(0);
-    const art = r1.locator('td[data-col="cites"] button[data-art]');
+    const disc = b.locator('tbody tr[data-row="0"] button.disc');
+    check((await disc.getAttribute("aria-expanded")) === "false" && !(await b.locator('tr[data-det="0"]').isVisible()), "the details are closed at first", "closed", await disc.getAttribute("aria-expanded"));
+    await disc.click();
+    check((await disc.getAttribute("aria-expanded")) === "true" && (await b.locator('tr[data-det="0"]').isVisible()), "the disclosure opens the row's details", "open", await disc.getAttribute("aria-expanded"));
+    await b.locator('tbody tr[data-row="1"] button.disc').click();
+    const art = b.locator('tr[data-det="0"] [data-col="cites"] button[data-art]');
     check((await art.count()) === 1 && ((await art.getAttribute("data-art")) ?? "").includes(W.pngSha256), "the hex prefix in the text resolves to the screenshot's artifact", W.pngSha256, await art.getAttribute("data-art"));
     check(/deadbeefcafe is not a run artifact here/.test(rows[0]?.citesNote ?? ""), "an id that is no artifact here is said so", "deadbeefcafe is not a run artifact here", rows[0]?.citesNote);
-    const r2 = b.locator("tbody tr[data-row]").nth(1);
-    check(((await r2.locator('td[data-col="cites"] button[data-art]').getAttribute("data-art")) ?? "").includes(W.pngSha256), "the structured citation is resolved (its text cites nothing)");
+    check(((await b.locator('tr[data-det="1"] [data-col="cites"] button[data-art]').getAttribute("data-art")) ?? "").includes(W.pngSha256), "the structured citation is resolved (its text cites nothing)");
     check(/^differs from Reviewer \(covered, 2026-11-20T10:00:00Z\)$/.test(rows[1]?.differs ?? ""), "the lead's later decision that differs is flagged", "differs from Reviewer (covered, …)", rows[1]?.differs);
     check(!rows[0]?.differs && !rows[2]?.differs, "nothing else is flagged", "", [rows[0]?.differs, rows[2]?.differs]);
     await art.click();
