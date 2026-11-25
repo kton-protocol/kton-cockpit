@@ -37,8 +37,27 @@ type UIPackage struct {
 	Compositions []map[string]any `json:"compositions"`
 	// Members are the sealed revision's parts, each by role, name and content hash: what ui cat
 	// serves. Null with the declarations, for a package a frontend may not use.
-	Members []UIMember  `json:"members"`
-	Refused []UIRefusal `json:"refused"`
+	Members []UIMember `json:"members"`
+	// Source is where the revision was built from (ktonpkg Revision.Source): null for an older
+	// revision or a folder outside git. Requires are the packages it declares it needs (requires.json),
+	// References every place its compositions name another package. Listed under the same rule as the
+	// declarations (architecture view G7): the view draws requires solid and references dashed.
+	Source     *scope.Source          `json:"source"`
+	Requires   []scope.PackageRequire `json:"requires"`
+	References []UIReference          `json:"references"`
+	Refused    []UIRefusal            `json:"refused"`
+}
+
+// UIReference is one place a package's compositions name another package (ktonpkg
+// Revision.PackageReferences): where (the composition, then the part ids), what (block, query,
+// composition, every, render, control), the name taken, and a control's pin (at, head).
+type UIReference struct {
+	Where   string `json:"where"`
+	What    string `json:"what"`
+	Name    string `json:"name"`
+	Package string `json:"package"`
+	At      string `json:"at,omitempty"`
+	Head    string `json:"head,omitempty"`
 }
 
 // UIMember is one part of a package's sealed revision (ktonpkg Revision.Members).
@@ -134,6 +153,22 @@ func uiListing(cfg *config.Config) (UIListing, error) {
 				c["hash"] = hashOf[scope.RoleComposition+":"+c["name"].(string)]
 			}
 		}
+		src, err := r.Source()
+		errs = append(errs, err)
+		p.Source = src
+		reqs, err := r.PackageRequires()
+		errs = append(errs, err)
+		if err == nil {
+			p.Requires = append([]scope.PackageRequire{}, reqs...)
+		}
+		refs, err := r.PackageReferences()
+		errs = append(errs, err)
+		if err == nil {
+			p.References = []UIReference{}
+			for _, x := range refs {
+				p.References = append(p.References, UIReference{x.Where, x.What, x.Name, x.Package, x.At, x.Head})
+			}
+		}
 		for _, err := range errs {
 			if err != nil {
 				p.Refused = append(p.Refused, UIRefusal{Code: "ui.check", Reason: err.Error()})
@@ -144,6 +179,7 @@ func uiListing(cfg *config.Config) (UIListing, error) {
 		// (kton-review V1).
 		if !p.Allowed || len(p.Refused) > 0 {
 			p.UI, p.Blocks, p.Compositions, p.Members = nil, nil, nil, nil
+			p.Source, p.Requires, p.References = nil, nil, nil
 		}
 		out.Packages = append(out.Packages, p)
 	}

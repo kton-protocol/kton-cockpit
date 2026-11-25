@@ -71,6 +71,8 @@ func (r *Runner) TemplatesWithOrigins() (ntemplate.Set, map[string]TemplateOrigi
 // the sealed revision it came from.
 type TemplateOrigin struct {
 	Hash, Package, Revision string
+	// PackageName is the name the package declares, for a listing (architecture view G8).
+	PackageName string
 	// Problem says why say refuses the template: its predicate or context is no IRI once resolved.
 	Problem string
 	// Rows: the template says its claims are rows, not versions ("claims": "rows", ktonpkg v0.9.12;
@@ -1007,7 +1009,7 @@ func (r *Runner) templatesFull() (ntemplate.Set, map[string]packages.Aliases, []
 	for _, name := range names {
 		b := voc.Templates[name]
 		src := voc.From["template:"+name]
-		origin := TemplateOrigin{Package: src.Package, Revision: src.Revision}
+		origin := TemplateOrigin{Package: src.Package, PackageName: src.Name, Revision: src.Revision}
 		al := voc.Aliases[src.Name]
 		b = packages.ResolvedTemplate(b, al)
 		var decl struct {

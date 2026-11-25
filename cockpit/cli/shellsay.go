@@ -73,7 +73,9 @@ type Template struct {
 	Predicate string `json:"predicate,omitempty"`
 	Context   string `json:"context,omitempty"`
 	// Hash is the sha256 of the template's bytes as its source holds them, Revision the package revision
-	// it came from: what say --expect-template and --expect-revision take.
+	// it came from: what say --expect-template and --expect-revision take. Package names the package a
+	// package template came from; it is absent for a template the repository holds itself.
+	Package  string                   `json:"package,omitempty"`
 	Hash     string                   `json:"hash,omitempty"`
 	Revision string                   `json:"revision,omitempty"`
 	Fields   map[string]TemplateField `json:"fields"`
@@ -100,7 +102,8 @@ func sayListing(cfg *config.Config) ([]Template, error) {
 			if st.Context != "" {
 				e.Context = set.Resolve(st.Context)
 			}
-			e.Hash, e.Revision = origins[st.Name].Hash, origins[st.Name].Revision
+			o := origins[st.Name]
+			e.Package, e.Hash, e.Revision = o.PackageName, o.Hash, o.Revision
 		}
 		for name, f := range t.Fields {
 			tf := TemplateField{Type: f.Type, Required: f.Required, Values: f.Values}

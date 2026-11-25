@@ -227,6 +227,11 @@ func TestServe_ListingsAreTheCommandLinesJSON(t *testing.T) {
 	sameJSON(t, "ui/list", c.ok("ui/list", nil), cli("ui", "list", "--json"))
 	sameJSON(t, "doctor", c.ok("doctor", nil), cli("doctor", "--json"))
 	sameJSON(t, "version", c.ok("version", nil), cli("version", "--json"))
+	sameJSON(t, "federation/list", c.ok("federation/list", nil), cli("federation", "list", "--json"))
+	sameJSON(t, "trust/list", c.ok("trust/list", nil), cli("trust", "list", "--json"))
+	sameJSON(t, "config/get", c.ok("config/get", nil), cli("config", "--json"))
+	sameJSON(t, "index/status", c.ok("index/status", nil), cli("index", "status", "--json"))
+	sameJSON(t, "index/registries", c.ok("index/registries", nil), cli("index", "registries", "--json"))
 
 	var l UIListing
 	if err := json.Unmarshal(c.ok("ui/list", nil), &l); err != nil || len(l.Packages) != 1 || len(l.Packages[0].Members) == 0 {

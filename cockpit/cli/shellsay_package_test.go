@@ -49,6 +49,18 @@ func TestShellSay_ListsAnAllowedPackagesTemplatesAndPointsFlagsToTheJSONFields(t
 	if !strings.Contains(" "+strings.Join(names, " ")+" ", " requests ") {
 		t.Errorf("the package's template is not listed: %v", names)
 	}
+	// say --json and say/templates name the package a template came from (architecture view G8); a
+	// template the repository holds itself names none.
+	listed, err := sayListing(cfg)
+	must(err)
+	for _, tmpl := range listed {
+		if tmpl.Name == "requests" && tmpl.Package != "inbox" {
+			t.Errorf("template requests: package %q, want inbox", tmpl.Package)
+		}
+		if tmpl.Name != "requests" && tmpl.Package != "" && tmpl.Revision == "" {
+			t.Errorf("template %s names package %q without a revision", tmpl.Name, tmpl.Package)
+		}
+	}
 
 	err = shellSay(context.Background(), []string{"--as", "lane-a", `{"template": "requests"}`})
 	if err == nil || !strings.Contains(err.Error(), `"as"`) {

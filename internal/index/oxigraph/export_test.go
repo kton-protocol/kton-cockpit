@@ -23,3 +23,5 @@ func Staged() int64 { return staged.Load() }
 
 // SetDuringBuild sets what runs once a build has marked itself.
 func SetDuringBuild(f func()) { duringBuild = f }
+
+func Notes() int64 { return notes.Load() }
