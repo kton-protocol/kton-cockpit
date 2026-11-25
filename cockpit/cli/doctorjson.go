@@ -49,7 +49,7 @@ type doctorPath struct {
 	Path  string `json:"path"`
 	State string `json:"state"`
 	// Form is set for a private key: "encrypted" when it needs a passphrase to sign, "plain" when it
-	// does not, read from the file alone without asking for one (ADR-021 §5).
+	// does not, read from the file alone without asking for one (ADR-021 section 5).
 	Form string `json:"form,omitempty"`
 }
 

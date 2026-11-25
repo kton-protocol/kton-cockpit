@@ -33,7 +33,7 @@ import (
 )
 
 func main() {
-	// First, before anything starts a child: no tool this starts inherits a key passphrase (ADR-021 §2.3).
+	// First, before anything starts a child: no tool this starts inherits a key passphrase (ADR-021 section 2.3).
 	keys.TakeEnvPassphrase()
 	if len(os.Args) > 1 && os.Args[1] == "serve" {
 		serve(os.Args[2:])

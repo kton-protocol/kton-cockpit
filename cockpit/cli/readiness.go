@@ -198,7 +198,7 @@ func blocked(steps []nextStep) bool {
 }
 
 // publicOf is the hex public key of a private key file in either form the kernel reads, without a
-// passphrase: an encrypted key shows its public half (ADR-021 §1).
+// passphrase: an encrypted key shows its public half (ADR-021 section 1).
 func publicOf(keyPath string) (string, error) {
 	pub, err := keyload.PublicKey(keyPath)
 	if err != nil {

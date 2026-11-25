@@ -73,7 +73,7 @@ func LockedRefusal(err error) *Refusal {
 
 // unlockKeys opens the signing keys a call will need before it takes a lock, starts a child or writes
 // anything: a person is asked once, at the start, and a missing or wrong passphrase refuses the call
-// before any step has run (ADR-021 §4). The keys stay open in r for the rest of the call.
+// before any step has run (ADR-021 section 4). The keys stay open in r for the rest of the call.
 func unlockKeys(r *binaries.Runner, paths ...string) error { return UnlockKeys(r, paths...) }
 
 // UnlockKeys is unlockKeys for the command line's own signers (a scope's seed and seal).

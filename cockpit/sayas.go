@@ -35,7 +35,7 @@ func keyAs(cfg *config.Config, name string) (string, string) {
 		return "", fmt.Sprintf("no key %s-claims.key in the keyring of .kton/local/identity.json: %v", name, err)
 	}
 	// The public half is read without a passphrase: naming a key, checking it and finding its trust
-	// tier never unlock it (ADR-021 §1). Signing with it does, at the signature.
+	// tier never unlock it (ADR-021 section 1). Signing with it does, at the signature.
 	pub, err := keyload.PublicKey(key)
 	if err != nil {
 		return "", fmt.Sprintf("%s is not a signing key: %v", key, err)

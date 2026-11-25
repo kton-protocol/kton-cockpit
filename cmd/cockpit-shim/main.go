@@ -51,7 +51,7 @@ type toolResult struct {
 }
 
 func main() {
-	// First, before anything starts a child: no tool this starts inherits a key passphrase (ADR-021 §2.3).
+	// First, before anything starts a child: no tool this starts inherits a key passphrase (ADR-021 section 2.3).
 	keys.TakeEnvPassphrase()
 	tool := filepath.Base(os.Args[0])
 	if tool == "cockpit-shim" {

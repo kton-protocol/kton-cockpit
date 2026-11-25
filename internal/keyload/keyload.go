@@ -45,7 +45,7 @@ func (e *LockedError) Error() string {
 var (
 	mu sync.Mutex
 	// interactive is set by the command line: it may ask on the controlling terminal, and a key it
-	// unlocked stays unlocked for the rest of the process (ADR-021 §4, one prompt per command). Every
+	// unlocked stays unlocked for the rest of the process (ADR-021 section 4, one prompt per command). Every
 	// other caller (the MCP server, serve, a Go program, a test) has no one to ask and keeps nothing.
 	interactive bool
 	unlocked    = map[string]ed25519.PrivateKey{}

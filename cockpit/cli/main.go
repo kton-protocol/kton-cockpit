@@ -39,7 +39,7 @@ import (
 func Main() {
 	// First, before anything starts a child (git, the container CLI, a shimmed tool, a workflow step):
 	// the passphrase variable is taken out of the environment so none of them inherits it (ADR-021
-	// §2.3). The value is held for the keys that need it, and dropped when the command ends.
+	// section 2.3). The value is held for the keys that need it, and dropped when the command ends.
 	keys.TakeEnvPassphrase()
 	defer keyload.Forget()
 	if len(os.Args) < 2 {
@@ -54,7 +54,7 @@ func Main() {
 	ctx := context.Background()
 	// A one-shot command may ask the person on the terminal and keeps a key it unlocked for the
 	// rest of the process. The servers (mcp, serve) and the shim have no one to ask: an encrypted
-	// key there is identity.locked unless KTON_KEY_PASSPHRASE was set for the process (ADR-021 §2.4).
+	// key there is identity.locked unless KTON_KEY_PASSPHRASE was set for the process (ADR-021 section 2.4).
 	switch os.Args[1] {
 	case "mcp", "serve", "shim":
 	default:

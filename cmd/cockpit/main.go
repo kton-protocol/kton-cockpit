@@ -10,7 +10,7 @@ import (
 )
 
 func main() {
-	// First, before anything starts a child (ADR-021 §2.3): cli.Main takes it too, for a composed binary.
+	// First, before anything starts a child (ADR-021 section 2.3): cli.Main takes it too, for a composed binary.
 	keys.TakeEnvPassphrase()
 	cli.Main()
 }

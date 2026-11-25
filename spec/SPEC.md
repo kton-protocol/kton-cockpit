@@ -215,6 +215,47 @@ which the cockpit MUST NOT read or write.
 > `TestValidatePublishPath_RejectsTheKtonFolder`, `TestContainer_TheTrustBaseIsNotInTheRoom` (`-tags docker`),
 > `TestConfig_ATiersKeysAreItsFolderNotAPattern`, `TestDirfiles_NamedListsOneDirectoryByPrefixAndSuffix`.
 
+### 5.7 Signing keys, plain or protected by a passphrase ([ADR-021](../docs/decisions/adr-021-passphrase-protected-keys.md))
+
+A private signing key is a file in one of two forms, with the same seed and the same keyid in both: the
+hex seed `keygen` writes, or the OpenSSH form of an Ed25519 key encrypted with a passphrase
+(`ssh-keygen -t ed25519`, `cockpit keygen --encrypt`). The cockpit reads a key only through the
+kernel's loader and decides where a passphrase comes from; it parses no key of its own (§13).
+
+- **One loader.** Every place that signs (a claim, a foton, a seed or seal, an installed package's
+  scope, a workflow package) reads its key through that loader, so an encrypted key works wherever a
+  plain one does. The kernel's refusals of a key (not Ed25519, a cipher it does not read, more bcrypt
+  rounds than it accepts) are reported as the kernel words them.
+- **The public half is read without a passphrase.** `doctor`, a key listing, the keyid of a key, a trust
+  check and `say --as`'s checks of a keyring key never ask for one. `doctor` says per key, from the
+  file alone, whether it is `encrypted` or `plain` (`form` in `--json`).
+- **Where the passphrase comes from**, asked only when a signature needs the key: the controlling
+  terminal (never stdin) for a command run by a person, naming the key file and its keyid; else
+  `KTON_KEY_PASSPHRASE`, for what runs without a person (CI, tests), which is the weaker source since
+  the environment is readable by the process's user. The variable is taken out of the environment first
+  thing in `main`, before anything starts a child, so no child the cockpit starts (git, the container
+  CLI, a shimmed tool, a workflow step) inherits it, and the held value is dropped when the command ends.
+  The MCP server and `serve` have no terminal: an encrypted key there is signed with only when
+  `KTON_KEY_PASSPHRASE` was set for that process, and refused otherwise.
+- **Refused as `identity.locked`** when a key is encrypted and no source gave a passphrase, or the one
+  given is wrong. The reason names the key file, its keyid (read from the public half) and the ways to
+  unlock it. It is refused before anything is signed, read under the claims lock or written: a `say`,
+  a `publish` (before its command runs), an `install`, a `scope seed` and a `scope seal` open their keys
+  first, and a `say --batch` opens every key it signs with before signing any claim, so a wrong
+  passphrase writes none of its claims.
+- **Per process.** A command run by a person is asked once per key: a key unlocked once in that process
+  is not asked again in it. The servers keep no unlocked key past one call.
+- **Never written.** A passphrase is held as bytes and appears in no file, log, jobs journal,
+  `COCKPIT_TRACE` output, answer or error message.
+
+> **Checked by:** `TestKeys_EncryptedClaimKeySignsWithTheRightPassphraseAndNothingElse`,
+> `TestKeys_PlainAndEncryptedFormsOfOneSeedSignUnderOneKeyID`,
+> `TestKeys_PublicHalfOfAnEncryptedKeyNeedsNoPassphrase`, `TestKeys_MCPRefusesAnEncryptedKeyBeforeSigning`,
+> `TestKeys_BatchWithAnEncryptedKeyAndAWrongPassphraseWritesNone`, `TestKeys_ThePassphraseIsWrittenNowhere`,
+> `TestKeys_PublishOpensTheEncryptedFotonKeyFirst`, `TestKeys_ChildrenNeverSeeThePassphraseAndItIsLoggedNowhere`,
+> `TestKeys_WithoutATerminalOrVariableAnEncryptedKeyIsLockedAndAWrongOneRefused`,
+> `TestKeys_DoctorSaysPlainOrEncryptedWithoutAskingForAPassphrase`, `TestKeys_KeygenEncryptWritesAKeySSHKeygenReads`.
+
 ## 6 The surface
 
 A cockpit MUST expose exactly three verbs: `publish`, `say`, `ask`. It MUST NOT expose a fourth, and
