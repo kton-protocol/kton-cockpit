@@ -99,7 +99,7 @@ func (vc ViewConfig) resolve(tmpl, x string) string {
 
 // viewVersion changes whenever ClaimView builds something else from the same quads: a view kept
 // from an older build is then built again rather than answered from.
-const viewVersion = 11 // 4: view vocabulary 1; 5: nested fields through the aliases; 6: package aliases; 7: no aliases for an unknown template; 8: scope graphs (ADR-018); 9: nk:row, nk:source, graphs kept; 10: what a claim asserts about something else in no scope graph; 11: nk:declared on a declared step (kton v0.4.3)
+const viewVersion = 12 // 4: view vocabulary 1; 5: nested fields through the aliases; 6: package aliases; 7: no aliases for an unknown template; 8: scope graphs (ADR-018); 9: nk:row, nk:source, graphs kept; 10: what a claim asserts about something else in no scope graph; 11: nk:declared on a declared step (kton v0.4.3); 12: a claim is a node only when its chain resolves in the view's registries (ADR-022), and the chain graph
 
 // Fingerprint changes whenever the view a ViewConfig builds would.
 func (vc ViewConfig) Fingerprint() string {
@@ -161,6 +161,89 @@ type claimNode struct {
 // is the publication info of every claim of the union, trusted or not: a chain's positions count
 // every claim in it, while only trusted claims are shown and only they replace one another.
 func ClaimView(trusted, structure []Quad, vc ViewConfig) []Quad {
+	links := linksOf(structure)
+	return projectClaims(trusted, links, positionsOf(links, nil), nil, vc)
+}
+
+// chainLink is a claim's place in its chain as the record names it: the hex of its scope's seed and of
+// its predecessor, "" for none; a seed is its own scope.
+type chainLink [2]string
+
+// linksOf reads the chain links the publication info of every claim states.
+func linksOf(structure []Quad) map[string]chainLink {
+	links := map[string]chainLink{}
+	for _, q := range structure {
+		h := claimHex(q.S.Value)
+		if h == "" || !isClaimGraph(q.G, npPub) {
+			continue
+		}
+		l := links[h]
+		switch q.P.Value {
+		case nkNS + "scope":
+			l[0] = claimHex(q.O.Value)
+		case nkNS + "prev":
+			l[1] = claimHex(q.O.Value)
+		}
+		links[h] = l
+	}
+	return links
+}
+
+// positionsOf counts each claim's place in its chain: a seed is 0, any other claim one more than its
+// predecessor, and -1 where the chain does not lead to a seed. Only the claims resolved says are
+// counted (nil: every one of links), so a claim whose chain does not resolve has no position.
+func positionsOf(links map[string]chainLink, resolved func(string) bool) map[string]int {
+	positions := map[string]int{}
+	var pos func(h string, depth int) int
+	pos = func(h string, depth int) int {
+		if p, ok := positions[h]; ok {
+			return p
+		}
+		l, ok := links[h]
+		switch {
+		case !ok || depth > len(links) || (resolved != nil && !resolved(h)):
+			return -1
+		case l[0] == h:
+			positions[h] = 0 // a seed
+			return 0
+		case l[1] == "":
+			return -1
+		}
+		p := pos(l[1], depth+1)
+		if p >= 0 {
+			p++
+		}
+		positions[h] = p
+		return p
+	}
+	for h := range links {
+		pos(h, 0)
+	}
+	return positions
+}
+
+// projectClaims is the projection ClaimView and the daemon's build share, from the chain the caller
+// settled: links and positions say where each claim stands, and resolved (nil: all of them) says
+// which claims have a chain the registries resolved. A claim that is not resolved is no node, brings
+// no nested nodes, shared quads or signer label, and is no one's replacement (ADR-022: its record
+// graph stays in the store and in the nanopublication dataset, which are data like any imported graph).
+func projectClaims(trusted []Quad, links map[string]chainLink, positions map[string]int, resolved func(string) bool, vc ViewConfig) []Quad {
+	out, _ := projectClaimsSpans(trusted, links, positions, resolved, vc)
+	return out
+}
+
+// claimSpan says where a claim's quads are in the projection: out[start:end], of which the indexes in
+// shared are about something other than the claim (they carry no graph) and the quads whose subject is
+// not the claim's own node are its nested field nodes.
+type claimSpan struct {
+	start, end int
+	shared     []int
+}
+
+// projectClaimsSpans is projectClaims that also says which quads each claim produced, which the
+// incremental patch needs to take the output of the claims it asked about and leave the rest (ADR-022).
+func projectClaimsSpans(trusted []Quad, links map[string]chainLink, positions map[string]int, resolved func(string) bool, vc ViewConfig) ([]Quad, map[string]claimSpan) {
+	spans := map[string]claimSpan{}
 	claims := map[string]*claimNode{}
 	node := func(h string) *claimNode {
 		if claims[h] == nil {
@@ -172,6 +255,9 @@ func ClaimView(trusted, structure []Quad, vc ViewConfig) []Quad {
 		if strings.HasPrefix(q.G, attrNS) {
 			rest := strings.TrimPrefix(q.G, attrNS)
 			if i := strings.Index(rest, "/"); i > 0 {
+				if resolved != nil && !resolved(rest[:i]) {
+					continue
+				}
 				c := node(rest[:i])
 				if kid := rest[i+1:]; !contains(c.signers, kid) {
 					c.signers = append(c.signers, kid)
@@ -214,49 +300,12 @@ func ClaimView(trusted, structure []Quad, vc ViewConfig) []Quad {
 		}
 	}
 
-	// The chains, from every claim of the union.
-	links := map[string][2]string{} // hex -> scope, prev
-	for _, q := range structure {
-		h := claimHex(q.S.Value)
-		if h == "" || !isClaimGraph(q.G, npPub) {
-			continue
-		}
-		l := links[h]
-		switch q.P.Value {
-		case nkNS + "scope":
-			l[0] = claimHex(q.O.Value)
-		case nkNS + "prev":
-			l[1] = claimHex(q.O.Value)
-		}
-		links[h] = l
-	}
-	positions := map[string]int{}
-	var pos func(h string, depth int) int
-	pos = func(h string, depth int) int {
-		if p, ok := positions[h]; ok {
-			return p
-		}
-		l, ok := links[h]
-		switch {
-		case !ok || depth > len(links):
-			return -1
-		case l[0] == h:
-			positions[h] = 0 // a seed
-			return 0
-		case l[1] == "":
-			return -1
-		}
-		p := pos(l[1], depth+1)
-		if p >= 0 {
-			p++
-		}
-		positions[h] = p
-		return p
-	}
 	for h, c := range claims {
 		l := links[h]
 		c.scope, c.prev = l[0], l[1]
-		c.position = pos(h, 0)
+		if p, ok := positions[h]; ok {
+			c.position = p
+		}
 		for _, f := range c.fields {
 			if f.P.Value == nkNS+"replaces" {
 				if x := strings.ToLower(claimHex(f.O.Value)); x != "" && !contains(c.replaces, x) {
@@ -431,6 +480,7 @@ func ClaimView(trusted, structure []Quad, vc ViewConfig) []Quad {
 		for _, i := range shared {
 			out[i].G = ""
 		}
+		spans[h] = claimSpan{start, len(out), append([]int(nil), shared...)}
 		shared = shared[:0]
 	}
 	kids := make([]string, 0, len(agents))
@@ -443,7 +493,7 @@ func ClaimView(trusted, structure []Quad, vc ViewConfig) []Quad {
 			out = append(out, triple(agentNS+kid, rdfsLbl, lit(s.Name)), triple(agentNS+kid, nkNS+"tier", lit(s.Tier)))
 		}
 	}
-	return out
+	return out, spans
 }
 
 var (

@@ -118,8 +118,10 @@ func (d *Daemon) viewIs(ctx context.Context, slot, key string) bool {
 // makeView copies the graphs of def into slot's view, writes the query projection of its claims
 // (claimsNT) beside it, and marks both with key, all in one update: the store applies an update
 // whole, so a reader sees the old view or the new one, never a view without its claims. Building
-// takes turns per slot, and a builder that waited finds the view already made under its key.
-func (d *Daemon) makeView(ctx context.Context, slot, key string, def []string, claims []Quad, scopes map[string][]Quad) (err error) {
+// takes turns per slot, and a builder that waited finds the view already made under its key. chain is
+// the view's chain graph (ADR-022): the index's own bookkeeping, kept like a scope graph but never part
+// of the union of the claims, whose nodes carry the same triples.
+func (d *Daemon) makeView(ctx context.Context, slot, key string, def []string, claims []Quad, scopes map[string][]Quad, chain []Quad, built builtInfo) (err error) {
 	if d.Dir != "" {
 		if err := os.MkdirAll(d.datasetDir(), 0o755); err != nil {
 			return err
@@ -150,7 +152,7 @@ func (d *Daemon) makeView(ctx context.Context, slot, key string, def []string, c
 			rest = append(rest, q)
 		}
 	}
-	upload := map[string][]Quad{restIRI(slot): rest}
+	upload := map[string][]Quad{restIRI(slot): rest, chainIRI(slot): chain}
 	for g, qs := range scopes {
 		upload[g] = qs
 	}
@@ -208,7 +210,7 @@ func (d *Daemon) makeView(ctx context.Context, slot, key string, def []string, c
 		for _, g := range old {
 			u.WriteString("DROP SILENT GRAPH <" + g + "> ;\n")
 		}
-		u.WriteString("DROP SILENT GRAPH <" + restIRI(slot) + "> ;\nDROP SILENT GRAPH " + c + " ;\n")
+		u.WriteString("DROP SILENT GRAPH <" + restIRI(slot) + "> ;\nDROP SILENT GRAPH <" + chainIRI(slot) + "> ;\nDROP SILENT GRAPH " + c + " ;\n")
 	} else {
 		// What a changed or removed graph held leaves the union before the graph goes. The graphs hold
 		// disjoint triples: a scope graph only its own claims' triples (a claim is in one scope), and what
@@ -218,7 +220,10 @@ func (d *Daemon) makeView(ctx context.Context, slot, key string, def []string, c
 			if _, had := oldHashes[g]; !had {
 				continue
 			}
-			u.WriteString("DELETE { GRAPH " + c + " { ?s ?p ?o } } WHERE { GRAPH <" + g + "> { ?s ?p ?o } } ;\nDROP SILENT GRAPH <" + g + "> ;\n")
+			if g != chainIRI(slot) {
+				u.WriteString("DELETE { GRAPH " + c + " { ?s ?p ?o } } WHERE { GRAPH <" + g + "> { ?s ?p ?o } } ;\n")
+			}
+			u.WriteString("DROP SILENT GRAPH <" + g + "> ;\n")
 		}
 	}
 	if !incremental || defHash != oldDef {
@@ -235,13 +240,17 @@ func (d *Daemon) makeView(ctx context.Context, slot, key string, def []string, c
 	// is anyway: it was dropped above. Each graph moved into place is added to the union by the engine,
 	// so a claim's triples are sent once.
 	for _, g := range changed {
-		u.WriteString("MOVE SILENT <" + staging(g) + "> TO <" + g + "> ;\nADD <" + g + "> TO " + c + " ;\n")
+		u.WriteString("MOVE SILENT <" + staging(g) + "> TO <" + g + "> ;\n")
+		if g != chainIRI(slot) {
+			u.WriteString("ADD <" + g + "> TO " + c + " ;\n")
+		}
 	}
 	u.WriteString("DROP SILENT GRAPH " + m + " ;\nINSERT DATA { GRAPH " + m + " { " + v + " <" + kNS + "key> " + strconv.Quote(key) +
 		" ; <" + kNS + "defHash> " + strconv.Quote(defHash) + " .\n")
 	for _, g := range sortedKeys(hashes) {
 		u.WriteString("<" + g + "> <" + kNS + "hash> " + strconv.Quote(hashes[g]) + " .\n")
 	}
+	u.WriteString(built.markTriples(slot))
 	u.WriteString("} }")
 	err = d.update(ctx, u.Bytes())
 	return err

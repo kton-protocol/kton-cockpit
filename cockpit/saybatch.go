@@ -108,7 +108,7 @@ func (c *Cockpit) SayBatch(ctx context.Context, in SayBatchRequest) (*SayBatchRe
 		if p.in.Scope != "" {
 			st := scopes[p.in.Scope]
 			if st == nil {
-				ch, head, cerr := resolveChain(ctx, r, cfg, p.in.Scope)
+				ch, head, _, cerr := resolveChain(ctx, r, cfg, p.in.Scope)
 				if cerr != "" {
 					return nil, at(i, refuse("scope.unknown", "", "%s", cerr))
 				}

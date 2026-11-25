@@ -707,6 +707,17 @@ The tip MUST be read from the substrate on every claim, never remembered between
 that cached it would hold mutable state about a chain it does not own, and would be stale the moment
 another writer's claim arrived.
 
+With the oxigraph index (§12) whose daemon is up, `say` reads the scope's head from the index's chain
+graph, after bringing every registry of the view up to date (not only the repository's own, so a claim a
+teammate's source brought since is in the head and the scope does not branch); it never starts a daemon
+for it. Without the index, or when the index cannot answer for any reason, the head is read from the
+union of the registries, and the `say` goes on: the index never refuses one. Both read the same head.
+
+> **Checked by:** `TestOxigraph_TheIndexHeadIsTheUnionsHead`,
+> `TestOxigraph_TheIndexHeadFollowsTheUnionThroughDeliveries`, `TestSay_TheHeadComesFromTheIndexWhileItIsUp`,
+> `TestSay_ATeammatesClaimSinceTheViewWasBuiltIsTheHeadWeChainOnto`,
+> `TestSay_WithoutAReachableIndexTheHeadComesFromTheUnion`.
+
 **Writing MUST NOT judge the chain.** A claim whose predecessor this registry cannot resolve, and a
 chain with more than one head, are both conditions a cockpit MUST record through rather than refuse
 on. kton §7.4 makes ingest monotone — a signed scoped statement is accepted "even if its `prev` is
@@ -1277,6 +1288,15 @@ with every other store that names records by hash. Nanopub's Trusty URIs belong 
 No other state is inferred: nothing is "current", nothing is superseded unless a claim says so. An alias
 MUST NOT name a term of this table.
 
+A claim is a node only when its chain resolves in the registries the view reads: its seed and every
+predecessor held (ADR-022). A claim the kernel holds waiting for a seed or predecessor no registry of the
+view has has no node, no signer label, no position and is counted in no scope; its record graph stays in
+the store and in the nanopublication dataset (§12.4), as data like any imported graph. A claim whose chain
+only the union of the registries settles (its seed in one federation source, the claim in another) is a node.
+
+> **Checked by:** `TestOxigraph_ClaimWhoseChainIsHeldElsewhere`, `TestOxigraph_AFullyResolvedChainBuildsAsBefore`,
+> `TestOxigraph_AClaimThatSettlesLaterIsRecordedAsResolved` (`-tags docker`).
+
 A template's aliases are the repository's alias file (`aliases.json`) for the repository's own
 templates. An admitted package's own alias file (its prefixes and terms) resolves that package's
 templates only: their predicate and context before they join the template set, their fields and enum
@@ -1713,7 +1733,13 @@ notifications (no id), of what changed in the registries this repository reads, 
   view's dataset `key` as it now stands, and `graphs` and `removed`: the view's graphs (its record graph
   `urn:kton:view:<slot>`, its rest `…:rest` (signer labels and the claim graphs' metadata, which a query over a scope's claims also reads), its claim graphs `…:scope:<hex>` and `…:unscoped`, which a
   scope's `graph` names) whose content changed or that came, and that went, since the connection's last
-  `indexMoved`, compared by the hash the view keeps of each graph, whoever built it. `all: true` says
+  `indexMoved`, compared by the hash the view keeps of each graph, whoever built it (ADR-022: a view patched by what
+  arrived keeps, for a graph the patch changed, the hash of its state before and of the triples the patch deleted and
+  inserted, so the state changes when the graph does and not otherwise; a view built whole keeps the hash of each
+  graph's content, which a patched graph's state never equals, so the first `indexMoved` after a full build names every
+  graph a patch had changed, and every graph of a new view. The view's chain graph
+  `…:chain`, the index's own bookkeeping that is in no dataset, is never named. Checked by
+  `TestOxigraph_ASayIntoALargeViewIsOnePatch` and `TestPatch_AGraphsStateChangesWithItsContentAndOtherwiseNot`). `all: true` says
   they cannot be named (another view, a view without those hashes, a connection without an earlier
   state: one resuming from `since`, or whose view did not exist when it started): re-ask everything. A
   connection without `since` compares with the view as it stood when it started, read before its

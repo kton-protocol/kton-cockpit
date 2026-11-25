@@ -13,6 +13,7 @@ import (
 	"github.com/kton-protocol/kton-cockpit/internal/anchor"
 	"github.com/kton-protocol/kton-cockpit/internal/binaries"
 	"github.com/kton-protocol/kton-cockpit/internal/config"
+	"github.com/kton-protocol/kton-cockpit/internal/index/oxigraph"
 	"github.com/kton-protocol/kton-cockpit/internal/material"
 	"github.com/kton-protocol/kton-cockpit/internal/show"
 )
@@ -227,8 +228,12 @@ func (c *Cockpit) Say(ctx context.Context, in SayRequest) (*SayResult, error) {
 	}
 	defer releaseClaims()
 	tr.mark("the claims lock")
-	chain, head, cerr := resolveChain(ctx, r, cfg, in.Scope)
-	tr.mark("the scope's head (reads the union)")
+	chain, head, viaIndex, cerr := resolveChain(ctx, r, cfg, in.Scope)
+	if viaIndex {
+		tr.mark("the scope's head (index)")
+	} else {
+		tr.mark("the scope's head (reads the union)")
+	}
 	if cerr != "" {
 		return nil, refuse("scope.unknown", "", "%s", cerr)
 	}
@@ -446,35 +451,35 @@ func determineReproductionLevel(ctx context.Context, cfg *config.Config, r *bina
 // its own work. One claim from a key in no configured tier was enough to freeze writing.
 //
 // Where completeness IS judged is the read path: `cockpit_ask` with query "scope".
-func resolveChain(ctx context.Context, r *binaries.Runner, cfg *config.Config, name string) (*binaries.Chain, *binaries.ScopeHead, string) {
+func resolveChain(ctx context.Context, r *binaries.Runner, cfg *config.Config, name string) (*binaries.Chain, *binaries.ScopeHead, bool, string) {
 	if name == "" {
-		return nil, nil, ""
+		return nil, nil, false, ""
 	}
 	scope, configured, ok := cfg.ScopeID(name)
 	if !ok {
 		// A scope this repository opened for an installation (`cockpit install`) is named by its
 		// seed and needs no configuration entry: install is the operator's act that opened it.
 		if own, err := r.OwnScope(ctx, name, cfg.NektonKey); err != nil {
-			return nil, nil, err.Error()
+			return nil, nil, false, err.Error()
 		} else if own != "" {
 			scope, ok = own, true
 		}
 	}
 	if !ok {
 		if len(configured) == 0 {
-			return nil, nil, fmt.Sprintf(
+			return nil, nil, false, fmt.Sprintf(
 				"this repo configures no claim scopes, so %q cannot be one of them. A scope is opened by an "+
 					"operator (`nekton seed <name> --sign <key> --add --print-id`) and listed in claims.scopes; "+
 					"a claim written without a scope stands on its own.", name)
 		}
 		// Named rather than matched as empty, for the reason SPEC §9.2 refuses an unknown filter value: a
 		// typo that quietly wrote somewhere else, or nowhere, reads like a decision.
-		return nil, nil, fmt.Sprintf("no claim scope named %q in this repo's config; it has: %s",
+		return nil, nil, false, fmt.Sprintf("no claim scope named %q in this repo's config; it has: %s",
 			name, strings.Join(configured, ", "))
 	}
-	head, err := r.Head(ctx, scope)
+	head, viaIndex, err := scopeHead(ctx, r, cfg, scope)
 	if err != nil {
-		return nil, nil, fmt.Sprintf(
+		return nil, nil, false, fmt.Sprintf(
 			"claims.scope names %s, but this repo's nekton registry cannot report its head: %v\n"+
 				"A scope must be seeded and ingested here before claims can chain under it "+
 				"(`nekton seed <name> --sign <key> --add`).", scope, err)
@@ -485,5 +490,23 @@ func resolveChain(ctx context.Context, r *binaries.Runner, cfg *config.Config, n
 	// question, and it is answered where seals are — on the read path, not here.
 	heads := append([]string(nil), head.Heads...)
 	sort.Strings(heads)
-	return &binaries.Chain{Scope: scope, Prev: heads[0]}, head, ""
+	return &binaries.Chain{Scope: scope, Prev: heads[0]}, head, viaIndex, ""
+}
+
+// scopeHead reads the scope's head: from the index's chain graph when the configuration has an oxigraph
+// index whose daemon is up (after it has brought every registry of the view up to date), otherwise, and
+// on any error of the index, from the union of the registries. The index never refuses a say and never
+// starts a daemon for one: whatever it cannot answer, the union does.
+func scopeHead(ctx context.Context, r *binaries.Runner, cfg *config.Config, scope string) (*binaries.ScopeHead, bool, error) {
+	if cfg.Raw.Index.Kind == "oxigraph" {
+		if d := oxigraph.Up(ctx, cfg); d != nil {
+			if keys, err := trustedKeys(cfg); err == nil {
+				if head, err := oxigraph.ScopeHead(ctx, d, cfg, keys, scope); err == nil {
+					return head, true, nil
+				}
+			}
+		}
+	}
+	head, err := r.Head(ctx, scope)
+	return head, false, err
 }

@@ -5,10 +5,14 @@ package oxigraph_test
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/kton-protocol/kton-cockpit/internal/binaries"
+	"github.com/kton-protocol/kton-cockpit/internal/config"
 	"github.com/kton-protocol/kton-cockpit/internal/index/oxigraph"
 	"github.com/kton-protocol/kton-cockpit/internal/testrepo"
 )
@@ -65,6 +69,16 @@ func TestOxigraph_AViewGoesUpInChunks(t *testing.T) {
 	}
 	if _, err := binaries.New(cfg).Annotate(ctx, "urn:example:more", "working-on",
 		map[string]string{"step": "more", "by-session": testrepo.SessionID}, cfg.NektonKey, nil); err != nil {
+		t.Fatal(err)
+	}
+	// A view is patched by one claim and the sweep belongs to a build of the whole view: a template that
+	// reads a field as another type changes the view's fingerprint, which is such a build.
+	tmpl := filepath.Join(r.Root, config.Dir, "templates", "working-on.json")
+	raw, err := os.ReadFile(tmpl)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(tmpl, []byte(strings.Replace(string(raw), `"step":       {"type": "string"`, `"step":       {"type": "integer"`, 1)), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if n := count(`SELECT (COUNT(DISTINCT ?c) AS ?n) WHERE { ?c <https://kton.dev/v/predicate> ?p ; <https://kton.dev/v/about> ?s }`); n != "41" {
