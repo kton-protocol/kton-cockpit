@@ -28,7 +28,7 @@ page.on("request", (r) => {
 });
 // The surfaces the flows open (their shots): nothing on them scrolls sideways, at the full width and at 400 px
 // (DESIGN principle 8). SHOTS_DIR=<dir> (run.sh mounts it): a PNG of each of them at both widths, named after the shot.
-const SURFACES = new Set(["s5-review-view", "c2-grid", "c2-tabs", "c2-split", "s5-graph-leaf", "s3-decision", "s6-areas", "s6-record", "s6-history", "s6-findings", "s6-record-bound", "s6-approvals", "s6-area-two", "s6-governing-draft", "w-first-screen", "w-view", "w-evidence", "w-decides", "x-history"]);
+const SURFACES = new Set(["s5-review-view", "c2-grid", "c2-tabs", "c2-split", "s5-graph-leaf", "s3-decision", "s6-areas", "s6-record", "s6-history", "s6-findings", "s6-record-bound", "s6-approvals", "s6-area-two", "s6-governing-draft", "w-first-screen", "w-view", "w-evidence", "w-evidence-runs", "w-units-rerun", "w-decides", "w-decides-dialog", "x-history"]);
 // Gaps that are not the shell's: each names what may be wide and why. The run prints them as GAP lines.
 const KNOWN_GAPS = {
   "s5-graph-leaf@400": { only: /^vscode-light \+\d+px$/, why: "the vendored graph viewer has no layout below its own minimum width; the page clips it (no scrollbar); a narrow layout is requested from the viewer's owner" },
@@ -82,7 +82,7 @@ async function vsc(title) {
   await page.keyboard.press("Enter");
   await page.waitForTimeout(400);
 }
-async function fitAt(name) {
+async function fitAt(name, focus) {
   const size = page.viewportSize();
   const shots = process.env.SHOTS_DIR;
   // both passes use a viewport about 900 px tall (a screen's height, not the 4500 px of the flows)
@@ -104,6 +104,8 @@ async function fitAt(name) {
       await page.waitForTimeout(800);
     }
     try {
+      // a section the reviewer must see (a table further down, a dialog's footer) is scrolled into view first
+      if (focus) await focus().scrollIntoViewIfNeeded({ timeout: 10000 }).catch(() => {});
       const r = await sideways();
       if (shots) await page.screenshot({ path: `${shots}/${name}-${tag}.png` });
       const gap = KNOWN_GAPS[`${name}@${tag}`];
@@ -127,11 +129,11 @@ async function fitAt(name) {
     await page.waitForTimeout(500);
   }
 }
-async function shot(name) {
+async function shot(name, focus) {
   const file = `${name}.png`;
   await page.screenshot({ path: `${OUT}/${file}` });
   current?.screenshots.push(file);
-  if (current && SURFACES.has(name)) await fitAt(name);
+  if (current && SURFACES.has(name)) await fitAt(name, focus);
 }
 // ONLY=<flow>[,<flow>] (debugging, or a run on a loaded machine): only those flows' steps run, and a flow's own setup
 // (its folder, its registry asks) only when it is selected
@@ -1488,6 +1490,7 @@ if (seed.w?.proposal && selected("W")) {
     const t = ((await unresolved.textContent()) ?? "").replace(/\s+/g, " ");
     check(/not resolved: no file in reference/.test(t) && (await unresolved.locator("button").count()) === 0, "an unresolved match says why, with nothing to open", "not resolved: no file in reference", t.slice(0, 200));
     await shot("w-evidence");
+    await shot("w-evidence-runs", () => a2.locator("table").first());
   });
 
   await step("W", 7, "requests: Capture now signs through the dialog into w.records and prints the nudge; the card waits, then shows the (stand-in) answer with the run's artifact", async () => {
@@ -1531,6 +1534,7 @@ if (seed.w?.proposal && selected("W")) {
     // the failed run-1 row of test 1 (its unit claim is W.unitFailed; the registry check below names it)
     const tr = f.locator('[data-use$="#units"] tbody tr', { hasText: "keeps a draft" }).filter({ hasText: "failed" }).first();
     await tr.waitFor({ timeout: 60000 });
+    await shot("w-units-rerun", () => tr);
     await tr.locator("button", { hasText: "Request rerun (capture mode)" }).click();
     // a record has no dialog: nothing the frame proposed is signed. The choice's reason is the package's declared act
     // field; the test, which the row only proposes, is asked, with no default
@@ -1571,6 +1575,7 @@ if (seed.w?.proposal && selected("W")) {
     await page.keyboard.press("Enter");
     const d = await dialog();
     await d.getByText("Evidence you opened in this view", { exact: false }).first().waitFor({ timeout: 15000 });
+    await shot("w-decides-dialog");
     await signInDialog(d);
     await d.locator('[data-testid="sign-outcome"][data-state="signed"]').waitFor({ timeout: 60000 });
     const rows = await sparql(`SELECT ?l ?scope ?s WHERE { ?c nk:predicate <${WN}decides> ; nk:about <${iriOf(W.proposal)}> ; lab:lookedAt ?l ; nk:signer ?s ; nk:scope ?sc . ?sc rdfs:label ?scope }`, "repo-w");
