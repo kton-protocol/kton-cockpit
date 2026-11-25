@@ -36,6 +36,8 @@ export function mount(el, ctx) {
     });
   };
   wireAsk();
+  // narrow: the block is under 560 px wide (the rows block's rule): the runs table moves its Artifact column to line 2
+  let narrow = el.clientWidth > 0 && el.clientWidth < 560;
   stamped(el, esc, ctx.request("query@1", {}), ctx.use.key).then(
     (r) => {
       const rows = r?.results?.bindings ?? [];
@@ -48,7 +50,7 @@ export function mount(el, ctx) {
       const chip = (x) => (v(x.stamp) ? `<span class="kton-stamp" ${stampAttrs(x, v, esc)}>${esc(v(x.stamp))}</span>` : `<span class="kton-stamp kton-error" data-stamp-missing>no source</span>`);
       const forWhat = rows.length && v(rows[0].for) ? `<p class="kton-muted" data-evidence-for>for <span class="mono">${esc(v(rows[0].for))}</span></p>` : "";
       let body;
-      if (o.runs === "table" && rows.some((x) => v(x.run))) body = runsTable(esc, rows, v, chip, o.collapsePassing === "yes");
+      if (o.runs === "table" && rows.some((x) => v(x.run))) body = `<div data-runs-host>${runsTable(esc, rows, v, chip, o.collapsePassing === "yes", narrow)}</div>`;
       else {
         const item = (x, i) => {
           const t = target(x);
@@ -76,19 +78,33 @@ export function mount(el, ctx) {
       }
       draw(`${ask}${title}${rows.length ? forWhat + body : emptyBox(esc, o.emptyText || "Nothing to open.", o.emptyHow)}`);
       wireAsk();
-      for (const b of el.querySelectorAll("button[data-open]")) {
-        b.addEventListener("click", () => {
-          const i = Number(b.dataset.open);
-          const out = el.querySelector(`[data-open-out="${i}"]`);
-          if (out) out.textContent = " Opening…";
-          b.disabled = true;
-          ctx.intent({ kind: "open", ...target(rows[i]) }).then((res) => {
-            b.disabled = false;
-            if (!out) return;
-            out.textContent = ` ${res?.refused ? `Not opened: ${res.refused.why ?? res.refused}` : res?.result?.message ?? "Opened."}`;
-            out.dataset.opened = res?.refused ? "no" : "yes";
+      const wireOpen = () => {
+        for (const th of el.querySelectorAll("th[data-actw]")) th.style.setProperty("width", `min(${th.dataset.actw}rem, 14rem, 40%)`);
+        for (const b of el.querySelectorAll("button[data-open]")) {
+          b.addEventListener("click", () => {
+            const i = Number(b.dataset.open);
+            const out = el.querySelector(`[data-open-out="${i}"]`);
+            if (out) out.textContent = " Opening…";
+            b.disabled = true;
+            ctx.intent({ kind: "open", ...target(rows[i]) }).then((res) => {
+              b.disabled = false;
+              if (!out) return;
+              out.textContent = ` ${res?.refused ? `Not opened: ${res.refused.why ?? res.refused}` : res?.result?.message ?? "Opened."}`;
+              out.dataset.opened = res?.refused ? "no" : "yes";
+            });
           });
-        });
+        }
+      };
+      wireOpen();
+      const host = el.querySelector("[data-runs-host]");
+      if (host && typeof globalThis.ResizeObserver === "function") {
+        new globalThis.ResizeObserver(() => {
+          const now = el.clientWidth > 0 ? el.clientWidth < 560 : narrow;
+          if (now === narrow) return;
+          narrow = now;
+          host.innerHTML = runsTable(esc, rows, v, chip, o.collapsePassing === "yes", narrow);
+          wireOpen();
+        }).observe(el);
       }
     },
     (e) => {
@@ -127,20 +143,32 @@ export function mismatch(x, v) {
 }
 
 /**
- * Runs as a table: Run | Test | Result | Artifact | Bytes | Open, grouped by test; an assertion
+ * Runs as a table with the rows tiers (DESIGN rows, "Fitting a wide table"): line 1 = Run, Result, Artifact (and the Open
+ * button in the acts cell), line 2 = Test, Bytes, the source chip and what the open said (the status never sits in the
+ * acts cell). Narrow (the block under 560 px): Artifact moves to the front of line 2. Grouped by test; an assertion
  * screenshot with a thumbnail when the host sent one. With collapse, passing runs with no artifact are counted, not listed.
  */
-export function runsTable(esc, rows, v, chip, collapse) {
+export function runsTable(esc, rows, v, chip, collapse, narrow = false) {
   const quiet = collapse ? rows.filter((x) => !v(x.sha256) && v(x.outcome) === "passed") : [];
   const shown = rows.map((x, i) => [x, i]).filter(([x]) => !quiet.includes(x));
   const why = [...new Set(quiet.map((x) => v(x.passingWhy)).filter(Boolean))];
   const tr = ([x, i]) => {
     const thumb = v(x.thumb) && /^data:image\/(png|jpeg|gif|webp);base64,[A-Za-z0-9+/=]+$/.test(v(x.thumb)) ? `<img class="ev-img small" src="${v(x.thumb)}" alt="">` : "";
     const res = v(x.outcome);
-    return `<tr data-evidence="artifact" data-row="${i}" data-test="${esc(v(x.testName))}"><td class="mono">${esc(v(x.run))}</td><td>${esc(shortName(v(x.testName)))}</td><td class="${res === "passed" ? "st-ok" : res ? "st-warn" : ""}">${esc(res)}</td><td>${thumb}${esc(v(x.artifact) || (v(x.sha256) ? "artifact" : "none"))}${v(x.sha256) ? "" : `<div class="kton-muted">${esc(v(x.note))}</div>`}</td><td class="r">${v(x.bytes) ? esc(Number(v(x.bytes)).toLocaleString("en")) : ""}</td><td>${v(x.sha256) ? `<button type="button" class="ghost small" data-open="${i}" data-label="${esc(v(x.label))}" aria-label="${esc(v(x.label))}">Open</button>` : ""}<span class="kton-muted" data-open-out="${i}" role="status"></span> ${chip(x)}</td></tr>`;
+    const art = `${thumb}${esc(v(x.artifact) || (v(x.sha256) ? "artifact" : "none"))}${v(x.sha256) ? "" : `<div class="kton-muted">${esc(v(x.note))}</div>`}`;
+    const bytes = v(x.bytes) ? esc(Number(v(x.bytes)).toLocaleString("en")) : "";
+    const l2 = [
+      narrow ? `<span class="l2i" data-col="artifact"><span class="l2l">Artifact</span> ${art}</span>` : "",
+      `<span class="l2i" data-col="test"><span class="l2l">Test</span> ${esc(shortName(v(x.testName)))}</span>`,
+      bytes ? `<span class="l2i" data-col="bytes"><span class="l2l">Bytes</span> ${bytes}</span>` : "",
+      `<span class="l2i">${chip(x)}</span>`,
+      `<span class="l2s kton-muted" data-open-out="${i}" role="status"></span>`,
+    ].join("");
+    const open = v(x.sha256) ? `<button type="button" class="ghost small" data-open="${i}" data-label="${esc(v(x.label))}" aria-label="${esc(v(x.label))}">Open</button>` : "";
+    return `<tr class="has2" data-evidence="artifact" data-row="${i}" data-test="${esc(v(x.testName))}"><td class="mono" data-col="run">${esc(v(x.run))}</td><td data-col="result" class="${res === "passed" ? "st-ok" : res ? "st-warn" : ""}">${esc(res)}</td>${narrow ? "" : `<td data-col="artifact">${art}</td>`}<td data-acts class="acts" rowspan="2"><div class="acts-stack">${open}</div></td></tr><tr class="l2" data-l2="${i}"><td colspan="${narrow ? 2 : 3}"><div class="l2g">${l2}</div></td></tr>`;
   };
   const table = shown.length
-    ? `<div class="tbl-wrap"><table class="t" data-runs data-count="${shown.length}"><thead><tr><th scope="col">Run</th><th scope="col">Test</th><th scope="col">Result</th><th scope="col">Artifact</th><th scope="col" class="r">Bytes</th><th scope="col"><span class="sr-only">Open</span></th></tr></thead><tbody>${shown.map(tr).join("")}</tbody></table></div>`
+    ? `<div class="tbl-wrap${narrow ? " narrow" : ""}"><table class="kton-table t" data-runs data-count="${shown.length}"><thead><tr><th scope="col" data-head="run">Run</th><th scope="col" data-head="result">Result</th>${narrow ? "" : '<th scope="col" data-head="artifact">Artifact</th>'}<th class="acts-h" data-actw="5"><span class="sr-only">Open</span></th></tr></thead><tbody>${shown.map(tr).join("")}</tbody></table></div>`
     : "";
   const sum = quiet.length ? `<p class="kton-muted" data-passing="${quiet.length}">${quiet.length} passing run${quiet.length === 1 ? "" : "s"} without an artifact: ${esc(why.join("; ") || "no artifact")} ${quiet.map(chip).join("")}</p>` : "";
   return table + sum;

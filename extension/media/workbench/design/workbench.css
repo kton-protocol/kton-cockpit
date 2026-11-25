@@ -396,7 +396,8 @@ ul.ev .side [data-opened="yes"] { color: var(--wb-ok); }
 .ev-img { display: block; max-width: 160px; max-height: 100px; margin-top: 4px; border: 1px solid var(--wb-hairline); border-radius: 2px; }
 .ev-img.small { display: inline-block; max-width: 64px; max-height: 40px; margin: 0 6px 0 0; vertical-align: middle; }
 table.t[data-runs] td { white-space: normal; min-width: 0; }
-table.t[data-runs] td:nth-child(3), table.t[data-runs] td.r { white-space: nowrap; }
+.l2s { flex-basis: 100%; }
+.l2i + .l2s::before { content: none; }
 table.t[data-runs] .ev-img { max-width: 100%; }
 /* the failures' evidence cell (rows, option evidence) */
 td.ev-cell { min-width: 9em; }
@@ -421,6 +422,8 @@ table.kton-table td.acts { width: auto; }
 .acts-stack { display: flex; flex-wrap: wrap; gap: 4px; align-items: flex-start; }
 .acts-stack [data-row-out] { flex-basis: 100%; }
 td.acts button.small { white-space: normal; text-align: left; }
+/* a button never breaks inside a word (the table's overflow-wrap is inherited); it wraps between buttons */
+.acts .btn, td.acts button, .acts-stack button { overflow-wrap: normal; word-break: normal; }
 button.disc { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; padding: 0; margin: 0 4px 0 -4px; vertical-align: middle; background: none; border: 0; color: var(--wb-muted); cursor: pointer; border-radius: var(--wb-radius); }
 button.disc:hover { color: var(--wb-fg); background: var(--wb-hover); }
 button.disc svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.6; transition: transform .1s; }
@@ -448,6 +451,8 @@ td.ev-cell .kton-stamp { margin-top: 4px; }
 @media (prefers-reduced-motion: reduce) { .wb-updating[data-state="updating"]::before { animation: none; } }
 .kton-block-body.wb-has-prev > [data-area-loading], .kton-block-body.wb-has-prev > [data-area-error] { display: none; }
 .wb-prev { opacity: .85; }
+/* the block's title stays once: the live one above the kept answer, not its copy */
+.wb-prev [data-block-title] { display: none; }
 .wb-signed { margin: 0; padding: 4px 12px; font-size: 12px; color: var(--wb-fg); border-bottom: 1px solid var(--wb-hairline); background: var(--wb-surface); }
 .wb-signed::before { content: "✓"; color: var(--wb-ok); font-weight: 600; margin-right: 6px; }
 

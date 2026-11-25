@@ -239,6 +239,13 @@ test("design: evidence: decoded names with line and location, the mismatch flag 
   assert.equal((h.match(/data-evidence="artifact"/g) ?? []).length, 1, "passing runs without artifacts are not listed one per line (bug 13)");
   assert.match(h, /<p class="kton-muted" data-passing="2">2 passing runs without an artifact: a passing test leaves no screenshot/);
   assert.match(h, /data-label="Open screenshot: run r1 \(failed\)"/);
+  // the tiers: line 1 = Run, Result, Artifact + the acts cell with only "Open"; line 2 = Test, Bytes, the open's status
+  assert.match(h, /<th scope="col" data-head="artifact">Artifact<\/th>/);
+  assert.match(h, /<td data-acts class="acts" rowspan="2"><div class="acts-stack"><button[^>]*>Open<\/button><\/div><\/td>/, "only the button sits in the acts cell");
+  assert.match(h, /<tr class="l2"[^>]*><td colspan="3"><div class="l2g">.*data-col="test".*<span class="l2s kton-muted" data-open-out="0"/, "the status is under the row, in line 2");
+  const n = e.runsTable(esc, runs, v, () => "", true, true);
+  assert.doesNotMatch(n, /data-head="artifact"/, "narrow: Artifact leaves line 1");
+  assert.match(n, /<span class="l2i" data-col="artifact">/, "narrow: Artifact is the first item of line 2");
 });
 
 test("design: thumbnails: hash-checked data URLs in assertion order, at most per row and per answer; nothing else changes", async () => {
@@ -265,7 +272,7 @@ test("design: rows: short test ids, group notes once, the packed evidence in ass
   const r = await media("viewers/rows/rows.js");
   assert.equal(r.shortId("ui-e2e:ui/item-24.spec.ts#T-002: the toolbar"), "item-24.spec.ts · T-002: the toolbar");
   assert.equal(r.shortId("lane:api-tests:ReviewsTest.kt#entries of another review"), "ReviewsTest.kt · entries of another review");
-  assert.equal(r.shortId(`https://kton.dev/o/${"a".repeat(64)}`), "sha256:aaaaaaaaaaaa…");
+  assert.equal(r.shortId(`https://kton.dev/o/${"a".repeat(64)}`), "sha256:aaaaaaaa…");
   assert.equal(r.shortId("https://example.org/qa/spec/item-41/6da9"), "6da9");
   assert.deepEqual(r.groupNotes(["lane harness 1: login | lane harness 3: New (+)", "lane harness 1: login", ""]), ["lane harness 1: login", "lane harness 3: New (+)"]);
   const sha = (c: string) => `sha256:${c.repeat(64)}`;
