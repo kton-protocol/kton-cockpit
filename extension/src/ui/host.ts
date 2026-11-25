@@ -55,7 +55,7 @@ export interface UiHost {
    * closing the dialog never sign.
    */
   /** `view`: the plan and the shown signer, for the structured dialog; the detail is the same plan as text. */
-  signDialog(title: string, detail: string, person: string, view?: { readonly plan: import("../sign.js").SignPlan; readonly signer: import("../identity.js").ShownSigner }): Promise<boolean>;
+  signDialog(title: string, detail: string, person: string, view?: import("./pages.js").SignView): Promise<boolean>;
   /**
    * What became of the signature the last sign dialog asked for, shown in that dialog (S7.3: a timeout
    * shows as failed there, and the registry decides whether a claim exists).
@@ -63,7 +63,8 @@ export interface UiHost {
   signOutcome(ok: boolean, text: string): void;
   /** Close a panel shown with showPanel (a sent compose form). */
   closePanel(key: string): void;
-  pick(title: string, items: readonly string[]): Promise<string | undefined>;
+  /** `preselect`: the item the quick pick starts on (an item of `items`); Enter takes it */
+  pick(title: string, items: readonly string[], preselect?: string): Promise<string | undefined>;
   input(prompt: string, value?: string): Promise<string | undefined>;
   info(text: string): void;
   error(text: string): void;

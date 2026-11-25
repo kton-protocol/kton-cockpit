@@ -178,6 +178,45 @@ export function resultsPage(title: string, rows: readonly Row[], nonce: string):
   return page(title, `<h1>${esc(title)}</h1><div class="muted">${rows.length} rows</div>${table}`, nonce);
 }
 
+/** What the structured sign dialog shows: one plan, or several signed behind one confirmation (a batch, in order). */
+export type SignView = { readonly plan: SignPlan; readonly signer: ShownSigner } | { readonly batch: readonly SignPlan[]; readonly signer: ShownSigner };
+
+/** The text of a batch dialog: every plan as the single dialog's text shows it, numbered, then the one signer. */
+export function signBatchDetail(plans: readonly SignPlan[], signer: ShownSigner): string {
+  return [`You sign ${plans.length} claims with one confirmation:`, ...plans.map((p, i) => `--- ${i + 1} of ${plans.length} ---\n${signDialogDetail(p, signer)}`)].join("\n");
+}
+
+/**
+ * The batch dialog's body: one section per claim, in the order they are signed, each with what the single dialog shows
+ * (template, control, subject, fields, scope, checks), and the one signer. The confirmation below covers all of them.
+ */
+export function signBatchBody(plans: readonly SignPlan[], signer: ShownSigner, title: string): string {
+  const who = signer.verified ? `${signer.name} (${signer.tier})` : `${signer.hint} — unverified: ${signer.why}`;
+  const first = plans[0];
+  const items = plans
+    .map((p, i) => {
+      const about = /^(?:https:\/\/kton\.dev\/o\/|sha256:)([0-9a-f]{64})$/.exec(p.subject);
+      const fields = Object.entries(p.fields).map(([k, v]) => `<div class="ln" data-field="${esc(k)}"><span class="k">${esc(k)}<span class="hide"> = </span></span><span class="v mono">${esc(v)}</span></div>`).join("");
+      const checks = p.checks?.differs.length ? `<div class="callout warn" role="status">${p.checks.differs.length} difference${p.checks.differs.length === 1 ? "" : "s"} from the signed claims: ${esc(p.checks.differs.join("; "))}</div>` : "";
+      return `<section class="blk" data-batch-item="${i + 1}"><h2>${i + 1} of ${plans.length} · ${esc(p.control.title ?? `${p.control.package}/${p.control.name}`)}</h2>
+<div class="ln"><span class="k">About<span class="hide">: </span></span><span class="v">${about ? `<span class="hide">${esc(p.subject)} </span><span class="chip" title="${esc(p.subject)}" tabindex="0">claim <span class="mono">${esc((about[1] ?? "").slice(0, 8))}</span></span>` : `<span class="mono">${esc(p.subject)}</span>`}</span></div>
+<div class="ln"><span class="k">Signs in<span class="hide">: </span></span><span class="v"><b>${esc(p.template)}</b></span></div>
+${p.meaning !== undefined ? `<div class="ln" data-act-meaning><span class="k">${p.meaningField ? "Meaning" : "Act"}<span class="hide">: </span></span><span class="v"><b>${esc(p.meaning)}</b></span></div>` : ""}
+${p.scope !== undefined ? `<div class="ln" data-into-scope><span class="k">Into scope<span class="hide">: </span></span><span class="v mono">${esc(p.scope)}</span></div>` : ""}
+${fields}${checks}</section>`;
+    })
+    .join("");
+  return `<p class="runbar"><b>Test keys</b><span>${esc(first?.footer ?? "")}</span></p>
+<div class="dlg" data-testid="sign-detail" data-batch="${plans.length}">
+<div class="eyebrow">${esc(title)}</div>
+<h1>Sign ${plans.length} claim${plans.length === 1 ? "" : "s"}</h1>
+<div class="callout" role="status" data-batch-note>One confirmation signs all ${plans.length}, in this order. If one of them fails, the ones after it are not signed.</div>
+${items}
+<section class="blk"><h2>Signs as</h2><div class="ln" data-signer><span class="k">Signs with<span class="hide">: </span></span><span class="v"><b>${esc(first?.as ?? "")}</b> <span class="muted">${esc(first?.keyRole ?? "")} key</span> <span class="hide">· ${esc(who)}</span><span class="pill ${signer.verified ? "ok" : "warn"}">${signer.verified ? esc(who) : "unverified"}</span></span></div>${signer.verified ? "" : `<div class="muted">${esc(signer.why)}</div>`}</section>
+<div class="info">${esc(first?.rules ?? "")}</div>
+</div>`;
+}
+
 /** The sign dialog's text (C1.4): exactly what `cockpit say` will sign, the signer, footer and rules note. */
 export function signDialogDetail(p: SignPlan, signer: ShownSigner): string {
   const who = signer.verified ? `${signer.name} (${signer.tier})` : `${signer.hint} — unverified: ${signer.why}`;
@@ -337,8 +376,8 @@ ${p.expect.revision ? ln("Package revision", `<span class="mono" title="${esc(p.
  * With `view` (the plan and the shown signer) the dialog is structured; without it, the text detail.
  * Cancel takes the focus when the page opens (a script, not autofocus); Sign is the primary, Cancel secondary.
  */
-export function signDialogPage(title: string, detail: string, person: string, nonce: string, view?: { readonly plan: SignPlan; readonly signer: ShownSigner }): string {
-  const top = view ? signDialogBody(view.plan, view.signer, title) : `<h1>${esc(title)}</h1>
+export function signDialogPage(title: string, detail: string, person: string, nonce: string, view?: SignView): string {
+  const top = view ? ("batch" in view ? signBatchBody(view.batch, view.signer, title) : signDialogBody(view.plan, view.signer, title)) : `<h1>${esc(title)}</h1>
 <pre class="box" data-testid="sign-detail">${esc(detail)}</pre>`;
   const body = `${top}
 <div class="${view ? "foot dlg" : ""}">

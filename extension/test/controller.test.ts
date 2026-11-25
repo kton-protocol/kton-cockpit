@@ -159,7 +159,8 @@ class FakeHost implements UiHost {
   async openWindow(folder: string): Promise<void> { this.windows.push(folder); }
   externalFails?: string;
   async runExternal(ext: string, cmd: string): Promise<boolean> { if (!this.installed.has(ext)) return false; if (this.externalFails) throw new Error(this.externalFails); this.external.push(cmd); return true; }
-  async pick(): Promise<string | undefined> { return this.picks.shift(); }
+  preselects: Array<string | undefined> = [];
+  async pick(_t?: string, _items?: readonly string[], preselect?: string): Promise<string | undefined> { this.preselects.push(preselect); return this.picks.shift(); }
   async input(): Promise<string | undefined> { return this.inputs.shift(); }
   info(t: string): void { this.infos.push(t); }
   error(t: string): void { this.errors.push(t); }
@@ -1356,4 +1357,113 @@ test("requireReviewed at act time: the commits under the rerun are listed in a d
   const dec = { package: "runs", name: "rerun-decide", template: "rerun", kind: "decision" as const, decl: {} } as never;
   assert.equal(await wb.signAct(dec, sha("1"), { reason: "r" }, "Rerun", undefined, { reviewed: lines }), "signed");
   assert.match(h.dialogs.at(-1)?.detail ?? "", /Checked against the commits under this rerun: no difference\n  the commits under this rerun: main: 2 commits since the last reviewed state · aaaaaaa head: approved by R on 2026-11-23/);
+});
+
+// ---- ranking speed: batch signing through the one sign path, enum defaults, a view that asks again on outside claims
+
+const RANK_TPL: TemplateInfo = { name: "rank", package: "rk", fields: { item: { type: "string", required: true }, grade: { type: "enum", required: true, values: ["a", "b", "c"] }, round: { type: "string" } } };
+const rankControl = { package: "rk", name: "rank", template: "rank", kind: "decision" as const, decl: {} } as never;
+const rankItem = (n: number, grade: string | undefined, fields: Record<string, string> = { item: `i${n}` }) => ({ about: sha(String(n)), fields, proposed: grade ? { grade } : {} });
+const manyClaims = (t: FakeTransport, n: number) => (t.sayOutcomes = Array.from({ length: n }, (_, i) => ({ ok: true as const, value: { claimId: sha(String(i + 1)), confirmation: "registered" } })));
+
+test("batch signing: N claims behind ONE dialog that lists all of them; one consent signs all N in order, with the person key", async () => {
+  const t = new FakeTransport();
+  t.templateList = [...TEMPLATES, RANK_TPL];
+  manyClaims(t, 3);
+  const { h, wb } = await setup({}, t);
+  h.confirmAnswer = true;
+  const each: Array<[number, string]> = [];
+  const r = await wb.signBatchAct(rankControl, [rankItem(1, "a"), rankItem(2, "b"), rankItem(3, "c")], "Rank 3", undefined, { signedEach: (i, s) => each.push([i, s.id]) });
+  assert.equal(r.result, "signed");
+  assert.equal(h.dialogs.length, 1, "one dialog");
+  assert.match(h.dialogs[0]?.detail ?? "", /You sign 3 claims with one confirmation[^]*--- 1 of 3 ---[^]*--- 3 of 3 ---/);
+  assert.deepEqual(t.says.map((s) => [s.subject, s.fields?.["grade"], s.as]), [[sha("1"), "a", "qa-decider"], [sha("2"), "b", "qa-decider"], [sha("3"), "c", "qa-decider"]]);
+  assert.ok(t.expects.every((e) => e.expectTemplate && e.expectRevision), "each say carries the template expectations, as a single one does");
+  assert.deepEqual(each.map((x) => x[0]), [0, 1, 2]);
+  assert.match(h.outcomes.at(-1)?.text ?? "", /^Signed 3 claims/);
+});
+
+test("batch signing: if one claim fails its check, none is signed, no dialog opens, and the error says which and why", async () => {
+  const t = new FakeTransport();
+  t.templateList = [...TEMPLATES, RANK_TPL];
+  const { h, wb } = await setup({}, t);
+  h.confirmAnswer = true;
+  const bad = await wb.signBatchAct(rankControl, [rankItem(1, "a"), rankItem(2, "z"), rankItem(3, "c")], "Rank 3");
+  assert.equal(bad.result, "failed");
+  assert.match(h.errors.at(-1) ?? "", /Not signed: claim 2 of 3 \(sha256:2+\): grade must be one of a\|b\|c/);
+  const open = await wb.signBatchAct(rankControl, [rankItem(1, "a"), rankItem(2, undefined)], "Rank 2");
+  assert.equal(open.result, "failed");
+  assert.match(h.errors.at(-1) ?? "", /claim 2 of 2[^]*grade is required and has no value from its row/);
+  const path = await wb.signBatchAct(rankControl, [rankItem(1, "a"), { about: "not/a/claim", fields: { item: "x" }, proposed: { grade: "a" } }], "Rank 2");
+  assert.equal(path.result, "failed");
+  assert.match(h.errors.at(-1) ?? "", /claim 2 of 2 \(not\/a\/claim\): .*never a path/);
+  const rec = await wb.signBatchAct({ package: "rk", name: "rank", template: "rank", kind: "record", decl: {} } as never, [rankItem(1, "a")], "Rank 1");
+  assert.equal(rec.result, "failed");
+  assert.match(h.errors.at(-1) ?? "", /record control: a record needs no dialog/);
+  assert.equal(h.dialogs.length, 0, "no dialog for a batch that cannot be signed");
+  assert.equal(t.says.length, 0, "nothing was signed");
+});
+
+test("batch signing: a cancelled dialog signs none; a refusal in the middle keeps what was signed and says where it stopped", async () => {
+  const t = new FakeTransport();
+  t.templateList = [...TEMPLATES, RANK_TPL];
+  const { h, wb } = await setup({}, t);
+  h.confirmAnswer = false;
+  const no = await wb.signBatchAct(rankControl, [rankItem(1, "a"), rankItem(2, "b")], "Rank 2");
+  assert.equal(no.result, "cancelled");
+  assert.equal(t.says.length, 0);
+  h.confirmAnswer = true;
+  t.sayOutcomes = [{ ok: true, value: { claimId: sha("1"), confirmation: "x" } }, { ok: false, refusal: { code: "template.changed", reason: "the template changed" } }];
+  const part = await wb.signBatchAct(rankControl, [rankItem(1, "a"), rankItem(2, "b"), rankItem(3, "c")], "Rank 3");
+  assert.equal(part.result, "failed");
+  assert.deepEqual(part.signed.map((s) => s.index), [0]);
+  assert.match(h.errors.at(-1) ?? "", /Signed 1 of 3[^]*Claim 2 of 3[^]*was refused: the template changed; the 1 after it was not tried/);
+  assert.equal(h.outcomes.at(-1)?.ok, false);
+  assert.equal(t.says.length, 1);
+});
+
+test("R3: a default for an enum field is preselected in the quick pick; one that is not among the values is ignored, with a warning in the output channel", async () => {
+  const t = new FakeTransport();
+  t.templateList = [...TEMPLATES, RANK_TPL];
+  const { h, wb } = await setup({}, t);
+  h.confirmAnswer = true;
+  h.picks = ["c"];
+  assert.equal(await wb.signAct(rankControl, sha("1"), { item: "x" }, "Rank", undefined, { defaults: { grade: "b" } }), "signed");
+  assert.deepEqual(h.preselects, ["b"], "the default is the pick's starting point");
+  assert.equal(t.says.at(-1)?.fields?.["grade"], "c", "the person's pick is what is signed, not the default");
+  h.picks = ["a"];
+  h.preselects.length = 0;
+  assert.equal(await wb.signAct(rankControl, sha("2"), { item: "y" }, "Rank", undefined, { defaults: { grade: "nope" } }), "signed");
+  assert.deepEqual(h.preselects, [undefined], "ignored");
+  assert.ok(h.logs.some((l) => /warning: the default "nope" for rank\.grade is not one of its values \(a\|b\|c\); ignored/.test(l)));
+  h.picks = ["a"];
+  h.preselects.length = 0;
+  await wb.signAct(rankControl, sha("3"), { item: "z" }, "Rank");
+  assert.deepEqual(h.preselects, [undefined], "no default: as before");
+});
+
+test("R4: the poll's answers changing between two polls (claims from outside) refresh the open views; this window's own signature does not, and an unchanged poll does not", async () => {
+  const t = new FakeTransport();
+  t.templateList = [...TEMPLATES, RANK_TPL];
+  const { h, wb } = await setup({}, t);
+  let asked = 0;
+  wb.packages.claimsChanged = () => ++asked;
+  await wb.refresh();
+  assert.equal(asked, 0, "nothing changed");
+  t.answers["N decides"] = [...(t.answers["N decides"] ?? []), { d: iri("7"), answers: P1, outcome: "https://schema.org/RejectAction", choice: "b", s: agentIri(AKID), by: "x", byTier: "agent", when: "2026-11-18T12:00:00Z" }];
+  await wb.refresh();
+  assert.equal(asked, 1, "another process signed: the views ask again");
+  assert.ok(h.logs.some((l) => /the index has new claims: 1 open view ask again/.test(l)));
+  await wb.refresh();
+  assert.equal(asked, 1, "no busy loop: an unchanged index asks nothing");
+  // our own signature changes the answers too (the poll right after it), which is no outside claim
+  const say = t.say.bind(t);
+  t.say = async (r) => {
+    t.answers["N decides"] = [...(t.answers["N decides"] ?? []), { d: iri("5"), answers: P2, outcome: "x", s: agentIri(PKID), by: "me", byTier: "self", when: "2026-11-18T13:00:00Z" }];
+    return say(r);
+  };
+  manyClaims(t, 1);
+  h.confirmAnswer = true;
+  await wb.signBatchAct(rankControl, [rankItem(1, "a")], "Rank 1");
+  assert.equal(asked, 1, "the window's own signature does not refresh the views again");
 });
