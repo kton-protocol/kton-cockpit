@@ -17,6 +17,12 @@
 
 ### Changed
 
+- **A claim is a node of the view only when its chain resolves** (ADR-022, view version 12): a claim
+  deferred in every registry of a view (its seed or predecessor held nowhere) no longer makes a `nk:Claim`
+  node or a scope graph; its record graph stays in the store and in the nanopublication dataset. The index
+  also records arrival numbers, chain links and what each registry's kernel resolved or deferred, and the
+  view a chain graph (SPEC §9.11).
+
 - **ktonpkg v0.10.2** (cockpit-verticleformat): a tool's command frame may name `<output>`, and a
   normaliser may run in its own image; nothing in the cockpit uses either yet (the tool module's
   qualify, ADR-015, is still to come).

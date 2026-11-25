@@ -39,6 +39,10 @@ import (
 //     last position read with Records) and urn:kton:position (kton#233, read before the records),
 //     replaced together last: a registry whose position differs is stale and is read again.
 //
+// ADR-022 adds, per registry, what arrived and what its kernel said of each chain (chainview.go):
+// urn:kton:arrivals (the registry's own counter, replaced with the mark), urn:kton:generation, and
+// <urn:kton:reg:<id>> urn:kton:resolves|defers <claim>.
+//
 // A registry is brought up to date before a query that reads it. Its position equal: nothing to do.
 // Otherwise it is opened and Records(cursor) applied, or Records(0) when its epoch changed, when
 // objects changed but nothing was numbered (records a git merge brought), or when the query trusts
@@ -113,8 +117,9 @@ func (d *Daemon) prepare(ctx context.Context, cfg *config.Config, keys []ed25519
 		duringBuild()
 	}
 	kept := true
-	var regs []string
+	var regs, nektonDirs []string
 	for _, in := range inputs {
+		nektonDirs = append(nektonDirs, in.NektonDir)
 		for _, r := range []struct{ layer, dir string }{{"plankton", in.PlanktonDir}, {"nekton", in.NektonDir}} {
 			changed, err := d.apply(ctx, r.layer, r.dir, keys)
 			if err != nil {
@@ -124,12 +129,16 @@ func (d *Daemon) prepare(ctx context.Context, cfg *config.Config, keys []ed25519
 			regs = append(regs, regIRI(r.dir))
 		}
 	}
-	def, named, pubinfo, err := d.dataset(ctx, regs, trustedIDs(keys))
+	def, named, _, err := d.dataset(ctx, regs, trustedIDs(keys))
 	if err != nil {
 		return nil, err
 	}
 	building.phase("projecting the claims")
-	view, err := d.claimView(ctx, named, pubinfo, vc)
+	ci, err := d.chainOf(ctx, regs, nektonDirs)
+	if err != nil {
+		return nil, fmt.Errorf("reading which chains resolve: %w", err)
+	}
+	view, err := d.claimView(ctx, named, ci, vc)
 	if err != nil {
 		return nil, fmt.Errorf("building the query projection of the claims: %w", err)
 	}
@@ -139,7 +148,7 @@ func (d *Daemon) prepare(ctx context.Context, cfg *config.Config, keys []ed25519
 	}
 	graphs, meta := scopeGraphs(slot, view, sources)
 	building.phase("writing the view")
-	if err := d.makeView(ctx, slot, key, def, append(view, meta...), graphs); err != nil {
+	if err := d.makeView(ctx, slot, key, def, append(view, meta...), graphs, ci.quads()); err != nil {
 		return nil, fmt.Errorf("writing the index's view of the trusted records: %w", err)
 	}
 	ds := &prepared{def: []string{viewIRI(slot)}, claims: []string{viewIRI(slot), claimsIRI(slot)},
@@ -162,12 +171,14 @@ func regIRI(dir string) string {
 type regState struct {
 	position string // core.Position as JSON; "" when the registry was never read, or is being read
 	cursor   int
+	arrivals int             // the registry's own counter of what arrived (ADR-022)
+	numbered bool            // arrivals was written: a registry read before ADR-022 is read again
 	keys     map[string]bool // public keys, hex
 }
 
 func (d *Daemon) state(ctx context.Context, reg string) (regState, error) {
-	q := fmt.Sprintf(`SELECT ?p ?o WHERE { GRAPH <%s> { <%s> ?p ?o FILTER(?p IN (<%sposition>, <%scursor>, <%skey>)) } }`,
-		indexGraph, reg, kNS, kNS, kNS)
+	q := fmt.Sprintf(`SELECT ?p ?o WHERE { GRAPH <%s> { <%s> ?p ?o FILTER(?p IN (<%sposition>, <%scursor>, <%skey>, <%sarrivals>)) } }`,
+		indexGraph, reg, kNS, kNS, kNS, kNS)
 	rows, err := d.selectCSV(ctx, url.Values{"query": {q}})
 	if err != nil {
 		return regState{}, err
@@ -181,6 +192,9 @@ func (d *Daemon) state(ctx context.Context, reg string) (regState, error) {
 			s.cursor, _ = strconv.Atoi(r["o"])
 		case kNS + "key":
 			s.keys[r["o"]] = true
+		case kNS + "arrivals":
+			s.arrivals, _ = strconv.Atoi(r["o"])
+			s.numbered = true
 		}
 	}
 	return s, nil
@@ -200,7 +214,7 @@ func (d *Daemon) apply(ctx context.Context, layer, dir string, trusted []ed25519
 		want[hex.EncodeToString(k)] = true
 	}
 	current := func(s regState) bool {
-		if s.position != now {
+		if s.position != now || !s.numbered {
 			return false
 		}
 		for k := range want {
@@ -232,7 +246,7 @@ func (d *Daemon) apply(ctx context.Context, layer, dir string, trusted []ed25519
 	for k := range want {
 		newKey = newKey || !s.keys[k]
 	}
-	if s.position == "" || last.Epoch != pos.Epoch || (last.Objects != pos.Objects && last.MaxSeq == pos.MaxSeq) || newKey {
+	if s.position == "" || !s.numbered || last.Epoch != pos.Epoch || (last.Objects != pos.Objects && last.MaxSeq == pos.MaxSeq) || newKey {
 		since = 0
 	}
 	var keys []ed25519.PublicKey
@@ -254,6 +268,8 @@ func (d *Daemon) apply(ctx context.Context, layer, dir string, trusted []ed25519
 	// own order, and a cursor past them would skip one that sorts earlier (kton-review V1 on PR #11).
 	// Until a writer numbers them, objects differ while maxSeq does not, and they are read from 0.
 	var ps []projected
+	var chain []chainRecord // every record the registry returned, for the chain links (nekton)
+	var said kernelSaid     // what its kernel says of those records and of those it held waiting before
 	cursor := 0
 	if _, err := os.Stat(dir); err == nil {
 		switch layer {
@@ -271,8 +287,24 @@ func (d *Daemon) apply(ctx context.Context, layer, dir string, trusted []ed25519
 			if err != nil {
 				return false, err
 			}
-			ps = projectNekton(r.Records(since), keys)
+			recs := r.Records(since)
+			ps = projectNekton(recs, keys)
 			cursor = min(r.MaxSeq(), pos.MaxSeq)
+			chain = chainRecords(recs)
+			ids := make([]string, len(chain))
+			for i, c := range chain {
+				ids[i] = c.hex
+			}
+			// The kernel does not feed a claim again when it settles (its feed entry keeps the number it
+			// had while it waited), so what this registry held waiting at the last read is asked by id.
+			if since > 0 {
+				before, err := d.previouslyDeferred(ctx, reg)
+				if err != nil {
+					return false, err
+				}
+				ids = append(ids, before...)
+			}
+			said = askKernel(r, ids)
 		}
 	} else if !os.IsNotExist(err) {
 		return false, err
@@ -285,14 +317,41 @@ func (d *Daemon) apply(ctx context.Context, layer, dir string, trusted []ed25519
 	// stale (its position not yet written) or a superset of what it was, never a subset.
 	var recs, meta strings.Builder
 	m := func(s, p, o string) { fmt.Fprintf(&meta, "%s <%s%s> %s <%s> .\n", s, kNS, p, o, indexGraph) }
+	regID := strings.TrimPrefix(reg, kNS+"reg:")
 	heldNow, attestsNow := map[string]bool{}, map[string]bool{}
+	// What this registry brings for the first time is numbered, in the order it is read, from its own
+	// counter: the delta of a view is what arrived past the number the view was built at (ADR-022 D1.1).
+	var newHeld, newAttests []string
+	for _, p := range ps {
+		newHeld = append(newHeld, p.graph)
+		for _, kid := range sortedKeys(p.attr) {
+			newAttests = append(newAttests, p.attributionGraph(kid))
+		}
+	}
+	fresh, err := d.unseen(ctx, reg, "holds", newHeld)
+	if err != nil {
+		return false, err
+	}
+	freshAttest, err := d.unseen(ctx, reg, "attests", newAttests)
+	if err != nil {
+		return false, err
+	}
+	arrivals := s.arrivals
+	arrive := func(g string, isNew map[string]bool) {
+		if isNew[g] {
+			arrivals++
+			delete(isNew, g) // a graph two records name is numbered once
+			m("<"+g+">", "arrived:"+regID, fmt.Sprintf(`"%d"^^<%s>`, arrivals, xsdInteger))
+		}
+	}
 	for _, p := range ps {
 		recs.Write(p.own)
 		m("<"+reg+">", "holds", "<"+p.graph+">")
 		m("<"+p.graph+">", "layer", nqLit(p.layer))
 		heldNow[p.graph] = true
-		for kid, a := range p.attr {
-			recs.Write(a)
+		arrive(p.graph, fresh)
+		for _, kid := range sortedKeys(p.attr) {
+			recs.Write(p.attr[kid])
 			g := p.attributionGraph(kid)
 			// Attribution belongs to the registry that holds the signature: another registry's copy
 			// of the same record may carry fewer signatures, and must not be attributed by this one.
@@ -300,7 +359,12 @@ func (d *Daemon) apply(ctx context.Context, layer, dir string, trusted []ed25519
 			m("<"+g+">", "of", "<"+p.graph+">")
 			m("<"+g+">", "keyid", nqLit(kid))
 			attestsNow[g] = true
+			arrive(g, freshAttest)
 		}
+	}
+	links := linkNQuads(chain)
+	if links != "" {
+		meta.WriteString(links)
 	}
 	if recs.Len() > 0 {
 		if err := d.load(ctx, "application/n-quads", recs.String()); err != nil {
@@ -322,10 +386,20 @@ func (d *Daemon) apply(ctx context.Context, layer, dir string, trusted []ed25519
 		fmt.Fprintf(&mark, "<%s> <%skey> %s .\n", reg, kNS, nqLit(k))
 	}
 	fmt.Fprintf(&mark, "<%s> <%scursor> %s .\n<%s> <%sposition> %s .\n", reg, kNS, nqLit(strconv.Itoa(cursor)), reg, kNS, nqLit(now))
+	fmt.Fprintf(&mark, "<%s> <%sarrivals> \"%d\"^^<%s> .\n", reg, kNS, arrivals, xsdInteger)
+	// What the registry's kernel said of its claims is replaced with the mark, in the same update: a
+	// full read says it for every claim, so what it said before goes; a read from the cursor says it
+	// for the claims it returned and for those that were waiting, each moving from one list to the other.
+	var kernel strings.Builder
+	if since == 0 {
+		fmt.Fprintf(&kernel, "DELETE WHERE { GRAPH <%s> { <%s> <%sresolves> ?c } } ;\nDELETE WHERE { GRAPH <%s> { <%s> <%sdefers> ?c } } ;\n", indexGraph, reg, kNS, indexGraph, reg, kNS)
+	}
+	said.write(&kernel, reg, since == 0)
 	done := fmt.Sprintf(`DELETE WHERE { GRAPH <%[1]s> { <%[2]s> <%[3]sposition> ?a } } ;
 DELETE WHERE { GRAPH <%[1]s> { <%[2]s> <%[3]scursor> ?b } } ;
 DELETE WHERE { GRAPH <%[1]s> { <%[2]s> <%[3]skey> ?c } } ;
-INSERT DATA { GRAPH <%[1]s> { %[4]s } }`, indexGraph, reg, kNS, mark.String())
+DELETE WHERE { GRAPH <%[1]s> { <%[2]s> <%[3]sarrivals> ?d } } ;
+%[5]sINSERT DATA { GRAPH <%[1]s> { %[4]s } }`, indexGraph, reg, kNS, mark.String(), kernel.String())
 	if _, err := d.post(ctx, "/update", "", url.Values{"update": {done}}); err != nil {
 		return false, fmt.Errorf("marking %s read: %w", reg, err)
 	}
@@ -342,7 +416,8 @@ func (d *Daemon) forgetDeparted(ctx context.Context, reg string, held, attests, 
 	if err != nil {
 		return err
 	}
-	var gone strings.Builder
+	var gone, arrived strings.Builder
+	regID := strings.TrimPrefix(reg, kNS+"reg:")
 	for _, r := range rows {
 		switch {
 		case r["p"] == kNS+"holds" && !held[r["o"]]:
@@ -351,11 +426,26 @@ func (d *Daemon) forgetDeparted(ctx context.Context, reg string, held, attests, 
 			continue
 		}
 		fmt.Fprintf(&gone, "<%s> <%s> <%s> .\n", reg, r["p"], r["o"])
+		fmt.Fprintf(&arrived, "DELETE WHERE { GRAPH <%s> { <%s> <%sarrived:%s> ?n } } ;\n", indexGraph, r["o"], kNS, regID)
 	}
 	if gone.Len() == 0 {
 		return nil
 	}
-	u := fmt.Sprintf(`DELETE DATA { GRAPH <%s> { %s } }`, indexGraph, gone.String())
+	// A registry that lost records is one a view built from it cannot be patched against (ADR-022 D1.4):
+	// the generation says so, and a view built at another generation is built whole.
+	gen, err := d.selectCSV(ctx, url.Values{"query": {fmt.Sprintf(
+		`SELECT ?n WHERE { GRAPH <%s> { <%s> <%sgeneration> ?n } }`, indexGraph, reg, kNS)}})
+	if err != nil {
+		return err
+	}
+	n := 0
+	if len(gen) > 0 {
+		n, _ = strconv.Atoi(gen[0]["n"])
+	}
+	u := fmt.Sprintf(`DELETE DATA { GRAPH <%[1]s> { %[2]s } } ;
+%[3]sDELETE WHERE { GRAPH <%[1]s> { <%[4]s> <%[5]sgeneration> ?g } } ;
+INSERT DATA { GRAPH <%[1]s> { <%[4]s> <%[5]sgeneration> "%[6]d"^^<%[7]s> } }`,
+		indexGraph, gone.String(), arrived.String(), reg, kNS, n+1, xsdInteger)
 	_, err = d.post(ctx, "/update", "", url.Values{"update": {u}})
 	return err
 }

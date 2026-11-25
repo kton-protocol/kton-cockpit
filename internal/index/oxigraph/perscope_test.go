@@ -74,8 +74,9 @@ func TestOxigraph_ARebuildReplacesOnlyTheGraphsThatChanged(t *testing.T) {
 	if n := count(claims); n != "7" {
 		t.Errorf("after one claim in b: want 7 claims in the union, got %s", n)
 	}
-	if up := oxigraph.Staged() - before; up != 2 {
-		t.Errorf("one claim in b: want b's graph and the rest uploaded, got %d graphs", up)
+	// The chain graph (ADR-022) changes with every claim, and the view's other scopes do not.
+	if up := oxigraph.Staged() - before; up != 3 {
+		t.Errorf("one claim in b: want b's graph, the rest and the chain graph uploaded, got %d graphs", up)
 	}
 	for s, want := range map[string]string{"a": "2", "b": "3", "c": "2"} {
 		if n := count(inScope(s)); n != want {

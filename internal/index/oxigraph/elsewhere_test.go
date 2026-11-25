@@ -30,12 +30,13 @@ func TestOxigraph_ClaimWhoseChainIsHeldElsewhere(t *testing.T) {
 		a, b []int
 		// the record the union holds and B alone does not
 		claim int
-		// deferred in every registry: observed and logged, not asserted
+		// deferred in every registry: the record's graphs stay in the store, but no claim node is made
+		// of it (ADR-022: a claim is a node only when its chain resolves in the view's registries)
 		everywhere bool
 	}{
 		{"seed held only in another registry", []int{0}, []int{1}, 1, false},
 		{"predecessor held only in another registry", []int{0, 1}, []int{2}, 2, false},
-		{"claim deferred in every registry (observed, not asserted)", nil, []int{1}, 1, true},
+		{"claim deferred in every registry (a nanopub graph, no claim node)", nil, []int{1}, 1, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.Background()
@@ -157,7 +158,28 @@ func TestOxigraph_ClaimWhoseChainIsHeldElsewhere(t *testing.T) {
 			}
 			np := free(oxigraph.DatasetNanopub, `SELECT ?g ?s WHERE { GRAPH ?g { ?s ?p ?o } FILTER(CONTAINS(STR(?g), "`+hex+`") || CONTAINS(STR(?s), "`+hex+`")) } LIMIT 5`)
 			if tc.everywhere {
-				t.Logf("OBSERVED deferred in every registry: claims-dataset node present=%v (of %d claim nodes); nanopub graph present=%v", gotNode, len(node), len(np) > 0)
+				if gotNode {
+					t.Errorf("claims dataset: a node <https://kton.dev/o/%s> (a Claim) although no registry of the federation resolves its chain; it holds %d claim nodes", hex, len(node))
+				}
+				if len(np) == 0 {
+					t.Errorf("nanopub dataset: no graph or subject naming %s: the record is data like any imported graph and stays", hex)
+				}
+				// Nor in any scope graph, and no scope metadata counts it (nk:claims).
+				inGraph := free(oxigraph.DatasetClaims, `SELECT ?g WHERE { GRAPH ?g { <https://kton.dev/o/`+hex+`> ?p ?o } }`)
+				if len(inGraph) != 0 {
+					t.Errorf("claims dataset: the claim has triples in %d scope graphs, want none", len(inGraph))
+				}
+				counted := free(oxigraph.DatasetClaims, `SELECT ?g ?n WHERE { ?g <https://kton.dev/v/scope> <https://kton.dev/o/`+strings.TrimPrefix(ids[0], "sha256:")+`> ; <https://kton.dev/v/claims> ?n }`)
+				if len(counted) != 0 {
+					t.Errorf("claims dataset: scope metadata for the seed nobody holds, counting %v claims", counted)
+				}
+				// Nor does it stand in a scope graph of its own: its seed is nobody's.
+				scopes := free(oxigraph.DatasetClaims, `SELECT ?g WHERE { ?g <https://kton.dev/v/scope> ?s }`)
+				for _, r := range scopes {
+					if strings.Contains(r["s"], strings.TrimPrefix(ids[0], "sha256:")) {
+						t.Errorf("claims dataset: a scope graph %s for the seed nobody holds", r["g"])
+					}
+				}
 				return
 			}
 			if !gotNode {

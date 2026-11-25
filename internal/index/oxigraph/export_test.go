@@ -2,6 +2,7 @@ package oxigraph
 
 import (
 	"context"
+	"net/url"
 	"time"
 )
 
@@ -35,3 +36,14 @@ func SetReadClock(f func() time.Time) func() {
 	readClock = f
 	return func() { readClock = old }
 }
+
+// IndexRows runs a SELECT over the store's own dataset (the index graph and the views), for a test.
+func (d *Daemon) IndexRows(ctx context.Context, q string) ([]map[string]string, error) {
+	return d.selectCSV(ctx, url.Values{"query": {q}})
+}
+
+// RegIRI names a registry directory in the index, for a test.
+func RegIRI(dir string) string { return regIRI(dir) }
+
+// ChainIRI names slot's chain graph, for a test.
+func ChainIRI(slot string) string { return chainIRI(slot) }

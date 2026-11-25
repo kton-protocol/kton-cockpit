@@ -78,23 +78,23 @@ func ClaimDataset(u *binaries.Union, keys []ed25519.PublicKey, vc ViewConfig, so
 	}
 	// The scope graphs as a container loads them (ADR-018): named graphs beside the default graph,
 	// under a slot of their own; a query finds them by their metadata, not by their names.
-	view := ClaimView(trusted, structure, vc)
+	// A claim is a node only when the union resolved its chain (ADR-022): the kernel's own answer.
+	links := linksOf(structure)
+	resolved := func(h string) bool { _, ok := u.Nekton.Claim("sha256:" + h); return ok }
+	view := projectClaims(trusted, links, positionsOf(links, resolved), resolved, vc)
 	split, meta := scopeGraphs("query", view, sources)
 	return NTriples(append(view, meta...)), NQuads(split), describeGraphs(meta), nil
 }
 
 // claimView builds the query projection from the store: the quads of the trusted claims' graphs
-// (named), and the publication info of every claim the union holds (pubinfo).
-func (d *Daemon) claimView(ctx context.Context, named, pubinfo []string, vc ViewConfig) ([]Quad, error) {
+// (named) and the chain the registries resolved (ci), which says which claims are nodes and where
+// each stands in its chain.
+func (d *Daemon) claimView(ctx context.Context, named []string, ci *chainInfo, vc ViewConfig) ([]Quad, error) {
 	trusted, err := d.quadsOf(ctx, named)
 	if err != nil {
 		return nil, err
 	}
-	structure, err := d.quadsOf(ctx, pubinfo)
-	if err != nil {
-		return nil, err
-	}
-	return ClaimView(trusted, structure, vc), nil
+	return projectClaims(trusted, ci.links, ci.positions, func(h string) bool { return ci.resolved[h] }, vc), nil
 }
 
 // quadsOf reads the quads of the named graphs, each graph by its name: a bound graph is one lookup,

@@ -1277,6 +1277,15 @@ with every other store that names records by hash. Nanopub's Trusty URIs belong 
 No other state is inferred: nothing is "current", nothing is superseded unless a claim says so. An alias
 MUST NOT name a term of this table.
 
+A claim is a node only when its chain resolves in the registries the view reads: its seed and every
+predecessor held (ADR-022). A claim the kernel holds waiting for a seed or predecessor no registry of the
+view has has no node, no signer label, no position and is counted in no scope; its record graph stays in
+the store and in the nanopublication dataset (§12.4), as data like any imported graph. A claim whose chain
+only the union of the registries settles (its seed in one federation source, the claim in another) is a node.
+
+> **Checked by:** `TestOxigraph_ClaimWhoseChainIsHeldElsewhere`, `TestOxigraph_AFullyResolvedChainBuildsAsBefore`,
+> `TestOxigraph_AClaimThatSettlesLaterIsRecordedAsResolved` (`-tags docker`).
+
 A template's aliases are the repository's alias file (`aliases.json`) for the repository's own
 templates. An admitted package's own alias file (its prefixes and terms) resolves that package's
 templates only: their predicate and context before they join the template set, their fields and enum
