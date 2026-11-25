@@ -1603,8 +1603,11 @@ if (seed.w?.proposal && selected("W")) {
     await page.setViewportSize({ width: 400, height: 900 });
     const sidebar = await partShown("sidebar");
     if (sidebar) await vsc("View: Close Primary Side Bar");
+    // one editor group, so the dialog gets the window's width (moved before it opens, never while it is open)
+    await vsc("View: Join All Editor Groups").catch(() => {});
     await page.waitForTimeout(800);
     try {
+    f = await backToView();
     await f.locator('[data-use$="sign#summary"] [data-testid="act-decides"]').click();
     await inputQuick("b");
     const box = page.locator(".quick-input-box input").first();
@@ -1614,7 +1617,8 @@ if (seed.w?.proposal && selected("W")) {
     await page.keyboard.press("Enter");
     let d = await dialog();
     await d.getByText("Evidence you opened in this view", { exact: false }).first().waitFor({ timeout: 15000 });
-    await clearToasts();
+    // toasts are cleared by their own buttons: Escape would cancel the dialog
+    for (const b of await page.locator(".notification-toast .codicon-notifications-clear, .notification-toast [aria-label^='Clear Notification']").all()) await b.click().catch(() => {});
     const r = await sideways();
     if (process.env.SHOTS_DIR) await page.screenshot({ path: `${process.env.SHOTS_DIR}/w-decides-dialog-400.png` });
     check(r.checked > 0 && r.wide.length === 0, `w-decides-dialog: nothing scrolls sideways at 400 (400px; ${r.checked} blocks, tables and navs checked)`, 0, r.checked ? r.wide : "no block found");
