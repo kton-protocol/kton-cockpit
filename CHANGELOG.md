@@ -15,6 +15,15 @@
   CURIE role resolves through the package's own alias file instead of getting the template refused
   (kton-review F1, F2 on #260).
 
+### Fixed
+
+- **The view's fingerprint covers the alias tables** (kton-review): it hashed each template's predicate as
+  written and the resolved field names, so a change only to an alias (a prefix or term in
+  `.kton/aliases.json`, or a package's own aliases) left a stale view in place though it resolves enum and
+  iri values and nested fields differently. It now covers the repository's prefixes and template short
+  names, the alias file's bytes (its terms cannot be listed), each package's own aliases and the resolved
+  predicate. A view kept from before is built once again.
+
 ### Changed
 
 - **ktonpkg v0.10.2** (cockpit-verticleformat): a tool's command frame may name `<output>`, and a
