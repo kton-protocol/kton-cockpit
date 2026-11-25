@@ -132,26 +132,51 @@ func (c *Cockpit) EventsCursor(ctx context.Context) (string, error) {
 	}
 }
 
+// EventsStart is where a connection's events begin: the cursor, and for a connection that names no
+// cursor of its own, the view as it stood before that cursor was fixed.
+type EventsStart struct {
+	Cursor string
+	fresh  bool
+	view   *oxigraph.ViewState
+}
+
+// StartEvents fixes where a connection's events begin. since is a cursor an earlier connection's
+// events carried, checked; "" starts now. Starting now reads the view first and fixes the cursor after,
+// so a record landing in between is past the cursor and in the first diff, never inside the baseline
+// alone (kton-review N1 on #259); the first indexMoved then names only what changed after (F1).
+func (c *Cockpit) StartEvents(ctx context.Context, since string) (EventsStart, error) {
+	if since != "" {
+		if err := c.CheckEventsCursor(ctx, since); err != nil {
+			return EventsStart{}, err
+		}
+		return EventsStart{Cursor: since}, nil
+	}
+	cfg, err := config.Load(ctx, c.dir())
+	if err != nil {
+		return EventsStart{}, err
+	}
+	view := viewBaseline(ctx, cfg)
+	cur, err := c.EventsCursor(ctx)
+	if err != nil {
+		return EventsStart{}, err
+	}
+	return EventsStart{Cursor: cur, fresh: true, view: view}, nil
+}
+
 // Watch sends the events of the repository c serves to emit, every interval, until ctx ends, from
-// since: a cursor an earlier connection's events carried, or EventsCursor's present.
-func (c *Cockpit) Watch(ctx context.Context, since string, interval time.Duration, emit func(method string, params any)) error {
+// start (StartEvents).
+func (c *Cockpit) Watch(ctx context.Context, start EventsStart, interval time.Duration, emit func(method string, params any)) error {
 	cfg, err := config.Load(ctx, c.dir())
 	if err != nil {
 		return err
 	}
-	resumed := since != ""
-	if !resumed {
-		if since, err = c.EventsCursor(ctx); err != nil {
-			return err
-		}
-	}
-	w := &watcher{cfg: cfg, emit: emit, labels: map[string]string{}, cursor: since}
+	w := &watcher{cfg: cfg, emit: emit, labels: map[string]string{}, cursor: start.Cursor}
 	w.runEvents() // the journal as it is now: nothing sent for it
-	if !resumed {
-		// The view as it is now: the first indexMoved names what changed after. A connection resuming
-		// from an earlier cursor has none, since the view may already hold what came after that cursor:
-		// its first indexMoved says all.
-		w.baseline(ctx)
+	if start.fresh {
+		// The view as it was when the start was fixed: the first indexMoved names what changed after. A
+		// connection resuming from an earlier cursor has none, since the view may already hold what came
+		// after that cursor: its first indexMoved says all.
+		w.view = start.view
 	}
 	t := time.NewTicker(interval)
 	defer t.Stop()
@@ -438,25 +463,26 @@ func (w *watcher) current(ctx context.Context) (string, *oxigraph.ViewState, err
 	return a.Slot, &st, nil
 }
 
-// baseline takes the view as it stands when the watch starts, without building it, so the first
-// indexMoved names only what changed after. Without an index, or a view, there is none.
-func (w *watcher) baseline(ctx context.Context) {
-	if w.cfg.Raw.Index.Kind != "oxigraph" {
-		return
+// viewBaseline is the view as it stands, read without building it, so the first indexMoved names only
+// what changed after. Without an index, or a view, there is none.
+func viewBaseline(ctx context.Context, cfg *config.Config) *oxigraph.ViewState {
+	if cfg.Raw.Index.Kind != "oxigraph" {
+		return nil
 	}
-	d, err := oxigraph.Ensure(ctx, w.cfg)
+	d, err := oxigraph.Ensure(ctx, cfg)
 	if err != nil {
-		return
+		return nil
 	}
-	keys, err := trustedKeys(w.cfg)
+	keys, err := trustedKeys(cfg)
 	if err != nil {
-		return
+		return nil
 	}
-	slot, err := oxigraph.SlotFor(ctx, w.cfg, keys)
+	slot, err := oxigraph.SlotFor(ctx, cfg, keys)
 	if err != nil {
-		return
+		return nil
 	}
 	if st, err := d.ReadViewState(ctx, slot); err == nil && st.Graphs != nil {
-		w.view = &st
+		return &st
 	}
+	return nil
 }
