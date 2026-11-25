@@ -1501,12 +1501,12 @@ if (seed.w?.proposal && selected("W")) {
     check((await a2.locator(".wb-block-source").textContent()) === "source: w.runs", "the runs name their own source", "source: w.runs", await a2.locator(".wb-block-source").allTextContents());
     const none = ((await a2.textContent()) ?? "").replace(/\s+/g, " ");
     check(/1 passing run without an artifact: \S/.test(none) && (await a2.locator("[data-passing]").count()) === 1, "a passing run: no artifact, counted once, and why", "1 passing run without an artifact: …", none.match(/.{0,20}passing run.{0,80}/)?.[0]);
+    await shot("w-evidence-runs", { sel: '[data-use$="#artifacts"]' }); // while the runs of this element are shown
     const b3 = await evidence(g, "item-3#e1");
     const unresolved = b3.locator('[data-evidence="code"]').first();
     const t = ((await unresolved.textContent()) ?? "").replace(/\s+/g, " ");
     check(/not resolved: no file in reference/.test(t) && (await unresolved.locator("button").count()) === 0, "an unresolved match says why, with nothing to open", "not resolved: no file in reference", t.slice(0, 200));
     await shot("w-evidence");
-    await shot("w-evidence-runs", { sel: '[data-use$="#artifacts"]' });
   });
 
   await step("W", 7, "requests: Capture now signs through the dialog into w.records and prints the nudge; the card waits, then shows the (stand-in) answer with the run's artifact", async () => {
