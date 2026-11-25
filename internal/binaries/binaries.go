@@ -23,6 +23,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/kton-protocol/kton-cockpit/internal/config"
@@ -1150,10 +1151,15 @@ func (r *Runner) OwnDeferred(claimID string) (waitingOn string, deferred bool, e
 	return waitingOn, deferred, nil
 }
 
+// UnionResolveReads counts calls of UnionResolves, so a test can hold that an ordinary say never reads the
+// federation, not only that it does not say so (kton-review m3 on #267).
+var UnionResolveReads atomic.Int64
+
 // UnionResolves says which of the claims are resolved in the kernel's union of the own claim registry and every
 // federation source's, opened in place and read-only, once for all of them. Nothing is copied (unlike the union
 // cache a read builds): a say needs this answer only for claims waiting for a predecessor a source holds.
 func (r *Runner) UnionResolves(ctx context.Context, claimIDs ...string) (map[string]bool, error) {
+	UnionResolveReads.Add(1)
 	inputs, err := Inputs(ctx, r.cfg)
 	if err != nil {
 		return nil, err

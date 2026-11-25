@@ -112,12 +112,16 @@ func TestSay_AnOrdinarySayDoesNotReadTheFederation(t *testing.T) {
 	traceOut = &buf
 	defer func() { traceOut = old }()
 	subj := "sha256:" + strings.Repeat("b", 64)
+	reads := binaries.UnionResolveReads.Load()
 	if _, err := New(Start{}).Say(context.Background(), SayRequest{Subject: subj, Template: "working-on",
 		Fields: map[string]string{"step": "mine", "by-session": "s"}}); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(buf.String(), "confirm (reads the own registry)") || strings.Contains(buf.String(), "confirm (reads the federation)") {
 		t.Errorf("an ordinary say reads the own registry only:\n%s", buf.String())
+	}
+	if n := binaries.UnionResolveReads.Load() - reads; n != 0 {
+		t.Errorf("an ordinary say opened the federation %d time(s)", n)
 	}
 }
 
