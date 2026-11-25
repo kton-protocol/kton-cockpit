@@ -470,4 +470,10 @@ ul.rule-lines li { padding: 4px 0; border-bottom: 1px solid var(--wb-hairline); 
 .wb-index button { margin-left: 8px; }
 
 /* very narrow views: tighter cells, so a table fits without sideways scrolling */
-@container view (max-width: 320px) { table th, table td { padding: 4px 3px; } }
+@container view (max-width: 360px) {
+  table th, table td { padding: 4px 3px; }
+  .tbl-wrap table th, .tbl-wrap table td { white-space: normal; }
+}
+.pill, .badge, .chip { max-width: 100%; }
+.verdicts .pill, .legend span, .est-sub { white-space: normal; }
+.wb-nav a { white-space: normal; max-width: 100%; min-width: 0; overflow-wrap: anywhere; }

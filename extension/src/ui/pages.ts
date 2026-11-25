@@ -18,12 +18,12 @@ export function csp(nonce: string): string {
   return `default-src 'none'; style-src 'nonce-${nonce}'; script-src 'nonce-${nonce}'; connect-src 'none'; img-src 'none'; form-action 'none'; base-uri 'none'`;
 }
 
-const STYLE = `body{font-family:var(--vscode-font-family);color:var(--vscode-foreground);background:var(--vscode-editor-background);padding:12px 18px;line-height:1.5}
+const STYLE = `body{font-family:var(--vscode-font-family);color:var(--vscode-foreground);background:var(--vscode-editor-background);padding:12px 18px;line-height:1.5;overflow-wrap:anywhere}
 h1{font-size:18px;margin:0 0 8px} h2{font-size:15px} .muted{color:var(--vscode-descriptionForeground)} .box{border:1px solid var(--vscode-panel-border);border-radius:6px;padding:10px 12px;margin:10px 0}
-.opt{display:flex;gap:10px;align-items:flex-start;margin:6px 0} .rec{font-size:11px;border:1px solid currentColor;border-radius:4px;padding:0 5px;margin-left:6px}
-button{font:inherit;padding:4px 12px;border-radius:4px;border:1px solid var(--vscode-button-border,transparent);background:var(--vscode-button-background);color:var(--vscode-button-foreground);cursor:pointer}
+.opt{display:flex;gap:10px;align-items:flex-start;margin:6px 0} .opt > *{min-width:0} .rec{font-size:11px;border:1px solid currentColor;border-radius:4px;padding:0 5px;margin-left:6px}
+button{font:inherit;max-width:100%;text-align:left;padding:4px 12px;border-radius:4px;border:1px solid var(--vscode-button-border,transparent);background:var(--vscode-button-background);color:var(--vscode-button-foreground);cursor:pointer}
 button:disabled{opacity:.5;cursor:default}
-table{border-collapse:collapse} td,th{border-bottom:1px solid var(--vscode-panel-border);padding:4px 8px;text-align:left;vertical-align:top} code{font-family:var(--vscode-editor-font-family)}
+table{border-collapse:collapse;max-width:100%} td,th{border-bottom:1px solid var(--vscode-panel-border);padding:4px 8px;text-align:left;vertical-align:top} code{font-family:var(--vscode-editor-font-family)}
 label.field{display:block;margin:8px 0} label.field span{display:block} input[type=text],textarea{font:inherit;width:100%;max-width:640px;box-sizing:border-box}
 .error{color:var(--vscode-errorForeground)} .confirm{display:flex;gap:8px;align-items:center;margin:12px 0} .actions{display:flex;gap:8px}
 pre.box{white-space:pre-wrap;font-family:var(--vscode-editor-font-family)} .outcome{margin-top:10px;font-weight:600}`;
