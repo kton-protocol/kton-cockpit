@@ -146,7 +146,9 @@ button.chip { cursor: help; }
 .kton-hidden { font-size: 12px; border: 1px dashed var(--wb-hairline); border-radius: var(--wb-radius); padding: 2px 8px; display: inline-block; color: var(--wb-muted); }
 
 /* ---------- tables ---------- */
-.tbl-wrap { overflow-x: auto; max-width: 100%; position: relative; }
+.tbl-wrap { max-width: 100%; position: relative; }
+.tbl-wrap table { table-layout: fixed; }
+.tbl-wrap th, .tbl-wrap td { overflow-wrap: anywhere; }
 table, table.t { border-collapse: collapse; width: 100%; font-size: 12px; font-variant-numeric: tabular-nums; margin: 0; }
 th { cursor: default; }
 table th, table td { padding: 4px 8px; text-align: left; border-bottom: 1px solid var(--wb-hairline); vertical-align: top; }
@@ -191,7 +193,7 @@ html { scroll-padding-top: calc(var(--wb-top-h, 0px) + 8px); }
 .wb-banner-part > :is(h1, h2, h3, h4, h5, h6):first-child, .wb-banner-part > .wb-sec-head { display: none; }
 .wb-banner-part > .kton-block:has(.wb-banner) { display: none; }
 #kton-root .wb-banner { display: none; } /* drawn once, in the sticky bar above the view */
-.wb-nav { display: flex; gap: 2px; padding: 0 12px; border-bottom: 1px solid var(--wb-hairline); overflow-x: auto; scrollbar-width: thin; }
+.wb-nav { display: flex; gap: 2px; padding: 0 12px; border-bottom: 1px solid var(--wb-hairline); flex-wrap: wrap; }
 .wb-nav a { font-size: 12px; padding: 6px 8px; color: var(--wb-muted); text-decoration: none; white-space: nowrap; border-bottom: 2px solid transparent; display: inline-flex; align-items: center; gap: 4px; }
 .wb-nav a:hover { color: var(--wb-fg); }
 .wb-nav a.on { color: var(--wb-fg); border-bottom-color: var(--wb-focus); }
@@ -402,10 +404,32 @@ td.ev-cell { min-width: 9em; }
 .kton-block-body button.thumb .n { font-size: 11px; color: var(--wb-muted); }
 .ev-links { display: flex; flex-wrap: wrap; gap: 0 2px; align-items: center; font-size: 12px; }
 .ev-links .ghost { padding-left: 0; }
-details.rowmore { margin-top: 2px; font-size: 12px; }
-details.rowmore summary { cursor: pointer; color: var(--wb-link); width: fit-content; }
-details.rowmore dl.kv { margin: 6px 0; }
-details.rowmore .actions { margin-top: 6px; }
+/* rows: nothing scrolls sideways. Line 1 = cols, line 2 = muted "label value · label value", the rest behind the chevron */
+table.kton-table thead th { white-space: normal; }
+table.kton-table .r, table.kton-table td[data-number] { white-space: normal; }
+table.kton-table td[data-col]:first-child, table.kton-table td.ev-cell, table.t td:not([data-number]):not(:first-child) { min-width: 0; }
+table.kton-table tr.has2 > td { border-bottom: 0; padding-bottom: 0; }
+table.kton-table tr.has2 > td[data-acts] { border-bottom: 1px solid var(--wb-hairline); padding-bottom: 4px; }
+table.kton-table tr.l2 > td { padding-top: 0; padding-left: 8px; color: var(--wb-muted); font-size: 11px; }
+table.kton-table tr.has2:hover > td, table.kton-table tr.has2:hover + tr.l2 > td { background: var(--wb-hover); }
+.l2g { display: flex; flex-wrap: wrap; }
+.l2i { margin-right: .5em; min-width: 0; }
+.l2i + .l2i::before { content: "· "; }
+table.kton-table td.acts { width: auto; }
+.acts-stack { display: flex; flex-wrap: wrap; gap: 4px; align-items: flex-start; }
+.acts-stack [data-row-out] { flex-basis: 100%; }
+td.acts button.small { white-space: normal; text-align: left; }
+button.disc { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; padding: 0; margin: 0 4px 0 -4px; vertical-align: middle; background: none; border: 0; color: var(--wb-muted); cursor: pointer; border-radius: var(--wb-radius); }
+button.disc:hover { color: var(--wb-fg); background: var(--wb-hover); }
+button.disc svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.6; transition: transform .1s; }
+button.disc[aria-expanded="true"] svg { transform: rotate(90deg); }
+span.disc.ph { display: inline-block; width: 14px; }
+tr.det > td { background: var(--wb-surface); }
+tr.det[hidden] { display: none; }
+dl.det-dl { grid-template-columns: max-content minmax(0, 1fr) max-content minmax(0, 1fr); margin: 2px 0; }
+.tbl-wrap.narrow dl.det-dl { grid-template-columns: max-content minmax(0, 1fr); }
+tr.det .actions { margin-top: 6px; }
+.hash { font-family: var(--wb-mono); cursor: copy; border-bottom: 1px dotted var(--wb-muted); }
 .note-marker { margin-left: 6px; cursor: help; }
 tr.grp .grp-notes { font-weight: 400; font-size: 11px; margin-top: 4px; }
 tr.grp .grp-notes ol { margin: 2px 0 0; padding-left: 18px; color: var(--wb-muted); }
