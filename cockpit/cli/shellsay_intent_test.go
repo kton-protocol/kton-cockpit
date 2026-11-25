@@ -133,3 +133,47 @@ func TestShellSay_ListsCURIERolesResolved(t *testing.T) {
 		}
 	}
 }
+
+// A template the set refuses (here a role that resolves to no IRI) is named, with the kernel's reason,
+// by doctor and by say's overview, instead of only missing from the list (kton-review N3 on #260).
+func TestShellSay_ARefusedTemplateIsNamedByDoctorAndTheOverview(t *testing.T) {
+	r := testrepo.New(t)
+	r.Use(t)
+	r.Write(t, ".kton/templates/broken.json", `{"name": "broken", "target": "either", "predicate": "https://example.org/ln/broken",
+  "signerRoles": ["nope:reviewer"], "fields": {"note": {"type": "string"}}}`)
+	raw := r.Config(t).Raw
+	raw.Claims.AllowedTemplates = append(raw.Claims.AllowedTemplates, "broken")
+	r.WriteConfig(t, raw)
+	for _, args := range [][]string{{"doctor"}, {"say"}} {
+		out, _ := r.Cockpit(t, args...)
+		if !strings.Contains(out, "the template broken is refused") || !strings.Contains(out, "signerRoles") {
+			t.Errorf("cockpit %s does not name the refused template with its reason:\n%s", args[0], out)
+		}
+	}
+}
+
+// A refused template's name and reason come from someone else's file and the kernel quotes them as they
+// are: control characters in them are escaped, so they cannot recolour the output or forge a line
+// (kton-review R1 on #262: a role listed twice with an ESC in it).
+func TestShellSay_ARefusedTemplatePrintsNoControlCharacters(t *testing.T) {
+	r := testrepo.New(t)
+	r.Use(t)
+	r.Write(t, ".kton/templates/loud.json", `{"name": "loud", "target": "either", "predicate": "https://example.org/ln/loud",
+  "signerRoles": ["https://example.org/r/\u001b[31mRED\u0085x", "https://example.org/r/\u001b[31mRED\u0085x"],
+  "fields": {"note": {"type": "string"}}}`)
+	raw := r.Config(t).Raw
+	raw.Claims.AllowedTemplates = append(raw.Claims.AllowedTemplates, "loud")
+	r.WriteConfig(t, raw)
+	for _, args := range [][]string{{"doctor"}, {"say"}} {
+		out, _ := r.Cockpit(t, args...)
+		if !strings.Contains(out, "the template loud is refused") {
+			t.Fatalf("cockpit %s does not name the refused template:\n%s", args[0], out)
+		}
+		if strings.ContainsAny(out, "\x1b\u0085") {
+			t.Errorf("cockpit %s prints a control character from the template:\n%q", args[0], out)
+		}
+		if !strings.Contains(out, `\x1b[31mRED`) {
+			t.Errorf("cockpit %s does not show the escaped role:\n%q", args[0], out)
+		}
+	}
+}

@@ -59,6 +59,9 @@ func sayOverview(ctx context.Context, cfg *config.Config) {
 			}
 		}
 	}
+	for _, line := range refusedTemplateLines(cfg) {
+		fmt.Printf("  ! %s\n", line)
+	}
 	fmt.Println()
 	fmt.Println("a run folder stands for the record its run made; a file for its bytes.")
 }

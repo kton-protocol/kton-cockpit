@@ -9,7 +9,7 @@ require (
 	kton.dev/plankton v0.5.0
 )
 
-require github.com/gitmick/ktonpkg v0.10.1
+require github.com/gitmick/ktonpkg v0.10.2
 
 require (
 	golang.org/x/crypto v0.33.0 // indirect

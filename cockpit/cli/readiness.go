@@ -9,14 +9,16 @@ import (
 	"crypto/ed25519"
 	"encoding/hex"
 	"fmt"
-	"github.com/kton-protocol/kton-cockpit/internal/binaries"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/kton-protocol/kton-cockpit/cockpit/backend"
+	"github.com/kton-protocol/kton-cockpit/internal/binaries"
 	"github.com/kton-protocol/kton-cockpit/internal/config"
 	"github.com/kton-protocol/kton-cockpit/internal/index/oxigraph"
 	"github.com/kton-protocol/kton-cockpit/internal/packages"
@@ -157,6 +159,9 @@ func readiness(ctx context.Context, cfg *config.Config) []nextStep {
 		for _, c := range binaries.New(cfg).TemplateClashes() {
 			steps = append(steps, nextStep{false, c})
 		}
+		for _, line := range refusedTemplateLines(cfg) {
+			steps = append(steps, nextStep{false, line})
+		}
 	}
 	return steps
 }
@@ -245,4 +250,36 @@ func checkMadePath(p string) string {
 		return p + "  [made on first write]"
 	}
 	return p + "  [ok]"
+}
+
+// refusedTemplateLines names each template the set refused, sorted, so a template that does not load
+// is said where its author looks (doctor, say's overview), not only left out (kton-review N3 on #260).
+func refusedTemplateLines(cfg *config.Config) []string {
+	refused := binaries.New(cfg).RefusedTemplates()
+	names := make([]string, 0, len(refused))
+	for n := range refused {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	out := make([]string, 0, len(names))
+	for _, n := range names {
+		out = append(out, fmt.Sprintf("the template %s is refused, say cannot use it: %s", graphicOnly(n), graphicOnly(refused[n])))
+	}
+	return out
+}
+
+// graphicOnly writes each rune of s that is not graphic (C0 and C1 controls, DEL, a newline, a tab,
+// a format character) as a Go escape, so text from someone else's template cannot move the cursor,
+// recolour or forge a line of the output it is printed into (kton-review R1 on #262).
+func graphicOnly(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		if unicode.IsGraphic(r) {
+			b.WriteRune(r)
+			continue
+		}
+		q := strconv.QuoteRuneToASCII(r) // 'x' with x escaped
+		b.WriteString(q[1 : len(q)-1])
+	}
+	return b.String()
 }

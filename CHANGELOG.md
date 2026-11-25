@@ -17,6 +17,9 @@
 
 ### Changed
 
+- **ktonpkg v0.10.2** (cockpit-verticleformat): a tool's command frame may name `<output>`, and a
+  normaliser may run in its own image; nothing in the cockpit uses either yet (the tool module's
+  qualify, ADR-015, is still to come).
 - **kton v0.5.0** (kton.dev/plankton, nekton, kton). go.mod names the kernel CLIs as `tool`s, so
   plankton's own imports (x/crypto, x/term for protected keys) stay in go.sum (the missing entries the advisory
   "against kton main" job reported).
@@ -32,6 +35,9 @@
   and its first event said `all`. The view is now read first, then the cursor fixed (SPEC §12.5); only
   from a daemon already up, so `initialize` never starts one (kton-review R1 on #261). Go:
   `(*Cockpit).Watch` takes the `EventsStart` that `StartEvents(ctx, since)` returns instead of a cursor.
+- **A template the kernel refuses is named** (kton-review N3 on #260): `doctor` and `say`'s overview
+  say which template was refused at load and why, instead of only leaving it out (SPEC §8.5). Control
+  characters in the name or reason are printed escaped (kton-review R1 on #262).
 
 ## v0.5.14 — 2026-11-25
 
