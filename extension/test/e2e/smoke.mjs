@@ -1521,7 +1521,7 @@ if (seed.w?.proposal && selected("W")) {
     const t = ((await unresolved.textContent()) ?? "").replace(/\s+/g, " ");
     check(/not resolved: no file in reference/.test(t) && (await unresolved.locator("button").count()) === 0, "an unresolved match says why, with nothing to open", "not resolved: no file in reference", t.slice(0, 200));
     await shot("w-evidence");
-    await shot("w-evidence-runs", { sel: "table[data-runs]" });
+    await shot("w-evidence-runs", { sel: '[data-use$="#artifacts"]' });
   });
 
   await step("W", 7, "requests: Capture now signs through the dialog into w.records and prints the nudge; the card waits, then shows the (stand-in) answer with the run's artifact", async () => {
@@ -1604,10 +1604,12 @@ if (seed.w?.proposal && selected("W")) {
     const proposed = await box.inputValue();
     check(/kton-src:\/app\/src\/Main\.java\?[0-9a-f]+#L3/.test(proposed) && /run-artifact:/.test(proposed), "lookedAt is proposed with the opened evidence", "… kton-src:/app/src/Main.java?…#L3 … run-artifact:…", proposed.slice(0, 300));
     await page.keyboard.press("Enter");
-    const d = await dialog();
+    let d = await dialog();
     await d.getByText("Evidence you opened in this view", { exact: false }).first().waitFor({ timeout: 15000 });
     await clearToasts();
     await shot("w-decides-dialog");
+    // the shot's layout change may give the dialog a new frame: it is looked up again before signing
+    d = await dialog();
     await signInDialog(d);
     await d.locator('[data-testid="sign-outcome"][data-state="signed"]').waitFor({ timeout: 60000 });
     const rows = await sparql(`SELECT ?l ?scope ?s WHERE { ?c nk:predicate <${WN}decides> ; nk:about <${iriOf(W.proposal)}> ; lab:lookedAt ?l ; nk:signer ?s ; nk:scope ?sc . ?sc rdfs:label ?scope }`, "repo-w");
