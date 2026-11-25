@@ -79,6 +79,10 @@ type ViewConfig struct {
 	// Aliases are a package template's own package aliases, by template name: they resolve that
 	// template's fields, and the repository's (the set's) only what they leave as it is (SPEC §9.11).
 	Aliases map[string]packages.Aliases
+	// AliasFile is the bytes of the repository's alias file (.kton/aliases.json), nil when there is
+	// none. The set does not give its terms back (only its prefixes), so the fingerprint hashes the
+	// file itself: a term changes what a signed value resolves to without changing any field name.
+	AliasFile []byte
 	// Rows are the templates whose claims are rows, not versions: each such claim's node says nk:row
 	// true, so a "latest per subject" query leaves it out (ADR-018, section 5).
 	Rows map[string]bool
@@ -115,14 +119,24 @@ func (vc ViewConfig) Fingerprint() string {
 		if vc.Rows[n] {
 			f["@claims"] = "rows"
 		}
-		ts = append(ts, tmpl{n + "=" + t.Predicate, f})
+		// The predicate as the view keys it (resolved), not as the template spells it.
+		ts = append(ts, tmpl{n + "=" + vc.Templates.Resolve(t.Predicate), f})
 	}
+	// The alias tables themselves: they resolve the values of enum and iri fields and every nested
+	// field, which no field name or predicate above shows. The repository's prefixes and template
+	// short names come from the set; its terms cannot be enumerated, so the file's bytes stand for
+	// them. A package's own tables are marshalled whole (map keys are sorted: deterministic).
 	b, _ := json.Marshal(struct {
-		V int
-		S map[string]Signer
-		T []tmpl
-		R map[string]string
-	}{viewVersion, vc.Signers, ts, terms})
+		V  int
+		S  map[string]Signer
+		T  []tmpl
+		R  map[string]string
+		P  map[string]string
+		TA map[string][]string
+		F  string
+		A  map[string]packages.Aliases
+	}{viewVersion, vc.Signers, ts, terms, vc.Templates.Prefixes(), vc.Templates.TemplateAliases(),
+		fmt.Sprintf("%x", sha256.Sum256(vc.AliasFile)), vc.Aliases})
 	h := sha256.Sum256(b)
 	return hex.EncodeToString(h[:8])
 }

@@ -454,3 +454,35 @@ func TestClaimView_ARowTemplatesClaimsSayNkRow(t *testing.T) {
 		t.Error("the rows flag must change the view's fingerprint")
 	}
 }
+
+// The fingerprint covers the alias tables, not only the field names and predicates they resolve to: a
+// change to one prefix, to a term, or to a package's own prefix changes what the view builds (a CURIE in
+// a signed value, a nested field), so a kept view must be built again.
+func TestViewConfig_FingerprintCoversTheAliasTables(t *testing.T) {
+	tpl := map[string][]byte{"reviewed": []byte(`{"name":"reviewed","target":"either","predicate":"q:reviewed",
+	  "fields":{"outcome":{"type":"enum","values":["q:good"]}}}`)}
+	build := func(prefix, term string, pkg string) ViewConfig {
+		file := []byte(`{"prefixes":{"q":"` + prefix + `"},"terms":{"x":"` + term + `"}}`)
+		set, err := ntemplate.New(tpl, file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return ViewConfig{Templates: set, AliasFile: file,
+			Aliases: map[string]packages.Aliases{"reviewed": {Prefixes: map[string]string{"p": pkg}}}}
+	}
+	base := build("https://ex.org/q/", "q:x", "https://ex.org/p/")
+	for i := 0; i < 20; i++ { // map order must not matter
+		if build("https://ex.org/q/", "q:x", "https://ex.org/p/").Fingerprint() != base.Fingerprint() {
+			t.Fatal("the same configuration has two fingerprints")
+		}
+	}
+	for name, other := range map[string]ViewConfig{
+		"a repository prefix": build("https://ex.org/q2/", "q:x", "https://ex.org/p/"),
+		"a repository term":   build("https://ex.org/q/", "q:y", "https://ex.org/p/"),
+		"a package prefix":    build("https://ex.org/q/", "q:x", "https://ex.org/p2/"),
+	} {
+		if other.Fingerprint() == base.Fingerprint() {
+			t.Errorf("the fingerprint does not change when %s does", name)
+		}
+	}
+}

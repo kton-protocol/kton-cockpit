@@ -35,6 +35,11 @@ func ViewConfigFor(cfg *config.Config) (ViewConfig, error) {
 		return vc, err
 	}
 	vc.Templates, vc.Aliases = set, own
+	if b, err := os.ReadFile(filepath.Join(cfg.KtonDir, "aliases.json")); err == nil {
+		vc.AliasFile = b
+	} else if !os.IsNotExist(err) {
+		return vc, fmt.Errorf("alias file: %w", err)
+	}
 	if vc.Rows, err = binaries.New(cfg).RowTemplates(); err != nil {
 		return vc, err
 	}

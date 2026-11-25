@@ -10,6 +10,8 @@ import (
 // which ktonpkg carries since v0.7.0). They resolve that package's templates and fields only: no
 // package alias enters the set the repository's own templates resolve through, so one package cannot
 // change what another's, or the repository's, words mean (kton-review A1 on #164).
+// The index's view fingerprint marshals Aliases whole, so a field Resolve reads must be exported to
+// reach it: an unexported one would change the view without a rebuild (kton-review on #265).
 type Aliases struct {
 	Prefixes map[string]string `json:"prefixes,omitempty"`
 	Terms    map[string]string `json:"terms,omitempty"`
