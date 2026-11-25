@@ -14,6 +14,7 @@ import (
 	"github.com/kton-protocol/kton-cockpit/internal/binaries"
 	"github.com/kton-protocol/kton-cockpit/internal/config"
 	"github.com/kton-protocol/kton-cockpit/internal/container"
+	"github.com/kton-protocol/kton-cockpit/internal/dirfiles"
 	"github.com/kton-protocol/kton-cockpit/internal/index/oxigraph"
 )
 
@@ -53,7 +54,7 @@ func inContainerOver(ctx context.Context, cfg *config.Config, keys []ed25519.Pub
 	}
 	// What a killed query left (its projected dataset, large in a big union) is swept once it is an hour
 	// old: the checkout is not cleared on reboot as the system's temporary directory is (kton-review N1).
-	if old, err := filepath.Glob(filepath.Join(tmp, "query-*")); err == nil {
+	if old, err := dirfiles.Named(tmp, "query-", ""); err == nil {
 		for _, p := range old {
 			if st, err := os.Stat(p); err == nil && time.Since(st.ModTime()) > time.Hour {
 				_ = os.RemoveAll(p)

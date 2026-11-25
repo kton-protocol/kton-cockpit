@@ -19,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kton-protocol/kton-cockpit/internal/dirfiles"
 	"github.com/kton-protocol/kton-cockpit/internal/flock"
 )
 
@@ -146,7 +147,7 @@ func Append(dir, writer string, l Line) error {
 // a line that does not parse (a write cut short by a crash). Lines fold in file order, which is time
 // order while each run has one writer, as every run does (kton-review on #218).
 func Runs(dir string) ([]Run, error) {
-	files, err := filepath.Glob(filepath.Join(dir, "*.jsonl"))
+	files, err := dirfiles.Named(dir, "", ".jsonl")
 	if err != nil {
 		return nil, err
 	}

@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/kton-protocol/kton-cockpit/internal/config"
+	"github.com/kton-protocol/kton-cockpit/internal/dirfiles"
 )
 
 // The same files as uat/participant-skeleton/templates; TestInitTemplates_MatchTheSkeleton keeps
@@ -90,7 +91,7 @@ func keysDir() string {
 
 // identities are the names with both halves present: <name>.key and <name>-claims.key.
 func identities(dir string) []string {
-	matches, _ := filepath.Glob(filepath.Join(dir, "*-claims.key"))
+	matches, _ := dirfiles.Named(dir, "", "-claims.key")
 	var out []string
 	for _, m := range matches {
 		name := strings.TrimSuffix(filepath.Base(m), "-claims.key")

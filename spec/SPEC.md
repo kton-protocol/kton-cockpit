@@ -202,14 +202,18 @@ which the cockpit MUST NOT read or write.
   still ask; the verbs that sign say what is missing.
 - **A tier is its folder.** `trust.tiers` names the tiers; a tier's keys are the `*.pub` files in
   `.kton/keys/<tier>/` and nothing else, never a package's `keys/`. A private key in a tier folder, by
-  its extension or by its contents, MUST be refused, since the folders are shared and served.
+  its extension or by its contents, MUST be refused, since the folders are shared and served. The folder
+  is read by listing it: the repository's path is never a pattern, so a checkout at `…/repo*` does not
+  read `…/repoEVIL`'s keys, and one whose path holds `\` or `[` does not lose its own. The same holds
+  wherever the cockpit lists files by name (key rings, package keys, run journals, query leftovers).
 - **Publish never writes `.kton/`**, and a container run sees it masked (§10.2).
 
 > **Checked by:** `TestLayout_TheReservedNamesCoverTheLayout`, `TestPersist_NeverTakesKtonLocal`,
 > `TestSync_RefusesWhileKtonLocalIsTracked`, `TestIdentity_AKeyInsideTheRepositoryIsRefused`,
 > `TestKeygen_RefusesAKeyFolderInsideTheRepository`, `TestConfig_RefusesSettingsThatWouldDiscloseOrOverwrite`,
 > `TestFixture_CommitsThePublicKeysAndNeverThePrivateOnes`, `TestTrustAdd_TakesThePeersOwnKeysOnly`,
-> `TestValidatePublishPath_RejectsTheKtonFolder`, `TestContainer_TheTrustBaseIsNotInTheRoom` (`-tags docker`).
+> `TestValidatePublishPath_RejectsTheKtonFolder`, `TestContainer_TheTrustBaseIsNotInTheRoom` (`-tags docker`),
+> `TestConfig_ATiersKeysAreItsFolderNotAPattern`, `TestDirfiles_NamedListsOneDirectoryByPrefixAndSuffix`.
 
 ## 6 The surface
 
