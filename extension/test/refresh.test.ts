@@ -120,6 +120,7 @@ test("refresh: the frame's texts and its store of fresh answers (design/refresh.
   assert.equal(r.updatingText(since, since + 150_000, false), "Updating (since 14:02, about 3 min). Showing the last answer until then.");
   assert.equal(r.staleText("the cockpit  timed out\n", since), "Not updated: the cockpit timed out. Showing the answer from before 14:02.");
   assert.equal(r.signedText({ what: "Sign verdict · item-2305#e19", claim: MADE, at: since }), "Signed: Sign verdict · item-2305#e19 (claim ab12cd34) at 14:02");
+  assert.equal(r.signedText({ what: `Request rerun · ${"3a".repeat(32)} · a test`, claim: MADE, at: since }), "Signed: Request rerun · 3a3a3a3a… · a test (claim ab12cd34) at 14:02", "a long hash in what is shortened, so the line fits");
   const s = r.answerStore();
   const early = s.fresh("u", 2);
   assert.equal(s.put({ use: "u", token: 1, result: 1 }), true);

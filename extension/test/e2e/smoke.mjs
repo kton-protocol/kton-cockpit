@@ -100,7 +100,11 @@ async function fitAt(name, focus) {
           hidden.push(cls);
         }
       }
-      await vsc("View: Join All Editor Groups");
+      // one editor group at full width: maximize the active group (moving editors would dispose an open dialog's webview)
+      if ((await page.locator(".part.editor .editor-group-container").count()) > 1) {
+        await vsc("View: Toggle Maximized Editor Group");
+        hidden.push("maximized");
+      }
       await page.waitForTimeout(800);
     }
     try {
@@ -117,6 +121,7 @@ async function fitAt(name, focus) {
       }
       check(r.checked > 0 && r.wide.length === 0, `${name}: nothing scrolls sideways at ${tag} (${width}px; ${r.checked} blocks, tables and navs checked)`, 0, r.checked ? r.wide : "no block found");
     } finally {
+      if (hidden.includes("maximized")) await vsc("View: Toggle Maximized Editor Group");
       if (hidden.includes("sidebar")) await vsc("View: Toggle Primary Side Bar Visibility");
       if (hidden.includes("auxiliarybar")) await vsc("View: Toggle Secondary Side Bar Visibility");
       if (hidden.includes("panel")) await vsc("View: Toggle Panel Visibility");
@@ -1504,7 +1509,7 @@ if (seed.w?.proposal && selected("W")) {
     const t = ((await unresolved.textContent()) ?? "").replace(/\s+/g, " ");
     check(/not resolved: no file in reference/.test(t) && (await unresolved.locator("button").count()) === 0, "an unresolved match says why, with nothing to open", "not resolved: no file in reference", t.slice(0, 200));
     await shot("w-evidence");
-    await shot("w-evidence-runs", { sel: '[data-use$="#artifacts"] table' });
+    await shot("w-evidence-runs", { sel: "table[data-runs]" });
   });
 
   await step("W", 7, "requests: Capture now signs through the dialog into w.records and prints the nudge; the card waits, then shows the (stand-in) answer with the run's artifact", async () => {
