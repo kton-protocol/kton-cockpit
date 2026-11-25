@@ -187,4 +187,12 @@ function decideArgs(d, pick, text) {
   return [d.id, pick].concat(text ? [text] : []);
 }
 
-module.exports = { wrap, freshDecisions, sessionOf, decideArgs, machineWarning, machineLine, lanesOn, parseKwList, laneIndex, openByLane, sender, fresh, SSE, surfaceSessions, surfaceOfFolder, openFor, doorbell };
+// termKey names the terminal a surface or lane is shown in. A lane on this machine shares its
+// surface's terminal (tmux switches the window in it). A lane on another machine (@host) gets its
+// own: kw attach ssh-es to that host, and a local select-window cannot reach it (MH 25.11.).
+function termKey(s, lane) {
+  const l = lane && s.lanes.find((x) => x.name === lane);
+  return l && l.host ? `${s.name}/${lane}` : s.name;
+}
+
+module.exports = { termKey, wrap, freshDecisions, sessionOf, decideArgs, machineWarning, machineLine, lanesOn, parseKwList, laneIndex, openByLane, sender, fresh, SSE, surfaceSessions, surfaceOfFolder, openFor, doorbell };

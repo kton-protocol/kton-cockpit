@@ -301,7 +301,7 @@ class Tree {
     it.description = [state, l.host ? `@${l.host}` : '', k ? `${k} open` : ''].filter(Boolean).join(' · ');
     it.iconPath = new vscode.ThemeIcon(k ? 'mail' : l.state === 'running' ? 'circle-filled' : 'circle-outline');
     it.tooltip = (this.open[l.name] || []).map((x) => `${x.title} (from ${x.from}, ${x.area})`).join('\n') || undefined;
-    it.contextValue = ['lane', l.state === 'none' ? 'down' : 'up', this.front(`${s.name}/${l.name}`) || this.front(s.name) ? 'front' : '',
+    it.contextValue = ['lane', l.state === 'none' ? 'down' : 'up', this.front(m.termKey(s, l.name)) ? 'front' : '',
       l.state === 'none' ? 'startable' : ''].filter(Boolean).join('-');
     if (l.state !== 'none') it.command = { command: 'ktonWorkgroup.open', title: 'Open', arguments: [el] };
     return it;
@@ -331,17 +331,19 @@ async function openSurface(tree, name) {
 
 // openTerminal brings a surface (or one of its lanes) to the foreground: a terminal attached to
 // its tmux session through kw, with the lane's window selected. Several terminals on one surface
-// share its current window, so one terminal per surface is kept and the window switched in it.
+// share its current window, so one terminal per surface is kept and the window switched in it;
+// a lane on another machine has a terminal of its own (model.js termKey).
 function openTerminal(tree, s, lane) {
-  const key = s.name;
+  const key = m.termKey(s, lane);
   if (tree.front(key)) {
     const t = tree.terminals.get(key);
-    if (lane) cp.execFile('tmux', ['select-window', '-t', `${s.tmux}:${lane}`]);
+    if (lane && key === s.name) cp.execFile('tmux', ['select-window', '-t', `${s.tmux}:${lane}`]);
     t.show();
     return;
   }
   const args = ['attach', s.name].concat(lane ? [lane] : []);
-  const t = vscode.window.createTerminal({ name: `kw ${s.name}`, shellPath: path.join(coord(), 'kw'), shellArgs: args, cwd: coord() });
+  const name = key === s.name ? `kw ${s.name}` : `kw ${s.name} ${lane}`;
+  const t = vscode.window.createTerminal({ name, shellPath: path.join(coord(), 'kw'), shellArgs: args, cwd: coord() });
   tree.terminals.set(key, t);
   t.show();
   tree.changed();
@@ -462,9 +464,12 @@ function activate(ctx) {
     }),
     vscode.commands.registerCommand('ktonWorkgroup.background', (el) => {
       // closing the terminal ends its tmux client: the session keeps running, detached
+      // (a surface: its own terminal and those of its lanes on other machines; a lane: the terminal it shows in)
       const s = surfaceOf(el);
-      const t = s && tree.terminals.get(s.name);
-      if (t) t.dispose();
+      if (!s) return;
+      const keys = el && el.kind === 'lane' ? [m.termKey(s, el.l.name)]
+        : [s.name, ...[...tree.terminals.keys()].filter((k) => k.startsWith(`${s.name}/`))];
+      for (const k of keys) { const t = tree.terminals.get(k); if (t) t.dispose(); }
       tree.changed();
     }),
     vscode.commands.registerCommand('ktonWorkgroup.start', async (el) => {

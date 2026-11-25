@@ -71,4 +71,11 @@ assert.deepStrictEqual(m.sessionOf('qm', s, tabs), { surface: 'qm' }, 'a surface
 assert.strictEqual(m.sessionOf('kton-coordination', s, tabs), null);
 assert.deepStrictEqual(m.decideArgs({ id: 'x1' }, 'a', ''), ['x1', 'a']);
 assert.deepStrictEqual(m.decideArgs({ id: 'x1' }, 'modify', 'push tomorrow'), ['x1', 'modify', 'push tomorrow']);
+{
+  const sf = { name: 'kton', lanes: [{ name: 'cockpit-runtime', host: '' }, { name: 'cockpit-verticleformat', host: 'ai1' }] };
+  assert.strictEqual(m.termKey(sf), 'kton', 'the surface itself');
+  assert.strictEqual(m.termKey(sf, 'cockpit-runtime'), 'kton', 'a local lane shares the surface terminal');
+  assert.strictEqual(m.termKey(sf, 'cockpit-verticleformat'), 'kton/cockpit-verticleformat', 'a lane on ai1 gets its own');
+  assert.strictEqual(m.termKey(sf, 'unknown'), 'kton');
+}
 console.log('model ok');
