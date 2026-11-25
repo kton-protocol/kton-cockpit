@@ -54,7 +54,7 @@ const EXTENSION = {
 };
 
 /**
- * A model development (pmx): what the Metworx demo worked out, MH 11.11. Steps named by what the
+ * A model development (pmx): what the Metworx demo worked out. Steps named by what the
  * modeler wrote, statements folded into their steps (marks as badges, rationale as notes), only the
  * files several steps share; the layout puts the parent-step tree inside the data flow.
  */

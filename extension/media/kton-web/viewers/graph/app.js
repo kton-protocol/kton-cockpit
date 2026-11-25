@@ -59,7 +59,9 @@ function typesShown(){ const h=new Set(prof().graph.hide||[]); return new Set((G
 // "source:single-use" in graph.hide: a file only one step reads is part of that step (still in its
 // inputs); the files several steps share - the data set - stay as nodes
 function singleUse(n){ return n.type==="source"&&filt&&filt.kinds&&filt.kinds.has("source:single-use")&&((G.in&&G.in[n.id])||[]).filter(e=>e.kind==="builds-on").length<=1; }
-function kindsHidden(){ return new Set((prof().graph.hide||[]).filter(x=>String(x).includes(":"))); }
+function kindsHidden(){ const h=new Set((prof().graph.hide||[]).filter(x=>String(x).includes(":")));
+  if(!(prof().graph.show||[]).includes("scope")){ h.add("claim:scope"); h.add("entity:scope"); }   // scope seeds: structure, hidden unless shown
+  return h; }
 function applyChrome(){ const c=prof().chrome; for(const k of Object.keys(c)) document.body.classList.toggle("no-"+k, !c[k]);
   document.body.dataset.view=prof().preset; }
 // ?select=: the records come from a store, a portion at a time (core/select.js), not as a whole
@@ -687,6 +689,11 @@ function index(){
   // a file belongs to nobody: a recorder join can hand it the console session that read it, which
   // then shows up as a participant of its own
   for(const n of G.nodes) if(n.type==="source") n.participant="";
+  // a scope's seed (kton 0.4: every nekton store opens a root scope) is a claim about urn:nekton:scope:<name>.
+  // It is structure, not something said about a record: kind "scope", hidden unless the reader shows it
+  // (filter chip "scope seeds"). It still counts in the totals - it is a signed record and is verified.
+  for(const n of G.nodes) if(n.type==="entity" && /^urn:nekton:scope:/.test(n.uri||"")){ n.kind="scope";
+    for(const e of (G.in[n.id]||[])) if(e.kind==="about"){ const c=G.byId.get(e.from); if(c&&c.type==="claim") c.kind="scope"; } }
   G.participants=[...new Set(G.nodes.map(n=>n.participant))].sort();
   G._parts=G.participants;
   // one colour per participant for good: the order is the one the published names give (every stage of a
@@ -924,7 +931,7 @@ function drawControls(){ const modes=[["nbr","neighbours"],["anc","ancestors"],[
     ${(ex.mode==="lin"||ex.mode==="imp")?`<div class="lbl">lineage</div><div class="fchips"><span class="fchip ${ex.collapse===false?'off':''}" id="collbtn">⋯ collapse linear runs</span></div>`:``}
     <div class="lbl">filter · participant</div><div class="fchips">${G._parts.filter(Boolean).map(p=>`<span class="fchip ${filt.parts.has(p)?'':'off'}" data-fp="${esc(p)}"><span class="d" style="background:${pcol(p)}"></span>${esc(p.replace('pfed-',''))}</span>`).join("")}</div>
     ${CONTRACTED?`<div class="lbl">Sicht</div><div class="fchips"><span class="fchip ${VIEW==="contracted"?"":"off"}" id="vcontract" title="Aussagen als Kante oder Mark, Dateien nur als Bruecke">kontrahiert</span></div>`:``}
-    <div class="lbl">filter · type</div><div class="fchips">${(G._types||[]).map(t=>`<span class="fchip ${filt.types.has(t)?'':'off'}" data-ft="${esc(t)}">${esc(t)}</span>`).join("")}${G.nodes.some(n=>n.type==="source"&&n.kind==="code")?`<span class="fchip ${(filt.kinds&&filt.kinds.has("source:code"))?'off':''}" data-fk="source:code" title="the scripts each step ran - also listed with the step's inputs">scripts</span>`:``}</div>
+    <div class="lbl">filter · type</div><div class="fchips">${(G._types||[]).map(t=>`<span class="fchip ${filt.types.has(t)?'':'off'}" data-ft="${esc(t)}">${esc(t)}</span>`).join("")}${G.nodes.some(n=>n.type==="source"&&n.kind==="code")?`<span class="fchip ${(filt.kinds&&filt.kinds.has("source:code"))?'off':''}" data-fk="source:code" title="the scripts each step ran - also listed with the step's inputs">scripts</span>`:``}${G.nodes.some(n=>n.kind==="scope")?`<span class="fchip ${(filt.kinds&&filt.kinds.has("claim:scope"))?'off':''}" data-fk="claim:scope entity:scope" title="the seeds that open each nekton store's scopes (kton 0.4: a root scope per store) - signed records, counted in the totals">scope seeds</span>`:``}</div>
     <div class="lbl" id="cnt"></div>`;
   $$("#controls .arrows button").forEach(b=>b.onclick=()=>{ex.mode=b.dataset.m;ex.cap=PED_CAP;ex.note="";ex.expand=new Set();drawControls();layoutAndRun();});   // re-cap + leave any story view
   $("#grpbtn").onclick=()=>{ex.grouped=!ex.grouped;drawControls();layoutAndRun();};
@@ -941,7 +948,7 @@ function drawControls(){ const modes=[["nbr","neighbours"],["anc","ancestors"],[
   $$("#controls [data-fp]").forEach(el=>el.onclick=()=>{const p=el.dataset.fp;filt.parts.has(p)?filt.parts.delete(p):filt.parts.add(p);afterFilter();});
   { const b=$("#vcontract"); if(b) b.onclick=()=>{ VIEW = VIEW==="contracted"?"attested":"contracted"; drawControls(); layoutAndRun(); }; }
   $$("#controls [data-ft]").forEach(el=>el.onclick=()=>{const t=el.dataset.ft;filt.types.has(t)?filt.types.delete(t):filt.types.add(t);afterFilter();});
-  $$("#controls [data-fk]").forEach(el=>el.onclick=()=>{const k=el.dataset.fk;filt.kinds=filt.kinds||new Set();filt.kinds.has(k)?filt.kinds.delete(k):filt.kinds.add(k);afterFilter();});
+  $$("#controls [data-fk]").forEach(el=>el.onclick=()=>{const ks=el.dataset.fk.split(" ");filt.kinds=filt.kinds||new Set();const off=filt.kinds.has(ks[0]);for(const k of ks){ if(off) filt.kinds.delete(k); else filt.kinds.add(k); }afterFilter();});
   { const ct=$("#ctoggle"); if(ct) ct.onclick=()=>{ const c=$("#controls"); c.classList.toggle("min"); ex.ctrlsOpen=!c.classList.contains("min"); }; }
   if(((window.matchMedia&&matchMedia("(max-width:640px)").matches)||EMBEDDED()) && !ex.ctrlsOpen) $("#controls").classList.add("min");  // phones: start collapsed, tap ☰ to expand
 }
@@ -1253,29 +1260,29 @@ function redraw(){ const cv=$("#cv"),ctx=cv.getContext("2d"),v=ex.view;
   LOD = ex.nodes.length>220;                                       // level-of-detail: above this, drop labels + cull off-screen
   const M=70, wx0=(0-v.tx)/v.scale-M, wy0=(0-v.ty)/v.scale-M, wx1=(cv.width-v.tx)/v.scale+M, wy1=(cv.height-v.ty)/v.scale+M;
   const vis=n=>n&&n.x>=wx0&&n.x<=wx1&&n.y>=wy0&&n.y<=wy1;
-  // the data flow between a parent and the step based on it follows the based-on route, beside it, rather
-  // than a curve through the parent's note and the child's label
-  const tree=new Set(); for(const e of ex.edges) if(e.step&&e.kind==="parent-step") tree.add(e.from+"|"+e.to).add(e.to+"|"+e.from);
+  // two kinds of line, told apart by their shape: a relation between steps (based on, developed
+  // from) runs Manhattan style, the lineage (data flow, and what is read from it) runs as a curve
   for(const e of ex.edges){ const f=ex._byId.get(e.from),t=ex._byId.get(e.to); if(!f||!t)continue;
     if(LOD&&!vis(f)&&!vis(t)) continue;                            // skip edges wholly off-screen
-    if(!e.step&&tree.has(e.from+"|"+e.to)&&Math.abs(f.y-t.y)>RW*3){ const [p,c]=f.y<t.y?[f,t]:[t,f]; manhattan(ctx,p,c,css("--edge"),"",-6); continue; }
     const [L,R]= f._d>=t._d?[t,f]:[f,t]; const rel=e.kind!=="builds-on";
     // a derived edge is a READING, and must never look like an attestation: dotted, dimmer, named
-    if(e.derived){ edgeArrow(ctx,L,R,css("--dim"),"dot",LOD?"":shortRel(e.kind)); continue; }
+    if(e.derived){ edgeArrow(ctx,L,R,css("--dim"),"dot",LOD?"":shortRel(e.kind),"curve"); continue; }
     // developed from (strong) / adapted from (light): a relation between two steps, from a verified claim
     if(e.step&&e.kind==="parent-step"&&f.y>t.y+RW*3){ manhattan(ctx,t,f,css("--b"),LOD?"":e.label); continue; }
-    if(e.step){ edgeArrow(ctx,L,R,e.kind==="parent-step"?css("--b"):(e.kind==="reproduces"||e.kind==="review-valid")?css("--ok"):e.kind==="review-invalid"?css("--bad"):css("--dim"),e.kind==="based-on",LOD?"":e.label); continue; }
-    if(e.contracted){ edgeArrow(ctx,L,R,css("--about"),true,LOD?"":shortRel(e.kind)); continue; }
-    edgeArrow(ctx,L,R,rel?css("--about"):css("--edge"),rel,(!LOD&&e.kind!=="builds-on"&&e.kind!=="about")?e.kind:""); }
+    if(e.step){ edgeArrow(ctx,L,R,e.kind==="parent-step"?css("--b"):(e.kind==="reproduces"||e.kind==="review-valid")?css("--ok"):e.kind==="review-invalid"?css("--bad"):css("--dim"),e.kind==="based-on",LOD?"":e.label,(e.kind==="based-on"||e.kind==="parent-step")?"ortho":undefined); continue; }
+    if(e.contracted){ edgeArrow(ctx,L,R,css("--about"),true,LOD?"":shortRel(e.kind),"curve"); continue; }
+    edgeArrow(ctx,L,R,rel?css("--about"):css("--edge"),rel,(!LOD&&e.kind!=="builds-on"&&e.kind!=="about")?e.kind:"","curve"); }
   for(const n of ex.nodes){ if(LOD&&!vis(n)) continue; nodeDraw(ctx,n); }
 }
 const shortRel=(t)=>{ const i=Math.max(String(t).lastIndexOf(":"),String(t).lastIndexOf("/"),String(t).lastIndexOf("#")); return i<0?t:String(t).slice(i+1); };
-function edgeArrow(ctx,a,b,color,dash,lbl){
+// route: "ortho" or "curve" for this edge; without it the layout's route
+function edgeArrow(ctx,a,b,color,dash,lbl,route){
+  const orth=route==="ortho"?true:route==="curve"?false:!!(ex&&ex.ortho);
   // a top-down layout stacks the pair: leave the bottom of the upper node, enter the top of the lower
-  if((ex&&ex.ortho&&ex.tb&&Math.abs(b.y-a.y)>RW*3)||Math.abs(b.y-a.y)>Math.abs(b.x-a.x)){ const s=b.y>a.y?1:-1, x1=a.x,y1=a.y+s*RW,x2=b.x,y2=b.y-s*(RW+4),my=(y1+y2)/2;
+  if((orth&&ex&&ex.tb&&Math.abs(b.y-a.y)>RW*3)||Math.abs(b.y-a.y)>Math.abs(b.x-a.x)){ const s=b.y>a.y?1:-1, x1=a.x,y1=a.y+s*RW,x2=b.x,y2=b.y-s*(RW+4),my=(y1+y2)/2;
     ctx.strokeStyle=color;ctx.lineWidth=dash==="dot"?1:1.3;ctx.setLineDash(dash==="dot"?[2,3]:dash?[5,4]:[]);ctx.beginPath();ctx.moveTo(x1,y1);
     // an orthogonal layout: down, across, down - the across in the gap between the two rows
-    if(ex&&ex.ortho){ ctx.lineTo(x1,my);ctx.lineTo(x2,my);ctx.lineTo(x2,y2); } else ctx.bezierCurveTo(x1,my,x2,my,x2,y2);
+    if(orth){ ctx.lineTo(x1,my);ctx.lineTo(x2,my);ctx.lineTo(x2,y2); } else ctx.bezierCurveTo(x1,my,x2,my,x2,y2);
     ctx.stroke();ctx.setLineDash([]);
     const ang=Math.atan2(y2-my,x2-x2)||s*Math.PI/2,h=7;ctx.fillStyle=color;ctx.beginPath();ctx.moveTo(x2,y2);ctx.lineTo(x2-h*Math.cos(ang-.4),y2-h*Math.sin(ang-.4));ctx.lineTo(x2-h*Math.cos(ang+.4),y2-h*Math.sin(ang+.4));ctx.fill();
     if(lbl){ ctx.fillStyle=color; ctx.font="italic 9px ui-sans-serif"; ctx.textBaseline="middle";
@@ -1285,11 +1292,11 @@ function edgeArrow(ctx,a,b,color,dash,lbl){
   ctx.strokeStyle=color;ctx.lineWidth=dash==="dot"?1:1.3;ctx.setLineDash(dash==="dot"?[2,3]:dash?[5,4]:[]);ctx.beginPath();ctx.moveTo(x1,y1);
   // an orthogonal layout: across, up or down, across - the turn halfway between the two columns
   let tx=mx;
-  if(ex&&ex.ortho){ tx=orthoTurn(a,b,x1,y1,x2,y2); ctx.lineTo(tx,y1);ctx.lineTo(tx,y2);ctx.lineTo(x2,y2); } else ctx.bezierCurveTo(mx,y1,mx,y2,x2,y2);
+  if(orth){ tx=orthoTurn(a,b,x1,y1,x2,y2); ctx.lineTo(tx,y1);ctx.lineTo(tx,y2);ctx.lineTo(x2,y2); } else ctx.bezierCurveTo(mx,y1,mx,y2,x2,y2);
   ctx.stroke();ctx.setLineDash([]);
   const ang=Math.atan2(y2-y1,x2-mx),h=7;ctx.fillStyle=color;ctx.beginPath();ctx.moveTo(x2,y2);ctx.lineTo(x2-h*Math.cos(ang-.4),y2-h*Math.sin(ang-.4));ctx.lineTo(x2-h*Math.cos(ang+.4),y2-h*Math.sin(ang+.4));ctx.fill();
   // the label sits below the line, two thirds along: the source node's own label runs along the line's start
-  if(lbl){ ctx.fillStyle=color; ctx.font="italic 9px ui-sans-serif"; ctx.textAlign="center"; ctx.textBaseline="top"; if(ex&&ex.ortho) ctx.fillText(lbl,(tx+x2)/2,y2+7); else ctx.fillText(lbl,x1+(x2-x1)*0.68,y1+(y2-y1)*0.68+7); } }
+  if(lbl){ ctx.fillStyle=color; ctx.font="italic 9px ui-sans-serif"; ctx.textAlign="center"; ctx.textBaseline="top"; if(orth) ctx.fillText(lbl,(tx+x2)/2,y2+7); else ctx.fillText(lbl,x1+(x2-x1)*0.68,y1+(y2-y1)*0.68+7); } }
 // where an across-up-across edge turns: just after the source, halfway, or just before the target -
 // whichever runs through the fewest other nodes and their labels (a label hangs under its node here)
 function orthoTurn(a,b,x1,y1,x2,y2){

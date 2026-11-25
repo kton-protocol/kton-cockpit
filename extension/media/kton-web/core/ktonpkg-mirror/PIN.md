@@ -28,10 +28,14 @@ since the source, each to match ktonpkg (userinterface's PR 2 findings 3-5, test
   a cleared pick), and the use does not wait for it; `bindQuery(text, params, optional)` leaves an unbound
   optional `$name` as it is, a free SPARQL variable. The area's `optional` is the workbench's: the mirror
   has no area.
+- plan.js: `subject.scope` in a query param is the scope's seed, `{type: "uri", value: "https://kton.dev/o/<hex>"}`,
+  the node its id names, as kton-cockpit's `--bind-iri` binds a kton id. A composition finds the scope's claim
+  graph by it (ADR-018: `?g a nk:ClaimGraph ; nk:scope $scope`). An act field keeps the id itself
+  (`sha256:<hex>`), since it goes into a signed claim. A value that is not a scope id is refused.
 
 | file | sha256 |
 |---|---|
-| plan.js | f239992fc65a99fc152d9a7c45b55e3ee19416b68bc732abb9310b6778b71088 |
+| plan.js | b7b184e515b0272f8317283519ef0ae8c60db6837c7e854e90a72a3f73a501a8 |
 | packages.js | 28d0e4f12edb7a5613736ef5e51af8197c2e013e483dbbd577c728dd94f8e2f1 |
 | sparql.js | 16d88eff8eb7ff42dff074ad37a38b2127c2a82235b9216b9ffbb7d6830b4f28 |
 
