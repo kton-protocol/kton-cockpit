@@ -27,7 +27,11 @@ import (
 //     predecessor (the kernel offers such a claim in its feed, but a query never sees it).
 //   - <graph> urn:kton:arrived:<registry> n, a number from the registry's own counter urn:kton:arrivals,
 //     for every record graph and attribution graph the registry brought for the first time.
+//   - <claim> urn:kton:settled:<registry> n, numbered from the same counter, for a claim the registry held
+//     waiting and its kernel now holds resolved: no record came, yet a view built before has to take it in.
 //   - <registry> urn:kton:generation counts the times a read found something the registry no longer holds.
+//
+// A view is patched from these (patch.go), not rebuilt.
 
 const (
 	linksGraph = kNS + "links"
