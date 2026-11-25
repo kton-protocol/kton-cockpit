@@ -1698,9 +1698,10 @@ notifications (no id), of what changed in the registries this repository reads, 
 - `events/sourcePulled {source, newIds, head?, cursor}`: a federation source holds records it did not hold;
 - `events/indexMoved {slot, key?, graphs?, removed?, all?, scopes}`: after any of these, once a query sees
   what they named (the index is brought up to date first), the view `slot` and the scopes whose claims
-  changed (`{seed, label, graph?}`; an empty list means everything). With the index it also names the
+  changed (`{seed, label, graph?}`; in an event without `graphs`, an empty list means everything; in one
+  with `graphs`, `graphs`, `removed` and `all` say what changed and `scopes` only names). With the index it also names the
   view's dataset `key` as it now stands, and `graphs` and `removed`: the view's graphs (its record graph
-  `urn:kton:view:<slot>`, its rest `…:rest`, its claim graphs `…:scope:<hex>` and `…:unscoped`, which a
+  `urn:kton:view:<slot>`, its rest `…:rest` (signer labels and the claim graphs' metadata, which a query over a scope's claims also reads), its claim graphs `…:scope:<hex>` and `…:unscoped`, which a
   scope's `graph` names) whose content changed or that came, and that went, since the connection's last
   `indexMoved`, compared by the hash the view keeps of each graph, whoever built it. `all: true` says
   they cannot be named (another view, a view without those hashes, a connection without an earlier
