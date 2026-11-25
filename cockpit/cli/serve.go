@@ -266,21 +266,13 @@ func serveMethods(sess *serveSession) map[string]frontrpc.Handler {
 		sess.timeout = time.Duration(in.RequestTimeoutMs) * time.Millisecond
 		if ev := in.Events; ev != nil && !ev.off && sess.notify != nil {
 			// The start is fixed before initialize answers: a say sent right after it is an event.
-			since := ev.Since
-			if since != "" {
-				if err := c(root).CheckEventsCursor(ctx, since); err != nil {
-					sess.init = nil
-					return nil, err
-				}
-			}
-			if since == "" {
-				if since, err = c(root).EventsCursor(ctx); err != nil {
-					sess.init = nil
-					return nil, err
-				}
+			start, err := c(root).StartEvents(ctx, ev.Since)
+			if err != nil {
+				sess.init = nil
+				return nil, err
 			}
 			go func() {
-				_ = c(root).Watch(sess.ctx, since, ev.interval(), sess.notify)
+				_ = c(root).Watch(sess.ctx, start, ev.interval(), sess.notify)
 			}()
 		}
 		names := make([]string, 0, len(m))

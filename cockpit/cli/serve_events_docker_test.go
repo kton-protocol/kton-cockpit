@@ -79,5 +79,36 @@ func TestServe_IndexMovedComesOnceTheIndexHoldsTheClaim(t *testing.T) {
 	if !unscoped {
 		t.Errorf("the unscoped claims' graph changed and is named: %s", p)
 	}
+
+	// A new connection without a cursor of its own, on the view that exists now: its first indexMoved
+	// names what changed after it started, not all (kton-review F1 on #259).
+	c2 := startServe(t)
+	c2.ok("initialize", map[string]any{"root": r.Root, "events": map[string]any{"intervalMs": 500}})
+	c2.ok("say", map[string]any{"subject": "urn:example:z", "template": "describes",
+		"fields": map[string]string{"value": "indexed a third time"}})
+	got = c2.waitEvent("events/indexMoved")
+	moved.Graphs, moved.Removed, moved.All = nil, nil, false
+	must(t, json.Unmarshal(got[len(got)-1].Params, &moved))
+	if p := string(got[len(got)-1].Params); moved.All || moved.Graphs == nil || len(*moved.Graphs) == 0 {
+		t.Errorf("a new connection on an existing view: want the graphs that changed, not all: %s", p)
+	}
 	_ = res
+}
+
+// A connection's initialize reads the view only if the index daemon is already up; it never starts one
+// (kton-review R1 on #261): no daemon means no view, and the first indexMoved says all anyway.
+func TestServe_InitializeStartsNoIndexDaemon(t *testing.T) {
+	t.Setenv("COCKPIT_INDEX_DIR", t.TempDir())
+	r := testrepo.New(t)
+	raw := testrepo.DefaultConfig()
+	raw.Query.Image = oxigraphImage
+	raw.Index.Kind = "oxigraph"
+	r.WriteConfig(t, raw)
+	r.Use(t)
+	t.Cleanup(func() { oxigraph.Stop(context.Background(), r.Config(t)) })
+	c := startServe(t)
+	c.ok("initialize", map[string]any{"root": r.Root, "events": map[string]any{"intervalMs": 500}})
+	if d, l, _ := oxigraph.Running(context.Background()); d != nil || l != nil {
+		t.Errorf("initialize started the index daemon: %+v", l)
+	}
 }
