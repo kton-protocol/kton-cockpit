@@ -283,4 +283,3 @@ func TestOxigraph_TheIndexHeadFollowsTheUnionThroughDeliveries(t *testing.T) {
 		})
 	}
 }
-

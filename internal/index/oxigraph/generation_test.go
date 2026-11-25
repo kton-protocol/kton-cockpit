@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
 )
 
 // A registry that loses records is one a view built from it cannot be patched against (ADR-022 D1.4): the
