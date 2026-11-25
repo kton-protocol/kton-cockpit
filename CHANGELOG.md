@@ -52,6 +52,17 @@
 - **ktonpkg v0.10.2** (cockpit-verticleformat): a tool's command frame may name `<output>`, and a
   normaliser may run in its own image; nothing in the cockpit uses either yet (the tool module's
   qualify, ADR-015, is still to come).
+- **kton v0.5.1** (kton.dev/plankton, nekton, kton; kton #307). The kernel refuses a template with a
+  control character in a signer role, predicate, context, field name or enum value (a template name with
+  one is skipped), refuses an `iri` field value with one at signing, and takes an absolute IRI to need an
+  RFC 3986 scheme before `://`: `ex:a://b` is a CURIE of the declared prefix `ex`. A deferred record is not
+  re-offered when it settles (SPEC §12). The cockpit's escaping of control characters in refused-template
+  names and reasons stays as defence in depth.
+- **A package's alias resolution takes the kernel's absolute-IRI rule** (`packages.Aliases.Resolve`): it
+  returned any value containing `://` as it was, so `ex:a://b` stayed unresolved where the kernel resolves
+  it through the prefix `ex`, and `1a://x` or `://x` counted as IRIs. It now copies the kernel's
+  `isAbsoluteIRI` (a valid scheme before `://`, or urn, tag, did, mailto, http, https), and a test compares
+  it with `template.Set.Resolve`.
 - **kton v0.5.0** (kton.dev/plankton, nekton, kton). go.mod names the kernel CLIs as `tool`s, so
   plankton's own imports (x/crypto, x/term for protected keys) stay in go.sum (the missing entries the advisory
   "against kton main" job reported).
