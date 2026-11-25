@@ -74,15 +74,10 @@ export function leafCsp(nonce: string, cspSource: string): string {
  * page's CSP metas are dropped, the host's is set, <base> points at the viewer's folder, and every <script> and
  * <style> gets the nonce. Inline event handlers are not made to work: the CSP refuses them.
  */
-/** Scales the leaf's body down while its content is wider than the panel; runs on load and on every resize. */
-export const LEAF_FIT = "(()=>{const d=document.documentElement;const fit=()=>{const b=document.body;if(!b)return;b.style.zoom='';const w=Math.max(d.scrollWidth,b.scrollWidth),c=d.clientWidth;if(w>c+1&&c>0)b.style.zoom=String(Math.max(0.3,c/w));};addEventListener('load',fit);addEventListener('resize',fit);if(typeof ResizeObserver==='function')addEventListener('DOMContentLoaded',()=>new ResizeObserver(fit).observe(document.body));})();";
-
 export function leafPage(html: string, nonce: string, cspSource: string, base: string): string {
   // the page never scrolls sideways (DESIGN principle 8): what the viewer parks off-canvas (a side panel slid out
-  // by a transform) is clipped by the body, and a viewer whose layout is wider than the panel is scaled down to
-  // fit it (everything stays visible, smaller) instead of widening the frame's document
-  const fit = `<style nonce="${nonce}">html{overflow:hidden}body{position:relative;overflow:clip;max-width:100%}</style>\n` +
-    `<script nonce="${nonce}">${LEAF_FIT}</script>\n`;
+  // by a transform) is clipped by the body instead of widening the frame's document
+  const fit = `<style nonce="${nonce}">html{overflow:hidden}body{position:relative;overflow:clip;max-width:100%}</style>\n`;
   const head = `<meta http-equiv="Content-Security-Policy" content="${leafCsp(nonce, cspSource)}">\n<base href="${esc(base)}">\n${fit}`;
   return html
     .replace(/<meta[^>]+http-equiv=["']?Content-Security-Policy["']?[^>]*>/gi, "")
