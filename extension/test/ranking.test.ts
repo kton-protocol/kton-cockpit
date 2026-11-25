@@ -7,7 +7,7 @@ import { pathToFileURL } from "node:url";
 import { DialogConsent, plan, planBatch, signBatch, type ControlInfo, type SignPlan } from "../src/sign.js";
 import { signBatchBody, signBatchDetail, signDialogPage } from "../src/ui/pages.js";
 import { CompositionHost, defaultsOf, MAX_BATCH, type Backend, type BatchItem, type BatchOutcome, type Plan } from "../src/composition/host.js";
-import { TransportNotSent, type Outcome, type SayRequest, type SayResult, type TemplateInfo, type Transport } from "../src/transport/port.js";
+import { BATCH_UNSUPPORTED, TransportError, TransportNotSent, type Outcome, type SayBatchResult, type SayRequest, type SayResult, type TemplateInfo, type Transport } from "../src/transport/port.js";
 import type { WindowIdentity } from "../src/identity.js";
 import type { Control, Loaded } from "../src/packages/model.js";
 
@@ -354,4 +354,84 @@ test("R2: with option batch a decision is kept for the summary (no dialog), the 
   } finally {
     q.done();
   }
+});
+
+class BatchT extends SayT {
+  batches: SayRequest[][] = [];
+  answers: Array<Outcome<SayBatchResult> | Error> = [];
+  async sayBatch(reqs: readonly SayRequest[]): Promise<Outcome<SayBatchResult>> {
+    this.batches.push([...reqs]);
+    const o = this.answers.shift();
+    if (o instanceof Error) throw o;
+    return o ?? { ok: true, value: { claims: reqs.map((_, i) => ({ claimId: sha(String(i + 1)), confirmation: "one batch" })) } };
+  }
+}
+
+test("batch write: a transport that offers sayBatch gets ONE call with the N requests in order, and the ids come back in order", async () => {
+  const t = new BatchT();
+  const b = planBatch(plans(3));
+  assert.ok(b.ok);
+  const r = await signBatch(t as unknown as Transport, b.value, DialogConsent.fromBatchDialog(b.value));
+  assert.ok(r.ok);
+  assert.equal(t.batches.length, 1);
+  assert.equal(t.says.length, 0, "no single say");
+  assert.deepEqual(t.batches[0]?.map((s) => s.fields?.["item"]), ["i0", "i1", "i2"]);
+  assert.ok(t.batches[0]?.every((s) => s.as === "pers" && s.expectTemplate === sha("e") && s.expectRevision === sha("f")));
+  assert.deepEqual(r.value.signed.map((s) => [s.index, s.id]), [[0, sha("1")], [1, sha("2")], [2, sha("3")]]);
+  assert.equal(r.value.stopped, undefined);
+  // the batch's pending marks every claim of it
+  t.answers = [{ ok: true, value: { claims: [0, 1, 2].map((i) => ({ claimId: sha(String(i + 1)), confirmation: "x" })), pending: { code: "store.busy", reason: "next write commits" } } }];
+  const p = await signBatch(t as unknown as Transport, b.value, DialogConsent.fromBatchDialog(b.value));
+  assert.ok(p.ok && p.value.signed.every((s) => s.pending?.code === "store.busy"));
+});
+
+test("batch write: a refusal signs nothing and is reported whole; store.busy is retried; an unknown outcome is not retried", async () => {
+  const b = planBatch(plans(3));
+  assert.ok(b.ok);
+  const consent = DialogConsent.fromBatchDialog(b.value);
+  const t = new BatchT();
+  t.answers = [{ ok: false, refusal: { code: "argument", reason: "claim 2: nope" } }];
+  const r = await signBatch(t as unknown as Transport, b.value, consent, { attempts: 3, delayMs: 0, wait: async () => undefined });
+  assert.ok(r.ok && r.value.signed.length === 0);
+  assert.deepEqual(r.value.stopped, { index: 0, code: "argument", reason: "claim 2: nope", unknown: false, whole: true });
+  assert.equal(t.batches.length, 1, "a refusal is not retried");
+  const busy = new BatchT();
+  busy.answers = [{ ok: false, refusal: { code: "store.busy", reason: "busy" } }];
+  const again: number[] = [];
+  const ok = await signBatch(busy as unknown as Transport, b.value, consent, { attempts: 3, delayMs: 0, wait: async () => undefined, onRetry: (i) => again.push(i) });
+  assert.ok(ok.ok && ok.value.signed.length === 3 && !ok.value.stopped);
+  assert.equal(busy.batches.length, 2);
+  for (const e of [new TransportError("the answer is not JSON", 0, ""), new Error("timed out")]) {
+    const u = new BatchT();
+    u.answers = [e];
+    const lost = await signBatch(u as unknown as Transport, b.value, consent, { attempts: 3, delayMs: 0, wait: async () => undefined });
+    assert.ok(lost.ok && lost.value.signed.length === 0);
+    assert.equal(lost.value.stopped?.unknown, true);
+    assert.equal(lost.value.stopped?.whole, true);
+    assert.equal(u.batches.length, 1, "never retried");
+    assert.equal(u.says.length, 0, "and not said one by one either");
+  }
+  const n = new BatchT();
+  n.answers = [new TransportNotSent("cannot run cockpit", "")];
+  const never = await signBatch(n as unknown as Transport, b.value, consent);
+  assert.ok(never.ok && never.value.stopped?.unknown === false && never.value.signed.length === 0);
+  // an answer with the wrong number of claims is unknown, not a success
+  const w = new BatchT();
+  w.answers = [{ ok: true, value: { claims: [{ claimId: sha("1"), confirmation: "x" }] } }];
+  const wrong = await signBatch(w as unknown as Transport, b.value, consent);
+  assert.ok(wrong.ok && wrong.value.stopped?.unknown === true && wrong.value.signed.length === 0);
+});
+
+test("batch write: the dialog checks are before it: no consent or changed plans never reach sayBatch; unsupported falls back to N says", async () => {
+  const b = planBatch(plans(3));
+  assert.ok(b.ok);
+  const t = new BatchT();
+  const none = await signBatch(t as unknown as Transport, b.value, undefined);
+  assert.ok(!none.ok && none.refusal.code === "dialog.required");
+  assert.equal(t.batches.length, 0);
+  const u = new BatchT();
+  u.answers = [{ ok: false, refusal: { code: BATCH_UNSUPPORTED, reason: "no say/batch" } }];
+  const r = await signBatch(u as unknown as Transport, b.value, DialogConsent.fromBatchDialog(b.value));
+  assert.ok(r.ok && r.value.signed.length === 3 && !r.value.stopped);
+  assert.equal(u.says.length, 3, "said one by one");
 });

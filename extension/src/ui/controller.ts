@@ -928,7 +928,9 @@ export class Workbench {
     if (r.value.stopped) {
       const st = r.value.stopped;
       const after = plans.length - st.index - 1;
-      const text = `${signed.length ? `Signed ${signed.length} of ${plans.length} (${ids}). ` : "Not signed: "}Claim ${st.index + 1} of ${plans.length} (${plans[st.index]?.subject ?? "?"}) ${st.unknown ? `may or may not be signed (${st.reason}); check the registry before signing again` : `was refused: ${st.reason}`}; the ${after} after it ${after === 1 ? "was" : "were"} not tried.`;
+      const text = st.whole
+        ? st.unknown ? `Unknown whether signed: the ${plans.length} claims were said in one write (${st.reason}). Check the registry before signing again.` : `Not signed: none of the ${plans.length} claims: ${st.reason}`
+        : `${signed.length ? `Signed ${signed.length} of ${plans.length} (${ids}). ` : "Not signed: "}Claim ${st.index + 1} of ${plans.length} (${plans[st.index]?.subject ?? "?"}) ${st.unknown ? `may or may not be signed (${st.reason}); check the registry before signing again` : `was refused: ${st.reason}`}; the ${after} after it ${after === 1 ? "was" : "were"} not tried.`;
       this.host.signOutcome(false, text);
       this.host.error(text);
       outcome = { result: "failed", signed, why: text };

@@ -15,7 +15,7 @@ import { createHash } from "node:crypto";
 import type { Intent } from "./intents.js";
 import type { WindowIdentity } from "./identity.js";
 import { keyFor } from "./identity.js";
-import { TransportNotSent, type Outcome, type Refusal, type SayRequest, type TemplateInfo, type Transport } from "./transport/port.js";
+import { BATCH_UNSUPPORTED, TransportNotSent, type Outcome, type Refusal, type SayRequest, type TemplateInfo, type Transport } from "./transport/port.js";
 import { checkSay } from "./transport/cli.js";
 
 /** A control as the installed package declares it (ktonpkg controls/). */
@@ -237,7 +237,7 @@ export interface BatchResult {
   /** the claims signed, in order (index: the plan's place in the batch, 0-based) */
   readonly signed: ReadonlyArray<{ readonly index: number; readonly id: string; readonly pending?: { readonly code: string; readonly reason: string } }>;
   /** the first plan that was not signed, and why; the plans after it were not tried */
-  readonly stopped?: { readonly index: number; readonly code: string; readonly reason: string; /** the say may have reached the cockpit: whether it signed is for the registry to say */ readonly unknown: boolean };
+  readonly stopped?: { readonly index: number; readonly code: string; readonly reason: string; /** the say may have reached the cockpit: whether it signed is for the registry to say */ readonly unknown: boolean; /** the whole batch was written in one say: all or none, so `index` is 0 and nothing before it was signed */ readonly whole?: boolean };
 }
 
 export interface BatchRetry {
@@ -265,6 +265,32 @@ export async function signBatch(t: Transport, b: BatchPlan, consent: DialogConse
   if (again.value.digest !== b.digest) return refuse("dialog.mismatch", "the plans changed after the dialog showed them");
   const signed: Array<BatchResult["signed"][number]> = [];
   const wait = retry?.wait ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  // One write when the transport offers it (SPEC §8.9: all or none, one commit): N says would be N registry writes, N
+  // claim locks and N index rebuilds. A refusal signs nothing; an unknown outcome is never retried.
+  if (t.sayBatch) {
+    const reqs = b.plans.map(sayRequestOf);
+    for (let attempt = 1; ; attempt++) {
+      let out: Awaited<ReturnType<NonNullable<Transport["sayBatch"]>>>;
+      try {
+        out = await t.sayBatch(reqs);
+      } catch (e) {
+        const notSent = e instanceof TransportNotSent;
+        return { ok: true, value: { signed: [], stopped: { index: 0, code: notSent ? "not-sent" : "unknown", reason: e instanceof Error ? e.message : String(e), unknown: !notSent, whole: true } } };
+      }
+      if (out.ok) {
+        const claims = out.value.claims;
+        if (claims.length !== b.plans.length) return { ok: true, value: { signed: [], stopped: { index: 0, code: "unknown", reason: `the cockpit answered ${claims.length} claims for ${b.plans.length}`, unknown: true, whole: true } } };
+        return { ok: true, value: { signed: claims.map((c, index) => { const pending = c.pending ?? out.value.pending; return { index, id: c.claimId, ...(pending ? { pending } : {}) }; }) } };
+      }
+      if (out.refusal.code === BATCH_UNSUPPORTED) break; // nothing was sent: one by one, as before
+      if (out.refusal.code === "store.busy" && retry && attempt < retry.attempts) {
+        retry.onRetry?.(0, attempt, out.refusal.reason);
+        await wait(retry.delayMs);
+        continue;
+      }
+      return { ok: true, value: { signed: [], stopped: { index: 0, code: out.refusal.code, reason: out.refusal.reason, unknown: false, whole: true } } };
+    }
+  }
   for (const [index, p] of b.plans.entries()) {
     for (let attempt = 1; ; attempt++) {
       let out: Outcome<{ readonly claimId: string; readonly pending?: { readonly code: string; readonly reason: string } }>;
