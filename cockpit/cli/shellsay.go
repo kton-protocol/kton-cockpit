@@ -110,7 +110,11 @@ func sayListing(cfg *config.Config) ([]Template, error) {
 			}
 			o := origins[st.Name]
 			e.Package, e.Hash, e.Revision = o.PackageName, o.Hash, o.Revision
-			e.SignerRoles, e.Scopes = st.SignerRoles, st.Scopes
+			// Roles as IRIs, resolved like the predicate (kton-review F2 on #260); scopes are IRIs already.
+			for _, r := range st.SignerRoles {
+				e.SignerRoles = append(e.SignerRoles, set.Resolve(r))
+			}
+			e.Scopes = st.Scopes
 		}
 		for name, f := range t.Fields {
 			tf := TemplateField{Type: f.Type, Required: f.Required, Values: f.Values}

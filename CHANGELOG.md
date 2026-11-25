@@ -11,7 +11,9 @@
   query built the view. Events without `graphs` mean what they meant before.
 - **`say --json` and `say/templates` list a template's `signerRoles` and `scopes`** (ui-design G9,
   kton #301): the intent the template declares, left out when it declares none; advice to show, not
-  checked by `say` (SPEC §8.5).
+  checked by `say` (SPEC §8.5). A role written as a CURIE is listed resolved, and a package template's
+  CURIE role resolves through the package's own alias file instead of getting the template refused
+  (kton-review F1, F2 on #260).
 
 ### Changed
 

@@ -750,14 +750,15 @@ file's change alters what is signed without changing a template's bytes. `say --
 template's `predicate` and `context` as `say` will sign them (resolved through the template's package
 aliases and `.kton/aliases.json`), its `hash`, and, for a package template, its `revision` and the
 `package` it came from (by name). It lists a template's declared intent as the template states it:
-`signerRoles` (role IRIs) and `scopes` (seed IRIs, `https://kton.dev/o/` and the seed claim's id),
+`signerRoles` (role IRIs; a role written as a CURIE resolved like the predicate, through the package's
+own alias file for a package template) and `scopes` (seed IRIs, `https://kton.dev/o/` and the seed claim's id),
 each left out when the template declares none, an absent `scopes` meaning any scope. They are advice
 for a frontend to show; `say` neither checks nor enforces them. `say/templates` answers the same.
 
 > **Checked by:** `TestSay_ExpectTemplateAndRevisionRefuseATemplateThatChanged`, `TestSay_TheListingGivesThePredicateAsSigned`,
 > `TestSay_ExpectTemplateHoldsForAQualifiedTemplate`, `TestSay_TheHashCoversTheAliasFile`,
 > `TestShellSay_ListsAnAllowedPackagesTemplatesAndPointsFlagsToTheJSONFields`,
-> `TestShellSay_ListsATemplatesSignerRolesAndScopesOnlyWhenDeclared`.
+> `TestShellSay_ListsATemplatesSignerRolesAndScopesOnlyWhenDeclared`, `TestShellSay_ListsCURIERolesResolved`.
 
 A template whose predicate or context is no IRI once resolved (a CURIE whose prefix no alias file
 declares) is refused by `say` and named by `doctor`, never signed as written. An `aliases.json` at the
