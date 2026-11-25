@@ -1,6 +1,14 @@
 # Changelog
 
-## Unreleased
+## v0.5.14 — 2026-11-25
+
+A tier's keys are read by listing its folder, never by a pattern over the repository's path (#256,
+kton-review's G1 on #254), reviewed by kton-review.
+
+### Migrating from v0.5.13
+
+- Nothing to do. A checkout whose path holds `*`, `?`, `[` or `\` now trusts exactly the keys in its own
+  tier folders: run `cockpit trust list` there once to see them.
 
 ### Fixed
 
