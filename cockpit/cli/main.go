@@ -52,14 +52,7 @@ func Main() {
 		return
 	}
 	ctx := context.Background()
-	// A one-shot command may ask the person on the terminal and keeps a key it unlocked for the
-	// rest of the process. The servers (mcp, serve) and the shim take no passphrase at all, not even
-	// from KTON_KEY_PASSPHRASE: an encrypted key there is identity.locked (they call keyload.SetServer).
-	switch os.Args[1] {
-	case "mcp", "serve", "shim":
-	default:
-		keyload.SetInteractive(true)
-	}
+	enterMode(os.Args[1])
 	jsonMode = wantsJSON(os.Args[1], os.Args[2:])
 	var err error
 	switch os.Args[1] {
@@ -132,6 +125,26 @@ func Main() {
 		fmt.Fprintln(os.Stderr, "cockpit:", reason)
 		os.Exit(1)
 	}
+}
+
+// enterMode says what kind of process this is, by the command it runs, before any key is read.
+func enterMode(cmd string) {
+	// Fail closed (ADR-021 section 2.4): a process takes no signing-key passphrase unless it opts in,
+	// and only the commands known to run to completion and end do. They may ask the person on the
+	// terminal, keep a key they unlocked for the rest of the process, and read KTON_KEY_PASSPHRASE.
+	// mcp, serve, the shim, a module's command that does not declare module.OneShot, and any command
+	// not listed stay server-like: an encrypted key there is identity.locked, not read from the environment.
+	if oneShotCommands[cmd] {
+		keyload.SetOneShot(true)
+	} else if m, ok := module.Lookup(cmd); ok && m.OneShot {
+		keyload.SetOneShot(true)
+	}
+}
+
+// oneShotCommands are the core commands that sign or read a signing key and run to completion.
+var oneShotCommands = map[string]bool{
+	"say": true, "publish": true, "ask": true, "run": true, "reproduce": true, "install": true,
+	"workflow": true, "scope": true,
 }
 
 // jsonMode is set when the caller asked for JSON: --json before any "--", or a verb's JSON
@@ -239,7 +252,7 @@ it exposes exactly three verbs — the vocabulary tools are those verbs with arg
 }
 
 func runMCP(ctx context.Context, args []string) error {
-	keyload.SetServer(true) // no one to ask, and no passphrase from the environment (ADR-021 section 2.4)
+	keyload.SetServer() // no one to ask, and no passphrase from the environment (ADR-021 section 2.4)
 	o, err := parseMCPArgs(args)
 	if err != nil {
 		return err

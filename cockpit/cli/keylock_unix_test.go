@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,6 +14,9 @@ import (
 	"syscall"
 	"testing"
 
+	"github.com/kton-protocol/kton-cockpit/cockpit"
+	"github.com/kton-protocol/kton-cockpit/cockpit/module"
+	"github.com/kton-protocol/kton-cockpit/internal/keyload"
 	"github.com/kton-protocol/kton-cockpit/internal/testrepo"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"kton.dev/plankton/core"
@@ -292,5 +296,46 @@ func TestKeys_McpAndServeRefuseAnEncryptedKeyWithTheRightPassphraseInTheEnvironm
 	})
 	if r.HeadSHA(t) != head {
 		t.Error("a server committed with an encrypted key")
+	}
+}
+
+// A module's command is a server unless the module declares itself one-shot (module.Module.OneShot):
+// a composed binary's command that runs long or answers requests must not hold the passphrase and sign
+// for whoever reaches it (ADR-021 section 2.4). Both modules say once with the key; only the declared
+// one-shot module gets the right passphrase from the environment.
+func TestKeys_AModuleCommandIsAServerUnlessItDeclaresItselfOneShot(t *testing.T) {
+	say := func(ctx context.Context, args []string) error {
+		_, err := cockpit.New(cockpit.Start{}).Say(ctx, cockpit.SayRequest{Subject: "urn:example:x", Template: "working-on",
+			Fields: map[string]string{"step": "analysis", "by-session": "s"}})
+		return err
+	}
+	module.Register(module.Module{Name: "keytest-undeclared", Commands: []module.Command{{Name: "say", Run: say}}})
+	module.Register(module.Module{Name: "keytest-oneshot", OneShot: true, Commands: []module.Command{{Name: "say", Run: say}}})
+
+	r := testrepo.New(t)
+	r.Use(t)
+	encryptKeyFile(t, r.Key(testrepo.SessionID+"-claims"), cliPass)
+	run := func(name string) error {
+		keys.ForgetEnvPassphrase()
+		keyload.Forget()
+		t.Setenv(keys.EnvPassphrase, cliPass)
+		t.Cleanup(func() { keys.ForgetEnvPassphrase(); keyload.Forget() })
+		keys.TakeEnvPassphrase() // as main does, first
+		enterMode(name)
+		m, _ := module.Lookup(name)
+		c, _ := m.Command("say")
+		return c.Run(context.Background(), nil)
+	}
+
+	head := r.HeadSHA(t)
+	var ref *cockpit.Refusal
+	if err := run("keytest-undeclared"); !errors.As(err, &ref) || ref.Code != "identity.locked" {
+		t.Fatalf("a module not declared one-shot: want identity.locked with the right passphrase in the environment, got %v", err)
+	}
+	if r.HeadSHA(t) != head {
+		t.Error("an undeclared module signed")
+	}
+	if err := run("keytest-oneshot"); err != nil {
+		t.Errorf("a module declared one-shot signs with the passphrase in the environment: %v", err)
 	}
 }

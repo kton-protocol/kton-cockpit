@@ -16,7 +16,7 @@ import (
 // runShim serves the dispatcher of the tool shims (ADR-014): `cockpit shim serve --socket PATH`
 // for a unix socket a container mounts, or `--listen ADDR` for TCP on this machine.
 func runShim(ctx context.Context, args []string) error {
-	keyload.SetServer(true)
+	keyload.SetServer()
 	const use = "usage: cockpit shim serve --socket PATH | --listen ADDR"
 	if len(args) != 3 || args[0] != "serve" {
 		return fmt.Errorf(use)

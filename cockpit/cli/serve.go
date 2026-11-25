@@ -130,7 +130,7 @@ func (s *serveSession) get() (*ServeInit, string, time.Duration, bool) {
 }
 
 func runServe(ctx context.Context, args []string) error {
-	keyload.SetServer(true) // no passphrase from the environment; the client question is ADR-021 PR B
+	keyload.SetServer() // no passphrase from the environment; the client question is ADR-021 PR B
 	if len(args) != 1 || args[0] != "--stdio" {
 		return fmt.Errorf("usage: cockpit serve --stdio   (the frontend protocol, JSON-RPC 2.0 over stdin and stdout)")
 	}

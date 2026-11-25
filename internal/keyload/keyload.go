@@ -42,59 +42,74 @@ func (e *LockedError) Error() string {
 		"(the passphrase is asked there) or, for CI, by setting " + keys.EnvPassphrase + " in the environment of the command"
 }
 
-var (
-	mu sync.Mutex
-	// interactive is set by the command line: it may ask on the controlling terminal, and a key it
-	// unlocked stays unlocked for the rest of the process (ADR-021 section 4, one prompt per command). Every
-	// other caller (the MCP server, serve, a Go program, a test) has no one to ask and keeps nothing.
-	interactive bool
-	unlocked    = map[string]ed25519.PrivateKey{}
-	// server is set by the long-running servers (mcp, serve, shim): they never read a passphrase from
-	// anywhere, so an encrypted key is always a *LockedError there (ADR-021 sections 2.4 and 4).
-	server bool
+// mode is where a passphrase may come from in this process. The default is the safest: a process
+// that never says what it is takes no passphrase at all (ADR-021 section 2.4), so a program that
+// forgets to opt in refuses an encrypted key instead of signing with a value in its environment.
+type mode int
+
+const (
+	// modeServer takes no passphrase: no terminal, no KTON_KEY_PASSPHRASE, nothing kept. It is the
+	// default, and what mcp, serve and the shim are. A value in a server's environment must not make it
+	// a signing oracle for whatever reaches its connection.
+	modeServer mode = iota
+	// modeEnv is a one-shot run without a terminal (a Go program, a test, CI): KTON_KEY_PASSPHRASE.
+	modeEnv
+	// modeTerminal is a command run by a person: the terminal first, then KTON_KEY_PASSPHRASE, and a key
+	// unlocked once is not asked again in the process (one prompt per command, section 4).
+	modeTerminal
 )
 
-// SetServer marks this process a server: it drops the passphrase main took from the environment and
-// from then on takes none, whether from the terminal or from KTON_KEY_PASSPHRASE. A value in the
-// environment of a server must not make it a signing oracle for whatever reaches its connection;
-// a lane that signs through MCP keeps a plain agent key. A person's key signs on the command line.
-func SetServer(on bool) {
+// defaultMode is what a process is until it opts in, and what Forget returns it to.
+var defaultMode = modeServer
+
+var (
+	mu       sync.Mutex
+	cur      = defaultMode
+	unlocked = map[string]ed25519.PrivateKey{}
+)
+
+// SetOneShot opts this process in as a one-shot run that ends when its work is done: only then does
+// an encrypted key take a passphrase, from the terminal when terminal is set and there is one, else
+// from KTON_KEY_PASSPHRASE. The command line sets it for the commands it knows are one-shot; a Go
+// program embedding the cockpit sets it itself or gets identity.locked.
+func SetOneShot(terminal bool) {
 	mu.Lock()
-	server = on
-	mu.Unlock()
-	if on {
-		SetInteractive(false)
-		keys.ForgetEnvPassphrase()
-		os.Unsetenv(keys.EnvPassphrase)
+	defer mu.Unlock()
+	cur = modeEnv
+	if terminal {
+		cur = modeTerminal
 	}
 }
 
-// SetInteractive says whether this process may ask a person on its terminal for a passphrase and
-// remember what it unlocked until it ends. Only the command line's one-shot commands set it.
-func SetInteractive(on bool) {
+// SetServer marks this process a server, which is also the default: it drops the passphrase main took
+// from the environment and from then on takes none. A lane that signs through MCP keeps a plain agent
+// key; a person's key signs on the command line.
+func SetServer() {
 	mu.Lock()
-	defer mu.Unlock()
-	interactive = on
-	if !on {
-		for k, v := range unlocked {
-			clear(v)
-			delete(unlocked, k)
-		}
+	cur = modeServer
+	for k, v := range unlocked {
+		clear(v)
+		delete(unlocked, k)
 	}
+	mu.Unlock()
+	keys.ForgetEnvPassphrase()
+	os.Unsetenv(keys.EnvPassphrase)
 }
 
 // Load reads the private key at path in either form. An encrypted key takes its passphrase from the
-// terminal (command line only), else from the value TakeEnvPassphrase holds (KTON_KEY_PASSPHRASE,
-// which main took before anything started a child; not in a server, see SetServer); with neither it is refused with a *LockedError,
-// and so it is with a wrong passphrase. Other refusals of the kernel's loader (a key that is not
-// Ed25519, a cipher it does not read, more bcrypt rounds than it accepts) pass through as they are.
+// terminal (a command run by a person), else from the value TakeEnvPassphrase holds
+// (KTON_KEY_PASSPHRASE, which main took before anything started a child), and only in a process that
+// opted in with SetOneShot; a server, and a process that never said, take none. With no passphrase
+// it is refused with a *LockedError, and so it is with a wrong one. Other refusals of the kernel's
+// loader (a key that is not Ed25519, a cipher it does not read, more bcrypt rounds than it accepts)
+// pass through as they are.
 func Load(path string) (ed25519.PrivateKey, error) {
 	mu.Lock()
-	if k, ok := unlocked[path]; ok && interactive {
+	m := cur
+	if k, ok := unlocked[path]; ok && m == modeTerminal {
 		mu.Unlock()
 		return append(ed25519.PrivateKey(nil), k...), nil
 	}
-	ask := interactive
 	mu.Unlock()
 
 	b, err := os.ReadFile(path)
@@ -102,7 +117,7 @@ func Load(path string) (ed25519.PrivateKey, error) {
 		return nil, err
 	}
 	defer clear(b)
-	k, err := keys.Parse(b, path, passphrase(ask, b))
+	k, err := keys.Parse(b, path, passphrase(m, b))
 	if err != nil {
 		if errors.Is(err, errNoSource) || errors.Is(err, keys.ErrNoPassphrase) {
 			return nil, locked(path, b, false)
@@ -112,7 +127,7 @@ func Load(path string) (ed25519.PrivateKey, error) {
 		}
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
-	if ask && keys.IsEncrypted(b) {
+	if m == modeTerminal && keys.IsEncrypted(b) {
 		mu.Lock()
 		unlocked[path] = append(ed25519.PrivateKey(nil), k...)
 		mu.Unlock()
@@ -130,18 +145,16 @@ func locked(path string, b []byte, wrong bool) error {
 	return e
 }
 
-// passphrase is the Passphrase handed to the kernel's loader: the terminal when this process may ask
-// and has one, else the held environment value, else errNoSource. It is read per call, so a value
-// set after start (a test) is still taken, and the variable is unset when it is.
-func passphrase(ask bool, keyBytes []byte) keys.Passphrase {
+// passphrase is the Passphrase handed to the kernel's loader, by the mode: none in a server, the held
+// environment value in modeEnv, the terminal (when there is one) and then the environment value in
+// modeTerminal. It is read per call, so a value set after start (a test) is still taken, and the
+// variable is unset when it is.
+func passphrase(m mode, keyBytes []byte) keys.Passphrase {
 	return func(keyPath string) ([]byte, error) {
-		mu.Lock()
-		never := server
-		mu.Unlock()
-		if never {
+		if m == modeServer {
 			return nil, errNoSource
 		}
-		if ask {
+		if m == modeTerminal {
 			if p, err := fromTerminal(keyPath, keyBytes); err == nil {
 				return p, nil
 			}
@@ -200,6 +213,8 @@ func IsEncrypted(path string) bool {
 // Forget drops what this process holds: the unlocked keys and the held environment passphrase. The
 // command line calls it when a command is done.
 func Forget() {
-	SetInteractive(false)
-	keys.ForgetEnvPassphrase()
+	SetServer()
+	mu.Lock()
+	cur = defaultMode
+	mu.Unlock()
 }

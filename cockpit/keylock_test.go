@@ -29,7 +29,10 @@ const testPass = "correct horse battery staple 8841"
 func passphraseIs(t *testing.T, pass string) {
 	t.Helper()
 	keys.ForgetEnvPassphrase()
-	t.Cleanup(keys.ForgetEnvPassphrase)
+	// A program takes a passphrase from the environment only when it opts in as a one-shot run (the
+	// command line does, for its one-shot commands); without a terminal, as under go test.
+	keyload.SetOneShot(false)
+	t.Cleanup(func() { keyload.Forget() })
 	os.Unsetenv(keys.EnvPassphrase)
 	if pass != "" {
 		t.Setenv(keys.EnvPassphrase, pass)
@@ -345,9 +348,10 @@ func TestKeys_AServerRefusesAnEncryptedKeyEvenWithTheRightPassphraseInTheEnviron
 	r.Use(t)
 	subject := publishOne(t, r).FotonID
 	encryptInPlace(t, r.Key(testrepo.SessionID+"-claims"), testPass)
-	keyload.SetServer(true)
-	t.Cleanup(func() { keyload.SetServer(false) })
-	passphraseIs(t, testPass) // set after the server started: it is still not read
+	keyload.SetServer()
+	t.Cleanup(func() { keyload.Forget() })
+	passphraseIs(t, testPass)
+	keyload.SetServer() // the server started before the value was set: it is still not read
 	before := snapshot(t, r)
 
 	res, _, err := Say(context.Background(), nil, workingOn(subject, "analysis"))
@@ -362,5 +366,33 @@ func TestKeys_AServerRefusesAnEncryptedKeyEvenWithTheRightPassphraseInTheEnviron
 	}
 	if snapshot(t, r) != before {
 		t.Error("a server signed or wrote with an encrypted key")
+	}
+}
+
+// A program that embeds the cockpit and never says it is a one-shot run is treated as a server: the
+// right passphrase in its environment is not read, and the encrypted key is identity.locked. It must
+// opt in with keyload.SetOneShot (the default fails closed, ADR-021 section 2.4).
+func TestKeys_AProgramThatDoesNotOptInRefusesAnEncryptedKey(t *testing.T) {
+	r := testrepo.New(t)
+	r.Use(t)
+	subject := publishOne(t, r).FotonID
+	encryptInPlace(t, r.Key(testrepo.SessionID+"-claims"), testPass)
+	keyload.Forget() // the process default: nobody opted in
+	t.Cleanup(keyload.Forget)
+	keys.ForgetEnvPassphrase()
+	t.Setenv(keys.EnvPassphrase, testPass)
+	before := snapshot(t, r)
+
+	_, err := New(Start{}).Say(context.Background(), workingOn(subject, "analysis"))
+	if refusalOf(t, err).Code != "identity.locked" {
+		t.Fatalf("want identity.locked by default, got %v", err)
+	}
+	if snapshot(t, r) != before {
+		t.Error("a process that did not opt in signed with an encrypted key")
+	}
+
+	keyload.SetOneShot(false)
+	if _, err := New(Start{}).Say(context.Background(), workingOn(subject, "analysis")); err != nil {
+		t.Errorf("after opting in as a one-shot run the same say signs: %v", err)
 	}
 }
