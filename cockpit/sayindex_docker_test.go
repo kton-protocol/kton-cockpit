@@ -3,6 +3,7 @@
 package cockpit
 
 import (
+	"bytes"
 	"context"
 	"slices"
 	"strings"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/kton-protocol/kton-cockpit/internal/binaries"
 	"github.com/kton-protocol/kton-cockpit/internal/index/oxigraph"
+	"github.com/kton-protocol/kton-cockpit/internal/testrepo"
 )
 
 // With the oxigraph index up, a say reads the scope's head from the index's chain graph and chains onto
@@ -84,5 +86,63 @@ func TestSay_ATeammatesClaimSinceTheViewWasBuiltIsTheHeadWeChainOnto(t *testing.
 	if chain.Prev != theirClaim || head.Branched || head.ChainLength != 2 || !slices.Equal(head.Heads, []string{theirClaim}) {
 		t.Fatalf("chained onto %s (heads %v, length %d, branched %v), want the teammate's %s (ours before it: %s)",
 			chain.Prev, head.Heads, head.ChainLength, head.Branched, theirClaim, first.ClaimID)
+	}
+}
+
+// T2 (kton-review): the daemon is UP but the index cannot answer for the scope (its view holds no resolved
+// seed: the configured scope's seed is in no registry of the slot). The index never refuses a say, so the
+// say falls back to the union and refuses exactly as the union path does, with the kernel's own error and
+// not the index's.
+func TestSay_AnIndexErrorWithTheDaemonUpFallsBackToTheUnion(t *testing.T) {
+	ours, _, _ := indexedScopedRepo(t)
+	cfg := ours.Config(t)
+	if _, err := oxigraph.Ensure(context.Background(), cfg); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { oxigraph.Stop(context.Background(), cfg) })
+	pub := publishOne(t, ours)
+
+	nobody := "sha256:" + strings.Repeat("ab", 32) // a seed no registry holds
+	raw := cfg.Raw
+	raw.Claims.Scopes = map[string]string{"review": nobody}
+	ours.WriteConfig(t, raw)
+	cfg = ours.Config(t)
+
+	// The premise: the daemon is up and the index itself answers with an error.
+	d := oxigraph.Up(context.Background(), cfg)
+	if d == nil {
+		t.Fatal("the index daemon is not up")
+	}
+	keys, err := trustedKeys(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, ierr := oxigraph.ScopeHead(context.Background(), d, cfg, keys, nobody)
+	if ierr == nil {
+		t.Fatal("want an index error for a scope whose seed no registry holds")
+	}
+
+	var buf bytes.Buffer
+	was := traceOut
+	traceOut = &buf
+	t.Setenv("COCKPIT_TRACE", "1")
+	defer func() { traceOut = was }()
+	res, _, err := Say(context.Background(), nil, SayRequest{Subject: pub.FotonID, Template: "working-on", Scope: "review",
+		Fields: map[string]string{"step": "analysis", "by-session": testrepo.SessionID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.IsError {
+		t.Fatal("want the say refused: the scope's seed is in no registry")
+	}
+	msg := errText(res)
+	if !strings.Contains(msg, "cannot report its head") {
+		t.Fatalf("want the union path's refusal:\n%s", msg)
+	}
+	if strings.Contains(msg, ierr.Error()) {
+		t.Fatalf("the refusal carries the index's error %q instead of the union's:\n%s", ierr, msg)
+	}
+	if !strings.Contains(buf.String(), "(reads the union)") {
+		t.Fatalf("want the head read from the union after the index error:\n%s", buf.String())
 	}
 }
