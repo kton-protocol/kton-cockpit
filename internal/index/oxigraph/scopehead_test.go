@@ -10,7 +10,9 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
+	"time"
 
 	nregistry "kton.dev/nekton/registry"
 
@@ -76,6 +78,38 @@ func (s *shWorld) claim(name string, scope, prev *pitem, key int, tmpl string) *
 		a.scope, a.prev = scope.id, prev.id
 	}
 	return s.w.claim(name, a)
+}
+
+// flatPredicate is the predicate of a flat claim the projection rewrites: nanopub percent-encodes the space.
+// A template with such a predicate is refused by the kernel (v0.5.1), a flat claim (nekton claim <spec>, no
+// template) is signed as written, and a claim like it can arrive from any federation source.
+const flatPredicate = "https://example.org/a b"
+
+// flatClaim is a scoped claim authored without a template: a spec with the predicate as given, chained
+// under scope after prev.
+func (s *shWorld) flatClaim(name string, scope, prev *pitem, key int) *pitem {
+	s.t.Helper()
+	spec, err := json.Marshal(map[string]any{
+		"subject": []map[string]string{{"uri": "urn:example:sh"}}, "predicate": flatPredicate,
+		"object": map[string]string{"state": name}, "by": "world", "when": s.w.when(),
+		"scope": scope.id, "prev": prev.id,
+	})
+	if err != nil {
+		s.t.Fatal(err)
+	}
+	dir := s.t.TempDir()
+	specFile, out := filepath.Join(dir, name+".spec.json"), filepath.Join(dir, name+".dsse.json")
+	if err := os.WriteFile(specFile, spec, 0o644); err != nil {
+		s.t.Fatal(err)
+	}
+	f := strings.Fields(s.w.nek("claim", specFile, s.w.keys[key], out)) // "claim sha256:<id>  keyid=… -> out"
+	if len(f) < 2 || f[0] != "claim" {
+		s.t.Fatalf("nekton claim printed %q", f)
+	}
+	it := &pitem{id: f[1], name: name}
+	it.env = s.w.read(out)
+	s.w.add(it)
+	return it
 }
 
 func (s *shWorld) deliver(reg string, its ...*pitem) {
@@ -195,6 +229,13 @@ func TestOxigraph_TheIndexHeadIsTheUnionsHead(t *testing.T) {
 			s.deliver("A", seed, c1, c2)
 			return seed
 		}},
+		{"a flat claim whose predicate the projection percent-encodes, last in a scope", func(s *shWorld) *pitem {
+			seed := s.w.seed("s", "", 0)
+			c1 := s.claim("c1", seed, seed, 0, "status")
+			c2 := s.flatClaim("c2", seed, c1, 0)
+			s.deliver("A", seed, c1, c2)
+			return seed
+		}},
 		{"an empty scope", func(s *shWorld) *pitem {
 			seed := s.w.seed("s", "", 0)
 			s.deliver("A", seed)
@@ -217,7 +258,47 @@ func TestOxigraph_TheIndexHeadIsTheUnionsHead(t *testing.T) {
 	}
 }
 
-// Random arrangements: the claims of three scopes (branches, untrusted keys) reach two
+// The scenario with a percent-encoded last claim must really be one: the kernel projects the flat claim
+// (the space of its predicate becomes %20), the claims dataset holds a node for it and for the valid claim
+// before it, and the chain counts both. The query reads the claims dataset: the default view graph holds
+// no claim node at all, so a query of it would return nothing for either claim and prove nothing.
+func TestOxigraph_ThePercentEncodedClaimIsInTheChainAndInTheProjection(t *testing.T) {
+	s := newSHWorld(t)
+	seed := s.w.seed("s", "", 0)
+	c1 := s.claim("c1", seed, seed, 0, "status")
+	c2 := s.flatClaim("c2", seed, c1, 0)
+	s.deliver("A", seed, c1, c2)
+	got, err := oxigraph.ScopeHead(context.Background(), s.d, s.ac, keys(t, s.ac), seed.id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{c2.id}; !slices.Equal(got.Heads, want) || got.ChainLength != 2 {
+		t.Fatalf("heads %v length %d, want %v and 2", got.Heads, got.ChainLength, want)
+	}
+	ans, err := oxigraph.Free(context.Background(), s.d, s.ac, keys(t, s.ac),
+		`SELECT ?c ?p WHERE { ?c a <`+nkV+`Claim> ; <`+nkV+`predicate> ?p }`, oxigraph.DatasetClaims, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	node := func(id string) string { return "https://kton.dev/o/" + strings.TrimPrefix(id, "sha256:") }
+	predicate := map[string]string{}
+	for _, row := range ans.Rows {
+		predicate[row["c"]] = row["p"]
+	}
+	// The guard: the query sees the valid claim, so an empty answer for c2 cannot pass for a finding.
+	if _, ok := predicate[node(c1.id)]; !ok {
+		t.Fatalf("the claims dataset holds no node for the valid claim c1: the query is blind (%d rows)", len(ans.Rows))
+	}
+	p, ok := predicate[node(c2.id)]
+	if !ok {
+		t.Fatalf("the claims dataset holds no node for the flat claim c2 (%d rows)", len(ans.Rows))
+	}
+	if want := "https://example.org/a%20b"; p != want {
+		t.Fatalf("c2's predicate is %q, want the percent-encoded %q", p, want)
+	}
+}
+
+// Random arrangements: the claims of three scopes (branches, untrusted keys, a flat claim with a percent-encoded predicate) reach two
 // registries in random order and the view is read at random steps; at each the index's head of every
 // scope is the union's.
 func TestOxigraph_TheIndexHeadFollowsTheUnionThroughDeliveries(t *testing.T) {
@@ -234,7 +315,13 @@ func TestOxigraph_TheIndexHeadFollowsTheUnionThroughDeliveries(t *testing.T) {
 				members := []*pitem{sd}
 				for j := 0; j < 5; j++ {
 					prev := members[rnd.IntN(len(members))]
-					c := s.claim(fmt.Sprint("c", i, j), sd, prev, []int{0, 1, 2}[rnd.IntN(3)], "status")
+					k := []int{0, 1, 2}[rnd.IntN(3)]
+					var c *pitem
+					if rnd.IntN(8) == 0 {
+						c = s.flatClaim(fmt.Sprint("c", i, j), sd, prev, k)
+					} else {
+						c = s.claim(fmt.Sprint("c", i, j), sd, prev, k, "status")
+					}
 					members = append(members, c)
 					all = append(all, c)
 				}
