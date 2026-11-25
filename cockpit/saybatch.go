@@ -240,6 +240,8 @@ func (c *Cockpit) SayBatch(ctx context.Context, in SayBatchRequest) (*SayBatchRe
 		return nil, refuse("kernel", "", "the claims were recorded but this repository's claim registry cannot be read back: %v", err)
 	}
 	bySubject := map[string]map[string]bool{}
+	waiting := map[int]string{} // claims the own registry holds deferred, by position, and the scope each waits in
+	var waitingIDs []string
 	for i := range out.Claims {
 		subj := out.Claims[i].Subject
 		if bySubject[subj] == nil {
@@ -252,11 +254,40 @@ func (c *Cockpit) SayBatch(ctx context.Context, in SayBatchRequest) (*SayBatchRe
 				bySubject[subj][cl.ID] = true
 			}
 		}
-		if !bySubject[subj][out.Claims[i].ClaimID] {
-			return nil, refuse("claim.not-registered", "", "claim %d (%s) was signed but nekton does not report it about %s — it did not register",
-				i+1, out.Claims[i].ClaimID, subj)
+		if bySubject[subj][out.Claims[i].ClaimID] {
+			out.Claims[i].Confirmation = "registered: nekton reports " + out.Claims[i].ClaimID + " about " + subj
+			continue
 		}
-		out.Claims[i].Confirmation = "registered: nekton reports " + out.Claims[i].ClaimID + " about " + subj
+		// A claim chained onto a predecessor only a federation source holds is held deferred by the own
+		// registry, which waits for it (the same case as one say, SPEC §8.5): the union decides, below.
+		if _, scope, ok := own.DeferredClaim(out.Claims[i].ClaimID); ok {
+			waiting[i] = scope
+			waitingIDs = append(waitingIDs, out.Claims[i].ClaimID)
+			continue
+		}
+		return nil, refuse("claim.not-registered", "", "claim %d (%s) was signed but nekton does not report it about %s, and the registry does not hold it deferred either — it did not register",
+			i+1, out.Claims[i].ClaimID, subj)
+	}
+	if len(waitingIDs) > 0 {
+		// The union is opened once for the whole batch, and only when some claim waits.
+		held, uerr := binaries.New(cfg).UnionResolves(ctx, waitingIDs...)
+		for i := range out.Claims {
+			scope, ok := waiting[i]
+			if !ok {
+				continue
+			}
+			id := out.Claims[i].ClaimID
+			if uerr != nil || !held[id] {
+				why := "no registry of the federation holds it"
+				if uerr != nil {
+					why = fmt.Sprintf("the federation could not be read: %v", uerr)
+				}
+				return nil, refuse("claim.not-registered", "", "claim %d (%s) was signed and is held in this repository's registry, but it waits for its predecessor in scope %s and %s — it is not registered",
+					i+1, id, scope, why)
+			}
+			out.Claims[i].WaitingOn = scope
+			out.Claims[i].Confirmation = fmt.Sprintf("registered: %s is held in this repository's registry waiting for its predecessor in scope %s, which the federation holds, and the union of the registries resolves it", id, scope)
+		}
 	}
 	return out, nil
 }
