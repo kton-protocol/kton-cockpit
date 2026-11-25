@@ -122,6 +122,16 @@ the kernel did not take. It also holds the records `projectNekton` skips (a pred
 no valid IRI): they answer no query, but they are in the chain and `Heads` counts them, so a chain built from
 the projection could name a wrong head. The equivalence test of D3 has such a claim as a scope's last one.
 
+A registry read alone does not drop a claim whose seed or prev it lacks: the kernel holds it **deferred**
+and still returns it from `Records()` (it is in the feed offered to peers), so the index holds claims whose
+chain lies in another registry (`elsewhere_test.go`, cases 1 and 2, with a revert check). The same is true of a
+claim deferred in *every* registry of the slot (case 3): the union keeps it out of every query and `Heads`
+does not count it, yet it reaches the index. So the chain graph holds a claim only when its chain resolves in
+the slot's registries: its seed is in the chain graph and its prev is (the seed for the first claim). A claim
+that does not resolve is kept aside (not a head, not counted) and enters the chain graph when the record it
+waits for arrives: the delta that brings a seed or prev also admits the claims waiting on it. The equivalence
+test has a claim deferred everywhere in a scope that also has resolved claims.
+
 ### D3. say reads its scope's head from the index
 
 With `index.kind: oxigraph`, `resolveChain` brings the view up to date (D1: the own registry's last
