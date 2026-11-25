@@ -75,10 +75,16 @@ type Template struct {
 	// Hash is the sha256 of the template's bytes as its source holds them, Revision the package revision
 	// it came from: what say --expect-template and --expect-revision take. Package names the package a
 	// package template came from; it is absent for a template the repository holds itself.
-	Package  string                   `json:"package,omitempty"`
-	Hash     string                   `json:"hash,omitempty"`
-	Revision string                   `json:"revision,omitempty"`
-	Fields   map[string]TemplateField `json:"fields"`
+	Package  string `json:"package,omitempty"`
+	Hash     string `json:"hash,omitempty"`
+	Revision string `json:"revision,omitempty"`
+	// SignerRoles (role IRIs) and Scopes (seed IRIs, template.ScopeIRIPrefix + the seed claim's id) are
+	// the template's declared intent (kton #301): who a claim from it is meant to be signed by and in which
+	// scopes. Advisory only: say neither checks nor enforces them. Absent when the template declares none;
+	// absent Scopes means any scope.
+	SignerRoles []string                 `json:"signerRoles,omitempty"`
+	Scopes      []string                 `json:"scopes,omitempty"`
+	Fields      map[string]TemplateField `json:"fields"`
 }
 
 // TemplateField is one field of a template.
@@ -104,6 +110,7 @@ func sayListing(cfg *config.Config) ([]Template, error) {
 			}
 			o := origins[st.Name]
 			e.Package, e.Hash, e.Revision = o.PackageName, o.Hash, o.Revision
+			e.SignerRoles, e.Scopes = st.SignerRoles, st.Scopes
 		}
 		for name, f := range t.Fields {
 			tf := TemplateField{Type: f.Type, Required: f.Required, Values: f.Values}

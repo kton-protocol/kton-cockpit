@@ -9,9 +9,15 @@
   re-asks only the views that read a changed graph instead of polling (SPEC §12.5). The graphs are
   compared by the hashes the view keeps of each graph, so the event is the same whether the watcher or a
   query built the view. Events without `graphs` mean what they meant before.
+- **`say --json` and `say/templates` list a template's `signerRoles` and `scopes`** (ui-design G9,
+  kton #301): the intent the template declares, left out when it declares none; advice to show, not
+  checked by `say` (SPEC §8.5).
 
 ### Changed
 
+- **kton v0.5.0** (kton.dev/plankton, nekton, kton). go.mod names the kernel CLIs as `tool`s, so
+  plankton's own imports (x/crypto, x/term for protected keys) stay in go.sum (the missing entries the advisory
+  "against kton main" job reported).
 - The recorder's watch lists its folders instead of globbing over joined paths (#257, cockpit-runtime's).
 
 ## v0.5.14 — 2026-11-25

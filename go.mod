@@ -5,11 +5,16 @@ go 1.25.0
 require (
 	github.com/google/jsonschema-go v0.4.3
 	github.com/modelcontextprotocol/go-sdk v1.6.1
-	kton.dev/nekton v0.4.3
-	kton.dev/plankton v0.4.3
+	kton.dev/nekton v0.5.0
+	kton.dev/plankton v0.5.0
 )
 
 require github.com/gitmick/ktonpkg v0.10.0
+
+require (
+	golang.org/x/crypto v0.33.0 // indirect
+	golang.org/x/term v0.29.0 // indirect
+)
 
 require (
 	github.com/segmentio/asm v1.1.3 // indirect
@@ -17,5 +22,12 @@ require (
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	golang.org/x/oauth2 v0.35.0 // indirect
 	golang.org/x/sys v0.41.0
-	kton.dev/kton v0.4.3
+	kton.dev/kton v0.5.0
+)
+
+// The kernel CLIs the tests and examples/lib build from this go.mod. Naming them keeps their own
+// imports (plankton/keys: x/crypto, x/term) in go.sum, which no package of the cockpit imports yet.
+tool (
+	kton.dev/nekton/cmd/nekton
+	kton.dev/plankton/cmd/plankton
 )
