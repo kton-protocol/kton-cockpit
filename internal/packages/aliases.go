@@ -51,8 +51,9 @@ func (a Aliases) Resolve(x string) string {
 // Empty says the package defines no aliases.
 func (a Aliases) Empty() bool { return len(a.Prefixes) == 0 && len(a.Terms) == 0 }
 
-// ResolvedTemplate is a package template with its predicate and context resolved through the package's
-// own aliases, so the shared template set receives full IRIs and needs no package alias. Every other
+// ResolvedTemplate is a package template with its predicate, context and signerRoles resolved through
+// the package's own aliases, so the shared template set receives full IRIs and needs no package alias
+// (a role the set cannot resolve makes nekton refuse the template, kton-review F1 on #260). Every other
 // member of the template is kept as it is.
 func ResolvedTemplate(b []byte, a Aliases) []byte {
 	if a.Empty() {
@@ -70,6 +71,19 @@ func ResolvedTemplate(b []byte, a Aliases) []byte {
 		}
 		if r := a.Resolve(s); r != s {
 			m[k], _ = json.Marshal(r)
+			changed = true
+		}
+	}
+	var roles []string
+	if raw, ok := m["signerRoles"]; ok && json.Unmarshal(raw, &roles) == nil {
+		rolesChanged := false
+		for i, r := range roles {
+			if full := a.Resolve(r); full != r {
+				roles[i], rolesChanged = full, true
+			}
+		}
+		if rolesChanged {
+			m["signerRoles"], _ = json.Marshal(roles)
 			changed = true
 		}
 	}
