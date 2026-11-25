@@ -53,8 +53,8 @@ func Main() {
 	}
 	ctx := context.Background()
 	// A one-shot command may ask the person on the terminal and keeps a key it unlocked for the
-	// rest of the process. The servers (mcp, serve) and the shim have no one to ask: an encrypted
-	// key there is identity.locked unless KTON_KEY_PASSPHRASE was set for the process (ADR-021 section 2.4).
+	// rest of the process. The servers (mcp, serve) and the shim take no passphrase at all, not even
+	// from KTON_KEY_PASSPHRASE: an encrypted key there is identity.locked (they call keyload.SetServer).
 	switch os.Args[1] {
 	case "mcp", "serve", "shim":
 	default:
@@ -239,6 +239,7 @@ it exposes exactly three verbs — the vocabulary tools are those verbs with arg
 }
 
 func runMCP(ctx context.Context, args []string) error {
+	keyload.SetServer(true) // no one to ask, and no passphrase from the environment (ADR-021 section 2.4)
 	o, err := parseMCPArgs(args)
 	if err != nil {
 		return err

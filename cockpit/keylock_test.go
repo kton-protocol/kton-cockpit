@@ -336,3 +336,31 @@ func TestKeys_PublishOpensTheEncryptedFotonKeyFirst(t *testing.T) {
 		t.Fatalf("publish with the passphrase: %v", err)
 	}
 }
+
+// A server takes no passphrase from anywhere, the right one in KTON_KEY_PASSPHRASE included: an unlock
+// that held in the environment of the MCP server would make it a signing oracle for whatever reaches
+// its connection (ADR-021 section 4). The tool handler refuses identity.locked and signs nothing.
+func TestKeys_AServerRefusesAnEncryptedKeyEvenWithTheRightPassphraseInTheEnvironment(t *testing.T) {
+	r := testrepo.New(t)
+	r.Use(t)
+	subject := publishOne(t, r).FotonID
+	encryptInPlace(t, r.Key(testrepo.SessionID+"-claims"), testPass)
+	keyload.SetServer(true)
+	t.Cleanup(func() { keyload.SetServer(false) })
+	passphraseIs(t, testPass) // set after the server started: it is still not read
+	before := snapshot(t, r)
+
+	res, _, err := Say(context.Background(), nil, workingOn(subject, "analysis"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.IsError || !strings.Contains(errText(res), "encrypted") {
+		t.Errorf("want a tool error for the encrypted key, got %v %q", res.IsError, errText(res))
+	}
+	if _, err := New(Start{}).Say(context.Background(), workingOn(subject, "analysis")); refusalOf(t, err).Code != "identity.locked" {
+		t.Errorf("want identity.locked, got %v", err)
+	}
+	if snapshot(t, r) != before {
+		t.Error("a server signed or wrote with an encrypted key")
+	}
+}

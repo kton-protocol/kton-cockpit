@@ -7,7 +7,7 @@
 - **Passphrase-protected signing keys** (ADR-021, the command line and the core; serve's passphrase request
   is a later change): a private key is the hex seed or the OpenSSH form encrypted with a passphrase, read
   through one loader wherever the cockpit signs (SPEC §5.7). The passphrase is asked on the terminal for a
-  command run by a person, once per key per process, else read from `KTON_KEY_PASSPHRASE`, which every
+  command run by a person, once per key per process, else read from `KTON_KEY_PASSPHRASE` (never by `mcp`, `serve` or the shim, which refuse an encrypted key), which every
   `main` takes out of the environment before it starts a child. An encrypted key without a passphrase, or
   with a wrong one, is refused as `identity.locked` before anything is signed or written (a `say --batch`
   opens every key first and writes none of its claims). `cockpit keygen --encrypt` writes the encrypted

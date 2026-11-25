@@ -17,6 +17,7 @@ import (
 	"github.com/kton-protocol/kton-cockpit/internal/config"
 	"github.com/kton-protocol/kton-cockpit/internal/frontrpc"
 	"github.com/kton-protocol/kton-cockpit/internal/jobs"
+	"github.com/kton-protocol/kton-cockpit/internal/keyload"
 )
 
 // The frontend protocol (ADR-011, section 6; SPEC §12.5): `cockpit serve --stdio` answers JSON-RPC 2.0
@@ -129,6 +130,7 @@ func (s *serveSession) get() (*ServeInit, string, time.Duration, bool) {
 }
 
 func runServe(ctx context.Context, args []string) error {
+	keyload.SetServer(true) // no passphrase from the environment; the client question is ADR-021 PR B
 	if len(args) != 1 || args[0] != "--stdio" {
 		return fmt.Errorf("usage: cockpit serve --stdio   (the frontend protocol, JSON-RPC 2.0 over stdin and stdout)")
 	}

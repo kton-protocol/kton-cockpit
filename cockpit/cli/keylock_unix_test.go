@@ -3,6 +3,8 @@
 package cli
 
 import (
+	"bufio"
+	"context"
 	"encoding/json"
 	"os"
 	"os/exec"
@@ -12,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/kton-protocol/kton-cockpit/internal/testrepo"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"kton.dev/plankton/core"
 	"kton.dev/plankton/keys"
 )
@@ -227,5 +230,67 @@ func TestKeys_KeygenEncryptWritesAKeySSHKeygenReads(t *testing.T) {
 		if _, err := core.ParsePublicKeyHex(strings.TrimSpace(string(pubFile))); err != nil || core.KeyIDHex(pub) == "" {
 			t.Errorf("%s.pub is not the key's public half: %v", name, err)
 		}
+	}
+}
+
+// The servers never read the passphrase, even the right one in their environment (ADR-021 section 4):
+// `cockpit mcp` and `cockpit serve --stdio` refuse an encrypted key as identity.locked and sign nothing.
+func TestKeys_McpAndServeRefuseAnEncryptedKeyWithTheRightPassphraseInTheEnvironment(t *testing.T) {
+	r := testrepo.New(t)
+	r.Use(t)
+	encryptKeyFile(t, r.Key(testrepo.SessionID+"-claims"), cliPass)
+	head := r.HeadSHA(t)
+	env := []string{keys.EnvPassphrase + "=" + cliPass}
+	fields := map[string]string{"step": "analysis", "by-session": "s"}
+
+	t.Run("mcp", func(t *testing.T) {
+		cmd := r.CockpitCommand(t, "mcp")
+		noTerminal(cmd, env...)
+		ctx := context.Background()
+		cs, err := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "0"}, nil).Connect(ctx, &mcp.CommandTransport{Command: cmd}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer cs.Close()
+		res, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: "cockpit_say",
+			Arguments: map[string]any{"template": "working-on", "subject": "urn:example:x", "fields": fields}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var text strings.Builder
+		for _, c := range res.Content {
+			if tc, ok := c.(*mcp.TextContent); ok {
+				text.WriteString(tc.Text)
+			}
+		}
+		if !res.IsError || !strings.Contains(text.String(), "encrypted") || strings.Contains(text.String(), cliPass) {
+			t.Errorf("want a tool error for the encrypted key, got %v %q", res.IsError, text.String())
+		}
+	})
+
+	t.Run("serve", func(t *testing.T) {
+		cmd := r.CockpitCommand(t, "serve", "--stdio")
+		noTerminal(cmd, env...)
+		in, err := cmd.StdinPipe()
+		if err != nil {
+			t.Fatal(err)
+		}
+		out, err := cmd.StdoutPipe()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := cmd.Start(); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { in.Close(); _ = cmd.Wait() })
+		c := &serveClient{t: t, w: in, r: bufio.NewReader(out)}
+		c.ok("initialize", map[string]any{"root": r.Root})
+		rep := c.call("say", map[string]any{"template": "working-on", "subject": "urn:example:x", "fields": fields})
+		if rep.refusalCode() != "identity.locked" {
+			t.Errorf("say over serve: want identity.locked, got %+v", rep)
+		}
+	})
+	if r.HeadSHA(t) != head {
+		t.Error("a server committed with an encrypted key")
 	}
 }

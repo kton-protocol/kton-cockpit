@@ -235,8 +235,10 @@ kernel's loader and decides where a passphrase comes from; it parses no key of i
   the environment is readable by the process's user. The variable is taken out of the environment first
   thing in `main`, before anything starts a child, so no child the cockpit starts (git, the container
   CLI, a shimmed tool, a workflow step) inherits it, and the held value is dropped when the command ends.
-  The MCP server and `serve` have no terminal: an encrypted key there is signed with only when
-  `KTON_KEY_PASSPHRASE` was set for that process, and refused otherwise.
+  The MCP server, `serve` and the tool shim take no passphrase at all: they drop the held value and
+  never read `KTON_KEY_PASSPHRASE` or a terminal, so an encrypted key there is always refused (a lane
+  that signs through MCP keeps a plain agent key), since an unlock that held in a server would make it a
+  signing oracle for whatever reaches its connection. The environment source is for one-shot commands.
 - **Refused as `identity.locked`** when a key is encrypted and no source gave a passphrase, or the one
   given is wrong. The reason names the key file, its keyid (read from the public half) and the ways to
   unlock it. It is refused before anything is signed, read under the claims lock or written: a `say`,
@@ -251,6 +253,8 @@ kernel's loader and decides where a passphrase comes from; it parses no key of i
 > **Checked by:** `TestKeys_EncryptedClaimKeySignsWithTheRightPassphraseAndNothingElse`,
 > `TestKeys_PlainAndEncryptedFormsOfOneSeedSignUnderOneKeyID`,
 > `TestKeys_PublicHalfOfAnEncryptedKeyNeedsNoPassphrase`, `TestKeys_MCPRefusesAnEncryptedKeyBeforeSigning`,
+> `TestKeys_AServerRefusesAnEncryptedKeyEvenWithTheRightPassphraseInTheEnvironment`,
+> `TestKeys_McpAndServeRefuseAnEncryptedKeyWithTheRightPassphraseInTheEnvironment`,
 > `TestKeys_BatchWithAnEncryptedKeyAndAWrongPassphraseWritesNone`, `TestKeys_ThePassphraseIsWrittenNowhere`,
 > `TestKeys_PublishOpensTheEncryptedFotonKeyFirst`, `TestKeys_ChildrenNeverSeeThePassphraseAndItIsLoggedNowhere`,
 > `TestKeys_WithoutATerminalOrVariableAnEncryptedKeyIsLockedAndAWrongOneRefused`,
