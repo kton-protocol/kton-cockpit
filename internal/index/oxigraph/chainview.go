@@ -21,8 +21,8 @@ import (
 // makes of it. The kernel decides whether a claim's chain resolves; the index writes down what each
 // registry's kernel said and never settles a chain itself:
 //
-//   - urn:kton:links holds, for every record a nekton registry returned (the claims the projection
-//     skips included), the record's own scope, predecessor and whether it is a seed, read from its
+//   - urn:kton:links holds, for every record a nekton registry returned (read from the envelopes,
+//     whatever the projection makes of them), the record's own scope, predecessor and whether it is a seed, read from its
 //     envelope. The triples are the same whichever registry writes them: they belong to the claim.
 //   - <registry> urn:kton:resolves <claim> when that registry's kernel holds the claim with its chain
 //     resolved, and <registry> urn:kton:defers <claim> when it holds it waiting for a seed or a
@@ -49,8 +49,8 @@ type chainRecord struct {
 	seed             bool
 }
 
-// chainRecords reads the chain links of every record recs holds, the ones projectNekton skips too: a
-// chain counts them, and a head named from the projection alone could be the wrong one.
+// chainRecords reads the chain links of every record recs holds, whatever projectNekton makes of them: the
+// chain graph is built from the envelopes and does not depend on the projection.
 func chainRecords(recs []nregistry.Record) []chainRecord {
 	var out []chainRecord
 	norm := func(v string) string {

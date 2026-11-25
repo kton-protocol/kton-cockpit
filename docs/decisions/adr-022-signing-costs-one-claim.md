@@ -120,9 +120,10 @@ Its source is the kernel's records, not the projection (kton-review, 25.11.: "th
 records the kernel holds"). `apply` writes each record's chain links from the record itself (the envelope's
 scope and prev, `claim.ParseEnvelope` → `ParsePredicate`, as `nregistry.Heads` reads them), for every record
 `Records()` returns. So it holds exactly what the kernel holds: settled, chain-resolved records, never bytes
-the kernel did not take. It also holds the records `projectNekton` skips (a predicate or subject that makes
-no valid IRI): they answer no query, but they are in the chain and `Heads` counts them, so a chain built from
-the projection could name a wrong head. The equivalence test of D3 has such a claim as a scope's last one.
+the kernel did not take. The chain graph is built from the envelopes, so it does not depend on the projection: it holds every record
+the kernel holds whatever the projection makes of its predicate or subject (a predicate with a space is
+percent-encoded, `has%20space`, and still projected). The equivalence test of D3 has such a claim as a
+scope's last one.
 
 A registry read alone does not drop a claim whose seed or prev it lacks: the kernel holds it **deferred**
 and still returns it from `Records()` (it is in the feed offered to peers), so the index holds claims whose
