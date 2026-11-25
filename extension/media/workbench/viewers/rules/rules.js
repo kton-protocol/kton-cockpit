@@ -341,7 +341,7 @@ const ICON_PREV = `<svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d
 const ICON_NEXT = `<svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="M6 3.5 10.5 8 6 12.5"/></svg>`;
 function shortClaim(c) {
   const m = /([0-9a-f]{64})$/.exec(c);
-  return m ? `${m[1].slice(0, 12)}…` : c;
+  return m ? `${m[1].slice(0, 8)}…` : c;
 }
 function stampAttrs(x, v, esc) {
   return `data-stamp="${esc(v(x.stamp))}"${v(x.stampLabel) ? ` data-stamp-label="${esc(v(x.stampLabel))}"` : ""}${v(x.stampFull) ? ` data-stamp-full="${esc(v(x.stampFull))}"` : ""}${v(x.stampScope) ? ` data-stamp-scope="${esc(v(x.stampScope))}"` : ""}`;

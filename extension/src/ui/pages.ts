@@ -28,6 +28,29 @@ label.field{display:block;margin:8px 0} label.field span{display:block} input[ty
 .error{color:var(--vscode-errorForeground)} .confirm{display:flex;gap:8px;align-items:center;margin:12px 0} .actions{display:flex;gap:8px}
 pre.box{white-space:pre-wrap;font-family:var(--vscode-editor-font-family)} .outcome{margin-top:10px;font-weight:600}`;
 
+
+/** A 64-hex hash is shown as 8 hex (mono, the full value in the tooltip and for a screen reader; a click or Enter copies it). */
+export function hashChip(full: string): string {
+  const m = /^(?:https:\/\/kton\.dev\/o\/|sha256:)?([0-9a-f]{64})$/.exec(full);
+  if (!m) return esc(full);
+  return `<span class="hash mono" tabindex="0" role="button" title="${esc(full)}" data-copy="${esc(full)}">sha256:${m[1]?.slice(0, 8)}…<span class="hide"> ${esc(full)}</span></span>`;
+}
+
+/** A text with its 64-hex hashes (and kton.dev/o/ IRIs) shown as hash chips; the rest is escaped as it is. */
+export function shortenHashes(text: string): string {
+  let out = "";
+  let at = 0;
+  for (const m of text.matchAll(/(?:https:\/\/kton\.dev\/o\/|sha256:)[0-9a-f]{64}(?![0-9a-f])/g)) {
+    out += esc(text.slice(at, m.index)) + hashChip(m[0]);
+    at = (m.index ?? 0) + m[0].length;
+  }
+  return out + esc(text.slice(at));
+}
+
+/** The page script that copies a hash chip's full value (click or Enter). */
+const COPY_JS = "document.addEventListener('click',(e)=>{const h=e.target&&e.target.closest&&e.target.closest('[data-copy]');if(h&&navigator.clipboard)navigator.clipboard.writeText(h.dataset.copy);});document.addEventListener('keydown',(e)=>{const h=e.target&&e.target.closest&&e.target.closest('[data-copy]');if(h&&e.key==='Enter'&&navigator.clipboard)navigator.clipboard.writeText(h.dataset.copy);});";
+const HASH_STYLE = ".hash{font-family:var(--vscode-editor-font-family);font-size:12px;cursor:copy;border-bottom:1px dotted var(--vscode-descriptionForeground);white-space:nowrap} .hide{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}";
+
 function page(title: string, body: string, nonce: string, script = "", style = ""): string {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="${csp(nonce)}">
@@ -94,7 +117,7 @@ export function decisionPage(row: Row, nonce: string, view: DecisionView = {}): 
     .map((r) => `<div class="box" data-testid="agent-record">Recorded by ${esc(signerLabel(r["by"], r["byTier"]))}: <b>${esc(r["choice"] ?? r["outcome"] ?? "")}</b>. <span class="muted">Not a decision: only a person key decides.</span></div>`)
     .join("");
   const body = `<h1>${esc(row["title"] ?? "Decision")}</h1>
-<div class="muted">${esc(row["area"] ?? "")} · from ${esc(signerLabel(row["from"], row["fromTier"]))} · ${esc(row["when"] ?? "")} · <code>${esc(id)}</code></div>
+<div class="muted">${esc(row["area"] ?? "")} · from ${esc(signerLabel(row["from"], row["fromTier"]))} · ${esc(row["when"] ?? "")} · ${/^(?:https:\/\/kton\.dev\/o\/|sha256:)?[0-9a-f]{64}$/.test(id) ? hashChip(id) : `<code>${esc(id)}</code>`}</div>
 <div class="box" data-testid="proposal-text">${esc(row["text"] ?? "")}</div>
 <div class="muted">Why: ${esc(row["why"] ?? "")}</div>
 <div class="box" data-testid="guard"><b>Rules</b><div class="muted">${esc(RULES_LABEL)}</div></div>
@@ -107,8 +130,8 @@ ${cannot ? `<div class="error" data-testid="cannot-sign">${esc(cannot)}</div>` :
   const conds = view.conditions && !cannot
     ? `const conds=[];const ol=document.getElementById('conds');const draw=()=>{ol.textContent='';conds.forEach((c,i)=>{const li=document.createElement('li');li.dataset.condition=String(i);li.textContent=c.text+(c.owner?' · owner '+c.owner:'')+(c.when?' · '+c.when:'');const x=document.createElement('button');x.textContent='Remove';x.dataset.testid='condition-remove';x.addEventListener('click',()=>{conds.splice(i,1);draw();});li.append(' ',x);ol.append(li);});};document.getElementById('cond-add').addEventListener('click',()=>{const t=document.getElementById('cond-text');const text=t.value.trim();if(!text)return;const owner=document.getElementById('cond-owner').value.trim();const when=document.getElementById('cond-when').value;conds.push(Object.assign({id:'c'+(conds.length+1),text},owner?{owner}:{},when?{when}:{}));t.value='';draw();});const extra=()=>conds.length?{conditions:JSON.stringify(conds)}:{};`
     : "const extra=()=>({});";
-  const script = `const vscode=acquireVsCodeApi();${conds}for(const b of document.querySelectorAll('button[data-choice]')){b.addEventListener('click',()=>vscode.postMessage({kind:'sign',about:${JSON.stringify(id)},fields:Object.assign({answers:${JSON.stringify(id)},outcome:'https://schema.org/AcceptAction',choice:b.dataset.choice},extra())}));}`;
-  return page(row["title"] ?? "Decision", body, nonce, script);
+  const script = `const vscode=acquireVsCodeApi();${COPY_JS}${conds}for(const b of document.querySelectorAll('button[data-choice]')){b.addEventListener('click',()=>vscode.postMessage({kind:'sign',about:${JSON.stringify(id)},fields:Object.assign({answers:${JSON.stringify(id)},outcome:'https://schema.org/AcceptAction',choice:b.dataset.choice},extra())}));}`;
+  return page(row["title"] ?? "Decision", body, nonce, script, HASH_STYLE);
 }
 
 export interface ThreadView {
@@ -329,7 +352,7 @@ export function signDialogBody(p: SignPlan, signer: ShownSigner, title: string):
   const looked = (p.fields["lookedAt"] ?? "").split(/\s+/).filter(Boolean);
   const allOpened = looked.length > 0 && p.opened?.length && looked.every((r) => p.opened?.includes(r));
   const fields = Object.entries(p.fields)
-    .map(([k, v]) => ln(k, k === "lookedAt" && allOpened ? `${looked.length} references: the evidence below<span class="hide"> ${esc(v)}</span>` : `<span class="mono">${esc(v)}</span>`, ` data-field="${esc(k)}"`, " = "))
+    .map(([k, v]) => ln(k, k === "lookedAt" && allOpened ? `${looked.length} references: the evidence below<span class="hide"> ${esc(v)}</span>` : `<span class="mono">${shortenHashes(v)}</span>`, ` data-field="${esc(k)}"`, " = "))
     .join("");
   const who = signer.verified ? `${signer.name} (${signer.tier})` : `${signer.hint} — unverified: ${signer.why}`;
   const about = /^(?:https:\/\/kton\.dev\/o\/|sha256:)([0-9a-f]{64})$/.exec(p.subject);
@@ -385,14 +408,14 @@ export function signDialogPage(title: string, detail: string, person: string, no
 <div class="actions"><button id="sign" type="button" data-testid="sign-button" disabled>Sign</button><button id="cancel" type="button" data-testid="sign-cancel">Cancel</button></div>
 <div class="muted">Enter does not sign. Escape or Cancel closes without signing.</div>
 <div class="outcome" id="outcome" data-testid="sign-outcome" role="status"></div></div>`;
-  const script = `const vscode=acquireVsCodeApi();const box=document.getElementById('iknow');const signBtn=document.getElementById('sign');const cancelBtn=document.getElementById('cancel');const out=document.getElementById('outcome');
+  const script = `const vscode=acquireVsCodeApi();${COPY_JS}const box=document.getElementById('iknow');const signBtn=document.getElementById('sign');const cancelBtn=document.getElementById('cancel');const out=document.getElementById('outcome');
 box.checked=false;signBtn.disabled=true;cancelBtn.focus();
 box.addEventListener('change',()=>{signBtn.disabled=!box.checked;});
 document.addEventListener('keydown',(e)=>{if(e.key==='Enter'){e.preventDefault();e.stopPropagation();}if(e.key==='Escape'){e.preventDefault();vscode.postMessage({type:'cancel'});}},true);
 signBtn.addEventListener('click',()=>{if(box.checked&&!signBtn.disabled){signBtn.disabled=true;box.disabled=true;cancelBtn.disabled=true;out.textContent='Signing…';out.dataset.state='signing';vscode.postMessage({type:'sign',confirmed:true});}});
 cancelBtn.addEventListener('click',()=>vscode.postMessage({type:'cancel'}));
-window.addEventListener('message',(e)=>{const m=e.data;if(m&&m.type==='outcome'){out.textContent=String(m.text);out.dataset.state=m.ok?'signed':'failed';}});`;
-  return page(title, body, nonce, script, view ? DIALOG_STYLE : "");
+window.addEventListener('message',(e)=>{const m=e.data;if(m&&m.type==='outcome'){out.textContent='';String(m.text).split(/((?:https:\\/\\/kton\\.dev\\/o\\/|sha256:)[0-9a-f]{64})/).forEach((t,i)=>{if(i%2===0){out.append(t);return;}const h=document.createElement('span');h.className='hash';h.tabIndex=0;h.setAttribute('role','button');h.title=t;h.dataset.copy=t;h.append('sha256:'+t.slice(-64,-56)+'…');const f=document.createElement('span');f.className='hide';f.textContent=' '+t;h.append(f);out.append(h);});out.dataset.state=m.ok?'signed':'failed';}});`;
+  return page(title, body, nonce, script, (view ? DIALOG_STYLE : "") + HASH_STYLE);
 }
 
 /**
