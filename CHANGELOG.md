@@ -17,6 +17,11 @@
 
 ### Fixed
 
+- **`say` confirms a claim chained onto a predecessor only a federation source holds** instead of refusing
+  `claim.not-registered` after signing and writing it: the own registry holds such a claim deferred, so
+  it is then confirmed in the union of the own registry and the sources, read in place (SPEC §8.5), and the
+  answer names the scope it waits in (`waitingOn`). A claim no registry resolves is still refused, now
+  naming what it waits for.
 - **The view's fingerprint covers the alias tables** (kton-review): it hashed each template's predicate as
   written and the resolved field names, so a change only to an alias (a prefix or term in
   `.kton/aliases.json`, or a package's own aliases) left a stale view in place though it resolves enum and

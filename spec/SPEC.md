@@ -718,6 +718,17 @@ The position MUST be reported: which statement this claim follows, how long the 
 head the substrate saw, and how many claims had an unresolvable predecessor. A reader must be able
 to see the order as it stood rather than infer a clean line that was never there.
 
+**Confirming a chained claim MUST NOT refuse one the federation resolves.** A claim chained onto a
+predecessor that only a federation source holds (a teammate's claim as the scope's head, a seed from a
+source) is held deferred by this repository's own registry, which waits for it. A cockpit confirms a claim
+in the own registry first; only when the own registry holds it deferred does it read the union of the own
+registry and every source's, in place and without a copy, and a claim the union resolves is registered. The
+answer then names the scope it waits in (`waitingOn`) and says so in `confirmation`. A claim neither
+registry resolves is refused (`claim.not-registered`), naming what it waits for.
+
+> **Checked by:** `TestSay_ConfirmsAClaimThatChainsOntoAFederationSource`,
+> `TestConfirmSay_RefusesAClaimNoRegistryResolves`, `TestSay_AnOrdinarySayDoesNotReadTheFederation`.
+
 **A caller MAY name the head it saw (`expectHead`).** The claim is then chained onto exactly that
 head, and refused if it is no longer one of the scope's heads, with the heads there are now. This does
 not judge the chain: it is the caller's own condition, for a program that appends where it read and

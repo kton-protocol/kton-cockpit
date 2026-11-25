@@ -73,6 +73,11 @@ type SayResult struct {
 	// Replaces is the claim this one replaces when say filled it for a template with
 	// "replace": "previous": this signer's newest own claim of that template about the subject.
 	Replaces string `json:"replaces,omitempty"`
+	// WaitingOn is set when this repository's own registry holds the claim deferred, waiting for a predecessor
+	// that only a federation source holds (the scope's head or seed came from there): the scope it waits in.
+	// The union of the registries resolves the claim; the own registry does by itself once it holds the
+	// predecessor.
+	WaitingOn string `json:"waitingOn,omitempty"`
 	// RekorLogIndex and RekorUUID are set when this repo anchors its records — see PublishResult.
 	RekorLogIndex int64  `json:"rekorLogIndex,omitempty"`
 	RekorUUID     string `json:"rekorUuid,omitempty"`
@@ -319,33 +324,17 @@ func (c *Cockpit) Say(ctx context.Context, in SayRequest) (*SayResult, error) {
 
 	// The claim went into this repository's own registry, so that is where it is confirmed: reading the
 	// union fetched and joined every federation source for a check none of them can answer (T12).
-	claims, err := r.OwnAbout(in.Subject)
-	tr.mark("confirm (reads the own registry)")
+	confirmation, waitingOn, err := confirmSay(ctx, r, claimID, in.Subject, tr)
 	if err != nil {
-		return nil, refuse("kernel", "", "claim was recorded but confirmation query (nekton about) failed: %v", err)
-	}
-	// The manual workflow confirms a claim by querying it back rather than trusting the write; the
-	// cockpit does the same. Until about returned structured claims this could only hand back a
-	// block of prose for someone else to read, which meant a claim that signed but never registered
-	// still reported success. Now it is an actual check.
-	registered := false
-	for _, c := range claims {
-		if c.ID == claimID {
-			registered = true
-			break
-		}
-	}
-	if !registered {
-		return nil, refuse("claim.not-registered", "",
-			"claim %s was signed but is not among the %d claim(s) this repository's registry holds about %s — it did not register",
-			claimID, len(claims), in.Subject)
+		return nil, err
 	}
 
 	level := sets["level"]
 	out := SayResult{
 		ClaimID:      claimID,
 		Level:        level,
-		Confirmation: fmt.Sprintf("registered: nekton reports %s among the %d claim(s) this repository holds about %s", claimID, len(claims), in.Subject),
+		Confirmation: confirmation,
+		WaitingOn:    waitingOn,
 		Subject:      in.Subject,
 		ResolvedFrom: resolvedFrom,
 		Pending:      pending,
@@ -363,6 +352,48 @@ func (c *Cockpit) Say(ctx context.Context, in SayRequest) (*SayResult, error) {
 		}
 	}
 	return &out, nil
+}
+
+// confirmSay checks that a claim a say just signed registered, and says how. The manual workflow confirms a
+// claim by querying it back rather than trusting the write; the cockpit does the same, so a claim that
+// signed but never registered is not reported as success.
+//
+// The own registry answers first. A claim chained onto a predecessor that only a federation source holds (a
+// teammate's claim as the scope's head, a seed from a source) is held there deferred and stays out of about,
+// so only then is the union of the own registry and the sources read, in place: it resolves the claim, and
+// the answer says what it waits for.
+func confirmSay(ctx context.Context, r *binaries.Runner, claimID, subject string, tr *trace) (confirmation, waitingOn string, err error) {
+	claims, err := r.OwnAbout(subject)
+	tr.mark("confirm (reads the own registry)")
+	if err != nil {
+		return "", "", refuse("kernel", "", "claim was recorded but confirmation query (nekton about) failed: %v", err)
+	}
+	for _, c := range claims {
+		if c.ID == claimID {
+			return fmt.Sprintf("registered: nekton reports %s among the %d claim(s) this repository holds about %s", claimID, len(claims), subject), "", nil
+		}
+	}
+	waiting, deferred, err := r.OwnDeferred(claimID)
+	if err != nil {
+		return "", "", refuse("kernel", "", "claim was recorded but this repository's registry cannot be read: %v", err)
+	}
+	if !deferred {
+		return "", "", refuse("claim.not-registered", "",
+			"claim %s was signed but is not among the %d claim(s) this repository's registry holds about %s, and the registry does not hold it deferred either — it did not register",
+			claimID, len(claims), subject)
+	}
+	resolved, uerr := r.UnionResolves(ctx, claimID)
+	tr.mark("confirm (reads the federation)")
+	if uerr != nil || !resolved {
+		why := "no registry of the federation holds it"
+		if uerr != nil {
+			why = fmt.Sprintf("the federation could not be read: %v", uerr)
+		}
+		return "", "", refuse("claim.not-registered", "",
+			"claim %s was signed and is held in this repository's registry, but it waits for its predecessor in scope %s and %s — it is not registered",
+			claimID, waiting, why)
+	}
+	return fmt.Sprintf("registered: %s is held in this repository's registry waiting for its predecessor in scope %s, which the federation holds, and the union of the registries resolves it", claimID, waiting), waiting, nil
 }
 
 // reproductionVia picks the normaliser a reproduces comparison is offered, in this order: the one

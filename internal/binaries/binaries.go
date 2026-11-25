@@ -1139,6 +1139,42 @@ func (r *Runner) OwnAbout(subject string) ([]ClaimAxis, error) {
 	return ClaimsAbout(reg, subject)
 }
 
+// OwnDeferred says whether this repository's own registry holds the claim deferred: stored, but waiting for a
+// predecessor it does not hold, so it stays out of About. waitingOn is the scope it waits in.
+func (r *Runner) OwnDeferred(claimID string) (waitingOn string, deferred bool, err error) {
+	reg, err := OpenNektonSource(r.cfg.NektonDir)
+	if err != nil {
+		return "", false, err
+	}
+	_, waitingOn, deferred = reg.DeferredClaim(claimID)
+	return waitingOn, deferred, nil
+}
+
+// UnionResolves says whether the claim is resolved in the kernel's union of the own claim registry and every
+// federation source's, opened in place and read-only. Nothing is copied (unlike the union cache a read
+// builds): a say needs this one answer, and only when its claim waits for a predecessor a source holds.
+func (r *Runner) UnionResolves(ctx context.Context, claimID string) (bool, error) {
+	inputs, err := Inputs(ctx, r.cfg)
+	if err != nil {
+		return false, err
+	}
+	var dirs []string
+	for _, in := range inputs {
+		if Exists(in.NektonDir) {
+			dirs = append(dirs, in.NektonDir)
+		}
+	}
+	if len(dirs) == 0 {
+		return false, nil
+	}
+	reg, err := nregistry.OpenUnion(dirs...)
+	if err != nil {
+		return false, err
+	}
+	_, ok := reg.Claim(claimID)
+	return ok, nil
+}
+
 // ClaimsAbout is About over one opened claim registry.
 func ClaimsAbout(reg *nregistry.Registry, subject string) ([]ClaimAxis, error) {
 	return claimsFrom(reg.About(subject))
