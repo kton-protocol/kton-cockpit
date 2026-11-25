@@ -65,23 +65,49 @@ async function sideways() {
   }
   return { checked, wide };
 }
+/** Is a workbench part (sidebar, auxiliary bar, panel) on screen? */
+const partShown = (cls) => page.locator(`.part.${cls}`).first().isVisible().catch(() => false);
+/** A VS Code command by its title, through the palette (the same helper the flows use, defined below). */
+async function vsc(title) {
+  await runCommand(title);
+  await page.waitForTimeout(400);
+}
 async function fitAt(name) {
   const size = page.viewportSize();
   const shots = process.env.SHOTS_DIR;
+  // both passes use a viewport about 900 px tall (a screen's height, not the 4500 px of the flows)
+  const tall = 900;
   const pass = async (tag, width) => {
-    if (width !== size.width) {
-      await page.setViewportSize({ width, height: size.height });
-      await page.waitForTimeout(800); // the blocks redraw on a resize
+    await page.setViewportSize({ width, height: tall });
+    await page.waitForTimeout(800); // the blocks redraw on a resize
+    const hidden = [];
+    if (tag === "400") {
+      // the webview itself is 400 px wide: hide the primary sidebar (and the secondary sidebar and the panel when open),
+      // and keep one editor group; the sidebar is shown again after the pass
+      for (const [cls, title] of [["sidebar", "View: Close Primary Side Bar"], ["auxiliarybar", "View: Close Secondary Side Bar"], ["panel", "View: Close Panel"]]) {
+        if (await partShown(cls)) {
+          await vsc(title);
+          hidden.push(cls);
+        }
+      }
+      await vsc("View: Join All Editor Groups");
+      await page.waitForTimeout(800);
     }
-    const r = await sideways();
-    if (shots) await page.screenshot({ path: `${shots}/${name}-${tag}.png` });
-    const gap = KNOWN_GAPS[`${name}@${tag}`];
-    if (gap && r.checked > 0 && r.wide.length && r.wide.every((w) => gap.only.test(w))) {
-      // a named gap with an open request elsewhere: printed in the log (GAP), never counted as ok
-      console.log(`GAP  ${name}: sideways at ${tag} (${width}px): ${r.wide.join(", ")}; ${gap.why}`);
-      return;
+    try {
+      const r = await sideways();
+      if (shots) await page.screenshot({ path: `${shots}/${name}-${tag}.png` });
+      const gap = KNOWN_GAPS[`${name}@${tag}`];
+      if (gap && r.checked > 0 && r.wide.length && r.wide.every((w) => gap.only.test(w))) {
+        // a named gap with an open request elsewhere: printed in the log (GAP), never counted as ok
+        console.log(`GAP  ${name}: sideways at ${tag} (${width}px): ${r.wide.join(", ")}; ${gap.why}`);
+        return;
+      }
+      check(r.checked > 0 && r.wide.length === 0, `${name}: nothing scrolls sideways at ${tag} (${width}px; ${r.checked} blocks, tables and navs checked)`, 0, r.checked ? r.wide : "no block found");
+    } finally {
+      if (hidden.includes("sidebar")) await vsc("View: Toggle Primary Side Bar Visibility");
+      if (hidden.includes("auxiliarybar")) await vsc("View: Toggle Secondary Side Bar Visibility");
+      if (hidden.includes("panel")) await vsc("View: Toggle Panel Visibility");
     }
-    check(r.checked > 0 && r.wide.length === 0, `${name}: nothing scrolls sideways at ${tag} (${width}px; ${r.checked} blocks, tables and navs checked)`, 0, r.checked ? r.wide : "no block found");
   };
   try {
     await pass("full", size.width);
