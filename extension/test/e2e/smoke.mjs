@@ -105,7 +105,8 @@ async function fitAt(name, focus) {
     }
     try {
       // a section the reviewer must see (a table further down, a dialog's footer) is scrolled into view first
-      if (focus) await focus().scrollIntoViewIfNeeded({ timeout: 10000 }).catch(() => {});
+      // the webview may be re-created by the layout change, so the target is looked up again in every frame
+      if (focus) await scrollToInFrames(focus.sel, focus.text);
       const r = await sideways();
       if (shots) await page.screenshot({ path: `${shots}/${name}-${tag}.png` });
       const gap = KNOWN_GAPS[`${name}@${tag}`];
@@ -128,6 +129,19 @@ async function fitAt(name, focus) {
     await page.setViewportSize(size);
     await page.waitForTimeout(500);
   }
+}
+/** Scrolls the first element matching sel (and text) in any webview frame into view; says so when none is found. */
+async function scrollToInFrames(sel, text) {
+  for (const f of page.frames()) {
+    const l = f.locator(sel, text ? { hasText: text } : {}).first();
+    if (await l.count().catch(() => 0)) {
+      await l.scrollIntoViewIfNeeded({ timeout: 10000 }).catch(() => {});
+      await page.waitForTimeout(300);
+      return true;
+    }
+  }
+  console.log(`# shot: nothing matches ${sel}${text ? ` (${text})` : ""} to scroll into view`);
+  return false;
 }
 async function shot(name, focus) {
   const file = `${name}.png`;
@@ -1490,7 +1504,7 @@ if (seed.w?.proposal && selected("W")) {
     const t = ((await unresolved.textContent()) ?? "").replace(/\s+/g, " ");
     check(/not resolved: no file in reference/.test(t) && (await unresolved.locator("button").count()) === 0, "an unresolved match says why, with nothing to open", "not resolved: no file in reference", t.slice(0, 200));
     await shot("w-evidence");
-    await shot("w-evidence-runs", () => a2.locator("table").first());
+    await shot("w-evidence-runs", { sel: '[data-use$="#artifacts"] table' });
   });
 
   await step("W", 7, "requests: Capture now signs through the dialog into w.records and prints the nudge; the card waits, then shows the (stand-in) answer with the run's artifact", async () => {
@@ -1534,7 +1548,7 @@ if (seed.w?.proposal && selected("W")) {
     // the failed run-1 row of test 1 (its unit claim is W.unitFailed; the registry check below names it)
     const tr = f.locator('[data-use$="#units"] tbody tr', { hasText: "keeps a draft" }).filter({ hasText: "failed" }).first();
     await tr.waitFor({ timeout: 60000 });
-    await shot("w-units-rerun", () => tr);
+    await shot("w-units-rerun", { sel: '[data-use$="#units"] tbody tr', text: "keeps a draft" });
     await tr.locator("button", { hasText: "Request rerun (capture mode)" }).click();
     // a record has no dialog: nothing the frame proposed is signed. The choice's reason is the package's declared act
     // field; the test, which the row only proposes, is asked, with no default
@@ -1575,6 +1589,7 @@ if (seed.w?.proposal && selected("W")) {
     await page.keyboard.press("Enter");
     const d = await dialog();
     await d.getByText("Evidence you opened in this view", { exact: false }).first().waitFor({ timeout: 15000 });
+    await clearToasts();
     await shot("w-decides-dialog");
     await signInDialog(d);
     await d.locator('[data-testid="sign-outcome"][data-state="signed"]').waitFor({ timeout: 60000 });
