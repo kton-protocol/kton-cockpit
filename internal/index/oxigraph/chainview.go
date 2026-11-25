@@ -2,6 +2,7 @@ package oxigraph
 
 import (
 	"context"
+	"crypto/ed25519"
 	"fmt"
 	"net/url"
 	"sort"
@@ -13,6 +14,7 @@ import (
 	"kton.dev/plankton/core"
 
 	"github.com/kton-protocol/kton-cockpit/internal/binaries"
+	"github.com/kton-protocol/kton-cockpit/internal/config"
 )
 
 // ADR-022. What the index records about the chains of the registries it reads, and what a view
@@ -322,4 +324,81 @@ func (ci *chainInfo) quads() []Quad {
 		out = append(out, triple(oNS+s, kNS+"unresolved", typed(strconv.Itoa(ci.unresolved[s]), xsdInteger)))
 	}
 	return out
+}
+
+// ScopeHead reads a scope's chain the way `nekton head` reports it, from the chain graph of cfg's view
+// under keys (ADR-022 D3). It reads into the view first whatever changed in EVERY registry of the slot,
+// never only the repository's own: a claim a teammate's registry brought since the view was made must
+// be in the head, or a claim said now would branch the scope.
+//
+// The heads are the resolved in-scope claims no resolved in-scope claim names as its predecessor, the
+// seed when the scope has none; the seed is not a member of its scope. An error, or a seed the view
+// does not hold resolved, is the caller's cue to read the union instead: the index never decides that
+// a scope does not exist.
+func ScopeHead(ctx context.Context, d *Daemon, cfg *config.Config, keys []ed25519.PublicKey, scope string) (*binaries.ScopeHead, error) {
+	ds, err := d.prepare(ctx, cfg, keys)
+	if err != nil {
+		return nil, err
+	}
+	seed := strings.TrimPrefix(scope, "sha256:")
+	if !isHex(seed) {
+		return nil, fmt.Errorf("scope %q is not a claim id", scope)
+	}
+	g, s := chainIRI(ds.slot), "<"+oNS+seed+">"
+	gen, err := d.selectCSV(ctx, url.Values{"query": {fmt.Sprintf(
+		`SELECT ?g WHERE { GRAPH <%s> { %s <%sgenesis> ?g } }`, g, s, nkNS)}})
+	if err != nil {
+		return nil, err
+	}
+	if len(gen) == 0 {
+		return nil, fmt.Errorf("the index's view holds no resolved seed %s", scope)
+	}
+	rows, err := d.selectCSV(ctx, url.Values{"query": {fmt.Sprintf(
+		`SELECT ?c ?prev WHERE { GRAPH <%s> { ?c <%sscope> %s . FILTER(?c != %s) OPTIONAL { ?c <%sprev> ?prev } } }`,
+		g, nkNS, s, s, nkNS)}})
+	if err != nil {
+		return nil, err
+	}
+	members, named := map[string]bool{}, map[string]bool{}
+	for _, r := range rows {
+		members[strings.TrimPrefix(r["c"], oNS)] = true
+		if p := r["prev"]; p != "" {
+			named[strings.TrimPrefix(p, oNS)] = true
+		}
+	}
+	var heads []string
+	for h := range members {
+		if !named[h] {
+			heads = append(heads, "sha256:"+h)
+		}
+	}
+	sort.Strings(heads)
+	if len(members) == 0 {
+		heads = []string{"sha256:" + seed}
+	}
+	un, err := d.selectCSV(ctx, url.Values{"query": {fmt.Sprintf(
+		`SELECT ?n WHERE { GRAPH <%s> { %s <%sunresolved> ?n } }`, g, s, kNS)}})
+	if err != nil {
+		return nil, err
+	}
+	unresolved := 0
+	if len(un) > 0 {
+		if unresolved, err = strconv.Atoi(un[0]["n"]); err != nil {
+			return nil, fmt.Errorf("the unresolved count of %s: %w", scope, err)
+		}
+	}
+	return &binaries.ScopeHead{Scope: scope, Heads: heads, ChainLength: len(members),
+		Branched: len(heads) > 1, Unresolved: unresolved}, nil
+}
+
+func isHex(s string) bool {
+	if len(s) != 64 {
+		return false
+	}
+	for _, c := range s {
+		if !strings.ContainsRune("0123456789abcdef", c) {
+			return false
+		}
+	}
+	return true
 }

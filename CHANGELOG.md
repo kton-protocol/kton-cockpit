@@ -4,6 +4,10 @@
 
 ### Added
 
+- **`say` reads a scope's head from the index** (ADR-022 D3): with the oxigraph index and its daemon up, the
+  head comes from the view's chain graph after every registry of the view is brought up to date, and from
+  the union of the registries otherwise or on any error of the index (SPEC §8.5). `COCKPIT_TRACE` names
+  which: "the scope's head (index)" or "(reads the union)".
 - **`events/indexMoved` names the graphs that changed** (qm f55d0fc5, agreed with ui-shell 04655243):
   `key`, `graphs`, `removed` and `all` beside `slot` and `scopes`, and each scope's `graph`, so a window
   re-asks only the views that read a changed graph instead of polling (SPEC §12.5). The graphs are

@@ -707,6 +707,17 @@ The tip MUST be read from the substrate on every claim, never remembered between
 that cached it would hold mutable state about a chain it does not own, and would be stale the moment
 another writer's claim arrived.
 
+With the oxigraph index (§12) whose daemon is up, `say` reads the scope's head from the index's chain
+graph, after bringing every registry of the view up to date (not only the repository's own, so a claim a
+teammate's source brought since is in the head and the scope does not branch); it never starts a daemon
+for it. Without the index, or when the index cannot answer for any reason, the head is read from the
+union of the registries, and the `say` goes on: the index never refuses one. Both read the same head.
+
+> **Checked by:** `TestOxigraph_TheIndexHeadIsTheUnionsHead`,
+> `TestOxigraph_TheIndexHeadFollowsTheUnionThroughDeliveries`, `TestSay_TheHeadComesFromTheIndexWhileItIsUp`,
+> `TestSay_ATeammatesClaimSinceTheViewWasBuiltIsTheHeadWeChainOnto`,
+> `TestSay_WithoutAReachableIndexTheHeadComesFromTheUnion`.
+
 **Writing MUST NOT judge the chain.** A claim whose predecessor this registry cannot resolve, and a
 chain with more than one head, are both conditions a cockpit MUST record through rather than refuse
 on. kton §7.4 makes ingest monotone — a signed scoped statement is accepted "even if its `prev` is
