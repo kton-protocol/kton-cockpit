@@ -10,9 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 	"testing"
-	"time"
 
 	nregistry "kton.dev/nekton/registry"
 
@@ -38,7 +36,7 @@ func newSHWorld(t *testing.T) *shWorld {
 	t.Helper()
 	t.Setenv("COCKPIT_INDEX_DIR", t.TempDir())
 	x := testrepo.New(t)
-	for _, tm := range []struct{ name, pred string }{{"status", "https://example.test/v/status"}, {"badpred", "https://example.test/v/has space"}} {
+	for _, tm := range []struct{ name, pred string }{{"status", "https://example.test/v/status"}} {
 		body := fmt.Sprintf(`{"name": "%s", "target": "either", "predicate": "%s", "replace": "previous",
   "fields": {"state": {"type": "string", "required": true}}}`, tm.name, tm.pred)
 		if err := os.WriteFile(filepath.Join(x.Root, config.Dir, "templates", tm.name+".json"), []byte(body), 0o644); err != nil {
@@ -197,13 +195,6 @@ func TestOxigraph_TheIndexHeadIsTheUnionsHead(t *testing.T) {
 			s.deliver("A", seed, c1, c2)
 			return seed
 		}},
-		{"a claim whose predicate the projection percent-encodes, last in a scope", func(s *shWorld) *pitem {
-			seed := s.w.seed("s", "", 0)
-			c1 := s.claim("c1", seed, seed, 0, "status")
-			c2 := s.claim("c2", seed, c1, 0, "badpred")
-			s.deliver("A", seed, c1, c2)
-			return seed
-		}},
 		{"an empty scope", func(s *shWorld) *pitem {
 			seed := s.w.seed("s", "", 0)
 			s.deliver("A", seed)
@@ -226,58 +217,7 @@ func TestOxigraph_TheIndexHeadIsTheUnionsHead(t *testing.T) {
 	}
 }
 
-// The scenario with a percent-encoded last claim must really be one: the kernel projects the claim (the
-// space of its predicate becomes %20), the claims dataset holds a node for it and for the valid claim
-// before it, and the chain counts both. The query reads the claims dataset: the default view graph holds
-// no claim node at all, so a query of it would return nothing for either claim and prove nothing.
-//
-// kton#307 will make the kernel refuse a template with such a predicate at load. The fixture then needs
-// another trigger for a claim whose predicate the projection rewrites (or the scenario goes).
-func TestOxigraph_ThePercentEncodedClaimIsInTheChainAndInTheProjection(t *testing.T) {
-	s := newSHWorld(t)
-	seed := s.w.seed("s", "", 0)
-	c1 := s.claim("c1", seed, seed, 0, "status")
-	c2 := s.claim("c2", seed, c1, 0, "badpred")
-	s.deliver("A", seed, c1, c2)
-	got, err := oxigraph.ScopeHead(context.Background(), s.d, s.ac, keys(t, s.ac), seed.id)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if want := []string{c2.id}; !slices.Equal(got.Heads, want) || got.ChainLength != 2 {
-		t.Fatalf("heads %v length %d, want %v and 2", got.Heads, got.ChainLength, want)
-	}
-	ans, err := oxigraph.Free(context.Background(), s.d, s.ac, keys(t, s.ac),
-		`SELECT ?c ?p WHERE { ?c a <`+nkV+`Claim> ; <`+nkV+`predicate> ?p }`, oxigraph.DatasetClaims, time.Minute)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// The guard: the query sees the valid claim, so an empty answer for c2 cannot pass for a finding.
-	has := func(id string) bool {
-		for _, row := range ans.Rows {
-			if row["c"] == "https://kton.dev/o/"+strings.TrimPrefix(id, "sha256:") {
-				return true
-			}
-		}
-		return false
-	}
-	if !has(c1.id) {
-		t.Fatalf("the claims dataset holds no node for the valid claim c1: the query is blind (%d rows)", len(ans.Rows))
-	}
-	if !has(c2.id) {
-		t.Fatalf("the claims dataset holds no node for c2 (%d rows)", len(ans.Rows))
-	}
-	want := "https://kton.dev/o/" + strings.TrimPrefix(c2.id, "sha256:")
-	for _, row := range ans.Rows {
-		if row["c"] == want {
-			if row["p"] != "https://example.test/v/has%20space" {
-				t.Fatalf("c2's predicate is %q, want the percent-encoded https://example.test/v/has%%20space", row["p"])
-			}
-			return
-		}
-	}
-}
-
-// Random arrangements: the claims of three scopes (branches, untrusted keys, a claim with a percent-encoded predicate) reach two
+// Random arrangements: the claims of three scopes (branches, untrusted keys) reach two
 // registries in random order and the view is read at random steps; at each the index's head of every
 // scope is the union's.
 func TestOxigraph_TheIndexHeadFollowsTheUnionThroughDeliveries(t *testing.T) {
@@ -294,11 +234,7 @@ func TestOxigraph_TheIndexHeadFollowsTheUnionThroughDeliveries(t *testing.T) {
 				members := []*pitem{sd}
 				for j := 0; j < 5; j++ {
 					prev := members[rnd.IntN(len(members))]
-					tmpl := "status"
-					if rnd.IntN(8) == 0 {
-						tmpl = "badpred"
-					}
-					c := s.claim(fmt.Sprint("c", i, j), sd, prev, []int{0, 1, 2}[rnd.IntN(3)], tmpl)
+					c := s.claim(fmt.Sprint("c", i, j), sd, prev, []int{0, 1, 2}[rnd.IntN(3)], "status")
 					members = append(members, c)
 					all = append(all, c)
 				}

@@ -34,9 +34,11 @@ func parseAliases(body []byte) (Aliases, error) {
 }
 
 // Resolve is the kernel's resolution (nekton template.Set.Resolve) over this package's aliases alone:
-// a term first, then a CURIE prefix; anything else, and a full IRI, as it is.
+// a term first, then a CURIE prefix; anything else, and an absolute IRI, as it is. An absolute IRI is
+// the kernel's (isAbsoluteIRI): a valid scheme before "://", or one of urn, tag, did, mailto, http,
+// https. "ex:a://b" is a CURIE of the prefix ex, not an IRI (kton #307).
 func (a Aliases) Resolve(x string) string {
-	if strings.Contains(x, "://") {
+	if isAbsoluteIRI(x) {
 		return x
 	}
 	if v, ok := a.Terms[x]; ok {
@@ -48,6 +50,31 @@ func (a Aliases) Resolve(x string) string {
 		}
 	}
 	return x
+}
+
+// fixedSchemes are the schemes the kernel signs as absolute IRIs without "//" (nekton template
+// fixedSchemes, v0.5.1).
+var fixedSchemes = map[string]bool{"urn": true, "tag": true, "did": true, "mailto": true, "http": true, "https": true}
+
+// isAbsoluteIRI mirrors nekton template.isAbsoluteIRI (v0.5.1; unexported there): an IRI no alias
+// resolves further, scheme:// with a valid scheme or one of fixedSchemes.
+func isAbsoluteIRI(x string) bool {
+	i := strings.IndexByte(x, ':')
+	if i <= 0 || !validScheme(x[:i]) {
+		return false
+	}
+	return strings.HasPrefix(x[i:], "://") || fixedSchemes[strings.ToLower(x[:i])]
+}
+
+// validScheme mirrors nekton template.validScheme (RFC 3986: a letter, then letters, digits, + - .).
+func validScheme(sch string) bool {
+	for i, r := range sch {
+		letter := (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z')
+		if !letter && (i == 0 || !((r >= '0' && r <= '9') || r == '+' || r == '-' || r == '.')) {
+			return false
+		}
+	}
+	return sch != ""
 }
 
 // Empty says the package defines no aliases.
