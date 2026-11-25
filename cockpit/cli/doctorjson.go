@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/kton-protocol/kton-cockpit/internal/config"
+	"github.com/kton-protocol/kton-cockpit/internal/dirfiles"
 	"github.com/kton-protocol/kton-cockpit/internal/verify"
 	"kton.dev/plankton/core"
 )
@@ -135,8 +136,7 @@ func identityOf(cfg *config.Config) doctorIdentity {
 	}
 	id.Keys = []doctorKey{claimKey(cfg, cfg.Identity.SessionID, cfg.NektonKey)}
 	if ring := cfg.Identity.Keyring; ring != "" {
-		paths, _ := filepath.Glob(filepath.Join(config.ExpandHome(ring), "*-claims.key"))
-		sort.Strings(paths)
+		paths, _ := dirfiles.Named(config.ExpandHome(ring), "", "-claims.key")
 		for _, p := range paths {
 			name := strings.TrimSuffix(filepath.Base(p), "-claims.key")
 			if p == cfg.NektonKey {

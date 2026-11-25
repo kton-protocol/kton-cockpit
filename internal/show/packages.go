@@ -15,6 +15,7 @@ import (
 
 	"github.com/kton-protocol/kton-cockpit/internal/binaries"
 	"github.com/kton-protocol/kton-cockpit/internal/config"
+	"github.com/kton-protocol/kton-cockpit/internal/dirfiles"
 	"github.com/kton-protocol/kton-cockpit/internal/packages"
 )
 
@@ -70,7 +71,7 @@ func Packages(cfg *config.Config) (labels map[string]PackageKey, collisions []st
 			continue
 		}
 		var pubs []ed25519.PublicKey
-		files, _ := filepath.Glob(filepath.Join(dir, scope.KeyDir, "*.pub"))
+		files, _ := dirfiles.Named(filepath.Join(dir, scope.KeyDir), "", ".pub")
 		for _, f := range files {
 			if b, err := os.ReadFile(f); err == nil {
 				if pub, err := core.ParsePublicKeyHex(strings.TrimSpace(string(b))); err == nil {

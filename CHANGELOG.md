@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **A tier's keys are its folder, never a pattern** (kton-review G1 on #254, since e086dc0): the cockpit
+  found a tier's `*.pub` files with a glob over the repository's path, so a checkout at `…/repo*` also
+  trusted keys under `…/repoEVIL/.kton/keys/`, and one whose path held `\` or `[` trusted no one. Tier
+  keys, key rings, package keys, run journals and the query sweep (which deletes what it finds) now list
+  their one directory (SPEC §5).
+
 ## v0.5.13 — 2026-11-25
 
 The architecture view's read-only listings (#254), reviewed by kton-review, the index part by

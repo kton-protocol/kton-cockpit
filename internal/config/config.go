@@ -25,11 +25,13 @@ import (
 	"kton.dev/plankton/core"
 
 	"github.com/kton-protocol/kton-cockpit/cockpit/backend"
+	"github.com/kton-protocol/kton-cockpit/internal/dirfiles"
 	// The reference implementation ships with the cockpit (ADR-008): every binary that reads a
 	// configuration knows git and local mode. Extensions register further modes the same way.
 	_ "github.com/kton-protocol/kton-cockpit/cockpit/backend/github"
 	_ "github.com/kton-protocol/kton-cockpit/cockpit/backend/local"
 	"github.com/kton-protocol/kton-cockpit/cockpit/executor"
+
 	// The reference executor ships the same way: every binary can run in a pinned container.
 	_ "github.com/kton-protocol/kton-cockpit/cockpit/executor/container"
 	"github.com/kton-protocol/kton-cockpit/cockpit/source"
@@ -1192,8 +1194,7 @@ func (c *Config) TierDir(tier string) string { return filepath.Join(c.KeysDir, t
 
 // TierKeys returns the absolute paths of a tier's public keys, sorted.
 func (c *Config) TierKeys(tier string) []string {
-	m, _ := filepath.Glob(filepath.Join(c.TierDir(tier), "*.pub"))
-	sort.Strings(m)
+	m, _ := dirfiles.Named(c.TierDir(tier), "", ".pub")
 	return m
 }
 
