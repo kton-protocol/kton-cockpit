@@ -400,11 +400,34 @@ func TestOxigraph_APatchedViewIsAFullBuild(t *testing.T) {
 		seeds = append(seeds, now%1000003, (now/7)%1000003)
 	}
 	for _, seed := range seeds {
-		t.Run("seed"+strconv.FormatUint(seed, 10), func(t *testing.T) { propertyRun(t, seed) })
+		t.Run("seed"+strconv.FormatUint(seed, 10), func(t *testing.T) { propertyRun(t, seed, nil) })
 	}
 }
 
-func propertyRun(t *testing.T, seed uint64) {
+// The cases the patch has a rule for, each in the one order that needs it (the random sequences find them
+// by chance; these do not leave it to chance). A step is the deliveries made before the view is read again,
+// written record@registry (A the own registry, B and C the federation's sources).
+func TestOxigraph_APatchedViewNeedsEachNeighbourAndEachArrival(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		steps [][]string
+	}{
+		{"a co-signature of a replaced claim ends the replacement's effect",
+			[][]string{{"s1@A", "a1@A", "a2@A"}, {"r1@A", "r3@A"}, {"a1co@A"}, {"r2@A"}}},
+		{"a replacement held before the claim it replaces, which arrives in another registry",
+			[][]string{{"u3@A"}, {"u1@B"}, {"u2@C"}, {"u2co@A"}}},
+		{"a seed arriving in a second registry names it among its scope's sources",
+			[][]string{{"s1@A", "a1@A"}, {"s1@B"}, {"s1@C", "s2@A"}, {"s2@B", "b1@C"}}},
+		{"a claim every registry holds waiting is admitted by its seed arriving in another, with its successors",
+			[][]string{{"a1@A", "a2@B", "r1@C"}, {"s1@A"}, {"r2@B", "r3@B"}}},
+		{"a claim of an untrusted key that a trusted key signs too becomes visible, old as its record is",
+			[][]string{{"s3@A", "c1@A"}, {"u2@B", "u1@A"}, {"u2co@C"}, {"u3@A"}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) { propertyRun(t, 1, tc.steps) })
+	}
+}
+
+func propertyRun(t *testing.T, seed uint64, script [][]string) {
 	ctx := context.Background()
 	t.Setenv("COCKPIT_INDEX_DIR", t.TempDir())
 	rnd := rand.New(rand.NewPCG(seed, seed*7+1))
@@ -478,6 +501,31 @@ func propertyRun(t *testing.T, seed uint64) {
 	}
 
 	h.step("the empty federation", "full")
+	if script != nil {
+		at := map[string]int{"A": 0, "B": 1, "C": 2}
+		for _, group := range script {
+			for _, dv := range group {
+				name, reg, _ := strings.Cut(dv, "@")
+				it := w.byName[name]
+				if it == nil {
+					for _, x := range w.items {
+						if x.name == name {
+							it = x
+						}
+					}
+				}
+				r, err := nregistry.Open(dirs[at[reg]])
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, _, err := r.Add(it.env); err != nil {
+					t.Fatalf("delivering %s: %v", dv, err)
+				}
+			}
+			h.step(strings.Join(group, " "), "patch")
+		}
+		return
+	}
 	templateAt := rnd.IntN(len(plan)/2) + len(plan)/4
 	plankton := map[int]bool{rnd.IntN(len(plan)): true, rnd.IntN(len(plan)): true}
 	typ := "string"
