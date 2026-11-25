@@ -38,8 +38,9 @@ async function sideways() {
     try {
       const r = await f.evaluate(() => {
         const out = { checked: 0, wide: [] };
-        const sel = "[data-use], .tbl-wrap, .wb-nav, #kton-root, body";
-        if (!document.querySelector("[data-use], .wb-nav")) return out;
+        // a frame without blocks (a graph leaf, a dialog, a list) is checked by its page and root elements
+        const blocks = !!document.querySelector("[data-use], .wb-nav");
+        const sel = blocks ? "[data-use], .tbl-wrap, .wb-nav, #kton-root, body" : "#kton-root, .tbl-wrap, table, svg, img, body";
         for (const e of document.querySelectorAll(sel)) {
           if (!e.getClientRects().length) continue;
           out.checked++;
@@ -51,6 +52,12 @@ async function sideways() {
       checked += r.checked;
       wide.push(...r.wide);
     } catch {}
+  }
+  if (!checked) {
+    // no webview frame at all: the workbench page itself must not scroll sideways
+    const r = await page.evaluate(() => ({ w: document.documentElement.scrollWidth - document.documentElement.clientWidth }));
+    checked = 1;
+    if (r.w > 1) wide.push(`page +${r.w}px`);
   }
   return { checked, wide };
 }

@@ -108,6 +108,7 @@ h4 { font-size: 13px; font-weight: 600; margin: 10px 0 4px; }
   border: 1px solid transparent; cursor: pointer; white-space: nowrap;
   display: inline-flex; align-items: center; gap: 6px;
 }
+.kton-act button, .kton-block-body button { white-space: normal; max-width: 100%; text-align: left; }
 .kton-act button, .kton-block-body button, .btn.secondary { background: var(--wb-btn2-bg); color: var(--wb-btn2-fg); }
 .kton-act button:hover:not(:disabled), .kton-block-body button:hover:not(:disabled), .btn.secondary:hover:not(:disabled) { background: var(--wb-btn2-hover); }
 .btn.primary, .kton-block-body button.primary { background: var(--wb-btn-bg); color: var(--wb-btn-fg); }
@@ -252,7 +253,7 @@ html { scroll-padding-top: calc(var(--wb-top-h, 0px) + 8px); }
 .est-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; margin: 0; }
 .est-head .big { font-size: 26px; font-weight: 600; }
 .est-sub { font-size: 12px; color: var(--wb-muted); }
-.rb { position: relative; margin: 12px 0 2px; font-size: 11px; font-variant-numeric: tabular-nums; }
+.rb { position: relative; overflow: hidden; margin: 12px 0 2px; font-size: 11px; font-variant-numeric: tabular-nums; }
 .rb-top, .rb-axis { position: relative; height: 16px; }
 .rb-track { position: relative; height: 26px; }
 .rb-track::before { content: ""; position: absolute; left: 0; right: 0; top: 9px; height: 1px; background: var(--wb-axis); }
@@ -394,8 +395,9 @@ ul.ev .side [data-opened="yes"] { color: var(--wb-ok); }
 .flag { font-size: 12px; color: var(--wb-warn-fg); display: flex; gap: 4px; margin-top: 3px; }
 .ev-img { display: block; max-width: 160px; max-height: 100px; margin-top: 4px; border: 1px solid var(--wb-hairline); border-radius: 2px; }
 .ev-img.small { display: inline-block; max-width: 64px; max-height: 40px; margin: 0 6px 0 0; vertical-align: middle; }
-table.t[data-runs] td { white-space: nowrap; }
-table.t[data-runs] td:nth-child(2) { white-space: normal; min-width: 14em; }
+table.t[data-runs] td { white-space: normal; min-width: 0; }
+table.t[data-runs] td:nth-child(3), table.t[data-runs] td.r { white-space: nowrap; }
+table.t[data-runs] .ev-img { max-width: 100%; }
 /* the failures' evidence cell (rows, option evidence) */
 td.ev-cell { min-width: 9em; }
 .ev-thumbs { display: flex; flex-wrap: wrap; gap: 4px; }
@@ -466,3 +468,6 @@ ul.rule-lines li { padding: 4px 0; border-bottom: 1px solid var(--wb-hairline); 
 .wb-index { position: sticky; top: 0; z-index: 30; margin: 0 0 8px; padding: 4px 10px; font-size: 12px; border-left: 3px solid var(--wb-focus); background: var(--wb-surface); }
 .wb-index[data-kind="failed"] { border-left-color: var(--wb-error); color: var(--wb-error); }
 .wb-index button { margin-left: 8px; }
+
+/* very narrow views: tighter cells, so a table fits without sideways scrolling */
+@container view (max-width: 320px) { table th, table td { padding: 4px 3px; } }
