@@ -16,6 +16,7 @@ import (
 
 	"github.com/kton-protocol/kton-cockpit/internal/config"
 	"github.com/kton-protocol/kton-cockpit/internal/dirfiles"
+	"github.com/kton-protocol/kton-cockpit/internal/keyload"
 	"github.com/kton-protocol/kton-cockpit/internal/verify"
 	"kton.dev/plankton/core"
 )
@@ -47,6 +48,9 @@ type doctorStep struct {
 type doctorPath struct {
 	Path  string `json:"path"`
 	State string `json:"state"`
+	// Form is set for a private key: "encrypted" when it needs a passphrase to sign, "plain" when it
+	// does not, read from the file alone without asking for one (ADR-021 section 5).
+	Form string `json:"form,omitempty"`
 }
 
 type doctorFields struct {
@@ -91,12 +95,25 @@ type doctorKey struct {
 	KeyID   string `json:"keyId,omitempty"`
 	Matches bool   `json:"matches"`
 	Tier    string `json:"tier"`
+	// Form is "encrypted" or "plain", from the file alone: doctor never asks for the passphrase.
+	Form    string `json:"form,omitempty"`
 	Problem string `json:"problem,omitempty"`
+}
+
+// keyForm says whether the private key at path is "encrypted" or "plain", "" when it cannot be read.
+func keyForm(path string) string {
+	if _, err := os.Stat(path); err != nil {
+		return ""
+	}
+	if keyload.IsEncrypted(path) {
+		return "encrypted"
+	}
+	return "plain"
 }
 
 // claimKey describes the private key at path, named name.
 func claimKey(cfg *config.Config, name, path string) doctorKey {
-	k := doctorKey{Name: name}
+	k := doctorKey{Name: name, Form: keyForm(path)}
 	pubHex, err := publicOf(path)
 	if err != nil {
 		k.Problem = err.Error()
@@ -180,14 +197,14 @@ func doctorReportOf(ctx context.Context, cfg *config.Config) doctorReport {
 	}
 	made := func(p string) doctorPath {
 		if pathState(p) != stateOK {
-			return doctorPath{p, stateMade}
+			return doctorPath{Path: p, State: stateMade}
 		}
-		return doctorPath{p, stateOK}
+		return doctorPath{Path: p, State: stateOK}
 	}
 	f.PlanktonDir, f.NektonDir = made(cfg.PlanktonDir), made(cfg.NektonDir)
-	f.TemplatesDir = doctorPath{cfg.TemplatesDir, pathState(cfg.TemplatesDir)}
-	f.PlanktonKey = doctorPath{cfg.PlanktonKey, keyState(cfg.PlanktonKey)}
-	f.NektonKey = doctorPath{cfg.NektonKey, keyState(cfg.NektonKey)}
+	f.TemplatesDir = doctorPath{Path: cfg.TemplatesDir, State: pathState(cfg.TemplatesDir)}
+	f.PlanktonKey = doctorPath{cfg.PlanktonKey, keyState(cfg.PlanktonKey), keyForm(cfg.PlanktonKey)}
+	f.NektonKey = doctorPath{cfg.NektonKey, keyState(cfg.NektonKey), keyForm(cfg.NektonKey)}
 	f.AllowedTemplates = append([]string{}, raw.Claims.AllowedTemplates...)
 	f.Scopes = raw.Claims.Scopes
 	f.TrustTiers = append(f.TrustTiers, raw.Trust.Tiers...)

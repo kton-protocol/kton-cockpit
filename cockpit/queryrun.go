@@ -177,6 +177,9 @@ func queryRun(ctx context.Context, cfg *config.Config, q, dataset string, bindin
 	if cfg.Raw.Query.Image == "" {
 		return nil, nil, refuse("query.not-configured", "ADR-020", "a query run is evaluated in a container of its own: set query.image")
 	}
+	if err := unlockKeys(binaries.New(cfg), cfg.PlanktonKey); err != nil {
+		return nil, nil, err
+	}
 	// Pinned first, then evaluated over exactly the pins: a claim signed meanwhile, or a source that moves,
 	// is in neither the rows nor the manifest (kton-review Q1 on #225; ADR-020 A2).
 	manifest, blobs, pinned, err := pinDataset(ctx, cfg, dataset, bindings, graphs)

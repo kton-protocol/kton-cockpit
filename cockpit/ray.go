@@ -216,6 +216,9 @@ func (c *Cockpit) publishRay(ctx context.Context, cfg *config.Config, in Publish
 	}
 
 	r := binaries.New(cfg)
+	if err := unlockKeys(r, cfg.NektonKey); err != nil {
+		return nil, err
+	}
 	execs, where, _, err := rayExecutions(ctx, cfg, r, rp.Refs, &AskFilter{})
 	if err != nil {
 		return nil, err

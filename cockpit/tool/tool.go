@@ -29,6 +29,7 @@ func init() {
 			{Name: "install", Usage: "<package-dir> [--json]   install a tool package (profile/tool)", Run: runInstall},
 		},
 		Profiles: []string{scope.ProfileTool},
+		OneShot:  true, // install runs and ends
 	})
 }
 

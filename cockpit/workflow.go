@@ -3,7 +3,6 @@ package cockpit
 import (
 	"context"
 	"crypto/ed25519"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -21,6 +20,7 @@ import (
 	"github.com/kton-protocol/kton-cockpit/internal/binaries"
 	"github.com/kton-protocol/kton-cockpit/internal/config"
 	"github.com/kton-protocol/kton-cockpit/internal/jobs"
+	"github.com/kton-protocol/kton-cockpit/internal/keyload"
 	"github.com/kton-protocol/kton-cockpit/internal/packages"
 	"github.com/kton-protocol/kton-cockpit/internal/verify"
 )
@@ -90,6 +90,9 @@ func (c *Cockpit) WorkflowExtract(ctx context.Context, in WorkflowExtractRequest
 	}
 
 	r := binaries.New(cfg)
+	if err := unlockKeys(r, cfg.NektonKey); err != nil {
+		return nil, err
+	}
 	execs, where, _, err := rayExecutions(ctx, cfg, r, in.Refs, &AskFilter{})
 	if err != nil {
 		return nil, err
@@ -635,17 +638,7 @@ func copyRepoFile(root, from, to string) error {
 	return w.Close()
 }
 
-func loadPrivate(path string) (ed25519.PrivateKey, error) {
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	seed, err := hex.DecodeString(strings.TrimSpace(string(b)))
-	if err != nil || len(seed) != ed25519.SeedSize {
-		return nil, fmt.Errorf("%s is not a signing key", path)
-	}
-	return ed25519.NewKeyFromSeed(seed), nil
-}
+func loadPrivate(path string) (ed25519.PrivateKey, error) { return keyload.Load(path) }
 
 var _ = sort.Strings
 

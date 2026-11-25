@@ -4,6 +4,14 @@
 
 ### Added
 
+- **Passphrase-protected signing keys** (ADR-021, the command line and the core; serve's passphrase request
+  is a later change): a private key is the hex seed or the OpenSSH form encrypted with a passphrase, read
+  through one loader wherever the cockpit signs (SPEC §5.7). The passphrase is asked on the terminal for a
+  command run by a person, once per key per process, else read from `KTON_KEY_PASSPHRASE` (only for the one-shot commands the command line lists and the modules that declare `OneShot`; `mcp`, `serve`, the shim, other commands and a Go program that does not opt in via `keyload.SetOneShot` refuse an encrypted key as `identity.locked`), which every
+  `main` takes out of the environment before it starts a child. An encrypted key without a passphrase, or
+  with a wrong one, is refused as `identity.locked` before anything is signed or written (a `say --batch`
+  opens every key first and writes none of its claims). `cockpit keygen --encrypt` writes the encrypted
+  form; `doctor` says per key whether it is `encrypted` or `plain` without asking.
 - **`say` reads a scope's head from the index** (ADR-022 D3): with the oxigraph index and its daemon up, the
   head comes from the view's chain graph after every registry of the view is brought up to date, and from
   the union of the registries otherwise or on any error of the index (SPEC §8.5). `COCKPIT_TRACE` names

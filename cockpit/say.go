@@ -218,6 +218,12 @@ func (c *Cockpit) Say(ctx context.Context, in SayRequest) (*SayResult, error) {
 	reproducedVia, reproducedViaFrom := p.via, p.viaFrom
 	r.ExpectTemplate, r.ExpectRevision, r.ExpectPredicate = p.expect.Template, p.expect.Revision, p.expect.Predicate
 
+	// An encrypted key is opened here, before the claims lock: a person asked for a passphrase must not
+	// hold every other say of the repository, and a wrong one refuses before anything is read or written.
+	if err := unlockKeys(r, signKey); err != nil {
+		return nil, err
+	}
+
 	// From reading where the claim goes (its scope's head, the claim it replaces) until it is stored,
 	// no other claim is said in this repository, so two at once never take the same head.
 	unlockClaims, lerr := r.LockClaims()

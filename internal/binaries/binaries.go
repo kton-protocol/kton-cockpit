@@ -23,10 +23,12 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/kton-protocol/kton-cockpit/internal/config"
+	"github.com/kton-protocol/kton-cockpit/internal/keyload"
 	"github.com/kton-protocol/kton-cockpit/internal/packages"
 	nclaim "kton.dev/nekton/claim"
 	nregistry "kton.dev/nekton/registry"
@@ -56,6 +58,10 @@ type Runner struct {
 	// bytes, and the package revision it came from. Checked against the set Annotate signs with, so
 	// nothing can change between the check and the signature (SPEC §8).
 	ExpectTemplate, ExpectRevision, ExpectPredicate string
+	// signing are the private keys this Runner has opened, by path: a key (an encrypted one costs a
+	// passphrase and a key derivation) is read once per call, and dropped with the Runner.
+	signingMu sync.Mutex
+	signing   map[string]ed25519.PrivateKey
 }
 
 // TemplatesWithOrigins is TemplatesAndAliases with where each template came from, for a listing a
@@ -266,7 +272,7 @@ func (r *Runner) Author(ctx context.Context, in AuthorInput) (Authored, error) {
 		return Authored{}, err
 	}
 
-	priv, err := loadSigningKey(in.SignKey)
+	priv, err := r.SigningKey(in.SignKey)
 	if err != nil {
 		return Authored{}, err
 	}
@@ -697,7 +703,7 @@ func (s *ClaimSigner) key(ctx context.Context, signKey string) (string, ed25519.
 	if err != nil {
 		return "", nil, fmt.Errorf("reading the keyid to sign under: %w", err)
 	}
-	priv, err := loadSigningKey(signKey)
+	priv, err := s.r.SigningKey(signKey)
 	if err != nil {
 		return "", nil, err
 	}
@@ -1100,20 +1106,24 @@ func (r *Runner) readRepoFile(rel string) ([]byte, error) {
 	return os.ReadFile(filepath.Join(r.cfg.RepoRoot, rel))
 }
 
-// loadSigningKey reads a keygen-written private key: the 32-byte seed, as hex.
-func loadSigningKey(path string) (ed25519.PrivateKey, error) {
-	b, err := os.ReadFile(path)
+// SigningKey is the private key at path, opened through keyload (ADR-021): the plain hex seed
+// keygen writes, or the OpenSSH form with a passphrase. A key that needs a passphrase and has none is
+// a *keyload.LockedError. It is opened once per Runner.
+func (r *Runner) SigningKey(path string) (ed25519.PrivateKey, error) {
+	r.signingMu.Lock()
+	defer r.signingMu.Unlock()
+	if k, ok := r.signing[path]; ok {
+		return k, nil
+	}
+	k, err := keyload.Load(path)
 	if err != nil {
 		return nil, err
 	}
-	seed, err := hex.DecodeString(strings.TrimSpace(string(b)))
-	if err != nil {
-		return nil, fmt.Errorf("%s is not a hex-encoded key: %w", path, err)
+	if r.signing == nil {
+		r.signing = map[string]ed25519.PrivateKey{}
 	}
-	if len(seed) != ed25519.SeedSize {
-		return nil, fmt.Errorf("%s: expected a %d-byte seed, got %d", path, ed25519.SeedSize, len(seed))
-	}
-	return ed25519.NewKeyFromSeed(seed), nil
+	r.signing[path] = k
+	return k, nil
 }
 
 // About lists claims about a subject (hash or URI) — used both to serve `ask` and to confirm a
@@ -1571,7 +1581,7 @@ func (r *Runner) SealScope(ctx context.Context, childScope, childHead, parentSco
 		Scope:     parentScope,
 		Prev:      parentHead,
 	}
-	priv, err := loadSigningKey(signKey)
+	priv, err := r.SigningKey(signKey)
 	if err != nil {
 		return "", err
 	}
@@ -1620,7 +1630,7 @@ func (r *Runner) SeedScope(ctx context.Context, name, signKey, parentScope strin
 		PredicateType: nclaim.ScopePredicateType,
 		PredicateBody: body,
 	}
-	priv, err := loadSigningKey(signKey)
+	priv, err := r.SigningKey(signKey)
 	if err != nil {
 		return "", err
 	}
@@ -1822,7 +1832,7 @@ type Reused struct {
 // record carries the paths its run looked for and missed, a shim reuses only what it recorded
 // itself). The signature is verified, never read from the envelope's keyid.
 func (r *Runner) OwnHits(actionKey, signKey string) ([]Reused, error) {
-	priv, err := loadSigningKey(signKey)
+	priv, err := r.SigningKey(signKey)
 	if err != nil {
 		return nil, err
 	}

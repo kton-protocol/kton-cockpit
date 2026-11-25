@@ -30,6 +30,7 @@ import (
 
 	"github.com/kton-protocol/kton-cockpit/internal/toolcall"
 	"github.com/kton-protocol/kton-cockpit/recorder/watch"
+	"kton.dev/plankton/keys"
 )
 
 type runResult struct {
@@ -55,6 +56,8 @@ type report struct {
 }
 
 func main() {
+	// First, before anything starts a child: no tool this starts inherits a key passphrase (ADR-021 section 2.3).
+	keys.TakeEnvPassphrase()
 	home, _ := os.UserHomeDir()
 	cache := filepath.Join(home, ".cache", "kton-cockpit")
 	project := flag.String("project", "", "the project directory")

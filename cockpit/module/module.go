@@ -42,7 +42,13 @@ type Module struct {
 	Name     string    // the operator command group: `cockpit <name> …`
 	Commands []Command // operator commands, CLI only (SPEC §6): never on MCP
 	Profiles []string  // the package profiles `cockpit install` hands to this module
-	Words    fs.FS     // templates/<name>.json and queries/<name>.rq; nil when it brings none
+	// OneShot declares that every command of the module runs to completion and ends, so it may take a
+	// signing key's passphrase from the terminal or KTON_KEY_PASSPHRASE like say does. A module that does
+	// not say so is treated as a server (a command that runs long or answers requests would otherwise
+	// hold the passphrase and sign for whoever reaches it, ADR-021 section 2.4): an encrypted key is
+	// refused with identity.locked there.
+	OneShot bool
+	Words   fs.FS // templates/<name>.json and queries/<name>.rq; nil when it brings none
 	// Guard decides whether a request at the door may be answered (ADR-019 section 4); nil: the module
 	// guards nothing. Decide asks every module's guard.
 	Guard func(ctx context.Context, r Request) Decision

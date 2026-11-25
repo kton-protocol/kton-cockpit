@@ -33,6 +33,11 @@ type Start struct {
 }
 
 // New returns a Cockpit that starts from s.
+//
+// A program that embeds the cockpit signs with an encrypted key only after it opts in as a one-shot run
+// (internal/keyload.SetOneShot, for the programs of this module): until then it is treated as a
+// server, takes no passphrase from the environment or a terminal, and an encrypted key is refused
+// with identity.locked (ADR-021 section 2.4). A plain key signs either way.
 func New(s Start) *Cockpit { return &Cockpit{start: s} }
 
 func (c *Cockpit) dir() string {

@@ -24,6 +24,7 @@ import (
 
 	"github.com/kton-protocol/kton-cockpit/internal/nofollow"
 	"github.com/kton-protocol/kton-cockpit/internal/toolcall"
+	"kton.dev/plankton/keys"
 )
 
 type callFile struct {
@@ -50,6 +51,8 @@ type toolResult struct {
 }
 
 func main() {
+	// First, before anything starts a child: no tool this starts inherits a key passphrase (ADR-021 section 2.3).
+	keys.TakeEnvPassphrase()
 	tool := filepath.Base(os.Args[0])
 	if tool == "cockpit-shim" {
 		fmt.Fprintln(os.Stderr, "cockpit-shim: install it under a tool's name (nmfe75, execute …) ahead of the tool on PATH; see ADR-014")

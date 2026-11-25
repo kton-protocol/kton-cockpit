@@ -127,7 +127,7 @@ cockpit mcp      start the MCP stdio server (cockpit_publish/cockpit_say/cockpit
 
 human operator only:
 cockpit init        scaffold .kton/ (configuration, templates) in the current repo
-cockpit keygen      make a signing identity and bind it into the configuration
+cockpit keygen      make a signing identity and bind it into the configuration (--encrypt: keys protected by a passphrase)
 cockpit pin         pin the image every run executes in, by digest
 cockpit config      read or change one setting
 cockpit trust       list, add or remove the keys a trust tier holds

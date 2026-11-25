@@ -73,6 +73,17 @@ func (c *Cockpit) SayBatch(ctx context.Context, in SayBatchRequest) (*SayBatchRe
 		}
 		preps[i] = p
 	}
+	// Every key the batch signs with is opened before the lock and before any claim is signed: one
+	// passphrase question per key, and a wrong answer refuses the whole batch with nothing written.
+	var signKeys []string
+	for _, p := range preps {
+		if !slices.Contains(signKeys, p.signKey) {
+			signKeys = append(signKeys, p.signKey)
+		}
+	}
+	if err := unlockKeys(r, signKeys...); err != nil {
+		return nil, err
+	}
 	signer, err := r.NewClaimSigner()
 	if err != nil {
 		return nil, refuse("vocabulary", "SPEC §8.1", "%v", err)

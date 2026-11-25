@@ -26,15 +26,22 @@ import (
 	"github.com/kton-protocol/kton-cockpit/internal/config"
 	"github.com/kton-protocol/kton-cockpit/internal/container"
 	"github.com/kton-protocol/kton-cockpit/internal/httpguard"
+	"github.com/kton-protocol/kton-cockpit/internal/keyload"
 	"github.com/kton-protocol/kton-cockpit/internal/material"
 	"github.com/kton-protocol/kton-cockpit/internal/mcpsurface"
 	"github.com/kton-protocol/kton-cockpit/internal/show"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"kton.dev/plankton/keys"
 )
 
 // Main is the cockpit command line. A composed binary (cockpit-improve: the core plus an extension
 // backend, ADR-008) calls it from its own main after importing its backends.
 func Main() {
+	// First, before anything starts a child (git, the container CLI, a shimmed tool, a workflow step):
+	// the passphrase variable is taken out of the environment so none of them inherits it (ADR-021
+	// section 2.3). The value is held for the keys that need it, and dropped when the command ends.
+	keys.TakeEnvPassphrase()
+	defer keyload.Forget()
 	if len(os.Args) < 2 {
 		usage()
 		os.Exit(2)
@@ -45,6 +52,7 @@ func Main() {
 		return
 	}
 	ctx := context.Background()
+	enterMode(os.Args[1])
 	jsonMode = wantsJSON(os.Args[1], os.Args[2:])
 	var err error
 	switch os.Args[1] {
@@ -117,6 +125,26 @@ func Main() {
 		fmt.Fprintln(os.Stderr, "cockpit:", reason)
 		os.Exit(1)
 	}
+}
+
+// enterMode says what kind of process this is, by the command it runs, before any key is read.
+func enterMode(cmd string) {
+	// Fail closed (ADR-021 section 2.4): a process takes no signing-key passphrase unless it opts in,
+	// and only the commands known to run to completion and end do. They may ask the person on the
+	// terminal, keep a key they unlocked for the rest of the process, and read KTON_KEY_PASSPHRASE.
+	// mcp, serve, the shim, a module's command that does not declare module.OneShot, and any command
+	// not listed stay server-like: an encrypted key there is identity.locked, not read from the environment.
+	if oneShotCommands[cmd] {
+		keyload.SetOneShot(true)
+	} else if m, ok := module.Lookup(cmd); ok && m.OneShot {
+		keyload.SetOneShot(true)
+	}
+}
+
+// oneShotCommands are the core commands that sign or read a signing key and run to completion.
+var oneShotCommands = map[string]bool{
+	"say": true, "publish": true, "ask": true, "run": true, "reproduce": true, "install": true,
+	"workflow": true, "scope": true,
 }
 
 // jsonMode is set when the caller asked for JSON: --json before any "--", or a verb's JSON
@@ -193,7 +221,7 @@ usage:
   cockpit config   show the configuration, or set one value (config persist.share off)
   cockpit index    status / registries / start / stop / rebuild — the machine's index daemon (index.kind oxigraph)
   cockpit shim     serve --socket PATH | --listen 127.0.0.1:PORT — answer the tool shims (ADR-014)
-%s  cockpit keygen   make a signing identity (keys/<name>.key + .pub, and the claims pair)
+%s  cockpit keygen   make a signing identity (keys/<name>.key + .pub, and the claims pair); --encrypt protects the keys with a passphrase
   cockpit version  what this binary is, and which kernel is compiled into it
   cockpit mcp      start the MCP stdio server (cockpit_publish/cockpit_say/cockpit_ask)
                    [--vocabulary] also a tool per query (ask_<name>) and template (say_<name>)
@@ -224,6 +252,7 @@ it exposes exactly three verbs — the vocabulary tools are those verbs with arg
 }
 
 func runMCP(ctx context.Context, args []string) error {
+	keyload.SetServer() // no one to ask, and no passphrase from the environment (ADR-021 section 2.4)
 	o, err := parseMCPArgs(args)
 	if err != nil {
 		return err
@@ -715,7 +744,7 @@ func checkKeyPath(p string) string {
 			"                modes (a Windows drive mounted into WSL, FAT/exFAT, some network mounts)\n"+
 			"                or the mode was widened. Anyone who can read it can sign as this repo.", p, perm)
 	}
-	return p + "  [ok]"
+	return p + "  [ok]  (" + keyForm(p) + ")"
 }
 
 // linkedKernels reports the kton modules compiled into this binary, in the order they are listed
@@ -779,7 +808,10 @@ func callVerb[In, Out any](ctx context.Context, raw, field string,
 // script can tell "you may not" from "something broke".
 func exitIfRefused(err error) {
 	var r *cockpit.Refusal
-	if errors.As(err, &r) {
+	if !errors.As(err, &r) {
+		r = cockpit.LockedRefusal(err) // a locked key surfaced by a command that returns the bare error
+	}
+	if r != nil {
 		if jsonMode {
 			printFailure(r)
 		}

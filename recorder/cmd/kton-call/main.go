@@ -37,9 +37,12 @@ import (
 
 	"github.com/kton-protocol/kton-cockpit/internal/toolcall"
 	"github.com/kton-protocol/kton-cockpit/recorder/watch"
+	"kton.dev/plankton/keys"
 )
 
 func main() {
+	// First, before anything starts a child: no tool this starts inherits a key passphrase (ADR-021 section 2.3).
+	keys.TakeEnvPassphrase()
 	tool := filepath.Base(os.Args[0])
 	if tool == "kton-call" {
 		fmt.Fprintln(os.Stderr, "kton-call: install it under a tool's name (nmfe75, execute, vpc, bbi …), see recorder/install.sh")

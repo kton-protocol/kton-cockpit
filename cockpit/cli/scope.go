@@ -84,6 +84,9 @@ func scopeSeed(ctx context.Context, args []string) error {
 	// install then refuse to write under. Checked and seeded under the claims lock, so two seeds at once
 	// cannot both pass the check (qm-dev-provenance, 20.11.).
 	r := binaries.New(cfg)
+	if err := cockpit.UnlockKeys(r, cfg.NektonKey); err != nil {
+		return err
+	}
 	unlock, err := r.LockClaims()
 	if err != nil {
 		return err
@@ -141,6 +144,9 @@ func scopeSeal(ctx context.Context, args []string) error {
 	}
 
 	r := binaries.New(cfg)
+	if err := cockpit.UnlockKeys(r, cfg.NektonKey); err != nil {
+		return err
+	}
 	// From reading the two heads until the seal is stored, as say (kton-review M1 on #183).
 	unlockClaims, err := r.LockClaims()
 	if err != nil {

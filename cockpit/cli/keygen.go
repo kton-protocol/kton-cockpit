@@ -9,6 +9,9 @@ package cli
 //
 //	cockpit keygen alice        writes ~/.kton-keys/alice.key + alice.pub
 //	                                   ~/.kton-keys/alice-claims.key + .pub
+//	cockpit keygen --encrypt alice   the same, the private halves in the OpenSSH form encrypted with
+//	                            a passphrase (ADR-021): asked twice on the terminal, or taken from
+//	                            KTON_KEY_PASSPHRASE where there is no terminal. `ssh-keygen -y` reads them.
 //
 // Two keys, because a foton and a claim are signed by different halves of an identity. That is the
 // kernel's split, not this tool's. The private halves never go into a repository (ADR-016): in a
@@ -27,13 +30,18 @@ import (
 	"strings"
 
 	"github.com/kton-protocol/kton-cockpit/internal/config"
+	"kton.dev/plankton/keys"
 )
 
 func runKeygen(ctx context.Context, args []string) error {
+	encrypt := false
+	if len(args) > 1 && args[0] == "--encrypt" {
+		encrypt, args = true, args[1:]
+	}
 	if len(args) != 1 || args[0] == "" || strings.HasPrefix(args[0], "-") {
 		// A leading dash is a flag someone tried, not a name: `keygen --help` used to write
 		// keys/--help.key.
-		return fmt.Errorf("usage: cockpit keygen <name>      (e.g. cockpit keygen alice)")
+		return fmt.Errorf("usage: cockpit keygen [--encrypt] <name>      (e.g. cockpit keygen alice)")
 	}
 	name := args[0]
 	if filepath.Base(name) != name {
@@ -53,6 +61,23 @@ func runKeygen(ctx context.Context, args []string) error {
 	if err := os.MkdirAll(ring, 0o700); err != nil {
 		return err
 	}
+	// The passphrase is asked once, before any key is written, so a mismatch or a missing terminal
+	// refuses with nothing made. It protects both keys of the identity, and is cleared when done.
+	var pass []byte
+	if encrypt {
+		stems := false
+		for _, suffix := range []string{"", "-claims"} {
+			if _, serr := os.Stat(filepath.Join(ring, name+suffix) + ".key"); serr != nil {
+				stems = true
+			}
+		}
+		if stems {
+			if pass, err = keys.NewPassphrase(filepath.Join(ring, name+".key")); err != nil {
+				return err
+			}
+			defer clear(pass)
+		}
+	}
 
 	for _, suffix := range []string{"", "-claims"} {
 		stem := filepath.Join(ring, name+suffix)
@@ -65,14 +90,25 @@ func runKeygen(ctx context.Context, args []string) error {
 			return gerr
 		}
 		// The private half is written as the 32-byte SEED in hex, which is the form the kernel
-		// reads. Writing the 64-byte expanded key would look equivalent and would not load.
-		if werr := os.WriteFile(stem+".key", []byte(hex.EncodeToString(priv.Seed())+"\n"), 0o600); werr != nil {
+		// reads. Writing the 64-byte expanded key would look equivalent and would not load. With
+		// --encrypt it is the kernel's OpenSSH form, encrypted: the same seed, the same keyid.
+		body := []byte(hex.EncodeToString(priv.Seed()) + "\n")
+		if encrypt {
+			if body, gerr = keys.MarshalEncrypted(priv, pass); gerr != nil {
+				return gerr
+			}
+		}
+		if werr := os.WriteFile(stem+".key", body, 0o600); werr != nil {
 			return werr
 		}
 		if werr := os.WriteFile(stem+".pub", []byte(hex.EncodeToString(pub)+"\n"), 0o644); werr != nil {
 			return werr
 		}
-		fmt.Printf("  %s.key  (PRIVATE — anyone who can read it can sign as you)\n", stem)
+		if encrypt {
+			fmt.Printf("  %s.key  (PRIVATE, encrypted — signing asks for its passphrase)\n", stem)
+		} else {
+			fmt.Printf("  %s.key  (PRIVATE — anyone who can read it can sign as you)\n", stem)
+		}
 		fmt.Printf("  %s.pub\n", stem)
 
 		// Said rather than assumed: on a Windows drive mounted into WSL the mode does not stick,
