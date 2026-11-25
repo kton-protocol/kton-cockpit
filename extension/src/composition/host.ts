@@ -44,6 +44,8 @@ export interface PlanUse {
   readonly acts?: readonly PlanAct[];
   readonly bind?: unknown;
   readonly waiting?: readonly string[];
+  /** the mirror's queryKey of the bound query; null while a (non-optional) param waits for its var */
+  readonly ask?: string | null;
 }
 export interface Plan {
   readonly root: { readonly package: string; readonly composition: string };
@@ -309,7 +311,9 @@ export function useFor(plan: Plan, cap: string, args: Readonly<Record<string, un
   if (u.bind) {
     if (vars !== undefined && (typeof vars !== "object" || vars === null || Array.isArray(vars))) throw new Refused("vars is an object {composition: {var: value}}");
     u = (bindVars(plan, (vars ?? {}) as Record<string, unknown>) as Plan).uses.find((x) => x.key === args["use"]) as PlanUse;
-    if (u.waiting?.length) throw new Refused(`${u.key} waits for ${u.waiting.join(", ")}`);
+    // ktonpkg v0.10.0 (Compose): only a query PARAM that is still waiting holds the ask (the mirror's ask is null then);
+    // a var read by an option waits on its own, and a param that has a value never blocks
+    if (cap === "query@1" && u.query && u.ask === null) throw new Refused(`${u.key} waits for ${(u.waiting ?? []).join(", ")}`);
   }
   if (!u.requires.includes(cap) && !u.optional.includes(cap)) throw new Refused(`${u.block} does not declare ${cap}`);
   let params: Record<string, Term> = { ...(u.params ?? {}) };
