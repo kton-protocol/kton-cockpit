@@ -28,7 +28,7 @@ page.on("request", (r) => {
 });
 // The surfaces the flows open (their shots): nothing on them scrolls sideways, at the full width and at 400 px
 // (DESIGN principle 8). SHOTS_DIR=<dir> (run.sh mounts it): a PNG of each of them at both widths, named after the shot.
-const SURFACES = new Set(["s5-review-view", "c2-grid", "c2-tabs", "c2-split", "s5-graph-leaf", "s3-decision", "s6-areas", "s6-record", "s6-history", "s6-findings", "s6-record-bound", "s6-approvals", "s6-area-two", "s6-governing-draft", "w-first-screen", "w-view", "w-evidence", "w-evidence-runs", "w-units-rerun", "w-decides", "x-history"]);
+const SURFACES = new Set(["s5-review-view", "c2-grid", "c2-tabs", "c2-split", "s5-graph-leaf", "s3-decision", "s6-areas", "s6-record", "s6-history", "s6-findings", "s6-record-bound", "s6-approvals", "s6-area-two", "s6-governing-draft", "w-first-screen", "w-view", "w-evidence", "w-evidence-runs", "w-units-rerun", "w-decides", "w-decides-dialog", "x-history"]);
 // Gaps that are not the shell's: each names what may be wide and why. The run prints them as GAP lines.
 const KNOWN_GAPS = {
   "s5-graph-leaf@400": { only: /^vscode-light \+\d+px$/, why: "the vendored graph viewer has no layout below its own minimum width; the page clips it (no scrollbar); a narrow layout is requested from the viewer's owner" },
@@ -42,8 +42,7 @@ async function sideways() {
     try {
       const r = await f.evaluate(() => {
         const out = { checked: 0, wide: [] };
-        // a webview squeezed to almost nothing (the other group while one group is maximized) is not a view a
-        // person reads: it is left out
+        // a webview squeezed to almost nothing is not a view a person reads: it is left out
         if (document.documentElement.clientWidth < 120) return out;
         // a frame without blocks (a graph leaf, a dialog, a list) is checked by its page and root elements
         const blocks = !!document.querySelector("[data-use], .wb-nav");
@@ -103,18 +102,7 @@ async function fitAt(name, focus) {
           hidden.push(cls);
         }
       }
-      // one editor group at full width: maximize the active group (moving editors would dispose an open dialog's webview)
-      if ((await page.locator(".part.editor .editor-group-container").count()) > 1) {
-        // the title differs between VS Code versions; without any of them the shot is taken as it is (logged)
-        for (const t of ["View: Toggle Maximize Editor Group", "View: Toggle Maximized Editor Group", "View: Maximize Editor Group"]) {
-          try {
-            await vsc(t);
-            hidden.push(`maximized:${t}`);
-            break;
-          } catch {}
-        }
-        if (!hidden.some((h) => h.startsWith("maximized:"))) console.log("# shot: no command maximizes the editor group; the 400 px shot keeps the groups");
-      }
+      await vsc("View: Join All Editor Groups");
       await page.waitForTimeout(800);
     }
     try {
@@ -131,9 +119,6 @@ async function fitAt(name, focus) {
       }
       check(r.checked > 0 && r.wide.length === 0, `${name}: nothing scrolls sideways at ${tag} (${width}px; ${r.checked} blocks, tables and navs checked)`, 0, r.checked ? r.wide : "no block found");
     } finally {
-      const max = hidden.find((h) => h.startsWith("maximized:"));
-      // a toggle is undone by itself; "Maximize Editor Group" is not a toggle: the group sizes are reset instead
-      if (max) await vsc(max === "maximized:View: Maximize Editor Group" ? "View: Reset Editor Group Sizes" : max.slice("maximized:".length)).catch(() => {});
       if (hidden.includes("sidebar")) await vsc("View: Toggle Primary Side Bar Visibility");
       if (hidden.includes("auxiliarybar")) await vsc("View: Toggle Secondary Side Bar Visibility");
       if (hidden.includes("panel")) await vsc("View: Toggle Panel Visibility");
@@ -1597,17 +1582,6 @@ if (seed.w?.proposal && selected("W")) {
       t = ((await f.locator('[data-use$="sign#summary"]').textContent()) ?? "").replace(/\s+/g, " ");
     }
     check(/1 spot checks judged/.test(t) && /1 captures requested/.test(t), "1 spot check, 1 capture requested", "1 spot checks judged · 1 captures requested", t.slice(0, 300));
-    // the sign dialog is opened in a 400 x 900 window with the side bar closed, so its narrow layout is checked
-    // (and shot) where it opens: changing the layout while it is open would replace its webview
-    const size = page.viewportSize();
-    await page.setViewportSize({ width: 400, height: 900 });
-    const sidebar = await partShown("sidebar");
-    if (sidebar) await vsc("View: Close Primary Side Bar");
-    // one editor group, so the dialog gets the window's width (moved before it opens, never while it is open)
-    await vsc("View: Join All Editor Groups").catch(() => {});
-    await page.waitForTimeout(800);
-    try {
-    f = await backToView();
     await f.locator('[data-use$="sign#summary"] [data-testid="act-decides"]').click();
     await inputQuick("b");
     const box = page.locator(".quick-input-box input").first();
@@ -1615,20 +1589,13 @@ if (seed.w?.proposal && selected("W")) {
     const proposed = await box.inputValue();
     check(/kton-src:\/app\/src\/Main\.java\?[0-9a-f]+#L3/.test(proposed) && /run-artifact:/.test(proposed), "lookedAt is proposed with the opened evidence", "… kton-src:/app/src/Main.java?…#L3 … run-artifact:…", proposed.slice(0, 300));
     await page.keyboard.press("Enter");
-    let d = await dialog();
+    const d = await dialog();
     await d.getByText("Evidence you opened in this view", { exact: false }).first().waitFor({ timeout: 15000 });
     // toasts are cleared by their own buttons: Escape would cancel the dialog
     for (const b of await page.locator(".notification-toast .codicon-notifications-clear, .notification-toast [aria-label^='Clear Notification']").all()) await b.click().catch(() => {});
-    const r = await sideways();
-    if (process.env.SHOTS_DIR) await page.screenshot({ path: `${process.env.SHOTS_DIR}/w-decides-dialog-400.png` });
-    check(r.checked > 0 && r.wide.length === 0, `w-decides-dialog: nothing scrolls sideways at 400 (400px; ${r.checked} blocks, tables and navs checked)`, 0, r.checked ? r.wide : "no block found");
+    await shot("w-decides-dialog");
     await signInDialog(d);
     await d.locator('[data-testid="sign-outcome"][data-state="signed"]').waitFor({ timeout: 60000 });
-    } finally {
-      await page.setViewportSize(size);
-      if (sidebar) await vsc("View: Toggle Primary Side Bar Visibility").catch(() => {});
-      await page.waitForTimeout(500);
-    }
     const rows = await sparql(`SELECT ?l ?scope ?s WHERE { ?c nk:predicate <${WN}decides> ; nk:about <${iriOf(W.proposal)}> ; lab:lookedAt ?l ; nk:signer ?s ; nk:scope ?sc . ?sc rdfs:label ?scope }`, "repo-w");
     check(rows.length === 1 && /kton-src:\/app\//.test(rows[0].l) && /run-artifact:/.test(rows[0].l) && rows[0].scope === "w.records" && rows[0].s === PERSON, "the signed decision's lookedAt names the opens, in w.records, by the person key", "kton-src:… run-artifact:… (w.records)", rows);
     await shot("w-decides");
