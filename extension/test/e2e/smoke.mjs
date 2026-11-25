@@ -28,7 +28,7 @@ page.on("request", (r) => {
 });
 // The surfaces the flows open (their shots): nothing on them scrolls sideways, at the full width and at 400 px
 // (DESIGN principle 8). SHOTS_DIR=<dir> (run.sh mounts it): a PNG of each of them at both widths, named after the shot.
-const SURFACES = new Set(["s5-review-view", "c2-grid", "c2-tabs", "c2-split", "s5-graph-leaf", "s3-decision", "s6-areas", "s6-record", "s6-history", "s6-findings", "s6-record-bound", "s6-approvals", "s6-area-two", "s6-governing-draft", "w-first-screen", "w-view", "w-evidence", "w-evidence-runs", "w-units-rerun", "w-decides", "w-decides-dialog", "x-history"]);
+const SURFACES = new Set(["s5-review-view", "c2-grid", "c2-tabs", "c2-split", "s5-graph-leaf", "s3-decision", "s6-areas", "s6-record", "s6-history", "s6-findings", "s6-record-bound", "s6-approvals", "s6-area-two", "s6-governing-draft", "w-first-screen", "w-view", "w-evidence", "w-evidence-runs", "w-units-rerun", "w-decides", "x-history"]);
 // Gaps that are not the shell's: each names what may be wide and why. The run prints them as GAP lines.
 const KNOWN_GAPS = {
   "s5-graph-leaf@400": { only: /^vscode-light \+\d+px$/, why: "the vendored graph viewer has no layout below its own minimum width; the page clips it (no scrollbar); a narrow layout is requested from the viewer's owner" },
@@ -1597,6 +1597,14 @@ if (seed.w?.proposal && selected("W")) {
       t = ((await f.locator('[data-use$="sign#summary"]').textContent()) ?? "").replace(/\s+/g, " ");
     }
     check(/1 spot checks judged/.test(t) && /1 captures requested/.test(t), "1 spot check, 1 capture requested", "1 spot checks judged · 1 captures requested", t.slice(0, 300));
+    // the sign dialog is opened in a 400 x 900 window with the side bar closed, so its narrow layout is checked
+    // (and shot) where it opens: changing the layout while it is open would replace its webview
+    const size = page.viewportSize();
+    await page.setViewportSize({ width: 400, height: 900 });
+    const sidebar = await partShown("sidebar");
+    if (sidebar) await vsc("View: Close Primary Side Bar");
+    await page.waitForTimeout(800);
+    try {
     await f.locator('[data-use$="sign#summary"] [data-testid="act-decides"]').click();
     await inputQuick("b");
     const box = page.locator(".quick-input-box input").first();
@@ -1607,11 +1615,16 @@ if (seed.w?.proposal && selected("W")) {
     let d = await dialog();
     await d.getByText("Evidence you opened in this view", { exact: false }).first().waitFor({ timeout: 15000 });
     await clearToasts();
-    await shot("w-decides-dialog");
-    // the shot's layout change may give the dialog a new frame: it is looked up again before signing
-    d = await dialog();
+    const r = await sideways();
+    if (process.env.SHOTS_DIR) await page.screenshot({ path: `${process.env.SHOTS_DIR}/w-decides-dialog-400.png` });
+    check(r.checked > 0 && r.wide.length === 0, `w-decides-dialog: nothing scrolls sideways at 400 (400px; ${r.checked} blocks, tables and navs checked)`, 0, r.checked ? r.wide : "no block found");
     await signInDialog(d);
     await d.locator('[data-testid="sign-outcome"][data-state="signed"]').waitFor({ timeout: 60000 });
+    } finally {
+      await page.setViewportSize(size);
+      if (sidebar) await vsc("View: Toggle Primary Side Bar Visibility").catch(() => {});
+      await page.waitForTimeout(500);
+    }
     const rows = await sparql(`SELECT ?l ?scope ?s WHERE { ?c nk:predicate <${WN}decides> ; nk:about <${iriOf(W.proposal)}> ; lab:lookedAt ?l ; nk:signer ?s ; nk:scope ?sc . ?sc rdfs:label ?scope }`, "repo-w");
     check(rows.length === 1 && /kton-src:\/app\//.test(rows[0].l) && /run-artifact:/.test(rows[0].l) && rows[0].scope === "w.records" && rows[0].s === PERSON, "the signed decision's lookedAt names the opens, in w.records, by the person key", "kton-src:… run-artifact:… (w.records)", rows);
     await shot("w-decides");
