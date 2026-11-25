@@ -556,5 +556,11 @@ func propertyRun(t *testing.T, seed uint64, script [][]string) {
 			h.step("a template field type changes", "full")
 		}
 	}
+	// A change in the alias file alone (a prefix no field name shows): the fingerprint covers the alias tables
+	// since #265, so the view is built whole.
+	if err := os.WriteFile(filepath.Join(a.Root, config.Dir, "aliases.json"), []byte(`{"prefixes":{"q":"https://example.org/q/"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h.step("an alias-only change", "full")
 	h.step("the last step again", "patch")
 }
