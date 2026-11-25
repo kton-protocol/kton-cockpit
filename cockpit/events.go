@@ -90,9 +90,27 @@ type SourcePulledEvent struct {
 // IndexMovedEvent follows every published, said and sourcePulled event once a query sees what they
 // name. Scopes are the scopes whose claims changed; empty means everything (records, or a source).
 // Slot names the view a query reads, so a frontend showing one view ignores another's moves.
+//
+// With the index, Key names the view's dataset as it now stands, and Graphs and Removed name the view's
+// graphs (the record graph, the rest, each scope graph) whose content changed or came, and that went,
+// since the connection's last indexMoved: a frontend re-asks only the queries that read one of them.
+// All says they cannot be named (the first look at a view, another view, one built before graphs
+// carried hashes): re-ask everything. Without them (no index, or the view could not be read) the event
+// means what it meant before: something changed.
 type IndexMovedEvent struct {
-	Slot   string       `json:"slot"`
-	Scopes []EventScope `json:"scopes"`
+	Slot    string       `json:"slot"`
+	Key     string       `json:"key,omitempty"`
+	Graphs  *[]string    `json:"graphs,omitempty"`
+	Removed *[]string    `json:"removed,omitempty"`
+	All     bool         `json:"all,omitempty"`
+	Scopes  []IndexScope `json:"scopes"`
+}
+
+// IndexScope is a scope an indexMoved names, with its graph in the view where the view is known.
+type IndexScope struct {
+	Seed  string `json:"seed"`
+	Label string `json:"label,omitempty"`
+	Graph string `json:"graph,omitempty"`
 }
 
 // EventsCursor is the present as a cursor: events from it on name only what arrives later.
@@ -121,13 +139,20 @@ func (c *Cockpit) Watch(ctx context.Context, since string, interval time.Duratio
 	if err != nil {
 		return err
 	}
-	if since == "" {
+	resumed := since != ""
+	if !resumed {
 		if since, err = c.EventsCursor(ctx); err != nil {
 			return err
 		}
 	}
 	w := &watcher{cfg: cfg, emit: emit, labels: map[string]string{}, cursor: since}
 	w.runEvents() // the journal as it is now: nothing sent for it
+	if !resumed {
+		// The view as it is now: the first indexMoved names what changed after. A connection resuming
+		// from an earlier cursor has none, since the view may already hold what came after that cursor:
+		// its first indexMoved says all.
+		w.baseline(ctx)
+	}
 	t := time.NewTicker(interval)
 	defer t.Stop()
 	for {
@@ -155,8 +180,12 @@ type watcher struct {
 	owed       bool
 	everything bool
 	scopes     map[string]bool
-	// update brings the index up to date and names the view; current, unless a test replaces it.
-	update func(context.Context) (string, error)
+	// update brings the index up to date and names the view, with its state where there is an index
+	// whose view could be read; current, unless a test replaces it.
+	update func(context.Context) (string, *oxigraph.ViewState, error)
+	// view is the view's state the last indexMoved went out at (or the watch started at); nil when
+	// unknown, and then the next indexMoved says all.
+	view *oxigraph.ViewState
 	// runs are the jobs journal's runs by id, with the state last sent; nil until first read.
 	runs map[string]string
 }
@@ -294,14 +323,29 @@ func (w *watcher) indexMoved(ctx context.Context, more bool) error {
 	if update == nil {
 		update = w.current
 	}
-	slot, err := update(ctx)
+	slot, state, err := update(ctx)
 	if err != nil {
 		return err // still owed: the next tick tries again
 	}
-	ev := IndexMovedEvent{Slot: slot, Scopes: []EventScope{}}
+	ev := IndexMovedEvent{Slot: slot, Scopes: []IndexScope{}}
+	if state != nil {
+		ev.Key = state.Key
+		var c oxigraph.ViewChanges
+		if w.view == nil {
+			c = state.Diff(oxigraph.ViewState{})
+		} else {
+			c = state.Diff(*w.view)
+		}
+		ev.Graphs, ev.Removed, ev.All = &c.Graphs, &c.Removed, c.All
+	}
+	w.view = state
 	if !w.everything {
 		for seed := range w.scopes {
-			ev.Scopes = append(ev.Scopes, EventScope{Seed: seed, Label: w.labels[seed]})
+			sc := IndexScope{Seed: seed, Label: w.labels[seed]}
+			if state != nil {
+				sc.Graph = oxigraph.ScopeGraph(slot, seed)
+			}
+			ev.Scopes = append(ev.Scopes, sc)
 		}
 		sort.Slice(ev.Scopes, func(i, j int) bool { return ev.Scopes[i].Seed < ev.Scopes[j].Seed })
 	}
@@ -368,22 +412,51 @@ func (w *watcher) head(name string) string {
 }
 
 // current brings the index up to date with the registries, so the next query sees them, and names
-// the view; without an index each query reads the registries as they are, and the slot is "".
-func (w *watcher) current(ctx context.Context) (string, error) {
+// the view and its state; without an index each query reads the registries as they are, the slot is ""
+// and there is no state. A view that could not be read after the update gives no state either: the
+// event then says only that something changed.
+func (w *watcher) current(ctx context.Context) (string, *oxigraph.ViewState, error) {
 	if w.cfg.Raw.Index.Kind != "oxigraph" {
-		return "", nil
+		return "", nil, nil
 	}
 	d, err := oxigraph.Ensure(ctx, w.cfg)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	keys, err := trustedKeys(w.cfg)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	a, err := oxigraph.Free(ctx, d, w.cfg, keys, "ASK { }", oxigraph.DatasetClaims, time.Minute)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
-	return a.Slot, nil
+	st, err := d.ReadViewState(ctx, a.Slot)
+	if err != nil {
+		return a.Slot, nil, nil
+	}
+	return a.Slot, &st, nil
+}
+
+// baseline takes the view as it stands when the watch starts, without building it, so the first
+// indexMoved names only what changed after. Without an index, or a view, there is none.
+func (w *watcher) baseline(ctx context.Context) {
+	if w.cfg.Raw.Index.Kind != "oxigraph" {
+		return
+	}
+	d, err := oxigraph.Ensure(ctx, w.cfg)
+	if err != nil {
+		return
+	}
+	keys, err := trustedKeys(w.cfg)
+	if err != nil {
+		return
+	}
+	slot, err := oxigraph.SlotFor(ctx, w.cfg, keys)
+	if err != nil {
+		return
+	}
+	if st, err := d.ReadViewState(ctx, slot); err == nil && st.Graphs != nil {
+		w.view = &st
+	}
 }

@@ -33,12 +33,20 @@ func TestServe_IndexMovedComesOnceTheIndexHoldsTheClaim(t *testing.T) {
 		"fields": map[string]string{"value": "indexed"}}), &res))
 	got := c.waitEvent("events/indexMoved")
 	var moved struct {
-		Slot string `json:"slot"`
+		Slot    string    `json:"slot"`
+		Key     string    `json:"key"`
+		Graphs  *[]string `json:"graphs"`
+		Removed *[]string `json:"removed"`
+		All     bool      `json:"all"`
 	}
 	must(t, json.Unmarshal(got[len(got)-1].Params, &moved))
-	if moved.Slot == "" {
-		t.Errorf("indexMoved names the view: %s", got[len(got)-1].Params)
+	if moved.Slot == "" || moved.Key == "" || moved.Graphs == nil {
+		t.Errorf("indexMoved names the view, its key and its graphs: %s", got[len(got)-1].Params)
 	}
+	if !moved.All {
+		t.Errorf("no view when the connection started: the first indexMoved says all: %s", got[len(got)-1].Params)
+	}
+	first := moved
 	var a struct {
 		Sparql struct {
 			Rows []map[string]string `json:"rows"`
@@ -49,6 +57,27 @@ func TestServe_IndexMovedComesOnceTheIndexHoldsTheClaim(t *testing.T) {
 		"sparql": `SELECT ?c WHERE { ?c <https://kton.dev/v/lab/value> "indexed" }`}), &a))
 	if len(a.Sparql.Rows) != 1 || !strings.Contains(a.Sparql.Via, "(current)") {
 		t.Errorf("right after indexMoved, the index holds the claim and builds nothing: %+v", a.Sparql)
+	}
+	// A second claim, no scope: the event names the graphs it rewrote, the unscoped claims' among them,
+	// and no scope's graph (SPEC §12.5).
+	c.ok("say", map[string]any{"subject": "urn:example:y", "template": "describes",
+		"fields": map[string]string{"value": "indexed again"}})
+	got = c.waitEvent("events/indexMoved")
+	moved.Graphs, moved.Removed, moved.All = nil, nil, false
+	must(t, json.Unmarshal(got[len(got)-1].Params, &moved))
+	p := string(got[len(got)-1].Params)
+	if moved.All || moved.Graphs == nil || moved.Removed == nil || moved.Key == first.Key || moved.Slot != first.Slot {
+		t.Fatalf("second indexMoved: want this view's new key and its graphs, not all: %s", p)
+	}
+	unscoped := false
+	for _, g := range *moved.Graphs {
+		unscoped = unscoped || g == "urn:kton:view:"+moved.Slot+":unscoped"
+		if strings.Contains(g, ":scope:") {
+			t.Errorf("a claim with no scope rewrote a scope's graph %s: %s", g, p)
+		}
+	}
+	if !unscoped {
+		t.Errorf("the unscoped claims' graph changed and is named: %s", p)
 	}
 	_ = res
 }

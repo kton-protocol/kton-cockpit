@@ -1696,9 +1696,18 @@ notifications (no id), of what changed in the registries this repository reads, 
 - `events/said {ids, claims, cursor, truncated?}`: claims new in it, each entry `{id, scope: {seed, label},
   template, predicate, about, signers}`;
 - `events/sourcePulled {source, newIds, head?, cursor}`: a federation source holds records it did not hold;
-- `events/indexMoved {slot, scopes}`: after any of these, once a query sees what they named (the index
-  is brought up to date first), the view `slot` and the scopes whose claims changed (`{seed, label}`;
-  an empty list means everything).
+- `events/indexMoved {slot, key?, graphs?, removed?, all?, scopes}`: after any of these, once a query sees
+  what they named (the index is brought up to date first), the view `slot` and the scopes whose claims
+  changed (`{seed, label, graph?}`; an empty list means everything). With the index it also names the
+  view's dataset `key` as it now stands, and `graphs` and `removed`: the view's graphs (its record graph
+  `urn:kton:view:<slot>`, its rest `…:rest`, its claim graphs `…:scope:<hex>` and `…:unscoped`, which a
+  scope's `graph` names) whose content changed or that came, and that went, since the connection's last
+  `indexMoved`, compared by the hash the view keeps of each graph, whoever built it. `all: true` says
+  they cannot be named (another view, a view without those hashes, a connection without an earlier
+  state: one resuming from `since`, or whose view did not exist when it started): re-ask everything.
+  An event without `graphs` (no index, or the view could not be read) means only that something
+  changed. A frontend re-asks a query only when it reads a graph named in `graphs` or `removed`; a
+  query over the default graph or `GRAPH ?g` reads every graph.
 The cursor is the feed's (§9.10): a connection that starts from `since` gets everything after it, so a
 frontend that restarts `serve` loses nothing; without `since` it starts at the present, fixed before
 `initialize` answers; a `since` that is no cursor the events handed out is refused (`events.cursor`).
@@ -1744,6 +1753,7 @@ starts is no longer known; every request accepted before it is answered first.
 > `TestServe_TheBinaryKeepsStdoutForTheProtocol`, `TestServe_ASayRunningAtShutdownIsAnswered`,
 > `TestServe_EventsNameWhatWasSaidAndResumeFromTheirCursor`, `TestServe_IndexMovedComesOnceTheIndexHoldsTheClaim`,
 > `TestEvents_AnIndexMovedOwedIsSentOnceTheIndexIsBack`, `TestEvents_ASinceThatIsNoCursorIsRefused`,
+> `TestEvents_IndexMovedNamesTheGraphsThatChanged`, `TestViewState_DiffNamesChangedAndRemovedGraphs`,
 > `TestServe_AWorkflowRunIsAJobWithItsOrigin`, `TestServe_ARunEndsWhenTheConnectionDoes` (`-tags docker`), `TestJournal_FoldsRunsAcrossWritersAndRotations`,
 > `TestJournal_AnActFilterIsAPrefix`,
 > `TestServer_AnswersRequestsAndErrorsAndGoesOn`, `TestServer_CancelsARunningRequest`,
