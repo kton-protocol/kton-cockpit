@@ -214,6 +214,22 @@ func positionsOf(links map[string]chainLink, resolved func(string) bool) map[str
 // no nested nodes, shared quads or signer label, and is no one's replacement (ADR-022: its record
 // graph stays in the store and in the nanopublication dataset, which are data like any imported graph).
 func projectClaims(trusted []Quad, links map[string]chainLink, positions map[string]int, resolved func(string) bool, vc ViewConfig) []Quad {
+	out, _ := projectClaimsSpans(trusted, links, positions, resolved, vc)
+	return out
+}
+
+// claimSpan says where a claim's quads are in the projection: out[start:end], of which the indexes in
+// shared are about something other than the claim (they carry no graph) and the quads whose subject is
+// not the claim's own node are its nested field nodes.
+type claimSpan struct {
+	start, end int
+	shared     []int
+}
+
+// projectClaimsSpans is projectClaims that also says which quads each claim produced, which the
+// incremental patch needs to take the output of the claims it asked about and leave the rest (ADR-022).
+func projectClaimsSpans(trusted []Quad, links map[string]chainLink, positions map[string]int, resolved func(string) bool, vc ViewConfig) ([]Quad, map[string]claimSpan) {
+	spans := map[string]claimSpan{}
 	claims := map[string]*claimNode{}
 	node := func(h string) *claimNode {
 		if claims[h] == nil {
@@ -450,6 +466,7 @@ func projectClaims(trusted []Quad, links map[string]chainLink, positions map[str
 		for _, i := range shared {
 			out[i].G = ""
 		}
+		spans[h] = claimSpan{start, len(out), append([]int(nil), shared...)}
 		shared = shared[:0]
 	}
 	kids := make([]string, 0, len(agents))
@@ -462,7 +479,7 @@ func projectClaims(trusted []Quad, links map[string]chainLink, positions map[str
 			out = append(out, triple(agentNS+kid, rdfsLbl, lit(s.Name)), triple(agentNS+kid, nkNS+"tier", lit(s.Tier)))
 		}
 	}
-	return out
+	return out, spans
 }
 
 var (

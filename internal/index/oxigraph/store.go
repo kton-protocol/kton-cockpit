@@ -129,6 +129,26 @@ func (d *Daemon) prepare(ctx context.Context, cfg *config.Config, keys []ed25519
 			regs = append(regs, regIRI(r.dir))
 		}
 	}
+	// What each registry had brought when this build read it: the numbers the view is marked with, read
+	// before the records so that a record landing meanwhile is in the next delta, never lost.
+	arrivals, gens, err := d.counters(ctx, regs)
+	if err != nil {
+		return nil, err
+	}
+	built := builtInfo{regs: regs, arrivals: arrivals, generation: gens, fingerprint: vc.Fingerprint()}
+	patchedIn := patchIn{slot: slot, key: key, regs: regs, inputs: inputs, keys: keys, vc: vc, built: built}
+	if ds, ok, err := d.patchView(ctx, patchedIn); err == nil && ok {
+		patchBuilds.Add(1)
+		ds.kept = false
+		d.keepDataset(slot, key, ds)
+		_ = d.noteRead(ctx, slot, cfg.RepoRoot, inputs, readClock())
+		return ds, nil
+	} else if err != nil {
+		lastFallback.Store(err.Error())
+	} else {
+		lastFallback.Store("")
+	}
+	fullBuilds.Add(1)
 	def, named, _, err := d.dataset(ctx, regs, trustedIDs(keys))
 	if err != nil {
 		return nil, err
@@ -148,7 +168,7 @@ func (d *Daemon) prepare(ctx context.Context, cfg *config.Config, keys []ed25519
 	}
 	graphs, meta := scopeGraphs(slot, view, sources)
 	building.phase("writing the view")
-	if err := d.makeView(ctx, slot, key, def, append(view, meta...), graphs, ci.quads()); err != nil {
+	if err := d.makeView(ctx, slot, key, def, append(view, meta...), graphs, ci.quads(), built); err != nil {
 		return nil, fmt.Errorf("writing the index's view of the trusted records: %w", err)
 	}
 	ds := &prepared{def: []string{viewIRI(slot)}, claims: []string{viewIRI(slot), claimsIRI(slot)},
@@ -268,8 +288,9 @@ func (d *Daemon) apply(ctx context.Context, layer, dir string, trusted []ed25519
 	// own order, and a cursor past them would skip one that sorts earlier (kton-review V1 on PR #11).
 	// Until a writer numbers them, objects differ while maxSeq does not, and they are read from 0.
 	var ps []projected
-	var chain []chainRecord // every record the registry returned, for the chain links (nekton)
-	var said kernelSaid     // what its kernel says of those records and of those it held waiting before
+	var chain []chainRecord   // every record the registry returned, for the chain links (nekton)
+	var said kernelSaid       // what its kernel says of those records and of those it held waiting before
+	var waitedBefore []string // the claims it held waiting at the last read
 	cursor := 0
 	if _, err := os.Stat(dir); err == nil {
 		switch layer {
@@ -297,12 +318,12 @@ func (d *Daemon) apply(ctx context.Context, layer, dir string, trusted []ed25519
 			}
 			// The kernel does not feed a claim again when it settles (its feed entry keeps the number it
 			// had while it waited), so what this registry held waiting at the last read is asked by id.
+			waitedBefore, err = d.previouslyDeferred(ctx, reg)
+			if err != nil {
+				return false, err
+			}
 			if since > 0 {
-				before, err := d.previouslyDeferred(ctx, reg)
-				if err != nil {
-					return false, err
-				}
-				ids = append(ids, before...)
+				ids = append(ids, waitedBefore...)
 			}
 			said = askKernel(r, ids)
 		}
@@ -385,6 +406,19 @@ func (d *Daemon) apply(ctx context.Context, layer, dir string, trusted []ed25519
 	for k := range all {
 		fmt.Fprintf(&mark, "<%s> <%skey> %s .\n", reg, kNS, nqLit(k))
 	}
+	// A claim this registry held waiting and its kernel now holds resolved is numbered like an arrival
+	// (<claim> urn:kton:settled:<registry> n): no record came, yet a view built before must take the claim in.
+	var settled strings.Builder
+	resolvedNow := map[string]bool{}
+	for _, h := range said.resolves {
+		resolvedNow[h] = true
+	}
+	for _, h := range waitedBefore {
+		if resolvedNow[h] {
+			arrivals++
+			fmt.Fprintf(&settled, "<%s%s> <%ssettled:%s> \"%d\"^^<%s> .\n", oNS, h, kNS, regID, arrivals, xsdInteger)
+		}
+	}
 	fmt.Fprintf(&mark, "<%s> <%scursor> %s .\n<%s> <%sposition> %s .\n", reg, kNS, nqLit(strconv.Itoa(cursor)), reg, kNS, nqLit(now))
 	fmt.Fprintf(&mark, "<%s> <%sarrivals> \"%d\"^^<%s> .\n", reg, kNS, arrivals, xsdInteger)
 	// What the registry's kernel said of its claims is replaced with the mark, in the same update: a
@@ -395,6 +429,9 @@ func (d *Daemon) apply(ctx context.Context, layer, dir string, trusted []ed25519
 		fmt.Fprintf(&kernel, "DELETE WHERE { GRAPH <%s> { <%s> <%sresolves> ?c } } ;\nDELETE WHERE { GRAPH <%s> { <%s> <%sdefers> ?c } } ;\n", indexGraph, reg, kNS, indexGraph, reg, kNS)
 	}
 	said.write(&kernel, reg, since == 0)
+	if settled.Len() > 0 {
+		fmt.Fprintf(&kernel, "INSERT DATA { GRAPH <%s> { %s } } ;\n", indexGraph, settled.String())
+	}
 	done := fmt.Sprintf(`DELETE WHERE { GRAPH <%[1]s> { <%[2]s> <%[3]sposition> ?a } } ;
 DELETE WHERE { GRAPH <%[1]s> { <%[2]s> <%[3]scursor> ?b } } ;
 DELETE WHERE { GRAPH <%[1]s> { <%[2]s> <%[3]skey> ?c } } ;

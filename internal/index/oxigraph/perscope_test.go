@@ -70,13 +70,17 @@ func TestOxigraph_ARebuildReplacesOnlyTheGraphsThatChanged(t *testing.T) {
 		t.Errorf("triples about something other than a claim in the scope graphs: %s", n)
 	}
 	before := oxigraph.Staged()
+	full0, patch0 := oxigraph.Builds()
 	say("b", "new")
 	if n := count(claims); n != "7" {
 		t.Errorf("after one claim in b: want 7 claims in the union, got %s", n)
 	}
-	// The chain graph (ADR-022) changes with every claim, and the view's other scopes do not.
-	if up := oxigraph.Staged() - before; up != 3 {
-		t.Errorf("one claim in b: want b's graph, the rest and the chain graph uploaded, got %d graphs", up)
+	// One claim is a patch of the view (ADR-022): no graph is staged and uploaded, the view is not built whole.
+	if up := oxigraph.Staged() - before; up != 0 {
+		t.Errorf("one claim in b: want nothing uploaded, got %d graphs", up)
+	}
+	if full, patch := oxigraph.Builds(); full != full0 || patch != patch0+1 {
+		t.Errorf("one claim in b: %d full and %d patch builds, want one patch (fell back: %q)", full-full0, patch-patch0, oxigraph.LastFallback())
 	}
 	for s, want := range map[string]string{"a": "2", "b": "3", "c": "2"} {
 		if n := count(inScope(s)); n != want {

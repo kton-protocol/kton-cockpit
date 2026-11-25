@@ -44,7 +44,9 @@ func (d *Daemon) ReadViewState(ctx context.Context, slot string) (ViewState, err
 		case row["s"] == viewIRI(slot) && row["p"] == kNS+"defHash":
 			graphs[viewIRI(slot)] = row["o"]
 			hashed = true
-		case row["p"] == kNS+"hash":
+		case row["p"] == kNS+"hash" && row["s"] != chainIRI(slot):
+			// The chain graph is the index's own bookkeeping, in no query's dataset: a frontend has
+			// nothing to re-ask when it moves (ADR-022).
 			graphs[row["s"]] = row["o"]
 		}
 	}

@@ -121,7 +121,7 @@ func (d *Daemon) viewIs(ctx context.Context, slot, key string) bool {
 // takes turns per slot, and a builder that waited finds the view already made under its key. chain is
 // the view's chain graph (ADR-022): the index's own bookkeeping, kept like a scope graph but never part
 // of the union of the claims, whose nodes carry the same triples.
-func (d *Daemon) makeView(ctx context.Context, slot, key string, def []string, claims []Quad, scopes map[string][]Quad, chain []Quad) (err error) {
+func (d *Daemon) makeView(ctx context.Context, slot, key string, def []string, claims []Quad, scopes map[string][]Quad, chain []Quad, built builtInfo) (err error) {
 	if d.Dir != "" {
 		if err := os.MkdirAll(d.datasetDir(), 0o755); err != nil {
 			return err
@@ -250,6 +250,7 @@ func (d *Daemon) makeView(ctx context.Context, slot, key string, def []string, c
 	for _, g := range sortedKeys(hashes) {
 		u.WriteString("<" + g + "> <" + kNS + "hash> " + strconv.Quote(hashes[g]) + " .\n")
 	}
+	u.WriteString(built.markTriples(slot))
 	u.WriteString("} }")
 	err = d.update(ctx, u.Bytes())
 	return err

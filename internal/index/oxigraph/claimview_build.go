@@ -101,6 +101,7 @@ func (d *Daemon) claimView(ctx context.Context, named []string, ci *chainInfo, v
 // where a graph listed in the dataset is a scan per row.
 func (d *Daemon) quadsOf(ctx context.Context, graphs []string) ([]Quad, error) {
 	var out []Quad
+	quadGraphsRead.Add(int64(len(graphs)))
 	const chunk = 4000
 	for i := 0; i < len(graphs); i += chunk {
 		var vals strings.Builder

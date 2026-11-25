@@ -1722,7 +1722,13 @@ notifications (no id), of what changed in the registries this repository reads, 
   view's dataset `key` as it now stands, and `graphs` and `removed`: the view's graphs (its record graph
   `urn:kton:view:<slot>`, its rest `…:rest` (signer labels and the claim graphs' metadata, which a query over a scope's claims also reads), its claim graphs `…:scope:<hex>` and `…:unscoped`, which a
   scope's `graph` names) whose content changed or that came, and that went, since the connection's last
-  `indexMoved`, compared by the hash the view keeps of each graph, whoever built it. `all: true` says
+  `indexMoved`, compared by the hash the view keeps of each graph, whoever built it (ADR-022: a view patched by what
+  arrived keeps, for a graph the patch changed, the hash of its state before and of the triples the patch deleted and
+  inserted, so the state changes when the graph does and not otherwise; a view built whole keeps the hash of each
+  graph's content, which a patched graph's state never equals, so the first `indexMoved` after a full build names every
+  graph a patch had changed, and every graph of a new view. The view's chain graph
+  `…:chain`, the index's own bookkeeping that is in no dataset, is never named. Checked by
+  `TestOxigraph_ASayIntoALargeViewIsOnePatch` and `TestPatch_AGraphsStateChangesWithItsContentAndOtherwiseNot`). `all: true` says
   they cannot be named (another view, a view without those hashes, a connection without an earlier
   state: one resuming from `since`, or whose view did not exist when it started): re-ask everything. A
   connection without `since` compares with the view as it stood when it started, read before its
