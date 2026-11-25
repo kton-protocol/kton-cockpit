@@ -1,6 +1,14 @@
 # Changelog
 
-## Unreleased
+## v0.5.13 — 2026-11-25
+
+The architecture view's read-only listings (#254), reviewed by kton-review, the index part by
+cockpit-runtime; the workgroup extension 0.5.1 opens a lane on another machine in a terminal of its own
+(#253, cockpit-runtime's).
+
+### Migrating from v0.5.12
+
+- Nothing to do. A registry's directory appears in `index registries` after the next query that reads it.
 
 ### Added
 
@@ -18,11 +26,9 @@
   - G10: `cockpit index registries [--json]` and serve's `index/registries`: every registry the index
     holds (dir, records, keyids, position, cursor, stale) and the repositories whose queries read it
     (`readBy` with `lastRead`), with the packages each admits. A query notes its read in `urn:kton:index`
-    at most once a minute per repository and view; a warm query in the same minute writes nothing.
-
-### Migrating from v0.5.12
-
-- Nothing to do. A registry's directory appears in `index registries` after the next query that reads it.
+    at most once a minute per repository and view; a warm query in the same minute writes nothing. The
+    listing is machine-wide by choice: on a shared index (`index.url`) it shows every user's repository
+    roots (SPEC §12.4).
 
 ## v0.5.12 — 2026-11-24
 
