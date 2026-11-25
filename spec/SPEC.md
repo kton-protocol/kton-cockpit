@@ -1715,7 +1715,9 @@ notifications (no id), of what changed in the registries this repository reads, 
   scope's `graph` names) whose content changed or that came, and that went, since the connection's last
   `indexMoved`, compared by the hash the view keeps of each graph, whoever built it. `all: true` says
   they cannot be named (another view, a view without those hashes, a connection without an earlier
-  state: one resuming from `since`, or whose view did not exist when it started): re-ask everything.
+  state: one resuming from `since`, or whose view did not exist when it started): re-ask everything. A
+  connection without `since` compares with the view as it stood when it started, read before its
+  cursor is fixed, so a record landing in between is named in its first `indexMoved`.
   An event without `graphs` (no index, or the view could not be read) means only that something
   changed. A frontend re-asks a query only when it reads a graph named in `graphs` or `removed`; a
   query over the default graph or `GRAPH ?g` reads every graph.

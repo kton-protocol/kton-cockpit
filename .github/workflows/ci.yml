@@ -245,7 +245,20 @@ jobs:
           GOFLAGS: -mod=mod
         run: |
           echo "required: $(go list -m -f '{{.Version}}' kton.dev/plankton)"
-          go get kton.dev/plankton@main kton.dev/nekton@main kton.dev/kton@main
+          # kton main at a release tag: Go derives a pseudo-version from that tag for the same commit
+          # and refuses it ("already canonical"); main is then the tag, so take the tag. Any other
+          # error fails the step.
+          for m in kton.dev/plankton kton.dev/nekton kton.dev/kton; do
+            if ! out=$(go get "$m@main" 2>&1); then
+              if echo "$out" | grep -q "already canonical"; then
+                echo "$m: main is a release tag; taking @latest"
+                go get "$m@latest"
+              else
+                echo "$out" >&2
+                exit 1
+              fi
+            fi
+          done
           # -e: at kton main an import may not resolve (a package moved, ktonpkg built on v0.3.0);
           # tidy still writes what it can, and the test step below says what breaks.
           go mod tidy -e
