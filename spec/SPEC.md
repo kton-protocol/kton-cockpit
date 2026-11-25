@@ -763,7 +763,12 @@ for a frontend to show; `say` neither checks nor enforces them. `say/templates` 
 A template whose predicate or context is no IRI once resolved (a CURIE whose prefix no alias file
 declares) is refused by `say` and named by `doctor`, never signed as written. An `aliases.json` at the
 repository root while `.kton/aliases.json` is absent (where the cockpit read it before v0.5.5, and
-nekton's CLI still defaults) makes `say` and `say --json` refuse and `doctor` name it.
+nekton's CLI still defaults) makes `say` and `say --json` refuse and `doctor` name it. A template the
+kernel's set refuses at load (a role that resolves to no IRI, a scope that is no seed IRI) is left out
+of `say --json`, and `doctor` and `say`'s overview name it with the
+kernel's reason.
+
+> **Checked by:** `TestShellSay_ARefusedTemplateIsNamedByDoctorAndTheOverview`.
 
 > **Checked by:** `TestSay_AMisplacedAliasFileAndAnUnresolvedPredicateAreRefused`.
 

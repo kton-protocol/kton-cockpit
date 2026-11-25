@@ -17,6 +17,9 @@
 
 ### Changed
 
+- **ktonpkg v0.10.2** (cockpit-verticleformat): a tool's command frame may name `<output>`, and a
+  normaliser may run in its own image; nothing in the cockpit uses either yet (the tool module's
+  qualify, ADR-015, is still to come).
 - **kton v0.5.0** (kton.dev/plankton, nekton, kton). go.mod names the kernel CLIs as `tool`s, so
   plankton's own imports (x/crypto, x/term for protected keys) stay in go.sum (the missing entries the advisory
   "against kton main" job reported).
@@ -24,6 +27,11 @@
   globbing over joined paths, so a path holding `*`, `?` or `[` no longer lets it move a sibling
   registry's keys or sign a sibling's files (kton-review's G2 for ktonpkg).
 - The recorder's watch lists its folders instead of globbing over joined paths (#257, cockpit-runtime's).
+
+### Fixed
+
+- **A template the kernel refuses is named** (kton-review N3 on #260): `doctor` and `say`'s overview
+  say which template was refused at load and why, instead of only leaving it out (SPEC §8.5).
 
 ## v0.5.14 — 2026-11-25
 

@@ -133,3 +133,21 @@ func TestShellSay_ListsCURIERolesResolved(t *testing.T) {
 		}
 	}
 }
+
+// A template the set refuses (here a role that resolves to no IRI) is named, with the kernel's reason,
+// by doctor and by say's overview, instead of only missing from the list (kton-review N3 on #260).
+func TestShellSay_ARefusedTemplateIsNamedByDoctorAndTheOverview(t *testing.T) {
+	r := testrepo.New(t)
+	r.Use(t)
+	r.Write(t, ".kton/templates/broken.json", `{"name": "broken", "target": "either", "predicate": "https://example.org/ln/broken",
+  "signerRoles": ["nope:reviewer"], "fields": {"note": {"type": "string"}}}`)
+	raw := r.Config(t).Raw
+	raw.Claims.AllowedTemplates = append(raw.Claims.AllowedTemplates, "broken")
+	r.WriteConfig(t, raw)
+	for _, args := range [][]string{{"doctor"}, {"say"}} {
+		out, _ := r.Cockpit(t, args...)
+		if !strings.Contains(out, "the template broken is refused") || !strings.Contains(out, "signerRoles") {
+			t.Errorf("cockpit %s does not name the refused template with its reason:\n%s", args[0], out)
+		}
+	}
+}

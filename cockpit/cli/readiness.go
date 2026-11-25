@@ -157,6 +157,9 @@ func readiness(ctx context.Context, cfg *config.Config) []nextStep {
 		for _, c := range binaries.New(cfg).TemplateClashes() {
 			steps = append(steps, nextStep{false, c})
 		}
+		for _, line := range refusedTemplateLines(cfg) {
+			steps = append(steps, nextStep{false, line})
+		}
 	}
 	return steps
 }
@@ -245,4 +248,20 @@ func checkMadePath(p string) string {
 		return p + "  [made on first write]"
 	}
 	return p + "  [ok]"
+}
+
+// refusedTemplateLines names each template the set refused, sorted, so a template that does not load
+// is said where its author looks (doctor, say's overview), not only left out (kton-review N3 on #260).
+func refusedTemplateLines(cfg *config.Config) []string {
+	refused := binaries.New(cfg).RefusedTemplates()
+	names := make([]string, 0, len(refused))
+	for n := range refused {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	out := make([]string, 0, len(names))
+	for _, n := range names {
+		out = append(out, fmt.Sprintf("the template %s is refused, say cannot use it: %s", n, refused[n]))
+	}
+	return out
 }

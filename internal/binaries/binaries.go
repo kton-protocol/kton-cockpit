@@ -934,6 +934,17 @@ func (r *Runner) TemplateClashes() []string {
 	return clashes
 }
 
+// RefusedTemplates are the templates the set refused at load, by name, with the kernel's reason: say
+// cannot use them, so doctor and say's overview name them instead of leaving them out in silence
+// (kton-review N3 on #260). Nil when the set cannot be read at all (doctor names that elsewhere).
+func (r *Runner) RefusedTemplates() map[string]string {
+	set, _, _, _, err := r.templatesFull()
+	if err != nil {
+		return nil
+	}
+	return set.Refused()
+}
+
 func (r *Runner) templatesFull() (ntemplate.Set, map[string]packages.Aliases, []string, map[string]TemplateOrigin, error) {
 	if why := MisplacedAliases(r.cfg); why != "" {
 		return ntemplate.Set{}, nil, nil, nil, fmt.Errorf("%s", why)
