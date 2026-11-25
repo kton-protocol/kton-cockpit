@@ -113,17 +113,23 @@ func federationAdd(ctx context.Context, args []string) error {
 	return nil
 }
 
+// federationListing is `federation list --json` and serve's federation/list: every configured source with
+// what it holds now.
+func federationListing(ctx context.Context, cfg *config.Config) []SourceStatus {
+	out := []SourceStatus{}
+	for _, s := range cfg.Raw.Federation.Sources {
+		out = append(out, sourceStatus(ctx, cfg, s.Name))
+	}
+	return out
+}
+
 func federationList(ctx context.Context, asJSON bool) error {
 	cfg, err := config.Load(ctx, ".")
 	if err != nil {
 		return err
 	}
 	if asJSON {
-		out := []SourceStatus{}
-		for _, s := range cfg.Raw.Federation.Sources {
-			out = append(out, sourceStatus(ctx, cfg, s.Name))
-		}
-		return printJSON(out)
+		return printJSON(federationListing(ctx, cfg))
 	}
 	if len(cfg.Raw.Federation.Sources) == 0 {
 		fmt.Println("no sources — this repository reads its own records only. Add one: cockpit federation add <name> <git-URL>")

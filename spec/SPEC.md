@@ -223,7 +223,8 @@ belongs to the configuration, never to the way a call arrived, and a verb that i
 transport than another has a ceiling that depends on who is asking.
 
 Operator subcommands (`init`, `doctor`, `show`, `scope`) MAY exist on the binary. They MUST NOT be
-reachable over the tool transport (MCP), which an agent uses. The frontend protocol (§12.5) serves a
+reachable over the tool transport (MCP), which an agent uses, except the read-only `ui list` an operator
+MAY give it (§6.2). The frontend protocol (§12.5) serves a
 person's editor, and reaches the listings an operator reads (`doctor`, `ui list`, `show`), never one
 that changes the repository.
 
@@ -263,7 +264,7 @@ signature.
 > **Checked by:** `TestShellJSON_EveryListingAndRefusalIsOneDocument`, `TestDoctorJSON_ListsEveryClaimKey`,
 > `TestShellVerbs_JSONAnswerIsAllOfStdout`, `TestSync_TakesInWhatAnotherCloneShared`.
 
-`ui list` (an operator command, not on the tool transport) lists the installed packages for a
+`ui list` (an operator command, on the tool transport only as §6.2 allows) lists the installed packages for a
 frontend: each with its name, revision, profile, whether the configuration admits it, and what fails
 its check, under `refused`, never hidden. A frontend reads what packages declare from here, never
 from package folders. What a package declares for a frontend (its `ui/` entries, blocks and
@@ -300,7 +301,13 @@ bytes base64, in the order asked. It MUST refuse a hash that is not a member of 
 revision (the whole call, with nothing else written), a package a frontend may not use, and a reference
 that names two packages, so a frontend never reads a package folder.
 
-> **Checked by:** `TestUIList_ListsInstalledPackagesWithWhatFailsTheirCheck`,
+Under the same rule as the declarations, `ui list` gives each package as ktonpkg reads its revision
+(v0.10.0): `source`, where it was built from (`{repo, commit, path, dirty}`; null for a revision that
+records none), `requires`, the packages it declares it needs (`[{package, at?, head?, why?}]`), and
+`references`, every place its compositions name another package (`[{where, what, name, package, at?,
+head?}]`).
+
+> **Checked by:** `TestUIList_ListsInstalledPackagesWithWhatFailsTheirCheck`, `TestUIList_NamesSourceRequiresAndReferences`,
 > `TestUIList_ListsAVerticlesUIBlocksAndCompositions`, `TestAllowed_ABrokenUnadmittedPackageTakesNothingAway`,
 > `TestUICat_ServesAMembersBytesAndNothingElse`, `TestUICat_OnlyUsablePackagesAndByNameDirOrID`,
 > `TestUICat_AReferenceNamingTwoPackagesIsRefused`, `TestUICat_SeveralMembersInOneCall`,
@@ -341,8 +348,15 @@ another lane. An argument a tool's schema does not name MUST be refused, so a ty
 not a claim saying less than meant. A scope the configuration does not name MUST be refused when the
 server starts, not on the first call.
 
+An operator MAY also give the tool transport one listing (`cockpit mcp --ui`): `cockpit_ui_list` answers
+what `ui list --json` prints (§12.5), so an agent that draws the repository reads what its packages
+declare instead of their folders. It takes no argument, changes nothing, and lists a package's
+declarations only where the configuration admits it and it passes its check. It is a listing, not a
+verb; without `--ui` it is not there.
+
 > **Checked by:** `TestMCP_VocabularyToolsAreTheVerbsWithArgumentsFixed`,
-> `TestMCP_TheVocabularyIsOptInAndItsOptionsAreChecked`, `TestMCP_AQueryToolRunsWithTheServersBinding`.
+> `TestMCP_TheVocabularyIsOptInAndItsOptionsAreChecked`, `TestMCP_AQueryToolRunsWithTheServersBinding`,
+> `TestMCP_TheUIListIsOptInAndIsTheCommandLinesListing`.
 
 A verticle (ktonpkg profile `verticle`) MAY declare its MCP tools itself (`mcp/<name>.json`: a
 description, an input schema, and a `bind` from the query's `$VAR` or the ray's holes to input
@@ -730,10 +744,12 @@ package between the showing and the signature. A repository template has no revi
 `expectRevision` refuses it. `expectPredicate` is the predicate as `say --json` listed it: an alias
 file's change alters what is signed without changing a template's bytes. `say --json` lists each
 template's `predicate` and `context` as `say` will sign them (resolved through the template's package
-aliases and `.kton/aliases.json`), its `hash`, and, for a package template, its `revision`.
+aliases and `.kton/aliases.json`), its `hash`, and, for a package template, its `revision` and the
+`package` it came from (by name).
 
 > **Checked by:** `TestSay_ExpectTemplateAndRevisionRefuseATemplateThatChanged`, `TestSay_TheListingGivesThePredicateAsSigned`,
-> `TestSay_ExpectTemplateHoldsForAQualifiedTemplate`, `TestSay_TheHashCoversTheAliasFile`.
+> `TestSay_ExpectTemplateHoldsForAQualifiedTemplate`, `TestSay_TheHashCoversTheAliasFile`,
+> `TestShellSay_ListsAnAllowedPackagesTemplatesAndPointsFlagsToTheJSONFields`.
 
 A template whose predicate or context is no IRI once resolved (a CURIE whose prefix no alias file
 declares) is refused by `say` and named by `doctor`, never signed as written. An `aliases.json` at the
@@ -977,7 +993,12 @@ Where a seed names `responsible` identities, they MUST be reported as written an
 enforced: kton §7.4 keeps their meaning a convention for consumers, and the reference implementation
 emits none.
 
-> **Checked by:** `TestScope_TheSealVerdictSaysWhetherTheChainIsWhole`,
+The verdict is the answer's `seal`, with the same fields wherever ask is answered (the command line's
+`--json`, MCP, `serve`): `complete` (whether it can be sealed), `heads` (more than one is a branch),
+`chainLength` (the claims on the chain), `gaps`, `reason`, `limit`, `seedTier`, and `writers`, each
+`{keyid, tier, claims}` with `tier` absent for a key no tier holds. A frontend reads these, never `raw`.
+
+> **Checked by:** `TestScope_TheSealVerdictSaysWhetherTheChainIsWhole`, `TestScope_TheVerdictsFieldsAreNamedOnTheWire`,
 > `TestScope_TheSealVerdictReportsABranchAsUnsealable`,
 > `TestScope_TheSealVerdictReportsAGapAsPartialNotBroken`,
 > `TestScope_AnUntrustedWriterIsReportedButExcluded`,
@@ -1610,6 +1631,21 @@ dataset of the request is the only wall between repositories, so a query that ca
 MUST be pinned by digest; a running daemon from another image or store schema is not used, and a store
 written under another schema is emptied first.
 
+`index registries` lists what the daemon holds, per registry: its `id`, `dir`, `records`, the `keys` it was
+attributed under (keyids), `position`, `cursor`, whether it is `stale` (moved since it was read), and
+`readBy`, the repository roots whose queries read it with the minute one last did (`lastRead`); and, per
+such root, the packages it admits, read from that root's own configuration. Where a registry's directory
+and readers come from is observation, not record: a query notes them in `urn:kton:index` at most once a
+minute per repository and view (a warm query in the same minute writes nothing), no answer reads them,
+and a rebuild drops them. It starts no daemon. It is machine-wide by choice: it lists every registry and
+every reading root the daemon holds, not only this repository's view, because it is the operator's picture
+of the machine's index (architecture view G10); unlike `ask`, it answers no question about records, so the
+per-view confinement of the index's queries does not apply. On a shared daemon (`index.url`) that shows every
+user's repository roots to whoever runs it.
+
+> **Checked by:** `TestOxigraph_ListsItsRegistriesAndWhoReadsThem` (`-tags docker`),
+> `TestServe_ListingsAreTheCommandLinesJSON`.
+
 A build of a view SHOULD say so while it runs: `index status --json` lists this repository's builds
 (`building`: slot, since, phase), and a build whose process ended is not listed, so a frontend waiting on
 an answer shows the build instead of guessing from timeouts.
@@ -1638,14 +1674,17 @@ The methods reach the same implementation as the command line:
 - `publish`, `say` and `ask` take the request types of the Go API, MCP and the JSON argument, and answer
   their result types;
 - `say/templates`, `ask/questions`, `ui/list`, `doctor` and `version` answer what the command line prints
-  under `--json`;
+  under `--json`; so do `federation/list`, `trust/list`, `config/get`, `index/status` and
+  `index/registries` (`federation list`, `trust list`, `config`, `index status`, `index registries`),
+  for a frontend that draws the repository's setup;
 - `ui/cat` (`{package, hashes}`) answers what `ui cat … --json` prints, with the bytes base64;
 - `show/snapshot` answers what `show --json` prints.
 
 A `say` that names an identity other than the connection's MUST be refused (`identity.as`).
 
 A frontend MUST NOT forward a request that comes from content it hosts (a package's viewer, a composition)
-to anything but the verbs it mediates for that content: never to `doctor`, `show` or `ui/*`.
+to anything but the verbs it mediates for that content: never to `doctor`, `show`, `ui/*`, or the setup
+listings (`federation/list`, `trust/list`, `config/get`, `index/*`).
 
 A connection MAY ask for events: `initialize` with `events: true` or `{since, intervalMs}`. They are
 notifications (no id), of what changed in the registries this repository reads, whoever changed them:

@@ -2,6 +2,7 @@ package cockpit
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -193,6 +194,44 @@ func TestScope_TheSealVerdictSaysWhetherTheChainIsWhole(t *testing.T) {
 	}
 	if seal.SeededWhen == "" || seal.Name == "" {
 		t.Errorf("the verdict does not say who defined the scope and when: %+v", seal)
+	}
+}
+
+// The verdict's fields are the wire shape a frontend reads (SPEC §9.6, architecture view G4): seal as
+// seal.complete, branches as seal.heads, count as seal.chainLength, writers as seal.writers with keyid,
+// tier and claims. The command line's --json, MCP and serve's ask all carry this one type.
+func TestScope_TheVerdictsFieldsAreNamedOnTheWire(t *testing.T) {
+	r, scope := scopedRepo(t)
+	pub := publishOne(t, r)
+	sayInScope(t, pub.FotonID, "review")
+
+	_, out, err := Ask(context.Background(), nil, AskRequest{Query: "scope", Ref: scope})
+	if err != nil || out.Seal == nil {
+		t.Fatalf("ask scope: %v %+v", err, out)
+	}
+	b, err := json.Marshal(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wire struct {
+		Seal map[string]json.RawMessage `json:"seal"`
+	}
+	if err := json.Unmarshal(b, &wire); err != nil {
+		t.Fatal(err)
+	}
+	for _, k := range []string{"scope", "complete", "heads", "chainLength", "writers", "reason", "limit", "seedTier"} {
+		if _, ok := wire.Seal[k]; !ok {
+			t.Errorf("seal.%s is missing from the answer: %s", k, b)
+		}
+	}
+	var writers []map[string]any
+	if err := json.Unmarshal(wire.Seal["writers"], &writers); err != nil || len(writers) != 1 {
+		t.Fatalf("seal.writers: %v %s", err, wire.Seal["writers"])
+	}
+	for _, k := range []string{"keyid", "tier", "claims"} {
+		if _, ok := writers[0][k]; !ok {
+			t.Errorf("seal.writers[].%s is missing: %v", k, writers[0])
+		}
 	}
 }
 

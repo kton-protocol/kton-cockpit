@@ -428,3 +428,73 @@ func TestUIList_MembersOnlyForUsablePackages(t *testing.T) {
 		}
 	}
 }
+
+// ui list gives each usable package where it was built from (source), the packages it declares it needs
+// (requires) and every place its compositions name another package (references), as ktonpkg v0.10.0
+// reads them (architecture view G7). Like the declarations, they are null for a package a frontend may
+// not use.
+func TestUIList_NamesSourceRequiresAndReferences(t *testing.T) {
+	r := testrepo.New(t)
+	r.Use(t)
+	out, err := exec.Command("go", "list", "-m", "-f", "{{.Dir}}", "github.com/gitmick/ktonpkg").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := t.TempDir()
+	if err := os.CopyFS(src, os.DirFS(filepath.Join(strings.TrimSpace(string(out)), "scope", "testdata", "hostile", "good"))); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, scope.RequiresFile), []byte(`{"packages": [{"package": "words", "why": "its templates"}]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, key, _ := ed25519.GenerateKey(rand.Reader)
+	source := &scope.Source{Repo: "https://example.org/review.git", Commit: strings.Repeat("a", 40), Path: "verticles/review"}
+	c := cockpit.New(cockpit.Start{})
+	for _, v := range []struct {
+		name  string
+		allow bool
+	}{{"review", true}, {"other", false}} {
+		dir := filepath.Join(t.TempDir(), v.name)
+		if _, _, err := scope.BuildVerticle(dir, v.name, "v1", src, key, scope.Options{Source: source}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := c.Install(context.Background(), cockpit.InstallRequest{Path: dir, Allow: v.allow}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	stdout, stderr, code := r.CockpitSplit(t, "ui", "list", "--json")
+	var l struct {
+		Packages []struct {
+			Name       string            `json:"name"`
+			Source     *scope.Source     `json:"source"`
+			Requires   []map[string]any  `json:"requires"`
+			References []json.RawMessage `json:"references"`
+			Refused    []UIRefusal       `json:"refused"`
+		} `json:"packages"`
+	}
+	if code != 0 || json.Unmarshal([]byte(stdout), &l) != nil || len(l.Packages) != 2 {
+		t.Fatalf("ui list --json (exit %d):\n%s\n%s", code, stdout, stderr)
+	}
+	for _, p := range l.Packages {
+		switch p.Name {
+		case "review":
+			if len(p.Refused) != 0 {
+				t.Fatalf("review refused: %+v", p.Refused)
+			}
+			if p.Source == nil || *p.Source != *source {
+				t.Errorf("source: %+v, want %+v", p.Source, source)
+			}
+			if len(p.Requires) != 1 || p.Requires[0]["package"] != "words" || p.Requires[0]["why"] != "its templates" {
+				t.Errorf("requires: %v", p.Requires)
+			}
+			if p.References == nil {
+				t.Errorf("references: null for a usable package, want a list")
+			}
+		case "other":
+			if p.Source != nil || p.Requires != nil || p.References != nil {
+				t.Errorf("a package not admitted lists source, requires or references: %+v", p)
+			}
+		}
+	}
+}

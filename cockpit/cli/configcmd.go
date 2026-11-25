@@ -34,6 +34,17 @@ type ConfigShown struct {
 	Config    json.RawMessage `json:"config"`
 }
 
+// configShown is `config --json` and serve's config/get: the configuration file as it is written, where it
+// is, and the session this checkout signs as.
+func configShown(cfg *config.Config) (ConfigShown, error) {
+	cfgPath := config.ConfigPath(cfg.RepoRoot)
+	b, err := os.ReadFile(cfgPath)
+	if err != nil {
+		return ConfigShown{}, err
+	}
+	return ConfigShown{Path: cfgPath, SessionID: cfg.Identity.SessionID, Config: json.RawMessage(b)}, nil
+}
+
 func runConfig(ctx context.Context, args []string) error {
 	cfg, err := config.Load(ctx, ".")
 	if err != nil {
@@ -41,11 +52,11 @@ func runConfig(ctx context.Context, args []string) error {
 	}
 	cfgPath := config.ConfigPath(cfg.RepoRoot)
 	if len(args) == 1 && args[0] == "--json" {
-		b, err := os.ReadFile(cfgPath)
+		shown, err := configShown(cfg)
 		if err != nil {
 			return err
 		}
-		return printJSON(ConfigShown{Path: cfgPath, SessionID: cfg.Identity.SessionID, Config: json.RawMessage(b)})
+		return printJSON(shown)
 	}
 	switch len(args) {
 	case 0:

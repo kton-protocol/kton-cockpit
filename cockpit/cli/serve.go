@@ -359,6 +359,22 @@ func serveMethods(sess *serveSession) map[string]frontrpc.Handler {
 	m["show/snapshot"] = method(sess, func(ctx context.Context, _ *ServeInit, cfg *config.Config, _ none) (ShowSnapshot, error) {
 		return showSnapshot(ctx, cfg)
 	})
+	// The repository's setup, for a frontend that draws it (architecture view G3).
+	m["federation/list"] = method(sess, func(ctx context.Context, _ *ServeInit, cfg *config.Config, _ none) ([]SourceStatus, error) {
+		return federationListing(ctx, cfg), nil
+	})
+	m["trust/list"] = method(sess, func(_ context.Context, _ *ServeInit, cfg *config.Config, _ none) ([]Tier, error) {
+		return trustTiers(cfg), nil
+	})
+	m["config/get"] = method(sess, func(_ context.Context, _ *ServeInit, cfg *config.Config, _ none) (ConfigShown, error) {
+		return configShown(cfg)
+	})
+	m["index/status"] = method(sess, func(ctx context.Context, _ *ServeInit, cfg *config.Config, _ none) (IndexStatus, error) {
+		return indexStatus(ctx, cfg)
+	})
+	m["index/registries"] = method(sess, func(ctx context.Context, _ *ServeInit, cfg *config.Config, _ none) (IndexRegistries, error) {
+		return indexRegistries(ctx, cfg)
+	})
 	m["doctor"] = method(sess, func(ctx context.Context, _ *ServeInit, cfg *config.Config, _ none) (doctorReport, error) {
 		return doctorReportOf(ctx, cfg), nil
 	})

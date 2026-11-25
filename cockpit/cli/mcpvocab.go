@@ -38,6 +38,9 @@ type mcpOptions struct {
 	// arguments, every step a recorded run. That executes code, so it is a separate yes from the
 	// operator, never implied by --vocabulary (SPEC §6.2).
 	runs bool
+	// ui adds cockpit_ui_list: what ui list --json prints, read-only, for an operator's agent that draws
+	// the repository (architecture view G2). A listing, not a verb, so a separate yes too (SPEC §6.2).
+	ui bool
 }
 
 func parseMCPArgs(args []string) (mcpOptions, error) {
@@ -57,6 +60,8 @@ func parseMCPArgs(args []string) (mcpOptions, error) {
 			o.vocabulary = true
 		case "--runs":
 			o.runs = true
+		case "--ui":
+			o.ui = true
 		case "--as":
 			o.as, err = next()
 		case "--scope":

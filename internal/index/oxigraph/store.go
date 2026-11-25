@@ -104,6 +104,7 @@ func (d *Daemon) prepare(ctx context.Context, cfg *config.Config, keys []ed25519
 	}
 	slot, key := datasetKey(inputs, keys, vc.Fingerprint())
 	if ds, ok := d.keptDataset(ctx, slot, key); ok {
+		_ = d.noteRead(ctx, slot, cfg.RepoRoot, inputs, readClock())
 		return ds, nil
 	}
 	building := markBuilding(d.Dir, slot, cfg.RepoRoot)
@@ -144,6 +145,7 @@ func (d *Daemon) prepare(ctx context.Context, cfg *config.Config, keys []ed25519
 	ds := &prepared{def: []string{viewIRI(slot)}, claims: []string{viewIRI(slot), claimsIRI(slot)},
 		named: named, scopes: sortedKeys(graphs), graphs: describeGraphs(meta), slot: slot, registries: len(regs), kept: kept}
 	d.keepDataset(slot, key, ds)
+	_ = d.noteRead(ctx, slot, cfg.RepoRoot, inputs, readClock())
 	return ds, nil
 }
 

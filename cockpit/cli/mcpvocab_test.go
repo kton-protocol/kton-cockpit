@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -16,6 +17,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/kton-protocol/kton-cockpit/cockpit"
+	"github.com/kton-protocol/kton-cockpit/internal/config"
 	"github.com/kton-protocol/kton-cockpit/internal/testrepo"
 )
 
@@ -218,5 +220,47 @@ func TestMCP_TheVocabularyIsOptInAndItsOptionsAreChecked(t *testing.T) {
 	}
 	if _, err := mcpServer(context.Background(), mcpOptions{vocabulary: true, scope: "nowhere"}); err == nil {
 		t.Error("an unconfigured scope: want refused at start")
+	}
+}
+
+// With --ui, the operator gives an agent one read-only listing: cockpit_ui_list answers what ui list
+// --json prints. Without it the tool is not there (SPEC §6.2, architecture view G2).
+func TestMCP_TheUIListIsOptInAndIsTheCommandLinesListing(t *testing.T) {
+	vocabRepo(t)
+	if _, err := parseMCPArgs([]string{"--ui"}); err != nil {
+		t.Fatalf("--ui: %v", err)
+	}
+	cs := connect(t, mcpOptions{ui: true})
+	var names []string
+	for tool, err := range cs.Tools(context.Background(), nil) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		names = append(names, tool.Name)
+	}
+	slices.Sort(names)
+	if !slices.Equal(names, []string{"cockpit_ask", "cockpit_publish", "cockpit_say", "cockpit_ui_list"}) {
+		t.Errorf("with --ui: %v", names)
+	}
+	got, msg := callTool(t, cs, "cockpit_ui_list", map[string]any{})
+	if msg != "" {
+		t.Fatalf("cockpit_ui_list: %s", msg)
+	}
+	cfg, err := config.Load(context.Background(), ".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	l, err := uiListing(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := json.Marshal(l)
+	var want map[string]any
+	json.Unmarshal(b, &want)
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("cockpit_ui_list is not ui list --json:\n got %v\nwant %v", got, want)
+	}
+	if _, msg := callTool(t, cs, "cockpit_ui_list", map[string]any{"package": "inbox"}); msg == "" {
+		t.Error("an argument the tool does not take: want refused")
 	}
 }

@@ -191,7 +191,7 @@ usage:
   cockpit federation  add <name> <git-URL|checkout> / list / pull / remove — read other registries
   cockpit sync     take in what others shared, share what is here, then pull the federation sources
   cockpit config   show the configuration, or set one value (config persist.share off)
-  cockpit index    status / start / stop / rebuild — the machine's index daemon (index.kind oxigraph)
+  cockpit index    status / registries / start / stop / rebuild — the machine's index daemon (index.kind oxigraph)
   cockpit shim     serve --socket PATH | --listen 127.0.0.1:PORT — answer the tool shims (ADR-014)
 %s  cockpit keygen   make a signing identity (keys/<name>.key + .pub, and the claims pair)
   cockpit version  what this binary is, and which kernel is compiled into it
@@ -201,6 +201,7 @@ usage:
                    [--scope NAME] their claims chain into that scope, about it by default;
                    [--bind VAR=VALUE]... fixes a query parameter $VAR;
                    [--runs] a tool per installed workflow (run_<name>), its holes as arguments
+                   [--ui] cockpit_ui_list, read only: what ui list --json prints
   cockpit serve    --stdio: the frontend protocol for an editor extension, JSON-RPC 2.0 (SPEC §12.5)
   cockpit load     <file|sha256>... [--as TYPE] [--label NAME]: a file's RDF into the index as a graph
                    named by its hash (ADR-017), --label naming it for a query (nk:loadedAs); --list,
@@ -217,7 +218,8 @@ usage:
 
 a session never invokes 'init'/'doctor'/'show' — they are for the human operator setting up or
 inspecting a participant repo. Only 'mcp' is registered as the tool surface (via .mcp.json), and
-it exposes exactly three verbs — the vocabulary tools are those verbs with arguments fixed.
+it exposes exactly three verbs — the vocabulary tools are those verbs with arguments fixed, and
+--ui adds one read-only listing the operator chose to give.
 `, packageUsage, moduleUsage())
 }
 
@@ -275,6 +277,27 @@ func mcpServer(ctx context.Context, o mcpOptions) (*mcp.Server, error) {
 			"query feed returns the trusted records after a cursor (field cursor, empty for the start), " +
 			"each with its signer, and the cursor to ask from next.",
 	}, mcpsurface.Handler(c.Ask))
+
+	if o.ui {
+		mcp.AddTool(server, &mcp.Tool{
+			Name: "cockpit_ui_list",
+			Description: "read only: what the installed packages declare for a frontend, as `cockpit ui list --json` " +
+				"prints it: each package's name, revision, whether this repository admits it, what fails its check, " +
+				"and for an admitted one its ui entries, blocks, compositions, members, source, requires and " +
+				"references. Changes nothing.",
+		}, mcpsurface.Handler(func(ctx context.Context, _ struct{}) (*any, error) {
+			cfg, err := config.Load(ctx, ".")
+			if err != nil {
+				return nil, err
+			}
+			l, err := uiListing(cfg)
+			if err != nil {
+				return nil, err
+			}
+			var v any = l
+			return &v, nil
+		}))
+	}
 
 	if o.vocabulary || o.runs {
 		cfg, err := config.Load(ctx, ".")

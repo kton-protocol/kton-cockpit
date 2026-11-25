@@ -1,5 +1,29 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **The architecture view's read-only listings** (ui-design, MH's architecture check):
+  - G3: serve answers `federation/list`, `trust/list`, `config/get` and `index/status`, the same JSON as
+    `federation list --json`, `trust list --json`, `config --json` and `index status --json`.
+  - G4: SPEC §9.6 names the seal verdict's fields (`seal.complete`, `heads`, `chainLength`, `writers`
+    `{keyid, tier, claims}`, …); they were on the wire already, now a frontend may rely on them.
+  - G7: ktonpkg v0.10.0. `ui list` (and `ui/list`) gives each usable package its `source`
+    (`{repo, commit, path, dirty}` or null), `requires` (`[{package, at?, head?, why?}]`) and `references`
+    (`[{where, what, name, package, at?, head?}]`).
+  - G8: `say --json` and `say/templates` name the `package` a package template came from.
+  - G2: `cockpit mcp --ui` adds `cockpit_ui_list`, read only, what `ui list --json` prints; off unless the
+    operator gives `--ui` (SPEC §6, SPEC §6.2).
+  - G10: `cockpit index registries [--json]` and serve's `index/registries`: every registry the index
+    holds (dir, records, keyids, position, cursor, stale) and the repositories whose queries read it
+    (`readBy` with `lastRead`), with the packages each admits. A query notes its read in `urn:kton:index`
+    at most once a minute per repository and view; a warm query in the same minute writes nothing.
+
+### Migrating from v0.5.12
+
+- Nothing to do. A registry's directory appears in `index registries` after the next query that reads it.
+
 ## v0.5.12 — 2026-11-24
 
 A say keeps the files it signs and confirms itself in its own registry; query runs with loaded files;
