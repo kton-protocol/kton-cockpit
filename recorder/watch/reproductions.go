@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"sort"
 	"time"
+
+	"github.com/kton-protocol/kton-cockpit/internal/dirfiles"
 )
 
 // Reproductions: the Positron extension runs a file's recipe in an empty directory and writes
@@ -53,9 +55,11 @@ func (sv *Service) reproDir() string { return filepath.Join(filepath.Dir(sv.Dir)
 
 // Reproductions of one file of a project, newest first.
 func (sv *Service) Reproductions(project, target string) []Reproduction {
-	files, _ := filepath.Glob(filepath.Join(sv.reproDir(), "*", "kton-repro.json"))
+	// each reproduction's folder by name: the directory's own path is never read as a pattern (kton-review G1 on #254)
+	dirs, _ := dirfiles.Named(sv.reproDir(), "", "")
 	var out []Reproduction
-	for _, f := range files {
+	for _, d := range dirs {
+		f := filepath.Join(d, "kton-repro.json")
 		b, err := os.ReadFile(f)
 		var r Reproduction
 		if err != nil || json.Unmarshal(b, &r) != nil || r.Project != project || r.Target != target {
