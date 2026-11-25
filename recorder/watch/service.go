@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/kton-protocol/kton-cockpit/internal/dirfiles"
 	"github.com/kton-protocol/kton-cockpit/internal/toolcall"
 )
 
@@ -121,7 +122,7 @@ func (sv *Service) Load() error {
 	if sv.Watched == nil && sv.Store != "" {
 		sv.Watched = OpenWatched(sv.Store, sv.HashFile)
 	}
-	files, _ := filepath.Glob(filepath.Join(sv.Store, "*.json"))
+	files, _ := dirfiles.Named(sv.Store, "", ".json") // not Glob: Store's own path is no pattern
 	for _, f := range files {
 		b, err := os.ReadFile(f)
 		if err != nil {
@@ -177,7 +178,7 @@ func (sv *Service) Poll(now time.Time) {
 	if sv.sessions == nil {
 		sv.sessions = map[string]*tracked{}
 	}
-	logs, _ := filepath.Glob(filepath.Join(sv.Dir, "*.tsv"))
+	logs, _ := dirfiles.Named(sv.Dir, "", ".tsv") // not Glob: Dir's own path is no pattern
 	// logs MaxAge left out are looked at again only every OldEvery: thousands of them were stat'ed
 	// twice a second, and ktonwatch used a third of a CPU doing nothing else (12.11.)
 	recheckOld := sv.OldEvery <= 0 || now.Sub(sv.oldAt) >= sv.OldEvery
