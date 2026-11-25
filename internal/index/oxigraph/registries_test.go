@@ -5,6 +5,7 @@ package oxigraph_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/kton-protocol/kton-cockpit/internal/index/oxigraph"
 	"github.com/kton-protocol/kton-cockpit/internal/testrepo"
@@ -25,6 +26,9 @@ func TestOxigraph_ListsItsRegistriesAndWhoReadsThem(t *testing.T) {
 	t.Cleanup(func() { oxigraph.Stop(context.Background(), cfg) })
 	author(t, r, cfg, "one")
 
+	// One fixed minute for both queries, so a minute boundary between them cannot make two notes.
+	at := time.Now()
+	t.Cleanup(oxigraph.SetReadClock(func() time.Time { return at }))
 	before := oxigraph.Notes()
 	query(t, d, cfg, "SELECT * WHERE { ?s ?p ?o } LIMIT 1")
 	if n := oxigraph.Notes() - before; n != 1 {

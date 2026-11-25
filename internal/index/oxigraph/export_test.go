@@ -1,6 +1,9 @@
 package oxigraph
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // SetStageChunk sets how much one graph-store request carries, for a test; it returns the undo.
 func SetStageChunk(n int) func() {
@@ -25,3 +28,10 @@ func Staged() int64 { return staged.Load() }
 func SetDuringBuild(f func()) { duringBuild = f }
 
 func Notes() int64 { return notes.Load() }
+
+// SetReadClock fixes the time read notes carry; the returned func restores it.
+func SetReadClock(f func() time.Time) func() {
+	old := readClock
+	readClock = f
+	return func() { readClock = old }
+}

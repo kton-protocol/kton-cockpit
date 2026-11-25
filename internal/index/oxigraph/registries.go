@@ -59,6 +59,9 @@ func readIRI(reg, root string) string {
 	return kNS + "read:" + hex.EncodeToString(h[:12])
 }
 
+// readClock is when a query read, for its note; a test fixes it so two queries share a minute.
+var readClock = time.Now
+
 // notes counts the read notes written, for a test that a warm query writes none.
 var notes atomic.Int64
 
