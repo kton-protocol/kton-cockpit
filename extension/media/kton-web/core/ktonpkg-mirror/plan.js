@@ -549,7 +549,7 @@ function expandUse(st, u, cctx, section, scope, idx, origin, input) {
 function bindAct(st, a, cctx, scope, key) {
   if (!INTENTS.includes(a.intent)) fail("declaration", `${key}: act ${a.intent} is not one of ${INTENTS.join("|")}`);
   const fields = {};
-  for (const [k, src] of Object.entries(a.fields ?? {})) fields[k] = bindSource(st, src, scope, cctx).value;
+  for (const [k, src] of Object.entries(a.fields ?? {})) { const t = bindSource(st, src, scope, cctx); fields[k] = t.id ?? t.value; }
   const out = { intent: a.intent, label: a.label ?? a.intent, fields };
   if (a.control !== undefined) out.control = typeof a.control === "string" ? { package: cctx.pkg, name: a.control } : a.control;
   if (a.ray !== undefined) out.ray = a.ray;
@@ -575,12 +575,19 @@ export function bindSource(st, src, scope, cctx) {
       if (s.fromVar) fail("subject-from-var", `${cctx.id} reads ${src}, but its subject comes from var.${s.fromVar}: only subject.iri is known`);
       if (!s.type) fail("unbound-var", `${src} is not known for this subject`);
       return /^https?:\/\//.test(s.type) ? { type: "uri", value: s.type } : lit(s.type);
+    case "subject.scope":
+      // the scope's seed, the node its id names (https://kton.dev/o/<hex>), as kton-cockpit's --bind-iri binds a
+      // kton id: a composition finds the scope's claim graph by it (ADR-018: ?g a nk:ClaimGraph ; nk:scope $scope)
+      if (s.fromVar) fail("subject-from-var", `${cctx.id} reads ${src}, but its subject comes from var.${s.fromVar}: only subject.iri is known`);
+      if (!s.scope) fail("unbound-var", `${src} is not known for this subject`);
+      if (!/^(sha256:)?[0-9a-f]{64}$/i.test(s.scope)) fail("unbound-var", `${src}: ${s.scope} is not a scope id (sha256:<64 hex>)`);
+      // an act field keeps the id itself (it goes into a signed claim): `id`, read by bindAct
+      return { type: "uri", value: contentIri(s.scope), id: /^sha256:/i.test(s.scope) ? s.scope : `sha256:${s.scope}` };
     case "subject.id":
     case "subject.claim":
     case "subject.class":
     case "subject.kind":
     case "subject.path":
-    case "subject.scope":
       if (s.fromVar) fail("subject-from-var", `${cctx.id} reads ${src}, but its subject comes from var.${s.fromVar}: only subject.iri is known`);
       if (!s[src.slice(8)]) fail("unbound-var", `${src} is not known for this subject`);
       return lit(s[src.slice(8)]);

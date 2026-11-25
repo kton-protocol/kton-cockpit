@@ -133,10 +133,10 @@ test("the composition page: a host-owned CSP with no 'unsafe-inline' and connect
   assert.match(html, /<script type="module" nonce="N0nce" src="https:\/\/webview\.example\/frame\.js">/);
 });
 
-test("vendored kton-web: every file matches its pin (PIN.json, commit 6111545), the licences included", async () => {
+test("vendored kton-web: every file matches its pin (PIN.json, commit 57d2482), the licences included", async () => {
   const mod = (await import(pathToFileURL(join(process.cwd(), "scripts", "vendor-kton-web.mjs")).href)) as { check: () => string[]; COMMIT: string };
   assert.deepEqual(mod.check(), []);
-  assert.equal(mod.COMMIT, "6111545");
+  assert.equal(mod.COMMIT, "57d2482");
 });
 
 // ---- graph@1: the graph viewer as a leaf (its own frame) in a record-view slot
@@ -293,4 +293,48 @@ test("T2 on #174: a plan act sign through a control whose kind is record is refu
   await h.onMessage({ type: "kton:intent", intent: { id: "s#t.1", kind: "sign", from: key, about: SUBJECT.claim, control: { package: "hostile-good", name: "approve" } } });
   assert.deepEqual(calls, [], "no act");
   assert.match(JSON.stringify(posted), /control approve is a record control, not decision/);
+});
+
+/** a plan whose one use reads var `pick` as a param (when `asParam`) or as an option, over the loaded package's query */
+async function varPlan(asParam: boolean, extra: Record<string, unknown> = {}) {
+  const l = await goodPackage();
+  const plan = await planEntry(l.entries[0] as SlotEntry, SUBJECT, l, "qa-decider", async () => ({ results: { bindings: [] } }));
+  const u = plan.uses[0] as Plan["uses"][number];
+  const ph = { comp: "", var: "pick", vtype: "literal", ...(asParam ? {} : { as: "option" }) };
+  const p = {
+    ...plan,
+    compositions: [{ key: "", kind: "page" }],
+    vars: { "": { pick: { type: "literal" } } },
+    uses: [{ ...u, bind: asParam ? { params: { P: ph } } : { options: { o: ph } }, params: { ...(u.params ?? {}), ...extra }, queryOptional: [] }],
+  };
+  return { l, plan: p as unknown as Plan, key: u.key };
+}
+
+test("ktonpkg v0.10.0: a use whose option waits for a var still asks its query; only a waiting query param holds the ask", async () => {
+  const opt = await varPlan(false, { S: { type: "literal", value: "fixed" } });
+  const { backend, calls } = backendLog();
+  const posted: unknown[] = [];
+  const h = new CompositionHost(opt.plan, opt.l, backend, { post: (m) => posted.push(m), log: () => undefined });
+  await h.onMessage({ type: "kton:request", id: `${opt.key}#w.1`, cap: "query@1", args: { use: opt.key }, vars: {} });
+  assert.equal(calls.length, 1, `the option waits, the query runs: ${JSON.stringify(posted)}`);
+  assert.equal((posted.at(-1) as { type: string }).type, "kton:data");
+  // the param itself unset: no ask, refused, the cockpit sees nothing
+  const par = await varPlan(true);
+  const b2 = backendLog();
+  const h2 = new CompositionHost(par.plan, par.l, b2.backend, { post: (m) => posted.push(m), log: () => undefined });
+  await h2.onMessage({ type: "kton:request", id: `${par.key}#w.2`, cap: "query@1", args: { use: par.key }, vars: {} });
+  assert.match(JSON.stringify(posted.at(-1)), /waits for pick/);
+  assert.equal(b2.calls.length, 0);
+  // the same param with a value never blocks
+  await h2.onMessage({ type: "kton:request", id: `${par.key}#w.3`, cap: "query@1", args: { use: par.key }, vars: { "": { pick: "v" } } });
+  assert.equal(b2.calls.length, 1, JSON.stringify(posted.at(-1)));
+  assert.deepEqual((b2.calls[0]?.[1] as { terms: unknown }).terms, { P: { type: "literal", value: "v" } });
+});
+
+test("a uri term of the plan arrives in the cockpit's bindTerms as {type: iri}", async () => {
+  const { l, plan, key } = await varPlan(false, { S: { type: "uri", value: "https://kton.dev/o/ab" } });
+  const { backend, calls } = backendLog();
+  const h = new CompositionHost(plan, l, backend, { post: () => undefined, log: () => undefined });
+  await h.onMessage({ type: "kton:request", id: `${key}#i.1`, cap: "query@1", args: { use: key }, vars: {} });
+  assert.deepEqual((calls[0]?.[1] as { terms: unknown }).terms, { S: { type: "iri", value: "https://kton.dev/o/ab" } });
 });
