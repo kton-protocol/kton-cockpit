@@ -171,6 +171,9 @@ func (c *Cockpit) call(ctx context.Context, cfg *config.Config, sh config.Shim, 
 		args[i] = a
 	}
 	r := binaries.New(cfg)
+	if err := unlockKeys(r, cfg.PlanktonKey); err != nil {
+		return nil, err
+	}
 	rec := binaries.AuthorInput{
 		Dir: stage, Inputs: inputs, SignKey: cfg.PlanktonKey, EnvRef: sh.Image,
 		Kind:       "tool/" + in.Tool,

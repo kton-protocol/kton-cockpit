@@ -214,6 +214,11 @@ func (c *Cockpit) Publish(ctx context.Context, in PublishRequest) (*PublishResul
 	}
 
 	r := binaries.New(cfg)
+	// The foton key is opened before the command runs: a passphrase asked after a long run, or refused
+	// after it, would cost the run (ADR-021 §4).
+	if err := unlockKeys(r, cfg.PlanktonKey); err != nil {
+		return nil, err
+	}
 	allPaths := append(append([]string{}, in.Inputs...), in.Outputs...)
 
 	// a session only gets three narrow verbs; the cockpit owns key hygiene — but without this check,

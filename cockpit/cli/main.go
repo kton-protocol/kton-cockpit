@@ -26,15 +26,22 @@ import (
 	"github.com/kton-protocol/kton-cockpit/internal/config"
 	"github.com/kton-protocol/kton-cockpit/internal/container"
 	"github.com/kton-protocol/kton-cockpit/internal/httpguard"
+	"github.com/kton-protocol/kton-cockpit/internal/keyload"
 	"github.com/kton-protocol/kton-cockpit/internal/material"
 	"github.com/kton-protocol/kton-cockpit/internal/mcpsurface"
 	"github.com/kton-protocol/kton-cockpit/internal/show"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"kton.dev/plankton/keys"
 )
 
 // Main is the cockpit command line. A composed binary (cockpit-improve: the core plus an extension
 // backend, ADR-008) calls it from its own main after importing its backends.
 func Main() {
+	// First, before anything starts a child (git, the container CLI, a shimmed tool, a workflow step):
+	// the passphrase variable is taken out of the environment so none of them inherits it (ADR-021
+	// §2.3). The value is held for the keys that need it, and dropped when the command ends.
+	keys.TakeEnvPassphrase()
+	defer keyload.Forget()
 	if len(os.Args) < 2 {
 		usage()
 		os.Exit(2)
@@ -45,6 +52,14 @@ func Main() {
 		return
 	}
 	ctx := context.Background()
+	// A one-shot command may ask the person on the terminal and keeps a key it unlocked for the
+	// rest of the process. The servers (mcp, serve) and the shim have no one to ask: an encrypted
+	// key there is identity.locked unless KTON_KEY_PASSPHRASE was set for the process (ADR-021 §2.4).
+	switch os.Args[1] {
+	case "mcp", "serve", "shim":
+	default:
+		keyload.SetInteractive(true)
+	}
 	jsonMode = wantsJSON(os.Args[1], os.Args[2:])
 	var err error
 	switch os.Args[1] {
@@ -193,7 +208,7 @@ usage:
   cockpit config   show the configuration, or set one value (config persist.share off)
   cockpit index    status / registries / start / stop / rebuild — the machine's index daemon (index.kind oxigraph)
   cockpit shim     serve --socket PATH | --listen 127.0.0.1:PORT — answer the tool shims (ADR-014)
-%s  cockpit keygen   make a signing identity (keys/<name>.key + .pub, and the claims pair)
+%s  cockpit keygen   make a signing identity (keys/<name>.key + .pub, and the claims pair); --encrypt protects the keys with a passphrase
   cockpit version  what this binary is, and which kernel is compiled into it
   cockpit mcp      start the MCP stdio server (cockpit_publish/cockpit_say/cockpit_ask)
                    [--vocabulary] also a tool per query (ask_<name>) and template (say_<name>)
@@ -715,7 +730,7 @@ func checkKeyPath(p string) string {
 			"                modes (a Windows drive mounted into WSL, FAT/exFAT, some network mounts)\n"+
 			"                or the mode was widened. Anyone who can read it can sign as this repo.", p, perm)
 	}
-	return p + "  [ok]"
+	return p + "  [ok]  (" + keyForm(p) + ")"
 }
 
 // linkedKernels reports the kton modules compiled into this binary, in the order they are listed
@@ -779,7 +794,10 @@ func callVerb[In, Out any](ctx context.Context, raw, field string,
 // script can tell "you may not" from "something broke".
 func exitIfRefused(err error) {
 	var r *cockpit.Refusal
-	if errors.As(err, &r) {
+	if !errors.As(err, &r) {
+		r = cockpit.LockedRefusal(err) // a locked key surfaced by a command that returns the bare error
+	}
+	if r != nil {
 		if jsonMode {
 			printFailure(r)
 		}

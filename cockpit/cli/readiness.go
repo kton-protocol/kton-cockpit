@@ -6,7 +6,6 @@ package cli
 
 import (
 	"context"
-	"crypto/ed25519"
 	"encoding/hex"
 	"fmt"
 	"io/fs"
@@ -21,6 +20,7 @@ import (
 	"github.com/kton-protocol/kton-cockpit/internal/binaries"
 	"github.com/kton-protocol/kton-cockpit/internal/config"
 	"github.com/kton-protocol/kton-cockpit/internal/index/oxigraph"
+	"github.com/kton-protocol/kton-cockpit/internal/keyload"
 	"github.com/kton-protocol/kton-cockpit/internal/packages"
 	"github.com/kton-protocol/kton-cockpit/internal/show"
 )
@@ -197,17 +197,14 @@ func blocked(steps []nextStep) bool {
 	return false
 }
 
-// publicOf is the hex public key of a private key file in the form the kernel reads (a hex seed).
+// publicOf is the hex public key of a private key file in either form the kernel reads, without a
+// passphrase: an encrypted key shows its public half (ADR-021 §1).
 func publicOf(keyPath string) (string, error) {
-	b, err := os.ReadFile(keyPath)
+	pub, err := keyload.PublicKey(keyPath)
 	if err != nil {
 		return "", err
 	}
-	seed, err := hex.DecodeString(strings.TrimSpace(string(b)))
-	if err != nil || len(seed) != ed25519.SeedSize {
-		return "", fmt.Errorf("%s is not a hex seed", keyPath)
-	}
-	return hex.EncodeToString(ed25519.NewKeyFromSeed(seed).Public().(ed25519.PublicKey)), nil
+	return hex.EncodeToString(pub), nil
 }
 
 // tierFilesIn are the configured public keys that live inside the repository, repo-relative.

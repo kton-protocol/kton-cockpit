@@ -1,7 +1,6 @@
 package cockpit
 
 import (
-	"crypto/ed25519"
 	"encoding/hex"
 	"fmt"
 	"os"
@@ -10,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/kton-protocol/kton-cockpit/internal/config"
+	"github.com/kton-protocol/kton-cockpit/internal/keyload"
 	"github.com/kton-protocol/kton-cockpit/internal/verify"
 )
 
@@ -31,15 +31,15 @@ func keyAs(cfg *config.Config, name string) (string, string) {
 		return "", "say --as with anchor.enabled is not supported yet: the anchor entry would name this repository's key, not the signer's"
 	}
 	key := filepath.Join(expandHome(ring), name+"-claims.key")
-	b, err := os.ReadFile(key)
-	if err != nil {
+	if _, err := os.Stat(key); err != nil {
 		return "", fmt.Sprintf("no key %s-claims.key in the keyring of .kton/local/identity.json: %v", name, err)
 	}
-	seed, err := hex.DecodeString(strings.TrimSpace(string(b)))
-	if err != nil || len(seed) != ed25519.SeedSize {
-		return "", fmt.Sprintf("%s is not a signing key", key)
+	// The public half is read without a passphrase: naming a key, checking it and finding its trust
+	// tier never unlock it (ADR-021 §1). Signing with it does, at the signature.
+	pub, err := keyload.PublicKey(key)
+	if err != nil {
+		return "", fmt.Sprintf("%s is not a signing key: %v", key, err)
 	}
-	pub := ed25519.NewKeyFromSeed(seed).Public().(ed25519.PublicKey)
 	pb, err := os.ReadFile(strings.TrimSuffix(key, ".key") + ".pub")
 	if err != nil {
 		return "", fmt.Sprintf("the public half of %s is not beside it: %v", name, err)

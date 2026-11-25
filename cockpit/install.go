@@ -148,6 +148,9 @@ func (c *Cockpit) Install(ctx context.Context, in InstallRequest) (*InstallResul
 		return nil, refuse("io", "", "%v", err)
 	}
 	r := binaries.New(cfg)
+	if err := unlockKeys(r, cfg.NektonKey); err != nil {
+		return nil, err
+	}
 	if _, err := kept.Install(rev.Label, cfg.PlanktonDir, cfg.NektonDir); err != nil {
 		return nil, refuse("kernel", "", "taking the package's records into this registry: %v", err)
 	}

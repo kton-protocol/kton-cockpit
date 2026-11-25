@@ -13,7 +13,7 @@ require github.com/gitmick/ktonpkg v0.10.2
 
 require (
 	golang.org/x/crypto v0.33.0 // indirect
-	golang.org/x/term v0.29.0 // indirect
+	golang.org/x/term v0.29.0
 )
 
 require (
@@ -26,7 +26,8 @@ require (
 )
 
 // The kernel CLIs the tests and examples/lib build from this go.mod. Naming them keeps their own
-// imports (plankton/keys: x/crypto, x/term) in go.sum, which no package of the cockpit imports yet.
+// imports (plankton/keys: x/crypto, x/term) in go.sum. internal/keyload imports plankton/keys and
+// x/term itself (ADR-021).
 tool (
 	kton.dev/nekton/cmd/nekton
 	kton.dev/plankton/cmd/plankton

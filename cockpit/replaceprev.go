@@ -3,16 +3,13 @@ package cockpit
 import (
 	"context"
 	"crypto/ed25519"
-	"encoding/hex"
-	"fmt"
-	"os"
-	"strings"
 	"time"
 
 	"kton.dev/plankton/core"
 
 	"github.com/kton-protocol/kton-cockpit/internal/binaries"
 	"github.com/kton-protocol/kton-cockpit/internal/config"
+	"github.com/kton-protocol/kton-cockpit/internal/keyload"
 )
 
 // previousOwn is what a template with "replace": "previous" names in replaces (ADR-013 A1/A5): the
@@ -80,14 +77,9 @@ func newestUnreplaced(mine []ownClaim, replaced map[string]bool) string {
 
 // keyOf is the key id and public key of the private key at path.
 func keyOf(path string) (string, ed25519.PublicKey, error) {
-	b, err := os.ReadFile(expandHome(path))
+	pub, err := keyload.PublicKey(expandHome(path))
 	if err != nil {
 		return "", nil, err
 	}
-	seed, err := hex.DecodeString(strings.TrimSpace(string(b)))
-	if err != nil || len(seed) != ed25519.SeedSize {
-		return "", nil, fmt.Errorf("%s is not a signing key", path)
-	}
-	pub := ed25519.NewKeyFromSeed(seed).Public().(ed25519.PublicKey)
 	return core.KeyIDHex(pub), pub, nil
 }

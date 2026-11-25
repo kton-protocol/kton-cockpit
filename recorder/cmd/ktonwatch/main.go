@@ -29,9 +29,12 @@ import (
 	"github.com/kton-protocol/kton-cockpit/recorder/ktonmcp"
 	v1 "github.com/kton-protocol/kton-cockpit/recorder/v1"
 	"github.com/kton-protocol/kton-cockpit/recorder/watch"
+	"kton.dev/plankton/keys"
 )
 
 func main() {
+	// First, before anything starts a child: no tool this starts inherits a key passphrase (ADR-021 §2.3).
+	keys.TakeEnvPassphrase()
 	if len(os.Args) > 1 && os.Args[1] == "serve" {
 		serve(os.Args[2:])
 		return
