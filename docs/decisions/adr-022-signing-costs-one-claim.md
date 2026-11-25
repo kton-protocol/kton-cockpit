@@ -87,9 +87,11 @@ content): it becomes `hash(previous state, the triples deleted, the triples inse
 `viewstate.go`'s `Diff` and `indexMoved` need (they compare for equality). Nodes are subjects of their
 own triples only; the nested field nodes of a claim (`#o.<field>`) are deleted and inserted with it.
 
-**D1.4 When it is a full build instead.** Registries are append-only and a claim is held only once its
-chain resolves (the kernel settles before it numbers), so nothing that arrives can move a held claim's
-position or scope: arrival order does not matter, and a git pull is a delta like any other (MH, 25.11.:
+**D1.4 When it is a full build instead.** Registries are append-only, and the kernel's union holds a claim only
+once its chain resolves, so nothing that arrives can move a position the union gave. The index is not the
+union: it holds claims a registry keeps waiting (deferred, `elsewhere_test.go`), and a seed or prev arriving
+later admits them and their successors, transitively; that is a delta row (D1.2), not a rebuild (kton-review
+on ecc30f5). Arrival order does not matter otherwise, and a git pull is a delta like any other (MH, 25.11.:
 "what merge in an append only format?"). A full build remains only where the view's inputs change, not its
 records: the view does not exist or has no `builtAt` (built before this ADR); the view config's fingerprint
 or the trusted keys changed (in the slot or key already); and, as a safety net, a registry that lost
