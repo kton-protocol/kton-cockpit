@@ -29,7 +29,8 @@
 
 - **A new window's first `events/indexMoved` names what changed** (kton-review F1, N1 on #259): serve
   always handed the watch a cursor, so a connection without `since` never read the view it started on
-  and its first event said `all`. The view is now read first, then the cursor fixed (SPEC §12.5). Go:
+  and its first event said `all`. The view is now read first, then the cursor fixed (SPEC §12.5); only
+  from a daemon already up, so `initialize` never starts one (kton-review R1 on #261). Go:
   `(*Cockpit).Watch` takes the `EventsStart` that `StartEvents(ctx, since)` returns instead of a cursor.
 
 ## v0.5.14 — 2026-11-25

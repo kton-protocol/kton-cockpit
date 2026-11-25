@@ -261,6 +261,31 @@ func Running(ctx context.Context) (*Daemon, *lock, error) {
 	return d, &l, nil
 }
 
+// Up returns the daemon cfg would use if it answers now, never starting, restarting or writing to
+// one: index.url's, or the machine's when it runs the image and schema this configuration wants.
+// Nil when there is none; a reader then has no view to read, which is what it would have had.
+func Up(ctx context.Context, cfg *config.Config) *Daemon {
+	if u := cfg.Raw.Index.URL; u != "" {
+		d := &Daemon{URL: strings.TrimSuffix(u, "/")}
+		if dir, err := Dir(); err == nil {
+			h := sha256.Sum256([]byte(d.URL))
+			d.Dir = filepath.Join(dir, "url-"+hex.EncodeToString(h[:8]))
+		}
+		if d.ping(ctx) != nil {
+			return nil
+		}
+		return d
+	}
+	d, l, err := Running(ctx)
+	if err != nil || d == nil || l == nil {
+		return nil
+	}
+	if l.Image != strings.TrimPrefix(cfg.Raw.Query.Image, "oci://") || l.Schema != Schema {
+		return nil
+	}
+	return d
+}
+
 func start(ctx context.Context, cfg *config.Config, dir, image string) (*Daemon, error) {
 	if image == "" {
 		return nil, fmt.Errorf("no Oxigraph image to start (query.image), and no index.url")

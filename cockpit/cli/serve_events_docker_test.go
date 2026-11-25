@@ -94,3 +94,21 @@ func TestServe_IndexMovedComesOnceTheIndexHoldsTheClaim(t *testing.T) {
 	}
 	_ = res
 }
+
+// A connection's initialize reads the view only if the index daemon is already up; it never starts one
+// (kton-review R1 on #261): no daemon means no view, and the first indexMoved says all anyway.
+func TestServe_InitializeStartsNoIndexDaemon(t *testing.T) {
+	t.Setenv("COCKPIT_INDEX_DIR", t.TempDir())
+	r := testrepo.New(t)
+	raw := testrepo.DefaultConfig()
+	raw.Query.Image = oxigraphImage
+	raw.Index.Kind = "oxigraph"
+	r.WriteConfig(t, raw)
+	r.Use(t)
+	t.Cleanup(func() { oxigraph.Stop(context.Background(), r.Config(t)) })
+	c := startServe(t)
+	c.ok("initialize", map[string]any{"root": r.Root, "events": map[string]any{"intervalMs": 500}})
+	if d, l, _ := oxigraph.Running(context.Background()); d != nil || l != nil {
+		t.Errorf("initialize started the index daemon: %+v", l)
+	}
+}

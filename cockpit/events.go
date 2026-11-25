@@ -142,8 +142,9 @@ type EventsStart struct {
 
 // StartEvents fixes where a connection's events begin. since is a cursor an earlier connection's
 // events carried, checked; "" starts now. Starting now reads the view first and fixes the cursor after,
-// so a record landing in between is past the cursor and in the first diff, never inside the baseline
-// alone (kton-review N1 on #259); the first indexMoved then names only what changed after (F1).
+// so a record landing in between is before the cursor yet missing from the baseline, and the first diff
+// names it: over-reported, never lost (kton-review N1 on #259); the first indexMoved then names only
+// what changed after (F1).
 func (c *Cockpit) StartEvents(ctx context.Context, since string) (EventsStart, error) {
 	if since != "" {
 		if err := c.CheckEventsCursor(ctx, since); err != nil {
@@ -464,13 +465,15 @@ func (w *watcher) current(ctx context.Context) (string, *oxigraph.ViewState, err
 }
 
 // viewBaseline is the view as it stands, read without building it, so the first indexMoved names only
-// what changed after. Without an index, or a view, there is none.
+// what changed after. Without an index, or a view, there is none. It never starts the daemon: a
+// connection's initialize stays quick, and a daemon that is not up holds no view to start from
+// (kton-review R1 on #261).
 func viewBaseline(ctx context.Context, cfg *config.Config) *oxigraph.ViewState {
 	if cfg.Raw.Index.Kind != "oxigraph" {
 		return nil
 	}
-	d, err := oxigraph.Ensure(ctx, cfg)
-	if err != nil {
+	d := oxigraph.Up(ctx, cfg)
+	if d == nil {
 		return nil
 	}
 	keys, err := trustedKeys(cfg)
