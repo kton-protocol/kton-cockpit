@@ -69,7 +69,17 @@ async function sideways() {
 const partShown = (cls) => page.locator(`.part.${cls}`).first().isVisible().catch(() => false);
 /** A VS Code command by its title, through the palette (the same helper the flows use, defined below). */
 async function vsc(title) {
-  await runCommand(title);
+  await page.keyboard.press("F1");
+  await page.locator(".quick-input-box input").first().fill(`>${title}`);
+  const hit = page.locator(".quick-input-list .monaco-list-row", { hasText: title }).first();
+  try {
+    await hit.waitFor({ timeout: 5000 });
+  } catch {
+    // no command with that title: close the palette (it would swallow the next step's keys) and say so
+    await page.keyboard.press("Escape");
+    throw new Error(`no VS Code command titled "${title}"`);
+  }
+  await page.keyboard.press("Enter");
   await page.waitForTimeout(400);
 }
 async function fitAt(name) {
@@ -376,7 +386,9 @@ await step("S2", 3, "answer with done through the sign dialog; the registry has 
   await f.locator('[data-testid="answer-outcome"]').fill("Checked, the notes are fine.");
   await f.locator('[data-testid="answer-send"]').click();
   const d = await dialog();
-  for (const t of ["Template: done", `answers = ${seed.requests[0]}`, 'person key "qa-decider"']) await d.getByText(t, { exact: false }).first().waitFor();
+  for (const t of ["Template: done", "answers = sha256:" + seed.requests[0].slice(7, 15) + "…", 'person key "qa-decider"']) await d.getByText(t, { exact: false }).first().waitFor();
+  // the field shows the short chip; the full id is in the chip's copy value
+  await d.locator(`[data-field="answers"] [data-copy="${seed.requests[0]}"]`).first().waitFor({ state: "attached" });
   await signInDialog(d);
   await d.locator('[data-testid="sign-outcome"][data-state="signed"]').waitFor({ timeout: PT(30000) });
   await shot("s2-answered");
@@ -1324,9 +1336,12 @@ if (seed.w?.proposal && selected("W")) {
     await b.locator("[data-evidence-for]", { hasText: element }).waitFor({ timeout: 60000 });
     return b;
   };
-  const openedOut = async (r) => {
-    await r.locator("[data-open-out]").filter({ hasText: /\S/ }).filter({ hasNotText: "Opening…" }).waitFor({ timeout: 60000 });
-    return ((await r.locator("[data-open-out]").textContent()) ?? "").trim();
+  // r is an evidence item, or a runs-table row: its status is in the row's line 2 (the next row), found by the row's index
+  const openedOut = async (r, scope) => {
+    const i = scope ? await r.getAttribute("data-row") : null;
+    const out = scope ? scope.locator(`[data-open-out="${i}"]`) : r.locator("[data-open-out]");
+    await out.filter({ hasText: /\S/ }).filter({ hasNotText: "Opening…" }).waitFor({ timeout: 60000 });
+    return ((await out.textContent()) ?? "").trim();
   };
 
   await warm("repo-w");
@@ -1457,7 +1472,7 @@ if (seed.w?.proposal && selected("W")) {
     await a.locator('[data-evidence="artifact"]').first().waitFor({ timeout: 60000 });
     const shotRow = a.locator('[data-evidence="artifact"]', { has: f.locator('button[data-label="Open screenshot: run run-1 (failed)"]') }).first();
     await shotRow.locator("button").click();
-    const out = await openedOut(shotRow);
+    const out = await openedOut(shotRow, a);
     check(/^Opened run-1\/shots\/fail-1\.png \(sha256:[0-9a-f]{12}…, \d+ bytes, hash checked\)$/.test(out), "opened after the hash check", "Opened run-1/shots/fail-1.png (sha256:…, n bytes, hash checked)", out);
     const img = await frameWithSel('[data-testid="artifact-image"]', 30000);
     const info = (await img.locator('[data-testid="artifact-info"]').textContent()) ?? "";
