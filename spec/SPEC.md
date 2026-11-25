@@ -1637,7 +1637,11 @@ attributed under (keyids), `position`, `cursor`, whether it is `stale` (moved si
 such root, the packages it admits, read from that root's own configuration. Where a registry's directory
 and readers come from is observation, not record: a query notes them in `urn:kton:index` at most once a
 minute per repository and view (a warm query in the same minute writes nothing), no answer reads them,
-and a rebuild drops them. It starts no daemon.
+and a rebuild drops them. It starts no daemon. It is machine-wide by choice: it lists every registry and
+every reading root the daemon holds, not only this repository's view, because it is the operator's picture
+of the machine's index (architecture view G10); unlike `ask`, it answers no question about records, so the
+per-view confinement of the index's queries does not apply. On a shared daemon (`index.url`) that shows every
+user's repository roots to whoever runs it.
 
 > **Checked by:** `TestOxigraph_ListsItsRegistriesAndWhoReadsThem` (`-tags docker`),
 > `TestServe_ListingsAreTheCommandLinesJSON`.

@@ -38,6 +38,12 @@ func TestOxigraph_ListsItsRegistriesAndWhoReadsThem(t *testing.T) {
 	if n := oxigraph.Notes() - before; n != 1 {
 		t.Errorf("a warm query in the same minute wrote a read note (%d in all)", n)
 	}
+	// A warm query in the next minute reads the kept view and notes its read once more.
+	at = at.Add(time.Minute)
+	query(t, d, cfg, "SELECT * WHERE { ?s ?p ?o } LIMIT 1")
+	if n := oxigraph.Notes() - before; n != 2 {
+		t.Errorf("a warm query in the next minute: %d read note(s) in all, want 2", n)
+	}
 
 	regs, err := d.RegistryList(ctx)
 	if err != nil {
