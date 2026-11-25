@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **`events/indexMoved` names the graphs that changed** (qm f55d0fc5, agreed with ui-shell 04655243):
+  `key`, `graphs`, `removed` and `all` beside `slot` and `scopes`, and each scope's `graph`, so a window
+  re-asks only the views that read a changed graph instead of polling (SPEC §12.5). The graphs are
+  compared by the hashes the view keeps of each graph, so the event is the same whether the watcher or a
+  query built the view. Events without `graphs` mean what they meant before.
+
+### Changed
+
+- The recorder's watch lists its folders instead of globbing over joined paths (#257, cockpit-runtime's).
+
 ## v0.5.14 — 2026-11-25
 
 A tier's keys are read by listing its folder, never by a pattern over the repository's path (#256,
