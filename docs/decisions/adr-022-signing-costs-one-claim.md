@@ -132,6 +132,13 @@ that does not resolve is kept aside (not a head, not counted) and enters the cha
 waits for arrives: the delta that brings a seed or prev also admits the claims waiting on it. The equivalence
 test has a claim deferred everywhere in a scope that also has resolved claims.
 
+**The view follows the same rule (MH, 25.11.).** "We can just import in IRI named graphs; of course I could also
+import claims. It just may not show up in a nekton named graph. That's why we are playing this game." A record
+graph is data like any imported graph and stays in the store and in the nanopub dataset. A claim node, in a scope
+graph and in the union of the claims, exists only for a claim whose chain resolves in the slot's registries.
+Today a claim deferred in every registry becomes a Claim node in the graph of a scope whose seed nobody holds
+(`elsewhere_test.go` case 3, observed); with PR 2 it does not, case 3 asserts that, and `viewVersion` moves.
+
 ### D3. say reads its scope's head from the index
 
 With `index.kind: oxigraph`, `resolveChain` brings the view up to date (D1: the own registry's last
