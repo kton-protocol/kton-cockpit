@@ -42,6 +42,9 @@ async function sideways() {
     try {
       const r = await f.evaluate(() => {
         const out = { checked: 0, wide: [] };
+        // a webview squeezed to almost nothing (the other group while one group is maximized) is not a view a
+        // person reads: it is left out
+        if (document.documentElement.clientWidth < 120) return out;
         // a frame without blocks (a graph leaf, a dialog, a list) is checked by its page and root elements
         const blocks = !!document.querySelector("[data-use], .wb-nav");
         const sel = blocks ? "[data-use], .tbl-wrap, .wb-nav, #kton-root, body" : "#kton-root, .tbl-wrap, table, svg, img, body";
