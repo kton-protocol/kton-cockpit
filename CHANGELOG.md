@@ -1,9 +1,40 @@
 # Changelog
 
-## Unreleased
+## v0.5.15 — 2026-11-25
+
+Signing costs one claim (ADR-022): the index's view is patched by what arrived instead of re-projected, and
+`say` reads its scope's head from it. Measured on a generated federation of 20,020 claims, 11,013 of them
+from three sources: `say` 15.4 s -> 4.8 s (its scope head 11 s -> 0.6 s), the next ask after a say 36-40 s ->
+2.3 s. Passphrase-protected signing keys on the command line (ADR-021, the first half; serve's passphrase
+request follows in v0.5.16). `say` confirms a claim chained onto a federation source's head. kton v0.5.1.
+Reviewed by kton-review (#259-#267, #269, #270; cockpit-runtime #257).
+
+### Migrating from v0.5.14
+
+- **Every oxigraph view is built once again**, and every registry is read into the index in full once
+  (view version 12, the new fingerprint, the index's new bookkeeping). The first ask after the update takes
+  as long as a first build (about 80-90 s on 20,000 claims); after that a change is a patch.
+- **A claim whose chain resolves nowhere is no longer a node of the view** (MH): a claim deferred in every
+  registry of a view (its seed or predecessor held by none) is left out of the scope graphs, the claims
+  union and the scope counts; its record graph stays in the nanopublication dataset. A rule that counts or
+  approves claims must select them through the scope or claims graphs.
+- **Encrypted keys are optional**: plain keys work as before. `mcp`, `serve` and `shim` refuse an encrypted
+  key (`identity.locked`) until serve asks the window (v0.5.16). `KTON_KEY_PASSPHRASE` is read only by the
+  one-shot commands the command line lists. A Go program embedding the cockpit is server-like until it
+  calls `keyload.SetOneShot`.
+- Go API: `(*Cockpit).Watch` takes the `EventsStart` that `StartEvents` returns. `say`'s answer may carry
+  `waitingOn`.
+
 
 ### Added
 
+- **The view is patched by what arrived** (ADR-022 D1, D2; qm b3b1c7b0, 7b886a9e): when a registry moves,
+  the index projects only the records past the view's arrival numbers and the claims they touch (their
+  replaced and replacing claims, waiting claims a seed or predecessor admits, a co-sign that makes an old
+  record visible), and writes them in one update, instead of reading every trusted claim back out of the
+  store and projecting it again. A full build happens only for a new view, a changed view configuration or
+  trusted key set, or a registry that lost records. A property test holds the patched view equal to a full
+  build over registries pulled in either order.
 - **Passphrase-protected signing keys** (ADR-021, the command line and the core; serve's passphrase request
   is a later change): a private key is the hex seed or the OpenSSH form encrypted with a passphrase, read
   through one loader wherever the cockpit signs (SPEC §5.7). The passphrase is asked on the terminal for a
@@ -40,6 +71,14 @@
   iri values and nested fields differently. It now covers the repository's prefixes and template short
   names, the alias file's bytes (its terms cannot be listed), each package's own aliases and the resolved
   predicate. A view kept from before is built once again.
+- **A new window's first `events/indexMoved` names what changed** (kton-review F1, N1 on #259): serve
+  always handed the watch a cursor, so a connection without `since` never read the view it started on
+  and its first event said `all`. The view is now read first, then the cursor fixed (SPEC §12.5); only
+  from a daemon already up, so `initialize` never starts one (kton-review R1 on #261). Go:
+  `(*Cockpit).Watch` takes the `EventsStart` that `StartEvents(ctx, since)` returns instead of a cursor.
+- **A template the kernel refuses is named** (kton-review N3 on #260): `doctor` and `say`'s overview
+  say which template was refused at load and why, instead of only leaving it out (SPEC §8.5). Control
+  characters in the name or reason are printed escaped (kton-review R1 on #262).
 
 ### Changed
 
@@ -70,18 +109,6 @@
   globbing over joined paths, so a path holding `*`, `?` or `[` no longer lets it move a sibling
   registry's keys or sign a sibling's files (kton-review's G2 for ktonpkg).
 - The recorder's watch lists its folders instead of globbing over joined paths (#257, cockpit-runtime's).
-
-### Fixed
-
-- **A new window's first `events/indexMoved` names what changed** (kton-review F1, N1 on #259): serve
-  always handed the watch a cursor, so a connection without `since` never read the view it started on
-  and its first event said `all`. The view is now read first, then the cursor fixed (SPEC §12.5); only
-  from a daemon already up, so `initialize` never starts one (kton-review R1 on #261). Go:
-  `(*Cockpit).Watch` takes the `EventsStart` that `StartEvents(ctx, since)` returns instead of a cursor.
-- **A template the kernel refuses is named** (kton-review N3 on #260): `doctor` and `say`'s overview
-  say which template was refused at load and why, instead of only leaving it out (SPEC §8.5). Control
-  characters in the name or reason are printed escaped (kton-review R1 on #262).
-
 ## v0.5.14 — 2026-11-25
 
 A tier's keys are read by listing its folder, never by a pattern over the repository's path (#256,
