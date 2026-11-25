@@ -382,7 +382,8 @@ func confirmSay(ctx context.Context, r *binaries.Runner, claimID, subject string
 			"claim %s was signed but is not among the %d claim(s) this repository's registry holds about %s, and the registry does not hold it deferred either — it did not register",
 			claimID, len(claims), subject)
 	}
-	resolved, uerr := r.UnionResolves(ctx, claimID)
+	held, uerr := r.UnionResolves(ctx, claimID)
+	resolved := held[claimID]
 	tr.mark("confirm (reads the federation)")
 	if uerr != nil || !resolved {
 		why := "no registry of the federation holds it"

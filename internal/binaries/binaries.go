@@ -1150,13 +1150,13 @@ func (r *Runner) OwnDeferred(claimID string) (waitingOn string, deferred bool, e
 	return waitingOn, deferred, nil
 }
 
-// UnionResolves says whether the claim is resolved in the kernel's union of the own claim registry and every
-// federation source's, opened in place and read-only. Nothing is copied (unlike the union cache a read
-// builds): a say needs this one answer, and only when its claim waits for a predecessor a source holds.
-func (r *Runner) UnionResolves(ctx context.Context, claimID string) (bool, error) {
+// UnionResolves says which of the claims are resolved in the kernel's union of the own claim registry and every
+// federation source's, opened in place and read-only, once for all of them. Nothing is copied (unlike the union
+// cache a read builds): a say needs this answer only for claims waiting for a predecessor a source holds.
+func (r *Runner) UnionResolves(ctx context.Context, claimIDs ...string) (map[string]bool, error) {
 	inputs, err := Inputs(ctx, r.cfg)
 	if err != nil {
-		return false, err
+		return nil, err
 	}
 	var dirs []string
 	for _, in := range inputs {
@@ -1164,15 +1164,18 @@ func (r *Runner) UnionResolves(ctx context.Context, claimID string) (bool, error
 			dirs = append(dirs, in.NektonDir)
 		}
 	}
+	held := map[string]bool{}
 	if len(dirs) == 0 {
-		return false, nil
+		return held, nil
 	}
 	reg, err := nregistry.OpenUnion(dirs...)
 	if err != nil {
-		return false, err
+		return nil, err
 	}
-	_, ok := reg.Claim(claimID)
-	return ok, nil
+	for _, id := range claimIDs {
+		_, held[id] = reg.Claim(id)
+	}
+	return held, nil
 }
 
 // ClaimsAbout is About over one opened claim registry.

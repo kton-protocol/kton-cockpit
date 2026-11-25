@@ -120,3 +120,27 @@ func TestSay_AnOrdinarySayDoesNotReadTheFederation(t *testing.T) {
 		t.Errorf("an ordinary say reads the own registry only:\n%s", buf.String())
 	}
 }
+
+// A batch into a scope whose head a federation source holds: its claims are held deferred by the own registry,
+// and the batch confirms them through the union as one say does.
+func TestSayBatch_ConfirmsClaimsThatChainOntoAFederationSource(t *testing.T) {
+	_, _, scope, head := sourceHeldScope(t)
+	subj := "sha256:" + strings.Repeat("b", 64)
+	say := func(step string) SayRequest {
+		return SayRequest{Subject: subj, Template: "working-on", Scope: "review",
+			Fields: map[string]string{"step": step, "by-session": "s"}}
+	}
+	res, err := New(Start{}).SayBatch(context.Background(), SayBatchRequest{Claims: []SayRequest{say("one"), say("two")}})
+	if err != nil {
+		t.Fatalf("a batch onto a head only a source holds: %v", err)
+	}
+	if len(res.Claims) != 2 || res.Claims[0].Chain == nil || res.Claims[0].Chain.Prev != head ||
+		res.Claims[1].Chain == nil || res.Claims[1].Chain.Prev != res.Claims[0].ClaimID {
+		t.Fatalf("want two claims chained onto the source's head: %+v", res.Claims)
+	}
+	for i, c := range res.Claims {
+		if c.WaitingOn != scope || !strings.Contains(c.Confirmation, "waiting for its predecessor") {
+			t.Errorf("claim %d: want waitingOn %s and a confirmation saying it waits: %+v", i+1, scope, c)
+		}
+	}
+}

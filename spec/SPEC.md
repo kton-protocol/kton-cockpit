@@ -725,9 +725,10 @@ in the own registry first; only when the own registry holds it deferred does it 
 registry and every source's, in place and without a copy, and a claim the union resolves is registered. The
 answer then names the scope it waits in (`waitingOn`) and says so in `confirmation`. A claim neither
 registry resolves is refused (`claim.not-registered`), naming what it waits for.
+A batch confirms the same way, per claim, and opens the union at most once for all the claims that wait.
 
 > **Checked by:** `TestSay_ConfirmsAClaimThatChainsOntoAFederationSource`,
-> `TestConfirmSay_RefusesAClaimNoRegistryResolves`, `TestSay_AnOrdinarySayDoesNotReadTheFederation`.
+> `TestSayBatch_ConfirmsClaimsThatChainOntoAFederationSource`, `TestConfirmSay_RefusesAClaimNoRegistryResolves`, `TestSay_AnOrdinarySayDoesNotReadTheFederation`.
 
 **A caller MAY name the head it saw (`expectHead`).** The claim is then chained onto exactly that
 head, and refused if it is no longer one of the scope's heads, with the heads there are now. This does
