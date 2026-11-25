@@ -512,7 +512,7 @@ function table(rows, cols, { o, esc, value, shortly, click, perRow, rowButtons, 
   const stampSpan = (r) => {
     const st = value(r.stamp);
     if (!section || o.stamp === "hide" || !("stamp" in r)) return "";
-    return st ? `<span class="kton-stamp wb-rowstamp" data-stamp="${esc(st)}"${value(r.stampLabel) ? ` data-stamp-label="${esc(value(r.stampLabel))}"` : ""}${value(r.stampFull) ? ` data-stamp-full="${esc(value(r.stampFull))}"` : ""}>${esc(st)}</span>` : "";
+    return st ? `<span class="kton-stamp wb-rowstamp" data-stamp="${esc(st)}"${value(r.stampLabel) ? ` data-stamp-label="${esc(value(r.stampLabel))}"` : ""}${value(r.stampFull) ? ` data-stamp-full="${esc(value(r.stampFull))}"` : ""}${value(r.stampScope) ? ` data-stamp-scope="${esc(value(r.stampScope))}"` : ""}>${esc(st)}</span>` : `<span class="kton-stamp kton-error" data-stamp-missing>no source</span>`;
   };
   const measurable = (r) => !o.measurable || value(r[o.measurable]) === "true";
   // the marker sits in the second shown column (the result)
