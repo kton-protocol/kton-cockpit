@@ -91,6 +91,20 @@ test("batch: the person key is used only with the dialog's consent for exactly t
   assert.ok(t.says.every((s) => s.as === "pers" && s.expectTemplate === sha("e") && s.expectRevision === sha("f")), "each say carries the person key and the expectations");
 });
 
+test("batch: a plan that changes between the dialog and signBatch (consent was for the original digest) signs nothing", async () => {
+  const t = new SayT();
+  const b = planBatch(plans(3));
+  assert.ok(b.ok);
+  const consent = DialogConsent.fromBatchDialog(b.value);
+  // after the dialog showed the original plans, the second one is swapped for a sound plan with other values
+  const swapped = plans(3, ["c", "c", "c"])[1] as SignPlan;
+  (b.value.plans as SignPlan[])[1] = swapped;
+  const r = await signBatch(t as unknown as Transport, b.value, consent);
+  assert.ok(!r.ok && r.refusal.code === "dialog.mismatch");
+  assert.match(r.refusal.reason, /changed after the dialog/);
+  assert.equal(t.says.length, 0, "no say reached the cockpit");
+});
+
 test("batch: the first refusal ends the run: those before it stay signed and are reported, the ones after it are not tried; store.busy is retried", async () => {
   const t = new SayT();
   const b = planBatch(plans(4));
