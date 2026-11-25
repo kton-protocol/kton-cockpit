@@ -31,7 +31,8 @@
 ### Fixed
 
 - **A template the kernel refuses is named** (kton-review N3 on #260): `doctor` and `say`'s overview
-  say which template was refused at load and why, instead of only leaving it out (SPEC §8.5).
+  say which template was refused at load and why, instead of only leaving it out (SPEC §8.5). Control
+  characters in the name or reason are printed escaped (kton-review R1 on #262).
 
 ## v0.5.14 — 2026-11-25
 

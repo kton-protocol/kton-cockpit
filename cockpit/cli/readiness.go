@@ -9,14 +9,16 @@ import (
 	"crypto/ed25519"
 	"encoding/hex"
 	"fmt"
-	"github.com/kton-protocol/kton-cockpit/internal/binaries"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/kton-protocol/kton-cockpit/cockpit/backend"
+	"github.com/kton-protocol/kton-cockpit/internal/binaries"
 	"github.com/kton-protocol/kton-cockpit/internal/config"
 	"github.com/kton-protocol/kton-cockpit/internal/index/oxigraph"
 	"github.com/kton-protocol/kton-cockpit/internal/packages"
@@ -261,7 +263,23 @@ func refusedTemplateLines(cfg *config.Config) []string {
 	sort.Strings(names)
 	out := make([]string, 0, len(names))
 	for _, n := range names {
-		out = append(out, fmt.Sprintf("the template %s is refused, say cannot use it: %s", n, refused[n]))
+		out = append(out, fmt.Sprintf("the template %s is refused, say cannot use it: %s", graphicOnly(n), graphicOnly(refused[n])))
 	}
 	return out
+}
+
+// graphicOnly writes each rune of s that is not graphic (C0 and C1 controls, DEL, a newline, a tab,
+// a format character) as a Go escape, so text from someone else's template cannot move the cursor,
+// recolour or forge a line of the output it is printed into (kton-review R1 on #262).
+func graphicOnly(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		if unicode.IsGraphic(r) {
+			b.WriteRune(r)
+			continue
+		}
+		q := strconv.QuoteRuneToASCII(r) // 'x' with x escaped
+		b.WriteString(q[1 : len(q)-1])
+	}
+	return b.String()
 }
