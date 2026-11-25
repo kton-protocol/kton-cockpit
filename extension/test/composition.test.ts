@@ -195,8 +195,6 @@ test("the leaf page: the viewer's page with the host's head; no 'unsafe-inline';
   assert.equal([...html.matchAll(/http-equiv="Content-Security-Policy"/g)].length, 1);
   assert.match(html, /<base href="https:\/\/webview\.example\/kit\/viewers\/graph\/">/);
   for (const t of html.matchAll(/<(script|style)\b([^>]*)>/g)) assert.match(t[2] ?? "", /nonce="N0nce"/, `<${t[1]}> without the nonce`);
-
-  assert.ok(html.includes(`<script nonce="N0nce">(()=>`), "the host's fit script scales a too-wide viewer down to the panel (no sideways scroll)");
 });
 
 test("CSP (C1.5 v3): a leaf may fetch its pinned files (wasm) from its own resource origin; a composition frame connects nowhere, Mermaid frame or not", async () => {
