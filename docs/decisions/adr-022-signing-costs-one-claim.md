@@ -1,0 +1,180 @@
+---
+title: "Signing costs one claim: the view is patched by what arrived, and say reads its scope's head from the index"
+type: "decision"
+project: "kton-cockpit"
+date: 2026-11-25
+status: "proposed"
+tags: [architecture, index, oxigraph, say, performance]
+---
+
+# ADR-022: Signing costs one claim
+
+## Status
+
+Proposed 2026-11-25 for planning with kton-review. Asked by MH through qm (25.11., b3b1c7b0, 7b886a9e):
+"signing one claim must be one claim and an append, the same cost at 50 or 50,000 claims", and "named
+graphs already say what to reload". MH put this piece before ADR-021's build (25.11.).
+
+## Context
+
+ui-dryrun measured v0.5.14 on a copy of MH's registry (29,703 claims, 634k triples, 5 sources; answers
+9baa0d6e, fc43ee2c):
+
+| step | time | what grows with |
+|---|---|---|
+| say: prepare | 1.6 s | templates |
+| say: **the scope's head** | **18.0 s** (4.2 s when the union is current) | every record of every source |
+| say: previous claim | 0.7 s | own registry |
+| say: sign + store, persist, confirm | 2.6 s | one claim, git |
+| next ask: reading registries | < 3 s | records past each cursor (and a stat per object file) |
+| next ask: **projecting the claims** | **18-21 s** | every trusted claim |
+| next ask: writing the view | ≤ 1 s | the graphs whose hash changed (#226) |
+
+The two large costs have different roots, and neither is the oxigraph store:
+
+1. **say's scope head** (`cockpit/say.go` `resolveChain` → `Runner.Head` → `Runner.read` → `ReadDirs`). A
+   repository with federation sources reads a union *directory*: every source copied into
+   `union-<stamp>` (`buildUnion`) and opened, which verifies and settles every record. The stamp names
+   the own registry's position, and the previous say moved it, so every say after a say copies and
+   verifies the whole federation again (18 s); when the union happens to be current, opening it is still
+   4.2 s.
+2. **the next ask** (`internal/index/oxigraph/store.go` `prepare`). Reading into the store is already
+   incremental (`apply` reads `Records(cursor)`), and writing the view is too (`makeView` uploads only the
+   graphs whose hash changed). Between them, any new record changes the dataset key, and `prepare`
+   recomputes everything: `dataset()` lists every trusted graph, `claimView` → `quadsOf` reads all their
+   quads (~25 MB) back out of the store, `ClaimView` projects every claim, `scopeGraphs` and the hashes
+   run over all of it. A one-claim change costs a whole-federation projection, and then the hash
+   comparison finds that one scope graph changed.
+
+## Decision
+
+### D1. The view is patched by what arrived, not rebuilt
+
+A view (one per slot) remembers the per-registry cursor it was built at. When `prepare` finds the key
+changed, it projects only the **delta**: the records each registry took past the view's cursor, read by
+their seq (D1.1), plus the claims those records **touch** (D1.2), and patches the view's graphs (D1.3).
+`ClaimView` stays the one definition of the projection: the patch calls it on the delta and its
+neighbours, and a test holds the patched view equal to a full build (D1.5).
+
+**D1.1 What arrived.** `apply` writes, per record it reads, `<rec graph> <urn:kton:seq:<regid>> n` into
+`urn:kton:index` (the registry's own seq: a record held by two registries has two). The view's mark
+graph records `<reg> urn:kton:builtAt n` per registry. The delta of a view is every record whose seq in
+one of its registries is above that registry's `builtAt`, with the attribution graphs `dataset()` would
+list for it. A record re-appended with a new signature (a co-sign) comes back with a new seq, so new
+attribution is part of the delta.
+
+**D1.2 What it touches** (the cross-claim parts of `ClaimView`, every one of them):
+
+| part | changes when | neighbour read from the view |
+|---|---|---|
+| a claim's node (fields, about, signers, created, scope, prev) | its record or a new attribution arrives | none: its own graphs |
+| `nk:position` | the claim arrives (= position of its prev + 1) | the prev's position, from the chain graph (D2) |
+| `nk:replacedBy` on an older claim | a trusted claim naming it in `replaces` arrives, or either one gains a signer | the replaced claim's `nk:signer`, `nk:predicate`, `nk:about`; and the claims that name the co-signed one in `replaces` |
+| signer labels (`rdfs:label`, `nk:tier` of `agent:<kid>`) | a claim brings a signer the view has no label for | the rest graph |
+| what a claim asserts about something else (`other`, the shared quads) | the claim arrives | none: it is added to the rest graph |
+| scope graph metadata (`nk:claims` count, label, parent, source) | a claim joins the scope; a seed arrives | the metadata in the rest graph |
+| the default graph's copy of the plankton records (`viewIRI`) | a plankton record or its attribution arrives | none: the new graphs are added to it, not the whole copy redone |
+
+**D1.3 How the view is patched.** One SPARQL update, as `makeView`'s is, so a reader sees the old view or
+the new one: for every claim node the delta projects, the triples it had in its scope graph leave the union of
+the claims and that graph (`DELETE { GRAPH c {…} GRAPH g {…} } WHERE { GRAPH g { <o/h> ?p ?o } }`, as
+`makeView` removes a graph's triples from the union today; a claim never changes scope graph, its scope
+is signed), then `INSERT DATA` its new triples into its scope graph
+and the union; the rest graph's changed triples the same way; the mark graph's key, `builtAt` and
+per-graph state. A graph's state stops being the hash of its whole content (that would need the whole
+content): it becomes `hash(previous state, the triples deleted, the triples inserted)`, which is all
+`viewstate.go`'s `Diff` and `indexMoved` need (they compare for equality). Nodes are subjects of their
+own triples only; the nested field nodes of a claim (`#o.<field>`) are deleted and inserted with it.
+
+**D1.4 When it is a full build instead**, as today (each one is legitimate and rare):
+the view does not exist or has no `builtAt` (built before this ADR); the view config's fingerprint or the
+trusted keys changed (they are in the slot or key already); any registry was read from 0 by `apply`
+(epoch changed, objects without numbers, a newly trusted key) or lost records (`forgetDeparted` ran with
+anything to forget); a delta record is the **prev of a claim the view already holds** with no position,
+or has a prev the chain graph does not know (positions further down the chain would move: a merge that
+brought older records); the delta is larger than a bound (proposed: a tenth of the view's claims, where a
+full build is the cheaper one).
+
+**D1.5 One projection.** `ClaimView(trusted, structure, vc)` is unchanged and stays what a container
+(`ClaimDataset`) and a full build use. The patch gives it the delta's quads plus the neighbours' quads
+read by their graphs (`quadsOf` on a few dozen graphs, not all of them) and the chain graph's links for
+positions, and takes from its output only the nodes of the claims it was asked about. A property test
+builds random sequences of says, co-signs, replacements, seeds, and claims from untrusted keys, and holds
+after every step: the patched view's graphs equal (as sets of triples) a full build of the same
+registries.
+
+### D2. A chain graph per view: every claim's scope, prev and position
+
+Positions count every claim of the union, trusted or not (`structure`), and today they are recomputed
+from every claim's pubinfo on each build. The view gets one more graph, `urn:kton:view:<slot>:chain`:
+for every nekton record of its registries, `<o/h> nk:scope <o/seed> ; nk:prev <o/p> ; nk:position n`
+(trusted or not: this is chain structure, which `ClaimView` already reads for all claims). It is patched
+with the view (D1.3), listed in no query's dataset (not the claims dataset, not the nanopub one): it is
+the index's own bookkeeping, like `urn:kton:index`.
+
+### D3. say reads its scope's head from the index
+
+With `index.kind: oxigraph`, `resolveChain` brings the view up to date (D1: the own registry's last
+records, usually one) and reads the scope's heads from the chain graph: the scope's claims that no other
+claim of the scope names as `nk:prev`, or the seed when it has none; `ChainLength` the count of them;
+`Unresolved` those whose prev the chain graph does not hold. That is `nregistry.Heads`' definition
+(SPEC §7.4) on the same records. No union directory is copied for it; the claims lock still covers the
+read through the store, as it does today. Without the oxigraph index (`memory`, none, or the daemon not
+reachable) say reads the union as it does now.
+
+Two things say must not lose, each a test:
+
+- **The same heads as the kernel.** A test runs both on fixtures with a linear scope, a branched one, a
+  scope seeded in a federation source with claims in the own registry, a scope with an unresolved claim,
+  and a claim from an untrusted key in the scope (it counts for the chain): `Heads` from the chain graph
+  equals `nregistry.OpenUnion(dirs...).Heads`.
+- **A scope seeded in another registry.** The index reads each registry alone (`OpenNektonSource` of one
+  directory), and a registry opened alone settles alone: a claim whose seed lives only in another
+  registry is dropped there (`registry.go` openAt, settle), where the union open keeps it. Before D3 is
+  built, a test shows whether the index holds such a claim today. If it does not, that is a defect of the
+  index already (the view misses the claim too), fixed first by giving `apply` the union's settling for
+  nekton (kernel `OpenUnion` of the slot's nekton directories, read past cursors), or by asking kton for
+  a read that keeps a record waiting for a seed in another registry.
+
+### D4. Out of scope here
+
+`ReadDirs`' union copy stays for the other readers (publish, show, the union file); a reader-wide change
+(the kernel's `OpenUnion(dirs...)` without a copy) is its own piece. "Reading registries" stats every
+object file per position read (`core.ReadPosition`); it is under 3 s at 30k claims and grows linearly,
+named here, not changed. The window's poll is replaced by #259's events already; with D1 an event follows
+one patch.
+
+## Expected times (MH's registry copy, 29.7k claims)
+
+| step | today | after |
+|---|---|---|
+| say: the scope's head | 18 s (4.2 s) | the own registry's delta into the store + one query: < 1 s |
+| say total | ~23 s | ~5-6 s (prepare 1.6, head < 1, previous 0.7, sign/persist/confirm 2.6) |
+| next ask after a say | ~26 s | registries < 3 s + patch of one claim < 0.5 s: ~3.5 s, as a steady ask |
+| a full build (new key, epoch change) | ~26 s | unchanged |
+
+The remaining say time is prepare (templates) and git; neither grows with claims. Measured again by
+ui-dryrun with `COCKPIT_TRACE=1` on the same copy before the PRs are called done.
+
+## For the window (ui-shell)
+
+Nothing to change for D1-D3: say over stdio returns sooner, and the `indexMoved` that follows names one
+scope graph and the rest. The window should stop treating a say as "everything moved" if it still does.
+
+## Plan (for kton-review)
+
+Three PRs, each with its own revert checks:
+
+1. **The seed-elsewhere test** (D3's second bullet), and the fix if the index drops such a claim.
+2. **D1 + D2**: seqs in `urn:kton:index`, `builtAt`, the chain graph, the patch, the full-build triggers,
+   the property test against a full build; `indexMoved` from the patched states.
+3. **D3**: say's head from the chain graph, the equivalence test against the kernel, the fallback.
+
+## Questions
+
+- Q1 (kton-review): is D1.2 every cross-claim part of `ClaimView`? Anything missed means a patched view
+  that differs from a full build; the property test is meant to find it, the list is meant to make it
+  unnecessary.
+- Q2 (kton-review): the patch's state replaces the content hash for `indexMoved`. Is equality of a
+  chained state enough for ui-shell's "drop an event with the same key" and for #259's diff?
+- Q3 (MH): the bound in D1.4 (a tenth of the view's claims) — or always patch unless a trigger says full.
