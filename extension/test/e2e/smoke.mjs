@@ -102,8 +102,15 @@ async function fitAt(name, focus) {
       }
       // one editor group at full width: maximize the active group (moving editors would dispose an open dialog's webview)
       if ((await page.locator(".part.editor .editor-group-container").count()) > 1) {
-        await vsc("View: Toggle Maximized Editor Group");
-        hidden.push("maximized");
+        // the title differs between VS Code versions; without any of them the shot is taken as it is (logged)
+        for (const t of ["View: Toggle Maximize Editor Group", "View: Toggle Maximized Editor Group", "View: Maximize Editor Group"]) {
+          try {
+            await vsc(t);
+            hidden.push(`maximized:${t}`);
+            break;
+          } catch {}
+        }
+        if (!hidden.some((h) => h.startsWith("maximized:"))) console.log("# shot: no command maximizes the editor group; the 400 px shot keeps the groups");
       }
       await page.waitForTimeout(800);
     }
@@ -121,7 +128,9 @@ async function fitAt(name, focus) {
       }
       check(r.checked > 0 && r.wide.length === 0, `${name}: nothing scrolls sideways at ${tag} (${width}px; ${r.checked} blocks, tables and navs checked)`, 0, r.checked ? r.wide : "no block found");
     } finally {
-      if (hidden.includes("maximized")) await vsc("View: Toggle Maximized Editor Group");
+      const max = hidden.find((h) => h.startsWith("maximized:"));
+      // a toggle is undone by itself; "Maximize Editor Group" is not a toggle: the group sizes are reset instead
+      if (max) await vsc(max === "maximized:View: Maximize Editor Group" ? "View: Reset Editor Group Sizes" : max.slice("maximized:".length)).catch(() => {});
       if (hidden.includes("sidebar")) await vsc("View: Toggle Primary Side Bar Visibility");
       if (hidden.includes("auxiliarybar")) await vsc("View: Toggle Secondary Side Bar Visibility");
       if (hidden.includes("panel")) await vsc("View: Toggle Panel Visibility");
