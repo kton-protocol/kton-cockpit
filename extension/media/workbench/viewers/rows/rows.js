@@ -71,7 +71,7 @@ export function mount(el, ctx) {
   const acts = ctx.use.blockActs ?? ctx.use.acts ?? [];
   const subjectClaim = ctx.subject?.claim ? `https://kton.dev/o/${String(ctx.subject.claim).replace(/^sha256:/, "")}` : null;
   const value = (b) => (b && typeof b.value === "string" ? b.value : "");
-  const shortly = (v) => (/^https:\/\/kton\.dev\/o\/[0-9a-f]{64}$/.test(v) ? `sha256:${v.slice(19, 31)}…` : v);
+  const shortly = (v) => (/^https:\/\/kton\.dev\/o\/[0-9a-f]{64}$/.test(v) ? `sha256:${v.slice(19, 27)}…` : v);
   const refine = ctx.use.refine ?? {};
   const [pageParam, pageCol] = typeof o.page === "string" && o.page.includes("=") ? o.page.split("=", 2) : [undefined, undefined];
   const pageSize = Number(o.pageSize ?? 0) || 0;
@@ -367,7 +367,7 @@ const pct = (x) => `${Number(x).toFixed(1)} %`;
 export function shortId(v) {
   const s = String(v ?? "");
   if (/^https?:\/\//.test(s)) {
-    if (/^https:\/\/kton\.dev\/o\/[0-9a-f]{64}$/.test(s)) return `sha256:${s.slice(19, 31)}…`;
+    if (/^https:\/\/kton\.dev\/o\/[0-9a-f]{64}$/.test(s)) return `sha256:${s.slice(19, 27)}…`;
     const tail = s.replace(/[#/]+$/, "").split(/[#/]/).pop() ?? s;
     return dec(tail) || s;
   }
@@ -490,7 +490,7 @@ export function tiers(shown, o = {}, narrow = false, known = () => true) {
 /** A hex string of 16 or more characters (a hash or a commit id, with or without "sha256:"). */
 export const isLongHex = (v) => /^(sha256:)?[0-9a-f]{16,}$/i.test(String(v));
 /** Its short form: the first 8 hex characters and an ellipsis. */
-export const shortHex = (v) => `${String(v).replace(/^sha256:/, "").slice(0, 8)}…`;
+export const shortHex = (v) => `${String(v).replace(/^(?:sha256:|https:\/\/kton\.dev\/o\/)/, "").slice(0, 8)}…`;
 
 let tableSeq = 0;
 function table(rows, cols, { o, esc, value, shortly, click, perRow, rowButtons, vars = cols, narrow = false, open = new Set() }) {
@@ -538,7 +538,7 @@ function table(rows, cols, { o, esc, value, shortly, click, perRow, rowButtons, 
     const lbl = value(r[`${c}Label`]);
     // a column with a label beside it (<column>Label) shows the label, the IRI in the tooltip
     const shown = lbl || ((o.short ?? []).includes(c) ? shortId(full) : shortly(full));
-    const hex = !lbl && isLongHex(full);
+    const hex = !lbl && (isLongHex(full) || /^https:\/\/kton\.dev\/o\/[0-9a-f]{64}$/.test(full));
     const tip = hex ? "" : shown !== full ? ` data-tip="${esc(full)}"` : "";
     const marker = o.groupNotes && k1(c) ? noteMarker(esc, value(r[o.groupNotes])) : "";
     // a long hash is shown short, the full value in the tooltip; a click or Enter copies it
