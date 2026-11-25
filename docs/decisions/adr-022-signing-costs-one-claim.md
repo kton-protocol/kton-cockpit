@@ -114,6 +114,14 @@ for every nekton record of its registries, `<o/h> nk:scope <o/seed> ; nk:prev <o
 with the view (D1.3), listed in no query's dataset (not the claims dataset, not the nanopub one): it is
 the index's own bookkeeping, like `urn:kton:index`.
 
+Its source is the kernel's records, not the projection (kton-review, 25.11.: "the chain graph holds only
+records the kernel holds"). `apply` writes each record's chain links from the record itself (the envelope's
+scope and prev, `claim.ParseEnvelope` → `ParsePredicate`, as `nregistry.Heads` reads them), for every record
+`Records()` returns. So it holds exactly what the kernel holds: settled, chain-resolved records, never bytes
+the kernel did not take. It also holds the records `projectNekton` skips (a predicate or subject that makes
+no valid IRI): they answer no query, but they are in the chain and `Heads` counts them, so a chain built from
+the projection could name a wrong head. The equivalence test of D3 has such a claim as a scope's last one.
+
 ### D3. say reads its scope's head from the index
 
 With `index.kind: oxigraph`, `resolveChain` brings the view up to date (D1: the own registry's last
