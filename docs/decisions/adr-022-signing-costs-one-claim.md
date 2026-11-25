@@ -3,7 +3,7 @@ title: "Signing costs one claim: the view is patched by what arrived, and say re
 type: "decision"
 project: "kton-cockpit"
 date: 2026-11-25
-status: "proposed"
+status: "accepted"
 tags: [architecture, index, oxigraph, say, performance]
 ---
 
@@ -11,7 +11,7 @@ tags: [architecture, index, oxigraph, say, performance]
 
 ## Status
 
-Proposed 2026-11-25 for planning with kton-review. Asked by MH through qm (25.11., b3b1c7b0, 7b886a9e):
+Accepted by MH (2026-11-25), with D1.4 narrowed as he asked; proposed the same day. Planned with kton-review before the build. Asked by MH through qm (25.11., b3b1c7b0, 7b886a9e):
 "signing one claim must be one claim and an append, the same cost at 50 or 50,000 claims", and "named
 graphs already say what to reload". MH put this piece before ADR-021's build (25.11.).
 
@@ -56,12 +56,13 @@ their seq (D1.1), plus the claims those records **touch** (D1.2), and patches th
 `ClaimView` stays the one definition of the projection: the patch calls it on the delta and its
 neighbours, and a test holds the patched view equal to a full build (D1.5).
 
-**D1.1 What arrived.** `apply` writes, per record it reads, `<rec graph> <urn:kton:seq:<regid>> n` into
-`urn:kton:index` (the registry's own seq: a record held by two registries has two). The view's mark
-graph records `<reg> urn:kton:builtAt n` per registry. The delta of a view is every record whose seq in
-one of its registries is above that registry's `builtAt`, with the attribution graphs `dataset()` would
-list for it. A record re-appended with a new signature (a co-sign) comes back with a new seq, so new
-attribution is part of the delta.
+**D1.1 What arrived.** `apply` numbers what it adds, in the index's own counter per registry: for every
+record graph and attribution graph it holds or attests for the first time, `<graph> <urn:kton:arrived:<regid>> n`
+in `urn:kton:index`, n one past the registry's last. The kernel's seq is not used for this: records a git pull
+brought arrive unnumbered and are read from 0 (`apply`'s existing rule), and only the index can tell which of
+them it did not hold yet. The view's mark graph records `<reg> urn:kton:builtAt n` per registry. The delta of
+a view is every graph whose arrival number in one of its registries is above that registry's `builtAt`. A
+co-sign is a new attribution graph of a record already held, so it is part of the delta too.
 
 **D1.2 What it touches** (the cross-claim parts of `ClaimView`, every one of them):
 
@@ -86,14 +87,15 @@ content): it becomes `hash(previous state, the triples deleted, the triples inse
 `viewstate.go`'s `Diff` and `indexMoved` need (they compare for equality). Nodes are subjects of their
 own triples only; the nested field nodes of a claim (`#o.<field>`) are deleted and inserted with it.
 
-**D1.4 When it is a full build instead**, as today (each one is legitimate and rare):
-the view does not exist or has no `builtAt` (built before this ADR); the view config's fingerprint or the
-trusted keys changed (they are in the slot or key already); any registry was read from 0 by `apply`
-(epoch changed, objects without numbers, a newly trusted key) or lost records (`forgetDeparted` ran with
-anything to forget); a delta record is the **prev of a claim the view already holds** with no position,
-or has a prev the chain graph does not know (positions further down the chain would move: a merge that
-brought older records); the delta is larger than a bound (proposed: a tenth of the view's claims, where a
-full build is the cheaper one).
+**D1.4 When it is a full build instead.** Registries are append-only and a claim is held only once its
+chain resolves (the kernel settles before it numbers), so nothing that arrives can move a held claim's
+position or scope: arrival order does not matter, and a git pull is a delta like any other (MH, 25.11.:
+"what merge in an append only format?"). A full build remains only where the view's inputs change, not its
+records: the view does not exist or has no `builtAt` (built before this ADR); the view config's fingerprint
+or the trusted keys changed (in the slot or key already); and, as a safety net, a registry that lost
+records (`forgetDeparted` found something to forget: a registry replaced or reset, which append-only
+forbids). A large delta is patched too, with no bound (MH, Q3): a first build of a new view is the only
+large one, and that is a full build anyway.
 
 **D1.5 One projection.** `ClaimView(trusted, structure, vc)` is unchanged and stays what a container
 (`ClaimDataset`) and a full build use. The patch gives it the delta's quads plus the neighbours' quads
@@ -177,4 +179,4 @@ Three PRs, each with its own revert checks:
   unnecessary.
 - Q2 (kton-review): the patch's state replaces the content hash for `indexMoved`. Is equality of a
   chained state enough for ui-shell's "drop an event with the same key" and for #259's diff?
-- Q3 (MH): the bound in D1.4 (a tenth of the view's claims) — or always patch unless a trigger says full.
+- Q3 (MH): answered 25.11.: no bound, and no merge trigger (D1.4).
