@@ -294,12 +294,12 @@ table td[data-ind]:first-child { padding-left: 20px; }
 table td.few { color: var(--wb-muted); font-style: italic; }
 table td .wb-rowstamp { margin-left: 6px; }
 .wb-dup { display: none !important; }
-.ratecell { display: flex; align-items: center; gap: 8px; justify-content: flex-start; }
+.ratecell { display: flex; align-items: center; gap: 8px; justify-content: flex-start; min-width: 0; max-width: 100%; }
 table td[data-col] .ratecell { text-align: left; }
 td:has(> .ratecell) { text-align: left; }
-.ratecell .rv { min-width: 3.6em; text-align: right; }
+.ratecell .rv { min-width: 3.6em; text-align: right; flex: none; }
 .ratecell .rv.above { color: var(--wb-over); }
-.mb { position: relative; display: inline-block; width: 100px; height: 12px; flex: none; }
+.mb { position: relative; display: inline-block; width: 100px; height: 12px; flex: 0 1 100px; min-width: 16px; }
 .mb::before { content: ""; position: absolute; left: 0; right: 0; top: 6px; height: 1px; background: var(--wb-axis); }
 .mb .band, .mb .over { position: absolute; top: 2px; height: 9px; }
 .mb .band { left: calc(var(--lo) * 1%); width: calc(max(0, min(var(--hi), var(--t)) - var(--lo)) * 1%); background: color-mix(in srgb, var(--wb-accent) 28%, transparent); }
