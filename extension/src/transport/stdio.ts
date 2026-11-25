@@ -28,7 +28,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { CliTransport, bad, checkAsk, checkSay, checkShow, parseQueries, parseTemplates, type CliTransportOptions } from "./cli.js";
 import { assertUiListing, type UiListing } from "../packages/listing.js";
-import { assertAskResult, assertDoctorReport, assertPublishResult, assertSayResult } from "./schema.js";
+import { assertSayBatchResult, assertAskResult, assertDoctorReport, assertPublishResult, assertSayResult } from "./schema.js";
 import {
   TransportError,
   TransportNotSent,
@@ -43,6 +43,8 @@ import {
   type Refusal,
   type SayRequest,
   type SayResult,
+  type SayBatchResult,
+  BATCH_UNSUPPORTED,
   type TemplateInfo,
 } from "./port.js";
 
@@ -90,11 +92,19 @@ export class StdioConnection {
   private stderr = "";
   /** Every method sent, newest last (the output channel, tests). */
   readonly calls: string[] = [];
+  /** The methods `initialize` answered that the cockpit serves (its `methods`); empty when it names none. */
+  private served: readonly string[] = [];
 
   constructor(
     private readonly opts: CliTransportOptions,
     private readonly onLate?: (a: LateAnswer) => void,
   ) {}
+
+  /** Whether this connection's cockpit serves the method (starts the connection if needed). */
+  async serves(method: string): Promise<boolean> {
+    await this.start();
+    return this.served.includes(method);
+  }
 
   /** A request: its result, a Refused, a TransportTimeout (after cancelling it), a TransportNotSent or a TransportError. */
   async request(method: string, params: unknown): Promise<unknown> {
@@ -183,7 +193,11 @@ export class StdioConnection {
       // $/cancelRequest race, and either outcome is reported correctly (a refusal or a TransportTimeout); for a say both
       // mean "the registry says whether it signed", as on the command line (kton-cockpit #196 review).
       this.send("initialize", { root: this.opts.cwd, ...(this.opts.timeoutMs ? { requestTimeoutMs: this.opts.timeoutMs } : {}) }).then(
-        () => resolve(),
+        (init) => {
+          const m = (init as { methods?: unknown } | null | undefined)?.methods;
+          this.served = Array.isArray(m) ? m.filter((x): x is string => typeof x === "string") : [];
+          resolve();
+        },
         (e: Error) => {
           // initialize failed: the request that started the connection was never sent
           if (this.child === child) this.drop();
@@ -367,6 +381,28 @@ export class StdioTransport extends CliTransport {
     const why = checkSay(req);
     if (why) return bad(why);
     return this.outcomeOf("say", req, assertSayResult);
+  }
+
+  /**
+   * `say/batch` (params {claims: [say requests]}, result {claims, pending?}) once the cockpit lists it among the methods
+   * `initialize` answered. Until then the batch is not offered: BATCH_UNSUPPORTED, nothing sent (a method not found is
+   * the same answer), and the caller says one by one. The command line's `say --batch` is not used here: one transport,
+   * one way to the cockpit.
+   */
+  override async sayBatch(reqs: readonly SayRequest[]): Promise<Outcome<SayBatchResult>> {
+    if (reqs.length === 0) return bad("a batch needs at least one claim");
+    for (const [i, r] of reqs.entries()) {
+      const why = checkSay(r);
+      if (why) return bad(`claim ${i + 1}: ${why}`);
+    }
+    const unsupported: Outcome<SayBatchResult> = { ok: false, refusal: { code: BATCH_UNSUPPORTED, reason: "this cockpit's serve --stdio has no say/batch: the claims are said one by one" } };
+    if (!(await this.connection().serves("say/batch"))) return unsupported;
+    try {
+      return await this.outcomeOf("say/batch", { claims: reqs }, (v) => assertSayBatchResult(v, reqs.length));
+    } catch (e) {
+      if (e instanceof TransportError && e.exitCode === -32601) return unsupported; // method not found: it did not run
+      throw e;
+    }
   }
 
   override publish(req: PublishRequest): Promise<Outcome<PublishResult>> {

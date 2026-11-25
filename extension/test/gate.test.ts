@@ -95,7 +95,7 @@ test("gate: a newer ask of the same key drops the older one still waiting; one r
 
 test("gated: every method of Transport is a read through the queue or a write that marks it cold; none bypasses the queue", async () => {
   // a Record over keyof Transport: a method added to Transport later does not compile here until it is listed
-  const methods: Record<keyof Transport, true> = { ask: true, say: true, publish: true, workflowRun: true, install: true, templates: true, list: true, doctor: true, version: true, uiList: true, uiCat: true, graph: true };
+  const methods: Record<keyof Transport, true> = { ask: true, say: true, sayBatch: true, publish: true, workflowRun: true, install: true, templates: true, list: true, doctor: true, version: true, uiList: true, uiCat: true, graph: true };
   // and at the type level: no key of Transport is outside READS and WRITES
   type Gated = (typeof READS)[number] | (typeof WRITES)[number];
   const none: [Exclude<keyof Transport, Gated>] extends [never] ? true : false = true;

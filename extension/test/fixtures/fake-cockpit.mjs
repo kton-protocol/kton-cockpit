@@ -3,10 +3,12 @@
 // and answers from FAKE_COCKPIT_RESPONSES: a JSON list of
 //   {"argv0": "say", "argv1"?: "...", "exit": 0, "stdout": "...", "stderr": "..."}
 // The first entry whose argv0 (and argv1, if given) match is used. No match: exit 1.
-import { appendFileSync, readFileSync } from "node:fs";
+import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 
 const argv = process.argv.slice(2);
 if (process.env.FAKE_COCKPIT_LOG) appendFileSync(process.env.FAKE_COCKPIT_LOG, JSON.stringify(argv) + "\n");
+// FAKE_COCKPIT_STDIN: what `say --batch -` read on stdin is kept there
+if (process.env.FAKE_COCKPIT_STDIN && argv.includes("--batch")) writeFileSync(process.env.FAKE_COCKPIT_STDIN, readFileSync(0, "utf8"));
 const responses = JSON.parse(readFileSync(process.env.FAKE_COCKPIT_RESPONSES, "utf8"));
 const hit = responses.find((r) => r.argv0 === argv[0] && (r.argv1 === undefined || r.argv1 === argv[1]));
 if (!hit) {

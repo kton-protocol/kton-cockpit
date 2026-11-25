@@ -78,6 +78,18 @@ export interface SayResult {
   readonly pending?: { readonly code: string; readonly reason: string };
 }
 
+/**
+ * Many claims said in one write (SPEC §8.9): all or none, one commit, one confirmation. `claims` answers the requests in
+ * the order asked. `pending` is the batch's commit that met the registry's lock: the claims exist, never say them again.
+ */
+export interface SayBatchResult {
+  readonly claims: readonly SayResult[];
+  readonly pending?: { readonly code: string; readonly reason: string };
+}
+
+/** The refusal code of sayBatch when this transport's cockpit has no batch say: nothing was sent, say one by one. */
+export const BATCH_UNSUPPORTED = "batch.unsupported";
+
 export interface BoundTerm {
   readonly type: "iri" | "literal";
   readonly value: string;
@@ -218,6 +230,12 @@ export interface Transport {
   /** `opts.supersede`: the window's ask queue drops a waiting ask of the same key for this one (transport/gate.ts). */
   ask(req: AskRequest, opts?: { readonly supersede?: string }): Promise<Outcome<AskResult>>;
   say(req: SayRequest): Promise<Outcome<SayResult>>;
+  /**
+   * Optional (SPEC §8.9): the claims in ONE write, all or none. A refusal means nothing was signed; a throw other than
+   * TransportNotSent means unknown whether it signed (never retried). A refusal coded BATCH_UNSUPPORTED means this cockpit
+   * has no batch say: nothing was sent, and the caller says them one by one.
+   */
+  sayBatch?(reqs: readonly SayRequest[]): Promise<Outcome<SayBatchResult>>;
   publish(req: PublishRequest): Promise<Outcome<PublishResult>>;
   workflowRun(req: WorkflowRunRequest): Promise<Outcome<Readonly<Record<string, unknown>>>>;
   /** Operator command: refused without a person's confirmation. */

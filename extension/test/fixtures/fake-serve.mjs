@@ -49,7 +49,7 @@ function handle(m) {
       closeSync(0);
       setInterval(() => {}, 1000);
     }
-    return send({ id, result: { repoRoot: params.root } });
+    return send({ id, result: { repoRoot: params.root, ...(process.env.FAKE_SERVE_METHODS ? { methods: process.env.FAKE_SERVE_METHODS.split(",") } : {}) } });
   }
   if (!initialized) return send({ id, error: { code: -32002, message: "not initialized" } });
   switch (method) {
@@ -99,6 +99,9 @@ function handle(m) {
       if (as && params.as && params.as !== as) return refuse(id, "identity.as", `this connection signs as ${as}`);
       if (params.fields?.text === "late") return after(400, () => send({ id, result: { claimId: `sha256:${"d".repeat(64)}`, confirmation: "signed late" } }));
       return send({ id, result: { claimId: `sha256:${"c".repeat(64)}`, confirmation: `signed as ${params.as ?? as}` } });
+    case "say/batch":
+      if (params.claims.some((c) => c.fields?.text === "refuse")) return refuse(id, "argument", `claim ${1 + params.claims.findIndex((c) => c.fields?.text === "refuse")}: refused`);
+      return send({ id, result: { claims: params.claims.map((_, i) => ({ claimId: `sha256:${String(i + 1).repeat(64)}`, confirmation: "one batch" })) } });
     case "say/templates":
       return send({ id, result: [{ name: "note", about: "either", fields: { text: { type: "string", required: true } }, hash: `sha256:${"1".repeat(64)}` }] });
     case "ui/cat":

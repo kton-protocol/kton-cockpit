@@ -229,3 +229,35 @@ test("say with an IRI subject goes in the JSON form; a sha256 id in the word for
     assert.ok(!r.ok, subject);
   }
 });
+
+test("say --batch: one request per line on stdin, the claims answered in order, one process", async () => {
+  const ids = ["1", "2", "3"].map((c) => `sha256:${c.repeat(64)}`);
+  const { transport, argvLog, stdinSeen } = fakeCockpit([{ argv0: "say", argv1: "--batch", stdout: JSON.stringify({ claims: ids.map((claimId) => ({ claimId, confirmation: "one commit" })), pending: { code: "store.busy", reason: "next write commits" } }) }]);
+  const reqs = ids.map((_, i) => ({ template: "approves", subject: `sha256:${String(i + 4).repeat(64)}`, fields: { note: `n${i}` }, as: "person-a", expectTemplate: `sha256:${"e".repeat(64)}` }));
+  assert.ok(transport.sayBatch);
+  const out = await transport.sayBatch(reqs);
+  assert.ok(out.ok);
+  assert.deepEqual(out.value.claims.map((c) => c.claimId), ids);
+  assert.equal(out.value.pending?.code, "store.busy");
+  assert.deepEqual(argvLog(), [["say", "--batch", "-"]], "one call");
+  const lines = stdinSeen().trimEnd().split("\n").map((l) => JSON.parse(l) as Record<string, unknown>);
+  assert.equal(lines.length, 3);
+  assert.deepEqual(lines[1], { template: "approves", subject: `sha256:${"5".repeat(64)}`, fields: { note: "n1" }, as: "person-a", expectTemplate: `sha256:${"e".repeat(64)}` });
+});
+
+test("say --batch: a refusal (exit 2, JSON) is a refusal that names the claim; a bad request never leaves; a short or unreadable answer throws", async () => {
+  const req = { template: "approves", subject: SUBJECT, fields: {} };
+  const r = fakeCockpit([{ argv0: "say", exit: 2, stdout: JSON.stringify({ code: "argument", clause: "SPEC §8.9", reason: "claim 2: template nosuch is not allowed" }) }]);
+  const out = await r.transport.sayBatch?.([req, req]);
+  assert.deepEqual(out, { ok: false, refusal: { code: "argument", clause: "SPEC §8.9", reason: "claim 2: template nosuch is not allowed" } });
+  const none = fakeCockpit([]);
+  const local = await none.transport.sayBatch?.([req, { ...req, subject: "data.txt" }]);
+  assert.ok(local && !local.ok && /^claim 2: /.test(local.refusal.reason));
+  assert.equal(none.argvLog().length, 0);
+  const short = fakeCockpit([{ argv0: "say", stdout: JSON.stringify({ claims: [{ claimId: CLAIM, confirmation: "x" }] }) }]);
+  await assert.rejects(() => short.transport.sayBatch?.([req, req]) as Promise<unknown>, /asked, the answer holds 1/);
+  const junk = fakeCockpit([{ argv0: "say", stdout: "not json" }]);
+  await assert.rejects(() => junk.transport.sayBatch?.([req]) as Promise<unknown>, TransportError);
+  const died = fakeCockpit([{ argv0: "say", exit: 1, stderr: "cockpit: git commit failed\n" }]);
+  await assert.rejects(() => died.transport.sayBatch?.([req]) as Promise<unknown>, TransportError);
+});

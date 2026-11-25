@@ -195,13 +195,15 @@ export class Superseded extends Error {
 /** The Transport methods that go through the queue; every method of Transport is in READS or WRITES (test/gate.test.ts). */
 export const READS = ["ask", "templates", "list", "doctor", "version", "uiList", "uiCat", "graph"] as const;
 /** The Transport methods that pass the queue and mark the index cold. */
-export const WRITES = ["say", "publish", "install", "workflowRun"] as const;
+export const WRITES = ["say", "sayBatch", "publish", "install", "workflowRun"] as const;
 
 /** The transport with its reads through the gate; its writes pass and mark the index cold. */
 export function gated(t: Transport, gate: AskGate): Transport {
   const out: Record<string, unknown> = {};
   for (const m of READS) out[m] = (...a: unknown[]) => gate.run(() => (t[m] as (...x: unknown[]) => Promise<unknown>).apply(t, a), m === "ask" ? (a[1] as { supersede?: string } | undefined)?.supersede : undefined);
-  for (const m of WRITES)
+  for (const m of WRITES) {
+    // sayBatch is optional: a transport that has none stays without one, so callers can ask whether it is offered
+    if (typeof t[m] !== "function") continue;
     out[m] = async (...a: unknown[]) => {
       try {
         return await (t[m] as (...x: unknown[]) => Promise<unknown>).apply(t, a);
@@ -209,5 +211,6 @@ export function gated(t: Transport, gate: AskGate): Transport {
         gate.markCold();
       }
     };
+  }
   return out as unknown as Transport;
 }

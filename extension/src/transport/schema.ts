@@ -2,7 +2,7 @@
 // schema tests; the cockpit side tests its own output). A wrong shape is a TransportError, never a
 // silently half-read value.
 
-import type { AskResult, DoctorReport, PublishResult, SayResult } from "./port.js";
+import type { AskResult, DoctorReport, PublishResult, SayBatchResult, SayResult } from "./port.js";
 import { TransportError } from "./port.js";
 
 function obj(v: unknown, what: string): Record<string, unknown> {
@@ -28,6 +28,21 @@ export function assertSayResult(v: unknown): SayResult {
     str(pnd, "reason", "say pending", true);
   }
   return { confirmation: "", ...o } as unknown as SayResult;
+}
+
+/** `say --batch`'s answer: {claims: [say results in the order asked], pending?}; `n` claims were asked. */
+export function assertSayBatchResult(v: unknown, n: number): SayBatchResult {
+  const o = obj(v, "say batch");
+  const claims = o["claims"];
+  if (!Array.isArray(claims) || claims.length !== n) throw new TransportError(`say batch: ${n} claims were asked, the answer holds ${Array.isArray(claims) ? claims.length : "none"}`, 0, "");
+  const out = claims.map(assertSayResult);
+  if (o["pending"] !== undefined) {
+    const pnd = obj(o["pending"], "say batch pending");
+    str(pnd, "code", "say batch pending");
+    str(pnd, "reason", "say batch pending", true);
+    return { claims: out, pending: o["pending"] as { code: string; reason: string } };
+  }
+  return { claims: out };
 }
 
 export function assertAskResult(v: unknown): AskResult {
