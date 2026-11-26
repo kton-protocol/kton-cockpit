@@ -18,15 +18,38 @@ export function csp(nonce: string): string {
   return `default-src 'none'; style-src 'nonce-${nonce}'; script-src 'nonce-${nonce}'; connect-src 'none'; img-src 'none'; form-action 'none'; base-uri 'none'`;
 }
 
-const STYLE = `body{font-family:var(--vscode-font-family);color:var(--vscode-foreground);background:var(--vscode-editor-background);padding:12px 18px;line-height:1.5}
+const STYLE = `body{font-family:var(--vscode-font-family);color:var(--vscode-foreground);background:var(--vscode-editor-background);padding:12px 18px;line-height:1.5;overflow-wrap:anywhere}
 h1{font-size:18px;margin:0 0 8px} h2{font-size:15px} .muted{color:var(--vscode-descriptionForeground)} .box{border:1px solid var(--vscode-panel-border);border-radius:6px;padding:10px 12px;margin:10px 0}
-.opt{display:flex;gap:10px;align-items:flex-start;margin:6px 0} .rec{font-size:11px;border:1px solid currentColor;border-radius:4px;padding:0 5px;margin-left:6px}
-button{font:inherit;padding:4px 12px;border-radius:4px;border:1px solid var(--vscode-button-border,transparent);background:var(--vscode-button-background);color:var(--vscode-button-foreground);cursor:pointer}
+.opt{display:flex;gap:10px;align-items:flex-start;margin:6px 0} .opt > *{min-width:0} .rec{font-size:11px;border:1px solid currentColor;border-radius:4px;padding:0 5px;margin-left:6px}
+button{font:inherit;max-width:100%;text-align:left;padding:4px 12px;border-radius:4px;border:1px solid var(--vscode-button-border,transparent);background:var(--vscode-button-background);color:var(--vscode-button-foreground);cursor:pointer}
 button:disabled{opacity:.5;cursor:default}
-table{border-collapse:collapse} td,th{border-bottom:1px solid var(--vscode-panel-border);padding:4px 8px;text-align:left;vertical-align:top} code{font-family:var(--vscode-editor-font-family)}
+table{border-collapse:collapse;max-width:100%} td,th{border-bottom:1px solid var(--vscode-panel-border);padding:4px 8px;text-align:left;vertical-align:top} code{font-family:var(--vscode-editor-font-family)}
 label.field{display:block;margin:8px 0} label.field span{display:block} input[type=text],textarea{font:inherit;width:100%;max-width:640px;box-sizing:border-box}
 .error{color:var(--vscode-errorForeground)} .confirm{display:flex;gap:8px;align-items:center;margin:12px 0} .actions{display:flex;gap:8px}
 pre.box{white-space:pre-wrap;font-family:var(--vscode-editor-font-family)} .outcome{margin-top:10px;font-weight:600}`;
+
+
+/** A 64-hex hash is shown as 8 hex (mono, the full value in the tooltip and for a screen reader; a click or Enter copies it). */
+export function hashChip(full: string): string {
+  const m = /^(?:https:\/\/kton\.dev\/o\/|sha256:)?([0-9a-f]{64})$/.exec(full);
+  if (!m) return esc(full);
+  return `<span class="hash mono" tabindex="0" role="button" title="${esc(full)}" data-copy="${esc(full)}">sha256:${m[1]?.slice(0, 8)}…<span class="hide"> ${esc(full)}</span></span>`;
+}
+
+/** A text with its 64-hex hashes (and kton.dev/o/ IRIs) shown as hash chips; the rest is escaped as it is. */
+export function shortenHashes(text: string): string {
+  let out = "";
+  let at = 0;
+  for (const m of text.matchAll(/(?:https:\/\/kton\.dev\/o\/|sha256:)[0-9a-f]{64}(?![0-9a-f])/g)) {
+    out += esc(text.slice(at, m.index)) + hashChip(m[0]);
+    at = (m.index ?? 0) + m[0].length;
+  }
+  return out + esc(text.slice(at));
+}
+
+/** The page script that copies a hash chip's full value (click or Enter). */
+const COPY_JS = "document.addEventListener('click',(e)=>{const h=e.target&&e.target.closest&&e.target.closest('[data-copy]');if(h&&navigator.clipboard)navigator.clipboard.writeText(h.dataset.copy);});document.addEventListener('keydown',(e)=>{const h=e.target&&e.target.closest&&e.target.closest('[data-copy]');if(h&&e.key==='Enter'&&navigator.clipboard)navigator.clipboard.writeText(h.dataset.copy);});";
+const HASH_STYLE = ".hash{font-family:var(--vscode-editor-font-family);font-size:12px;cursor:copy;border-bottom:1px dotted var(--vscode-descriptionForeground);white-space:nowrap} .hide{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}";
 
 function page(title: string, body: string, nonce: string, script = "", style = ""): string {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8">
@@ -94,7 +117,7 @@ export function decisionPage(row: Row, nonce: string, view: DecisionView = {}): 
     .map((r) => `<div class="box" data-testid="agent-record">Recorded by ${esc(signerLabel(r["by"], r["byTier"]))}: <b>${esc(r["choice"] ?? r["outcome"] ?? "")}</b>. <span class="muted">Not a decision: only a person key decides.</span></div>`)
     .join("");
   const body = `<h1>${esc(row["title"] ?? "Decision")}</h1>
-<div class="muted">${esc(row["area"] ?? "")} · from ${esc(signerLabel(row["from"], row["fromTier"]))} · ${esc(row["when"] ?? "")} · <code>${esc(id)}</code></div>
+<div class="muted">${esc(row["area"] ?? "")} · from ${esc(signerLabel(row["from"], row["fromTier"]))} · ${esc(row["when"] ?? "")} · ${/^(?:https:\/\/kton\.dev\/o\/|sha256:)?[0-9a-f]{64}$/.test(id) ? hashChip(id) : `<code>${esc(id)}</code>`}</div>
 <div class="box" data-testid="proposal-text">${esc(row["text"] ?? "")}</div>
 <div class="muted">Why: ${esc(row["why"] ?? "")}</div>
 <div class="box" data-testid="guard"><b>Rules</b><div class="muted">${esc(RULES_LABEL)}</div></div>
@@ -107,8 +130,8 @@ ${cannot ? `<div class="error" data-testid="cannot-sign">${esc(cannot)}</div>` :
   const conds = view.conditions && !cannot
     ? `const conds=[];const ol=document.getElementById('conds');const draw=()=>{ol.textContent='';conds.forEach((c,i)=>{const li=document.createElement('li');li.dataset.condition=String(i);li.textContent=c.text+(c.owner?' · owner '+c.owner:'')+(c.when?' · '+c.when:'');const x=document.createElement('button');x.textContent='Remove';x.dataset.testid='condition-remove';x.addEventListener('click',()=>{conds.splice(i,1);draw();});li.append(' ',x);ol.append(li);});};document.getElementById('cond-add').addEventListener('click',()=>{const t=document.getElementById('cond-text');const text=t.value.trim();if(!text)return;const owner=document.getElementById('cond-owner').value.trim();const when=document.getElementById('cond-when').value;conds.push(Object.assign({id:'c'+(conds.length+1),text},owner?{owner}:{},when?{when}:{}));t.value='';draw();});const extra=()=>conds.length?{conditions:JSON.stringify(conds)}:{};`
     : "const extra=()=>({});";
-  const script = `const vscode=acquireVsCodeApi();${conds}for(const b of document.querySelectorAll('button[data-choice]')){b.addEventListener('click',()=>vscode.postMessage({kind:'sign',about:${JSON.stringify(id)},fields:Object.assign({answers:${JSON.stringify(id)},outcome:'https://schema.org/AcceptAction',choice:b.dataset.choice},extra())}));}`;
-  return page(row["title"] ?? "Decision", body, nonce, script);
+  const script = `const vscode=acquireVsCodeApi();${COPY_JS}${conds}for(const b of document.querySelectorAll('button[data-choice]')){b.addEventListener('click',()=>vscode.postMessage({kind:'sign',about:${JSON.stringify(id)},fields:Object.assign({answers:${JSON.stringify(id)},outcome:'https://schema.org/AcceptAction',choice:b.dataset.choice},extra())}));}`;
+  return page(row["title"] ?? "Decision", body, nonce, script, HASH_STYLE);
 }
 
 export interface ThreadView {
@@ -176,6 +199,45 @@ export function resultsPage(title: string, rows: readonly Row[], nonce: string):
     ? `<table data-testid="results"><tr>${vars.map((v) => `<th>${esc(v)}</th>`).join("")}</tr>${rows.map((r) => `<tr>${vars.map((v) => `<td>${esc(r[v] ?? "")}</td>`).join("")}</tr>`).join("")}</table>`
     : '<div class="muted">No rows.</div>';
   return page(title, `<h1>${esc(title)}</h1><div class="muted">${rows.length} rows</div>${table}`, nonce);
+}
+
+/** What the structured sign dialog shows: one plan, or several signed behind one confirmation (a batch, in order). */
+export type SignView = { readonly plan: SignPlan; readonly signer: ShownSigner } | { readonly batch: readonly SignPlan[]; readonly signer: ShownSigner };
+
+/** The text of a batch dialog: every plan as the single dialog's text shows it, numbered, then the one signer. */
+export function signBatchDetail(plans: readonly SignPlan[], signer: ShownSigner): string {
+  return [`You sign ${plans.length} claims with one confirmation:`, ...plans.map((p, i) => `--- ${i + 1} of ${plans.length} ---\n${signDialogDetail(p, signer)}`)].join("\n");
+}
+
+/**
+ * The batch dialog's body: one section per claim, in the order they are signed, each with what the single dialog shows
+ * (template, control, subject, fields, scope, checks), and the one signer. The confirmation below covers all of them.
+ */
+export function signBatchBody(plans: readonly SignPlan[], signer: ShownSigner, title: string): string {
+  const who = signer.verified ? `${signer.name} (${signer.tier})` : `${signer.hint} — unverified: ${signer.why}`;
+  const first = plans[0];
+  const items = plans
+    .map((p, i) => {
+      const about = /^(?:https:\/\/kton\.dev\/o\/|sha256:)([0-9a-f]{64})$/.exec(p.subject);
+      const fields = Object.entries(p.fields).map(([k, v]) => `<div class="ln" data-field="${esc(k)}"><span class="k">${esc(k)}<span class="hide"> = </span></span><span class="v mono">${esc(v)}</span></div>`).join("");
+      const checks = p.checks?.differs.length ? `<div class="callout warn" role="status">${p.checks.differs.length} difference${p.checks.differs.length === 1 ? "" : "s"} from the signed claims: ${esc(p.checks.differs.join("; "))}</div>` : "";
+      return `<section class="blk" data-batch-item="${i + 1}"><h2>${i + 1} of ${plans.length} · ${esc(p.control.title ?? `${p.control.package}/${p.control.name}`)}</h2>
+<div class="ln"><span class="k">About<span class="hide">: </span></span><span class="v">${about ? `<span class="hide">${esc(p.subject)} </span><span class="chip" title="${esc(p.subject)}" tabindex="0">claim <span class="mono">${esc((about[1] ?? "").slice(0, 8))}</span></span>` : `<span class="mono">${esc(p.subject)}</span>`}</span></div>
+<div class="ln"><span class="k">Signs in<span class="hide">: </span></span><span class="v"><b>${esc(p.template)}</b></span></div>
+${p.meaning !== undefined ? `<div class="ln" data-act-meaning><span class="k">${p.meaningField ? "Meaning" : "Act"}<span class="hide">: </span></span><span class="v"><b>${esc(p.meaning)}</b></span></div>` : ""}
+${p.scope !== undefined ? `<div class="ln" data-into-scope><span class="k">Into scope<span class="hide">: </span></span><span class="v mono">${esc(p.scope)}</span></div>` : ""}
+${fields}${checks}</section>`;
+    })
+    .join("");
+  return `<p class="runbar"><b>Test keys</b><span>${esc(first?.footer ?? "")}</span></p>
+<div class="dlg" data-testid="sign-detail" data-batch="${plans.length}">
+<div class="eyebrow">${esc(title)}</div>
+<h1>Sign ${plans.length} claim${plans.length === 1 ? "" : "s"}</h1>
+<div class="callout" role="status" data-batch-note>One confirmation signs all ${plans.length}, in this order. If one of them fails, the ones after it are not signed.</div>
+${items}
+<section class="blk"><h2>Signs as</h2><div class="ln" data-signer><span class="k">Signs with<span class="hide">: </span></span><span class="v"><b>${esc(first?.as ?? "")}</b> <span class="muted">${esc(first?.keyRole ?? "")} key</span> <span class="hide">· ${esc(who)}</span><span class="pill ${signer.verified ? "ok" : "warn"}">${signer.verified ? esc(who) : "unverified"}</span></span></div>${signer.verified ? "" : `<div class="muted">${esc(signer.why)}</div>`}</section>
+<div class="info">${esc(first?.rules ?? "")}</div>
+</div>`;
 }
 
 /** The sign dialog's text (C1.4): exactly what `cockpit say` will sign, the signer, footer and rules note. */
@@ -290,7 +352,7 @@ export function signDialogBody(p: SignPlan, signer: ShownSigner, title: string):
   const looked = (p.fields["lookedAt"] ?? "").split(/\s+/).filter(Boolean);
   const allOpened = looked.length > 0 && p.opened?.length && looked.every((r) => p.opened?.includes(r));
   const fields = Object.entries(p.fields)
-    .map(([k, v]) => ln(k, k === "lookedAt" && allOpened ? `${looked.length} references: the evidence below<span class="hide"> ${esc(v)}</span>` : `<span class="mono">${esc(v)}</span>`, ` data-field="${esc(k)}"`, " = "))
+    .map(([k, v]) => ln(k, k === "lookedAt" && allOpened ? `${looked.length} references: the evidence below<span class="hide"> ${esc(v)}</span>` : `<span class="mono">${shortenHashes(v)}</span>`, ` data-field="${esc(k)}"`, " = "))
     .join("");
   const who = signer.verified ? `${signer.name} (${signer.tier})` : `${signer.hint} — unverified: ${signer.why}`;
   const about = /^(?:https:\/\/kton\.dev\/o\/|sha256:)([0-9a-f]{64})$/.exec(p.subject);
@@ -337,8 +399,8 @@ ${p.expect.revision ? ln("Package revision", `<span class="mono" title="${esc(p.
  * With `view` (the plan and the shown signer) the dialog is structured; without it, the text detail.
  * Cancel takes the focus when the page opens (a script, not autofocus); Sign is the primary, Cancel secondary.
  */
-export function signDialogPage(title: string, detail: string, person: string, nonce: string, view?: { readonly plan: SignPlan; readonly signer: ShownSigner }): string {
-  const top = view ? signDialogBody(view.plan, view.signer, title) : `<h1>${esc(title)}</h1>
+export function signDialogPage(title: string, detail: string, person: string, nonce: string, view?: SignView): string {
+  const top = view ? ("batch" in view ? signBatchBody(view.batch, view.signer, title) : signDialogBody(view.plan, view.signer, title)) : `<h1>${esc(title)}</h1>
 <pre class="box" data-testid="sign-detail">${esc(detail)}</pre>`;
   const body = `${top}
 <div class="${view ? "foot dlg" : ""}">
@@ -346,14 +408,14 @@ export function signDialogPage(title: string, detail: string, person: string, no
 <div class="actions"><button id="sign" type="button" data-testid="sign-button" disabled>Sign</button><button id="cancel" type="button" data-testid="sign-cancel">Cancel</button></div>
 <div class="muted">Enter does not sign. Escape or Cancel closes without signing.</div>
 <div class="outcome" id="outcome" data-testid="sign-outcome" role="status"></div></div>`;
-  const script = `const vscode=acquireVsCodeApi();const box=document.getElementById('iknow');const signBtn=document.getElementById('sign');const cancelBtn=document.getElementById('cancel');const out=document.getElementById('outcome');
+  const script = `const vscode=acquireVsCodeApi();${COPY_JS}const box=document.getElementById('iknow');const signBtn=document.getElementById('sign');const cancelBtn=document.getElementById('cancel');const out=document.getElementById('outcome');
 box.checked=false;signBtn.disabled=true;cancelBtn.focus();
 box.addEventListener('change',()=>{signBtn.disabled=!box.checked;});
 document.addEventListener('keydown',(e)=>{if(e.key==='Enter'){e.preventDefault();e.stopPropagation();}if(e.key==='Escape'){e.preventDefault();vscode.postMessage({type:'cancel'});}},true);
 signBtn.addEventListener('click',()=>{if(box.checked&&!signBtn.disabled){signBtn.disabled=true;box.disabled=true;cancelBtn.disabled=true;out.textContent='Signing…';out.dataset.state='signing';vscode.postMessage({type:'sign',confirmed:true});}});
 cancelBtn.addEventListener('click',()=>vscode.postMessage({type:'cancel'}));
-window.addEventListener('message',(e)=>{const m=e.data;if(m&&m.type==='outcome'){out.textContent=String(m.text);out.dataset.state=m.ok?'signed':'failed';}});`;
-  return page(title, body, nonce, script, view ? DIALOG_STYLE : "");
+window.addEventListener('message',(e)=>{const m=e.data;if(m&&m.type==='outcome'){out.textContent='';String(m.text).split(/((?:https:\\/\\/kton\\.dev\\/o\\/|sha256:)[0-9a-f]{64})/).forEach((t,i)=>{if(i%2===0){out.append(t);return;}const h=document.createElement('span');h.className='hash';h.tabIndex=0;h.setAttribute('role','button');h.title=t;h.dataset.copy=t;h.append('sha256:'+t.slice(-64,-56)+'…');const f=document.createElement('span');f.className='hide';f.textContent=' '+t;h.append(f);out.append(h);});out.dataset.state=m.ok?'signed':'failed';}});`;
+  return page(title, body, nonce, script, (view ? DIALOG_STYLE : "") + HASH_STYLE);
 }
 
 /**

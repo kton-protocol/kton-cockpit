@@ -26,10 +26,130 @@ const leaked = [];
 page.on("request", (r) => {
   if (/example\.org/.test(r.url())) leaked.push(r.url());
 });
-async function shot(name) {
+// The surfaces the flows open (their shots): nothing on them scrolls sideways, at the full width and at 400 px
+// (DESIGN principle 8). SHOTS_DIR=<dir> (run.sh mounts it): a PNG of each of them at both widths, named after the shot.
+const SURFACES = new Set(["s5-review-view", "c2-grid", "c2-tabs", "c2-split", "s5-graph-leaf", "s3-decision", "s6-areas", "s6-record", "s6-history", "s6-findings", "s6-record-bound", "s6-approvals", "s6-area-two", "s6-governing-draft", "w-first-screen", "w-view", "w-evidence", "w-evidence-runs", "w-units-rerun", "w-decides", "w-decides-dialog", "x-history"]);
+// Gaps that are not the shell's: each names what may be wide and why. The run prints them as GAP lines.
+const KNOWN_GAPS = {
+  "s5-graph-leaf@400": { only: /^vscode-light \+\d+px$/, why: "the vendored graph viewer has no layout below its own minimum width; the page clips it (no scrollbar); a narrow layout is requested from the viewer's owner" },
+};
+/** Every block, table wrap, nav and the page of every webview on screen: scrollWidth <= clientWidth. Returns {checked, wide: [..]}. */
+async function sideways() {
+  let checked = 0;
+  const wide = [];
+  for (const f of page.frames()) {
+    if (f === page.mainFrame()) continue;
+    try {
+      const r = await f.evaluate(() => {
+        const out = { checked: 0, wide: [] };
+        // a webview squeezed to almost nothing is not a view a person reads: it is left out
+        if (document.documentElement.clientWidth < 120) return out;
+        // a frame without blocks (a graph leaf, a dialog, a list) is checked by its page and root elements
+        const blocks = !!document.querySelector("[data-use], .wb-nav");
+        const sel = blocks ? "[data-use], .tbl-wrap, .wb-nav, #kton-root, body" : "#kton-root, .tbl-wrap, table, svg, img, body";
+        for (const e of document.querySelectorAll(sel)) {
+          if (!e.getClientRects().length) continue;
+          out.checked++;
+          const w = e === document.body ? Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) - document.documentElement.clientWidth : e.scrollWidth - e.clientWidth;
+          if (w > 1) out.wide.push(`${e.getAttribute("data-use") ?? (e.className || e.id || e.tagName)} +${w}px`);
+        }
+        return out;
+      });
+      checked += r.checked;
+      wide.push(...r.wide);
+    } catch {}
+  }
+  if (!checked) {
+    // no webview frame at all: the workbench page itself must not scroll sideways
+    const r = await page.evaluate(() => ({ w: document.documentElement.scrollWidth - document.documentElement.clientWidth }));
+    checked = 1;
+    if (r.w > 1) wide.push(`page +${r.w}px`);
+  }
+  return { checked, wide };
+}
+/** Is a workbench part (sidebar, auxiliary bar, panel) on screen? */
+const partShown = (cls) => page.locator(`.part.${cls}`).first().isVisible().catch(() => false);
+/** A VS Code command by its title, through the palette (the same helper the flows use, defined below). */
+async function vsc(title) {
+  await page.keyboard.press("F1");
+  await page.locator(".quick-input-box input").first().fill(`>${title}`);
+  const hit = page.locator(".quick-input-list .monaco-list-row", { hasText: title }).first();
+  try {
+    await hit.waitFor({ timeout: 5000 });
+  } catch {
+    // no command with that title: close the palette (it would swallow the next step's keys) and say so
+    await page.keyboard.press("Escape");
+    throw new Error(`no VS Code command titled "${title}"`);
+  }
+  await page.keyboard.press("Enter");
+  await page.waitForTimeout(400);
+}
+async function fitAt(name, focus) {
+  const size = page.viewportSize();
+  const shots = process.env.SHOTS_DIR;
+  // both passes use a viewport about 900 px tall (a screen's height, not the 4500 px of the flows)
+  const tall = 900;
+  const pass = async (tag, width) => {
+    await page.setViewportSize({ width, height: tall });
+    await page.waitForTimeout(800); // the blocks redraw on a resize
+    const hidden = [];
+    if (tag === "400") {
+      // the webview itself is 400 px wide: hide the primary sidebar (and the secondary sidebar and the panel when open),
+      // and keep one editor group; the sidebar is shown again after the pass
+      for (const [cls, title] of [["sidebar", "View: Close Primary Side Bar"], ["auxiliarybar", "View: Close Secondary Side Bar"], ["panel", "View: Close Panel"]]) {
+        if (await partShown(cls)) {
+          await vsc(title);
+          hidden.push(cls);
+        }
+      }
+      await vsc("View: Join All Editor Groups");
+      await page.waitForTimeout(800);
+    }
+    try {
+      // a section the reviewer must see (a table further down, a dialog's footer) is scrolled into view first
+      // the webview may be re-created by the layout change, so the target is looked up again in every frame
+      if (focus) await scrollToInFrames(focus.sel, focus.text);
+      const r = await sideways();
+      if (shots) await page.screenshot({ path: `${shots}/${name}-${tag}.png` });
+      const gap = KNOWN_GAPS[`${name}@${tag}`];
+      if (gap && r.checked > 0 && r.wide.length && r.wide.every((w) => gap.only.test(w))) {
+        // a named gap with an open request elsewhere: printed in the log (GAP), never counted as ok
+        console.log(`GAP  ${name}: sideways at ${tag} (${width}px): ${r.wide.join(", ")}; ${gap.why}`);
+        return;
+      }
+      check(r.checked > 0 && r.wide.length === 0, `${name}: nothing scrolls sideways at ${tag} (${width}px; ${r.checked} blocks, tables and navs checked)`, 0, r.checked ? r.wide : "no block found");
+    } finally {
+      if (hidden.includes("sidebar")) await vsc("View: Toggle Primary Side Bar Visibility");
+      if (hidden.includes("auxiliarybar")) await vsc("View: Toggle Secondary Side Bar Visibility");
+      if (hidden.includes("panel")) await vsc("View: Toggle Panel Visibility");
+    }
+  };
+  try {
+    await pass("full", size.width);
+    await pass("400", 400);
+  } finally {
+    await page.setViewportSize(size);
+    await page.waitForTimeout(500);
+  }
+}
+/** Scrolls the first element matching sel (and text) in any webview frame into view; says so when none is found. */
+async function scrollToInFrames(sel, text) {
+  for (const f of page.frames()) {
+    const l = f.locator(sel, text ? { hasText: text } : {}).first();
+    if (await l.count().catch(() => 0)) {
+      await l.scrollIntoViewIfNeeded({ timeout: 10000 }).catch(() => {});
+      await page.waitForTimeout(300);
+      return true;
+    }
+  }
+  console.log(`# shot: nothing matches ${sel}${text ? ` (${text})` : ""} to scroll into view`);
+  return false;
+}
+async function shot(name, focus) {
   const file = `${name}.png`;
   await page.screenshot({ path: `${OUT}/${file}` });
   current?.screenshots.push(file);
+  if (current && SURFACES.has(name)) await fitAt(name, focus);
 }
 // ONLY=<flow>[,<flow>] (debugging, or a run on a loaded machine): only those flows' steps run, and a flow's own setup
 // (its folder, its registry asks) only when it is selected
@@ -284,7 +404,9 @@ await step("S2", 3, "answer with done through the sign dialog; the registry has 
   await f.locator('[data-testid="answer-outcome"]').fill("Checked, the notes are fine.");
   await f.locator('[data-testid="answer-send"]').click();
   const d = await dialog();
-  for (const t of ["Template: done", `answers = ${seed.requests[0]}`, 'person key "qa-decider"']) await d.getByText(t, { exact: false }).first().waitFor();
+  for (const t of ["Template: done", "answers = sha256:" + seed.requests[0].slice(7, 15) + "…", 'person key "qa-decider"']) await d.getByText(t, { exact: false }).first().waitFor();
+  // the field shows the short chip; the full id is in the chip's copy value
+  await d.locator(`[data-field="answers"] [data-copy="${seed.requests[0]}"]`).first().waitFor({ state: "attached" });
   await signInDialog(d);
   await d.locator('[data-testid="sign-outcome"][data-state="signed"]').waitFor({ timeout: PT(30000) });
   await shot("s2-answered");
@@ -1232,9 +1354,12 @@ if (seed.w?.proposal && selected("W")) {
     await b.locator("[data-evidence-for]", { hasText: element }).waitFor({ timeout: 60000 });
     return b;
   };
-  const openedOut = async (r) => {
-    await r.locator("[data-open-out]").filter({ hasText: /\S/ }).filter({ hasNotText: "Opening…" }).waitFor({ timeout: 60000 });
-    return ((await r.locator("[data-open-out]").textContent()) ?? "").trim();
+  // r is an evidence item, or a runs-table row: its status is in the row's line 2 (the next row), found by the row's index
+  const openedOut = async (r, scope) => {
+    const i = scope ? await r.getAttribute("data-row") : null;
+    const out = scope ? scope.locator(`[data-open-out="${i}"]`) : r.locator("[data-open-out]");
+    await out.filter({ hasText: /\S/ }).filter({ hasNotText: "Opening…" }).waitFor({ timeout: 60000 });
+    return ((await out.textContent()) ?? "").trim();
   };
 
   await warm("repo-w");
@@ -1365,7 +1490,7 @@ if (seed.w?.proposal && selected("W")) {
     await a.locator('[data-evidence="artifact"]').first().waitFor({ timeout: 60000 });
     const shotRow = a.locator('[data-evidence="artifact"]', { has: f.locator('button[data-label="Open screenshot: run run-1 (failed)"]') }).first();
     await shotRow.locator("button").click();
-    const out = await openedOut(shotRow);
+    const out = await openedOut(shotRow, a);
     check(/^Opened run-1\/shots\/fail-1\.png \(sha256:[0-9a-f]{12}…, \d+ bytes, hash checked\)$/.test(out), "opened after the hash check", "Opened run-1/shots/fail-1.png (sha256:…, n bytes, hash checked)", out);
     const img = await frameWithSel('[data-testid="artifact-image"]', 30000);
     const info = (await img.locator('[data-testid="artifact-info"]').textContent()) ?? "";
@@ -1376,6 +1501,7 @@ if (seed.w?.proposal && selected("W")) {
     check((await a2.locator(".wb-block-source").textContent()) === "source: w.runs", "the runs name their own source", "source: w.runs", await a2.locator(".wb-block-source").allTextContents());
     const none = ((await a2.textContent()) ?? "").replace(/\s+/g, " ");
     check(/1 passing run without an artifact: \S/.test(none) && (await a2.locator("[data-passing]").count()) === 1, "a passing run: no artifact, counted once, and why", "1 passing run without an artifact: …", none.match(/.{0,20}passing run.{0,80}/)?.[0]);
+    await shot("w-evidence-runs", { sel: '[data-use$="#artifacts"]' }); // while the runs of this element are shown
     const b3 = await evidence(g, "item-3#e1");
     const unresolved = b3.locator('[data-evidence="code"]').first();
     const t = ((await unresolved.textContent()) ?? "").replace(/\s+/g, " ");
@@ -1424,6 +1550,7 @@ if (seed.w?.proposal && selected("W")) {
     // the failed run-1 row of test 1 (its unit claim is W.unitFailed; the registry check below names it)
     const tr = f.locator('[data-use$="#units"] tbody tr', { hasText: "keeps a draft" }).filter({ hasText: "failed" }).first();
     await tr.waitFor({ timeout: 60000 });
+    await shot("w-units-rerun", { sel: '[data-use$="#units"] tbody tr', text: "keeps a draft" });
     await tr.locator("button", { hasText: "Request rerun (capture mode)" }).click();
     // a record has no dialog: nothing the frame proposed is signed. The choice's reason is the package's declared act
     // field; the test, which the row only proposes, is asked, with no default
@@ -1464,6 +1591,9 @@ if (seed.w?.proposal && selected("W")) {
     await page.keyboard.press("Enter");
     const d = await dialog();
     await d.getByText("Evidence you opened in this view", { exact: false }).first().waitFor({ timeout: 15000 });
+    // toasts are cleared by their own buttons: Escape would cancel the dialog
+    for (const b of await page.locator(".notification-toast .codicon-notifications-clear, .notification-toast [aria-label^='Clear Notification']").all()) await b.click().catch(() => {});
+    await shot("w-decides-dialog");
     await signInDialog(d);
     await d.locator('[data-testid="sign-outcome"][data-state="signed"]').waitFor({ timeout: 60000 });
     const rows = await sparql(`SELECT ?l ?scope ?s WHERE { ?c nk:predicate <${WN}decides> ; nk:about <${iriOf(W.proposal)}> ; lab:lookedAt ?l ; nk:signer ?s ; nk:scope ?sc . ?sc rdfs:label ?scope }`, "repo-w");
@@ -1530,14 +1660,18 @@ if (seed.w?.proposal && selected("W")) {
     const f = await wFrame(90000);
     const b = f.locator('[data-use$="#notes"]');
     await b.locator("[data-area-table]").first().waitFor({ timeout: 120000 });
-    const rows = await b.locator("tbody tr[data-row]").evaluateAll((trs) => trs.map((tr) => Object.fromEntries([...tr.querySelectorAll("td[data-col]")].map((td) => [td.dataset.col, (td.textContent ?? "").trim()]))));
+    // text, cites, citesNote and differs are the 5th column on: behind the row's disclosure (its details row follows the row)
+    const rows = await b.locator("tbody tr[data-row]").evaluateAll((trs) => trs.map((tr) => Object.fromEntries([...tr.querySelectorAll("td[data-col]"), ...(tr.parentElement.querySelector(`tr[data-det="${tr.dataset.row}"]`)?.querySelectorAll("[data-col]") ?? [])].map((c) => [c.dataset.col, (c.textContent ?? "").trim()]))));
     check(rows.length === 3, "three decisions", 3, rows.length);
-    const r1 = b.locator("tbody tr[data-row]").nth(0);
-    const art = r1.locator('td[data-col="cites"] button[data-art]');
+    const disc = b.locator('tbody tr[data-row="0"] button.disc');
+    check((await disc.getAttribute("aria-expanded")) === "false" && !(await b.locator('tr[data-det="0"]').isVisible()), "the details are closed at first", "closed", await disc.getAttribute("aria-expanded"));
+    await disc.click();
+    check((await disc.getAttribute("aria-expanded")) === "true" && (await b.locator('tr[data-det="0"]').isVisible()), "the disclosure opens the row's details", "open", await disc.getAttribute("aria-expanded"));
+    await b.locator('tbody tr[data-row="1"] button.disc').click();
+    const art = b.locator('tr[data-det="0"] [data-col="cites"] button[data-art]');
     check((await art.count()) === 1 && ((await art.getAttribute("data-art")) ?? "").includes(W.pngSha256), "the hex prefix in the text resolves to the screenshot's artifact", W.pngSha256, await art.getAttribute("data-art"));
     check(/deadbeefcafe is not a run artifact here/.test(rows[0]?.citesNote ?? ""), "an id that is no artifact here is said so", "deadbeefcafe is not a run artifact here", rows[0]?.citesNote);
-    const r2 = b.locator("tbody tr[data-row]").nth(1);
-    check(((await r2.locator('td[data-col="cites"] button[data-art]').getAttribute("data-art")) ?? "").includes(W.pngSha256), "the structured citation is resolved (its text cites nothing)");
+    check(((await b.locator('tr[data-det="1"] [data-col="cites"] button[data-art]').getAttribute("data-art")) ?? "").includes(W.pngSha256), "the structured citation is resolved (its text cites nothing)");
     check(/^differs from Reviewer \(covered, 2026-11-20T10:00:00Z\)$/.test(rows[1]?.differs ?? ""), "the lead's later decision that differs is flagged", "differs from Reviewer (covered, …)", rows[1]?.differs);
     check(!rows[0]?.differs && !rows[2]?.differs, "nothing else is flagged", "", [rows[0]?.differs, rows[2]?.differs]);
     await art.click();

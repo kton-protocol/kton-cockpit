@@ -15,7 +15,8 @@ import { createHash } from "node:crypto";
 import type { Intent } from "./intents.js";
 import type { WindowIdentity } from "./identity.js";
 import { keyFor } from "./identity.js";
-import type { Outcome, Refusal, TemplateInfo, Transport } from "./transport/port.js";
+import { BATCH_UNSUPPORTED, TransportNotSent, type Outcome, type Refusal, type SayRequest, type TemplateInfo, type Transport } from "./transport/port.js";
+import { checkSay } from "./transport/cli.js";
 
 /** A control as the installed package declares it (ktonpkg controls/). */
 export interface ControlInfo {
@@ -65,6 +66,8 @@ export interface SignPlan {
   readonly expect: { readonly template?: string; readonly revision?: string; readonly predicate?: string };
   /** Hash of exactly what is shown; a dialog confirmation is bound to it. */
   readonly digest: string;
+  /** What the digest covers (the shown object): a batch's digest covers the ordered array of these. */
+  readonly shown: Readonly<Record<string, unknown>>;
 }
 
 /**
@@ -154,6 +157,7 @@ export function plan(
       footer: FOOTER,
       rules: RULES_NOTE,
       digest,
+      shown,
     },
   };
 }
@@ -163,6 +167,37 @@ function canonical(v: unknown): string {
   if (Array.isArray(v)) return `[${v.map(canonical).join(",")}]`;
   if (v && typeof v === "object") return `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${canonical((v as Record<string, unknown>)[k])}`).join(",")}}`;
   return JSON.stringify(v ?? null);
+}
+
+/** Several plans signed behind one dialog: their ordered list and a digest over the ordered array of their shown objects. */
+export interface BatchPlan {
+  readonly plans: readonly SignPlan[];
+  readonly digest: string;
+}
+
+/**
+ * Plans for one dialog. Nothing is signed unless every plan is sound: an empty batch, a plan that does not pass the
+ * cockpit's local say checks (the same ones a single say goes through), or two plans that say the same thing are refused,
+ * naming the plan (1-based) and why. The digest is the canonical digest over the ordered array of the plans' shown objects:
+ * the person's consent is bound to all of them, in this order.
+ */
+export function planBatch(plans: readonly SignPlan[]): Outcome<BatchPlan> {
+  if (plans.length === 0) return refuse("batch.empty", "nothing to sign");
+  const seen = new Map<string, number>();
+  for (const [i, p] of plans.entries()) {
+    const why = checkSay(sayRequestOf(p));
+    if (why) return refuse("batch.check", `claim ${i + 1} of ${plans.length} (${p.subject}): ${why}`);
+    const again = seen.get(p.digest);
+    if (again !== undefined) return refuse("batch.duplicate", `claims ${again + 1} and ${i + 1} of ${plans.length} are the same (${p.subject}): signing both would say it twice`);
+    seen.set(p.digest, i);
+  }
+  const digest = createHash("sha256").update("batch:").update(canonical(plans.map((p) => p.shown))).digest("hex");
+  return { ok: true, value: { plans, digest } };
+}
+
+/** What say receives for a plan. */
+export function sayRequestOf(p: SignPlan): SayRequest {
+  return { template: p.template, subject: p.subject, fields: p.fields, as: p.as, ...(p.scope !== undefined ? { scope: p.scope } : {}), ...(p.expect.template ? { expectTemplate: p.expect.template } : {}), ...(p.expect.revision ? { expectRevision: p.expect.revision } : {}), ...(p.expect.predicate ? { expectPredicate: p.expect.predicate } : {}) };
 }
 
 /** The person pressed Sign in the dialog that showed exactly this plan. Bound to the plan's digest. */
@@ -177,6 +212,10 @@ export class DialogConsent {
   static fromDialog(p: SignPlan): DialogConsent {
     return new DialogConsent(p.digest, DialogConsent.mint);
   }
+  /** The person pressed Sign in the dialog that showed exactly these plans, in this order. */
+  static fromBatchDialog(b: BatchPlan): DialogConsent {
+    return new DialogConsent(b.digest, DialogConsent.mint);
+  }
 }
 
 /**
@@ -188,9 +227,100 @@ export async function sign(t: Transport, p: SignPlan, consent: DialogConsent | u
     if (!(consent instanceof DialogConsent)) return refuse("dialog.required", "a decision is signed through the sign dialog, never in one click");
     if (consent.digest !== p.digest) return refuse("dialog.mismatch", "the dialog showed something else than what would be signed");
   }
-  const out = await t.say({ template: p.template, subject: p.subject, fields: p.fields, as: p.as, ...(p.scope !== undefined ? { scope: p.scope } : {}), ...(p.expect.template ? { expectTemplate: p.expect.template } : {}), ...(p.expect.revision ? { expectRevision: p.expect.revision } : {}), ...(p.expect.predicate ? { expectPredicate: p.expect.predicate } : {}) });
+  const out = await t.say(sayRequestOf(p));
   if (!out.ok) return out;
   return { ok: true, value: { id: out.value.claimId, ...(out.value.pending ? { pending: out.value.pending } : {}) } };
+}
+
+/** What a batch signed, and where it stopped (if it did). */
+export interface BatchResult {
+  /** the claims signed, in order (index: the plan's place in the batch, 0-based) */
+  readonly signed: ReadonlyArray<{ readonly index: number; readonly id: string; readonly pending?: { readonly code: string; readonly reason: string } }>;
+  /** the first plan that was not signed, and why; the plans after it were not tried */
+  readonly stopped?: { readonly index: number; readonly code: string; readonly reason: string; /** the say may have reached the cockpit: whether it signed is for the registry to say */ readonly unknown: boolean; /** the whole batch was written in one say: all or none, so `index` is 0 and nothing before it was signed */ readonly whole?: boolean };
+}
+
+export interface BatchRetry {
+  readonly attempts: number;
+  readonly delayMs: number;
+  readonly wait?: (ms: number) => Promise<void>;
+  /** told before a retry after store.busy (nothing was signed by that say) */
+  readonly onRetry?: (index: number, attempt: number, reason: string) => void;
+}
+
+/**
+ * Sign every plan of a batch, in order, after one dialog. A person-key plan without the consent for exactly this batch is
+ * refused before the cockpit is called (the key is only ever used through the dialog); every plan was checked in
+ * planBatch, so a failure of one is the cockpit's (its refusal, a lost connection), and then the plans after it are not
+ * signed. The first failure ends the run: those signed before it stay signed and are returned with it.
+ */
+/** Batch refusal codes the cockpit gives only in the check phase, before any claim is stored (cockpit/saybatch.go). */
+const BEFORE_STORING: ReadonlySet<string> = new Set(["argument", "binding", "verb.disabled", "vocabulary", "scope.unknown", "scope.moved", "template.changed", BATCH_UNSUPPORTED, "store.busy"]);
+
+export async function signBatch(t: Transport, b: BatchPlan, consent: DialogConsent | undefined, retry?: BatchRetry): Promise<Outcome<BatchResult>> {
+  if (b.plans.some((p) => p.keyRole === "person" || p.needsDialog)) {
+    if (!(consent instanceof DialogConsent)) return refuse("dialog.required", "decisions are signed through the sign dialog, never in one click");
+    if (consent.digest !== b.digest) return refuse("dialog.mismatch", "the dialog showed something else than what would be signed");
+  }
+  // checked again here: a batch is never signed on the strength of an earlier check alone
+  const again = planBatch(b.plans);
+  if (!again.ok) return again;
+  if (again.value.digest !== b.digest) return refuse("dialog.mismatch", "the plans changed after the dialog showed them");
+  const signed: Array<BatchResult["signed"][number]> = [];
+  const wait = retry?.wait ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  // One write when the transport offers it (SPEC §8.9: all or none, one commit): N says would be N registry writes, N
+  // claim locks and N index rebuilds. A refusal signs nothing; an unknown outcome is never retried.
+  if (t.sayBatch) {
+    const reqs = b.plans.map(sayRequestOf);
+    for (let attempt = 1; ; attempt++) {
+      let out: Awaited<ReturnType<NonNullable<Transport["sayBatch"]>>>;
+      try {
+        out = await t.sayBatch(reqs);
+      } catch (e) {
+        const notSent = e instanceof TransportNotSent;
+        return { ok: true, value: { signed: [], stopped: { index: 0, code: notSent ? "not-sent" : "unknown", reason: e instanceof Error ? e.message : String(e), unknown: !notSent, whole: true } } };
+      }
+      if (out.ok) {
+        const claims = out.value.claims;
+        if (claims.length !== b.plans.length) return { ok: true, value: { signed: [], stopped: { index: 0, code: "unknown", reason: `the cockpit answered ${claims.length} claims for ${b.plans.length}`, unknown: true, whole: true } } };
+        return { ok: true, value: { signed: claims.map((c, index) => { const pending = c.pending ?? out.value.pending; return { index, id: c.claimId, ...(pending ? { pending } : {}) }; }) } };
+      }
+      if (out.refusal.code === BATCH_UNSUPPORTED) break; // nothing was sent: one by one, as before
+      if (out.refusal.code === "store.busy" && retry && attempt < retry.attempts) {
+        retry.onRetry?.(0, attempt, out.refusal.reason);
+        await wait(retry.delayMs);
+        continue;
+      }
+      // only a code that is always before the first claim is stored means "nothing signed"; any other refusal (anchor,
+      // union, kernel, material, store, ...) can come after claims were stored, so it is unknown and never said again
+      const before = BEFORE_STORING.has(out.refusal.code);
+      return { ok: true, value: { signed: [], stopped: { index: 0, code: out.refusal.code, reason: before ? out.refusal.reason : `${out.refusal.reason}; read the registry before saying again`, unknown: !before, whole: true } } };
+    }
+  }
+  for (const [index, p] of b.plans.entries()) {
+    for (let attempt = 1; ; attempt++) {
+      let out: Outcome<{ readonly claimId: string; readonly pending?: { readonly code: string; readonly reason: string } }>;
+      try {
+        out = await t.say(sayRequestOf(p));
+      } catch (e) {
+        // sent or not: only a say that never reached the cockpit is known not to have signed
+        const notSent = e instanceof TransportNotSent;
+        return { ok: true, value: { signed, stopped: { index, code: notSent ? "not-sent" : "unknown", reason: e instanceof Error ? e.message : String(e), unknown: !notSent } } };
+      }
+      if (out.ok) {
+        signed.push({ index, id: out.value.claimId, ...(out.value.pending ? { pending: out.value.pending } : {}) });
+        break;
+      }
+      // store.busy: the registry was busy and nothing was signed by this say: again
+      if (out.refusal.code === "store.busy" && retry && attempt < retry.attempts) {
+        retry.onRetry?.(index, attempt, out.refusal.reason);
+        await wait(retry.delayMs);
+        continue;
+      }
+      return { ok: true, value: { signed, stopped: { index, code: out.refusal.code, reason: out.refusal.reason, unknown: false } } };
+    }
+  }
+  return { ok: true, value: { signed } };
 }
 
 function refuse(code: string, reason: string): { ok: false; refusal: Refusal } {

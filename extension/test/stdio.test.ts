@@ -9,11 +9,11 @@ import { TransportNotSent, TransportTimeout } from "../src/transport/port.js";
 import { sparqlResultsOf } from "../src/ui/queries.js";
 
 const FAKE = join(process.cwd(), "test", "fixtures", "fake-serve.mjs");
-function transport(timeoutMs = 5000) {
+function transport(timeoutMs = 5000, env: Record<string, string> = {}) {
   chmodSync(FAKE, 0o755);
   const dir = mkdtempSync(join(tmpdir(), "fake-serve-"));
   const log = join(dir, "log.jsonl");
-  const t = new StdioTransport({ executable: FAKE, cwd: dir, env: { FAKE_SERVE_LOG: log }, timeoutMs });
+  const t = new StdioTransport({ executable: FAKE, cwd: dir, env: { FAKE_SERVE_LOG: log, ...env }, timeoutMs });
   const sent = () => (existsSync(log) ? readFileSync(log, "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l) as { method: string; params?: Record<string, unknown>; id?: number }) : []);
   return { t, sent, dir };
 }
@@ -250,4 +250,32 @@ test("stdio: a cockpit that cannot be started is 'cannot run' and not sent (Not 
   const t = new StdioTransport({ executable: "/nonexistent/cockpit", cwd: tmpdir(), timeoutMs: 2000 });
   await assert.rejects(t.say({ template: "note", subject: `sha256:${"a".repeat(64)}`, fields: { text: "x" }, as: "qa-decider" }), (e: Error) => e instanceof TransportNotSent && /cannot run \/nonexistent\/cockpit/.test(e.message));
   t.dispose();
+});
+
+test("stdio: say/batch is used once initialize lists it; params {claims}; claims answered in order; a refusal is the cockpit's", async () => {
+  const { t, sent } = transport(5000, { FAKE_SERVE_METHODS: "say,say/batch" });
+  try {
+    const reqs = ["a", "b"].map((x) => ({ template: "note", subject: `sha256:${x.repeat(64)}`, fields: { text: x }, as: "k" }));
+    const out = await t.sayBatch(reqs);
+    assert.ok(out.ok);
+    assert.deepEqual(out.value.claims.map((c) => c.claimId), [`sha256:${"1".repeat(64)}`, `sha256:${"2".repeat(64)}`]);
+    const m = sent().filter((x) => x.method === "say/batch");
+    assert.equal(m.length, 1);
+    assert.deepEqual((m[0]?.params as { claims: unknown[] }).claims, reqs);
+    const bad = await t.sayBatch([reqs[0] as (typeof reqs)[number], { ...(reqs[1] as (typeof reqs)[number]), fields: { text: "refuse" } }]);
+    assert.ok(!bad.ok && bad.refusal.reason === "claim 2: refused");
+  } finally {
+    t.dispose();
+  }
+});
+
+test("stdio: without say/batch among the initialized methods it is not offered: BATCH_UNSUPPORTED, nothing sent", async () => {
+  const { t, sent } = transport();
+  try {
+    const out = await t.sayBatch([{ template: "note", subject: `sha256:${"a".repeat(64)}`, fields: { text: "x" } }]);
+    assert.ok(!out.ok && out.refusal.code === "batch.unsupported");
+    assert.equal(sent().filter((x) => x.method === "say/batch").length, 0);
+  } finally {
+    t.dispose();
+  }
 });

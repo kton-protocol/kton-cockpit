@@ -144,10 +144,13 @@ export class AskGate {
   /** building: a timeout or a start, and not for longer than the limit; down: not running, unreachable (or building too long); else a failure */
   private classify(why: string): "building" | "down" | "failed" {
     if (DOWN.test(why)) return "down";
+    // a missing executable or a missing file is a failure of its own kind, never "the index is not reachable"
+    if (NOT_FOUND.test(why)) return "failed";
     if (!BUILDING.test(why)) return "failed";
     return this.buildingSince !== undefined && this.now() - this.buildingSince > this.buildLimitMs ? "down" : "building";
   }
   private fail(message: string, unreachable: boolean): void {
+    if (NOT_FOUND.test(message) && !unreachable) message = describeNotFound(message);
     this.lastError = { message, at: this.now(), ...(unreachable ? { unreachable } : {}) };
     this.buildingSince = undefined;
   }
@@ -167,7 +170,13 @@ export const BUILD_LIMIT_MS = 220_000;
 /** Reasons that mean the index is still being built or started (not a failure to show as one). */
 const BUILDING = /timeout|timed out|longer than|busy|starting/i;
 /** Reasons that mean the index is gone: shown at once, not as building. */
-const DOWN = /not running|unreachable|did not start|connection refused|econnrefused|no such (?:file|socket)|enoent/i;
+const DOWN = /not running|unreachable|did not start|connection refused|econnrefused|no such socket|(?:connect|dial)[^\n]*(?:no such file|enoent)|socket[^\n]*(?:no such file|enoent)/i;
+/** The cockpit executable could not be started (spawn ENOENT), or a file the ask names is missing: not an index that is down. */
+const NOT_FOUND = /spawn [^\n]*enoent|cannot run [^\n]*(?:enoent|no such file)|no such file|enoent/i;
+/** The text shown for a not-found failure: a missing executable says so; a missing file keeps the file error's text. */
+export function describeNotFound(why: string): string {
+  return /spawn [^\n]*enoent|cannot run [^\n]*(?:enoent|no such file)/i.test(why) && !/^cockpit not found/i.test(why) ? `cockpit not found: ${why}` : why;
+}
 
 /** The reason of an Outcome that is a refusal ({ok: false, refusal: {reason}}), else undefined. */
 function refusalWhy(r: unknown): string | undefined {
@@ -186,13 +195,15 @@ export class Superseded extends Error {
 /** The Transport methods that go through the queue; every method of Transport is in READS or WRITES (test/gate.test.ts). */
 export const READS = ["ask", "templates", "list", "doctor", "version", "uiList", "uiCat", "graph"] as const;
 /** The Transport methods that pass the queue and mark the index cold. */
-export const WRITES = ["say", "publish", "install", "workflowRun"] as const;
+export const WRITES = ["say", "sayBatch", "publish", "install", "workflowRun"] as const;
 
 /** The transport with its reads through the gate; its writes pass and mark the index cold. */
 export function gated(t: Transport, gate: AskGate): Transport {
   const out: Record<string, unknown> = {};
   for (const m of READS) out[m] = (...a: unknown[]) => gate.run(() => (t[m] as (...x: unknown[]) => Promise<unknown>).apply(t, a), m === "ask" ? (a[1] as { supersede?: string } | undefined)?.supersede : undefined);
-  for (const m of WRITES)
+  for (const m of WRITES) {
+    // sayBatch is optional: a transport that has none stays without one, so callers can ask whether it is offered
+    if (typeof t[m] !== "function") continue;
     out[m] = async (...a: unknown[]) => {
       try {
         return await (t[m] as (...x: unknown[]) => Promise<unknown>).apply(t, a);
@@ -200,5 +211,6 @@ export function gated(t: Transport, gate: AskGate): Transport {
         gate.markCold();
       }
     };
+  }
   return out as unknown as Transport;
 }

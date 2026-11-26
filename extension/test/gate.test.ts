@@ -95,7 +95,7 @@ test("gate: a newer ask of the same key drops the older one still waiting; one r
 
 test("gated: every method of Transport is a read through the queue or a write that marks it cold; none bypasses the queue", async () => {
   // a Record over keyof Transport: a method added to Transport later does not compile here until it is listed
-  const methods: Record<keyof Transport, true> = { ask: true, say: true, publish: true, workflowRun: true, install: true, templates: true, list: true, doctor: true, version: true, uiList: true, uiCat: true, graph: true };
+  const methods: Record<keyof Transport, true> = { ask: true, say: true, sayBatch: true, publish: true, workflowRun: true, install: true, templates: true, list: true, doctor: true, version: true, uiList: true, uiCat: true, graph: true };
   // and at the type level: no key of Transport is outside READS and WRITES
   type Gated = (typeof READS)[number] | (typeof WRITES)[number];
   const none: [Exclude<keyof Transport, Gated>] extends [never] ? true : false = true;
@@ -132,4 +132,21 @@ test("gate: a read running across a write leaves the index cold; the next read t
   await Promise.all(next);
   assert.equal(peak, 1);
   assert.equal(g.isCold, false, "a read started after the write warms it");
+});
+
+test("gate: a missing cockpit executable and a missing file are failures of their own, not 'index not reachable'; a missing socket is still down", async () => {
+  const g = new AskGate();
+  await assert.rejects(g.run(async () => { throw new Error("cannot run /opt/none/cockpit: spawn /opt/none/cockpit ENOENT"); }));
+  assert.equal(g.state().lastError?.unreachable, undefined, "not unreachable");
+  assert.match(g.state().lastError?.message ?? "", /^cockpit not found: /);
+  const f = new AskGate();
+  const r = await f.run(async () => ({ ok: false as const, refusal: { code: "x", reason: "open views/q.rq: no such file or directory" } }));
+  assert.equal(r.ok, false);
+  assert.equal(f.state().lastError, undefined, "a refusal about the query's file is the query's, answered by the index");
+  await assert.rejects(f.run(async () => { throw new Error("read views/q.rq: no such file or directory"); }));
+  assert.equal(f.state().lastError?.unreachable, undefined);
+  assert.equal(f.state().lastError?.message, "read views/q.rq: no such file or directory");
+  const d = new AskGate();
+  await d.run(async () => ({ ok: false as const, refusal: { code: "x", reason: "dial unix /run/x.sock: connect: no such file or directory" } }));
+  assert.equal(d.state().lastError?.unreachable, true, "a socket that is gone: down");
 });

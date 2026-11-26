@@ -29,7 +29,14 @@
   "emptyText": "literal",
   "emptyHow": "literal",
   "jump": "literal",
-  "backTab": "literal"
+  "backTab": "literal",
+  "propose": {
+   "set": "literal"
+  },
+  "batch": "literal",
+  "defaults": {
+   "set": "literal"
+  }
  },
  "emits": {
   "item": {

@@ -33,12 +33,13 @@ import type {
   Refusal,
   SayRequest,
   SayResult,
+  SayBatchResult,
   TemplateInfo,
   Transport,
   WorkflowRunRequest,
 } from "./port.js";
 import { OperatorConfirmation, TransportError, TransportNotSent, TransportTimeout } from "./port.js";
-import { assertSayResult, assertAskResult, assertPublishResult, assertDoctorReport, assertObject } from "./schema.js";
+import { assertSayBatchResult, assertSayResult, assertAskResult, assertPublishResult, assertDoctorReport, assertObject } from "./schema.js";
 
 export interface CliTransportOptions {
   /** Path or name of the cockpit executable. A setting, never derived from data. */
@@ -73,11 +74,11 @@ export class CliTransport implements Transport {
 
   constructor(protected readonly opts: CliTransportOptions) {}
 
-  private run(args: readonly string[], binary = false): Promise<RunResult> {
+  private run(args: readonly string[], binary = false, stdin?: string): Promise<RunResult> {
     const argv = [...args];
     this.calls.push(argv);
     return new Promise((resolve, reject) => {
-      execFile(
+      const child = execFile(
         this.opts.executable,
         argv,
         {
@@ -108,6 +109,9 @@ export class CliTransport implements Transport {
           resolve({ code, stdout: String(stdout), stderr: String(stderr), ...(binary ? { bytes: new Uint8Array(stdout as Buffer) } : {}) });
         },
       );
+      // `say --batch -` reads its requests from stdin; a process that ends first must not crash the shell on EPIPE
+      child.stdin?.on("error", () => undefined);
+      child.stdin?.end(stdin ?? "");
     });
   }
 
@@ -133,7 +137,7 @@ export class CliTransport implements Transport {
     if (!SHA.test(req.subject)) {
       // an IRI subject (an element, a rule case): the JSON form. Since v0.5.1 the word form takes an IRI subject as it
       // is too, unless a file of that name exists; the JSON form stays the choice (one argv element, every field named)
-      return this.outcome(["say", JSON.stringify({ template: req.template, subject: req.subject, fields: req.fields ?? {}, ...(req.as !== undefined ? { as: req.as } : {}), ...(req.scope !== undefined ? { scope: req.scope } : {}), ...(req.expectHead !== undefined ? { expectHead: req.expectHead } : {}), ...(req.expectTemplate ? { expectTemplate: req.expectTemplate } : {}), ...(req.expectRevision ? { expectRevision: req.expectRevision } : {}), ...(req.expectPredicate ? { expectPredicate: req.expectPredicate } : {}) })], assertSayResult);
+      return this.outcome(["say", sayJson(req)], assertSayResult);
     }
     const args = ["say", req.template, req.subject];
     for (const k of Object.keys(req.fields ?? {}).sort()) args.push(`${k}=${(req.fields ?? {})[k] ?? ""}`);
@@ -146,6 +150,29 @@ export class CliTransport implements Transport {
     if (req.expectPredicate !== undefined) args.push("--expect-predicate", req.expectPredicate);
     args.push("--json");
     return this.outcome(args, assertSayResult);
+  }
+
+  /**
+   * `cockpit say --batch -` (SPEC §8.9): one say request as JSON per line on stdin, one JSON document answered
+   * ({claims: [...], pending?}); a refusal (exit 2, the same JSON shape as any) names the claim and nothing is written.
+   * Every claim passes the local checks of a say first. An answer that cannot be read is an unknown outcome: it throws.
+   */
+  async sayBatch(reqs: readonly SayRequest[]): Promise<Outcome<SayBatchResult>> {
+    if (reqs.length === 0) return bad("a batch needs at least one claim");
+    for (const [i, r] of reqs.entries()) {
+      const why = checkSay(r);
+      if (why) return bad(`claim ${i + 1}: ${why}`);
+    }
+    const r = await this.run(["say", "--batch", "-"], false, reqs.map(sayJson).join("\n") + "\n");
+    if (r.code === 2) return { ok: false, refusal: parseRefusal(r) };
+    if (r.code !== 0) throw new TransportError(firstLine(r.stderr) || `say --batch: exit ${String(r.code)}`, r.code, r.stderr);
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(r.stdout);
+    } catch {
+      throw new TransportError("say --batch: the answer is not JSON", r.code, r.stderr);
+    }
+    return { ok: true, value: assertSayBatchResult(parsed, reqs.length) };
   }
 
   ask(req: AskRequest): Promise<Outcome<AskResult>> {
@@ -305,6 +332,11 @@ export function checkAsk(req: AskRequest): string | undefined {
 
 export function bad(reason: string): Promise<{ ok: false; refusal: Refusal }> {
   return Promise.resolve({ ok: false, refusal: { code: "argument", reason } });
+}
+
+/** One say request as the cockpit's JSON form (`say '{...}'`, and one line of `say --batch`). */
+export function sayJson(req: SayRequest): string {
+  return JSON.stringify({ template: req.template, subject: req.subject, fields: req.fields ?? {}, ...(req.as !== undefined ? { as: req.as } : {}), ...(req.scope !== undefined ? { scope: req.scope } : {}), ...(req.expectHead !== undefined ? { expectHead: req.expectHead } : {}), ...(req.expectTemplate ? { expectTemplate: req.expectTemplate } : {}), ...(req.expectRevision ? { expectRevision: req.expectRevision } : {}), ...(req.expectPredicate ? { expectPredicate: req.expectPredicate } : {}) });
 }
 
 function parseRefusal(r: RunResult): Refusal {

@@ -66,13 +66,31 @@ export interface Backend {
    * sign@1 / record@1 through the shell's one sign path (C1.4): the dialog for a decision, none for a record. `signed`
    * is called with the claim id and the fields as signed (what the person may have edited), once it is signed.
    */
-  act(control: Control, about: string, fields: Readonly<Record<string, string>>, title: string, proposed?: Readonly<Record<string, string>>, signed?: (s: Signed) => void, asks?: readonly AskEach[], check?: CheckAgainst, review?: import("../ui/annotate.js").RequireReviewed & { readonly package: string }): Promise<"signed" | "cancelled" | "failed">;
+  act(control: Control, about: string, fields: Readonly<Record<string, string>>, title: string, proposed?: Readonly<Record<string, string>>, signed?: (s: Signed) => void, asks?: readonly AskEach[], check?: CheckAgainst, review?: import("../ui/annotate.js").RequireReviewed & { readonly package: string }, defaults?: Readonly<Record<string, string>>): Promise<"signed" | "cancelled" | "failed">;
+  /**
+   * sign@1 for several rows of one decision control behind ONE dialog (batch signing): the person sees all of them and
+   * consents once. Each item is checked exactly as a single act is; if any fails, none is signed. `signedEach` is called
+   * with each item's place and claim as it is signed. Not offered by every backend.
+   */
+  actBatch?(control: Control, items: readonly BatchItem[], title: string, signedEach?: (index: number, s: Signed) => void): Promise<BatchOutcome>;
   /** run@1: a ray (workflow run) with its holes. */
   run(ray: string, holes: Readonly<Record<string, string>>): Promise<string>;
   /** graph@1 (e): the registry's records with the ring to verify them: {records, keys, names}. */
   graph?(): Promise<{ readonly records: readonly unknown[]; readonly keys: unknown; readonly names: unknown; readonly packages: unknown }>;
   /** a URL the frame may fetch for bytes above the content cap (or undefined: then above the cap is refused). */
   urlFor?(pkg: string, hash: string): string | undefined;
+}
+/** One claim of a batch: what it is about, the fields the package fixes (choices), and the values its row proposes. */
+export interface BatchItem {
+  readonly about: string;
+  readonly fields: Readonly<Record<string, string>>;
+  readonly proposed: Readonly<Record<string, string>>;
+}
+/** What a batch did: signed (all), cancelled (the dialog), or failed with `signed` what was signed before it stopped (maybe none). */
+export interface BatchOutcome {
+  readonly result: "signed" | "cancelled" | "failed";
+  readonly signed: ReadonlyArray<{ readonly index: number; readonly id: string; readonly fields: Readonly<Record<string, string>> }>;
+  readonly why?: string;
 }
 /** A signature as made: its claim id and the fields signed. */
 export interface Signed {
@@ -103,6 +121,8 @@ export const NARROW_PX = 820;
 /** A leaf (a page viewer in its own frame) is also given graph@1. */
 export const LEAF_PROVIDES = ["graph@1", "query@1", "product@1", "open@1", "sign@1"] as const;
 /** Acts and the control kind each one must have (O1). open and run have no control. */
+/** The most claims one batch signs at once (one dialog lists them all). */
+export const MAX_BATCH = 200;
 const KIND_FOR: Readonly<Record<string, "decision" | "record">> = { sign: "decision", record: "record" };
 
 export class Refused extends Error {}
@@ -241,6 +261,24 @@ export function askEachOf(options: Readonly<Record<string, unknown>> | undefined
     if (!m || (m[1] !== undefined && m[1] !== control)) continue;
     const values = m[4]?.split(",").map((v) => v.trim()).filter(Boolean);
     out.push({ field: m[2] as string, key: m[3] as string, ...(values?.length ? { values } : {}) });
+  }
+  return out;
+}
+
+/**
+ * Defaults for the enum fields the shell asks for (a use's option `defaults`, "[control:]field=value"): the value is
+ * preselected in the quick pick, never taken unseen. The shell checks it against the field's values when it asks: one that
+ * is not among them is ignored, with a warning in the output channel.
+ */
+export function defaultsOf(options: Readonly<Record<string, unknown>> | undefined, control: string): Record<string, string> {
+  const raw = options?.["defaults"];
+  const list = Array.isArray(raw) ? raw : typeof raw === "string" ? [raw] : [];
+  const out: Record<string, string> = {};
+  for (const x of list) {
+    if (typeof x !== "string") continue;
+    const m = /^(?:([^:=|]+):)?([A-Za-z_][A-Za-z0-9_]*)=(.*)$/.exec(x.trim());
+    if (!m || (m[1] !== undefined && m[1] !== control)) continue;
+    out[m[2] as string] = m[3] as string;
   }
   return out;
 }
@@ -517,6 +555,8 @@ export class CompositionHost {
   private refreshSeq = 0;
   /** how many signatures this view made (an answer asked before the last one is old), when the last was (ms), and what */
   private epoch = 0;
+  /** the last reason the views asked again: another process's claims (true), or this view's own signature (false) */
+  private externalSince = false;
   private signedAt = 0;
   private lastSigned: { what: string; claim: string; at: number } | undefined;
   /** every act this view signed, with its use and row: sent with each set (blocks read it, ktonWorkbench.signedActs) */
@@ -584,7 +624,7 @@ export class CompositionHost {
         if (last && last.epoch < this.epoch) {
           // asked again after a signature: the last answer now, marked; the fresh one follows (never a blank view)
           const token = this.refresh(k, u, q, params, unbound);
-          this.ui.post({ type: "kton-workbench:refreshing", use: u.key, since: this.signedAt, token });
+          this.ui.post({ type: "kton-workbench:refreshing", use: u.key, since: this.signedAt, token, ...(this.externalSince ? { external: true } : {}) });
           result = { ...(last.result as object), refreshing: { since: this.signedAt, token } };
         } else {
           const epoch = this.epoch;
@@ -654,6 +694,21 @@ export class CompositionHost {
       },
     );
     return token;
+  }
+
+  /**
+   * Claims arrived from outside this window (another process signed; the window's poll saw the index change): the view
+   * asks its queries again. The frame is sent its set again (it draws anew and asks), each answer is served from the last
+   * one at once, marked refreshing (not "after your signature"), and the fresh one follows (never a blank view). A view
+   * that was never drawn (no frame yet) has nothing to refresh.
+   */
+  externalChange(): boolean {
+    if (this.loads === 0) return false;
+    this.epoch += 1;
+    this.signedAt = Date.now();
+    this.externalSince = true;
+    this.sendSet();
+    return true;
   }
 
   private sendSet(): void {
@@ -769,6 +824,59 @@ export class CompositionHost {
     return { act, control };
   }
 
+  /**
+   * Batch signing: one sign intent about several rows (`targets`, each a row this host served the use), behind ONE dialog.
+   * Each row's fields are the intent's `fields`, overridden by `fieldsFor[target]`; they split into the package's declared
+   * choices and the row's proposals exactly as a single act's do. Every target is checked as a single act's is (served,
+   * the act's subject); a use that asks per key, checks values or requires reviewed commits for its act has no batch (those
+   * are per-claim steps). If anything is wrong, nothing is signed.
+   */
+  private async batchIntent(i: Intent, checked: { act: PlanAct; control?: Control }): Promise<Record<string, unknown>> {
+    const c = checked.control as Control;
+    if (i.kind !== "sign" || c.kind !== "decision") throw new Refused("batch signing is for decisions (a sign act); a record needs no dialog");
+    const targets = i["targets"] as unknown[];
+    if (targets.length === 0) throw new Refused("a batch names no row");
+    if (targets.length > MAX_BATCH) throw new Refused(`a batch signs at most ${MAX_BATCH} claims at once, not ${targets.length}`);
+    if (!targets.every((t): t is string => typeof t === "string")) throw new Refused("a batch names its rows as strings");
+    if (new Set(targets).size !== targets.length) throw new Refused("a batch names a row twice");
+    if (!this.backend.actBatch) throw new Refused("this host does not sign several claims at once");
+    const useOf = this.plan.uses.find((x) => x.key === i.from) as { options?: Record<string, unknown>; query?: { package?: string } } | undefined;
+    if (askEachOf(useOf?.options, c.name).length || checkAgainstOf(useOf?.options, c.name, useOf?.query?.package ?? this.plan.root.package) || requireReviewedOf(useOf?.options)) {
+      throw new Refused(`${i.from}: its ${c.name} act asks per key, checks its values or requires reviewed commits: those are steps of a single claim, so it has no batch`);
+    }
+    const declared = declaredChoices(useOf as PlanUse | undefined, checked.act);
+    const common = (i["fields"] ?? {}) as Record<string, unknown>;
+    const perRow = (i["fieldsFor"] ?? {}) as Record<string, Record<string, unknown>>;
+    const items: BatchItem[] = targets.map((t) => {
+      // the row must be one this block was shown (the single act's rule)
+      const about = this.aboutOf({ ...i, target: t }, checked.act);
+      const own = perRow[t] && typeof perRow[t] === "object" ? perRow[t] : {};
+      const given = Object.entries({ ...common, ...own }).filter((e): e is [string, string] => typeof e[1] === "string" && !(e[0] in checked.act.fields));
+      const chosen = Object.fromEntries(given.filter(([k, v]) => declared.some((d) => d.field === k && d.value === v)));
+      const proposed = Object.fromEntries(given.filter(([k]) => !(k in chosen)));
+      return { about, fields: { ...checked.act.fields, ...chosen }, proposed };
+    });
+    const signedNow: Array<{ index: number; id: string }> = [];
+    const r = await this.backend.actBatch(c, items, `${checked.act.label}: ${this.plan.root.package}/${this.plan.root.composition}`, (index, s) => {
+      signedNow.push({ index, id: s.id });
+      const target = targets[index] as string;
+      this.epoch += 1;
+      this.signedAt = Date.now();
+      this.externalSince = false;
+      const what = signedWhat(c, checked.act, { ...i, target, fields: items[index]?.proposed }, s);
+      this.lastSigned = { what, claim: s.id, at: this.signedAt };
+      const act = { use: String(i.from ?? ""), target, claim: s.id, at: this.signedAt, fields: { ...s.fields } };
+      this.signedActs.push(act);
+      this.ui.post({ type: "kton-workbench:signed", ...this.lastSigned, act });
+    });
+    const claims = r.signed.map((s) => s.id);
+    if (r.result === "signed") return { signed: true, batch: true, count: claims.length, claims, key: "person", message: `Signed ${claims.length} claims (${claims.map(shortClaim).join(", ")}). Signed with the person key (test-only).` };
+    if (r.result === "cancelled") return { signed: false, message: "Not signed: the dialog was cancelled." };
+    if (!r.signed.length) throw new Refused(r.why ?? "not signed (see the sign dialog)");
+    // some were signed before it stopped: they are signed (and held as such above); the rest are not
+    return { signed: false, partial: true, batch: true, count: claims.length, claims, message: r.why ?? `Signed ${claims.length} of ${items.length}; the rest were not signed.` };
+  }
+
   private async intent(i: Intent): Promise<void> {
     const held = i.kind === "sign" || i.kind === "record" || i.kind === "run";
     const loadsAtStart = this.loads;
@@ -787,6 +895,7 @@ export class CompositionHost {
       let result: Record<string, unknown>;
       if (i.kind === "open") result = { message: await this.backend.open(i) };
       else if (i.kind === "run") result = { message: await this.backend.run(checked.act.ray as string, checked.act.fields) };
+      else if (Array.isArray(i["targets"])) result = await this.batchIntent(i, checked);
       else {
         const c = checked.control as Control;
         // a choice the use declares for this act (options.choices "field=value|Label", the button the person pressed) is
@@ -801,6 +910,7 @@ export class CompositionHost {
         let made: Signed | undefined;
         const useOf = this.plan.uses.find((x) => x.key === i.from) as { options?: Record<string, unknown>; query?: { package?: string } } | undefined;
         const asks = askEachOf(useOf?.options, c.name);
+        const defaults = defaultsOf(useOf?.options, c.name);
         const check = checkAgainstOf(useOf?.options, c.name, useOf?.query?.package ?? this.plan.root.package);
         const rr0 = requireReviewedOf(useOf?.options);
         // a rule with `when` applies to a row's act when any row this host served for that target has a value there
@@ -808,7 +918,7 @@ export class CompositionHost {
         const servedFor = typeof i["target"] === "string" ? this.servedRows.get(i.from ?? "")?.get(i["target"] as string) : undefined;
         const rr = rr0 && rr0.when && typeof i["target"] === "string" && !servedFor?.some((x) => x[rr0.when as string]) ? undefined : rr0;
         const review = rr ? { ...rr, package: useOf?.query?.package ?? this.plan.root.package } : undefined;
-        const r = await this.backend.act(c, this.aboutOf(i, checked.act), actFields, `${checked.act.label}: ${this.plan.root.package}/${this.plan.root.composition}`, proposed, (s) => (made = s), asks.length ? asks : undefined, check, review);
+        const r = await this.backend.act(c, this.aboutOf(i, checked.act), actFields, `${checked.act.label}: ${this.plan.root.package}/${this.plan.root.composition}`, proposed, (s) => (made = s), asks.length ? asks : undefined, check, review, Object.keys(defaults).length ? defaults : undefined);
         if (r === "failed") return refuse(c.kind === "decision" ? "not signed (see the sign dialog)" : "not recorded");
         const keyLine = c.kind === "decision" ? "Signed with the person key (test-only)." : "Recorded with the agent key.";
         if (r === "signed") {
@@ -816,6 +926,7 @@ export class CompositionHost {
           // also after a reload) and as the notification the sign path shows with the full claim id
           this.epoch += 1;
           this.signedAt = Date.now();
+          this.externalSince = false;
           const what = signedWhat(c, checked.act, i, made);
           this.lastSigned = { what, claim: made?.id ?? "", at: this.signedAt };
           // what this view signed, by use and row (target), host-held for the view's life: a block drops a decided row

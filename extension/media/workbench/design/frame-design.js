@@ -47,7 +47,7 @@ window.addEventListener("message", (e) => {
     if (m.act && typeof m.act.use === "string" && !signedActs.some((a) => a.claim && a.claim === m.act.claim)) signedActs = [...signedActs, m.act];
     showSigned();
   } else if (m.type === "kton-workbench:refreshing" && typeof m.use === "string") {
-    if (!answers.has(m.use, m.token)) mark(boxOf(m.use), "host", m.since, m.token);
+    if (!answers.has(m.use, m.token)) mark(boxOf(m.use), "host", m.since, m.token, m.external === true);
   } else if (m.type === "kton-workbench:answer" && typeof m.use === "string") {
     answers.put(m);
     const box = boxOf(m.use);
@@ -60,7 +60,7 @@ window.addEventListener("message", (e) => {
 
 // ---- never a blank block
 const boxOf = (use) => (root ? [...root.querySelectorAll(".kton-block[data-use]")].find((b) => b.dataset.use === use) : null);
-function mark(box, kind, since, token) {
+function mark(box, kind, since, token, external = false) {
   if (!box) return null;
   let line = box.querySelector(":scope > .wb-updating");
   if (!line) {
@@ -71,7 +71,9 @@ function mark(box, kind, since, token) {
   line.dataset.state = "updating";
   line.dataset.since = String(since || Date.now());
   if (token !== undefined) line.dataset.token = String(token);
-  line.textContent = updatingText(Number(line.dataset.since), Date.now(), kind === "host");
+  // a view asked again because claims arrived from outside (another process signed) is not "after your signature"
+  if (external) line.dataset.external = "1";
+  line.textContent = updatingText(Number(line.dataset.since), Date.now(), kind === "host" && !external);
   return line;
 }
 function stale(line, why, since) {
@@ -79,7 +81,7 @@ function stale(line, why, since) {
   line.textContent = staleText(why, Number(since || line.dataset.since || Date.now()));
 }
 setInterval(() => {
-  for (const line of document.querySelectorAll(".wb-updating[data-state='updating']")) line.textContent = updatingText(Number(line.dataset.since), Date.now(), line.dataset.updating === "host");
+  for (const line of document.querySelectorAll(".wb-updating[data-state='updating']")) line.textContent = updatingText(Number(line.dataset.since), Date.now(), line.dataset.updating === "host" && !line.dataset.external);
 }, 1000);
 
 // the last content each block showed with an answer (a copy, made when it changed), shown again while it asks anew

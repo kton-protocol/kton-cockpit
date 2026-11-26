@@ -264,3 +264,22 @@ test("a query name two packages bring, listed plainly with each package: the pan
   await new PackagesArea(c.t, windowUi().ui, actPath().path).refresh();
   assert.deepEqual(c.state.asked, ["items"]);
 });
+
+test("requireReviewed through the area: a review row whose approvedCommit is a 7-hex prefix keeps the act blocked; the full sha unblocks it", async () => {
+  const full = "0123456789abcdef0123456789abcdef01234567";
+  const reviewRows = (approved: string) => ({ ok: true, value: { results: { head: { vars: ["approvedCommit", "by"] }, results: { bindings: [{ approvedCommit: { type: "literal", value: approved }, by: { type: "literal", value: "R" } }] } } } });
+  let approved = full.slice(0, 7);
+  const t = { ask: async () => reviewRows(approved) } as unknown as Transport;
+  const { path } = actPath();
+  // the host's reviewedState, as sources.reviewedState uses its callback: a commit with no review from reviewOf is missing
+  path.reviewedState = async (_repo, _head, reviewOf) => {
+    const review = reviewOf(full);
+    return { commits: [{ sha: full, subject: "change", author: "a", date: "d", ...(review ? { review } : {}) }], missing: review ? [] : [full] };
+  };
+  const area = new PackagesArea(t, windowUi().ui, path);
+  const state = () => (area as unknown as { reviewState(pkg: string, r: unknown): Promise<{ blocked?: string; lines: string[] }> }).reviewState("p", { repo: "app", head: "main", reviews: "reviews" });
+  const short = await state();
+  assert.match(short.blocked ?? "", /1 commit under this rerun has no review: 0123456/, "a prefix of the sha is not a review that counts");
+  approved = full;
+  assert.equal((await state()).blocked, undefined);
+});

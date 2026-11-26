@@ -29,7 +29,9 @@ export function staleText(why, since) {
 /** The confirmation of a signature: "Signed: <what> (claim 1234abcd) at 14:02". */
 export function signedText(s) {
   const claim = String(s?.claim ?? "").replace(/^sha256:/, "").slice(0, 8);
-  return `Signed: ${s?.what || "your answer"}${claim ? ` (claim ${claim})` : ""}${Number.isFinite(s?.at) ? ` at ${clock(s.at)}` : ""}`;
+  // a long hash in what (a row's id) shows as its first 8 hex, so the line fits a narrow view
+  const what = String(s?.what || "your answer").replace(/\b(sha256:)?([0-9a-f]{8})[0-9a-f]{8,}\b/g, "$1$2…");
+  return `Signed: ${what}${claim ? ` (claim ${claim})` : ""}${Number.isFinite(s?.at) ? ` at ${clock(s.at)}` : ""}`;
 }
 
 /**

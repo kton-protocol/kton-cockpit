@@ -75,7 +75,10 @@ export function leafCsp(nonce: string, cspSource: string): string {
  * <style> gets the nonce. Inline event handlers are not made to work: the CSP refuses them.
  */
 export function leafPage(html: string, nonce: string, cspSource: string, base: string): string {
-  const head = `<meta http-equiv="Content-Security-Policy" content="${leafCsp(nonce, cspSource)}">\n<base href="${esc(base)}">\n`;
+  // the page never scrolls sideways (DESIGN principle 8): what the viewer parks off-canvas (a side panel slid out
+  // by a transform) is clipped by the body instead of widening the frame's document
+  const fit = `<style nonce="${nonce}">html{overflow:hidden}body{position:relative;overflow:clip;max-width:100%}</style>\n`;
+  const head = `<meta http-equiv="Content-Security-Policy" content="${leafCsp(nonce, cspSource)}">\n<base href="${esc(base)}">\n${fit}`;
   return html
     .replace(/<meta[^>]+http-equiv=["']?Content-Security-Policy["']?[^>]*>/gi, "")
     .replace(/<base\b[^>]*>/gi, "")

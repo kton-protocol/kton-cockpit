@@ -1,26 +1,26 @@
 // The workbench controller (PR 1: Home, Inbox and thread, Decision, Lanes, the sign dialog; C1).
 // It wires the core (transport, identity, sign, intents, poll) to a UiHost. No VS Code here.
 
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import type { TemplateInfo, Transport } from "../transport/port.js";
 import { TransportError, TransportNotSent } from "../transport/port.js";
 import type { WindowIdentity, ShownSigner } from "../identity.js";
 import { hasKey, showSigner, signerKeyId, statusText, statusTooltip, unverifiedWhy } from "../identity.js";
 import type { ControlInfo, SignPlan } from "../sign.js";
-import { DialogConsent, meaningField, plan, sign, templateFor, FOOTER } from "../sign.js";
+import { DialogConsent, meaningField, plan, planBatch, sign, signBatch, templateFor, FOOTER } from "../sign.js";
 import type { UiEntry, SlotContext } from "../intents.js";
 import { checkIntent } from "../intents.js";
 import { DEFAULT_IDLE, realClock, Scheduler, type IdlePolicy, type PollState } from "../poll.js";
 import { sourceRef, sourceTarget } from "./sources.js";
 import { artifactRef, artifactTarget } from "./artifacts.js";
-import { PackagesArea, SLOT_CMD, type ActInto, type ExpectRevision } from "../composition/area.js";
+import { PackagesArea, SLOT_CMD, type ActInto, type BatchItem, type BatchOutcome, type ExpectRevision } from "../composition/area.js";
 import type { AskEach } from "../composition/host.js";
 import type { Subject } from "../composition/slots.js";
 import type { Control, MirrorPackage, ViewerTree } from "../packages/model.js";
 import type { TreeNode, UiHost } from "./host.js";
 import type { Queries, Row } from "./queries.js";
 import { idOf, kindOf, rowsOf } from "./queries.js";
-import { composePage, decisionPage, parseOptions, resultsPage, signDialogDetail, signerLabel, threadPage } from "./pages.js";
+import { composePage, decisionPage, parseOptions, resultsPage, signBatchDetail, signDialogDetail, signerLabel, threadPage } from "./pages.js";
 import type { Surface } from "./surfaces.js";
 import { ALL, areasByLane, surfaceAreas, surfaceFolder } from "./surfaces.js";
 
@@ -164,6 +164,7 @@ export class Workbench {
     this.scheduler.onState = (st) => this.showPollState(st);
     this.packages = new PackagesArea(t, host, {
       act: (c, about, fields, title, expect, into) => this.signAct(c, about, fields, title, expect, into),
+      actBatch: (c, items, title, expect, into) => this.signBatchAct(c, items, title, expect, into),
       person: () => ({ keyId: this.identity.person.keyId, personTiers: this.cfg.personTiers }),
       ...(this.host.reviewedState ? { reviewedState: (repo: string, head: string, reviewOf: (sha: string) => string | undefined, base?: string) => (this.host.reviewedState as NonNullable<UiHost["reviewedState"]>)(repo, head, reviewOf, base) } : {}),
       ...(this.host.changesBetween ? { changes: (repo: string, from: string, to: string, path: string) => (this.host.changesBetween as NonNullable<UiHost["changesBetween"]>)(repo, from, to, path) } : {}),
@@ -339,6 +340,7 @@ export class Workbench {
     this.stale = false;
     this.goodAt = new Date();
     this.render();
+    this.noteClaims();
     if (this.cfg.openOnStart && !this.startOpened) {
       this.startOpened = true;
       await this.openOnStart();
@@ -348,6 +350,34 @@ export class Workbench {
       this.reopen = [];
       this.renderPanels(keys);
     }
+  }
+
+  /** What the last good poll's answers looked like (a digest), to see that claims arrived from outside between two polls. */
+  private seen: string | undefined;
+
+  /**
+   * Claims from outside the window (another process signed) change what the poll's queries answer. The poll is the
+   * window's one change detection (no second loop): when its answers differ from the last good poll's, every open view
+   * asks its queries again. Not on the first poll (nothing was drawn before it).
+   */
+  private ownWrite = false;
+  /** The poll right after this window's own signature: its answers change, and that is no claim from outside. */
+  private async pollAfterOwnWrite(): Promise<void> {
+    this.ownWrite = true;
+    try {
+      await this.scheduler.runNow("inbox");
+    } finally {
+      this.ownWrite = false;
+    }
+  }
+
+  private noteClaims(): void {
+    const now = createHash("sha256").update(JSON.stringify([this.proposals, this.decides, this.messages, this.answers, this.lanes])).digest("hex");
+    const before = this.seen;
+    this.seen = now;
+    if (before === undefined || before === now || this.ownWrite) return;
+    const n = this.packages.claimsChanged();
+    if (n) this.host.log(`the index has new claims: ${n} open view${n === 1 ? "" : "s"} ask again`);
   }
 
   /** Render open thread, decision and compose panels again, in place. */
@@ -772,7 +802,7 @@ export class Workbench {
         return fail(`Unknown whether signed: ${describe(e)}. Check the registry before signing again.`);
       }
     }
-    await this.scheduler.runNow("inbox");
+    await this.pollAfterOwnWrite();
     return "signed";
   }
 
@@ -795,7 +825,7 @@ export class Workbench {
     // row's value as its default, so the person sees and confirms it before the per-key values are asked
     const keys = new Set((into?.asks ?? []).map((a) => a.key));
     const recordProposed = Object.fromEntries(Object.entries(proposed).filter(([k]) => keys.has(k)));
-    const asked = await this.askOpenFields(control, fields, c.kind === "record" ? recordProposed : proposed, into?.asks ?? [], keys);
+    const asked = await this.askOpenFields(control, fields, c.kind === "record" ? recordProposed : proposed, into?.asks ?? [], keys, into?.defaults);
     if (!asked) return "cancelled";
     // checkAgainst: the values about to be signed against the query's current answer; the differences are shown in the
     // dialog (signing stays possible) and, where the template has the note field, added to it
@@ -827,11 +857,109 @@ export class Workbench {
   }
 
   /**
+   * Several decisions of one control behind ONE sign dialog (batch signing). The person sees all of them and consents once;
+   * the consent is bound to the digest over the ordered plans. Each claim is planned and checked exactly as a single one is
+   * (template and control from the cockpit's listing, field values, the key, the panel's package revision, the cockpit's
+   * local say checks); if any of them fails, none is signed and the failing one is named. Values come from the items (a
+   * row's proposals): nothing is asked per claim, so a required field no item has refuses the batch. Only decisions: a
+   * record has no dialog to batch. The first failure while signing ends the run; what was signed before it is reported.
+   */
+  async signBatchAct(c: Control, items: readonly BatchItem[], title: string, expect?: ExpectRevision, into?: ActInto): Promise<BatchOutcome> {
+    const none = (why: string): BatchOutcome => {
+      this.host.error(`Not signed: ${why}`);
+      return { result: "failed", signed: [], why };
+    };
+    if (c.kind !== "decision") return none(`${c.package}/${c.name} is a record control: a record needs no dialog, so there is nothing to batch`);
+    const cannot = this.cannotSign("decision");
+    if (cannot) return none(cannot);
+    const control: ControlInfo = { package: c.package, name: c.name, template: c.template, kind: c.kind, ...(c.meaning !== undefined ? { meaning: c.meaning } : {}), ...(c.title ? { title: c.title } : {}) };
+    const tpl = templateFor(control, this.templates);
+    const opened = tpl?.fields["lookedAt"] && into?.opened?.length ? into.opened : undefined;
+    const plans: SignPlan[] = [];
+    for (const [i, item] of items.entries()) {
+      const where = `claim ${i + 1} of ${items.length} (${item.about})`;
+      const proposed = { ...item.proposed };
+      if (opened) proposed["lookedAt"] = [...new Set([...(proposed["lookedAt"] ?? "").split(/\s+/).filter(Boolean), ...opened])].join(" ");
+      const out: Record<string, string> = { ...item.fields };
+      for (const [k, f] of Object.entries(tpl?.fields ?? {})) {
+        if (out[k] !== undefined || (tpl && k === meaningField(control, tpl)) || (control.meaning !== undefined && f.values?.includes(control.meaning))) continue;
+        const p = proposed[k];
+        if (p !== undefined) out[k] = p;
+        else if (f.required) return none(`${where}: ${k} is required and has no value from its row; a batch asks nothing per claim`);
+      }
+      const p = plan({ kind: "sign", about: item.about, fields: out, ...(into?.scope ? { scope: into.scope } : {}), ...(opened ? { opened } : {}) }, control, this.templates, this.identity);
+      if (!p.ok) return none(`${where}: ${p.refusal.reason}`);
+      if (expect && p.value.expect.revision !== undefined && p.value.expect.revision !== expect.revision) return none(`package ${expect.package} changed since the panel was opened${AGAIN}.`);
+      plans.push(p.value);
+    }
+    const b = planBatch(plans);
+    if (!b.ok) return none(b.refusal.reason);
+    const who = await this.signer("person");
+    const yes = await this.host.signDialog(title, signBatchDetail(plans, who), `${this.identity.hintName} (${this.identity.person.keyName})`, { batch: plans, signer: who });
+    if (!yes) {
+      this.host.log(`not signed: the dialog was closed (${plans.length} claims of ${control.package}/${control.name})`);
+      this.host.info("Not signed.");
+      return { result: "cancelled", signed: [] };
+    }
+    const consent = DialogConsent.fromBatchDialog(b.value);
+    const attempts = this.cfg.lockRetry.attempts;
+    let r;
+    try {
+      r = await signBatch(this.t, b.value, consent, { attempts, delayMs: this.cfg.lockRetry.delayMs, onRetry: (i, a, why) => {
+        this.host.setStatus("poll", `registry locked: retrying say ${i + 1} of ${plans.length} (${a}/${attempts - 1})`, why);
+        this.host.log(`registry busy, nothing signed, retry ${a} (claim ${i + 1}): ${why}`);
+      } });
+    } catch (e) {
+      const text = `Unknown whether signed: ${describe(e)}. Check the registry before signing again.`;
+      this.host.signOutcome(false, text);
+      this.host.error(text);
+      return { result: "failed", signed: [], why: text };
+    }
+    if (!r.ok) {
+      const text = `Not signed: ${r.refusal.reason}`;
+      this.host.signOutcome(false, text);
+      this.host.error(text);
+      return { result: "failed", signed: [], why: text };
+    }
+    const signed = r.value.signed.map((s) => ({ index: s.index, id: s.id, fields: plans[s.index]?.fields ?? {} }));
+    for (const s of signed) into?.signedEach?.(s.index, { id: s.id, fields: s.fields });
+    const ids = signed.map((s) => s.id.slice(0, 15)).join(", ");
+    let outcome: BatchOutcome;
+    if (r.value.stopped) {
+      const st = r.value.stopped;
+      const after = plans.length - st.index - 1;
+      const text = st.whole
+        ? st.unknown ? `Unknown whether signed: the ${plans.length} claims were said in one write (${st.reason}). Check the registry before signing again.` : `Not signed: none of the ${plans.length} claims: ${st.reason}`
+        : `${signed.length ? `Signed ${signed.length} of ${plans.length} (${ids}). ` : "Not signed: "}Claim ${st.index + 1} of ${plans.length} (${plans[st.index]?.subject ?? "?"}) ${st.unknown ? `may or may not be signed (${st.reason}); check the registry before signing again` : `was refused: ${st.reason}`}; the ${after} after it ${after === 1 ? "was" : "were"} not tried.`;
+      this.host.signOutcome(false, text);
+      this.host.error(text);
+      outcome = { result: "failed", signed, why: text };
+    } else {
+      const pending = r.value.signed.filter((s) => s.pending).length;
+      const text = `Signed ${signed.length} claims${pending ? `, ${pending} not yet committed (the next write commits them)` : ""}: ${ids}`;
+      this.host.signOutcome(true, text);
+      this.host.info(text);
+      outcome = { result: "signed", signed };
+    }
+    if (signed.length) await this.pollAfterOwnWrite();
+    return outcome;
+  }
+
+  /** The default of an enum field the shell asks (option defaults): it must be one of the field's values; else it is ignored, with a warning in the output channel. */
+  private defaultOf(control: string, field: string, values: readonly string[], defaults: Readonly<Record<string, string>>): string | undefined {
+    const d = defaults[field];
+    if (d === undefined) return undefined;
+    if (values.includes(d)) return d;
+    this.host.log(`warning: the default ${JSON.stringify(d)} for ${control}.${field} is not one of its values (${values.join("|")}); ignored`);
+    return undefined;
+  }
+
+  /**
    * The fields a template requires that the act leaves open are asked of the person here, by the shell (a pick for
    * a field with values, else an input), never taken from a frame: a decision's open outcome is picked
    * (approved or rejected, C3.4), a note its text. Before the dialog, which then shows them. Undefined: cancelled.
    */
-  private async askOpenFields(control: ControlInfo, fields: Readonly<Record<string, string>>, proposed: Readonly<Record<string, string>> = {}, asks: readonly AskEach[] = [], askKeys: ReadonlySet<string> = new Set()): Promise<Record<string, string> | undefined> {
+  private async askOpenFields(control: ControlInfo, fields: Readonly<Record<string, string>>, proposed: Readonly<Record<string, string>> = {}, asks: readonly AskEach[] = [], askKeys: ReadonlySet<string> = new Set(), defaults: Readonly<Record<string, string>> = {}): Promise<Record<string, string> | undefined> {
     const tpl = templateFor(control, this.templates);
     const out: Record<string, string> = { ...fields };
     const each = new Map(asks.filter((a) => tpl?.fields[a.field] !== undefined && out[a.field] === undefined).map((a) => [a.field, a]));
@@ -869,7 +997,7 @@ export class Workbench {
       }
       if (!f.required && p === undefined) continue;
       // a key field of a per-key ask is never taken unseen, not even a value of a fixed set: the person confirms it
-      const v = f.values && !askKeys.has(k) ? await this.host.pick(`${control.name}: ${k}`, f.values) : await this.host.input(`${control.name}: ${k}`, p);
+      const v = f.values && !askKeys.has(k) ? await this.host.pick(`${control.name}: ${k}`, f.values, this.defaultOf(control.name, k, f.values, defaults)) : await this.host.input(`${control.name}: ${k}`, p);
       if (v === undefined || (v === "" && f.required)) return undefined;
       if (v !== "") out[k] = v;
     }

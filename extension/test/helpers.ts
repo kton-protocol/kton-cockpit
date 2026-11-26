@@ -22,12 +22,12 @@ export function fakeCockpit(responses: readonly FakeResponse[], extra: Partial<C
   const transport = new CliTransport({
     executable: FAKE,
     cwd: dir,
-    env: { FAKE_COCKPIT_RESPONSES: resp, FAKE_COCKPIT_LOG: log },
+    env: { FAKE_COCKPIT_RESPONSES: resp, FAKE_COCKPIT_LOG: log, FAKE_COCKPIT_STDIN: join(dir, "stdin.txt") },
     ...extra,
   });
   const argvLog = (): string[][] =>
     existsSync(log) ? readFileSync(log, "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l) as string[]) : [];
-  return { transport, argvLog, dir };
+  return { transport, argvLog, dir, stdinSeen: (): string => (existsSync(join(dir, "stdin.txt")) ? readFileSync(join(dir, "stdin.txt"), "utf8") : "") };
 }
 
 /** A real output recorded from a cockpit pre-release build (local paths replaced by /work/probe). */

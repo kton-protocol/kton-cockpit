@@ -381,8 +381,25 @@ class VsHost implements UiHost {
     const base = p.title.endsWith(STALE_TITLE) ? p.title.slice(0, -STALE_TITLE.length) : p.title;
     p.title = stale ? `${base}${STALE_TITLE}` : base;
   }
-  pick(title: string, items: readonly string[]): Promise<string | undefined> {
-    return Promise.resolve(vscode.window.showQuickPick([...items], { title }));
+  pick(title: string, items: readonly string[], preselect?: string): Promise<string | undefined> {
+    if (preselect === undefined || !items.includes(preselect)) return Promise.resolve(vscode.window.showQuickPick([...items], { title }));
+    // the default is the active item (Enter takes it), listed first and said so; the value picked is the item itself
+    return new Promise((resolve) => {
+      const qp = vscode.window.createQuickPick<vscode.QuickPickItem>();
+      qp.title = title;
+      qp.items = items.map((label) => (label === preselect ? { label, description: "default" } : { label }));
+      qp.activeItems = qp.items.filter((x) => x.label === preselect);
+      let done = false;
+      const end = (v: string | undefined) => {
+        if (done) return;
+        done = true;
+        resolve(v);
+        qp.dispose();
+      };
+      qp.onDidAccept(() => end(qp.selectedItems[0]?.label ?? qp.activeItems[0]?.label));
+      qp.onDidHide(() => end(undefined));
+      qp.show();
+    });
   }
   input(prompt: string, value?: string): Promise<string | undefined> {
     return Promise.resolve(vscode.window.showInputBox(value === undefined ? { prompt } : { prompt, value }));

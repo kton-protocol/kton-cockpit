@@ -44,8 +44,17 @@
 //             the token scan" (traceNote: a column saying so), "none" where nothing exists
 //   groupNotes a column whose " | "-separated items repeat across a group's rows (e.g. the lane harness changes of a run): listed
 //             once under the group's header; each row shows a small marker with the count and the items in its tooltip
-//   details   "column|Label": an expandable row detail (in the first cell) with these fields; with actsIn "details" the
-//             row's acts go there too
+//   cols      the columns on line 1 of a row (about 3 to 5); no tier option at all: the first 4 shown columns
+//   line2     "column|Label" (the label is optional): a muted second line under line 1, "label value · label value",
+//             wrapping; a row never has a third line
+//   details   "column|Label": the columns behind a chevron button in the first cell (aria-expanded) that opens a row
+//             holding a definition list; with actsIn "details" the row's acts go there too. No tier option: the
+//             shown columns beyond the 4th. A column is in one tier only (cols, then line2, then details).
+//             Below 560 px the cols beyond the first 2 move into line2. Nothing scrolls sideways.
+//   actsAt    "last" (default) | "first": the column of the row's acts; it fits its buttons, at most min(14rem, 40%),
+//             the buttons wrap, and it spans both lines of the row
+//   a hex value of 16 or more characters (a hash) is shown as its first 8, the full value in the tooltip; a click or
+//   Enter on it copies the full value
 //   requireReviewed "[control:]repo|head|reviews[|base[|when]]" (when: a row column; only rows with a value there): the shell finds the commits a rerun at head would contain since
 //             base (a query naming the commit the last run ran at; without one, the newest ancestor with an approval)
 //             (each needs its own approval from the reviews query); while one has none, that control's act
@@ -62,7 +71,7 @@ export function mount(el, ctx) {
   const acts = ctx.use.blockActs ?? ctx.use.acts ?? [];
   const subjectClaim = ctx.subject?.claim ? `https://kton.dev/o/${String(ctx.subject.claim).replace(/^sha256:/, "")}` : null;
   const value = (b) => (b && typeof b.value === "string" ? b.value : "");
-  const shortly = (v) => (/^https:\/\/kton\.dev\/o\/[0-9a-f]{64}$/.test(v) ? `sha256:${v.slice(19, 31)}…` : v);
+  const shortly = (v) => (/^https:\/\/kton\.dev\/o\/[0-9a-f]{64}$/.test(v) ? `sha256:${v.slice(19, 27)}…` : v);
   const refine = ctx.use.refine ?? {};
   const [pageParam, pageCol] = typeof o.page === "string" && o.page.includes("=") ? o.page.split("=", 2) : [undefined, undefined];
   const pageSize = Number(o.pageSize ?? 0) || 0;
@@ -164,7 +173,14 @@ export function mount(el, ctx) {
           .join("")}</ul>`
       : "";
   const short = (v) => v.replace(/^.*[#/]/, "") || v;
+  // narrow: the block is under 560 px wide (a resize observer redraws when that changes); open: the rows whose details are open
+  let narrow = false;
+  const openRows = new Set();
+  let lastDraw = null;
+  const measure = () => (el.clientWidth > 0 ? el.clientWidth < NARROW_PX : narrow);
   const draw = (vars, rows) => {
+    lastDraw = [vars, rows];
+    narrow = measure();
     const stampMode = o.stamp === "section" || o.stamp === "hide" ? o.stamp : "column";
     const cols = (o.columns && o.columns.length ? o.columns : vars.filter((c) => !(c.endsWith("Label") && vars.includes(c.slice(0, -5))))).filter((c) => vars.includes(c)).filter((c) => !(stampMode !== "column" && c === "stamp") && c !== o.group);
     let body;
@@ -182,7 +198,7 @@ export function mount(el, ctx) {
         .join("")}</dl>`;
     } else {
       const click = o.pick || o.open;
-      const t = table(rows, cols, { o, esc, value, shortly, click, perRow, rowButtons });
+      const t = table(rows, cols, { o, esc, value, shortly, click, perRow, rowButtons, vars, narrow, open: openRows });
       body = t.html;
       rows = t.rows; // grouped: the drawn order, which data-row indexes
     }
@@ -217,7 +233,34 @@ export function mount(el, ctx) {
         });
       });
     }
-    for (const d of el.querySelectorAll("details.rowmore")) d.addEventListener("click", (ev) => ev.stopPropagation());
+    for (const b of el.querySelectorAll("button[data-disc]")) {
+      b.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        const n = Number(b.dataset.disc);
+        const open = b.getAttribute("aria-expanded") !== "true";
+        b.setAttribute("aria-expanded", open ? "true" : "false");
+        const det = el.querySelector(`tr[data-det="${n}"]`);
+        if (det) det.hidden = !open;
+        if (open) openRows.add(n);
+        else openRows.delete(n);
+      });
+    }
+    for (const h of el.querySelectorAll(".hash[data-copy]")) {
+      const copy = (ev) => {
+        ev.stopPropagation();
+        try {
+          globalThis.navigator?.clipboard?.writeText(h.dataset.copy);
+        } catch {}
+      };
+      h.addEventListener("click", copy);
+      h.addEventListener("keydown", (ev) => {
+        if (ev.key === "Enter" || ev.key === " ") {
+          ev.preventDefault();
+          copy(ev);
+        }
+      });
+    }
+    for (const th of el.querySelectorAll("th[data-actw]")) th.style.setProperty("width", `min(${th.dataset.actw}rem, 14rem, 40%)`);
     wireActs();
     wireRowActs(rows);
     for (const sel of el.querySelectorAll("select[data-refine]")) {
@@ -241,7 +284,7 @@ export function mount(el, ctx) {
     });
     for (const tr of el.querySelectorAll("tr[data-target]")) {
       tr.addEventListener("click", () => {
-        const row = rows[Number(tr.dataset.row)];
+        const row = rows[Number(tr.dataset.row ?? tr.dataset.l2)];
         if (o.pick) ctx.intent({ kind: "select", value: tr.dataset.target });
         else if (o.open) ctx.intent({ kind: "open", uri: tr.dataset.target, ...(row.claim ? { claim: value(row.claim) } : {}) });
       });
@@ -266,7 +309,9 @@ export function mount(el, ctx) {
     },
   );
   load();
-  return { set() {}, destroy() {} };
+  const ro = typeof globalThis.ResizeObserver === "function" ? new globalThis.ResizeObserver(() => lastDraw && measure() !== narrow && draw(lastDraw[0], lastDraw[1])) : null;
+  if (ro) ro.observe(el);
+  return { set() {}, destroy() { ro?.disconnect(); } };
 }
 
 /** One primary per object: the first sign act is primary, every other act secondary (record included). */
@@ -322,7 +367,7 @@ const pct = (x) => `${Number(x).toFixed(1)} %`;
 export function shortId(v) {
   const s = String(v ?? "");
   if (/^https?:\/\//.test(s)) {
-    if (/^https:\/\/kton\.dev\/o\/[0-9a-f]{64}$/.test(s)) return `sha256:${s.slice(19, 31)}…`;
+    if (/^https:\/\/kton\.dev\/o\/[0-9a-f]{64}$/.test(s)) return `sha256:${s.slice(19, 27)}…`;
     const tail = s.replace(/[#/]+$/, "").split(/[#/]/).pop() ?? s;
     return dec(tail) || s;
   }
@@ -404,13 +449,61 @@ function evidenceCell(esc, packed, traceNote) {
   return any ? `<div class="ev-thumbs">${thumbs}</div><div class="ev-links">${shot}${ctx}${trace}${other}</div>` : `<span class="muted">none</span>`;
 }
 
-function table(rows, cols, { o, esc, value, shortly, click, perRow, rowButtons }) {
+const NARROW_PX = 560;
+const colName = (s) => String(s).split("|")[0];
+const colLabel = (s) => (String(s).includes("|") ? String(s).slice(String(s).indexOf("|") + 1) : undefined);
+const entry = (s) => (colLabel(s) === undefined ? { col: colName(s) } : { col: colName(s), label: colLabel(s) });
+
+/**
+ * The three tiers of a table's columns (DESIGN rows, "Fitting a wide table"): `cols` on line 1, `line2` as a muted second
+ * line, `details` behind the disclosure. `shown` are the columns the table would show, `known` says which columns exist.
+ * No tier option: the first 4 shown columns go to line 1, the rest to the details. A column is in one tier only (cols,
+ * then line2, then details). `narrow`: the line 1 columns beyond the first 2 move to the front of line 2.
+ * Returns { line1: [col], line2: [{col, label?}], details: [{col, label?}] }.
+ */
+export function tiers(shown, o = {}, narrow = false, known = () => true) {
+  const list = (x) => (Array.isArray(x) ? x : x === undefined || x === null || x === "" ? [] : [x]).map(entry).filter((e) => e.col && known(e.col));
+  const explicit = o.cols !== undefined || o.line2 !== undefined || o.details !== undefined;
+  let line1;
+  let line2 = list(o.line2);
+  let details = list(o.details);
+  if (!explicit) {
+    line1 = shown.slice(0, 4);
+    details = shown.slice(4).map((col) => ({ col }));
+  } else {
+    const taken = new Set([...line2, ...details].map((e) => e.col));
+    line1 = o.cols !== undefined ? list(o.cols).map((e) => e.col) : shown.filter((c) => !taken.has(c));
+  }
+  const seen = new Set();
+  const once = (e) => (seen.has(e.col) ? false : (seen.add(e.col), true));
+  line1 = line1.filter((c) => once({ col: c }));
+  line2 = line2.filter(once);
+  details = details.filter(once);
+  if (!line1.length && shown.length) line1 = [shown[0]];
+  if (narrow && line1.length > 2) {
+    line2 = [...line1.slice(2).map((col) => ({ col })), ...line2];
+    line1 = line1.slice(0, 2);
+  }
+  return { line1, line2, details };
+}
+
+/** A hex string of 16 or more characters (a hash or a commit id, with or without "sha256:"). */
+export const isLongHex = (v) => /^(sha256:)?[0-9a-f]{16,}$/i.test(String(v));
+/** Its short form: the first 8 hex characters and an ellipsis. */
+export const shortHex = (v) => `${String(v).replace(/^(?:sha256:|https:\/\/kton\.dev\/o\/)/, "").slice(0, 8)}…`;
+
+let tableSeq = 0;
+function table(rows, cols, { o, esc, value, shortly, click, perRow, rowButtons, vars = cols, narrow = false, open = new Set() }) {
   const labels = new Map((o.labels ?? []).map((l) => (l.includes("|") ? [l.slice(0, l.indexOf("|")), l.slice(l.indexOf("|") + 1)] : [l, l])));
   const rg = rangeSpec(o.range, o.scale);
   const numeric = new Set(cols.filter((c) => isNumeric(c, rows, o.numeric ?? [])));
   if (rg) for (const c of [rg.rate, rg.low, rg.n]) numeric.add(c);
   const section = o.stamp === "section" || o.stamp === "hide";
   const label = (c) => labels.get(c) ?? c;
+  const known = (c) => vars.includes(c) && c !== o.group && !(c === "stamp" && section) && !(c.endsWith("Label") && vars.includes(c.slice(0, -5)));
+  const T = tiers(cols, o, narrow, known);
+  const line1 = T.line1;
+  const actsFirst = o.actsAt === "first";
   const th = (c) => {
     if (rg && c === rg.rate) return `<th scope="col" data-head="${esc(c)}">${esc(labels.get(c) ?? "Rate")} <span class="muted">(scale ${rg.lo}–${rg.hi} %${rg.target !== undefined ? `, dashed = target ${rg.target} %` : ""})</span></th>`;
     if (rg && c === rg.low) return `<th scope="col" class="r" data-head="${esc(c)}">${esc(labels.get(c) ?? "Range %")}</th>`;
@@ -422,48 +515,75 @@ function table(rows, cols, { o, esc, value, shortly, click, perRow, rowButtons }
     return st ? `<span class="kton-stamp wb-rowstamp" data-stamp="${esc(st)}"${value(r.stampLabel) ? ` data-stamp-label="${esc(value(r.stampLabel))}"` : ""}${value(r.stampFull) ? ` data-stamp-full="${esc(value(r.stampFull))}"` : ""}${value(r.stampScope) ? ` data-stamp-scope="${esc(value(r.stampScope))}"` : ""}>${esc(st)}</span>` : `<span class="kton-stamp kton-error" data-stamp-missing>no source</span>`;
   };
   const measurable = (r) => !o.measurable || value(r[o.measurable]) === "true";
-  // the marker sits in the second shown column (the result), the details in the first
-  const k1 = (c) => cols[1] === c;
-  let curRow = 0; // the row being drawn (its acts are about it)
-  const detailsOf = (r) => {
-    const f = (o.details ?? []).map((d) => (d.includes("|") ? [d.slice(0, d.indexOf("|")), d.slice(d.indexOf("|") + 1)] : [d, d])).filter(([col]) => value(r[col]));
-    const acts = o.actsIn === "details" && perRow ? `<div class="actions">${rowButtons(r, curRow)}</div>` : "";
-    return `<details class="rowmore"><summary>Details</summary><dl class="kv">${f.map(([col, l]) => `<dt>${esc(l)}</dt><dd data-detail="${esc(col)}">${esc(value(r[col]))}</dd>`).join("")}</dl>${acts}</details>`;
-  };
-  const cell = (r, c, first) => {
+  // the marker sits in the second shown column (the result)
+  const k1 = (c) => line1[1] === c;
+  // one column's value: the td's attributes after data-col, and its inner html (the same in a cell, a line 2 item, a detail)
+  const part = (r, c, first) => {
     const lead = first ? stampSpan(r) : "";
-    if (c === "stamp") return `<td data-col="stamp"><span class="kton-stamp" data-stamp="${esc(value(r[c]))}">${esc(value(r[c]))}</span></td>`;
+    if (c === "stamp") return { attrs: "", inner: `<span class="kton-stamp" data-stamp="${esc(value(r[c]))}">${esc(value(r[c]))}</span>` };
     if (rg && c === rg.rate) {
-      if (!value(r[rg.rate])) return `<td data-col="${esc(c)}" class="few">not measured${lead}</td>`;
-      if (!measurable(r)) return `<td data-col="${esc(c)}" class="few">too few to measure${lead}</td>`;
+      if (!value(r[rg.rate])) return { attrs: ' class="few"', inner: `not measured${lead}` };
+      if (!measurable(r)) return { attrs: ' class="few"', inner: `too few to measure${lead}` };
       const lo = barPos(value(r[rg.low]), rg.lo, rg.hi), hi = barPos(value(r[rg.high]), rg.lo, rg.hi), pt = barPos(value(r[rg.rate]), rg.lo, rg.hi);
       const t = rg.target !== undefined ? barPos(rg.target, rg.lo, rg.hi) : 100;
       const above = rg.target !== undefined && Number(value(r[rg.rate])) > rg.target;
-      return `<td data-col="${esc(c)}" data-number><div class="ratecell"><span class="rv${above ? " above" : ""}">${esc(pct(value(r[rg.rate])))}</span><span class="mb" aria-hidden="true" data-lo="${lo}" data-hi="${hi}" data-pt="${pt}" data-t="${t}"><i class="band"></i><i class="over"></i>${rg.target !== undefined ? '<i class="tg"></i>' : ""}<i class="pt${above ? " above" : ""}"></i></span></div>${lead}</td>`;
+      return { attrs: " data-number", inner: `<div class="ratecell"><span class="rv${above ? " above" : ""}">${esc(pct(value(r[rg.rate])))}</span><span class="mb" aria-hidden="true" data-lo="${lo}" data-hi="${hi}" data-pt="${pt}" data-t="${t}"><i class="band"></i><i class="over"></i>${rg.target !== undefined ? '<i class="tg"></i>' : ""}<i class="pt${above ? " above" : ""}"></i></span></div>${lead}` };
     }
-    if (rg && c === rg.low) return `<td data-col="${esc(c)}" class="r muted">${value(r[rg.low]) && measurable(r) ? `${esc(pct(value(r[rg.low])).slice(0, -2))}–${esc(pct(value(r[rg.high])).slice(0, -2))}` : ""}${lead}</td>`;
-    if (rg && c === rg.n) return `<td data-col="${esc(c)}" class="r${measurable(r) ? "" : " muted"}" data-number>${esc(value(r[c]))}${lead}</td>`;
-    if (o.changesBetween && c === "changes") return `<td data-col="changes" class="ch-cell">${changesCell(esc, value(r[c]))}${lead}</td>`;
-    if (o.evidence && c === o.evidence) return `<td data-col="${esc(c)}" class="ev-cell">${evidenceCell(esc, value(r[c]), o.traceNote ? value(r[o.traceNote]) : "")}${lead}</td>`;
+    if (rg && c === rg.low) return { attrs: ' class="r muted"', inner: `${value(r[rg.low]) && measurable(r) ? `${esc(pct(value(r[rg.low])).slice(0, -2))}–${esc(pct(value(r[rg.high])).slice(0, -2))}` : ""}${lead}` };
+    if (rg && c === rg.n) return { attrs: ` class="r${measurable(r) ? "" : " muted"}" data-number`, inner: `${esc(value(r[c]))}${lead}` };
+    if (o.changesBetween && c === "changes") return { attrs: ' class="ch-cell"', inner: `${changesCell(esc, value(r[c]))}${lead}` };
+    if (o.evidence && c === o.evidence) return { attrs: ' class="ev-cell"', inner: `${evidenceCell(esc, value(r[c]), o.traceNote ? value(r[o.traceNote]) : "")}${lead}` };
     const num = numeric.has(c) || NUM_RE.test(value(r[c]));
     const full = value(r[c]);
-    const label = value(r[`${c}Label`]);
+    const lbl = value(r[`${c}Label`]);
     // a column with a label beside it (<column>Label) shows the label, the IRI in the tooltip
-    const shown = label || ((o.short ?? []).includes(c) ? shortId(full) : shortly(full));
-    const tip = shown !== full ? ` data-tip="${esc(full)}"` : "";
+    const shown = lbl || ((o.short ?? []).includes(c) ? shortId(full) : shortly(full));
+    const hex = !lbl && (isLongHex(full) || /^https:\/\/kton\.dev\/o\/[0-9a-f]{64}$/.test(full));
+    const tip = hex ? "" : shown !== full ? ` data-tip="${esc(full)}"` : "";
     const marker = o.groupNotes && k1(c) ? noteMarker(esc, value(r[o.groupNotes])) : "";
-    const more = first && (o.details ?? []).length ? detailsOf(r) : "";
-    return `<td data-col="${esc(c)}"${num ? ' class="r" data-number' : ""}${o.group ? " data-ind" : ""}><span${tip}>${esc(shown)}</span>${marker}${more}${lead}</td>`;
+    // a long hash is shown short, the full value in the tooltip; a click or Enter copies it
+    const text = hex ? `<span class="hash" tabindex="0" role="button" title="${esc(full)}" data-copy="${esc(full)}">${esc(shortHex(full))}</span>` : `<span${tip}>${esc(shown)}</span>`;
+    return { attrs: `${num ? ' class="r" data-number' : ""}${o.group ? " data-ind" : ""}`, inner: `${text}${marker}${lead}` };
   };
+  const anyDetail = (r) => T.details.some((d) => value(r[d.col])) || (o.actsIn === "details" && perRow && !!value(r[o.target]));
+  const anyDetails = rows.some(anyDetail);
+  const detailRow = (r, n, width) => {
+    const items = T.details.filter((d) => value(r[d.col])).map((d) => `<dt>${esc(d.label ?? label(d.col))}</dt><dd data-col="${esc(d.col)}" data-detail="${esc(d.col)}">${part(r, d.col, false).inner}</dd>`);
+    const acts = o.actsIn === "details" && perRow ? `<div class="actions">${rowButtons(r, n)}</div>` : "";
+    return `<tr class="det" id="det-${tableSeq}-${n}" data-det="${n}"${open.has(n) ? "" : " hidden"}><td colspan="${width}"><dl class="kv det-dl">${items.join("")}</dl>${acts}</td></tr>`;
+  };
+  const line2Of = (r) =>
+    T.line2
+      .filter((d) => value(r[d.col]))
+      .map((d) => `<span class="l2i" data-col="${esc(d.col)}"><span class="l2l">${esc(d.label ?? label(d.col))}</span> ${part(r, d.col, false).inner}</span>`)
+      .join("");
+  const inlineActs = perRow && o.actsIn !== "details";
+  const width = line1.length + (inlineActs ? 1 : 0);
   let i = 0;
+  let actChars = 0;
   const tr = (r) => {
     const n = i++;
-    curRow = n;
-    const inline = perRow && o.actsIn !== "details";
-    return `<tr data-row="${n}"${click && value(r[click]) ? ` class="kton-clickable" tabindex="0" data-target="${esc(value(r[click]))}"` : ""}>${cols.map((c, k) => cell(r, c, k === 0)).join("")}${inline ? `<td data-acts>${rowButtons(r, n)}</td>` : ""}</tr>`;
+    const l2 = line2Of(r);
+    const det = anyDetail(r);
+    const btn = det
+      ? `<button type="button" class="disc" data-disc="${n}" aria-expanded="${open.has(n) ? "true" : "false"}" aria-controls="det-${tableSeq}-${n}" aria-label="Details"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="M5.5 3.5 10 8l-4.5 4.5"/></svg></button>`
+      : anyDetails ? '<span class="disc ph" aria-hidden="true"></span>' : "";
+    const cells = line1.map((c, k) => {
+      const p = part(r, c, k === 0);
+      return `<td data-col="${esc(c)}"${p.attrs}>${k === 0 ? btn : ""}${p.inner}</td>`;
+    });
+    let acts = "";
+    if (inlineActs) {
+      const b = rowButtons(r, n);
+      actChars = Math.max(actChars, b.replace(/<span[^>]*data-row-out[^>]*><\/span>/, "").replace(/<[^>]+>/g, "").length + 3 * (b.match(/<button/g) ?? []).length);
+      acts = `<td data-acts class="acts"${l2 ? ' rowspan="2"' : ""}><div class="acts-stack">${b}</div></td>`;
+    }
+    const target = click && value(r[click]) ? value(r[click]) : "";
+    const rowCls = [l2 ? "has2" : "", target ? "kton-clickable" : ""].filter(Boolean).join(" ");
+    const main = `<tr data-row="${n}"${rowCls ? ` class="${rowCls}"` : ""}${target ? ` tabindex="0" data-target="${esc(target)}"` : ""}>${actsFirst ? acts : ""}${cells.join("")}${actsFirst ? "" : acts}</tr>`;
+    return `${main}${l2 ? `<tr class="l2${target ? " kton-clickable" : ""}" data-l2="${n}"${target ? ` data-target="${esc(target)}"` : ""}><td colspan="${line1.length}"><div class="l2g">${l2}</div></td></tr>` : ""}${det ? detailRow(r, n, width) : ""}`;
   };
-  const inlineActs = perRow && o.actsIn !== "details";
-  const width = cols.length + (inlineActs ? 1 : 0);
+  tableSeq++;
   let tbody;
   if (o.group) {
     const glabels = new Map((o.groupLabels ?? []).map((l) => (l.includes("|") ? [l.slice(0, l.indexOf("|")), l.slice(l.indexOf("|") + 1)] : [l, l])));
@@ -471,6 +591,7 @@ function table(rows, cols, { o, esc, value, shortly, click, perRow, rowButtons }
     const sumName = o.groupSum ? label(o.groupSum).toLowerCase() : "";
     const ordered = rows.slice();
     const groups = groupRows(ordered, o.group, o.groupSum);
+    rows = groups.flatMap((g) => g.rows); // the row index follows the drawn order
     tbody = groups
       .map((g) => {
         const name = glabels.get(g.group) ?? (/^[a-z][a-z -]*$/.test(g.group) ? g.group.charAt(0).toUpperCase() + g.group.slice(1) : g.group || "—");
@@ -480,12 +601,13 @@ function table(rows, cols, { o, esc, value, shortly, click, perRow, rowButtons }
         return `<tr class="grp" data-group="${esc(g.group)}"><th colspan="${width}" scope="colgroup">${esc(name)} <span class="muted">${esc(meta)}</span>${list}</th></tr>${g.rows.map(tr).join("")}`;
       })
       .join("");
-    rows = groups.flatMap((g) => g.rows); // the row index follows the drawn order
   } else tbody = rows.map(tr).join("");
-  const foot = o.total && cols.includes(o.total)
-    ? `<tfoot><tr>${cols.map((c, k) => (k === 0 ? '<th scope="row">Total</th>' : c === o.total ? `<th class="r" data-total>${esc(rows.reduce((a, r) => a + (Number(value(r[c])) || 0), 0).toLocaleString("en"))}</th>` : "<th></th>")).join("")}${perRow ? "<th></th>" : ""}</tr></tfoot>`
+  const foot = o.total && line1.includes(o.total)
+    ? `<tfoot><tr>${actsFirst && inlineActs ? "<th></th>" : ""}${line1.map((c, k) => (k === 0 ? '<th scope="row">Total</th>' : c === o.total ? `<th class="r" data-total>${esc(rows.reduce((a, r) => a + (Number(value(r[c])) || 0), 0).toLocaleString("en"))}</th>` : "<th></th>")).join("")}${!actsFirst && inlineActs ? "<th></th>" : ""}</tr></tfoot>`
     : "";
-  return { html: `<div class="tbl-wrap"><table class="kton-table t" data-area-table data-count="${rows.length}"><thead><tr>${cols.map(th).join("")}${inlineActs ? '<th><span class="sr-only">Actions</span></th>' : ""}</tr></thead><tbody>${tbody}</tbody>${foot}</table></div>`, rows };
+  // the acts column fits its buttons (about 0.62 rem a character), at most min(14rem, 40%): the width is set by the block
+  const actsTh = inlineActs ? `<th class="acts-h" data-actw="${Math.max(4, Math.ceil(actChars * 0.62))}"><span class="sr-only">Actions</span></th>` : "";
+  return { html: `<div class="tbl-wrap${narrow ? " narrow" : ""}"><table class="kton-table t" data-area-table data-count="${rows.length}"><thead><tr>${actsFirst ? actsTh : ""}${line1.map(th).join("")}${actsFirst ? "" : actsTh}</tr></thead><tbody>${tbody}</tbody>${foot}</table></div>`, rows };
 }
 
 /** Loading: a skeleton of the block's own shape (lines or a tile row), busy for assistive tech. */
