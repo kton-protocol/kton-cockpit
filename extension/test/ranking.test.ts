@@ -435,3 +435,25 @@ test("batch write: the dialog checks are before it: no consent or changed plans 
   assert.ok(r.ok && r.value.signed.length === 3 && !r.value.stopped);
   assert.equal(u.says.length, 3, "said one by one");
 });
+
+test("batch write: a refusal after the check phase is unknown, never retried; one before storing is nothing signed", async () => {
+  const b = planBatch(plans(3));
+  assert.ok(b.ok);
+  const consent = DialogConsent.fromBatchDialog(b.value);
+  const cases: Array<[string, string, boolean]> = [
+    ["anchor", "the claim was registered but anchoring it failed: x", true],
+    ["kernel", "(2 claim(s) are stored, not committed)", true],
+    ["binding", "no repository", false],
+  ];
+  for (const [code, reason, unknown] of cases) {
+    const t = new BatchT();
+    t.answers = [{ ok: false, refusal: { code, reason } }];
+    const r = await signBatch(t as unknown as Transport, b.value, consent, { attempts: 3, delayMs: 0, wait: async () => {} });
+    assert.ok(r.ok);
+    assert.equal(r.value.signed.length, 0);
+    assert.equal(r.value.stopped?.unknown, unknown, code);
+    assert.equal(r.value.stopped?.code, code);
+    assert.equal(t.batches.length, 1, "no retry");
+    assert.equal(t.says.length, 0, "never re-said one by one");
+  }
+});

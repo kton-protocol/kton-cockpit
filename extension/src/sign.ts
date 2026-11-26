@@ -254,6 +254,9 @@ export interface BatchRetry {
  * planBatch, so a failure of one is the cockpit's (its refusal, a lost connection), and then the plans after it are not
  * signed. The first failure ends the run: those signed before it stay signed and are returned with it.
  */
+/** Batch refusal codes the cockpit gives only in the check phase, before any claim is stored (cockpit/saybatch.go). */
+const BEFORE_STORING: ReadonlySet<string> = new Set(["argument", "binding", "verb.disabled", "vocabulary", "scope.unknown", "scope.moved", "template.changed", BATCH_UNSUPPORTED, "store.busy"]);
+
 export async function signBatch(t: Transport, b: BatchPlan, consent: DialogConsent | undefined, retry?: BatchRetry): Promise<Outcome<BatchResult>> {
   if (b.plans.some((p) => p.keyRole === "person" || p.needsDialog)) {
     if (!(consent instanceof DialogConsent)) return refuse("dialog.required", "decisions are signed through the sign dialog, never in one click");
@@ -288,7 +291,10 @@ export async function signBatch(t: Transport, b: BatchPlan, consent: DialogConse
         await wait(retry.delayMs);
         continue;
       }
-      return { ok: true, value: { signed: [], stopped: { index: 0, code: out.refusal.code, reason: out.refusal.reason, unknown: false, whole: true } } };
+      // only a code that is always before the first claim is stored means "nothing signed"; any other refusal (anchor,
+      // union, kernel, material, store, ...) can come after claims were stored, so it is unknown and never said again
+      const before = BEFORE_STORING.has(out.refusal.code);
+      return { ok: true, value: { signed: [], stopped: { index: 0, code: out.refusal.code, reason: before ? out.refusal.reason : `${out.refusal.reason}; read the registry before saying again`, unknown: !before, whole: true } } };
     }
   }
   for (const [index, p] of b.plans.entries()) {
